@@ -27,7 +27,7 @@ use shuck_ast::{
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
-use shuck_semantic::{ScopeId, SemanticModel, ZshOptionState};
+use shuck_semantic::{BindingAttributes, BindingKind, ScopeId, SemanticModel, ZshOptionState};
 use std::borrow::Cow;
 
 use self::{
@@ -1882,6 +1882,7 @@ pub struct LinterFacts<'a> {
     condition_command_substitution_spans: Vec<Span>,
     backtick_command_name_spans: Vec<Span>,
     dollar_question_after_command_spans: Vec<Span>,
+    subshell_local_assignment_spans: Vec<Span>,
     unused_heredoc_spans: Vec<Span>,
     heredoc_missing_end_spans: Vec<Span>,
     heredoc_closer_not_alone_spans: Vec<Span>,
@@ -2102,6 +2103,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn dollar_question_after_command_spans(&self) -> &[Span] {
         &self.dollar_question_after_command_spans
+    }
+
+    pub fn subshell_local_assignment_spans(&self) -> &[Span] {
+        &self.subshell_local_assignment_spans
     }
 
     pub fn unused_heredoc_spans(&self) -> &[Span] {
@@ -2469,6 +2474,8 @@ impl<'a> LinterFactsBuilder<'a> {
             &command_ids_by_span,
             self.source,
         );
+        let subshell_local_assignment_spans =
+            build_subshell_local_assignment_spans(self.semantic, &commands);
         let heredoc_summary =
             build_heredoc_fact_summary(&commands, self.source, self.file.span.end.offset);
         let plus_equals_assignment_spans = build_plus_equals_assignment_spans(&commands);
@@ -2565,6 +2572,7 @@ impl<'a> LinterFactsBuilder<'a> {
             condition_command_substitution_spans,
             backtick_command_name_spans,
             dollar_question_after_command_spans,
+            subshell_local_assignment_spans,
             unused_heredoc_spans: heredoc_summary.unused_heredoc_spans,
             heredoc_missing_end_spans: heredoc_summary.heredoc_missing_end_spans,
             heredoc_closer_not_alone_spans: heredoc_summary.heredoc_closer_not_alone_spans,
@@ -4731,6 +4739,260 @@ fn build_dollar_question_after_command_spans(
     spans.retain(|span| seen.insert(FactSpan::new(*span)));
     spans.sort_by_key(|span| (span.start.offset, span.end.offset));
     spans
+}
+
+fn build_subshell_local_assignment_spans(
+    semantic: &SemanticModel,
+    commands: &[CommandFact<'_>],
+) -> Vec<Span> {
+    let mut candidate_bindings_by_name: FxHashMap<Name, Vec<CandidateSubshellAssignment>> =
+        FxHashMap::default();
+    let mut persistent_reset_offsets_by_name: FxHashMap<Name, Vec<PersistentReset>> =
+        FxHashMap::default();
+
+    for binding in semantic.bindings() {
+        if !is_reportable_subshell_assignment(binding.kind, binding.attributes) {
+            continue;
+        }
+
+        let Some(nonpersistent_span) =
+            innermost_nonpipeline_subshell_span(semantic, binding.span.start.offset)
+        else {
+            continue;
+        };
+
+        candidate_bindings_by_name
+            .entry(binding.name.clone())
+            .or_default()
+            .push(CandidateSubshellAssignment {
+                binding_id: binding.id,
+                subshell_start: nonpersistent_span.start.offset,
+                subshell_end: nonpersistent_span.end.offset,
+            });
+    }
+
+    for binding in semantic.bindings() {
+        if !is_persistent_subshell_reset_binding(binding.kind, binding.attributes) {
+            continue;
+        }
+        if is_within_any_nonpersistent_scope(semantic, binding.span.start.offset) {
+            continue;
+        }
+        let command_span =
+            innermost_command_span_containing_offset(commands, binding.span.start.offset);
+        persistent_reset_offsets_by_name
+            .entry(binding.name.clone())
+            .or_default()
+            .push(PersistentReset {
+                offset: binding.span.start.offset,
+                command_span,
+            });
+    }
+
+    let mut spans = Vec::new();
+    for reference in semantic.references() {
+        if matches!(
+            reference.kind,
+            shuck_semantic::ReferenceKind::DeclarationName
+        ) {
+            continue;
+        }
+
+        let Some(candidate_ids) = candidate_bindings_by_name.get(&reference.name) else {
+            continue;
+        };
+
+        let reset_offsets = persistent_reset_offsets_by_name
+            .get(&reference.name)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        let event_command_span =
+            innermost_command_span_containing_offset(commands, reference.span.start.offset);
+        let resolved = semantic.resolved_binding(reference.id);
+        if candidate_ids.iter().any(|candidate| {
+            reference.span.start.offset > candidate.subshell_end
+                && !has_intervening_persistent_reset(
+                    reset_offsets,
+                    candidate.subshell_end,
+                    reference.span.start.offset,
+                    event_command_span,
+                )
+                && resolved.is_none_or(|resolved| {
+                    resolved.id != candidate.binding_id
+                        && resolved.span.start.offset < candidate.subshell_start
+                })
+        }) {
+            spans.push(reference.span);
+        }
+    }
+
+    for binding in semantic.bindings() {
+        if !is_reportable_subshell_later_use_binding(binding.kind, binding.attributes) {
+            continue;
+        }
+
+        let Some(candidate_ids) = candidate_bindings_by_name.get(&binding.name) else {
+            continue;
+        };
+
+        let reset_offsets = persistent_reset_offsets_by_name
+            .get(&binding.name)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        if candidate_ids.iter().any(|candidate| {
+            binding.span.start.offset > candidate.subshell_end
+                && !has_intervening_persistent_reset(
+                    reset_offsets,
+                    candidate.subshell_end,
+                    binding.span.start.offset,
+                    None,
+                )
+        }) {
+            spans.push(binding.span);
+        }
+    }
+
+    let mut seen = FxHashSet::default();
+    spans.retain(|span| seen.insert(FactSpan::new(*span)));
+    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    spans
+}
+
+fn is_reportable_subshell_assignment(kind: BindingKind, attributes: BindingAttributes) -> bool {
+    match kind {
+        BindingKind::Assignment
+        | BindingKind::AppendAssignment
+        | BindingKind::ArrayAssignment
+        | BindingKind::LoopVariable
+        | BindingKind::ReadTarget
+        | BindingKind::MapfileTarget
+        | BindingKind::PrintfTarget
+        | BindingKind::GetoptsTarget
+        | BindingKind::ArithmeticAssignment => !attributes.contains(BindingAttributes::LOCAL),
+        BindingKind::Declaration(_) => {
+            attributes.contains(BindingAttributes::DECLARATION_INITIALIZED)
+                && !attributes.contains(BindingAttributes::LOCAL)
+        }
+        BindingKind::ParameterDefaultAssignment => false,
+        BindingKind::Imported => false,
+        BindingKind::FunctionDefinition | BindingKind::Nameref => false,
+    }
+}
+
+fn is_reportable_subshell_later_use_binding(
+    kind: BindingKind,
+    attributes: BindingAttributes,
+) -> bool {
+    match kind {
+        BindingKind::AppendAssignment => true,
+        BindingKind::Declaration(_) => {
+            attributes.contains(BindingAttributes::DECLARATION_INITIALIZED)
+                && !attributes.contains(BindingAttributes::LOCAL)
+        }
+        BindingKind::Assignment
+        | BindingKind::ArrayAssignment
+        | BindingKind::LoopVariable
+        | BindingKind::ReadTarget
+        | BindingKind::MapfileTarget
+        | BindingKind::PrintfTarget
+        | BindingKind::GetoptsTarget
+        | BindingKind::ArithmeticAssignment
+        | BindingKind::ParameterDefaultAssignment
+        | BindingKind::FunctionDefinition
+        | BindingKind::Imported
+        | BindingKind::Nameref => false,
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CandidateSubshellAssignment {
+    binding_id: shuck_semantic::BindingId,
+    subshell_start: usize,
+    subshell_end: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PersistentReset {
+    offset: usize,
+    command_span: Option<Span>,
+}
+
+fn innermost_nonpipeline_subshell_span(semantic: &SemanticModel, offset: usize) -> Option<Span> {
+    let scope = semantic.scope_at(offset);
+
+    for scope in semantic.ancestor_scopes(scope) {
+        match semantic.scope_kind(scope) {
+            shuck_semantic::ScopeKind::Subshell
+            | shuck_semantic::ScopeKind::CommandSubstitution => {
+                return semantic
+                    .scopes()
+                    .iter()
+                    .find(|candidate| candidate.id == scope)
+                    .map(|candidate| candidate.span);
+            }
+            shuck_semantic::ScopeKind::Pipeline => return None,
+            shuck_semantic::ScopeKind::Function(_) | shuck_semantic::ScopeKind::File => {}
+        }
+    }
+
+    None
+}
+
+fn is_within_any_nonpersistent_scope(semantic: &SemanticModel, offset: usize) -> bool {
+    let scope = semantic.scope_at(offset);
+
+    semantic.ancestor_scopes(scope).any(|scope| {
+        matches!(
+            semantic.scope_kind(scope),
+            shuck_semantic::ScopeKind::Subshell
+                | shuck_semantic::ScopeKind::CommandSubstitution
+                | shuck_semantic::ScopeKind::Pipeline
+        )
+    })
+}
+
+fn is_persistent_subshell_reset_binding(kind: BindingKind, attributes: BindingAttributes) -> bool {
+    match kind {
+        BindingKind::Assignment
+        | BindingKind::AppendAssignment
+        | BindingKind::ArrayAssignment
+        | BindingKind::LoopVariable
+        | BindingKind::ReadTarget
+        | BindingKind::MapfileTarget
+        | BindingKind::PrintfTarget
+        | BindingKind::GetoptsTarget
+        | BindingKind::ArithmeticAssignment => !attributes.contains(BindingAttributes::LOCAL),
+        BindingKind::Declaration(_) => {
+            attributes.contains(BindingAttributes::DECLARATION_INITIALIZED)
+                && !attributes.contains(BindingAttributes::LOCAL)
+        }
+        BindingKind::ParameterDefaultAssignment => false,
+        BindingKind::FunctionDefinition | BindingKind::Imported | BindingKind::Nameref => false,
+    }
+}
+
+fn has_intervening_persistent_reset(
+    resets: &[PersistentReset],
+    candidate_end: usize,
+    event_offset: usize,
+    event_command_span: Option<Span>,
+) -> bool {
+    resets.iter().any(|reset| {
+        reset.offset > candidate_end
+            && reset.offset < event_offset
+            && event_command_span.is_none_or(|event_span| reset.command_span != Some(event_span))
+    })
+}
+
+fn innermost_command_span_containing_offset(
+    commands: &[CommandFact<'_>],
+    offset: usize,
+) -> Option<Span> {
+    commands
+        .iter()
+        .map(CommandFact::span)
+        .filter(|span| span.start.offset <= offset && offset <= span.end.offset)
+        .min_by_key(|span| span.end.offset - span.start.offset)
 }
 
 fn collect_dollar_question_after_command_spans_in_seq(

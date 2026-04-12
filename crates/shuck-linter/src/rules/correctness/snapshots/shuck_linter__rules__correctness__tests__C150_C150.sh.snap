@@ -1,0 +1,15 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 233
+---
+C150 assignment to `$count` inside a subshell does not update the outer shell
+ --> <source>:6:7
+  |
+6 | echo "$count"
+  |
+
+C150 assignment to `$items` inside a subshell does not update the outer shell
+  --> <source>:10:16
+   |
+10 | printf '%s\n' "$items"
+   |

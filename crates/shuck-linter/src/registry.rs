@@ -401,6 +401,12 @@ declare_rules! {
     ("C146", Category::Correctness, Severity::Error, UntilMissingDo),
     ("C147", Category::Correctness, Severity::Warning, KeywordFunctionName),
     ("C148", Category::Correctness, Severity::Warning, BrokenAssocKey),
+    (
+        "C150",
+        Category::Correctness,
+        Severity::Warning,
+        SubshellLocalAssignment
+    ),
     ("C151", Category::Correctness, Severity::Warning, CommaArrayElements),
     ("C157", Category::Correctness, Severity::Error, IfBracketGlued),
     ("P001", Category::Performance, Severity::Warning, ExprArithmetic),
@@ -723,6 +729,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-329" => Some(Rule::LinebreakBeforeAnd),
         "SH-330" => Some(Rule::SpacedTabstripClose),
         "SH-335" => Some(Rule::AmpersandSemicolon),
+        "SH-339" => Some(Rule::SubshellLocalAssignment),
         "SH-121" => Some(Rule::CStyleComment),
         "SH-123" => Some(Rule::CPrototypeFragment),
         "SH-129" => Some(Rule::BadRedirectionFdOrder),
@@ -1199,6 +1206,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-336"), Some(Rule::KeywordFunctionName));
         assert_eq!(code_to_rule("C148"), Some(Rule::BrokenAssocKey));
         assert_eq!(code_to_rule("SH-337"), Some(Rule::BrokenAssocKey));
+        assert_eq!(code_to_rule("C150"), Some(Rule::SubshellLocalAssignment));
+        assert_eq!(code_to_rule("SH-339"), Some(Rule::SubshellLocalAssignment));
         assert_eq!(code_to_rule("C151"), Some(Rule::CommaArrayElements));
         assert_eq!(code_to_rule("SH-340"), Some(Rule::CommaArrayElements));
         assert_eq!(code_to_rule("SH-283"), Some(Rule::FindExecDirWithShell));

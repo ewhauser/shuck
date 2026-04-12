@@ -444,6 +444,7 @@ impl Default for ShellCheckCodeMap {
             (2120, Rule::FunctionCalledWithoutArgs),
             (2364, Rule::FunctionReferencesUnsetParam),
             (2277, Rule::ExtglobInCasePattern),
+            (2031, Rule::SubshellLocalAssignment),
             (2100, Rule::AssignmentLooksLikeComparison),
             (2319, Rule::StatusCaptureAfterBranchTest),
             (2337, Rule::DollarQuestionAfterCommand),
@@ -575,6 +576,7 @@ impl Default for ShellCheckCodeMap {
                     (3070, Rule::AmpersandRedirectInSh),
                     (3073, Rule::PipeStderrInSh),
                     (2016, Rule::SingleQuotedLiteral),
+                    (2031, Rule::SubshellLocalAssignment),
                     (2013, Rule::LineOrientedInput),
                     (2015, Rule::ChainedTestBranches),
                     (2014, Rule::UnquotedGlobsInFind),
@@ -726,6 +728,7 @@ impl Default for ShellCheckCodeMap {
                     (2277, Rule::ExtglobInCasePattern),
                     (2100, Rule::AssignmentLooksLikeComparison),
                     (2319, Rule::StatusCaptureAfterBranchTest),
+                    (2337, Rule::DollarQuestionAfterCommand),
                     (2141, Rule::IfsSetToLiteralBackslashN),
                     (2365, Rule::UnreachableAfterExit),
                     (2370, Rule::UnusedHeredoc),
@@ -917,6 +920,7 @@ mod tests {
         assert_eq!(map.resolve("SC2307"), Some(Rule::UnquotedVariableInTest));
         assert_eq!(map.resolve("SC2379"), Some(Rule::EnvPrefixQuoting));
         assert_eq!(map.resolve("SC2140"), Some(Rule::MixedQuoteWord));
+        assert_eq!(map.resolve("SC2031"), Some(Rule::SubshellLocalAssignment));
         assert_eq!(map.resolve("SC2320"), Some(Rule::UnquotedPipeInEcho));
         assert_eq!(
             map.resolve("SC2337"),
@@ -1663,6 +1667,7 @@ mod tests {
             (2288, Rule::TemplateBraceInCommand),
             (2289, Rule::CommentedContinuationLine),
             (2294, Rule::EvalOnArray),
+            (2031, Rule::SubshellLocalAssignment),
             (2302, Rule::EscapedNegationInTest),
             (2308, Rule::GreaterThanInTest),
             (2309, Rule::StringComparisonForVersion),

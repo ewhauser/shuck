@@ -170,7 +170,11 @@ impl<'a> Checker<'a> {
         }
     }
 
-    fn check_scopes(&mut self) {}
+    fn check_scopes(&mut self) {
+        if self.is_rule_enabled(Rule::SubshellLocalAssignment) {
+            rules::correctness::subshell_local_assignment::subshell_local_assignment(self);
+        }
+    }
 
     fn check_declarations(&mut self) {
         if self.is_rule_enabled(Rule::LocalTopLevel) {
