@@ -666,6 +666,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-311" => Some(Rule::ArrayToStringConversion),
         "SH-336" => Some(Rule::KeywordFunctionName),
         "SH-337" => Some(Rule::BrokenAssocKey),
+        "SH-347" => Some(Rule::SubshellSideEffect),
         "SH-340" => Some(Rule::CommaArrayElements),
         "SH-351" => Some(Rule::PossibleVariableMisspelling),
         "SH-036" => Some(Rule::SingleQuotedLiteral),
@@ -1214,6 +1215,7 @@ mod tests {
         assert_eq!(code_to_rule("SH-336"), Some(Rule::KeywordFunctionName));
         assert_eq!(code_to_rule("C148"), Some(Rule::BrokenAssocKey));
         assert_eq!(code_to_rule("SH-337"), Some(Rule::BrokenAssocKey));
+        assert_eq!(code_to_rule("SH-347"), Some(Rule::SubshellSideEffect));
         assert_eq!(code_to_rule("C150"), Some(Rule::SubshellLocalAssignment));
         assert_eq!(code_to_rule("SH-339"), Some(Rule::SubshellLocalAssignment));
         assert_eq!(code_to_rule("C151"), Some(Rule::CommaArrayElements));

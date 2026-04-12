@@ -5267,6 +5267,19 @@ fn collect_nested_dollar_question_after_command_spans_in_command(
             }
         },
         Command::Binary(command) => {
+            if matches!(command.op, BinaryOp::And | BinaryOp::Or)
+                && stmt_is_intervening_output_command(
+                    &command.left,
+                    command_facts,
+                    command_ids_by_span,
+                )
+            {
+                spans.extend(followup_status_parameter_spans_in_stmt(
+                    &command.right,
+                    source,
+                ));
+            }
+
             collect_nested_dollar_question_after_command_spans_in_command(
                 &command.left.command,
                 command_facts,

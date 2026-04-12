@@ -102,4 +102,27 @@ esac
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn reports_short_circuit_followups_after_output_commands() {
+        let source = "\
+#!/bin/bash
+run
+echo status && [ $? -ne 0 ]
+run
+printf '%s\\n' status || return $?
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::DollarQuestionAfterCommand),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$?", "$?"]
+        );
+    }
 }
