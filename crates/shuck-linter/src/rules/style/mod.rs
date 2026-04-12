@@ -54,6 +54,7 @@ pub mod su_without_flag;
 pub mod suspect_closing_quote;
 pub mod syntax;
 pub mod trailing_directive;
+pub mod trap_signal_numbers;
 pub mod unquoted_array_expansion;
 pub mod unquoted_array_split;
 pub mod unquoted_command_substitution;
@@ -95,6 +96,7 @@ mod tests {
     #[test_case(Rule::RelativeSymlinkTarget, Path::new("S063.sh"))]
     #[test_case(Rule::XargsWithInlineReplace, Path::new("S064.sh"))]
     #[test_case(Rule::BacktickOutputToCommand, Path::new("S067.sh"))]
+    #[test_case(Rule::TrapSignalNumbers, Path::new("S068.sh"))]
     #[test_case(Rule::SingleLetterCaseLabel, Path::new("S069.sh"))]
     #[test_case(Rule::DoubleQuoteNesting, Path::new("S070.sh"))]
     #[test_case(Rule::EnvPrefixQuoting, Path::new("S071.sh"))]

@@ -571,6 +571,7 @@ declare_rules! {
     ("S063", Category::Style, Severity::Warning, RelativeSymlinkTarget),
     ("S064", Category::Style, Severity::Warning, XargsWithInlineReplace),
     ("S067", Category::Style, Severity::Warning, BacktickOutputToCommand),
+    ("S068", Category::Style, Severity::Warning, TrapSignalNumbers),
     ("S069", Category::Style, Severity::Hint, SingleLetterCaseLabel),
     ("S070", Category::Style, Severity::Warning, DoubleQuoteNesting),
     ("S071", Category::Style, Severity::Warning, EnvPrefixQuoting),
@@ -667,6 +668,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-304" => Some(Rule::SourceInsideFunctionInSh),
         "SH-275" => Some(Rule::ErrexitTrapInSh),
         "SH-276" => Some(Rule::SignalNameInTrap),
+        "SH-297" => Some(Rule::TrapSignalNumbers),
         "SH-277" => Some(Rule::BasePrefixInArithmetic),
         "SH-034" => Some(Rule::LegacyBackticks),
         "SH-035" => Some(Rule::LegacyArithmeticExpansion),
@@ -953,6 +955,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-068"), Some(Rule::CommandOutputArraySplit));
         assert_eq!(code_to_rule("S067"), Some(Rule::BacktickOutputToCommand));
         assert_eq!(code_to_rule("SH-294"), Some(Rule::BacktickOutputToCommand));
+        assert_eq!(code_to_rule("S068"), Some(Rule::TrapSignalNumbers));
+        assert_eq!(code_to_rule("SH-297"), Some(Rule::TrapSignalNumbers));
         assert_eq!(code_to_rule("S069"), Some(Rule::SingleLetterCaseLabel));
         assert_eq!(code_to_rule("SH-300"), Some(Rule::SingleLetterCaseLabel));
         assert_eq!(code_to_rule("S071"), Some(Rule::EnvPrefixQuoting));

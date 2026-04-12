@@ -89,6 +89,9 @@ impl ShellCheckCodeMap {
         if number == 2350 {
             return vec![Rule::XargsWithInlineReplace];
         }
+        if number == 2369 {
+            return vec![Rule::TrapSignalNumbers];
+        }
         if number == 2303 {
             return vec![Rule::UnquotedTrClass];
         }
@@ -186,6 +189,9 @@ impl Default for ShellCheckCodeMap {
             // Current ShellCheck releases emit SC2267 for this behavior, recorded in S064
             // corpus metadata to preserve existing SC2267 suppression semantics.
             (2350, Rule::XargsWithInlineReplace),
+            // SC2369 remains the authored compatibility code for numeric trap signals.
+            // Current oracle runs are recorded as reviewed metadata for S068.
+            (2369, Rule::TrapSignalNumbers),
             // ShellCheck 0.11.0 reports command substitutions inside alias definitions as SC2139.
             // Keep SC2328 as a suppression alias for historical compatibility.
             (2139, Rule::CommandSubstitutionInAlias),
@@ -528,6 +534,7 @@ impl Default for ShellCheckCodeMap {
                     (2197, Rule::FgrepDeprecated),
                     (2347, Rule::RelativeSymlinkTarget),
                     (2350, Rule::XargsWithInlineReplace),
+                    (2369, Rule::TrapSignalNumbers),
                     (2139, Rule::CommandSubstitutionInAlias),
                     (2142, Rule::FunctionInAlias),
                     (2283, Rule::DoubleParenGrouping),
@@ -975,6 +982,7 @@ mod tests {
         assert_eq!(map.resolve("SC2197"), Some(Rule::FgrepDeprecated));
         assert_eq!(map.resolve("SC2347"), Some(Rule::RelativeSymlinkTarget));
         assert_eq!(map.resolve("SC2350"), Some(Rule::XargsWithInlineReplace));
+        assert_eq!(map.resolve("SC2369"), Some(Rule::TrapSignalNumbers));
         assert_eq!(
             map.resolve("SC2139"),
             Some(Rule::CommandSubstitutionInAlias)
@@ -1049,6 +1057,7 @@ mod tests {
             map.resolve_all("SC2350"),
             vec![Rule::XargsWithInlineReplace]
         );
+        assert_eq!(map.resolve_all("SC2369"), vec![Rule::TrapSignalNumbers]);
         assert_eq!(
             map.resolve_all("SC2139"),
             vec![Rule::CommandSubstitutionInAlias]
@@ -1615,6 +1624,7 @@ mod tests {
             (2197, Rule::FgrepDeprecated),
             (2347, Rule::RelativeSymlinkTarget),
             (2350, Rule::XargsWithInlineReplace),
+            (2369, Rule::TrapSignalNumbers),
             (2139, Rule::CommandSubstitutionInAlias),
             (2142, Rule::FunctionInAlias),
             (2021, Rule::UnquotedTrRange),

@@ -50,7 +50,7 @@ pub mod substring_expansion;
 mod tr_common;
 pub mod tr_lower_range;
 pub mod tr_upper_range;
-mod trap_common;
+pub(crate) mod trap_common;
 pub mod trap_err;
 pub mod unset_pattern_in_sh;
 pub mod uppercase_expansion;
