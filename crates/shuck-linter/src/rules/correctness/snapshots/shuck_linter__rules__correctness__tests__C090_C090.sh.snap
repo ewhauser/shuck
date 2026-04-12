@@ -1,0 +1,21 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 213
+---
+C090 glob matching on the right-hand side of `[ ... ]` won't work here
+ --> <source>:4:14
+  |
+4 | [ "$ARCH" == i?86 ]
+  |
+
+C090 glob matching on the right-hand side of `[ ... ]` won't work here
+ --> <source>:7:13
+  |
+7 | [ "$ARCH" = [[:digit:]] ]
+  |
+
+C090 glob matching on the right-hand side of `[ ... ]` won't work here
+  --> <source>:10:14
+   |
+10 | [ "$ARCH" != *.x86 ]
+   |

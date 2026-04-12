@@ -383,6 +383,7 @@ impl<'a> ConditionalNodeFact<'a> {
 #[derive(Debug, Clone)]
 pub struct ConditionalFact<'a> {
     nodes: Box<[ConditionalNodeFact<'a>]>,
+    mixed_logical_operator_spans: Box<[Span]>,
 }
 
 impl<'a> ConditionalFact<'a> {
@@ -396,6 +397,10 @@ impl<'a> ConditionalFact<'a> {
 
     pub fn nodes(&self) -> &[ConditionalNodeFact<'a>] {
         &self.nodes
+    }
+
+    pub fn mixed_logical_operator_spans(&self) -> &[Span] {
+        &self.mixed_logical_operator_spans
     }
 
     pub fn regex_nodes(&self) -> impl Iterator<Item = &ConditionalBinaryFact<'a>> + '_ {
@@ -1807,6 +1812,8 @@ pub struct LinterFacts<'a> {
     commented_continuation_comment_spans: Vec<Span>,
     trailing_directive_comment_spans: Vec<Span>,
     condition_status_capture_spans: Vec<Span>,
+    condition_command_substitution_spans: Vec<Span>,
+    backtick_command_name_spans: Vec<Span>,
     unused_heredoc_spans: Vec<Span>,
     heredoc_missing_end_spans: Vec<Span>,
     heredoc_closer_not_alone_spans: Vec<Span>,
@@ -2014,6 +2021,14 @@ impl<'a> LinterFacts<'a> {
 
     pub fn condition_status_capture_spans(&self) -> &[Span] {
         &self.condition_status_capture_spans
+    }
+
+    pub fn condition_command_substitution_spans(&self) -> &[Span] {
+        &self.condition_command_substitution_spans
+    }
+
+    pub fn backtick_command_name_spans(&self) -> &[Span] {
+        &self.backtick_command_name_spans
     }
 
     pub fn unused_heredoc_spans(&self) -> &[Span] {
@@ -2368,6 +2383,9 @@ impl<'a> LinterFactsBuilder<'a> {
             build_trailing_directive_comment_spans(self.source, self._indexer);
         let condition_status_capture_spans =
             build_condition_status_capture_spans(&self.file.body, self.source);
+        let condition_command_substitution_spans =
+            build_condition_command_substitution_spans(&self.file.body, self.source);
+        let backtick_command_name_spans = build_backtick_command_name_spans(&commands);
         let heredoc_summary =
             build_heredoc_fact_summary(&commands, self.source, self.file.span.end.offset);
         let plus_equals_assignment_spans = build_plus_equals_assignment_spans(&commands);
@@ -2459,6 +2477,8 @@ impl<'a> LinterFactsBuilder<'a> {
             commented_continuation_comment_spans,
             trailing_directive_comment_spans,
             condition_status_capture_spans,
+            condition_command_substitution_spans,
+            backtick_command_name_spans,
             unused_heredoc_spans: heredoc_summary.unused_heredoc_spans,
             heredoc_missing_end_spans: heredoc_summary.heredoc_missing_end_spans,
             heredoc_closer_not_alone_spans: heredoc_summary.heredoc_closer_not_alone_spans,
@@ -4370,6 +4390,148 @@ fn build_condition_status_capture_spans(commands: &StmtSeq, source: &str) -> Vec
     spans.retain(|span| seen.insert(FactSpan::new(*span)));
     spans.sort_by_key(|span| (span.start.offset, span.end.offset));
     spans
+}
+
+fn build_condition_command_substitution_spans(commands: &StmtSeq, source: &str) -> Vec<Span> {
+    let mut spans = Vec::new();
+
+    for visit in query::iter_commands(
+        commands,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+    ) {
+        match visit.command {
+            Command::Compound(CompoundCommand::If(command)) => {
+                collect_condition_command_substitution_from_body(
+                    &command.condition,
+                    source,
+                    &mut spans,
+                );
+
+                for (condition, _) in &command.elif_branches {
+                    collect_condition_command_substitution_from_body(condition, source, &mut spans);
+                }
+            }
+            Command::Compound(CompoundCommand::While(command)) => {
+                collect_condition_command_substitution_from_body(
+                    &command.condition,
+                    source,
+                    &mut spans,
+                );
+            }
+            Command::Compound(CompoundCommand::Until(command)) => {
+                collect_condition_command_substitution_from_body(
+                    &command.condition,
+                    source,
+                    &mut spans,
+                );
+            }
+            _ => {}
+        }
+    }
+
+    let mut seen = FxHashSet::default();
+    spans.retain(|span| seen.insert(FactSpan::new(*span)));
+    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    spans
+}
+
+fn build_backtick_command_name_spans(commands: &[CommandFact<'_>]) -> Vec<Span> {
+    let mut spans = commands
+        .iter()
+        .filter_map(|fact| match fact.command() {
+            Command::Simple(command) => plain_backtick_command_name_span(&command.name),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    let mut seen = FxHashSet::default();
+    spans.retain(|span| seen.insert(FactSpan::new(*span)));
+    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    spans
+}
+
+fn plain_backtick_command_name_span(word: &Word) -> Option<Span> {
+    let [part] = word.parts.as_slice() else {
+        return None;
+    };
+
+    match &part.kind {
+        WordPart::CommandSubstitution {
+            syntax: CommandSubstitutionSyntax::Backtick,
+            ..
+        } => Some(part.span),
+        _ => None,
+    }
+}
+
+fn collect_condition_command_substitution_from_body(
+    condition: &StmtSeq,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for stmt in condition.iter() {
+        collect_terminal_command_substitution_spans_in_stmt(stmt, source, spans);
+    }
+}
+
+fn collect_terminal_command_substitution_spans_in_stmt(
+    stmt: &Stmt,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    collect_terminal_command_substitution_spans_in_command(&stmt.command, source, spans);
+}
+
+fn collect_terminal_command_substitution_spans_in_command(
+    command: &Command,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match command {
+        Command::Simple(command) => {
+            if command_name_is_plain_command_substitution(&command.name, source) {
+                spans.push(command.name.span);
+            }
+        }
+        Command::Binary(command) => {
+            collect_terminal_command_substitution_spans_in_stmt(&command.left, source, spans);
+            collect_terminal_command_substitution_spans_in_stmt(&command.right, source, spans);
+        }
+        Command::Compound(CompoundCommand::Subshell(body))
+        | Command::Compound(CompoundCommand::BraceGroup(body)) => {
+            for stmt in body.iter() {
+                collect_terminal_command_substitution_spans_in_stmt(stmt, source, spans);
+            }
+        }
+        Command::Compound(CompoundCommand::Time(command)) => {
+            if let Some(inner) = &command.command {
+                collect_terminal_command_substitution_spans_in_stmt(inner, source, spans);
+            }
+        }
+        Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => {}
+    }
+}
+
+fn command_name_is_plain_command_substitution(word: &Word, source: &str) -> bool {
+    let analysis = analyze_word(word, source, None);
+    analysis.substitution_shape == WordSubstitutionShape::Plain
+        && analysis.quote == WordQuote::Unquoted
+        && matches!(
+            word.parts.as_slice(),
+            [WordPartNode {
+                kind: WordPart::CommandSubstitution {
+                    syntax: CommandSubstitutionSyntax::DollarParen,
+                    ..
+                },
+                ..
+            }]
+        )
 }
 
 fn collect_condition_status_capture_from_body(
@@ -6556,9 +6718,82 @@ fn build_conditional_fact<'a>(command: &'a Command, source: &str) -> Option<Cond
     };
     let mut nodes = Vec::new();
     collect_conditional_nodes(&command.expression, source, &mut nodes);
+    let mut mixed_logical_operator_spans = Vec::new();
+    collect_mixed_logical_operator_spans(
+        &command.expression,
+        false,
+        &mut mixed_logical_operator_spans,
+    );
     (!nodes.is_empty()).then_some(ConditionalFact {
         nodes: nodes.into_boxed_slice(),
+        mixed_logical_operator_spans: mixed_logical_operator_spans.into_boxed_slice(),
     })
+}
+
+fn collect_mixed_logical_operator_spans(
+    expression: &ConditionalExpr,
+    parent_in_same_logical_group: bool,
+    spans: &mut Vec<Span>,
+) {
+    match expression {
+        ConditionalExpr::Parenthesized(parenthesized) => {
+            collect_mixed_logical_operator_spans(&parenthesized.expr, false, spans);
+        }
+        ConditionalExpr::Unary(unary) => {
+            collect_mixed_logical_operator_spans(&unary.expr, false, spans);
+        }
+        ConditionalExpr::Binary(binary) => {
+            let left_continues_group = matches!(
+                binary.left.as_ref(),
+                ConditionalExpr::Binary(left)
+                    if matches!(left.op, ConditionalBinaryOp::And | ConditionalBinaryOp::Or)
+            );
+            let right_continues_group = matches!(
+                binary.right.as_ref(),
+                ConditionalExpr::Binary(right)
+                    if matches!(right.op, ConditionalBinaryOp::And | ConditionalBinaryOp::Or)
+            );
+
+            collect_mixed_logical_operator_spans(&binary.left, left_continues_group, spans);
+            collect_mixed_logical_operator_spans(&binary.right, right_continues_group, spans);
+
+            if matches!(
+                binary.op,
+                ConditionalBinaryOp::And | ConditionalBinaryOp::Or
+            ) && !parent_in_same_logical_group
+                && logical_operator_mask(expression) == (LOGICAL_AND_MASK | LOGICAL_OR_MASK)
+            {
+                spans.push(binary.op_span);
+            }
+        }
+        ConditionalExpr::Word(_)
+        | ConditionalExpr::Pattern(_)
+        | ConditionalExpr::Regex(_)
+        | ConditionalExpr::VarRef(_) => {}
+    }
+}
+
+const LOGICAL_AND_MASK: u8 = 0b01;
+const LOGICAL_OR_MASK: u8 = 0b10;
+
+fn logical_operator_mask(expression: &ConditionalExpr) -> u8 {
+    match expression {
+        ConditionalExpr::Parenthesized(_) => 0,
+        ConditionalExpr::Unary(unary) => logical_operator_mask(&unary.expr),
+        ConditionalExpr::Binary(binary) => {
+            let own = match binary.op {
+                ConditionalBinaryOp::And => LOGICAL_AND_MASK,
+                ConditionalBinaryOp::Or => LOGICAL_OR_MASK,
+                _ => 0,
+            };
+
+            own | logical_operator_mask(&binary.left) | logical_operator_mask(&binary.right)
+        }
+        ConditionalExpr::Word(_)
+        | ConditionalExpr::Pattern(_)
+        | ConditionalExpr::Regex(_)
+        | ConditionalExpr::VarRef(_) => 0,
+    }
 }
 
 fn collect_conditional_nodes<'a>(
@@ -10616,11 +10851,47 @@ for version ($versions); do :; done
                 regex.right().word().map(|word| word.span.slice(source)),
                 Some("^\"foo\"bar$")
             );
+            assert!(logical.mixed_logical_operator_spans().is_empty());
             assert!(
                 regex
                     .right()
                     .quote()
                     .is_some_and(|quote| quote != crate::rules::common::word::WordQuote::Unquoted)
+            );
+        });
+    }
+
+    #[test]
+    fn keeps_parenthesized_logical_groups_separate_for_mixed_operator_detection() {
+        let source = "\
+#!/bin/bash
+[[ -n $a && -n $b || -n $c ]]
+[[ -n $a && ( -n $b || -n $c ) ]]
+[[ ( -n $a && -n $b || -n $c ) && -n $d ]]
+";
+
+        with_facts(source, None, |_, facts| {
+            let conditionals = facts
+                .structural_commands()
+                .filter_map(|fact| fact.conditional())
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                conditionals[0]
+                    .mixed_logical_operator_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["||"]
+            );
+            assert!(conditionals[1].mixed_logical_operator_spans().is_empty());
+            assert_eq!(
+                conditionals[2]
+                    .mixed_logical_operator_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["||"]
             );
         });
     }

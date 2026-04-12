@@ -396,6 +396,8 @@ impl Default for ShellCheckCodeMap {
             (2290, Rule::SubshellInArithmetic),
             (2292, Rule::DollarInArithmetic),
             (2297, Rule::DollarInArithmeticContext),
+            (2302, Rule::EscapedNegationInTest),
+            (2308, Rule::GreaterThanInTest),
             (2333, Rule::NonShellSyntaxInScript),
             // ShellCheck 0.11.0 reports `export "$@"`-style findings as SC2163.
             // Keep SC2334 as a suppression alias for the authored C105 rule code.
@@ -672,6 +674,15 @@ impl Default for ShellCheckCodeMap {
                     (1133, Rule::LinebreakBeforeAnd),
                     (2290, Rule::SubshellInArithmetic),
                     (2292, Rule::DollarInArithmetic),
+                    (2302, Rule::EscapedNegationInTest),
+                    (2308, Rule::GreaterThanInTest),
+                    (2309, Rule::StringComparisonForVersion),
+                    (2310, Rule::MixedAndOrInCondition),
+                    (2311, Rule::QuotedCommandInTest),
+                    (2312, Rule::GlobInTestComparison),
+                    (2314, Rule::TildeInStringComparison),
+                    (2315, Rule::IfDollarCommand),
+                    (2316, Rule::BacktickInCommandPosition),
                     (2294, Rule::EvalOnArray),
                     (2333, Rule::NonShellSyntaxInScript),
                     (2163, Rule::ExportWithPositionalParams),
@@ -754,6 +765,15 @@ impl Default for ShellCheckCodeMap {
                 (2376, Rule::DoubleQuoteNesting),
                 (2298, Rule::UnquotedTrRange),
                 (2303, Rule::UnquotedTrClass),
+                // ShellCheck 0.11.0 currently emits SC2057 for leading `\!` test operators.
+                // Keep SC2302 as the authored rule code and accept the oracle's live code too.
+                (2057, Rule::EscapedNegationInTest),
+                (2073, Rule::GreaterThanInTest),
+                (2072, Rule::StringComparisonForVersion),
+                (2081, Rule::GlobInTestComparison),
+                (2088, Rule::TildeInStringComparison),
+                (2091, Rule::IfDollarCommand),
+                (2092, Rule::BacktickInCommandPosition),
                 (2307, Rule::UnquotedVariableInTest),
                 (2300, Rule::UnquotedWordBetweenQuotes),
                 (2346, Rule::DefaultValueInColonAssign),
@@ -1278,6 +1298,7 @@ mod tests {
         assert_eq!(map.resolve("SC2156"), Some(Rule::FindExecDirWithShell));
         assert_eq!(map.resolve("SC2157"), Some(Rule::ConstantComparisonTest));
         assert_eq!(map.resolve("SC2158"), Some(Rule::LiteralUnaryStringTest));
+        assert_eq!(map.resolve("SC2057"), Some(Rule::EscapedNegationInTest));
         assert_eq!(map.resolve("SC2078"), Some(Rule::TruthyLiteralTest));
         assert_eq!(map.resolve("SC2162"), Some(Rule::ReadWithoutRaw));
         assert_eq!(map.resolve("SC2168"), Some(Rule::LocalTopLevel));
@@ -1499,6 +1520,7 @@ mod tests {
             (2330, Rule::FunctionInAlias),
             (2376, Rule::DoubleQuoteNesting),
             (2298, Rule::UnquotedTrRange),
+            (2057, Rule::EscapedNegationInTest),
             (2258, Rule::BareRead),
             (2013, Rule::LineOrientedInput),
             (2015, Rule::ChainedTestBranches),
@@ -1526,6 +1548,12 @@ mod tests {
             (2029, Rule::SshLocalExpansion),
             (2209, Rule::ConditionalAssignmentShortcut),
             (2352, Rule::DefaultElseInShortCircuit),
+            (2072, Rule::StringComparisonForVersion),
+            (2073, Rule::GreaterThanInTest),
+            (2081, Rule::GlobInTestComparison),
+            (2088, Rule::TildeInStringComparison),
+            (2091, Rule::IfDollarCommand),
+            (2092, Rule::BacktickInCommandPosition),
             (2064, Rule::TrapStringExpansion),
             (2066, Rule::QuotedDollarStarLoop),
             (2206, Rule::UnquotedArraySplit),
@@ -1614,6 +1642,15 @@ mod tests {
             (2288, Rule::TemplateBraceInCommand),
             (2289, Rule::CommentedContinuationLine),
             (2294, Rule::EvalOnArray),
+            (2302, Rule::EscapedNegationInTest),
+            (2308, Rule::GreaterThanInTest),
+            (2309, Rule::StringComparisonForVersion),
+            (2310, Rule::MixedAndOrInCondition),
+            (2311, Rule::QuotedCommandInTest),
+            (2312, Rule::GlobInTestComparison),
+            (2314, Rule::TildeInStringComparison),
+            (2315, Rule::IfDollarCommand),
+            (2316, Rule::BacktickInCommandPosition),
             (2313, Rule::ZshNestedExpansion),
             (2319, Rule::StatusCaptureAfterBranchTest),
             (2120, Rule::FunctionCalledWithoutArgs),

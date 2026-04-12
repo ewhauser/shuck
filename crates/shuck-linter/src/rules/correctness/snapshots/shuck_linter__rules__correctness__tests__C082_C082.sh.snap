@@ -1,0 +1,21 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 213
+---
+C082 write ! directly when negating a test
+ --> <source>:4:3
+  |
+4 | [ \! -f "$file" ]
+  |
+
+C082 write ! directly when negating a test
+ --> <source>:7:6
+  |
+7 | test \! -n "$value"
+  |
+
+C082 write ! directly when negating a test
+  --> <source>:10:3
+   |
+10 | [ \! "$value" = ok ]
+   |

@@ -161,6 +161,55 @@ declare_rules! {
         ShortCircuitFallthrough
     ),
     (
+        "C082",
+        Category::Correctness,
+        Severity::Warning,
+        EscapedNegationInTest
+    ),
+    (
+        "C086",
+        Category::Correctness,
+        Severity::Warning,
+        GreaterThanInTest
+    ),
+    (
+        "C087",
+        Category::Correctness,
+        Severity::Warning,
+        StringComparisonForVersion
+    ),
+    (
+        "C088",
+        Category::Correctness,
+        Severity::Warning,
+        MixedAndOrInCondition
+    ),
+    (
+        "C089",
+        Category::Correctness,
+        Severity::Warning,
+        QuotedCommandInTest
+    ),
+    (
+        "C090",
+        Category::Correctness,
+        Severity::Warning,
+        GlobInTestComparison
+    ),
+    (
+        "C091",
+        Category::Correctness,
+        Severity::Warning,
+        TildeInStringComparison
+    ),
+    ("C092", Category::Correctness, Severity::Warning, IfDollarCommand),
+    (
+        "C093",
+        Category::Correctness,
+        Severity::Warning,
+        BacktickInCommandPosition
+    ),
+    (
         "C095",
         Category::Correctness,
         Severity::Warning,
@@ -641,6 +690,15 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-182" => Some(Rule::ExtglobInCasePattern),
         "SH-261" => Some(Rule::ExtglobInSh),
         "SH-272" => Some(Rule::CaretNegationInBracket),
+        "SH-207" => Some(Rule::EscapedNegationInTest),
+        "SH-213" => Some(Rule::GreaterThanInTest),
+        "SH-214" => Some(Rule::StringComparisonForVersion),
+        "SH-215" => Some(Rule::MixedAndOrInCondition),
+        "SH-216" => Some(Rule::QuotedCommandInTest),
+        "SH-217" => Some(Rule::GlobInTestComparison),
+        "SH-219" => Some(Rule::TildeInStringComparison),
+        "SH-220" => Some(Rule::IfDollarCommand),
+        "SH-221" => Some(Rule::BacktickInCommandPosition),
         "SH-112" => Some(Rule::ElseIf),
         "SH-113" => Some(Rule::OpenDoubleQuote),
         "SH-114" => Some(Rule::SuspectClosingQuote),

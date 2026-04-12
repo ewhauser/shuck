@@ -327,6 +327,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::FindOrWithoutGrouping) {
             rules::correctness::find_or_without_grouping::find_or_without_grouping(self);
         }
+        if self.is_rule_enabled(Rule::BacktickInCommandPosition) {
+            rules::correctness::backtick_in_command_position::backtick_in_command_position(self);
+        }
         if self.is_rule_enabled(Rule::UnsetAssociativeArrayElement) {
             rules::correctness::unset_associative_array_element::unset_associative_array_element(
                 self,
@@ -874,6 +877,30 @@ impl<'a> Checker<'a> {
         }
         if self.is_rule_enabled(Rule::TruthyLiteralTest) {
             rules::correctness::truthy_literal_test::truthy_literal_test(self);
+        }
+        if self.is_rule_enabled(Rule::EscapedNegationInTest) {
+            rules::correctness::escaped_negation_in_test::escaped_negation_in_test(self);
+        }
+        if self.is_rule_enabled(Rule::GreaterThanInTest) {
+            rules::correctness::greater_than_in_test::greater_than_in_test(self);
+        }
+        if self.is_rule_enabled(Rule::StringComparisonForVersion) {
+            rules::correctness::string_comparison_for_version::string_comparison_for_version(self);
+        }
+        if self.is_rule_enabled(Rule::MixedAndOrInCondition) {
+            rules::correctness::mixed_and_or_in_condition::mixed_and_or_in_condition(self);
+        }
+        if self.is_rule_enabled(Rule::QuotedCommandInTest) {
+            rules::correctness::quoted_command_in_test::quoted_command_in_test(self);
+        }
+        if self.is_rule_enabled(Rule::GlobInTestComparison) {
+            rules::correctness::glob_in_test_comparison::glob_in_test_comparison(self);
+        }
+        if self.is_rule_enabled(Rule::TildeInStringComparison) {
+            rules::correctness::tilde_in_string_comparison::tilde_in_string_comparison(self);
+        }
+        if self.is_rule_enabled(Rule::IfDollarCommand) {
+            rules::correctness::if_dollar_command::if_dollar_command(self);
         }
         if self.is_rule_enabled(Rule::EmptyTest) {
             rules::correctness::empty_test::empty_test(self);
