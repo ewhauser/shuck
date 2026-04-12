@@ -1,0 +1,15 @@
+---
+source: crates/shuck-linter/src/rules/style/mod.rs
+assertion_line: 125
+---
+S069 double-check bare single-letter case labels in this getopts handler
+ --> <source>:6:5
+  |
+6 |     h)
+  |
+
+S069 double-check bare single-letter case labels in this getopts handler
+  --> <source>:10:5
+   |
+10 |     b)
+   |

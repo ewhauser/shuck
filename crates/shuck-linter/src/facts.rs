@@ -1035,6 +1035,7 @@ impl GetoptsOptionSpec {
 pub struct GetoptsCaseLabelFact {
     label: char,
     span: Span,
+    is_bare_single_letter: bool,
 }
 
 impl GetoptsCaseLabelFact {
@@ -1044,6 +1045,10 @@ impl GetoptsCaseLabelFact {
 
     pub fn span(self) -> Span {
         self.span
+    }
+
+    pub fn is_bare_single_letter(self) -> bool {
+        self.is_bare_single_letter
     }
 }
 
@@ -6345,9 +6350,12 @@ fn first_getopts_case_match(
                     let text = static_case_pattern_text(pattern, source)?;
                     let mut chars = text.chars();
                     let label = chars.next()?;
+                    let is_bare_single_letter =
+                        label.is_ascii_alphabetic() && pattern.span.slice(source) == text;
                     chars.next().is_none().then_some(GetoptsCaseLabelFact {
                         label,
                         span: pattern.span,
+                        is_bare_single_letter,
                     })
                 })
                 .collect::<Vec<_>>();

@@ -541,6 +541,7 @@ declare_rules! {
     ("S060", Category::Style, Severity::Warning, EgrepDeprecated),
     ("S062", Category::Style, Severity::Warning, DefaultValueInColonAssign),
     ("S067", Category::Style, Severity::Warning, BacktickOutputToCommand),
+    ("S069", Category::Style, Severity::Hint, SingleLetterCaseLabel),
     ("S070", Category::Style, Severity::Warning, DoubleQuoteNesting),
     ("S071", Category::Style, Severity::Warning, EnvPrefixQuoting),
     ("S076", Category::Style, Severity::Warning, MixedQuoteWord),
@@ -792,6 +793,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-253" => Some(Rule::FindOutputLoop),
         "SH-293" => Some(Rule::UnreachableAfterExit),
         "SH-298" => Some(Rule::UnusedHeredoc),
+        "SH-300" => Some(Rule::SingleLetterCaseLabel),
         "SH-301" => Some(Rule::CaseGlobReachability),
         "SH-302" => Some(Rule::CaseDefaultBeforeGlob),
         "SH-312" => Some(Rule::GetoptsOptionNotInCase),
@@ -905,6 +907,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-068"), Some(Rule::CommandOutputArraySplit));
         assert_eq!(code_to_rule("S067"), Some(Rule::BacktickOutputToCommand));
         assert_eq!(code_to_rule("SH-294"), Some(Rule::BacktickOutputToCommand));
+        assert_eq!(code_to_rule("S069"), Some(Rule::SingleLetterCaseLabel));
+        assert_eq!(code_to_rule("SH-300"), Some(Rule::SingleLetterCaseLabel));
         assert_eq!(code_to_rule("S071"), Some(Rule::EnvPrefixQuoting));
         assert_eq!(code_to_rule("SH-309"), Some(Rule::EnvPrefixQuoting));
         assert_eq!(code_to_rule("S076"), Some(Rule::MixedQuoteWord));
