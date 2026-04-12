@@ -43,8 +43,10 @@ while getopts 'hb:c:' opt; do
   esac
 done
 ";
-        let diagnostics =
-            test_snippet(source, &LinterSettings::for_rule(Rule::SingleLetterCaseLabel));
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SingleLetterCaseLabel),
+        );
 
         assert_eq!(
             diagnostics
@@ -79,8 +81,10 @@ while getopts 'hb:c:' opt; do
   esac
 done
 ";
-        let diagnostics =
-            test_snippet(source, &LinterSettings::for_rule(Rule::SingleLetterCaseLabel));
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SingleLetterCaseLabel),
+        );
 
         assert!(diagnostics.is_empty());
     }
@@ -102,8 +106,10 @@ while getopts 'a' opt; do
   esac
 done
 ";
-        let diagnostics =
-            test_snippet(source, &LinterSettings::for_rule(Rule::SingleLetterCaseLabel));
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SingleLetterCaseLabel),
+        );
 
         assert!(diagnostics.is_empty());
     }

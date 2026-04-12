@@ -37,8 +37,10 @@ case \"$x\" in
   foo) : ;;
 esac
 ";
-        let diagnostics =
-            test_snippet(source, &LinterSettings::for_rule(Rule::CaseGlobReachability));
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CaseGlobReachability),
+        );
 
         assert_eq!(
             diagnostics
@@ -67,8 +69,10 @@ case \"$x\" in
   foo) : ;;
 esac
 ";
-        let diagnostics =
-            test_snippet(source, &LinterSettings::for_rule(Rule::CaseGlobReachability));
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CaseGlobReachability),
+        );
 
         assert!(diagnostics.is_empty());
     }
@@ -82,8 +86,10 @@ case \"$x\" in
   foobarz) : ;;
 esac
 ";
-        let diagnostics =
-            test_snippet(source, &LinterSettings::for_rule(Rule::CaseGlobReachability));
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CaseGlobReachability),
+        );
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "foo\"bar\"*");
@@ -103,8 +109,10 @@ case \"$x\" in
   lts/*) : ;;
 esac
 ";
-        let diagnostics =
-            test_snippet(source, &LinterSettings::for_rule(Rule::CaseGlobReachability));
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CaseGlobReachability),
+        );
 
         assert!(diagnostics.is_empty());
     }

@@ -8,8 +8,7 @@ impl Violation for CaseDefaultBeforeGlob {
     }
 
     fn message(&self) -> String {
-        "this case pattern is unreachable because an earlier pattern already matches it"
-            .to_owned()
+        "this case pattern is unreachable because an earlier pattern already matches it".to_owned()
     }
 }
 
@@ -38,8 +37,10 @@ case \"$x\" in
   foo) : ;;
 esac
 ";
-        let diagnostics =
-            test_snippet(source, &LinterSettings::for_rule(Rule::CaseDefaultBeforeGlob));
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CaseDefaultBeforeGlob),
+        );
 
         assert_eq!(
             diagnostics
@@ -68,8 +69,10 @@ case \"$x\" in
   foo) : ;;
 esac
 ";
-        let diagnostics =
-            test_snippet(source, &LinterSettings::for_rule(Rule::CaseDefaultBeforeGlob));
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CaseDefaultBeforeGlob),
+        );
 
         assert!(diagnostics.is_empty());
     }
@@ -88,8 +91,10 @@ case \"$x\" in
   lts/*) : ;;
 esac
 ";
-        let diagnostics =
-            test_snippet(source, &LinterSettings::for_rule(Rule::CaseDefaultBeforeGlob));
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CaseDefaultBeforeGlob),
+        );
 
         assert!(diagnostics.is_empty());
     }
@@ -104,8 +109,10 @@ case \"$x\" in
   foobaz) : ;;
 esac
 ";
-        let diagnostics =
-            test_snippet(source, &LinterSettings::for_rule(Rule::CaseDefaultBeforeGlob));
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CaseDefaultBeforeGlob),
+        );
 
         assert_eq!(
             diagnostics

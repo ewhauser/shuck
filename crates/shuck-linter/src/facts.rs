@@ -22,8 +22,8 @@ use shuck_ast::{
     ConditionalBinaryOp, ConditionalExpr, ConditionalUnaryOp, DeclClause, DeclOperand, File,
     ForCommand, FunctionDef, Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp,
     Pattern, PatternPart, Position, Redirect, RedirectKind, SelectCommand, SimpleCommand,
-    SourceText, Span, Stmt, StmtSeq, Subscript, VarRef, WhileCommand, Word, WordPart,
-    WordPartNode, ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
+    SourceText, Span, Stmt, StmtSeq, Subscript, VarRef, WhileCommand, Word, WordPart, WordPartNode,
+    ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -6011,8 +6011,7 @@ impl StaticCasePatternMatcher {
             };
 
             match token {
-                CasePatternToken::Literal(expected)
-                    if matches!(symbol, CasePatternSymbol::Literal(actual) if actual == *expected) =>
+                CasePatternToken::Literal(expected) if matches!(symbol, CasePatternSymbol::Literal(actual) if actual == *expected) =>
                 {
                     next.push(state + 1);
                 }
@@ -6089,7 +6088,7 @@ fn collect_static_case_pattern_tokens(
                 None => push_case_pattern_literal_tokens_char('\\', out),
             },
             '\'' => {
-                while let Some(quoted) = chars.next() {
+                for quoted in chars.by_ref() {
                     if quoted == '\'' {
                         break;
                     }
@@ -6269,7 +6268,10 @@ fn build_getopts_case_fact_for_while(
     })
 }
 
-fn parse_getopts_command_from_condition(condition: &StmtSeq, source: &str) -> Option<ParsedGetoptsCommand> {
+fn parse_getopts_command_from_condition(
+    condition: &StmtSeq,
+    source: &str,
+) -> Option<ParsedGetoptsCommand> {
     let stmt = condition.last()?;
     let normalized = command::normalize_command(&stmt.command, source);
     if !normalized.effective_name_is("getopts") {
