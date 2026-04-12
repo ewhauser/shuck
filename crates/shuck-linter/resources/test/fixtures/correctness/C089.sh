@@ -6,6 +6,9 @@
 # Invalid: unary string tests do not execute the quoted pipeline either.
 [ -n "modprobe | grep snd" ]
 
+# Invalid: negation still only flips the truthiness of the quoted pipeline literal.
+[ ! "dmesg | grep usb" ]
+
 # Invalid: nested `[[ ]]` conditions still only see a string literal here.
 [[ "$ok" && "lsmod | grep v4l2loopback" ]]
 

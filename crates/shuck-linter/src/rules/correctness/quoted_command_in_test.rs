@@ -1,8 +1,9 @@
-use shuck_ast::Span;
+use shuck_ast::{Span, Word};
 
 use crate::{
     Checker, ConditionalNodeFact, ConditionalOperatorFamily, ExpansionContext, Rule,
     SimpleTestOperatorFamily, SimpleTestShape, Violation, WordFactContext, WordQuote,
+    static_word_text,
 };
 
 pub struct QuotedCommandInTest;
@@ -42,34 +43,35 @@ fn collect_simple_test_spans(
     checker: &Checker<'_>,
     simple_test: &crate::SimpleTestFact<'_>,
 ) -> Vec<Span> {
+    simple_test_condition_operand(simple_test, checker.source())
+        .and_then(|word| {
+            simple_test_word_looks_like_quoted_pipeline(checker, word.span).then_some(word.span)
+        })
+        .into_iter()
+        .collect()
+}
+
+fn simple_test_condition_operand<'a>(
+    simple_test: &'a crate::SimpleTestFact<'a>,
+    source: &str,
+) -> Option<&'a Word> {
     match simple_test.shape() {
-        SimpleTestShape::Truthy => simple_test
-            .operands()
-            .first()
-            .copied()
-            .and_then(|word| {
-                simple_test_word_looks_like_quoted_pipeline(checker, word.span).then_some(word.span)
-            })
-            .into_iter()
-            .collect(),
+        SimpleTestShape::Truthy => simple_test.operands().first().copied(),
         SimpleTestShape::Unary
-            if simple_test.operator_family() == SimpleTestOperatorFamily::StringUnary =>
+            if simple_test.operator_family() == SimpleTestOperatorFamily::StringUnary
+                || simple_test
+                    .operands()
+                    .first()
+                    .and_then(|word| static_word_text(word, source))
+                    .as_deref()
+                    == Some("!") =>
         {
-            simple_test
-                .operands()
-                .get(1)
-                .copied()
-                .and_then(|word| {
-                    simple_test_word_looks_like_quoted_pipeline(checker, word.span)
-                        .then_some(word.span)
-                })
-                .into_iter()
-                .collect()
+            simple_test.operands().get(1).copied()
         }
         SimpleTestShape::Unary
         | SimpleTestShape::Empty
         | SimpleTestShape::Binary
-        | SimpleTestShape::Other => Vec::new(),
+        | SimpleTestShape::Other => None,
     }
 }
 
@@ -233,6 +235,25 @@ mod tests {
     }
 
     #[test]
+    fn reports_negated_quoted_pipeline_literals_in_simple_tests() {
+        let source = "\
+#!/bin/sh
+[ ! \"lsmod | grep v4l2loopback\" ]
+test ! \"modprobe | grep snd\"
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::QuotedCommandInTest));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["\"lsmod | grep v4l2loopback\"", "\"modprobe | grep snd\""]
+        );
+    }
+
+    #[test]
     fn reports_nested_quoted_pipeline_literals_in_conditionals() {
         let source = "\
 #!/bin/bash
@@ -259,6 +280,7 @@ mod tests {
         let source = "\
 #!/bin/sh
 [ \"echo hi\" ]
+[ ! \"echo hi\" ]
 [ \"foo | bar\" = x ]
 [[ \"grep foo file\" = x ]]
 [[ -n \"echo hi\" ]]

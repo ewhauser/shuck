@@ -15,7 +15,13 @@ C089 this test uses a quoted pipeline literal instead of command output
   |
 
 C089 this test uses a quoted pipeline literal instead of command output
-  --> <source>:10:13
+  --> <source>:10:5
    |
-10 | [[ "$ok" && "lsmod | grep v4l2loopback" ]]
+10 | [ ! "dmesg | grep usb" ]
+   |
+
+C089 this test uses a quoted pipeline literal instead of command output
+  --> <source>:13:13
+   |
+13 | [[ "$ok" && "lsmod | grep v4l2loopback" ]]
    |
