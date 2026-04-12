@@ -1,7 +1,12 @@
 use rustc_hash::FxHashSet;
-use shuck_semantic::{BindingKind, ReferenceKind, UninitializedCertainty};
+use shuck_semantic::UninitializedCertainty;
 
 use crate::{Checker, Rule, Violation};
+
+use super::variable_reference_common::{
+    VariableReferenceFilter, has_same_name_defining_bindings, is_reportable_variable_reference,
+    is_sc2154_defining_binding,
+};
 
 pub struct UndefinedVariable {
     pub name: String,
@@ -46,48 +51,31 @@ pub fn undefined_variable(checker: &mut Checker) {
         if reported_names.contains(&reference.name) || suppressed_names.contains(&reference.name) {
             continue;
         }
-        if matches!(
-            reference.kind,
-            ReferenceKind::DeclarationName | ReferenceKind::ImplicitRead
+        if !is_reportable_variable_reference(
+            checker,
+            reference,
+            VariableReferenceFilter {
+                suppress_environment_style_names: true,
+            },
         ) {
             continue;
         }
-        if is_shell_special_parameter(reference.name.as_str()) {
-            suppressed_names.insert(reference.name.clone());
-            continue;
-        }
-        if is_environment_style_name(reference.name.as_str()) {
-            suppressed_names.insert(reference.name.clone());
-            continue;
-        }
-        if checker
-            .facts()
-            .presence_tested_names()
-            .contains(&reference.name)
+        if has_same_name_defining_bindings(checker, &reference.name)
+            && !checker
+                .semantic()
+                .bindings_for(&reference.name)
+                .iter()
+                .copied()
+                .filter(|binding_id| {
+                    is_sc2154_defining_binding(checker.semantic().binding(*binding_id).kind)
+                })
+                .all(|binding_id| {
+                    let binding = checker.semantic().binding(binding_id);
+                    binding.span.start.line == reference.span.start.line
+                        && binding.span.start.offset < reference.span.start.offset
+                })
         {
             suppressed_names.insert(reference.name.clone());
-            continue;
-        }
-        let defining_bindings: Vec<_> = checker
-            .semantic()
-            .bindings_for(&reference.name)
-            .iter()
-            .copied()
-            .filter(|binding_id| {
-                is_sc2154_defining_binding(checker.semantic().binding(*binding_id).kind)
-            })
-            .collect();
-        if !defining_bindings.is_empty()
-            && !defining_bindings.iter().all(|binding_id| {
-                let binding = checker.semantic().binding(*binding_id);
-                binding.span.start.line == reference.span.start.line
-                    && binding.span.start.offset < reference.span.start.offset
-            })
-        {
-            suppressed_names.insert(reference.name.clone());
-            continue;
-        }
-        if checker.facts().is_subscript_index_reference(reference.span) {
             continue;
         }
         if !reported_names.insert(reference.name.clone()) {
@@ -102,23 +90,4 @@ pub fn undefined_variable(checker: &mut Checker) {
             reference.span,
         );
     }
-}
-
-fn is_shell_special_parameter(name: &str) -> bool {
-    matches!(name, "@" | "*" | "#" | "?" | "-" | "$" | "!" | "0")
-        || (!name.is_empty() && name.chars().all(|char| char.is_ascii_digit()))
-}
-
-fn is_environment_style_name(name: &str) -> bool {
-    !name.is_empty()
-        && name
-            .chars()
-            .all(|char| char.is_ascii_uppercase() || char.is_ascii_digit() || char == '_')
-}
-
-fn is_sc2154_defining_binding(kind: BindingKind) -> bool {
-    !matches!(
-        kind,
-        BindingKind::FunctionDefinition | BindingKind::Imported
-    )
 }

@@ -168,9 +168,19 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::UndefinedVariable) {
             rules::correctness::undefined_variable::undefined_variable(self);
         }
+        if self.is_rule_enabled(Rule::PossibleVariableMisspelling) {
+            rules::correctness::possible_variable_misspelling::possible_variable_misspelling(self);
+        }
     }
 
-    fn check_scopes(&mut self) {}
+    fn check_scopes(&mut self) {
+        if self.is_rule_enabled(Rule::SubshellLocalAssignment) {
+            rules::correctness::subshell_local_assignment::subshell_local_assignment(self);
+        }
+        if self.is_rule_enabled(Rule::SubshellSideEffect) {
+            rules::correctness::subshell_side_effect::subshell_side_effect(self);
+        }
+    }
 
     fn check_declarations(&mut self) {
         if self.is_rule_enabled(Rule::LocalTopLevel) {
@@ -317,6 +327,9 @@ impl<'a> Checker<'a> {
         }
         if self.is_rule_enabled(Rule::SetFlagsWithoutDashes) {
             rules::correctness::set_flags_without_dashes::set_flags_without_dashes(self);
+        }
+        if self.is_rule_enabled(Rule::DollarQuestionAfterCommand) {
+            rules::correctness::dollar_question_after_command::dollar_question_after_command(self);
         }
         if self.is_rule_enabled(Rule::QuotedArraySlice) {
             rules::correctness::quoted_array_slice::quoted_array_slice(self);

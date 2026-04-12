@@ -1,0 +1,47 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
+    line: 916
+    labels:
+      - helper-library
+      - project-closure
+    reason: "This configure helper intentionally exports build flags only for the nested configure subshell, and the remaining C155 hit comes from file-wide later-use inference across helper-library and project-closure analysis where the pinned oracle stays silent."
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
+    line: 919
+    labels:
+      - helper-library
+      - project-closure
+    reason: "This configure helper intentionally exports build flags only for the nested configure subshell, and the remaining C155 hit comes from file-wide later-use inference across helper-library and project-closure analysis where the pinned oracle stays silent."
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
+    line: 922
+    labels:
+      - helper-library
+      - project-closure
+    reason: "This configure helper intentionally exports build flags only for the nested configure subshell, and the remaining C155 hit comes from file-wide later-use inference across helper-library and project-closure analysis where the pinned oracle stays silent."
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
+    line: 925
+    labels:
+      - helper-library
+      - project-closure
+    reason: "This configure helper intentionally exports build flags only for the nested configure subshell, and the remaining C155 hit comes from file-wide later-use inference across helper-library and project-closure analysis where the pinned oracle stays silent."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__cli"
+    line: 385
+    labels:
+      - project-closure
+    reason: "This function-style subshell relies on helper-side mutation flow through sourced project-closure behavior, which shuck does not yet promote into a later-read C155 fact."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__installer"
+    line: 226
+    labels:
+      - project-closure
+    reason: "This installer subshell mutates `rvm_path` only for a helper path that is compared through project-closure analysis, and shuck does not currently lift that sourced helper dependency into C155."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__tools"
+    line: 69
+    labels:
+      - project-closure
+    reason: "This HOME reassignment sits in a helper path whose observable effect depends on project-closure context from sibling helper execution, which shuck does not currently model as a C155 side effect."

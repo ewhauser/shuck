@@ -1,0 +1,110 @@
+reviewed_divergences:
+  - side: shellcheck-only
+    path_suffix: "acmesh-official__acme.sh__acme.sh"
+    line: 5908
+    end_line: 5908
+    column: 69
+    end_column: 76
+    labels:
+      - directive-handling
+      - project-closure
+    reason: "This renewal-list helper compares through directive-handling and project-closure, and the remaining C150 difference is the exact anchor inside one dense formatted expansion. The warning shape matches, but the oracle pins the later-use span on the `Le_Alt` expansion while shuck currently lands slightly earlier in the same output expression."
+  - side: shuck-only
+    path_suffix: "acmesh-official__acme.sh__acme.sh"
+    line: 5908
+    end_line: 5908
+    column: 67
+    end_column: 74
+    labels:
+      - directive-handling
+      - project-closure
+    reason: "This renewal-list helper compares through directive-handling and project-closure, and the remaining C150 difference is the exact anchor inside one dense formatted expansion. The warning shape matches, but shuck currently lands slightly earlier in the same output expression than the oracle."
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
+    line: 1318
+    labels:
+      - helper-library
+      - project-closure
+    reason: "These helper-library builder functions are compared through project-closure, and the remaining C150 hits come from shuck's file-wide later-use heuristic on environment setup variables where the pinned oracle stays silent in this fixture."
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
+    line: 1502
+    labels:
+      - helper-library
+      - project-closure
+    reason: "These helper-library builder functions are compared through project-closure, and the remaining C150 hits come from shuck's file-wide later-use heuristic on environment setup variables where the pinned oracle stays silent in this fixture."
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
+    line: 1520
+    labels:
+      - helper-library
+      - project-closure
+    reason: "These helper-library builder functions are compared through project-closure, and the remaining C150 hits come from shuck's file-wide later-use heuristic on environment setup variables where the pinned oracle stays silent in this fixture."
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
+    line: 1521
+    labels:
+      - helper-library
+      - project-closure
+    reason: "These helper-library builder functions are compared through project-closure, and the remaining C150 hits come from shuck's file-wide later-use heuristic on environment setup variables where the pinned oracle stays silent in this fixture."
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
+    line: 1883
+    labels:
+      - helper-library
+      - project-closure
+    reason: "These helper-library builder functions are compared through project-closure, and the remaining C150 hits come from shuck's file-wide later-use heuristic on environment setup variables where the pinned oracle stays silent in this fixture."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__cli"
+    line: 404
+    labels:
+      - project-closure
+    reason: "This project-closure helper gets its effective `__search_list` mutation through sourced helper behavior that shuck still does not promote into a later-read C150 fact."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__installer"
+    line: 236
+    labels:
+      - project-closure
+    reason: "This installer helper's remaining C150 hits depend on sourced helper-side effects for `rvm_path` inside project-closure analysis, which shuck does not yet lift into later-read facts."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__installer"
+    line: 280
+    labels:
+      - project-closure
+    reason: "This installer helper's remaining C150 hits depend on sourced helper-side effects for `rvm_path` inside project-closure analysis, which shuck does not yet lift into later-read facts."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__installer"
+    line: 285
+    labels:
+      - project-closure
+    reason: "This installer helper's remaining C150 hits depend on sourced helper-side effects for `rvm_path` inside project-closure analysis, which shuck does not yet lift into later-read facts."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__gemsets"
+    line: 379
+    labels:
+      - project-closure
+    reason: "This gemset helper's remaining C150 hits depend on sourced helper-side effects for `rvm_ruby_string` inside project-closure analysis, which shuck does not yet lift into later-read facts."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__gemsets"
+    line: 510
+    labels:
+      - project-closure
+    reason: "This gemset helper's remaining C150 hits depend on sourced helper-side effects for `rvm_ruby_string` inside project-closure analysis, which shuck does not yet lift into later-read facts."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__gemsets"
+    line: 514
+    labels:
+      - project-closure
+    reason: "This gemset helper's remaining C150 hits depend on sourced helper-side effects for `rvm_ruby_string` inside project-closure analysis, which shuck does not yet lift into later-read facts."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__tools"
+    line: 106
+    labels:
+      - project-closure
+    reason: "This tools helper's remaining C150 hits depend on sourced helper-side effects for `HOME` inside project-closure analysis, which shuck does not yet lift into later-read facts."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__tools"
+    line: 128
+    labels:
+      - project-closure
+    reason: "This tools helper's remaining C150 hits depend on sourced helper-side effects for `HOME` inside project-closure analysis, which shuck does not yet lift into later-read facts."

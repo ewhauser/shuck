@@ -271,6 +271,12 @@ declare_rules! {
         AppendToArrayAsString
     ),
     (
+        "C107",
+        Category::Correctness,
+        Severity::Warning,
+        DollarQuestionAfterCommand
+    ),
+    (
         "C108",
         Category::Correctness,
         Severity::Warning,
@@ -395,7 +401,20 @@ declare_rules! {
     ("C146", Category::Correctness, Severity::Error, UntilMissingDo),
     ("C147", Category::Correctness, Severity::Warning, KeywordFunctionName),
     ("C148", Category::Correctness, Severity::Warning, BrokenAssocKey),
+    (
+        "C150",
+        Category::Correctness,
+        Severity::Warning,
+        SubshellLocalAssignment
+    ),
     ("C151", Category::Correctness, Severity::Warning, CommaArrayElements),
+    ("C155", Category::Correctness, Severity::Warning, SubshellSideEffect),
+    (
+        "C156",
+        Category::Correctness,
+        Severity::Warning,
+        PossibleVariableMisspelling
+    ),
     ("C157", Category::Correctness, Severity::Error, IfBracketGlued),
     ("P001", Category::Performance, Severity::Warning, ExprArithmetic),
     ("P002", Category::Performance, Severity::Warning, GrepCountPipeline),
@@ -654,7 +673,9 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-311" => Some(Rule::ArrayToStringConversion),
         "SH-336" => Some(Rule::KeywordFunctionName),
         "SH-337" => Some(Rule::BrokenAssocKey),
+        "SH-347" => Some(Rule::SubshellSideEffect),
         "SH-340" => Some(Rule::CommaArrayElements),
+        "SH-351" => Some(Rule::PossibleVariableMisspelling),
         "SH-036" => Some(Rule::SingleQuotedLiteral),
         "SH-037" => Some(Rule::PrintfFormatVariable),
         "SH-038" => Some(Rule::UnquotedArrayExpansion),
@@ -725,6 +746,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-329" => Some(Rule::LinebreakBeforeAnd),
         "SH-330" => Some(Rule::SpacedTabstripClose),
         "SH-335" => Some(Rule::AmpersandSemicolon),
+        "SH-339" => Some(Rule::SubshellLocalAssignment),
         "SH-121" => Some(Rule::CStyleComment),
         "SH-123" => Some(Rule::CPrototypeFragment),
         "SH-129" => Some(Rule::BadRedirectionFdOrder),
@@ -778,6 +800,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-250" => Some(Rule::ArraySliceInComparison),
         "SH-251" => Some(Rule::DefaultValueInColonAssign),
         "SH-241" => Some(Rule::AppendToArrayAsString),
+        "SH-242" => Some(Rule::DollarQuestionAfterCommand),
         "SH-243" => Some(Rule::UnsetAssociativeArrayElement),
         "SH-244" => Some(Rule::MapfileProcessSubstitution),
         "SH-254" => Some(Rule::GlobWithExpansionInLoop),
@@ -1144,6 +1167,11 @@ mod tests {
         assert_eq!(code_to_rule("SH-250"), Some(Rule::ArraySliceInComparison));
         assert_eq!(code_to_rule("C106"), Some(Rule::AppendToArrayAsString));
         assert_eq!(code_to_rule("SH-241"), Some(Rule::AppendToArrayAsString));
+        assert_eq!(code_to_rule("C107"), Some(Rule::DollarQuestionAfterCommand));
+        assert_eq!(
+            code_to_rule("SH-242"),
+            Some(Rule::DollarQuestionAfterCommand)
+        );
         assert_eq!(
             code_to_rule("C108"),
             Some(Rule::UnsetAssociativeArrayElement)
@@ -1196,8 +1224,15 @@ mod tests {
         assert_eq!(code_to_rule("SH-336"), Some(Rule::KeywordFunctionName));
         assert_eq!(code_to_rule("C148"), Some(Rule::BrokenAssocKey));
         assert_eq!(code_to_rule("SH-337"), Some(Rule::BrokenAssocKey));
+        assert_eq!(code_to_rule("SH-347"), Some(Rule::SubshellSideEffect));
+        assert_eq!(code_to_rule("C150"), Some(Rule::SubshellLocalAssignment));
+        assert_eq!(code_to_rule("SH-339"), Some(Rule::SubshellLocalAssignment));
         assert_eq!(code_to_rule("C151"), Some(Rule::CommaArrayElements));
         assert_eq!(code_to_rule("SH-340"), Some(Rule::CommaArrayElements));
+        assert_eq!(
+            code_to_rule("SH-351"),
+            Some(Rule::PossibleVariableMisspelling)
+        );
         assert_eq!(code_to_rule("SH-283"), Some(Rule::FindExecDirWithShell));
         assert_eq!(
             code_to_rule("C137"),

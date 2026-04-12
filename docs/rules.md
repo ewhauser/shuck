@@ -392,10 +392,10 @@ rules require pattern analysis and are high complexity.
 Rules about variable mutations inside subshells and pipelines that do not
 propagate. Require semantic scope analysis and are high complexity.
 
-- [ ] **H** C107 (SC2337) `dollar-question-after-command` — `$?` checked after intervening command
-- [ ] **H** C150 (SC2031) `subshell-local-assignment` — variable assigned in subshell does not propagate
-- [ ] **H** C155 (SC2030) `subshell-side-effect` — value updated in pipeline child, read afterward
-- [ ] **H** C156 (SC2153) `possible-variable-misspelling` — referenced variable looks like misspelling
+- [x] **H** C107 (SC2337) `dollar-question-after-command` — `$?` checked after intervening command
+- [x] **H** C150 (SC2031) `subshell-local-assignment` — variable assigned in subshell does not propagate
+- [x] **H** C155 (SC2030) `subshell-side-effect` — value updated in pipeline child, read afterward
+- [x] **H** C156 (SC2153) `possible-variable-misspelling` — referenced variable looks like misspelling
 
 ### Heredoc Issues
 

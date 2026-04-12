@@ -27,6 +27,7 @@ pub mod constant_comparison_test;
 pub mod continue_outside_loop_in_function;
 pub mod dangling_else;
 pub mod default_else_in_short_circuit;
+pub mod dollar_question_after_command;
 pub mod double_paren_grouping;
 pub mod dynamic_source_path;
 pub mod else_if;
@@ -78,6 +79,7 @@ pub mod pipe_to_kill;
 pub mod plus_prefix_in_assignment;
 pub mod positional_param_as_operator;
 pub mod positional_ten_braces;
+pub mod possible_variable_misspelling;
 pub mod quoted_array_slice;
 pub mod quoted_bash_regex;
 pub mod quoted_bash_source;
@@ -91,6 +93,8 @@ pub mod spaced_assignment;
 pub mod status_capture_after_branch_test;
 pub mod string_comparison_for_version;
 pub mod subshell_in_arithmetic;
+pub mod subshell_local_assignment;
+pub mod subshell_side_effect;
 pub mod subst_with_redirect;
 pub mod subst_with_redirect_err;
 pub mod sudo_redirection_order;
@@ -114,6 +118,7 @@ pub mod untracked_source_file;
 pub mod unused_assignment;
 pub mod unused_heredoc;
 pub mod variable_as_command_name;
+mod variable_reference_common;
 
 #[cfg(test)]
 mod tests {
@@ -209,6 +214,7 @@ mod tests {
     #[test_case(Rule::AtSignInStringCompare, Path::new("C111.sh"))]
     #[test_case(Rule::ArraySliceInComparison, Path::new("C112.sh"))]
     #[test_case(Rule::AppendToArrayAsString, Path::new("C106.sh"))]
+    #[test_case(Rule::DollarQuestionAfterCommand, Path::new("C107.sh"))]
     #[test_case(Rule::UnsetAssociativeArrayElement, Path::new("C108.sh"))]
     #[test_case(Rule::MapfileProcessSubstitution, Path::new("C109.sh"))]
     #[test_case(Rule::DefaultElseInShortCircuit, Path::new("C115.sh"))]
@@ -236,7 +242,10 @@ mod tests {
     #[test_case(Rule::UntilMissingDo, Path::new("C146.sh"))]
     #[test_case(Rule::KeywordFunctionName, Path::new("C147.sh"))]
     #[test_case(Rule::BrokenAssocKey, Path::new("C148.sh"))]
+    #[test_case(Rule::SubshellLocalAssignment, Path::new("C150.sh"))]
     #[test_case(Rule::CommaArrayElements, Path::new("C151.sh"))]
+    #[test_case(Rule::SubshellSideEffect, Path::new("C155.sh"))]
+    #[test_case(Rule::PossibleVariableMisspelling, Path::new("C156.sh"))]
     #[test_case(Rule::IfBracketGlued, Path::new("C157.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());

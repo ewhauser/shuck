@@ -27,7 +27,7 @@ use shuck_ast::{
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
-use shuck_semantic::{ScopeId, SemanticModel, ZshOptionState};
+use shuck_semantic::{BindingAttributes, BindingKind, ScopeId, SemanticModel, ZshOptionState};
 use std::borrow::Cow;
 
 use self::{
@@ -1890,6 +1890,9 @@ pub struct LinterFacts<'a> {
     condition_status_capture_spans: Vec<Span>,
     condition_command_substitution_spans: Vec<Span>,
     backtick_command_name_spans: Vec<Span>,
+    dollar_question_after_command_spans: Vec<Span>,
+    subshell_local_assignment_spans: Vec<Span>,
+    subshell_side_effect_spans: Vec<Span>,
     unused_heredoc_spans: Vec<Span>,
     heredoc_missing_end_spans: Vec<Span>,
     heredoc_closer_not_alone_spans: Vec<Span>,
@@ -2106,6 +2109,18 @@ impl<'a> LinterFacts<'a> {
 
     pub fn backtick_command_name_spans(&self) -> &[Span] {
         &self.backtick_command_name_spans
+    }
+
+    pub fn dollar_question_after_command_spans(&self) -> &[Span] {
+        &self.dollar_question_after_command_spans
+    }
+
+    pub fn subshell_local_assignment_spans(&self) -> &[Span] {
+        &self.subshell_local_assignment_spans
+    }
+
+    pub fn subshell_side_effect_spans(&self) -> &[Span] {
+        &self.subshell_side_effect_spans
     }
 
     pub fn unused_heredoc_spans(&self) -> &[Span] {
@@ -2467,6 +2482,14 @@ impl<'a> LinterFactsBuilder<'a> {
         let condition_command_substitution_spans =
             build_condition_command_substitution_spans(&self.file.body, self.source);
         let backtick_command_name_spans = build_backtick_command_name_spans(&commands);
+        let dollar_question_after_command_spans = build_dollar_question_after_command_spans(
+            &self.file.body,
+            &commands,
+            &command_ids_by_span,
+            self.source,
+        );
+        let nonpersistent_assignment_spans =
+            build_nonpersistent_assignment_spans(self.semantic, &commands);
         let heredoc_summary =
             build_heredoc_fact_summary(&commands, self.source, self.file.span.end.offset);
         let plus_equals_assignment_spans = build_plus_equals_assignment_spans(&commands);
@@ -2562,6 +2585,10 @@ impl<'a> LinterFactsBuilder<'a> {
             condition_status_capture_spans,
             condition_command_substitution_spans,
             backtick_command_name_spans,
+            dollar_question_after_command_spans,
+            subshell_local_assignment_spans: nonpersistent_assignment_spans
+                .subshell_local_assignment_spans,
+            subshell_side_effect_spans: nonpersistent_assignment_spans.subshell_side_effect_spans,
             unused_heredoc_spans: heredoc_summary.unused_heredoc_spans,
             heredoc_missing_end_spans: heredoc_summary.heredoc_missing_end_spans,
             heredoc_closer_not_alone_spans: heredoc_summary.heredoc_closer_not_alone_spans,
@@ -4707,6 +4734,728 @@ fn command_name_is_plain_command_substitution(word: &Word, source: &str) -> bool
                 ..
             }]
         )
+}
+
+fn build_dollar_question_after_command_spans(
+    commands: &StmtSeq,
+    command_facts: &[CommandFact<'_>],
+    command_ids_by_span: &CommandLookupIndex,
+    source: &str,
+) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_dollar_question_after_command_spans_in_seq(
+        commands,
+        command_facts,
+        command_ids_by_span,
+        source,
+        &mut spans,
+    );
+
+    let mut seen = FxHashSet::default();
+    spans.retain(|span| seen.insert(FactSpan::new(*span)));
+    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    spans
+}
+
+fn build_nonpersistent_assignment_spans(
+    semantic: &SemanticModel,
+    commands: &[CommandFact<'_>],
+) -> NonpersistentAssignmentSpans {
+    let mut candidate_bindings_by_name: FxHashMap<Name, Vec<CandidateSubshellAssignment>> =
+        FxHashMap::default();
+    let mut persistent_reset_offsets_by_name: FxHashMap<Name, Vec<PersistentReset>> =
+        FxHashMap::default();
+
+    for binding in semantic.bindings() {
+        if !is_reportable_subshell_assignment(binding.kind, binding.attributes) {
+            continue;
+        }
+
+        let Some(nonpersistent_scope) =
+            innermost_nonpersistent_scope_span(semantic, binding.span.start.offset)
+        else {
+            continue;
+        };
+
+        candidate_bindings_by_name
+            .entry(binding.name.clone())
+            .or_default()
+            .push(CandidateSubshellAssignment {
+                binding_id: binding.id,
+                assignment_span: binding.span,
+                kind: nonpersistent_scope.kind,
+                subshell_start: nonpersistent_scope.span.start.offset,
+                subshell_end: nonpersistent_scope.span.end.offset,
+            });
+    }
+
+    for binding in semantic.bindings() {
+        if !is_persistent_subshell_reset_binding(binding.kind, binding.attributes) {
+            continue;
+        }
+        if is_within_any_nonpersistent_scope(semantic, binding.span.start.offset) {
+            continue;
+        }
+        let command_span =
+            innermost_command_span_containing_offset(commands, binding.span.start.offset);
+        persistent_reset_offsets_by_name
+            .entry(binding.name.clone())
+            .or_default()
+            .push(PersistentReset {
+                offset: binding.span.start.offset,
+                command_span,
+            });
+    }
+
+    let mut later_use_spans = Vec::new();
+    let mut side_effect_spans = Vec::new();
+    for reference in semantic.references() {
+        if matches!(
+            reference.kind,
+            shuck_semantic::ReferenceKind::DeclarationName
+        ) {
+            continue;
+        }
+
+        let Some(candidate_ids) = candidate_bindings_by_name.get(&reference.name) else {
+            continue;
+        };
+
+        let reset_offsets = persistent_reset_offsets_by_name
+            .get(&reference.name)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        let event_command_span =
+            innermost_command_span_containing_offset(commands, reference.span.start.offset);
+        let resolved = semantic.resolved_binding(reference.id);
+        let mut matched_nonpipeline_candidate = false;
+        for candidate in candidate_ids {
+            if reference.span.start.offset <= candidate.subshell_end
+                || has_intervening_persistent_reset(
+                    reset_offsets,
+                    candidate.subshell_end,
+                    reference.span.start.offset,
+                    event_command_span,
+                )
+                || !resolved.is_none_or(|resolved| {
+                    resolved.id != candidate.binding_id
+                        && resolved.span.start.offset < candidate.subshell_start
+                })
+            {
+                continue;
+            }
+
+            side_effect_spans.push(candidate.assignment_span);
+            if !matches!(candidate.kind, NonpersistentAssignmentKind::Pipeline) {
+                matched_nonpipeline_candidate = true;
+            }
+        }
+
+        if matched_nonpipeline_candidate {
+            later_use_spans.push(reference.span);
+        }
+    }
+
+    for binding in semantic.bindings() {
+        if !is_reportable_subshell_later_use_binding(binding.kind, binding.attributes) {
+            continue;
+        }
+
+        let Some(candidate_ids) = candidate_bindings_by_name.get(&binding.name) else {
+            continue;
+        };
+
+        let reset_offsets = persistent_reset_offsets_by_name
+            .get(&binding.name)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        let mut matched_nonpipeline_candidate = false;
+        for candidate in candidate_ids {
+            if binding.span.start.offset <= candidate.subshell_end
+                || has_intervening_persistent_reset(
+                    reset_offsets,
+                    candidate.subshell_end,
+                    binding.span.start.offset,
+                    None,
+                )
+            {
+                continue;
+            }
+
+            side_effect_spans.push(candidate.assignment_span);
+            if !matches!(candidate.kind, NonpersistentAssignmentKind::Pipeline) {
+                matched_nonpipeline_candidate = true;
+            }
+        }
+
+        if matched_nonpipeline_candidate {
+            later_use_spans.push(binding.span);
+        }
+    }
+
+    let mut seen = FxHashSet::default();
+    later_use_spans.retain(|span| seen.insert(FactSpan::new(*span)));
+    later_use_spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+
+    seen.clear();
+    side_effect_spans.retain(|span| seen.insert(FactSpan::new(*span)));
+    side_effect_spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+
+    NonpersistentAssignmentSpans {
+        subshell_local_assignment_spans: later_use_spans,
+        subshell_side_effect_spans: side_effect_spans,
+    }
+}
+
+fn is_reportable_subshell_assignment(kind: BindingKind, attributes: BindingAttributes) -> bool {
+    match kind {
+        BindingKind::Assignment
+        | BindingKind::AppendAssignment
+        | BindingKind::ArrayAssignment
+        | BindingKind::LoopVariable
+        | BindingKind::ReadTarget
+        | BindingKind::MapfileTarget
+        | BindingKind::PrintfTarget
+        | BindingKind::GetoptsTarget
+        | BindingKind::ArithmeticAssignment => !attributes.contains(BindingAttributes::LOCAL),
+        BindingKind::Declaration(_) => {
+            attributes.contains(BindingAttributes::DECLARATION_INITIALIZED)
+                && !attributes.contains(BindingAttributes::LOCAL)
+        }
+        BindingKind::ParameterDefaultAssignment => false,
+        BindingKind::Imported => false,
+        BindingKind::FunctionDefinition | BindingKind::Nameref => false,
+    }
+}
+
+fn is_reportable_subshell_later_use_binding(
+    kind: BindingKind,
+    attributes: BindingAttributes,
+) -> bool {
+    match kind {
+        BindingKind::AppendAssignment => true,
+        BindingKind::Declaration(_) => {
+            attributes.contains(BindingAttributes::DECLARATION_INITIALIZED)
+                && !attributes.contains(BindingAttributes::LOCAL)
+        }
+        BindingKind::Assignment
+        | BindingKind::ArrayAssignment
+        | BindingKind::LoopVariable
+        | BindingKind::ReadTarget
+        | BindingKind::MapfileTarget
+        | BindingKind::PrintfTarget
+        | BindingKind::GetoptsTarget
+        | BindingKind::ArithmeticAssignment
+        | BindingKind::ParameterDefaultAssignment
+        | BindingKind::FunctionDefinition
+        | BindingKind::Imported
+        | BindingKind::Nameref => false,
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CandidateSubshellAssignment {
+    binding_id: shuck_semantic::BindingId,
+    assignment_span: Span,
+    kind: NonpersistentAssignmentKind,
+    subshell_start: usize,
+    subshell_end: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NonpersistentAssignmentKind {
+    Pipeline,
+    Subshell,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct NonpersistentScopeSpan {
+    span: Span,
+    kind: NonpersistentAssignmentKind,
+}
+
+#[derive(Debug, Default)]
+struct NonpersistentAssignmentSpans {
+    subshell_local_assignment_spans: Vec<Span>,
+    subshell_side_effect_spans: Vec<Span>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PersistentReset {
+    offset: usize,
+    command_span: Option<Span>,
+}
+
+fn innermost_nonpersistent_scope_span(
+    semantic: &SemanticModel,
+    offset: usize,
+) -> Option<NonpersistentScopeSpan> {
+    let scope = innermost_nonpersistent_scope_within_function(semantic, offset)?;
+    let span = semantic
+        .scopes()
+        .iter()
+        .find(|candidate| candidate.id == scope)
+        .map(|candidate| candidate.span)?;
+    let kind = match semantic.scope_kind(scope) {
+        shuck_semantic::ScopeKind::Pipeline => NonpersistentAssignmentKind::Pipeline,
+        shuck_semantic::ScopeKind::Subshell | shuck_semantic::ScopeKind::CommandSubstitution => {
+            NonpersistentAssignmentKind::Subshell
+        }
+        shuck_semantic::ScopeKind::Function(_) | shuck_semantic::ScopeKind::File => return None,
+    };
+
+    Some(NonpersistentScopeSpan { span, kind })
+}
+
+fn is_within_any_nonpersistent_scope(semantic: &SemanticModel, offset: usize) -> bool {
+    let scope = semantic.scope_at(offset);
+
+    semantic.ancestor_scopes(scope).any(|scope| {
+        matches!(
+            semantic.scope_kind(scope),
+            shuck_semantic::ScopeKind::Subshell
+                | shuck_semantic::ScopeKind::CommandSubstitution
+                | shuck_semantic::ScopeKind::Pipeline
+        )
+    })
+}
+
+fn is_persistent_subshell_reset_binding(kind: BindingKind, attributes: BindingAttributes) -> bool {
+    match kind {
+        BindingKind::Assignment
+        | BindingKind::AppendAssignment
+        | BindingKind::ArrayAssignment
+        | BindingKind::LoopVariable
+        | BindingKind::ReadTarget
+        | BindingKind::MapfileTarget
+        | BindingKind::PrintfTarget
+        | BindingKind::GetoptsTarget
+        | BindingKind::ArithmeticAssignment => !attributes.contains(BindingAttributes::LOCAL),
+        BindingKind::Declaration(_) => {
+            attributes.contains(BindingAttributes::DECLARATION_INITIALIZED)
+                && !attributes.contains(BindingAttributes::LOCAL)
+        }
+        BindingKind::ParameterDefaultAssignment => false,
+        BindingKind::FunctionDefinition | BindingKind::Imported | BindingKind::Nameref => false,
+    }
+}
+
+fn has_intervening_persistent_reset(
+    resets: &[PersistentReset],
+    candidate_end: usize,
+    event_offset: usize,
+    event_command_span: Option<Span>,
+) -> bool {
+    resets.iter().any(|reset| {
+        reset.offset > candidate_end
+            && reset.offset < event_offset
+            && event_command_span.is_none_or(|event_span| reset.command_span != Some(event_span))
+    })
+}
+
+fn innermost_command_span_containing_offset(
+    commands: &[CommandFact<'_>],
+    offset: usize,
+) -> Option<Span> {
+    commands
+        .iter()
+        .map(CommandFact::span)
+        .filter(|span| span.start.offset <= offset && offset <= span.end.offset)
+        .min_by_key(|span| span.end.offset - span.start.offset)
+}
+
+fn collect_dollar_question_after_command_spans_in_seq(
+    commands: &StmtSeq,
+    command_facts: &[CommandFact<'_>],
+    command_ids_by_span: &CommandLookupIndex,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for pair in commands.as_slice().windows(2) {
+        if !stmt_is_intervening_output_command(&pair[0], command_facts, command_ids_by_span) {
+            continue;
+        }
+
+        spans.extend(followup_status_parameter_spans_in_stmt(&pair[1], source));
+    }
+
+    for stmt in commands.iter() {
+        collect_nested_dollar_question_after_command_spans_in_command(
+            &stmt.command,
+            command_facts,
+            command_ids_by_span,
+            source,
+            spans,
+        );
+    }
+}
+
+fn collect_nested_dollar_question_after_command_spans_in_command(
+    command: &Command,
+    command_facts: &[CommandFact<'_>],
+    command_ids_by_span: &CommandLookupIndex,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match command {
+        Command::Compound(command) => match command {
+            CompoundCommand::If(command) => {
+                collect_dollar_question_after_command_spans_in_seq(
+                    &command.condition,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+                collect_dollar_question_after_command_spans_in_seq(
+                    &command.then_branch,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+                for (condition, body) in &command.elif_branches {
+                    collect_dollar_question_after_command_spans_in_seq(
+                        condition,
+                        command_facts,
+                        command_ids_by_span,
+                        source,
+                        spans,
+                    );
+                    collect_dollar_question_after_command_spans_in_seq(
+                        body,
+                        command_facts,
+                        command_ids_by_span,
+                        source,
+                        spans,
+                    );
+                }
+                if let Some(else_branch) = &command.else_branch {
+                    collect_dollar_question_after_command_spans_in_seq(
+                        else_branch,
+                        command_facts,
+                        command_ids_by_span,
+                        source,
+                        spans,
+                    );
+                }
+            }
+            CompoundCommand::For(command) => {
+                collect_dollar_question_after_command_spans_in_seq(
+                    &command.body,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+            }
+            CompoundCommand::Repeat(command) => {
+                collect_dollar_question_after_command_spans_in_seq(
+                    &command.body,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+            }
+            CompoundCommand::Foreach(command) => {
+                collect_dollar_question_after_command_spans_in_seq(
+                    &command.body,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+            }
+            CompoundCommand::ArithmeticFor(command) => {
+                collect_dollar_question_after_command_spans_in_seq(
+                    &command.body,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+            }
+            CompoundCommand::While(command) => {
+                collect_dollar_question_after_command_spans_in_seq(
+                    &command.condition,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+                collect_dollar_question_after_command_spans_in_seq(
+                    &command.body,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+            }
+            CompoundCommand::Until(command) => {
+                collect_dollar_question_after_command_spans_in_seq(
+                    &command.condition,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+                collect_dollar_question_after_command_spans_in_seq(
+                    &command.body,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+            }
+            CompoundCommand::Case(command) => {
+                for case in &command.cases {
+                    collect_dollar_question_after_command_spans_in_seq(
+                        &case.body,
+                        command_facts,
+                        command_ids_by_span,
+                        source,
+                        spans,
+                    );
+                }
+            }
+            CompoundCommand::Select(command) => {
+                collect_dollar_question_after_command_spans_in_seq(
+                    &command.body,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+            }
+            CompoundCommand::Subshell(body) | CompoundCommand::BraceGroup(body) => {
+                collect_dollar_question_after_command_spans_in_seq(
+                    body,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+            }
+            CompoundCommand::Time(command) => {
+                if let Some(command) = &command.command {
+                    collect_nested_dollar_question_after_command_spans_in_command(
+                        &command.command,
+                        command_facts,
+                        command_ids_by_span,
+                        source,
+                        spans,
+                    );
+                }
+            }
+            CompoundCommand::Conditional(_) | CompoundCommand::Arithmetic(_) => {}
+            CompoundCommand::Coproc(command) => {
+                collect_nested_dollar_question_after_command_spans_in_command(
+                    &command.body.command,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+            }
+            CompoundCommand::Always(command) => {
+                collect_dollar_question_after_command_spans_in_seq(
+                    &command.body,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+                collect_dollar_question_after_command_spans_in_seq(
+                    &command.always_body,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+            }
+        },
+        Command::Binary(command) => {
+            if matches!(command.op, BinaryOp::And | BinaryOp::Or)
+                && stmt_is_intervening_output_command(
+                    &command.left,
+                    command_facts,
+                    command_ids_by_span,
+                )
+            {
+                spans.extend(followup_status_parameter_spans_in_stmt(
+                    &command.right,
+                    source,
+                ));
+            }
+
+            collect_nested_dollar_question_after_command_spans_in_command(
+                &command.left.command,
+                command_facts,
+                command_ids_by_span,
+                source,
+                spans,
+            );
+            collect_nested_dollar_question_after_command_spans_in_command(
+                &command.right.command,
+                command_facts,
+                command_ids_by_span,
+                source,
+                spans,
+            );
+        }
+        Command::AnonymousFunction(command) => {
+            collect_nested_dollar_question_after_command_spans_in_command(
+                &command.body.command,
+                command_facts,
+                command_ids_by_span,
+                source,
+                spans,
+            );
+        }
+        Command::Function(command) => {
+            collect_nested_dollar_question_after_command_spans_in_command(
+                &command.body.command,
+                command_facts,
+                command_ids_by_span,
+                source,
+                spans,
+            );
+        }
+        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => {}
+    }
+}
+
+fn stmt_is_intervening_output_command(
+    stmt: &Stmt,
+    command_facts: &[CommandFact<'_>],
+    command_ids_by_span: &CommandLookupIndex,
+) -> bool {
+    let Some(command_id) = command_id_for_command(&stmt.command, command_ids_by_span) else {
+        return false;
+    };
+    let fact = &command_facts[command_id.index()];
+    fact.effective_name_is("echo") || fact.effective_name_is("printf")
+}
+
+fn status_parameter_spans_in_word(word: &Word, source: &str) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_status_parameter_spans_in_word(word, source, &mut spans);
+    spans
+}
+
+fn followup_status_parameter_spans_in_stmt(stmt: &Stmt, source: &str) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_followup_status_parameter_spans_in_stmt(stmt, source, &mut spans);
+    spans
+}
+
+fn collect_followup_status_parameter_spans_in_stmt(
+    stmt: &Stmt,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    collect_status_parameter_spans_in_stmt(stmt, source, spans);
+    collect_followup_status_parameter_spans_in_command(&stmt.command, source, spans);
+}
+
+fn collect_followup_status_parameter_spans_in_command(
+    command: &Command,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match command {
+        Command::Binary(command) if matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
+            collect_followup_status_parameter_spans_in_stmt(&command.right, source, spans);
+        }
+        Command::Compound(command) => match command {
+            CompoundCommand::For(command) => {
+                if let Some(words) = command.words.as_deref() {
+                    for word in words {
+                        spans.extend(status_parameter_spans_in_word(word, source));
+                    }
+                }
+            }
+            CompoundCommand::Repeat(command) => {
+                spans.extend(status_parameter_spans_in_word(&command.count, source));
+            }
+            CompoundCommand::Foreach(command) => {
+                for word in &command.words {
+                    spans.extend(status_parameter_spans_in_word(word, source));
+                }
+            }
+            CompoundCommand::ArithmeticFor(command) => {
+                if let Some(init) = command.init_ast.as_ref() {
+                    query::visit_arithmetic_words(init, &mut |word| {
+                        spans.extend(status_parameter_spans_in_word(word, source));
+                    });
+                }
+                if let Some(condition) = command.condition_ast.as_ref() {
+                    query::visit_arithmetic_words(condition, &mut |word| {
+                        spans.extend(status_parameter_spans_in_word(word, source));
+                    });
+                }
+                if let Some(step) = command.step_ast.as_ref() {
+                    query::visit_arithmetic_words(step, &mut |word| {
+                        spans.extend(status_parameter_spans_in_word(word, source));
+                    });
+                }
+            }
+            CompoundCommand::Case(command) => {
+                spans.extend(status_parameter_spans_in_word(&command.word, source));
+            }
+            CompoundCommand::Select(command) => {
+                for word in &command.words {
+                    spans.extend(status_parameter_spans_in_word(word, source));
+                }
+            }
+            CompoundCommand::Time(command) => {
+                if let Some(command) = &command.command {
+                    collect_followup_status_parameter_spans_in_stmt(command, source, spans);
+                }
+            }
+            CompoundCommand::If(command) => {
+                if let Some(first_stmt) = command.condition.first() {
+                    collect_followup_status_parameter_spans_in_stmt(first_stmt, source, spans);
+                }
+            }
+            CompoundCommand::While(command) => {
+                if let Some(first_stmt) = command.condition.first() {
+                    collect_followup_status_parameter_spans_in_stmt(first_stmt, source, spans);
+                }
+            }
+            CompoundCommand::Until(command) => {
+                if let Some(first_stmt) = command.condition.first() {
+                    collect_followup_status_parameter_spans_in_stmt(first_stmt, source, spans);
+                }
+            }
+            CompoundCommand::Subshell(body) | CompoundCommand::BraceGroup(body) => {
+                if let Some(first_stmt) = body.first() {
+                    collect_followup_status_parameter_spans_in_stmt(first_stmt, source, spans);
+                }
+            }
+            CompoundCommand::Coproc(command) => {
+                collect_followup_status_parameter_spans_in_stmt(&command.body, source, spans);
+            }
+            CompoundCommand::Always(command) => {
+                if let Some(first_stmt) = command.body.first() {
+                    collect_followup_status_parameter_spans_in_stmt(first_stmt, source, spans);
+                }
+            }
+            CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_) => {}
+        },
+        Command::AnonymousFunction(command) => {
+            collect_followup_status_parameter_spans_in_stmt(&command.body, source, spans);
+            for word in &command.args {
+                spans.extend(status_parameter_spans_in_word(word, source));
+            }
+        }
+        Command::Binary(_)
+        | Command::Simple(_)
+        | Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Function(_) => {}
+    }
 }
 
 fn collect_condition_status_capture_from_body(
