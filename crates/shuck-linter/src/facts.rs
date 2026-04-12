@@ -1234,11 +1234,16 @@ pub struct ReadCommandFacts {
 #[derive(Debug, Clone, Copy)]
 pub struct EchoCommandFacts<'a> {
     portability_flag_word: Option<&'a Word>,
+    uses_escape_interpreting_flag: bool,
 }
 
 impl<'a> EchoCommandFacts<'a> {
     pub fn portability_flag_word(self) -> Option<&'a Word> {
         self.portability_flag_word
+    }
+
+    pub fn uses_escape_interpreting_flag(self) -> bool {
+        self.uses_escape_interpreting_flag
     }
 }
 
@@ -2554,7 +2559,7 @@ fn build_echo_backslash_escape_word_spans(commands: &[CommandFact<'_>], source: 
     let mut spans = commands
         .iter()
         .filter(|fact| fact.effective_name_is("echo") && fact.wrappers().is_empty())
-        .filter(|fact| !echo_uses_escape_interpreting_flag(fact, source))
+        .filter(|fact| !echo_uses_escape_interpreting_flag(fact))
         .flat_map(|fact| fact.body_args().iter().copied())
         .filter(|word| word_contains_echo_backslash_escape(word, source))
         .map(|word| word.span)
@@ -2565,13 +2570,11 @@ fn build_echo_backslash_escape_word_spans(commands: &[CommandFact<'_>], source: 
     spans
 }
 
-fn echo_uses_escape_interpreting_flag(command: &CommandFact<'_>, source: &str) -> bool {
+fn echo_uses_escape_interpreting_flag(command: &CommandFact<'_>) -> bool {
     command
         .options()
         .echo()
-        .and_then(|echo| echo.portability_flag_word())
-        .and_then(|word| static_word_text(word, source))
-        .is_some_and(|text| text.contains('e'))
+        .is_some_and(|echo| echo.uses_escape_interpreting_flag())
 }
 
 fn word_contains_echo_backslash_escape(word: &Word, source: &str) -> bool {
@@ -6885,12 +6888,29 @@ fn read_uses_raw_input(args: &[&Word], source: &str) -> bool {
 }
 
 fn parse_echo_command<'a>(args: &[&'a Word], source: &str) -> EchoCommandFacts<'a> {
+    let mut portability_flag_word = None;
+    let mut uses_escape_interpreting_flag = false;
+
+    for word in args {
+        if !classify_word(word, source).is_fixed_literal() {
+            break;
+        }
+
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+
+        if !is_echo_portability_flag(text.as_str()) {
+            break;
+        }
+
+        portability_flag_word.get_or_insert(*word);
+        uses_escape_interpreting_flag |= text.contains('e');
+    }
+
     EchoCommandFacts {
-        portability_flag_word: args.first().copied().filter(|word| {
-            classify_word(word, source).is_fixed_literal()
-                && static_word_text(word, source)
-                    .is_some_and(|text| is_echo_portability_flag(text.as_str()))
-        }),
+        portability_flag_word,
+        uses_escape_interpreting_flag,
     }
 }
 

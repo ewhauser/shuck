@@ -48,6 +48,8 @@ echo "  echo You may need to get \\\`FluidR3_GM.sf2\\' from somewhere"
 echo "sed -e 's|^\\(CertStore=\\).*|\\1X|g'"
 echo "prefix $VAR \\0 suffix"
 echo -e "\n"
+echo -n -e "\n"
+echo -n "$flag" -e \x41
 echo \c
 echo \u1234
 command echo \n
@@ -76,6 +78,7 @@ printf '%s\n' \n
                 "\"  echo You may need to get \\\\\\`FluidR3_GM.sf2\\\\' from somewhere\"",
                 "\"sed -e 's|^\\\\(CertStore=\\\\).*|\\\\1X|g'\"",
                 "\"prefix $VAR \\\\0 suffix\"",
+                "\\x41",
             ]
         );
     }
