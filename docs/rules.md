@@ -374,7 +374,7 @@ require semantic model access for call site analysis.
 - [x] **L** C147 (SC2398) `keyword-function-name` — reserved word as function name
 - [x] **M** S038 (SC2265) `redundant-return-status` — returns status function already propagates
 - [x] **L** S041 (SC2276) `function-body-without-braces` — bare compound command as body
-- [ ] **L** S066 (SC2362) `local-declare-combined` — `local` and `declare` combined
+- [x] **L** S066 (SC2362) `local-declare-combined` — `local` and `declare` combined
 
 ### Case Statements
 

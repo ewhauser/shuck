@@ -628,6 +628,12 @@ declare_rules! {
         Severity::Warning,
         FunctionBodyWithoutBraces
     ),
+    (
+        "S066",
+        Category::Style,
+        Severity::Warning,
+        LocalDeclareCombined
+    ),
     ("S042", Category::Style, Severity::Warning, IfsEqualsAmbiguity),
     ("S043", Category::Style, Severity::Warning, MissingShebangLine),
     ("S053", Category::Style, Severity::Warning, DuplicateShebangFlag),
@@ -663,6 +669,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-079" => Some(Rule::AvoidLetBuiltin),
         "SH-020" => Some(Rule::LetCommand),
         "SH-021" => Some(Rule::DeclareCommand),
+        "SH-289" => Some(Rule::LocalDeclareCombined),
         "SH-029" => Some(Rule::PipefailOption),
         "SH-030" => Some(Rule::WaitOption),
         "SH-022" => Some(Rule::TrapErr),
@@ -1056,6 +1063,8 @@ mod tests {
             code_to_rule("SH-181"),
             Some(Rule::FunctionBodyWithoutBraces)
         );
+        assert_eq!(code_to_rule("S066"), Some(Rule::LocalDeclareCombined));
+        assert_eq!(code_to_rule("SH-289"), Some(Rule::LocalDeclareCombined));
         assert_eq!(code_to_rule("SH-026"), Some(Rule::UntrackedSourceFile));
         assert_eq!(code_to_rule("SH-036"), Some(Rule::SingleQuotedLiteral));
         assert_eq!(code_to_rule("SH-037"), Some(Rule::PrintfFormatVariable));

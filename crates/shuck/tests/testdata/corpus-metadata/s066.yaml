@@ -1,0 +1,7 @@
+comparison_target_notes:
+  - current_shellcheck_code: "SC2316"
+    reason: "The pinned ShellCheck 0.11.0 oracle in this workspace reports the combined local/declare warning under SC2316 on minimal probes, so the authored S066 target stays at SC2362 and the corpus harness should not wait for SC2316 as the comparison code."
+
+reviewed_divergences:
+  - side: shuck-only
+    reason: "Shuck flags a declaration that mixes `local` and `declare` in one statement. The current oracle build in this repo does not surface the authored SC2362 target for that pattern, so the remaining corpus hits are treated as reviewed shuck-only divergence."

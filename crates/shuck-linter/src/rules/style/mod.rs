@@ -35,6 +35,7 @@ pub mod linebreak_before_and;
 pub mod literal_backslash;
 pub mod literal_backslash_in_single_quotes;
 pub mod literal_braces;
+pub mod local_declare_combined;
 pub mod loop_from_command_output;
 pub mod ls_grep_pipeline;
 pub mod ls_in_substitution;
@@ -107,6 +108,7 @@ mod tests {
     #[test_case(Rule::MixedQuoteWord, Path::new("S076.sh"))]
     #[test_case(Rule::FunctionInAlias, Path::new("S057.sh"))]
     #[test_case(Rule::FunctionBodyWithoutBraces, Path::new("S041.sh"))]
+    #[test_case(Rule::LocalDeclareCombined, Path::new("S066.sh"))]
     #[test_case(Rule::GrepOutputInTest, Path::new("S019.sh"))]
     #[test_case(Rule::PsGrepPipeline, Path::new("S012.sh"))]
     #[test_case(Rule::LsGrepPipeline, Path::new("S013.sh"))]

@@ -482,6 +482,7 @@ impl Default for ShellCheckCodeMap {
             // ShellCheck 0.11.0 reports declaration cross-reference warnings as SC2318.
             // Keep SC2384 as a suppression alias, but prefer the current code for comparisons.
             (2318, Rule::LocalCrossReference),
+            (2362, Rule::LocalDeclareCombined),
             (2276, Rule::PlusPrefixInAssignment),
             (2276, Rule::FunctionBodyWithoutBraces),
             // ShellCheck 0.11.0 reports digit-prefixed assignment names as SC2282.
@@ -859,6 +860,7 @@ impl Default for ShellCheckCodeMap {
                 (2328, Rule::CommandSubstitutionInAlias),
                 (2330, Rule::FunctionInAlias),
                 (2376, Rule::DoubleQuoteNesting),
+                (2362, Rule::LocalDeclareCombined),
                 // ShellCheck 0.11.0 also uses SC2276 for the bare-compound function-body
                 // portability warning. Keep it as a secondary alias so SC2276 still
                 // resolves to the long-standing C117 suppression target first.
@@ -1492,6 +1494,7 @@ mod tests {
         assert_eq!(map.resolve("SC2089"), Some(Rule::AppendWithEscapedQuotes));
         assert_eq!(map.resolve("SC2318"), Some(Rule::LocalCrossReference));
         assert_eq!(map.resolve("SC2096"), Some(Rule::DuplicateShebangFlag));
+        assert_eq!(map.resolve("SC2362"), Some(Rule::LocalDeclareCombined));
         assert_eq!(map.resolve("SC2276"), Some(Rule::PlusPrefixInAssignment));
         assert_eq!(
             map.resolve_all("SC2276"),
@@ -1500,6 +1503,7 @@ mod tests {
                 Rule::FunctionBodyWithoutBraces
             ]
         );
+        assert_eq!(map.resolve_all("SC2362"), vec![Rule::LocalDeclareCombined]);
         assert_eq!(
             map.resolve("SC2270"),
             Some(Rule::AssignmentToNumericVariable)
@@ -1812,6 +1816,7 @@ mod tests {
             (2318, Rule::LocalCrossReference),
             (2318, Rule::DuplicateShebangFlag),
             (2096, Rule::DuplicateShebangFlag),
+            (2362, Rule::LocalDeclareCombined),
             (2290, Rule::SpacedAssignment),
             (2384, Rule::LocalCrossReference),
             (2387, Rule::SpacedAssignment),
@@ -2051,6 +2056,7 @@ mod tests {
         assert!(comparison.contains(&(2294, Rule::LsInSubstitution)));
         assert!(comparison.contains(&(2265, Rule::RedundantReturnStatus)));
         assert!(comparison.contains(&(2276, Rule::FunctionBodyWithoutBraces)));
+        assert!(comparison.contains(&(2362, Rule::LocalDeclareCombined)));
         assert!(!comparison.contains(&(2294, Rule::EvalOnArray)));
         assert!(!comparison.contains(&(2295, Rule::UnquotedGlobsInFind)));
         assert!(!comparison.contains(&(2299, Rule::GlobInGrepPattern)));

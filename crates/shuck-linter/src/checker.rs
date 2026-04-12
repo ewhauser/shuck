@@ -414,6 +414,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::DeclareCommand) {
             rules::portability::declare_command::declare_command(self);
         }
+        if self.is_rule_enabled(Rule::LocalDeclareCombined) {
+            rules::style::local_declare_combined::local_declare_combined(self);
+        }
         if self.is_rule_enabled(Rule::ArrayAssignment) {
             rules::portability::array_assignment::array_assignment(self);
         }
