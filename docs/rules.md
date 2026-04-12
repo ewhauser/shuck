@@ -384,7 +384,7 @@ rules require pattern analysis and are high complexity.
 - [x] **H** C128 (SC2373) `case-glob-reachability` — case glob pattern shadows later arm
 - [x] **H** C129 (SC2374) `case-default-before-glob` — default case before matching glob
 - [x] **M** C134 (SC2382) `getopts-option-not-in-case` — getopts option not handled in case
-- [ ] **M** C135 (SC2383) `case-arm-not-in-getopts` — case arm not listed in getopts string
+- [x] **M** C135 (SC2383) `case-arm-not-in-getopts` — case arm not listed in getopts string
 - [ ] **L** S069 (SC2372) `single-letter-case-label` — bare single letter as case label
 
 ### Subshell and Pipeline Side Effects

@@ -20,6 +20,7 @@ pub mod c_prototype_fragment;
 pub mod c_style_comment;
 pub mod case_default_before_glob;
 pub mod case_glob_reachability;
+pub mod case_arm_not_in_getopts;
 pub mod case_pattern_var;
 pub mod chained_test_branches;
 pub mod comma_array_elements;
@@ -224,6 +225,7 @@ mod tests {
     #[test_case(Rule::CaseGlobReachability, Path::new("C128.sh"))]
     #[test_case(Rule::CaseDefaultBeforeGlob, Path::new("C129.sh"))]
     #[test_case(Rule::GetoptsOptionNotInCase, Path::new("C134.sh"))]
+    #[test_case(Rule::CaseArmNotInGetopts, Path::new("C135.sh"))]
     #[test_case(Rule::AppendWithEscapedQuotes, Path::new("C130.sh"))]
     #[test_case(Rule::VariableAsCommandName, Path::new("C131.sh"))]
     #[test_case(Rule::MisspelledOptionName, Path::new("C132.sh"))]

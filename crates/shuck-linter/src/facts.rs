@@ -1052,6 +1052,7 @@ pub struct GetoptsCaseFact {
     case_span: Span,
     declared_options: Box<[GetoptsOptionSpec]>,
     handled_case_labels: Box<[GetoptsCaseLabelFact]>,
+    unexpected_case_labels: Box<[GetoptsCaseLabelFact]>,
     has_fallback_pattern: bool,
     missing_options: Box<[GetoptsOptionSpec]>,
 }
@@ -1067,6 +1068,10 @@ impl GetoptsCaseFact {
 
     pub fn handled_case_labels(&self) -> &[GetoptsCaseLabelFact] {
         &self.handled_case_labels
+    }
+
+    pub fn unexpected_case_labels(&self) -> &[GetoptsCaseLabelFact] {
+        &self.unexpected_case_labels
     }
 
     pub fn has_fallback_pattern(&self) -> bool {
@@ -6227,6 +6232,17 @@ fn build_getopts_case_fact_for_while(
         .iter()
         .map(|label| label.label)
         .collect::<FxHashSet<_>>();
+    let declared = parsed
+        .declared_options
+        .iter()
+        .map(|option| option.option)
+        .collect::<FxHashSet<_>>();
+    let unexpected_case_labels = handled_case_labels
+        .iter()
+        .copied()
+        .filter(|label| !declared.contains(&label.label()))
+        .filter(|label| !matches!(label.label(), '?' | ':'))
+        .collect::<Vec<_>>();
     let missing_options = if has_fallback_pattern {
         Vec::new()
     } else {
@@ -6242,6 +6258,7 @@ fn build_getopts_case_fact_for_while(
         case_span,
         declared_options: parsed.declared_options.into_boxed_slice(),
         handled_case_labels: handled_case_labels.into_boxed_slice(),
+        unexpected_case_labels: unexpected_case_labels.into_boxed_slice(),
         has_fallback_pattern,
         missing_options: missing_options.into_boxed_slice(),
     })

@@ -217,6 +217,9 @@ impl Default for ShellCheckCodeMap {
             // ShellCheck 0.11.0 reports missing getopts case arms as SC2213.
             // Keep SC2382 as a suppression alias for the authored C134 rule code.
             (2213, Rule::GetoptsOptionNotInCase),
+            // ShellCheck 0.11.0 reports undeclared getopts case arms as SC2214.
+            // Keep SC2383 as a suppression alias for the authored C135 rule code.
+            (2214, Rule::CaseArmNotInGetopts),
             (1047, Rule::MissingFi),
             (1069, Rule::IfBracketGlued),
             (1072, Rule::BrokenTestParse),
@@ -706,6 +709,7 @@ impl Default for ShellCheckCodeMap {
                     (2221, Rule::CaseGlobReachability),
                     (2222, Rule::CaseDefaultBeforeGlob),
                     (2213, Rule::GetoptsOptionNotInCase),
+                    (2214, Rule::CaseArmNotInGetopts),
                     (2241, Rule::InvalidExitStatus),
                     (2242, Rule::CasePatternVar),
                     (2248, Rule::BareSlashMarker),
@@ -765,6 +769,7 @@ impl Default for ShellCheckCodeMap {
                 (2373, Rule::CaseGlobReachability),
                 (2374, Rule::CaseDefaultBeforeGlob),
                 (2382, Rule::GetoptsOptionNotInCase),
+                (2383, Rule::CaseArmNotInGetopts),
                 // The pinned ShellCheck oracle still reports ordinary `A && B || C`
                 // fallthrough chains as SC2015. Keep that older code as a
                 // compatibility alias so targeted large-corpus validation can
@@ -1402,6 +1407,8 @@ mod tests {
         assert_eq!(map.resolve("SC2374"), Some(Rule::CaseDefaultBeforeGlob));
         assert_eq!(map.resolve("SC2213"), Some(Rule::GetoptsOptionNotInCase));
         assert_eq!(map.resolve("SC2382"), Some(Rule::GetoptsOptionNotInCase));
+        assert_eq!(map.resolve("SC2214"), Some(Rule::CaseArmNotInGetopts));
+        assert_eq!(map.resolve("SC2383"), Some(Rule::CaseArmNotInGetopts));
         assert_eq!(map.resolve("SC2280"), Some(Rule::IfsEqualsAmbiguity));
         assert_eq!(map.resolve("SC2266"), Some(Rule::OverwrittenFunction));
         assert_eq!(map.resolve("SC2365"), Some(Rule::UnreachableAfterExit));
@@ -1618,6 +1625,7 @@ mod tests {
             (2221, Rule::CaseGlobReachability),
             (2222, Rule::CaseDefaultBeforeGlob),
             (2213, Rule::GetoptsOptionNotInCase),
+            (2214, Rule::CaseArmNotInGetopts),
             (2233, Rule::SingleTestSubshell),
             (2235, Rule::SubshellTestGroup),
             (2238, Rule::RedirectToCommandName),
@@ -1716,6 +1724,8 @@ mod tests {
             (2374, Rule::CaseDefaultBeforeGlob),
             (2213, Rule::GetoptsOptionNotInCase),
             (2382, Rule::GetoptsOptionNotInCase),
+            (2214, Rule::CaseArmNotInGetopts),
+            (2383, Rule::CaseArmNotInGetopts),
             (2355, Rule::ZshAssignmentToZero),
             (2359, Rule::ZshParameterFlag),
             (2365, Rule::UnreachableAfterExit),

@@ -1,0 +1,117 @@
+use crate::{Checker, Rule, Violation};
+
+pub struct CaseArmNotInGetopts {
+    option: char,
+}
+
+impl Violation for CaseArmNotInGetopts {
+    fn rule() -> Rule {
+        Rule::CaseArmNotInGetopts
+    }
+
+    fn message(&self) -> String {
+        format!(
+            "this case arm handles -{}, but getopts does not declare it",
+            self.option
+        )
+    }
+}
+
+pub fn case_arm_not_in_getopts(checker: &mut Checker) {
+    let unexpected = checker
+        .facts()
+        .getopts_cases()
+        .iter()
+        .flat_map(|fact| {
+            fact.unexpected_case_labels()
+                .iter()
+                .map(|label| (label.span(), label.label()))
+        })
+        .collect::<Vec<_>>();
+
+    for (span, option) in unexpected {
+        checker.report(CaseArmNotInGetopts { option }, span);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test::test_snippet;
+    use crate::{LinterSettings, Rule};
+
+    #[test]
+    fn reports_case_labels_that_are_not_declared_by_getopts() {
+        let source = "\
+while getopts ':a:d:h' OPT; do
+  case \"$OPT\" in
+    a) : ;;
+    d) : ;;
+    k) : ;;
+    h) : ;;
+  esac
+done
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::CaseArmNotInGetopts));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "k");
+        assert_eq!(
+            diagnostics[0].message,
+            "this case arm handles -k, but getopts does not declare it"
+        );
+    }
+
+    #[test]
+    fn reports_only_the_undeclared_alternatives_in_a_multi_pattern_arm() {
+        let source = "\
+while getopts 'a' opt; do
+  case \"$opt\" in
+    a|b) : ;;
+  esac
+done
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::CaseArmNotInGetopts));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "b");
+    }
+
+    #[test]
+    fn ignores_special_getopts_error_handlers_and_fallbacks() {
+        let source = "\
+while getopts ':a' opt; do
+  case \"$opt\" in
+    a) : ;;
+    \\?) : ;;
+    :) : ;;
+    *) : ;;
+  esac
+done
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::CaseArmNotInGetopts));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn only_considers_the_first_matching_case_on_the_getopts_variable() {
+        let source = "\
+while getopts 'a' opt; do
+  case \"$opt\" in
+    b) : ;;
+  esac
+  case \"$opt\" in
+    a) : ;;
+  esac
+done
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::CaseArmNotInGetopts));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "b");
+    }
+}

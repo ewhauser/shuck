@@ -356,6 +356,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::GetoptsOptionNotInCase) {
             rules::correctness::getopts_option_not_in_case::getopts_option_not_in_case(self);
         }
+        if self.is_rule_enabled(Rule::CaseArmNotInGetopts) {
+            rules::correctness::case_arm_not_in_getopts::case_arm_not_in_getopts(self);
+        }
         if self.is_rule_enabled(Rule::StandaloneArithmetic) {
             rules::portability::standalone_arithmetic::standalone_arithmetic(self);
         }

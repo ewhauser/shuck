@@ -381,6 +381,12 @@ declare_rules! {
         GetoptsOptionNotInCase
     ),
     (
+        "C135",
+        Category::Correctness,
+        Severity::Warning,
+        CaseArmNotInGetopts
+    ),
+    (
         "C136",
         Category::Correctness,
         Severity::Warning,
@@ -789,6 +795,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-301" => Some(Rule::CaseGlobReachability),
         "SH-302" => Some(Rule::CaseDefaultBeforeGlob),
         "SH-312" => Some(Rule::GetoptsOptionNotInCase),
+        "SH-313" => Some(Rule::CaseArmNotInGetopts),
         "SH-318" => Some(Rule::HeredocMissingEnd),
         "SH-310" => Some(Rule::MisspelledOptionName),
         "SH-055" => Some(Rule::ExprArithmetic),
@@ -1174,6 +1181,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-302"), Some(Rule::CaseDefaultBeforeGlob));
         assert_eq!(code_to_rule("C134"), Some(Rule::GetoptsOptionNotInCase));
         assert_eq!(code_to_rule("SH-312"), Some(Rule::GetoptsOptionNotInCase));
+        assert_eq!(code_to_rule("C135"), Some(Rule::CaseArmNotInGetopts));
+        assert_eq!(code_to_rule("SH-313"), Some(Rule::CaseArmNotInGetopts));
         assert_eq!(code_to_rule("C138"), Some(Rule::HeredocMissingEnd));
         assert_eq!(code_to_rule("SH-318"), Some(Rule::HeredocMissingEnd));
         assert_eq!(
