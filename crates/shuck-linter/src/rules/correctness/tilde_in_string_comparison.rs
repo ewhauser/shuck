@@ -44,8 +44,8 @@ fn collect_simple_test_spans(
     simple_test: &crate::SimpleTestFact<'_>,
     source: &str,
 ) -> Vec<Span> {
-    if simple_test.shape() != SimpleTestShape::Binary
-        || simple_test.operator_family() != SimpleTestOperatorFamily::StringBinary
+    if simple_test.effective_shape() != SimpleTestShape::Binary
+        || simple_test.effective_operator_family() != SimpleTestOperatorFamily::StringBinary
     {
         return Vec::new();
     }
@@ -53,7 +53,7 @@ fn collect_simple_test_spans(
     [0usize, 2usize]
         .into_iter()
         .filter_map(|index| {
-            let word = *simple_test.operands().get(index)?;
+            let word = *simple_test.effective_operands().get(index)?;
             let fact = checker.facts().word_fact(
                 word.span,
                 WordFactContext::Expansion(ExpansionContext::CommandArgument),
@@ -155,6 +155,9 @@ mod tests {
 [ \"~/.bashrc\" = \"$profile\" ]
 [[ \"$profile\" == \"~/.profile\" ]]
 [ \"$profile\" != '~/.zshrc' ]
+[ ! \"$profile\" = \"~/.bashrc\" ]
+[ ! \"~/.bashrc\" = \"$profile\" ]
+[ ! \"$profile\" != '~/.zshrc' ]
 ";
         let diagnostics = test_snippet(
             source,
@@ -166,7 +169,15 @@ mod tests {
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["~/.bashrc", "~/.bashrc", "~/.profile", "~/.zshrc"]
+            vec![
+                "~/.bashrc",
+                "~/.bashrc",
+                "~/.profile",
+                "~/.zshrc",
+                "~/.bashrc",
+                "~/.bashrc",
+                "~/.zshrc",
+            ]
         );
     }
 
@@ -179,6 +190,8 @@ mod tests {
 [ \"$profile\" = \"~\" ]
 [ \"$profile\" = \"foo~/.bashrc\" ]
 [[ \"$profile\" == a~/.bashrc ]]
+[ ! \"$profile\" = ~/.bashrc ]
+[ ! \"$profile\" = \"~user/.bashrc\" ]
 ";
         let diagnostics = test_snippet(
             source,
