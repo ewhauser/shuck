@@ -27,6 +27,7 @@ pub mod constant_comparison_test;
 pub mod continue_outside_loop_in_function;
 pub mod dangling_else;
 pub mod default_else_in_short_circuit;
+pub mod dollar_question_after_command;
 pub mod double_paren_grouping;
 pub mod dynamic_source_path;
 pub mod else_if;
@@ -209,6 +210,7 @@ mod tests {
     #[test_case(Rule::AtSignInStringCompare, Path::new("C111.sh"))]
     #[test_case(Rule::ArraySliceInComparison, Path::new("C112.sh"))]
     #[test_case(Rule::AppendToArrayAsString, Path::new("C106.sh"))]
+    #[test_case(Rule::DollarQuestionAfterCommand, Path::new("C107.sh"))]
     #[test_case(Rule::UnsetAssociativeArrayElement, Path::new("C108.sh"))]
     #[test_case(Rule::MapfileProcessSubstitution, Path::new("C109.sh"))]
     #[test_case(Rule::DefaultElseInShortCircuit, Path::new("C115.sh"))]

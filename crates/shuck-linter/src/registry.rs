@@ -271,6 +271,12 @@ declare_rules! {
         AppendToArrayAsString
     ),
     (
+        "C107",
+        Category::Correctness,
+        Severity::Warning,
+        DollarQuestionAfterCommand
+    ),
+    (
         "C108",
         Category::Correctness,
         Severity::Warning,
@@ -770,6 +776,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-250" => Some(Rule::ArraySliceInComparison),
         "SH-251" => Some(Rule::DefaultValueInColonAssign),
         "SH-241" => Some(Rule::AppendToArrayAsString),
+        "SH-242" => Some(Rule::DollarQuestionAfterCommand),
         "SH-243" => Some(Rule::UnsetAssociativeArrayElement),
         "SH-244" => Some(Rule::MapfileProcessSubstitution),
         "SH-254" => Some(Rule::GlobWithExpansionInLoop),
@@ -1135,6 +1142,11 @@ mod tests {
         assert_eq!(code_to_rule("SH-250"), Some(Rule::ArraySliceInComparison));
         assert_eq!(code_to_rule("C106"), Some(Rule::AppendToArrayAsString));
         assert_eq!(code_to_rule("SH-241"), Some(Rule::AppendToArrayAsString));
+        assert_eq!(code_to_rule("C107"), Some(Rule::DollarQuestionAfterCommand));
+        assert_eq!(
+            code_to_rule("SH-242"),
+            Some(Rule::DollarQuestionAfterCommand)
+        );
         assert_eq!(
             code_to_rule("C108"),
             Some(Rule::UnsetAssociativeArrayElement)

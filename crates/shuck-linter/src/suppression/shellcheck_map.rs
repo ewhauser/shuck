@@ -446,6 +446,7 @@ impl Default for ShellCheckCodeMap {
             (2277, Rule::ExtglobInCasePattern),
             (2100, Rule::AssignmentLooksLikeComparison),
             (2319, Rule::StatusCaptureAfterBranchTest),
+            (2337, Rule::DollarQuestionAfterCommand),
             (2141, Rule::IfsSetToLiteralBackslashN),
             (2365, Rule::UnreachableAfterExit),
             (2370, Rule::UnusedHeredoc),
@@ -917,6 +918,10 @@ mod tests {
         assert_eq!(map.resolve("SC2379"), Some(Rule::EnvPrefixQuoting));
         assert_eq!(map.resolve("SC2140"), Some(Rule::MixedQuoteWord));
         assert_eq!(map.resolve("SC2320"), Some(Rule::UnquotedPipeInEcho));
+        assert_eq!(
+            map.resolve("SC2337"),
+            Some(Rule::DollarQuestionAfterCommand)
+        );
         assert_eq!(map.resolve("SC2223"), Some(Rule::DefaultValueInColonAssign));
         assert_eq!(map.resolve("SC2346"), Some(Rule::DefaultValueInColonAssign));
         assert_eq!(map.resolve("SC2298"), Some(Rule::UnquotedTrRange));
@@ -1333,6 +1338,10 @@ mod tests {
             Some(Rule::StatusCaptureAfterBranchTest)
         );
         assert_eq!(
+            map.resolve("SC2337"),
+            Some(Rule::DollarQuestionAfterCommand)
+        );
+        assert_eq!(
             map.resolve_all("SC2319"),
             vec![
                 Rule::StatusCaptureAfterBranchTest,
@@ -1665,6 +1674,7 @@ mod tests {
             (2316, Rule::BacktickInCommandPosition),
             (2313, Rule::ZshNestedExpansion),
             (2319, Rule::StatusCaptureAfterBranchTest),
+            (2337, Rule::DollarQuestionAfterCommand),
             (2120, Rule::FunctionCalledWithoutArgs),
             (2141, Rule::IfsSetToLiteralBackslashN),
             (2364, Rule::FunctionReferencesUnsetParam),

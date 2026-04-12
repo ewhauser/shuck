@@ -318,6 +318,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::SetFlagsWithoutDashes) {
             rules::correctness::set_flags_without_dashes::set_flags_without_dashes(self);
         }
+        if self.is_rule_enabled(Rule::DollarQuestionAfterCommand) {
+            rules::correctness::dollar_question_after_command::dollar_question_after_command(self);
+        }
         if self.is_rule_enabled(Rule::QuotedArraySlice) {
             rules::correctness::quoted_array_slice::quoted_array_slice(self);
         }

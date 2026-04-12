@@ -1881,6 +1881,7 @@ pub struct LinterFacts<'a> {
     condition_status_capture_spans: Vec<Span>,
     condition_command_substitution_spans: Vec<Span>,
     backtick_command_name_spans: Vec<Span>,
+    dollar_question_after_command_spans: Vec<Span>,
     unused_heredoc_spans: Vec<Span>,
     heredoc_missing_end_spans: Vec<Span>,
     heredoc_closer_not_alone_spans: Vec<Span>,
@@ -2097,6 +2098,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn backtick_command_name_spans(&self) -> &[Span] {
         &self.backtick_command_name_spans
+    }
+
+    pub fn dollar_question_after_command_spans(&self) -> &[Span] {
+        &self.dollar_question_after_command_spans
     }
 
     pub fn unused_heredoc_spans(&self) -> &[Span] {
@@ -2458,6 +2463,12 @@ impl<'a> LinterFactsBuilder<'a> {
         let condition_command_substitution_spans =
             build_condition_command_substitution_spans(&self.file.body, self.source);
         let backtick_command_name_spans = build_backtick_command_name_spans(&commands);
+        let dollar_question_after_command_spans = build_dollar_question_after_command_spans(
+            &self.file.body,
+            &commands,
+            &command_ids_by_span,
+            self.source,
+        );
         let heredoc_summary =
             build_heredoc_fact_summary(&commands, self.source, self.file.span.end.offset);
         let plus_equals_assignment_spans = build_plus_equals_assignment_spans(&commands);
@@ -2553,6 +2564,7 @@ impl<'a> LinterFactsBuilder<'a> {
             condition_status_capture_spans,
             condition_command_substitution_spans,
             backtick_command_name_spans,
+            dollar_question_after_command_spans,
             unused_heredoc_spans: heredoc_summary.unused_heredoc_spans,
             heredoc_missing_end_spans: heredoc_summary.heredoc_missing_end_spans,
             heredoc_closer_not_alone_spans: heredoc_summary.heredoc_closer_not_alone_spans,
@@ -4698,6 +4710,371 @@ fn command_name_is_plain_command_substitution(word: &Word, source: &str) -> bool
                 ..
             }]
         )
+}
+
+fn build_dollar_question_after_command_spans(
+    commands: &StmtSeq,
+    command_facts: &[CommandFact<'_>],
+    command_ids_by_span: &CommandLookupIndex,
+    source: &str,
+) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_dollar_question_after_command_spans_in_seq(
+        commands,
+        command_facts,
+        command_ids_by_span,
+        source,
+        &mut spans,
+    );
+
+    let mut seen = FxHashSet::default();
+    spans.retain(|span| seen.insert(FactSpan::new(*span)));
+    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    spans
+}
+
+fn collect_dollar_question_after_command_spans_in_seq(
+    commands: &StmtSeq,
+    command_facts: &[CommandFact<'_>],
+    command_ids_by_span: &CommandLookupIndex,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for pair in commands.as_slice().windows(2) {
+        if !stmt_is_intervening_output_command(&pair[0], command_facts, command_ids_by_span) {
+            continue;
+        }
+
+        spans.extend(followup_status_parameter_spans_in_stmt(&pair[1], source));
+    }
+
+    for stmt in commands.iter() {
+        collect_nested_dollar_question_after_command_spans_in_command(
+            &stmt.command,
+            command_facts,
+            command_ids_by_span,
+            source,
+            spans,
+        );
+    }
+}
+
+fn collect_nested_dollar_question_after_command_spans_in_command(
+    command: &Command,
+    command_facts: &[CommandFact<'_>],
+    command_ids_by_span: &CommandLookupIndex,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match command {
+        Command::Compound(command) => match command {
+            CompoundCommand::If(command) => {
+                collect_dollar_question_after_command_spans_in_seq(
+                    &command.condition,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+                collect_dollar_question_after_command_spans_in_seq(
+                    &command.then_branch,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+                for (condition, body) in &command.elif_branches {
+                    collect_dollar_question_after_command_spans_in_seq(
+                        condition,
+                        command_facts,
+                        command_ids_by_span,
+                        source,
+                        spans,
+                    );
+                    collect_dollar_question_after_command_spans_in_seq(
+                        body,
+                        command_facts,
+                        command_ids_by_span,
+                        source,
+                        spans,
+                    );
+                }
+                if let Some(else_branch) = &command.else_branch {
+                    collect_dollar_question_after_command_spans_in_seq(
+                        else_branch,
+                        command_facts,
+                        command_ids_by_span,
+                        source,
+                        spans,
+                    );
+                }
+            }
+            CompoundCommand::For(command) => {
+                collect_dollar_question_after_command_spans_in_seq(
+                    &command.body,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+            }
+            CompoundCommand::Repeat(command) => {
+                collect_dollar_question_after_command_spans_in_seq(
+                    &command.body,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+            }
+            CompoundCommand::Foreach(command) => {
+                collect_dollar_question_after_command_spans_in_seq(
+                    &command.body,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+            }
+            CompoundCommand::ArithmeticFor(command) => {
+                collect_dollar_question_after_command_spans_in_seq(
+                    &command.body,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+            }
+            CompoundCommand::While(command) => {
+                collect_dollar_question_after_command_spans_in_seq(
+                    &command.condition,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+                collect_dollar_question_after_command_spans_in_seq(
+                    &command.body,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+            }
+            CompoundCommand::Until(command) => {
+                collect_dollar_question_after_command_spans_in_seq(
+                    &command.condition,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+                collect_dollar_question_after_command_spans_in_seq(
+                    &command.body,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+            }
+            CompoundCommand::Case(command) => {
+                for case in &command.cases {
+                    collect_dollar_question_after_command_spans_in_seq(
+                        &case.body,
+                        command_facts,
+                        command_ids_by_span,
+                        source,
+                        spans,
+                    );
+                }
+            }
+            CompoundCommand::Select(command) => {
+                collect_dollar_question_after_command_spans_in_seq(
+                    &command.body,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+            }
+            CompoundCommand::Subshell(body) | CompoundCommand::BraceGroup(body) => {
+                collect_dollar_question_after_command_spans_in_seq(
+                    body,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+            }
+            CompoundCommand::Time(command) => {
+                if let Some(command) = &command.command {
+                    collect_nested_dollar_question_after_command_spans_in_command(
+                        &command.command,
+                        command_facts,
+                        command_ids_by_span,
+                        source,
+                        spans,
+                    );
+                }
+            }
+            CompoundCommand::Conditional(_) | CompoundCommand::Arithmetic(_) => {}
+            CompoundCommand::Coproc(command) => {
+                collect_nested_dollar_question_after_command_spans_in_command(
+                    &command.body.command,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+            }
+            CompoundCommand::Always(command) => {
+                collect_dollar_question_after_command_spans_in_seq(
+                    &command.body,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+                collect_dollar_question_after_command_spans_in_seq(
+                    &command.always_body,
+                    command_facts,
+                    command_ids_by_span,
+                    source,
+                    spans,
+                );
+            }
+        },
+        Command::Binary(command) => {
+            collect_nested_dollar_question_after_command_spans_in_command(
+                &command.left.command,
+                command_facts,
+                command_ids_by_span,
+                source,
+                spans,
+            );
+            collect_nested_dollar_question_after_command_spans_in_command(
+                &command.right.command,
+                command_facts,
+                command_ids_by_span,
+                source,
+                spans,
+            );
+        }
+        Command::AnonymousFunction(command) => {
+            collect_nested_dollar_question_after_command_spans_in_command(
+                &command.body.command,
+                command_facts,
+                command_ids_by_span,
+                source,
+                spans,
+            );
+        }
+        Command::Function(command) => {
+            collect_nested_dollar_question_after_command_spans_in_command(
+                &command.body.command,
+                command_facts,
+                command_ids_by_span,
+                source,
+                spans,
+            );
+        }
+        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => {}
+    }
+}
+
+fn stmt_is_intervening_output_command(
+    stmt: &Stmt,
+    command_facts: &[CommandFact<'_>],
+    command_ids_by_span: &CommandLookupIndex,
+) -> bool {
+    let Some(command_id) = command_id_for_command(&stmt.command, command_ids_by_span) else {
+        return false;
+    };
+    let fact = &command_facts[command_id.index()];
+    fact.effective_name_is("echo") || fact.effective_name_is("printf")
+}
+
+fn status_parameter_spans_in_stmt(stmt: &Stmt, source: &str) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_status_parameter_spans_in_stmt(stmt, source, &mut spans);
+    spans
+}
+
+fn status_parameter_spans_in_word(word: &Word, source: &str) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_status_parameter_spans_in_word(word, source, &mut spans);
+    spans
+}
+
+fn followup_status_parameter_spans_in_stmt(stmt: &Stmt, source: &str) -> Vec<Span> {
+    let mut spans = status_parameter_spans_in_stmt(stmt, source);
+    collect_followup_status_parameter_spans_in_command(&stmt.command, source, &mut spans);
+    spans
+}
+
+fn collect_followup_status_parameter_spans_in_command(
+    command: &Command,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    if let Command::Compound(command) = command {
+        match command {
+            CompoundCommand::For(command) => {
+                if let Some(words) = command.words.as_deref() {
+                    for word in words {
+                        spans.extend(status_parameter_spans_in_word(word, source));
+                    }
+                }
+            }
+            CompoundCommand::Repeat(command) => {
+                spans.extend(status_parameter_spans_in_word(&command.count, source));
+            }
+            CompoundCommand::Foreach(command) => {
+                for word in &command.words {
+                    spans.extend(status_parameter_spans_in_word(word, source));
+                }
+            }
+            CompoundCommand::ArithmeticFor(command) => {
+                if let Some(init) = command.init_ast.as_ref() {
+                    query::visit_arithmetic_words(init, &mut |word| {
+                        spans.extend(status_parameter_spans_in_word(word, source));
+                    });
+                }
+                if let Some(condition) = command.condition_ast.as_ref() {
+                    query::visit_arithmetic_words(condition, &mut |word| {
+                        spans.extend(status_parameter_spans_in_word(word, source));
+                    });
+                }
+                if let Some(step) = command.step_ast.as_ref() {
+                    query::visit_arithmetic_words(step, &mut |word| {
+                        spans.extend(status_parameter_spans_in_word(word, source));
+                    });
+                }
+            }
+            CompoundCommand::Case(command) => {
+                spans.extend(status_parameter_spans_in_word(&command.word, source));
+            }
+            CompoundCommand::Select(command) => {
+                for word in &command.words {
+                    spans.extend(status_parameter_spans_in_word(word, source));
+                }
+            }
+            CompoundCommand::Time(command) => {
+                if let Some(command) = &command.command {
+                    spans.extend(status_parameter_spans_in_stmt(command, source));
+                }
+            }
+            CompoundCommand::If(_)
+            | CompoundCommand::While(_)
+            | CompoundCommand::Until(_)
+            | CompoundCommand::Subshell(_)
+            | CompoundCommand::BraceGroup(_)
+            | CompoundCommand::Arithmetic(_)
+            | CompoundCommand::Conditional(_)
+            | CompoundCommand::Coproc(_)
+            | CompoundCommand::Always(_) => {}
+        }
+    }
 }
 
 fn collect_condition_status_capture_from_body(
