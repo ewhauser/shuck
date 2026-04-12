@@ -408,6 +408,9 @@ impl Default for ShellCheckCodeMap {
             (2194, Rule::ConstantCaseSubject),
             (2210, Rule::BadRedirectionFdOrder),
             (2154, Rule::UndefinedVariable),
+            // ShellCheck 0.11.0 reports missing shebangs on comment-first scripts as SC2148.
+            // Keep SC2285 as a suppression alias for the authored S043 rule code.
+            (2148, Rule::MissingShebangLine),
             (2239, Rule::NonAbsoluteShebang),
             (2286, Rule::IndentedShebang),
             (2287, Rule::SpaceAfterHashBang),
@@ -665,6 +668,8 @@ impl Default for ShellCheckCodeMap {
                     (2112, Rule::FunctionKeyword),
                     (2125, Rule::GlobAssignedToVariable),
                     (2216, Rule::PipeToKill),
+                    (2148, Rule::MissingShebangLine),
+                    (2285, Rule::MissingShebangLine),
                     (3005, Rule::CStyleForInSh),
                     (3006, Rule::StandaloneArithmetic),
                     (3007, Rule::LegacyArithmeticInSh),
@@ -705,6 +710,7 @@ impl Default for ShellCheckCodeMap {
                     (2210, Rule::BadRedirectionFdOrder),
                     (2217, Rule::EchoHereDoc),
                     (2154, Rule::UndefinedVariable),
+                    (2148, Rule::MissingShebangLine),
                     (2239, Rule::NonAbsoluteShebang),
                     (2286, Rule::IndentedShebang),
                     (2287, Rule::SpaceAfterHashBang),
@@ -1447,6 +1453,8 @@ mod tests {
         );
         assert_eq!(map.resolve("SC2283"), Some(Rule::DoubleParenGrouping));
         assert_eq!(map.resolve("SC2284"), Some(Rule::UnicodeQuoteInString));
+        assert_eq!(map.resolve("SC2148"), Some(Rule::MissingShebangLine));
+        assert_eq!(map.resolve("SC2285"), Some(Rule::MissingShebangLine));
         assert_eq!(map.resolve("SC2286"), Some(Rule::IndentedShebang));
         assert_eq!(map.resolve("SC2287"), Some(Rule::SpaceAfterHashBang));
         assert_eq!(map.resolve("SC2288"), Some(Rule::TemplateBraceInCommand));
@@ -1733,6 +1741,8 @@ mod tests {
             (2280, Rule::IfsEqualsAmbiguity),
             (2282, Rule::BadVarName),
             (2283, Rule::DoubleParenGrouping),
+            (2148, Rule::MissingShebangLine),
+            (2285, Rule::MissingShebangLine),
             (2286, Rule::IndentedShebang),
             (2287, Rule::SpaceAfterHashBang),
             (2288, Rule::TemplateBraceInCommand),
@@ -1884,6 +1894,7 @@ mod tests {
             (3084, Rule::SourceInsideFunctionInSh),
             (2100, Rule::AssignmentLooksLikeComparison),
             (2319, Rule::AssignmentLooksLikeComparison),
+            (2148, Rule::MissingShebangLine),
             (2286, Rule::IndentedShebang),
             (2287, Rule::SpaceAfterHashBang),
             (2277, Rule::ExtglobInCasePattern),

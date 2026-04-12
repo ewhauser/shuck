@@ -1,0 +1,10 @@
+# /etc/config/myapp.conf
+echo hello
+
+# should not trigger: actual shebang
+#!/bin/sh
+echo hello
+
+# should not trigger: shellcheck shell directive is an explicit shell hint
+# shellcheck shell=sh
+echo hello

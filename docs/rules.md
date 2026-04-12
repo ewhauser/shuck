@@ -4,9 +4,9 @@
 
 | Status | Count |
 |--------|-------|
-| Implemented | 97 |
+| Implemented | 98 |
 | Scheduled (Tranches 1-3) | 18 |
-| Remaining | 203 |
+| Remaining | 202 |
 | **Total** | **318** |
 
 ## Difficulty Legend
@@ -315,7 +315,7 @@ Rules about shebang lines and script-level metadata.
 - [x] **L** C073 (SC2286) `indented-shebang` — shebang has leading whitespace
 - [x] **L** C074 (SC2287) `space-after-hash-bang` — space between `#` and `!`
 - [x] **L** C075 (SC2288) `shebang-not-on-first-line` — shebang on second line
-- [ ] **L** S043 (SC2285) `missing-shebang-line` — no shebang, starts with comment
+- [x] **L** S043 (SC2285) `missing-shebang-line` — no shebang, starts with comment
 - [ ] **L** S053 (SC2318) `duplicate-shebang-flag` — repeated flag in shebang
 
 ### Escape and Backslash Sequences

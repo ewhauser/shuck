@@ -1983,6 +1983,7 @@ pub struct LinterFacts<'a> {
     indented_shebang_span: Option<Span>,
     space_after_hash_bang_span: Option<Span>,
     shebang_not_on_first_line_span: Option<Span>,
+    missing_shebang_line_span: Option<Span>,
     non_absolute_shebang_span: Option<Span>,
     commented_continuation_comment_spans: Vec<Span>,
     trailing_directive_comment_spans: Vec<Span>,
@@ -2204,6 +2205,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn shebang_not_on_first_line_span(&self) -> Option<Span> {
         self.shebang_not_on_first_line_span
+    }
+
+    pub fn missing_shebang_line_span(&self) -> Option<Span> {
+        self.missing_shebang_line_span
     }
 
     pub fn non_absolute_shebang_span(&self) -> Option<Span> {
@@ -2705,6 +2710,7 @@ impl<'a> LinterFactsBuilder<'a> {
             indented_shebang_span: shebang_header_facts.indented_shebang_span,
             space_after_hash_bang_span: shebang_header_facts.space_after_hash_bang_span,
             shebang_not_on_first_line_span: shebang_header_facts.shebang_not_on_first_line_span,
+            missing_shebang_line_span: shebang_header_facts.missing_shebang_line_span,
             non_absolute_shebang_span: shebang_header_facts.non_absolute_shebang_span,
             commented_continuation_comment_spans,
             trailing_directive_comment_spans,
@@ -3824,6 +3830,7 @@ struct ShebangHeaderFacts {
     indented_shebang_span: Option<Span>,
     space_after_hash_bang_span: Option<Span>,
     shebang_not_on_first_line_span: Option<Span>,
+    missing_shebang_line_span: Option<Span>,
     non_absolute_shebang_span: Option<Span>,
 }
 
@@ -3847,11 +3854,25 @@ fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
         })
         .map(|()| line_span(1, first_line_offset, line));
 
+    let first_line_shellcheck_shell_directive = line
+        .strip_prefix('#')
+        .map(str::trim_start)
+        .is_some_and(|comment| {
+            comment
+                .to_ascii_lowercase()
+                .starts_with("shellcheck shell=")
+        });
     let first_line_header_like = line.trim_start().is_empty() || line.trim_start().starts_with('#');
     let shebang_not_on_first_line_span = nth_source_line(source, 1).and_then(|(offset, line)| {
         let line = line.trim_end_matches('\r');
         (first_line_header_like && line.starts_with("#!")).then(|| line_span(2, offset, line))
     });
+    let missing_shebang_line_span = (!line.trim_start().starts_with("#!")
+        && space_after_hash_bang_span.is_none()
+        && shebang_not_on_first_line_span.is_none()
+        && !first_line_shellcheck_shell_directive
+        && line.trim_start().starts_with('#'))
+    .then(|| line_span(1, first_line_offset, line));
 
     let non_absolute_shebang_span = line.strip_prefix("#!").and_then(|shebang| {
         let interpreter = shebang.split_whitespace().next()?;
@@ -3868,6 +3889,7 @@ fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
         indented_shebang_span,
         space_after_hash_bang_span,
         shebang_not_on_first_line_span,
+        missing_shebang_line_span,
         non_absolute_shebang_span,
     }
 }

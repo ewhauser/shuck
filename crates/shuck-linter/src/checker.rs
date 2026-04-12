@@ -981,6 +981,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ShebangNotOnFirstLine) {
             rules::correctness::shebang_not_on_first_line::shebang_not_on_first_line(self);
         }
+        if self.is_rule_enabled(Rule::MissingShebangLine) {
+            rules::style::missing_shebang_line::missing_shebang_line(self);
+        }
         if self.is_rule_enabled(Rule::NonAbsoluteShebang) {
             rules::correctness::non_absolute_shebang::non_absolute_shebang(self);
         }
