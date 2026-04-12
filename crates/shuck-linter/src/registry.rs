@@ -408,6 +408,7 @@ declare_rules! {
         SubshellLocalAssignment
     ),
     ("C151", Category::Correctness, Severity::Warning, CommaArrayElements),
+    ("C155", Category::Correctness, Severity::Warning, SubshellSideEffect),
     ("C157", Category::Correctness, Severity::Error, IfBracketGlued),
     ("P001", Category::Performance, Severity::Warning, ExprArithmetic),
     ("P002", Category::Performance, Severity::Warning, GrepCountPipeline),

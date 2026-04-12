@@ -444,6 +444,7 @@ impl Default for ShellCheckCodeMap {
             (2120, Rule::FunctionCalledWithoutArgs),
             (2364, Rule::FunctionReferencesUnsetParam),
             (2277, Rule::ExtglobInCasePattern),
+            (2030, Rule::SubshellSideEffect),
             (2031, Rule::SubshellLocalAssignment),
             (2100, Rule::AssignmentLooksLikeComparison),
             (2319, Rule::StatusCaptureAfterBranchTest),
@@ -576,6 +577,7 @@ impl Default for ShellCheckCodeMap {
                     (3070, Rule::AmpersandRedirectInSh),
                     (3073, Rule::PipeStderrInSh),
                     (2016, Rule::SingleQuotedLiteral),
+                    (2030, Rule::SubshellSideEffect),
                     (2031, Rule::SubshellLocalAssignment),
                     (2013, Rule::LineOrientedInput),
                     (2015, Rule::ChainedTestBranches),
@@ -920,6 +922,7 @@ mod tests {
         assert_eq!(map.resolve("SC2307"), Some(Rule::UnquotedVariableInTest));
         assert_eq!(map.resolve("SC2379"), Some(Rule::EnvPrefixQuoting));
         assert_eq!(map.resolve("SC2140"), Some(Rule::MixedQuoteWord));
+        assert_eq!(map.resolve("SC2030"), Some(Rule::SubshellSideEffect));
         assert_eq!(map.resolve("SC2031"), Some(Rule::SubshellLocalAssignment));
         assert_eq!(map.resolve("SC2320"), Some(Rule::UnquotedPipeInEcho));
         assert_eq!(
@@ -1667,6 +1670,7 @@ mod tests {
             (2288, Rule::TemplateBraceInCommand),
             (2289, Rule::CommentedContinuationLine),
             (2294, Rule::EvalOnArray),
+            (2030, Rule::SubshellSideEffect),
             (2031, Rule::SubshellLocalAssignment),
             (2302, Rule::EscapedNegationInTest),
             (2308, Rule::GreaterThanInTest),

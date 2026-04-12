@@ -1,0 +1,21 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 235
+---
+C155 assignment to `count` only affects the child shell here
+ --> <source>:4:2
+  |
+4 | (count=1)
+  |
+
+C155 assignment to `value` only affects the child shell here
+ --> <source>:8:39
+  |
+8 | printf '%s\n' x | while read -r _; do value=inner; done
+  |
+
+C155 assignment to `path_prefix` only affects the child shell here
+  --> <source>:12:10
+   |
+12 |   export path_prefix=/opt/demo
+   |

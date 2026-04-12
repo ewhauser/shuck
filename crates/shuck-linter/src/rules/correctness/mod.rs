@@ -93,6 +93,7 @@ pub mod status_capture_after_branch_test;
 pub mod string_comparison_for_version;
 pub mod subshell_in_arithmetic;
 pub mod subshell_local_assignment;
+pub mod subshell_side_effect;
 pub mod subst_with_redirect;
 pub mod subst_with_redirect_err;
 pub mod sudo_redirection_order;
@@ -241,6 +242,7 @@ mod tests {
     #[test_case(Rule::BrokenAssocKey, Path::new("C148.sh"))]
     #[test_case(Rule::SubshellLocalAssignment, Path::new("C150.sh"))]
     #[test_case(Rule::CommaArrayElements, Path::new("C151.sh"))]
+    #[test_case(Rule::SubshellSideEffect, Path::new("C155.sh"))]
     #[test_case(Rule::IfBracketGlued, Path::new("C157.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());

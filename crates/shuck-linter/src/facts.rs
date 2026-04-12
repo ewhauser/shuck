@@ -1883,6 +1883,7 @@ pub struct LinterFacts<'a> {
     backtick_command_name_spans: Vec<Span>,
     dollar_question_after_command_spans: Vec<Span>,
     subshell_local_assignment_spans: Vec<Span>,
+    subshell_side_effect_spans: Vec<Span>,
     unused_heredoc_spans: Vec<Span>,
     heredoc_missing_end_spans: Vec<Span>,
     heredoc_closer_not_alone_spans: Vec<Span>,
@@ -2107,6 +2108,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn subshell_local_assignment_spans(&self) -> &[Span] {
         &self.subshell_local_assignment_spans
+    }
+
+    pub fn subshell_side_effect_spans(&self) -> &[Span] {
+        &self.subshell_side_effect_spans
     }
 
     pub fn unused_heredoc_spans(&self) -> &[Span] {
@@ -2474,8 +2479,8 @@ impl<'a> LinterFactsBuilder<'a> {
             &command_ids_by_span,
             self.source,
         );
-        let subshell_local_assignment_spans =
-            build_subshell_local_assignment_spans(self.semantic, &commands);
+        let nonpersistent_assignment_spans =
+            build_nonpersistent_assignment_spans(self.semantic, &commands);
         let heredoc_summary =
             build_heredoc_fact_summary(&commands, self.source, self.file.span.end.offset);
         let plus_equals_assignment_spans = build_plus_equals_assignment_spans(&commands);
@@ -2572,7 +2577,9 @@ impl<'a> LinterFactsBuilder<'a> {
             condition_command_substitution_spans,
             backtick_command_name_spans,
             dollar_question_after_command_spans,
-            subshell_local_assignment_spans,
+            subshell_local_assignment_spans: nonpersistent_assignment_spans
+                .subshell_local_assignment_spans,
+            subshell_side_effect_spans: nonpersistent_assignment_spans.subshell_side_effect_spans,
             unused_heredoc_spans: heredoc_summary.unused_heredoc_spans,
             heredoc_missing_end_spans: heredoc_summary.heredoc_missing_end_spans,
             heredoc_closer_not_alone_spans: heredoc_summary.heredoc_closer_not_alone_spans,
@@ -4741,10 +4748,10 @@ fn build_dollar_question_after_command_spans(
     spans
 }
 
-fn build_subshell_local_assignment_spans(
+fn build_nonpersistent_assignment_spans(
     semantic: &SemanticModel,
     commands: &[CommandFact<'_>],
-) -> Vec<Span> {
+) -> NonpersistentAssignmentSpans {
     let mut candidate_bindings_by_name: FxHashMap<Name, Vec<CandidateSubshellAssignment>> =
         FxHashMap::default();
     let mut persistent_reset_offsets_by_name: FxHashMap<Name, Vec<PersistentReset>> =
@@ -4755,8 +4762,8 @@ fn build_subshell_local_assignment_spans(
             continue;
         }
 
-        let Some(nonpersistent_span) =
-            innermost_nonpipeline_subshell_span(semantic, binding.span.start.offset)
+        let Some(nonpersistent_scope) =
+            innermost_nonpersistent_scope_span(semantic, binding.span.start.offset)
         else {
             continue;
         };
@@ -4766,8 +4773,10 @@ fn build_subshell_local_assignment_spans(
             .or_default()
             .push(CandidateSubshellAssignment {
                 binding_id: binding.id,
-                subshell_start: nonpersistent_span.start.offset,
-                subshell_end: nonpersistent_span.end.offset,
+                assignment_span: binding.span,
+                kind: nonpersistent_scope.kind,
+                subshell_start: nonpersistent_scope.span.start.offset,
+                subshell_end: nonpersistent_scope.span.end.offset,
             });
     }
 
@@ -4789,7 +4798,8 @@ fn build_subshell_local_assignment_spans(
             });
     }
 
-    let mut spans = Vec::new();
+    let mut later_use_spans = Vec::new();
+    let mut side_effect_spans = Vec::new();
     for reference in semantic.references() {
         if matches!(
             reference.kind,
@@ -4809,20 +4819,31 @@ fn build_subshell_local_assignment_spans(
         let event_command_span =
             innermost_command_span_containing_offset(commands, reference.span.start.offset);
         let resolved = semantic.resolved_binding(reference.id);
-        if candidate_ids.iter().any(|candidate| {
-            reference.span.start.offset > candidate.subshell_end
-                && !has_intervening_persistent_reset(
+        let mut matched_nonpipeline_candidate = false;
+        for candidate in candidate_ids {
+            if reference.span.start.offset <= candidate.subshell_end
+                || has_intervening_persistent_reset(
                     reset_offsets,
                     candidate.subshell_end,
                     reference.span.start.offset,
                     event_command_span,
                 )
-                && resolved.is_none_or(|resolved| {
+                || !resolved.is_none_or(|resolved| {
                     resolved.id != candidate.binding_id
                         && resolved.span.start.offset < candidate.subshell_start
                 })
-        }) {
-            spans.push(reference.span);
+            {
+                continue;
+            }
+
+            side_effect_spans.push(candidate.assignment_span);
+            if !matches!(candidate.kind, NonpersistentAssignmentKind::Pipeline) {
+                matched_nonpipeline_candidate = true;
+            }
+        }
+
+        if matched_nonpipeline_candidate {
+            later_use_spans.push(reference.span);
         }
     }
 
@@ -4839,23 +4860,42 @@ fn build_subshell_local_assignment_spans(
             .get(&binding.name)
             .map(Vec::as_slice)
             .unwrap_or(&[]);
-        if candidate_ids.iter().any(|candidate| {
-            binding.span.start.offset > candidate.subshell_end
-                && !has_intervening_persistent_reset(
+        let mut matched_nonpipeline_candidate = false;
+        for candidate in candidate_ids {
+            if binding.span.start.offset <= candidate.subshell_end
+                || has_intervening_persistent_reset(
                     reset_offsets,
                     candidate.subshell_end,
                     binding.span.start.offset,
                     None,
                 )
-        }) {
-            spans.push(binding.span);
+            {
+                continue;
+            }
+
+            side_effect_spans.push(candidate.assignment_span);
+            if !matches!(candidate.kind, NonpersistentAssignmentKind::Pipeline) {
+                matched_nonpipeline_candidate = true;
+            }
+        }
+
+        if matched_nonpipeline_candidate {
+            later_use_spans.push(binding.span);
         }
     }
 
     let mut seen = FxHashSet::default();
-    spans.retain(|span| seen.insert(FactSpan::new(*span)));
-    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
-    spans
+    later_use_spans.retain(|span| seen.insert(FactSpan::new(*span)));
+    later_use_spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+
+    seen.clear();
+    side_effect_spans.retain(|span| seen.insert(FactSpan::new(*span)));
+    side_effect_spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+
+    NonpersistentAssignmentSpans {
+        subshell_local_assignment_spans: later_use_spans,
+        subshell_side_effect_spans: side_effect_spans,
+    }
 }
 
 fn is_reportable_subshell_assignment(kind: BindingKind, attributes: BindingAttributes) -> bool {
@@ -4907,8 +4947,28 @@ fn is_reportable_subshell_later_use_binding(
 #[derive(Debug, Clone, Copy)]
 struct CandidateSubshellAssignment {
     binding_id: shuck_semantic::BindingId,
+    assignment_span: Span,
+    kind: NonpersistentAssignmentKind,
     subshell_start: usize,
     subshell_end: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NonpersistentAssignmentKind {
+    Pipeline,
+    Subshell,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct NonpersistentScopeSpan {
+    span: Span,
+    kind: NonpersistentAssignmentKind,
+}
+
+#[derive(Debug, Default)]
+struct NonpersistentAssignmentSpans {
+    subshell_local_assignment_spans: Vec<Span>,
+    subshell_side_effect_spans: Vec<Span>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -4917,25 +4977,25 @@ struct PersistentReset {
     command_span: Option<Span>,
 }
 
-fn innermost_nonpipeline_subshell_span(semantic: &SemanticModel, offset: usize) -> Option<Span> {
-    let scope = semantic.scope_at(offset);
-
-    for scope in semantic.ancestor_scopes(scope) {
-        match semantic.scope_kind(scope) {
-            shuck_semantic::ScopeKind::Subshell
-            | shuck_semantic::ScopeKind::CommandSubstitution => {
-                return semantic
-                    .scopes()
-                    .iter()
-                    .find(|candidate| candidate.id == scope)
-                    .map(|candidate| candidate.span);
-            }
-            shuck_semantic::ScopeKind::Pipeline => return None,
-            shuck_semantic::ScopeKind::Function(_) | shuck_semantic::ScopeKind::File => {}
+fn innermost_nonpersistent_scope_span(
+    semantic: &SemanticModel,
+    offset: usize,
+) -> Option<NonpersistentScopeSpan> {
+    let scope = innermost_nonpersistent_scope_within_function(semantic, offset)?;
+    let span = semantic
+        .scopes()
+        .iter()
+        .find(|candidate| candidate.id == scope)
+        .map(|candidate| candidate.span)?;
+    let kind = match semantic.scope_kind(scope) {
+        shuck_semantic::ScopeKind::Pipeline => NonpersistentAssignmentKind::Pipeline,
+        shuck_semantic::ScopeKind::Subshell | shuck_semantic::ScopeKind::CommandSubstitution => {
+            NonpersistentAssignmentKind::Subshell
         }
-    }
+        shuck_semantic::ScopeKind::Function(_) | shuck_semantic::ScopeKind::File => return None,
+    };
 
-    None
+    Some(NonpersistentScopeSpan { span, kind })
 }
 
 fn is_within_any_nonpersistent_scope(semantic: &SemanticModel, offset: usize) -> bool {

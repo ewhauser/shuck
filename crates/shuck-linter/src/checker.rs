@@ -174,6 +174,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::SubshellLocalAssignment) {
             rules::correctness::subshell_local_assignment::subshell_local_assignment(self);
         }
+        if self.is_rule_enabled(Rule::SubshellSideEffect) {
+            rules::correctness::subshell_side_effect::subshell_side_effect(self);
+        }
     }
 
     fn check_declarations(&mut self) {

@@ -394,7 +394,7 @@ propagate. Require semantic scope analysis and are high complexity.
 
 - [x] **H** C107 (SC2337) `dollar-question-after-command` — `$?` checked after intervening command
 - [x] **H** C150 (SC2031) `subshell-local-assignment` — variable assigned in subshell does not propagate
-- [ ] **H** C155 (SC2030) `subshell-side-effect` — value updated in pipeline child, read afterward
+- [x] **H** C155 (SC2030) `subshell-side-effect` — value updated in pipeline child, read afterward
 - [ ] **H** C156 (SC2153) `possible-variable-misspelling` — referenced variable looks like misspelling
 
 ### Heredoc Issues
