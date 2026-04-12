@@ -95,6 +95,7 @@ pub mod quoted_bash_regex;
 pub mod quoted_bash_source;
 pub mod quoted_command_in_test;
 pub mod redirect_to_command_name;
+pub mod stderr_before_stdout_redirect;
 pub mod script_scope_local;
 pub mod set_flags_without_dashes;
 pub mod shebang_not_on_first_line;
@@ -213,6 +214,7 @@ mod tests {
     #[test_case(Rule::EscapedNegationInTest, Path::new("C082.sh"))]
     #[test_case(Rule::GlobInFindSubstitution, Path::new("C083.sh"))]
     #[test_case(Rule::UnquotedGrepRegex, Path::new("C084.sh"))]
+    #[test_case(Rule::StderrBeforeStdoutRedirect, Path::new("C085.sh"))]
     #[test_case(Rule::GlobInTestDirectory, Path::new("C102.sh"))]
     #[test_case(Rule::GreaterThanInTest, Path::new("C086.sh"))]
     #[test_case(Rule::StringComparisonForVersion, Path::new("C087.sh"))]

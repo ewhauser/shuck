@@ -719,6 +719,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::BadRedirectionFdOrder) {
             rules::correctness::bad_redirection_fd_order::bad_redirection_fd_order(self);
         }
+        if self.is_rule_enabled(Rule::StderrBeforeStdoutRedirect) {
+            rules::correctness::stderr_before_stdout_redirect::stderr_before_stdout_redirect(self);
+        }
         if self.is_rule_enabled(Rule::AmpersandRedirection) {
             rules::portability::ampersand_redirection::ampersand_redirection(self);
         }

@@ -180,6 +180,9 @@ impl Default for ShellCheckCodeMap {
             (2293, Rule::LsPipedToXargs),
             (2294, Rule::LsInSubstitution),
             (2263, Rule::RedundantSpacesInEcho),
+            // ShellCheck 0.11.0 reports stderr-before-stdout redirect ordering as SC2069.
+            // Keep SC2306 as the authored suppression code and compare against the live code.
+            (2069, Rule::StderrBeforeStdoutRedirect),
             // ShellCheck 0.11.0 reports single-quoted split-word cases as SC2026.
             // Keep SC2300 as a suppression alias for the authored S050 rule code.
             (2026, Rule::UnquotedWordBetweenQuotes),
@@ -553,6 +556,7 @@ impl Default for ShellCheckCodeMap {
                     (2126, Rule::GrepCountPipeline),
                     (2009, Rule::PsGrepPipeline),
                     (2010, Rule::LsGrepPipeline),
+                    (2306, Rule::StderrBeforeStdoutRedirect),
                     (2293, Rule::LsPipedToXargs),
                     (2117, Rule::SuWithoutFlag),
                     (2196, Rule::EgrepDeprecated),
@@ -863,6 +867,7 @@ impl Default for ShellCheckCodeMap {
                 (2009, Rule::DoubleParenGrouping),
                 (2294, Rule::LsInSubstitution),
                 (2294, Rule::EvalOnArray),
+                (2069, Rule::StderrBeforeStdoutRedirect),
                 (2373, Rule::CaseGlobReachability),
                 (2374, Rule::CaseDefaultBeforeGlob),
                 (2372, Rule::SingleLetterCaseLabel),
@@ -975,6 +980,14 @@ mod tests {
         assert_eq!(map.resolve("SC2126"), Some(Rule::GrepCountPipeline));
         assert_eq!(map.resolve("SC2009"), Some(Rule::PsGrepPipeline));
         assert_eq!(map.resolve("SC2010"), Some(Rule::LsGrepPipeline));
+        assert_eq!(
+            map.resolve("SC2306"),
+            Some(Rule::StderrBeforeStdoutRedirect)
+        );
+        assert_eq!(
+            map.resolve("SC2069"),
+            Some(Rule::StderrBeforeStdoutRedirect)
+        );
         assert_eq!(map.resolve("SC2293"), Some(Rule::LsPipedToXargs));
         assert_eq!(map.resolve("SC2294"), Some(Rule::LsInSubstitution));
         assert_eq!(map.resolve("SC2048"), Some(Rule::UnquotedDollarStar));
@@ -1718,9 +1731,11 @@ mod tests {
             (2009, Rule::PsGrepPipeline),
             (2009, Rule::DoubleParenGrouping),
             (2010, Rule::LsGrepPipeline),
+            (2306, Rule::StderrBeforeStdoutRedirect),
             (2293, Rule::LsPipedToXargs),
             (2294, Rule::LsInSubstitution),
             (2263, Rule::RedundantSpacesInEcho),
+            (2069, Rule::StderrBeforeStdoutRedirect),
             (2026, Rule::UnquotedWordBetweenQuotes),
             (2027, Rule::DoubleQuoteNesting),
             (2143, Rule::GrepOutputInTest),
@@ -2124,6 +2139,7 @@ mod tests {
         assert!(comparison.contains(&(3042, Rule::LetCommand)));
         assert!(comparison.contains(&(2009, Rule::PsGrepPipeline)));
         assert!(comparison.contains(&(2010, Rule::LsGrepPipeline)));
+        assert!(comparison.contains(&(2069, Rule::StderrBeforeStdoutRedirect)));
         assert!(comparison.contains(&(2014, Rule::UnquotedGlobsInFind)));
         assert!(comparison.contains(&(2231, Rule::GlobWithExpansionInLoop)));
         assert!(comparison.contains(&(2022, Rule::GlobInGrepPattern)));

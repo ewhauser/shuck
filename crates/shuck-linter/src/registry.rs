@@ -158,6 +158,12 @@ declare_rules! {
     ("C083", Category::Correctness, Severity::Warning, GlobInFindSubstitution),
     ("C084", Category::Correctness, Severity::Warning, UnquotedGrepRegex),
     (
+        "C085",
+        Category::Correctness,
+        Severity::Warning,
+        StderrBeforeStdoutRedirect
+    ),
+    (
         "C079",
         Category::Correctness,
         Severity::Warning,
@@ -873,6 +879,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-179" => Some(Rule::BareClosingBrace),
         "SH-186" => Some(Rule::BackslashBeforeClosingBacktick),
         "SH-187" => Some(Rule::PositionalParamAsOperator),
+        "SH-211" => Some(Rule::StderrBeforeStdoutRedirect),
         "SH-188" => Some(Rule::DoubleParenGrouping),
         "SH-189" => Some(Rule::UnicodeQuoteInString),
         "SH-190" => Some(Rule::MissingShebangLine),
@@ -1208,6 +1215,14 @@ mod tests {
         assert_eq!(code_to_rule("SH-123"), Some(Rule::CPrototypeFragment));
         assert_eq!(code_to_rule("C043"), Some(Rule::BadRedirectionFdOrder));
         assert_eq!(code_to_rule("SH-129"), Some(Rule::BadRedirectionFdOrder));
+        assert_eq!(
+            code_to_rule("C085"),
+            Some(Rule::StderrBeforeStdoutRedirect)
+        );
+        assert_eq!(
+            code_to_rule("SH-211"),
+            Some(Rule::StderrBeforeStdoutRedirect)
+        );
         assert_eq!(code_to_rule("SH-141"), Some(Rule::InvalidExitStatus));
         assert_eq!(code_to_rule("SH-142"), Some(Rule::CasePatternVar));
         assert_eq!(
