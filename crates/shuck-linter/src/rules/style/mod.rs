@@ -22,6 +22,7 @@ pub mod env_prefix_quoting;
 pub mod escaped_underscore;
 pub mod escaped_underscore_literal;
 pub mod export_command_substitution;
+pub mod fgrep_deprecated;
 pub mod function_in_alias;
 pub mod glob_assigned_to_variable;
 pub mod grep_output_in_test;
@@ -46,6 +47,7 @@ pub mod ps_grep_pipeline;
 pub mod quoted_dollar_star_loop;
 pub mod read_without_raw;
 pub mod redundant_spaces_in_echo;
+pub mod relative_symlink_target;
 pub mod single_iteration_loop;
 pub mod single_letter_case_label;
 pub mod single_quote_backslash;
@@ -54,6 +56,7 @@ pub mod su_without_flag;
 pub mod suspect_closing_quote;
 pub mod syntax;
 pub mod trailing_directive;
+pub mod trap_signal_numbers;
 pub mod unquoted_array_expansion;
 pub mod unquoted_array_split;
 pub mod unquoted_command_substitution;
@@ -65,6 +68,7 @@ pub mod unquoted_tr_range;
 pub mod unquoted_variable_in_sed;
 pub mod unquoted_variable_in_test;
 pub mod unquoted_word_between_quotes;
+pub mod xargs_with_inline_replace;
 
 #[cfg(test)]
 mod tests {
@@ -89,8 +93,12 @@ mod tests {
     #[test_case(Rule::CommandSubstitutionInAlias, Path::new("S056.sh"))]
     #[test_case(Rule::DeprecatedTempfileCommand, Path::new("S059.sh"))]
     #[test_case(Rule::EgrepDeprecated, Path::new("S060.sh"))]
+    #[test_case(Rule::FgrepDeprecated, Path::new("S061.sh"))]
     #[test_case(Rule::DefaultValueInColonAssign, Path::new("S062.sh"))]
+    #[test_case(Rule::RelativeSymlinkTarget, Path::new("S063.sh"))]
+    #[test_case(Rule::XargsWithInlineReplace, Path::new("S064.sh"))]
     #[test_case(Rule::BacktickOutputToCommand, Path::new("S067.sh"))]
+    #[test_case(Rule::TrapSignalNumbers, Path::new("S068.sh"))]
     #[test_case(Rule::SingleLetterCaseLabel, Path::new("S069.sh"))]
     #[test_case(Rule::DoubleQuoteNesting, Path::new("S070.sh"))]
     #[test_case(Rule::EnvPrefixQuoting, Path::new("S071.sh"))]

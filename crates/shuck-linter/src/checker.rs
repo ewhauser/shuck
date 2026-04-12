@@ -290,6 +290,18 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::EgrepDeprecated) {
             rules::style::egrep_deprecated::egrep_deprecated(self);
         }
+        if self.is_rule_enabled(Rule::FgrepDeprecated) {
+            rules::style::fgrep_deprecated::fgrep_deprecated(self);
+        }
+        if self.is_rule_enabled(Rule::RelativeSymlinkTarget) {
+            rules::style::relative_symlink_target::relative_symlink_target(self);
+        }
+        if self.is_rule_enabled(Rule::XargsWithInlineReplace) {
+            rules::style::xargs_with_inline_replace::xargs_with_inline_replace(self);
+        }
+        if self.is_rule_enabled(Rule::TrapSignalNumbers) {
+            rules::style::trap_signal_numbers::trap_signal_numbers(self);
+        }
         if self.is_rule_enabled(Rule::UnquotedTrRange) {
             rules::style::unquoted_tr_range::unquoted_tr_range(self);
         }

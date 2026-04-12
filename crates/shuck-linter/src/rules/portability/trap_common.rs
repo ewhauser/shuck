@@ -2,12 +2,12 @@ use shuck_ast::Word;
 
 use crate::static_word_text;
 
-pub(super) struct ParsedTrapArgs<'a> {
-    pub(super) signal_words: &'a [&'a Word],
-    pub(super) listing_mode: bool,
+pub(crate) struct ParsedTrapArgs<'a> {
+    pub(crate) signal_words: &'a [&'a Word],
+    pub(crate) listing_mode: bool,
 }
 
-pub(super) fn parse_trap_args<'a>(
+pub(crate) fn parse_trap_args<'a>(
     args: &'a [&'a Word],
     source: &str,
 ) -> Option<ParsedTrapArgs<'a>> {

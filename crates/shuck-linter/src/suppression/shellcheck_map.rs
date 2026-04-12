@@ -77,6 +77,21 @@ impl ShellCheckCodeMap {
         if number == 2196 {
             return vec![Rule::EgrepDeprecated];
         }
+        if number == 2343 {
+            return vec![Rule::FgrepDeprecated];
+        }
+        if number == 2197 {
+            return vec![Rule::FgrepDeprecated];
+        }
+        if number == 2347 {
+            return vec![Rule::RelativeSymlinkTarget];
+        }
+        if number == 2350 {
+            return vec![Rule::XargsWithInlineReplace];
+        }
+        if number == 2369 {
+            return vec![Rule::TrapSignalNumbers];
+        }
         if number == 2303 {
             return vec![Rule::UnquotedTrClass];
         }
@@ -165,6 +180,18 @@ impl Default for ShellCheckCodeMap {
             // ShellCheck 0.11.0 reports egrep deprecation warnings as SC2196.
             // Keep SC2342 as a suppression alias for the authored S060 rule code.
             (2196, Rule::EgrepDeprecated),
+            // ShellCheck 0.11.0 reports fgrep deprecation warnings as SC2197.
+            // Keep SC2343 as a suppression alias for the authored S061 rule code.
+            (2197, Rule::FgrepDeprecated),
+            // SC2347 remains the authored compatibility code for deep relative symlink targets.
+            (2347, Rule::RelativeSymlinkTarget),
+            // SC2350 remains the authored compatibility code for `xargs -i` deprecations.
+            // Current ShellCheck releases emit SC2267 for this behavior, recorded in S064
+            // corpus metadata to preserve existing SC2267 suppression semantics.
+            (2350, Rule::XargsWithInlineReplace),
+            // SC2369 remains the authored compatibility code for numeric trap signals.
+            // Current oracle runs are recorded as reviewed metadata for S068.
+            (2369, Rule::TrapSignalNumbers),
             // ShellCheck 0.11.0 reports command substitutions inside alias definitions as SC2139.
             // Keep SC2328 as a suppression alias for historical compatibility.
             (2139, Rule::CommandSubstitutionInAlias),
@@ -509,6 +536,10 @@ impl Default for ShellCheckCodeMap {
                     (2293, Rule::LsPipedToXargs),
                     (2117, Rule::SuWithoutFlag),
                     (2196, Rule::EgrepDeprecated),
+                    (2197, Rule::FgrepDeprecated),
+                    (2347, Rule::RelativeSymlinkTarget),
+                    (2350, Rule::XargsWithInlineReplace),
+                    (2369, Rule::TrapSignalNumbers),
                     (2139, Rule::CommandSubstitutionInAlias),
                     (2142, Rule::FunctionInAlias),
                     (2283, Rule::DoubleParenGrouping),
@@ -818,6 +849,7 @@ impl Default for ShellCheckCodeMap {
                 (2322, Rule::SuWithoutFlag),
                 (2340, Rule::DeprecatedTempfileCommand),
                 (2342, Rule::EgrepDeprecated),
+                (2343, Rule::FgrepDeprecated),
                 (2328, Rule::CommandSubstitutionInAlias),
                 (2330, Rule::FunctionInAlias),
                 (2376, Rule::DoubleQuoteNesting),
@@ -962,6 +994,11 @@ mod tests {
         assert_eq!(map.resolve("SC2186"), Some(Rule::DeprecatedTempfileCommand));
         assert_eq!(map.resolve("SC2342"), Some(Rule::EgrepDeprecated));
         assert_eq!(map.resolve("SC2196"), Some(Rule::EgrepDeprecated));
+        assert_eq!(map.resolve("SC2343"), Some(Rule::FgrepDeprecated));
+        assert_eq!(map.resolve("SC2197"), Some(Rule::FgrepDeprecated));
+        assert_eq!(map.resolve("SC2347"), Some(Rule::RelativeSymlinkTarget));
+        assert_eq!(map.resolve("SC2350"), Some(Rule::XargsWithInlineReplace));
+        assert_eq!(map.resolve("SC2369"), Some(Rule::TrapSignalNumbers));
         assert_eq!(
             map.resolve("SC2139"),
             Some(Rule::CommandSubstitutionInAlias)
@@ -1029,6 +1066,14 @@ mod tests {
         );
         assert_eq!(map.resolve_all("SC2342"), vec![Rule::EgrepDeprecated]);
         assert_eq!(map.resolve_all("SC2196"), vec![Rule::EgrepDeprecated]);
+        assert_eq!(map.resolve_all("SC2343"), vec![Rule::FgrepDeprecated]);
+        assert_eq!(map.resolve_all("SC2197"), vec![Rule::FgrepDeprecated]);
+        assert_eq!(map.resolve_all("SC2347"), vec![Rule::RelativeSymlinkTarget]);
+        assert_eq!(
+            map.resolve_all("SC2350"),
+            vec![Rule::XargsWithInlineReplace]
+        );
+        assert_eq!(map.resolve_all("SC2369"), vec![Rule::TrapSignalNumbers]);
         assert_eq!(
             map.resolve_all("SC2139"),
             vec![Rule::CommandSubstitutionInAlias]
@@ -1601,6 +1646,10 @@ mod tests {
             (2117, Rule::SuWithoutFlag),
             (2186, Rule::DeprecatedTempfileCommand),
             (2196, Rule::EgrepDeprecated),
+            (2197, Rule::FgrepDeprecated),
+            (2347, Rule::RelativeSymlinkTarget),
+            (2350, Rule::XargsWithInlineReplace),
+            (2369, Rule::TrapSignalNumbers),
             (2139, Rule::CommandSubstitutionInAlias),
             (2142, Rule::FunctionInAlias),
             (2021, Rule::UnquotedTrRange),
@@ -1621,6 +1670,8 @@ mod tests {
             (2322, Rule::SuWithoutFlag),
             (2340, Rule::DeprecatedTempfileCommand),
             (2342, Rule::EgrepDeprecated),
+            (2343, Rule::FgrepDeprecated),
+            (2347, Rule::RelativeSymlinkTarget),
             (2344, Rule::AtSignInStringCompare),
             (2345, Rule::ArraySliceInComparison),
             (2325, Rule::QuotedArraySlice),
@@ -1991,6 +2042,8 @@ mod tests {
         assert!(comparison.contains(&(2117, Rule::SuWithoutFlag)));
         assert!(comparison.contains(&(2186, Rule::DeprecatedTempfileCommand)));
         assert!(comparison.contains(&(2196, Rule::EgrepDeprecated)));
+        assert!(comparison.contains(&(2197, Rule::FgrepDeprecated)));
+        assert!(comparison.contains(&(2347, Rule::RelativeSymlinkTarget)));
         assert!(comparison.contains(&(2184, Rule::UnsetAssociativeArrayElement)));
         assert!(comparison.contains(&(2178, Rule::ArrayToStringConversion)));
         assert!(comparison.contains(&(2139, Rule::CommandSubstitutionInAlias)));
@@ -2001,6 +2054,7 @@ mod tests {
         assert!(!comparison.contains(&(2322, Rule::SuWithoutFlag)));
         assert!(!comparison.contains(&(2340, Rule::DeprecatedTempfileCommand)));
         assert!(!comparison.contains(&(2342, Rule::EgrepDeprecated)));
+        assert!(!comparison.contains(&(2343, Rule::FgrepDeprecated)));
         assert!(!comparison.contains(&(2328, Rule::CommandSubstitutionInAlias)));
         assert!(!comparison.contains(&(2330, Rule::FunctionInAlias)));
         assert!(!comparison.contains(&(2376, Rule::DoubleQuoteNesting)));
