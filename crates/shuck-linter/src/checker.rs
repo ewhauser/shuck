@@ -434,8 +434,17 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::BasePrefixInArithmetic) {
             rules::portability::base_prefix_in_arithmetic::base_prefix_in_arithmetic(self);
         }
+        if self.is_rule_enabled(Rule::UnsetPatternInSh) {
+            rules::portability::unset_pattern_in_sh::unset_pattern_in_sh(self);
+        }
         if self.is_rule_enabled(Rule::FunctionKeywordInSh) {
             rules::portability::function_keyword_in_sh::function_keyword_in_sh(self);
+        }
+        if self.is_rule_enabled(Rule::HyphenatedFunctionName) {
+            rules::portability::hyphenated_function_name::hyphenated_function_name(self);
+        }
+        if self.is_rule_enabled(Rule::FunctionParamsInSh) {
+            rules::portability::function_params_in_sh::function_params_in_sh(self);
         }
         if self.is_rule_enabled(Rule::SourceInsideFunctionInSh) {
             rules::portability::source_inside_function_in_sh::source_inside_function_in_sh(self);
@@ -547,6 +556,9 @@ impl<'a> Checker<'a> {
         }
         if self.is_rule_enabled(Rule::NestedZshSubstitution) {
             rules::portability::nested_zsh_substitution::nested_zsh_substitution(self);
+        }
+        if self.is_rule_enabled(Rule::NestedDefaultExpansion) {
+            rules::portability::nested_default_expansion::nested_default_expansion(self);
         }
         if self.is_rule_enabled(Rule::ZshPromptBracket) {
             rules::portability::zsh_prompt_bracket::zsh_prompt_bracket(self);

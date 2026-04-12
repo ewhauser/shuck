@@ -435,6 +435,7 @@ declare_rules! {
     ("X032", Category::Portability, Severity::Warning, PrintfQFormatInSh),
     ("X033", Category::Portability, Severity::Warning, IfElifBashTest),
     ("X034", Category::Portability, Severity::Warning, ExtendedGlobInTest),
+    ("X035", Category::Portability, Severity::Warning, FunctionParamsInSh),
     ("X037", Category::Portability, Severity::Warning, ExtglobCase),
     ("X048", Category::Portability, Severity::Warning, ExtglobInCasePattern),
     ("X054", Category::Portability, Severity::Warning, ExtglobInSh),
@@ -461,6 +462,7 @@ declare_rules! {
     ("X071", Category::Portability, Severity::Warning, ArrayKeysInSh),
     ("X081", Category::Portability, Severity::Warning, StarGlobRemovalInSh),
     ("X076", Category::Portability, Severity::Warning, ZshParameterFlag),
+    ("X077", Category::Portability, Severity::Warning, NestedDefaultExpansion),
     ("X078", Category::Portability, Severity::Warning, ZshArraySubscriptInCase),
     ("X079", Category::Portability, Severity::Warning, ZshParameterIndexFlag),
     ("X046", Category::Portability, Severity::Warning, ExtglobInTest),
@@ -471,9 +473,11 @@ declare_rules! {
     ("X061", Category::Portability, Severity::Warning, ATestInSh),
     ("X063", Category::Portability, Severity::Warning, AmpersandRedirectInSh),
     ("X066", Category::Portability, Severity::Warning, PipeStderrInSh),
+    ("X067", Category::Portability, Severity::Warning, HyphenatedFunctionName),
     ("X068", Category::Portability, Severity::Warning, ErrexitTrapInSh),
     ("X069", Category::Portability, Severity::Warning, SignalNameInTrap),
     ("X070", Category::Portability, Severity::Warning, BasePrefixInArithmetic),
+    ("X072", Category::Portability, Severity::Warning, UnsetPatternInSh),
     ("X073", Category::Portability, Severity::Warning, OptionTestInSh),
     ("X074", Category::Portability, Severity::Warning, StickyBitTestInSh),
     ("X075", Category::Portability, Severity::Warning, OwnershipTestInSh),
@@ -609,7 +613,10 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-059" => Some(Rule::TrUpperRange),
         "SH-061" => Some(Rule::EchoBackslashEscapes),
         "SH-226" => Some(Rule::FunctionKeywordInSh),
+        "SH-274" => Some(Rule::HyphenatedFunctionName),
         "SH-234" => Some(Rule::IfsSetToLiteralBackslashN),
+        "SH-279" => Some(Rule::UnsetPatternInSh),
+        "SH-291" => Some(Rule::NestedDefaultExpansion),
         "SH-304" => Some(Rule::SourceInsideFunctionInSh),
         "SH-275" => Some(Rule::ErrexitTrapInSh),
         "SH-276" => Some(Rule::SignalNameInTrap),
@@ -692,6 +699,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-134" => Some(Rule::PipeToKill),
         "SH-086" => Some(Rule::PositionalTenBraces),
         "SH-106" => Some(Rule::MissingFi),
+        "SH-107" => Some(Rule::FunctionParamsInSh),
         "SH-109" => Some(Rule::BrokenTestEnd),
         "SH-110" => Some(Rule::BrokenTestParse),
         "SH-111" => Some(Rule::ExtglobCase),
@@ -875,6 +883,7 @@ mod tests {
         assert_eq!(code_to_rule("SH-055"), Some(Rule::ExprArithmetic));
         assert_eq!(code_to_rule("SH-056"), Some(Rule::PsGrepPipeline));
         assert_eq!(code_to_rule("SH-057"), Some(Rule::LsGrepPipeline));
+        assert_eq!(code_to_rule("SH-107"), Some(Rule::FunctionParamsInSh));
         assert_eq!(code_to_rule("S014"), Some(Rule::UnquotedDollarStar));
         assert_eq!(code_to_rule("SH-062"), Some(Rule::UnquotedDollarStar));
         assert_eq!(code_to_rule("S015"), Some(Rule::QuotedDollarStarLoop));
@@ -1256,6 +1265,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-305"), Some(Rule::StarGlobRemovalInSh));
         assert_eq!(code_to_rule("X076"), Some(Rule::ZshParameterFlag));
         assert_eq!(code_to_rule("SH-286"), Some(Rule::ZshParameterFlag));
+        assert_eq!(code_to_rule("X077"), Some(Rule::NestedDefaultExpansion));
+        assert_eq!(code_to_rule("SH-291"), Some(Rule::NestedDefaultExpansion));
         assert_eq!(code_to_rule("X078"), Some(Rule::ZshArraySubscriptInCase));
         assert_eq!(code_to_rule("SH-299"), Some(Rule::ZshArraySubscriptInCase));
         assert_eq!(code_to_rule("X079"), Some(Rule::ZshParameterIndexFlag));

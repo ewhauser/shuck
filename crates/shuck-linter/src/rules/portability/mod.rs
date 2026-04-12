@@ -21,12 +21,15 @@ pub mod echo_flags;
 pub mod errexit_trap_in_sh;
 pub mod function_keyword;
 pub mod function_keyword_in_sh;
+pub mod function_params_in_sh;
 pub mod here_string;
+pub mod hyphenated_function_name;
 pub mod indirect_expansion;
 pub mod legacy_arithmetic_in_sh;
 pub mod let_command;
 pub mod local_variable_in_sh;
 pub mod multi_var_for_loop;
+pub mod nested_default_expansion;
 pub mod nested_zsh_substitution;
 pub mod pipe_stderr_in_sh;
 pub mod pipefail_option;
@@ -49,6 +52,7 @@ pub mod tr_lower_range;
 pub mod tr_upper_range;
 mod trap_common;
 pub mod trap_err;
+pub mod unset_pattern_in_sh;
 pub mod uppercase_expansion;
 pub mod wait_option;
 pub mod zsh_always_block;
@@ -86,6 +90,7 @@ mod tests {
     #[test_case(Rule::TestEqualityOperator, Path::new("X002.sh"))]
     #[test_case(Rule::LocalVariableInSh, Path::new("X003.sh"))]
     #[test_case(Rule::FunctionKeyword, Path::new("X004.sh"))]
+    #[test_case(Rule::FunctionParamsInSh, Path::new("X035.sh"))]
     #[test_case(Rule::BashCaseFallthrough, Path::new("X005.sh"))]
     #[test_case(Rule::ProcessSubstitution, Path::new("X006.sh"))]
     #[test_case(Rule::AnsiCQuoting, Path::new("X007.sh"))]
@@ -125,6 +130,7 @@ mod tests {
     #[test_case(Rule::NestedZshSubstitution, Path::new("X044.sh"))]
     #[test_case(Rule::PlusEqualsAppend, Path::new("X045.sh"))]
     #[test_case(Rule::MultiVarForLoop, Path::new("X047.sh"))]
+    #[test_case(Rule::NestedDefaultExpansion, Path::new("X077.sh"))]
     #[test_case(Rule::ZshPromptBracket, Path::new("X049.sh"))]
     #[test_case(Rule::CshSyntaxInSh, Path::new("X050.sh"))]
     #[test_case(Rule::ZshNestedExpansion, Path::new("X051.sh"))]
@@ -151,9 +157,11 @@ mod tests {
     #[test_case(Rule::ATestInSh, Path::new("X061.sh"))]
     #[test_case(Rule::AmpersandRedirectInSh, Path::new("X063.sh"))]
     #[test_case(Rule::PipeStderrInSh, Path::new("X066.sh"))]
+    #[test_case(Rule::HyphenatedFunctionName, Path::new("X067.sh"))]
     #[test_case(Rule::ErrexitTrapInSh, Path::new("X068.sh"))]
     #[test_case(Rule::SignalNameInTrap, Path::new("X069.sh"))]
     #[test_case(Rule::BasePrefixInArithmetic, Path::new("X070.sh"))]
+    #[test_case(Rule::UnsetPatternInSh, Path::new("X072.sh"))]
     #[test_case(Rule::OptionTestInSh, Path::new("X073.sh"))]
     #[test_case(Rule::StickyBitTestInSh, Path::new("X074.sh"))]
     #[test_case(Rule::OwnershipTestInSh, Path::new("X075.sh"))]

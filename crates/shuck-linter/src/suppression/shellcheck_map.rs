@@ -209,6 +209,7 @@ impl Default for ShellCheckCodeMap {
             // Keep SC2397 as a suppression alias for historical compatibility.
             (1045, Rule::AmpersandSemicolon),
             (1047, Rule::MissingFi),
+            (1065, Rule::FunctionParamsInSh),
             (1069, Rule::IfBracketGlued),
             (1072, Rule::BrokenTestParse),
             (1073, Rule::BrokenTestEnd),
@@ -301,6 +302,8 @@ impl Default for ShellCheckCodeMap {
             (3011, Rule::HereString),
             (3030, Rule::ArrayAssignment),
             (3053, Rule::IndirectExpansion),
+            (3079, Rule::UnsetPatternInSh),
+            (3083, Rule::NestedDefaultExpansion),
             // The pinned ShellCheck oracle reports `${!arr[*]}` portability findings as SC3055.
             // Keep SC3078 as a suppression alias for compatibility with older rule metadata.
             (3055, Rule::ArrayKeysInSh),
@@ -497,6 +500,7 @@ impl Default for ShellCheckCodeMap {
                     (1044, Rule::HeredocMissingEnd),
                     (1045, Rule::AmpersandSemicolon),
                     (1047, Rule::MissingFi),
+                    (1065, Rule::FunctionParamsInSh),
                     (1069, Rule::IfBracketGlued),
                     (1070, Rule::ZshRedirPipe),
                     (1072, Rule::BrokenTestParse),
@@ -606,6 +610,8 @@ impl Default for ShellCheckCodeMap {
                     (3011, Rule::HereString),
                     (3030, Rule::ArrayAssignment),
                     (3053, Rule::IndirectExpansion),
+                    (3079, Rule::UnsetPatternInSh),
+                    (3083, Rule::NestedDefaultExpansion),
                     (3078, Rule::ArrayKeysInSh),
                     (2219, Rule::AvoidLetBuiltin),
                     (2320, Rule::UnquotedPipeInEcho),
@@ -739,6 +745,7 @@ impl Default for ShellCheckCodeMap {
                     (3062, Rule::OptionTestInSh),
                     (3065, Rule::StickyBitTestInSh),
                     (3067, Rule::OwnershipTestInSh),
+                    (3074, Rule::HyphenatedFunctionName),
                 ] {
                     map.entry(sc_code).or_insert(rule);
                 }
@@ -754,7 +761,9 @@ impl Default for ShellCheckCodeMap {
                 (3058, Rule::StarGlobRemovalInSh),
                 (3024, Rule::PlusEqualsInSh),
                 (3062, Rule::DollarStringInSh),
+                (3056, Rule::UnsetPatternInSh),
                 (3072, Rule::CaretNegationInBracket),
+                (3033, Rule::HyphenatedFunctionName),
                 (2009, Rule::DoubleParenGrouping),
                 (2294, Rule::LsInSubstitution),
                 (2294, Rule::EvalOnArray),
@@ -1214,6 +1223,8 @@ mod tests {
         assert_eq!(map.resolve("SC3028"), Some(Rule::ArrayReference));
         assert_eq!(map.resolve("SC3030"), Some(Rule::ArrayAssignment));
         assert_eq!(map.resolve("SC3053"), Some(Rule::IndirectExpansion));
+        assert_eq!(map.resolve("SC3079"), Some(Rule::UnsetPatternInSh));
+        assert_eq!(map.resolve_all("SC3056"), vec![Rule::UnsetPatternInSh]);
         assert_eq!(map.resolve("SC3078"), Some(Rule::ArrayKeysInSh));
         assert_eq!(
             map.resolve_all("SC3055"),
@@ -1257,6 +1268,11 @@ mod tests {
         assert_eq!(map.resolve("SC3069"), Some(Rule::CStyleForArithmeticInSh));
         assert_eq!(map.resolve("SC3032"), Some(Rule::Coproc));
         assert_eq!(map.resolve("SC3033"), Some(Rule::SelectLoop));
+        assert_eq!(
+            map.resolve_all("SC3033"),
+            vec![Rule::SelectLoop, Rule::HyphenatedFunctionName]
+        );
+        assert_eq!(map.resolve("SC3074"), Some(Rule::HyphenatedFunctionName));
         assert_eq!(map.resolve("SC3039"), Some(Rule::LetCommand));
         assert_eq!(map.resolve("SC3042"), Some(Rule::LetCommand));
         assert_eq!(map.resolve("SC3040"), Some(Rule::PipefailOption));
@@ -1306,6 +1322,7 @@ mod tests {
         assert_eq!(map.resolve("SC2396"), Some(Rule::UntilMissingDo));
         assert_eq!(map.resolve("SC3051"), Some(Rule::SourceInsideFunctionInSh));
         assert_eq!(map.resolve("SC3084"), Some(Rule::SourceInsideFunctionInSh));
+        assert_eq!(map.resolve("SC3083"), Some(Rule::NestedDefaultExpansion));
         assert_eq!(map.resolve("SC2155"), Some(Rule::ExportCommandSubstitution));
         assert_eq!(map.resolve("SC2156"), Some(Rule::FindExecDirWithShell));
         assert_eq!(map.resolve("SC2157"), Some(Rule::ConstantComparisonTest));
@@ -1457,6 +1474,7 @@ mod tests {
             (1044, Rule::HeredocMissingEnd),
             (1045, Rule::AmpersandSemicolon),
             (1047, Rule::MissingFi),
+            (1065, Rule::FunctionParamsInSh),
             (1069, Rule::IfBracketGlued),
             (1070, Rule::ZshRedirPipe),
             (1072, Rule::BrokenTestParse),
@@ -1741,6 +1759,8 @@ mod tests {
             (3030, Rule::ArrayAssignment),
             (3032, Rule::Coproc),
             (3033, Rule::SelectLoop),
+            (3033, Rule::HyphenatedFunctionName),
+            (3074, Rule::HyphenatedFunctionName),
             (2338, Rule::UnsetAssociativeArrayElement),
             (2381, Rule::ArrayToStringConversion),
             (3039, Rule::LetCommand),
@@ -1755,6 +1775,9 @@ mod tests {
             (3051, Rule::SourceInsideFunctionInSh),
             (3052, Rule::AmpersandRedirection),
             (3053, Rule::IndirectExpansion),
+            (3056, Rule::UnsetPatternInSh),
+            (3079, Rule::UnsetPatternInSh),
+            (3083, Rule::NestedDefaultExpansion),
             (3078, Rule::ArrayKeysInSh),
             (3054, Rule::ArrayReference),
             (3055, Rule::PlusEqualsAppend),
@@ -1787,7 +1810,13 @@ mod tests {
         .into_iter()
         .collect::<std::collections::HashSet<_>>();
 
-        assert_eq!(mappings.len(), expected.len());
+        assert_eq!(
+            mappings.len(),
+            expected.len(),
+            "missing from expected: {:?}\nextra in expected: {:?}",
+            mappings.difference(&expected).collect::<Vec<_>>(),
+            expected.difference(&mappings).collect::<Vec<_>>()
+        );
         assert_eq!(mappings, expected);
     }
 
@@ -1929,6 +1958,7 @@ mod tests {
         assert!(comparison.contains(&(3057, Rule::SubstringExpansion)));
         assert!(comparison.contains(&(3059, Rule::CaseModificationExpansion)));
         assert!(comparison.contains(&(3060, Rule::ReplacementExpansion)));
+        assert!(comparison.contains(&(3083, Rule::NestedDefaultExpansion)));
         assert!(comparison.contains(&(2277, Rule::ExtglobInCasePattern)));
         assert!(comparison.contains(&(3077, Rule::BasePrefixInArithmetic)));
         assert!(comparison.contains(&(3075, Rule::ErrexitTrapInSh)));

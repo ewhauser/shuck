@@ -1,0 +1,14 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+---
+X035 function definitions cannot take parameters in `sh` scripts
+ --> <source>:2:2
+  |
+2 | f(x) { :; }
+  |
+
+X035 function definitions cannot take parameters in `sh` scripts
+ --> <source>:3:11
+  |
+3 | function g(y) { :; }
+  |

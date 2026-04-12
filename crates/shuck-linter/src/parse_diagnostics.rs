@@ -11,6 +11,7 @@ use crate::rules::correctness::loop_without_end::LoopWithoutEnd;
 use crate::rules::correctness::missing_done_in_for_loop::MissingDoneInForLoop;
 use crate::rules::correctness::missing_fi::MissingFi;
 use crate::rules::correctness::until_missing_do::UntilMissingDo;
+use crate::rules::portability::function_params_in_sh::FunctionParamsInSh;
 use crate::rules::portability::targets_non_zsh_shell;
 use crate::rules::portability::zsh_always_block::ZshAlwaysBlock;
 use crate::rules::portability::zsh_brace_if::ZshBraceIf;
@@ -90,6 +91,18 @@ pub(crate) fn collect_parse_rule_diagnostics(
             diagnostics.push(Diagnostic::new(LinebreakBeforeAnd, span));
         }
     }
+    if enabled_rules.contains(crate::Rule::FunctionParamsInSh)
+        && matches!(
+            shell,
+            ShellDialect::Sh | ShellDialect::Bash | ShellDialect::Dash | ShellDialect::Ksh
+        )
+    {
+        for diagnostic in parse_diagnostics {
+            if let Some(span) = function_parameter_syntax_span(source, diagnostic) {
+                diagnostics.push(Diagnostic::new(FunctionParamsInSh, span));
+            }
+        }
+    }
 
     if enabled_rules.contains(crate::Rule::CPrototypeFragment) {
         for diagnostic in parse_diagnostics {
@@ -138,6 +151,34 @@ fn is_dangling_else_error(message: &str) -> bool {
 
 fn is_expected_command_error(message: &str) -> bool {
     message.starts_with("expected command")
+}
+
+fn is_function_parameter_syntax_error(message: &str) -> bool {
+    message.starts_with("expected ')' in function definition")
+}
+
+fn function_parameter_syntax_span(source: &str, diagnostic: &ParseDiagnostic) -> Option<Span> {
+    if !is_function_parameter_syntax_error(&diagnostic.message) {
+        return None;
+    }
+
+    let line = line_text_at(source, diagnostic.span.start.line)?;
+    let search_end = line
+        .char_indices()
+        .nth(diagnostic.span.start.column.saturating_sub(1))
+        .map_or(line.len(), |(index, ch)| index + ch.len_utf8());
+    let paren_index = line
+        .get(..search_end)
+        .and_then(|prefix| prefix.rfind('('))
+        .or_else(|| {
+            line.get(search_end..)
+                .and_then(|suffix| suffix.find('(').map(|relative| search_end + relative))
+        })?;
+    let line_start = line_start_offset(source, diagnostic.span.start.line)?;
+    let start_offset = line_start + paren_index;
+    let start = position_at_offset(source, start_offset)?;
+    let end = position_at_offset(source, start_offset + 1)?;
+    Some(Span::from_positions(start, end))
 }
 
 fn linebreak_before_and_spans(source: &str, parse_diagnostics: &[ParseDiagnostic]) -> Vec<Span> {
@@ -757,6 +798,44 @@ mod tests {
         assert_eq!(diagnostics[0].rule, Rule::MissingFi);
         assert_eq!(diagnostics[0].span.start.line, 4);
         assert_eq!(diagnostics[0].span.start.column, 1);
+    }
+
+    #[test]
+    fn maps_function_parameter_parse_error_to_x035() {
+        let source = "#!/bin/sh\nfunction g(y) { :; }\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::FunctionParamsInSh);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::FunctionParamsInSh);
+        assert_eq!(diagnostics[0].span.slice(source), "(");
+    }
+
+    #[test]
+    fn maps_function_parameter_parse_error_to_the_paren_near_reported_position() {
+        let source = "#!/bin/sh\necho \"$(x)\"; function f(y) { :; }\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::FunctionParamsInSh);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::FunctionParamsInSh);
+        assert_eq!(diagnostics[0].span.slice(source), "(");
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 24);
     }
 
     #[test]

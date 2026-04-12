@@ -1034,6 +1034,10 @@ impl<'a> FunctionHeaderFact<'a> {
         self.function
     }
 
+    pub fn function_span_in_source(&self, source: &str) -> Span {
+        trim_trailing_whitespace_span(self.function.span, source)
+    }
+
     pub fn span_in_source(&self, source: &str) -> Span {
         trim_trailing_whitespace_span(self.function.header.span(), source)
     }
@@ -1298,12 +1302,17 @@ pub struct PrintfCommandFacts<'a> {
 pub struct UnsetCommandFacts<'a> {
     pub function_mode: bool,
     operand_words: Box<[&'a Word]>,
+    prefix_match_operand_spans: Box<[Span]>,
     options_parseable: bool,
 }
 
 impl<'a> UnsetCommandFacts<'a> {
     pub fn operand_words(&self) -> &[&'a Word] {
         &self.operand_words
+    }
+
+    pub fn prefix_match_operand_spans(&self) -> &[Span] {
+        &self.prefix_match_operand_spans
     }
 
     pub fn targets_function_name(&self, source: &str, target_name: &str) -> bool {
@@ -8209,6 +8218,7 @@ fn parse_unset_command<'a>(args: &[&'a Word], source: &str) -> UnsetCommandFacts
     let mut parsing_options = true;
     let mut options_parseable = true;
     let mut operands = Vec::new();
+    let mut prefix_match_operand_spans = Vec::new();
 
     for word in args {
         let Some(text) = static_word_text(word, source) else {
@@ -8217,6 +8227,7 @@ fn parse_unset_command<'a>(args: &[&'a Word], source: &str) -> UnsetCommandFacts
                 parsing_options = false;
             }
 
+            collect_word_prefix_match_spans(word, &mut prefix_match_operand_spans);
             operands.push(*word);
             continue;
         };
@@ -8237,13 +8248,37 @@ fn parse_unset_command<'a>(args: &[&'a Word], source: &str) -> UnsetCommandFacts
             parsing_options = false;
         }
 
+        collect_word_prefix_match_spans(word, &mut prefix_match_operand_spans);
         operands.push(*word);
     }
 
     UnsetCommandFacts {
         function_mode,
         operand_words: operands.into_boxed_slice(),
+        prefix_match_operand_spans: prefix_match_operand_spans.into_boxed_slice(),
         options_parseable,
+    }
+}
+
+fn collect_word_prefix_match_spans(word: &Word, spans: &mut Vec<Span>) {
+    collect_prefix_match_spans(&word.parts, spans);
+}
+
+fn collect_prefix_match_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
+    for part in parts {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => collect_prefix_match_spans(parts, spans),
+            WordPart::PrefixMatch { .. } => spans.push(part.span),
+            WordPart::Parameter(parameter)
+                if matches!(
+                    parameter.bourne(),
+                    Some(BourneParameterExpansion::PrefixMatch { .. })
+                ) =>
+            {
+                spans.push(part.span);
+            }
+            _ => {}
+        }
     }
 }
 
@@ -9996,6 +10031,35 @@ unset parts[\"$key\"] extra
                 .map(|word| word.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["parts[\"$key\"]", "extra"]
+        );
+    }
+
+    #[test]
+    fn collects_prefix_match_spans_from_unset_operands() {
+        let source = "\
+#!/bin/sh
+unset -v \"${!prefix_@}\" x${!prefix_*} \"${!name}\" \"${!arr[@]}\"
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let unset = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_name_is("unset"))
+            .and_then(|fact| fact.options().unset())
+            .expect("expected unset facts");
+
+        assert_eq!(
+            unset
+                .prefix_match_operand_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${!prefix_@}", "${!prefix_*}"]
         );
     }
 
