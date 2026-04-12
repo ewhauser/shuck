@@ -20,10 +20,11 @@ use shuck_ast::{
     BinaryCommand, BinaryOp, BourneParameterExpansion, BraceQuoteContext, BraceSyntaxKind,
     BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command, CommandSubstitutionSyntax,
     CompoundCommand, ConditionalBinaryOp, ConditionalExpr, ConditionalUnaryOp, DeclClause,
-    DeclOperand, File, ForCommand, FunctionDef, Name, ParameterExpansion, ParameterExpansionSyntax,
-    ParameterOp, Pattern, PatternPart, Position, Redirect, RedirectKind, SelectCommand,
-    SimpleCommand, SourceText, Span, Stmt, StmtSeq, Subscript, VarRef, WhileCommand, Word,
-    WordPart, WordPartNode, ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
+    DeclOperand, File, ForCommand, FunctionDef, IfCommand, Name, ParameterExpansion,
+    ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Position, Redirect, RedirectKind,
+    SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq, StmtTerminator, Subscript,
+    VarRef, WhileCommand, Word, WordPart, WordPartNode, ZshExpansionTarget, ZshGlobSegment,
+    ZshQualifiedGlob,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -1967,6 +1968,8 @@ pub struct LinterFacts<'a> {
     word_index: FxHashMap<FactSpan, Vec<usize>>,
     array_assignment_split_word_indices: Vec<usize>,
     function_headers: Vec<FunctionHeaderFact<'a>>,
+    function_body_without_braces_spans: Vec<Span>,
+    redundant_return_status_spans: Vec<Span>,
     for_headers: Vec<ForHeaderFact<'a>>,
     select_headers: Vec<SelectHeaderFact<'a>>,
     case_items: Vec<CaseItemFact<'a>>,
@@ -2154,6 +2157,14 @@ impl<'a> LinterFacts<'a> {
 
     pub fn function_headers(&self) -> &[FunctionHeaderFact<'a>] {
         &self.function_headers
+    }
+
+    pub fn function_body_without_braces_spans(&self) -> &[Span] {
+        &self.function_body_without_braces_spans
+    }
+
+    pub fn redundant_return_status_spans(&self) -> &[Span] {
+        &self.redundant_return_status_spans
     }
 
     pub fn for_headers(&self) -> &[ForHeaderFact<'a>] {
@@ -2427,6 +2438,13 @@ struct ArithmeticFactSummary {
 }
 
 #[derive(Debug, Default)]
+struct FunctionStyleFactSummary<'a> {
+    function_headers: Vec<FunctionHeaderFact<'a>>,
+    function_body_without_braces_spans: Vec<Span>,
+    redundant_return_status_spans: Vec<Span>,
+}
+
+#[derive(Debug, Default)]
 struct HeredocFactSummary {
     unused_heredoc_spans: Vec<Span>,
     heredoc_missing_end_spans: Vec<Span>,
@@ -2584,7 +2602,11 @@ impl<'a> LinterFactsBuilder<'a> {
         let elif_condition_command_ids =
             build_elif_condition_command_ids(&self.file.body, &command_ids_by_span);
         let presence_tested_names = build_presence_tested_names(&commands, self.source);
-        let function_headers = build_function_header_facts(&self.file.body);
+        let FunctionStyleFactSummary {
+            function_headers,
+            function_body_without_braces_spans,
+            redundant_return_status_spans,
+        } = build_function_style_facts(&self.file.body);
         let function_positional_parameter_facts =
             build_function_positional_parameter_facts(self.semantic, &commands);
         let for_headers = build_for_header_facts(&commands, &command_ids_by_span, self.source);
@@ -2699,6 +2721,8 @@ impl<'a> LinterFactsBuilder<'a> {
             word_index,
             array_assignment_split_word_indices,
             function_headers,
+            function_body_without_braces_spans,
+            redundant_return_status_spans,
             for_headers,
             select_headers,
             case_items,
@@ -3623,23 +3647,120 @@ fn collect_base_prefix_spans_in_text(span: Span, source: &str, spans: &mut Vec<S
     }
 }
 
-fn build_function_header_facts(body: &StmtSeq) -> Vec<FunctionHeaderFact<'_>> {
-    query::iter_commands(
+fn build_function_style_facts(body: &StmtSeq) -> FunctionStyleFactSummary<'_> {
+    let mut summary = FunctionStyleFactSummary::default();
+
+    for visit in query::iter_commands(
         body,
         CommandWalkOptions {
             descend_nested_word_commands: true,
         },
-    )
-    .filter_map(|visit| match visit.command {
-        Command::Function(function) => Some(FunctionHeaderFact { function }),
+    ) {
+        let Command::Function(function) = visit.command else {
+            continue;
+        };
+
+        summary
+            .function_headers
+            .push(FunctionHeaderFact { function });
+        if let Some(span) = function_body_without_braces_span(function) {
+            summary.function_body_without_braces_spans.push(span);
+        }
+        collect_terminal_redundant_return_status_spans(
+            function,
+            &mut summary.redundant_return_status_spans,
+        );
+    }
+
+    summary
+}
+
+fn function_body_without_braces_span(function: &FunctionDef) -> Option<Span> {
+    match &function.body.command {
+        Command::Compound(CompoundCommand::BraceGroup(_)) => None,
+        Command::Compound(_) => Some(function.body.span),
+        Command::Simple(_)
+        | Command::Decl(_)
+        | Command::Builtin(_)
+        | Command::Binary(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => None,
+    }
+}
+
+fn collect_terminal_redundant_return_status_spans(function: &FunctionDef, spans: &mut Vec<Span>) {
+    collect_terminal_redundant_return_status_spans_in_stmt(&function.body, spans);
+}
+
+fn collect_terminal_redundant_return_status_spans_in_stmt(stmt: &Stmt, spans: &mut Vec<Span>) {
+    match &stmt.command {
+        Command::Compound(CompoundCommand::BraceGroup(commands)) => {
+            collect_terminal_redundant_return_status_spans_in_seq(commands, spans);
+        }
+        Command::Compound(CompoundCommand::If(command)) => {
+            collect_terminal_redundant_return_status_spans_in_if(command, spans);
+        }
         Command::Simple(_)
         | Command::Decl(_)
         | Command::Builtin(_)
         | Command::Binary(_)
         | Command::Compound(_)
-        | Command::AnonymousFunction(_) => None,
-    })
-    .collect()
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => {}
+    }
+}
+
+fn collect_terminal_redundant_return_status_spans_in_if(
+    command: &IfCommand,
+    spans: &mut Vec<Span>,
+) {
+    collect_terminal_redundant_return_status_spans_in_seq(&command.then_branch, spans);
+    for (_, branch) in &command.elif_branches {
+        collect_terminal_redundant_return_status_spans_in_seq(branch, spans);
+    }
+    if let Some(branch) = &command.else_branch {
+        collect_terminal_redundant_return_status_spans_in_seq(branch, spans);
+    }
+}
+
+fn collect_terminal_redundant_return_status_spans_in_seq(
+    commands: &StmtSeq,
+    spans: &mut Vec<Span>,
+) {
+    if let Some(span) = terminal_redundant_return_status_span(commands) {
+        spans.push(span);
+    }
+
+    let Some(last) = commands.last() else {
+        return;
+    };
+    collect_terminal_redundant_return_status_spans_in_stmt(last, spans);
+}
+
+fn terminal_redundant_return_status_span(commands: &StmtSeq) -> Option<Span> {
+    let [.., previous, last] = commands.as_slice() else {
+        return None;
+    };
+    if !stmt_is_plain_status_propagating_command(previous) {
+        return None;
+    }
+
+    let Command::Builtin(BuiltinCommand::Return(command)) = &last.command else {
+        return None;
+    };
+    let code = command.code.as_ref()?;
+    crate::word_is_standalone_status_capture(code).then_some(code.span)
+}
+
+fn stmt_is_plain_status_propagating_command(stmt: &Stmt) -> bool {
+    if stmt.negated || matches!(stmt.terminator, Some(StmtTerminator::Background(_))) {
+        return false;
+    }
+
+    matches!(
+        stmt.command,
+        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_)
+    )
 }
 
 fn build_function_positional_parameter_facts(
@@ -11294,6 +11415,46 @@ mod tests {
             assert_eq!(
                 header.span_in_source(source).slice(source),
                 "function wrapped()"
+            );
+        });
+    }
+
+    #[test]
+    fn builds_function_style_spans() {
+        let source = "\
+#!/bin/bash
+f() [[ -n \"$x\" ]]
+g() {
+  if cond; then
+    false
+    return $?
+  fi
+}
+h() {
+  if cond; then
+    false
+    return $?
+  fi
+  echo done
+}
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .function_body_without_braces_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["[[ -n \"$x\" ]]"]
+            );
+            assert_eq!(
+                facts
+                    .redundant_return_status_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["$?"]
             );
         });
     }

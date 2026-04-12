@@ -1,5 +1,3 @@
-use shuck_ast::{Command, CompoundCommand};
-
 use crate::{Checker, Rule, ShellDialect, Violation};
 
 pub struct FunctionBodyWithoutBraces;
@@ -22,21 +20,13 @@ pub fn function_body_without_braces(checker: &mut Checker) {
         return;
     }
 
-    let spans = checker
-        .facts()
-        .function_headers()
-        .iter()
-        .filter_map(|header| {
-            let function = header.function();
-            is_bare_compound_body(&function.body.command).then_some(function.body.span)
-        })
-        .collect::<Vec<_>>();
-
-    checker.report_all_dedup(spans, || FunctionBodyWithoutBraces);
-}
-
-fn is_bare_compound_body(command: &Command) -> bool {
-    matches!(command, Command::Compound(compound) if !matches!(compound, CompoundCommand::BraceGroup(_)))
+    checker.report_all_dedup(
+        checker
+            .facts()
+            .function_body_without_braces_spans()
+            .to_vec(),
+        || FunctionBodyWithoutBraces,
+    );
 }
 
 #[cfg(test)]
