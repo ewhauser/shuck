@@ -1,0 +1,27 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 233
+---
+C129 this case pattern is unreachable because an earlier pattern already matches it
+ --> <source>:8:3
+  |
+8 |   foo) : ;;
+  |
+
+C129 this case pattern is unreachable because an earlier pattern already matches it
+  --> <source>:14:3
+   |
+14 |   foo*) : ;;
+   |
+
+C129 this case pattern is unreachable because an earlier pattern already matches it
+  --> <source>:19:5
+   |
+19 |   *|foo*) : ;;
+   |
+
+C129 this case pattern is unreachable because an earlier pattern already matches it
+  --> <source>:20:3
+   |
+20 |   foo) : ;;
+   |

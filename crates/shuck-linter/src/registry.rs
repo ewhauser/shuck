@@ -345,6 +345,18 @@ declare_rules! {
         ContinueOutsideLoopInFunction
     ),
     (
+        "C128",
+        Category::Correctness,
+        Severity::Warning,
+        CaseGlobReachability
+    ),
+    (
+        "C129",
+        Category::Correctness,
+        Severity::Warning,
+        CaseDefaultBeforeGlob
+    ),
+    (
         "C130",
         Category::Correctness,
         Severity::Warning,
@@ -367,6 +379,18 @@ declare_rules! {
         Category::Correctness,
         Severity::Warning,
         ArrayToStringConversion
+    ),
+    (
+        "C134",
+        Category::Correctness,
+        Severity::Warning,
+        GetoptsOptionNotInCase
+    ),
+    (
+        "C135",
+        Category::Correctness,
+        Severity::Warning,
+        CaseArmNotInGetopts
     ),
     (
         "C136",
@@ -544,6 +568,7 @@ declare_rules! {
     ("S060", Category::Style, Severity::Warning, EgrepDeprecated),
     ("S062", Category::Style, Severity::Warning, DefaultValueInColonAssign),
     ("S067", Category::Style, Severity::Warning, BacktickOutputToCommand),
+    ("S069", Category::Style, Severity::Hint, SingleLetterCaseLabel),
     ("S070", Category::Style, Severity::Warning, DoubleQuoteNesting),
     ("S071", Category::Style, Severity::Warning, EnvPrefixQuoting),
     ("S076", Category::Style, Severity::Warning, MixedQuoteWord),
@@ -807,6 +832,11 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-253" => Some(Rule::FindOutputLoop),
         "SH-293" => Some(Rule::UnreachableAfterExit),
         "SH-298" => Some(Rule::UnusedHeredoc),
+        "SH-300" => Some(Rule::SingleLetterCaseLabel),
+        "SH-301" => Some(Rule::CaseGlobReachability),
+        "SH-302" => Some(Rule::CaseDefaultBeforeGlob),
+        "SH-312" => Some(Rule::GetoptsOptionNotInCase),
+        "SH-313" => Some(Rule::CaseArmNotInGetopts),
         "SH-318" => Some(Rule::HeredocMissingEnd),
         "SH-310" => Some(Rule::MisspelledOptionName),
         "SH-055" => Some(Rule::ExprArithmetic),
@@ -917,6 +947,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-068"), Some(Rule::CommandOutputArraySplit));
         assert_eq!(code_to_rule("S067"), Some(Rule::BacktickOutputToCommand));
         assert_eq!(code_to_rule("SH-294"), Some(Rule::BacktickOutputToCommand));
+        assert_eq!(code_to_rule("S069"), Some(Rule::SingleLetterCaseLabel));
+        assert_eq!(code_to_rule("SH-300"), Some(Rule::SingleLetterCaseLabel));
         assert_eq!(code_to_rule("S071"), Some(Rule::EnvPrefixQuoting));
         assert_eq!(code_to_rule("SH-309"), Some(Rule::EnvPrefixQuoting));
         assert_eq!(code_to_rule("S076"), Some(Rule::MixedQuoteWord));
@@ -1192,6 +1224,14 @@ mod tests {
         assert_eq!(code_to_rule("SH-293"), Some(Rule::UnreachableAfterExit));
         assert_eq!(code_to_rule("C127"), Some(Rule::UnusedHeredoc));
         assert_eq!(code_to_rule("SH-298"), Some(Rule::UnusedHeredoc));
+        assert_eq!(code_to_rule("C128"), Some(Rule::CaseGlobReachability));
+        assert_eq!(code_to_rule("SH-301"), Some(Rule::CaseGlobReachability));
+        assert_eq!(code_to_rule("C129"), Some(Rule::CaseDefaultBeforeGlob));
+        assert_eq!(code_to_rule("SH-302"), Some(Rule::CaseDefaultBeforeGlob));
+        assert_eq!(code_to_rule("C134"), Some(Rule::GetoptsOptionNotInCase));
+        assert_eq!(code_to_rule("SH-312"), Some(Rule::GetoptsOptionNotInCase));
+        assert_eq!(code_to_rule("C135"), Some(Rule::CaseArmNotInGetopts));
+        assert_eq!(code_to_rule("SH-313"), Some(Rule::CaseArmNotInGetopts));
         assert_eq!(code_to_rule("C138"), Some(Rule::HeredocMissingEnd));
         assert_eq!(code_to_rule("SH-318"), Some(Rule::HeredocMissingEnd));
         assert_eq!(

@@ -45,6 +45,7 @@ pub mod quoted_dollar_star_loop;
 pub mod read_without_raw;
 pub mod redundant_spaces_in_echo;
 pub mod single_iteration_loop;
+pub mod single_letter_case_label;
 pub mod single_quote_backslash;
 pub mod spaced_tabstrip_close;
 pub mod su_without_flag;
@@ -88,6 +89,7 @@ mod tests {
     #[test_case(Rule::EgrepDeprecated, Path::new("S060.sh"))]
     #[test_case(Rule::DefaultValueInColonAssign, Path::new("S062.sh"))]
     #[test_case(Rule::BacktickOutputToCommand, Path::new("S067.sh"))]
+    #[test_case(Rule::SingleLetterCaseLabel, Path::new("S069.sh"))]
     #[test_case(Rule::DoubleQuoteNesting, Path::new("S070.sh"))]
     #[test_case(Rule::EnvPrefixQuoting, Path::new("S071.sh"))]
     #[test_case(Rule::MixedQuoteWord, Path::new("S076.sh"))]

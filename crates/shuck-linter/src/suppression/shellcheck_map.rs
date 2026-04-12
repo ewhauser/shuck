@@ -208,6 +208,20 @@ impl Default for ShellCheckCodeMap {
             // ShellCheck 0.11.0 reports `foo &;` as SC1045.
             // Keep SC2397 as a suppression alias for historical compatibility.
             (1045, Rule::AmpersandSemicolon),
+            // ShellCheck 0.11.0 reports case-pattern shadowing as SC2221.
+            // Keep SC2373 as a suppression alias for the authored C128 rule code.
+            (2221, Rule::CaseGlobReachability),
+            // ShellCheck 0.11.0 reports the shadowed case pattern as SC2222.
+            // Keep SC2374 as a suppression alias for the authored C129 rule code.
+            (2222, Rule::CaseDefaultBeforeGlob),
+            // ShellCheck 0.11.0 reports missing getopts case arms as SC2213.
+            // Keep SC2382 as a suppression alias for the authored C134 rule code.
+            (2213, Rule::GetoptsOptionNotInCase),
+            // ShellCheck 0.11.0 reports undeclared getopts case arms as SC2214.
+            // Keep SC2383 as a suppression alias for the authored C135 rule code.
+            (2214, Rule::CaseArmNotInGetopts),
+            // Keep the historical SC2372 comparison slot for the authored S069 rule code.
+            (2372, Rule::SingleLetterCaseLabel),
             (1047, Rule::MissingFi),
             (1065, Rule::FunctionParamsInSh),
             (1069, Rule::IfBracketGlued),
@@ -715,6 +729,10 @@ impl Default for ShellCheckCodeMap {
                     (2393, Rule::SpacedTabstripClose),
                     (2396, Rule::UntilMissingDo),
                     (2397, Rule::AmpersandSemicolon),
+                    (2221, Rule::CaseGlobReachability),
+                    (2222, Rule::CaseDefaultBeforeGlob),
+                    (2213, Rule::GetoptsOptionNotInCase),
+                    (2214, Rule::CaseArmNotInGetopts),
                     (2241, Rule::InvalidExitStatus),
                     (2242, Rule::CasePatternVar),
                     (2248, Rule::BareSlashMarker),
@@ -775,6 +793,11 @@ impl Default for ShellCheckCodeMap {
                 (2009, Rule::DoubleParenGrouping),
                 (2294, Rule::LsInSubstitution),
                 (2294, Rule::EvalOnArray),
+                (2373, Rule::CaseGlobReachability),
+                (2374, Rule::CaseDefaultBeforeGlob),
+                (2372, Rule::SingleLetterCaseLabel),
+                (2382, Rule::GetoptsOptionNotInCase),
+                (2383, Rule::CaseArmNotInGetopts),
                 // The pinned ShellCheck oracle still reports ordinary `A && B || C`
                 // fallthrough chains as SC2015. Keep that older code as a
                 // compatibility alias so targeted large-corpus validation can
@@ -1432,6 +1455,15 @@ mod tests {
         assert_eq!(map.resolve("SC2395"), Some(Rule::MisquotedHeredocClose));
         assert_eq!(map.resolve("SC2396"), Some(Rule::UntilMissingDo));
         assert_eq!(map.resolve("SC2397"), Some(Rule::AmpersandSemicolon));
+        assert_eq!(map.resolve("SC2221"), Some(Rule::CaseGlobReachability));
+        assert_eq!(map.resolve("SC2373"), Some(Rule::CaseGlobReachability));
+        assert_eq!(map.resolve("SC2222"), Some(Rule::CaseDefaultBeforeGlob));
+        assert_eq!(map.resolve("SC2374"), Some(Rule::CaseDefaultBeforeGlob));
+        assert_eq!(map.resolve("SC2372"), Some(Rule::SingleLetterCaseLabel));
+        assert_eq!(map.resolve("SC2213"), Some(Rule::GetoptsOptionNotInCase));
+        assert_eq!(map.resolve("SC2382"), Some(Rule::GetoptsOptionNotInCase));
+        assert_eq!(map.resolve("SC2214"), Some(Rule::CaseArmNotInGetopts));
+        assert_eq!(map.resolve("SC2383"), Some(Rule::CaseArmNotInGetopts));
         assert_eq!(map.resolve("SC2280"), Some(Rule::IfsEqualsAmbiguity));
         assert_eq!(map.resolve("SC2266"), Some(Rule::OverwrittenFunction));
         assert_eq!(map.resolve("SC2365"), Some(Rule::UnreachableAfterExit));
@@ -1646,6 +1678,10 @@ mod tests {
             (2210, Rule::BadRedirectionFdOrder),
             (2217, Rule::EchoHereDoc),
             (2216, Rule::PipeToKill),
+            (2221, Rule::CaseGlobReachability),
+            (2222, Rule::CaseDefaultBeforeGlob),
+            (2213, Rule::GetoptsOptionNotInCase),
+            (2214, Rule::CaseArmNotInGetopts),
             (2233, Rule::SingleTestSubshell),
             (2235, Rule::SubshellTestGroup),
             (2238, Rule::RedirectToCommandName),
@@ -1742,6 +1778,15 @@ mod tests {
             (2395, Rule::MisquotedHeredocClose),
             (2396, Rule::UntilMissingDo),
             (2397, Rule::AmpersandSemicolon),
+            (2221, Rule::CaseGlobReachability),
+            (2373, Rule::CaseGlobReachability),
+            (2222, Rule::CaseDefaultBeforeGlob),
+            (2374, Rule::CaseDefaultBeforeGlob),
+            (2372, Rule::SingleLetterCaseLabel),
+            (2213, Rule::GetoptsOptionNotInCase),
+            (2382, Rule::GetoptsOptionNotInCase),
+            (2214, Rule::CaseArmNotInGetopts),
+            (2383, Rule::CaseArmNotInGetopts),
             (2355, Rule::ZshAssignmentToZero),
             (2359, Rule::ZshParameterFlag),
             (2365, Rule::UnreachableAfterExit),
@@ -2006,6 +2051,7 @@ mod tests {
         assert!(comparison.contains(&(1044, Rule::HeredocMissingEnd)));
         assert!(comparison.contains(&(1118, Rule::HeredocEndSpace)));
         assert!(comparison.contains(&(1040, Rule::SpacedTabstripClose)));
+        assert!(comparison.contains(&(2372, Rule::SingleLetterCaseLabel)));
         assert!(!comparison.contains(&(2009, Rule::DoubleParenGrouping)));
         assert!(!comparison.contains(&(2004, Rule::DollarInArithmeticContext)));
         assert!(comparison.contains(&(2141, Rule::IfsSetToLiteralBackslashN)));

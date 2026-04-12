@@ -1,0 +1,15 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 237
+---
+C135 this case arm handles -k, but getopts does not declare it
+ --> <source>:8:5
+  |
+8 |     k) keyfile=$OPTARG ;;
+  |
+
+C135 this case arm handles -b, but getopts does not declare it
+  --> <source>:16:7
+   |
+16 |     a|b) : ;;
+   |

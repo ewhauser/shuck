@@ -381,11 +381,11 @@ require semantic model access for call site analysis.
 Rules about case pattern reachability and getopts integration. Glob reachability
 rules require pattern analysis and are high complexity.
 
-- [ ] **H** C128 (SC2373) `case-glob-reachability` — case glob pattern shadows later arm
-- [ ] **H** C129 (SC2374) `case-default-before-glob` — default case before matching glob
-- [ ] **M** C134 (SC2382) `getopts-option-not-in-case` — getopts option not handled in case
-- [ ] **M** C135 (SC2383) `case-arm-not-in-getopts` — case arm not listed in getopts string
-- [ ] **L** S069 (SC2372) `single-letter-case-label` — bare single letter as case label
+- [x] **H** C128 (SC2373) `case-glob-reachability` — case glob pattern shadows later arm
+- [x] **H** C129 (SC2374) `case-default-before-glob` — default case before matching glob
+- [x] **M** C134 (SC2382) `getopts-option-not-in-case` — getopts option not handled in case
+- [x] **M** C135 (SC2383) `case-arm-not-in-getopts` — case arm not listed in getopts string
+- [x] **L** S069 (SC2372) `single-letter-case-label` — bare single letter as case label
 
 ### Subshell and Pipeline Side Effects
 

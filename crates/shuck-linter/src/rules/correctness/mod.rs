@@ -18,6 +18,9 @@ pub mod broken_test_end;
 pub mod broken_test_parse;
 pub mod c_prototype_fragment;
 pub mod c_style_comment;
+pub mod case_arm_not_in_getopts;
+pub mod case_default_before_glob;
+pub mod case_glob_reachability;
 pub mod case_pattern_var;
 pub mod chained_test_branches;
 pub mod comma_array_elements;
@@ -41,6 +44,7 @@ pub mod find_output_loop;
 pub mod find_output_to_xargs;
 pub mod function_called_without_args;
 pub mod function_references_unset_param;
+pub mod getopts_option_not_in_case;
 pub mod glob_in_find_substitution;
 pub mod glob_in_grep_pattern;
 pub mod glob_in_string_comparison;
@@ -224,6 +228,10 @@ mod tests {
     #[test_case(Rule::UnreachableAfterExit, Path::new("C124.sh"))]
     #[test_case(Rule::UncheckedDirectoryChangeInFunction, Path::new("C125.sh"))]
     #[test_case(Rule::ContinueOutsideLoopInFunction, Path::new("C126.sh"))]
+    #[test_case(Rule::CaseGlobReachability, Path::new("C128.sh"))]
+    #[test_case(Rule::CaseDefaultBeforeGlob, Path::new("C129.sh"))]
+    #[test_case(Rule::GetoptsOptionNotInCase, Path::new("C134.sh"))]
+    #[test_case(Rule::CaseArmNotInGetopts, Path::new("C135.sh"))]
     #[test_case(Rule::AppendWithEscapedQuotes, Path::new("C130.sh"))]
     #[test_case(Rule::VariableAsCommandName, Path::new("C131.sh"))]
     #[test_case(Rule::MisspelledOptionName, Path::new("C132.sh"))]

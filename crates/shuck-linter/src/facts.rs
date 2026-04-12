@@ -18,12 +18,12 @@ use shuck_ast::{
     ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue,
     ArithmeticPostfixOp, ArithmeticUnaryOp, ArrayElem, ArrayKind, Assignment, AssignmentValue,
     BinaryCommand, BinaryOp, BourneParameterExpansion, BraceQuoteContext, BraceSyntaxKind,
-    BuiltinCommand, CaseItem, CaseTerminator, Command, CommandSubstitutionSyntax, CompoundCommand,
-    ConditionalBinaryOp, ConditionalExpr, ConditionalUnaryOp, DeclClause, DeclOperand, File,
-    ForCommand, FunctionDef, Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp,
-    Pattern, PatternPart, Position, Redirect, RedirectKind, SelectCommand, SimpleCommand,
-    SourceText, Span, Stmt, StmtSeq, Subscript, VarRef, Word, WordPart, WordPartNode,
-    ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
+    BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command, CommandSubstitutionSyntax,
+    CompoundCommand, ConditionalBinaryOp, ConditionalExpr, ConditionalUnaryOp, DeclClause,
+    DeclOperand, File, ForCommand, FunctionDef, Name, ParameterExpansion, ParameterExpansionSyntax,
+    ParameterOp, Pattern, PatternPart, Position, Redirect, RedirectKind, SelectCommand,
+    SimpleCommand, SourceText, Span, Stmt, StmtSeq, Subscript, VarRef, WhileCommand, Word,
+    WordPart, WordPartNode, ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -1025,6 +1025,100 @@ impl<'a> CaseItemFact<'a> {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct CasePatternShadowFact {
+    shadowing_pattern_span: Span,
+    shadowed_pattern_span: Span,
+}
+
+impl CasePatternShadowFact {
+    pub fn shadowing_pattern_span(&self) -> Span {
+        self.shadowing_pattern_span
+    }
+
+    pub fn shadowed_pattern_span(&self) -> Span {
+        self.shadowed_pattern_span
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GetoptsOptionSpec {
+    option: char,
+    requires_argument: bool,
+}
+
+impl GetoptsOptionSpec {
+    pub fn option(self) -> char {
+        self.option
+    }
+
+    pub fn requires_argument(self) -> bool {
+        self.requires_argument
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GetoptsCaseLabelFact {
+    label: char,
+    span: Span,
+    is_bare_single_letter: bool,
+}
+
+impl GetoptsCaseLabelFact {
+    pub fn label(self) -> char {
+        self.label
+    }
+
+    pub fn span(self) -> Span {
+        self.span
+    }
+
+    pub fn is_bare_single_letter(self) -> bool {
+        self.is_bare_single_letter
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct GetoptsCaseFact {
+    case_span: Span,
+    declared_options: Box<[GetoptsOptionSpec]>,
+    handled_case_labels: Box<[GetoptsCaseLabelFact]>,
+    unexpected_case_labels: Box<[GetoptsCaseLabelFact]>,
+    invalid_case_pattern_spans: Box<[Span]>,
+    has_fallback_pattern: bool,
+    missing_options: Box<[GetoptsOptionSpec]>,
+}
+
+impl GetoptsCaseFact {
+    pub fn case_span(&self) -> Span {
+        self.case_span
+    }
+
+    pub fn declared_options(&self) -> &[GetoptsOptionSpec] {
+        &self.declared_options
+    }
+
+    pub fn handled_case_labels(&self) -> &[GetoptsCaseLabelFact] {
+        &self.handled_case_labels
+    }
+
+    pub fn unexpected_case_labels(&self) -> &[GetoptsCaseLabelFact] {
+        &self.unexpected_case_labels
+    }
+
+    pub fn invalid_case_pattern_spans(&self) -> &[Span] {
+        &self.invalid_case_pattern_spans
+    }
+
+    pub fn has_fallback_pattern(&self) -> bool {
+        self.has_fallback_pattern
+    }
+
+    pub fn missing_options(&self) -> &[GetoptsOptionSpec] {
+        &self.missing_options
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct FunctionHeaderFact<'a> {
     function: &'a FunctionDef,
 }
@@ -1880,6 +1974,8 @@ pub struct LinterFacts<'a> {
     for_headers: Vec<ForHeaderFact<'a>>,
     select_headers: Vec<SelectHeaderFact<'a>>,
     case_items: Vec<CaseItemFact<'a>>,
+    case_pattern_shadows: Vec<CasePatternShadowFact>,
+    getopts_cases: Vec<GetoptsCaseFact>,
     pipelines: Vec<PipelineFact<'a>>,
     lists: Vec<ListFact<'a>>,
     single_test_subshell_spans: Vec<Span>,
@@ -2069,6 +2165,14 @@ impl<'a> LinterFacts<'a> {
 
     pub fn case_items(&self) -> &[CaseItemFact<'a>] {
         &self.case_items
+    }
+
+    pub fn case_pattern_shadows(&self) -> &[CasePatternShadowFact] {
+        &self.case_pattern_shadows
+    }
+
+    pub fn getopts_cases(&self) -> &[GetoptsCaseFact] {
+        &self.getopts_cases
     }
 
     pub fn pipelines(&self) -> &[PipelineFact<'a>] {
@@ -2466,6 +2570,8 @@ impl<'a> LinterFactsBuilder<'a> {
         let select_headers =
             build_select_header_facts(&commands, &command_ids_by_span, self.source);
         let case_items = build_case_item_facts(&commands);
+        let case_pattern_shadows = build_case_pattern_shadow_facts(&commands, self.source);
+        let getopts_cases = build_getopts_case_facts(&self.file.body, self.source);
         let pipelines = build_pipeline_facts(&commands, &command_ids_by_span);
         let lists = build_list_facts(&commands, &command_ids_by_span, self.source);
         let single_test_subshell_spans =
@@ -2575,6 +2681,8 @@ impl<'a> LinterFactsBuilder<'a> {
             for_headers,
             select_headers,
             case_items,
+            case_pattern_shadows,
+            getopts_cases,
             pipelines,
             lists,
             single_test_subshell_spans,
@@ -6739,6 +6847,616 @@ fn pattern_contains_word_or_group(pattern: &Pattern) -> bool {
         | PatternPart::AnyChar
         | PatternPart::CharClass(_) => false,
     })
+}
+
+#[derive(Debug, Clone)]
+struct StaticCasePatternMatcher {
+    tokens: Vec<CasePatternToken>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CasePatternToken {
+    Literal(char),
+    AnyChar,
+    AnyString,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CasePatternSymbol {
+    Literal(char),
+    Other,
+}
+
+#[derive(Debug, Clone)]
+struct ReachableCasePattern {
+    span: Span,
+    matcher: StaticCasePatternMatcher,
+}
+
+impl StaticCasePatternMatcher {
+    fn from_pattern(pattern: &Pattern, source: &str) -> Option<Self> {
+        ensure_case_pattern_is_statically_analyzable(pattern, source)?;
+
+        let mut tokens = Vec::new();
+        collect_static_case_pattern_tokens(pattern.span.slice(source), &mut tokens)?;
+        Some(Self { tokens })
+    }
+
+    fn subsumes(&self, other: &Self) -> bool {
+        let mut symbols = self.literal_symbols();
+        symbols.extend(other.literal_symbols());
+
+        let start = (self.start_states(), other.start_states());
+        let mut seen = FxHashSet::default();
+        let mut worklist = vec![start.clone()];
+        seen.insert(start);
+
+        while let Some((left, right)) = worklist.pop() {
+            if other.is_accepting(&right) && !self.is_accepting(&left) {
+                return false;
+            }
+
+            for symbol in symbols
+                .iter()
+                .copied()
+                .map(CasePatternSymbol::Literal)
+                .chain(std::iter::once(CasePatternSymbol::Other))
+            {
+                let next_right = other.advance(&right, symbol);
+                if next_right.is_empty() {
+                    continue;
+                }
+
+                let next_left = self.advance(&left, symbol);
+                if seen.insert((next_left.clone(), next_right.clone())) {
+                    worklist.push((next_left, next_right));
+                }
+            }
+        }
+
+        true
+    }
+
+    fn literal_symbols(&self) -> FxHashSet<char> {
+        self.tokens
+            .iter()
+            .filter_map(|token| match token {
+                CasePatternToken::Literal(ch) => Some(*ch),
+                CasePatternToken::AnyChar | CasePatternToken::AnyString => None,
+            })
+            .collect()
+    }
+
+    fn start_states(&self) -> Vec<usize> {
+        self.epsilon_closure([0])
+    }
+
+    fn advance(&self, states: &[usize], symbol: CasePatternSymbol) -> Vec<usize> {
+        let mut next = Vec::new();
+
+        for &state in states {
+            let Some(token) = self.tokens.get(state) else {
+                continue;
+            };
+
+            match token {
+                CasePatternToken::Literal(expected) if matches!(symbol, CasePatternSymbol::Literal(actual) if actual == *expected) =>
+                {
+                    next.push(state + 1);
+                }
+                CasePatternToken::AnyChar => next.push(state + 1),
+                CasePatternToken::AnyString => next.push(state),
+                CasePatternToken::Literal(_) => {}
+            }
+        }
+
+        if next.is_empty() {
+            return Vec::new();
+        }
+
+        self.epsilon_closure(next)
+    }
+
+    fn epsilon_closure(&self, seeds: impl IntoIterator<Item = usize>) -> Vec<usize> {
+        let mut seen = vec![false; self.tokens.len() + 1];
+        let mut stack = Vec::new();
+
+        for state in seeds {
+            if state <= self.tokens.len() && !seen[state] {
+                seen[state] = true;
+                stack.push(state);
+            }
+        }
+
+        while let Some(state) = stack.pop() {
+            if matches!(self.tokens.get(state), Some(CasePatternToken::AnyString)) {
+                let next = state + 1;
+                if !seen[next] {
+                    seen[next] = true;
+                    stack.push(next);
+                }
+            }
+        }
+
+        seen.into_iter()
+            .enumerate()
+            .filter_map(|(index, present)| present.then_some(index))
+            .collect()
+    }
+
+    fn is_accepting(&self, states: &[usize]) -> bool {
+        states.contains(&self.tokens.len())
+    }
+}
+
+fn ensure_case_pattern_is_statically_analyzable(pattern: &Pattern, source: &str) -> Option<()> {
+    for (part, _) in pattern.parts_with_spans() {
+        match part {
+            PatternPart::Literal(_) | PatternPart::AnyString | PatternPart::AnyChar => {}
+            PatternPart::Word(word) => {
+                static_word_text(word, source)?;
+            }
+            PatternPart::Group { .. } | PatternPart::CharClass(_) => return None,
+        }
+    }
+
+    Some(())
+}
+
+fn collect_static_case_pattern_tokens(
+    pattern_syntax: &str,
+    out: &mut Vec<CasePatternToken>,
+) -> Option<()> {
+    let mut chars = pattern_syntax.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\\' => match chars.next() {
+                Some('\n') => {}
+                Some(escaped) => push_case_pattern_literal_tokens_char(escaped, out),
+                None => push_case_pattern_literal_tokens_char('\\', out),
+            },
+            '\'' => {
+                for quoted in chars.by_ref() {
+                    if quoted == '\'' {
+                        break;
+                    }
+                    push_case_pattern_literal_tokens_char(quoted, out);
+                }
+            }
+            '"' => {
+                while let Some(quoted) = chars.next() {
+                    match quoted {
+                        '"' => break,
+                        '\\' => match chars.next() {
+                            Some('\n') => {}
+                            Some(escaped @ ('$' | '`' | '"' | '\\')) => {
+                                push_case_pattern_literal_tokens_char(escaped, out);
+                            }
+                            Some(other) => {
+                                push_case_pattern_literal_tokens_char('\\', out);
+                                push_case_pattern_literal_tokens_char(other, out);
+                            }
+                            None => push_case_pattern_literal_tokens_char('\\', out),
+                        },
+                        _ => push_case_pattern_literal_tokens_char(quoted, out),
+                    }
+                }
+            }
+            '[' => return None,
+            '?' => {
+                if chars.peek() == Some(&'(') {
+                    return None;
+                }
+                push_case_pattern_token(out, CasePatternToken::AnyChar);
+            }
+            '*' => {
+                if chars.peek() == Some(&'(') {
+                    return None;
+                }
+                push_case_pattern_token(out, CasePatternToken::AnyString);
+            }
+            '+' | '@' | '!' if chars.peek() == Some(&'(') => return None,
+            '$' | '`' => return None,
+            other => push_case_pattern_literal_tokens_char(other, out),
+        }
+    }
+    Some(())
+}
+
+fn push_case_pattern_literal_tokens_char(ch: char, out: &mut Vec<CasePatternToken>) {
+    out.push(CasePatternToken::Literal(ch));
+}
+
+fn push_case_pattern_token(out: &mut Vec<CasePatternToken>, token: CasePatternToken) {
+    if matches!(token, CasePatternToken::AnyString)
+        && matches!(out.last(), Some(CasePatternToken::AnyString))
+    {
+        return;
+    }
+
+    out.push(token);
+}
+
+fn build_case_pattern_shadow_facts(
+    commands: &[CommandFact<'_>],
+    source: &str,
+) -> Vec<CasePatternShadowFact> {
+    let mut shadows = Vec::new();
+
+    for fact in commands {
+        let Command::Compound(CompoundCommand::Case(command)) = fact.command() else {
+            continue;
+        };
+
+        let mut prior_arm_patterns = Vec::<ReachableCasePattern>::new();
+        let mut fallthrough_arm_patterns = Vec::<ReachableCasePattern>::new();
+        let mut spent_shadowing_patterns = FxHashSet::default();
+
+        for item in &command.cases {
+            let mut same_item_patterns = Vec::<ReachableCasePattern>::new();
+
+            for pattern in &item.patterns {
+                let Some(matcher) = StaticCasePatternMatcher::from_pattern(pattern, source) else {
+                    continue;
+                };
+
+                for previous in prior_arm_patterns
+                    .iter()
+                    .chain(fallthrough_arm_patterns.iter())
+                    .chain(same_item_patterns.iter())
+                {
+                    if spent_shadowing_patterns.contains(&FactSpan::new(previous.span)) {
+                        continue;
+                    }
+
+                    if previous.matcher.subsumes(&matcher) {
+                        shadows.push(CasePatternShadowFact {
+                            shadowing_pattern_span: previous.span,
+                            shadowed_pattern_span: pattern.span,
+                        });
+                        spent_shadowing_patterns.insert(FactSpan::new(previous.span));
+                        break;
+                    }
+                }
+
+                same_item_patterns.push(ReachableCasePattern {
+                    span: pattern.span,
+                    matcher,
+                });
+            }
+
+            match item.terminator {
+                CaseTerminator::Break => {
+                    prior_arm_patterns.append(&mut fallthrough_arm_patterns);
+                    prior_arm_patterns.extend(same_item_patterns);
+                }
+                CaseTerminator::FallThrough => {
+                    fallthrough_arm_patterns.extend(same_item_patterns);
+                }
+                CaseTerminator::Continue | CaseTerminator::ContinueMatching => {
+                    fallthrough_arm_patterns.clear();
+                }
+            }
+        }
+    }
+
+    shadows
+}
+
+#[derive(Debug, Clone)]
+struct ParsedGetoptsCommand {
+    declared_options: Vec<GetoptsOptionSpec>,
+    target_name: Name,
+}
+
+#[derive(Debug, Clone)]
+struct GetoptsCaseMatch {
+    case_span: Span,
+    handled_case_labels: Vec<GetoptsCaseLabelFact>,
+    invalid_case_pattern_spans: Vec<Span>,
+    has_fallback_pattern: bool,
+    has_unknown_coverage: bool,
+}
+
+fn build_getopts_case_facts(commands: &StmtSeq, source: &str) -> Vec<GetoptsCaseFact> {
+    query::iter_commands(
+        commands,
+        CommandWalkOptions {
+            descend_nested_word_commands: false,
+        },
+    )
+    .filter_map(|visit| {
+        let Command::Compound(CompoundCommand::While(command)) = visit.command else {
+            return None;
+        };
+
+        build_getopts_case_fact_for_while(command, source)
+    })
+    .collect()
+}
+
+fn build_getopts_case_fact_for_while(
+    command: &WhileCommand,
+    source: &str,
+) -> Option<GetoptsCaseFact> {
+    let parsed = parse_getopts_command_from_condition(&command.condition, source)?;
+    let GetoptsCaseMatch {
+        case_span,
+        handled_case_labels,
+        invalid_case_pattern_spans,
+        has_fallback_pattern,
+        has_unknown_coverage,
+    } = first_getopts_case_match(&command.body, parsed.target_name.as_str(), source)?;
+
+    let handled = handled_case_labels
+        .iter()
+        .map(|label| label.label)
+        .collect::<FxHashSet<_>>();
+    let declared = parsed
+        .declared_options
+        .iter()
+        .map(|option| option.option)
+        .collect::<FxHashSet<_>>();
+    let unexpected_case_labels = handled_case_labels
+        .iter()
+        .copied()
+        .filter(|label| !declared.contains(&label.label()))
+        .filter(|label| !matches!(label.label(), '?' | ':'))
+        .collect::<Vec<_>>();
+    let missing_options = if has_fallback_pattern || has_unknown_coverage {
+        Vec::new()
+    } else {
+        parsed
+            .declared_options
+            .iter()
+            .copied()
+            .filter(|option| !handled.contains(&option.option))
+            .collect::<Vec<_>>()
+    };
+
+    Some(GetoptsCaseFact {
+        case_span,
+        declared_options: parsed.declared_options.into_boxed_slice(),
+        handled_case_labels: handled_case_labels.into_boxed_slice(),
+        unexpected_case_labels: unexpected_case_labels.into_boxed_slice(),
+        invalid_case_pattern_spans: invalid_case_pattern_spans.into_boxed_slice(),
+        has_fallback_pattern,
+        missing_options: missing_options.into_boxed_slice(),
+    })
+}
+
+fn parse_getopts_command_from_condition(
+    condition: &StmtSeq,
+    source: &str,
+) -> Option<ParsedGetoptsCommand> {
+    let stmt = condition.last()?;
+    let normalized = command::normalize_command(&stmt.command, source);
+    if !normalized.effective_name_is("getopts") {
+        return None;
+    }
+
+    let args = normalized.body_args();
+    let option_string = static_word_text(args.first()?, source)?;
+    let target_text = static_word_text(args.get(1)?, source)?;
+    if !is_shell_variable_name(&target_text) {
+        return None;
+    }
+
+    let declared_options = parse_getopts_option_specs(&option_string);
+    Some(ParsedGetoptsCommand {
+        declared_options,
+        target_name: Name::from(target_text),
+    })
+}
+
+fn parse_getopts_option_specs(option_string: &str) -> Vec<GetoptsOptionSpec> {
+    let mut specs = Vec::new();
+    let mut seen = FxHashSet::default();
+    let mut chars = option_string.chars().peekable();
+
+    if chars.peek() == Some(&':') {
+        chars.next();
+    }
+
+    while let Some(option) = chars.next() {
+        if option == ':' {
+            continue;
+        }
+
+        let requires_argument = chars.peek() == Some(&':');
+        if requires_argument {
+            chars.next();
+        }
+
+        if seen.insert(option) {
+            specs.push(GetoptsOptionSpec {
+                option,
+                requires_argument,
+            });
+        }
+    }
+
+    specs
+}
+
+fn first_getopts_case_match(
+    body: &StmtSeq,
+    target_name: &str,
+    source: &str,
+) -> Option<GetoptsCaseMatch> {
+    first_getopts_case_match_in_commands(body, target_name, source)
+}
+
+fn first_getopts_case_match_in_commands(
+    commands: &StmtSeq,
+    target_name: &str,
+    source: &str,
+) -> Option<GetoptsCaseMatch> {
+    commands
+        .iter()
+        .find_map(|stmt| first_getopts_case_match_in_command(&stmt.command, target_name, source))
+}
+
+fn first_getopts_case_match_in_command(
+    command: &Command,
+    target_name: &str,
+    source: &str,
+) -> Option<GetoptsCaseMatch> {
+    match command {
+        Command::Binary(command) => first_getopts_case_match_in_command(
+            &command.left.command,
+            target_name,
+            source,
+        )
+        .or_else(|| {
+            matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll).then(|| {
+                first_getopts_case_match_in_command(&command.right.command, target_name, source)
+            })?
+        }),
+        Command::Compound(CompoundCommand::Case(command))
+            if case_subject_variable_name(&command.word) == Some(target_name) =>
+        {
+            Some(build_getopts_case_match(command, source))
+        }
+        Command::Compound(CompoundCommand::BraceGroup(commands)) => {
+            first_getopts_case_match_in_commands(commands, target_name, source)
+        }
+        // Helper definitions are not part of the executable getopts dispatch path.
+        Command::Function(_) | Command::AnonymousFunction(_) => None,
+        Command::Compound(_) | Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => None,
+    }
+}
+
+fn build_getopts_case_match(command: &CaseCommand, source: &str) -> GetoptsCaseMatch {
+    let mut has_fallback_pattern = false;
+    let mut has_unknown_coverage = false;
+    let mut invalid_case_pattern_spans = Vec::new();
+    let labels = command
+        .cases
+        .iter()
+        .flat_map(|item| item.patterns.iter())
+        .filter_map(
+            |pattern| match classify_getopts_case_pattern(pattern, source) {
+                GetoptsCasePatternKind::Fallback => {
+                    has_fallback_pattern = true;
+                    None
+                }
+                GetoptsCasePatternKind::SingleLabel(label) => Some(label),
+                GetoptsCasePatternKind::InvalidStaticPattern(span) => {
+                    invalid_case_pattern_spans.push(span);
+                    None
+                }
+                GetoptsCasePatternKind::UnknownCoverage => {
+                    has_unknown_coverage = true;
+                    None
+                }
+            },
+        )
+        .collect::<Vec<_>>();
+    GetoptsCaseMatch {
+        case_span: command.span,
+        handled_case_labels: labels,
+        invalid_case_pattern_spans,
+        has_fallback_pattern,
+        has_unknown_coverage,
+    }
+}
+
+enum GetoptsCasePatternKind {
+    Fallback,
+    SingleLabel(GetoptsCaseLabelFact),
+    InvalidStaticPattern(Span),
+    UnknownCoverage,
+}
+
+fn classify_getopts_case_pattern(pattern: &Pattern, source: &str) -> GetoptsCasePatternKind {
+    if getopts_case_pattern_is_fallback(pattern, source) {
+        return GetoptsCasePatternKind::Fallback;
+    }
+
+    let Some(text) = static_case_pattern_text(pattern, source) else {
+        return GetoptsCasePatternKind::UnknownCoverage;
+    };
+    let mut chars = text.chars();
+    let Some(label) = chars.next() else {
+        return GetoptsCasePatternKind::UnknownCoverage;
+    };
+    if chars.next().is_some() {
+        return GetoptsCasePatternKind::InvalidStaticPattern(pattern.span);
+    }
+
+    let is_bare_single_letter = label.is_ascii_alphabetic() && pattern.span.slice(source) == text;
+    GetoptsCasePatternKind::SingleLabel(GetoptsCaseLabelFact {
+        label,
+        span: pattern.span,
+        is_bare_single_letter,
+    })
+}
+
+fn getopts_case_pattern_is_fallback(pattern: &Pattern, source: &str) -> bool {
+    let mut tokens = Vec::new();
+    if collect_static_case_pattern_tokens(pattern.span.slice(source), &mut tokens).is_none() {
+        return false;
+    }
+
+    matches!(
+        tokens.as_slice(),
+        [CasePatternToken::AnyString] | [CasePatternToken::AnyChar]
+    )
+}
+
+fn static_case_pattern_text(pattern: &Pattern, source: &str) -> Option<String> {
+    ensure_case_pattern_is_statically_analyzable(pattern, source)?;
+
+    let mut tokens = Vec::new();
+    collect_static_case_pattern_tokens(pattern.span.slice(source), &mut tokens)?;
+    tokens
+        .into_iter()
+        .map(|token| match token {
+            CasePatternToken::Literal(ch) => Some(ch),
+            CasePatternToken::AnyChar | CasePatternToken::AnyString => None,
+        })
+        .collect()
+}
+
+fn case_subject_variable_name(word: &Word) -> Option<&str> {
+    standalone_variable_name_from_word_parts(&word.parts)
+}
+
+fn standalone_variable_name_from_word_parts(parts: &[WordPartNode]) -> Option<&str> {
+    let [part] = parts else {
+        return None;
+    };
+
+    match &part.kind {
+        WordPart::Variable(name) => Some(name.as_str()),
+        WordPart::Parameter(parameter) => match parameter.bourne() {
+            Some(BourneParameterExpansion::Access { reference })
+                if reference.subscript.is_none() =>
+            {
+                Some(reference.name.as_str())
+            }
+            _ => None,
+        },
+        WordPart::DoubleQuoted { parts, .. } => standalone_variable_name_from_word_parts(parts),
+        WordPart::Literal(_)
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ArithmeticExpansion { .. }
+        | WordPart::SingleQuoted { .. }
+        | WordPart::ParameterExpansion { .. }
+        | WordPart::Length(_)
+        | WordPart::ArrayAccess(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::Substring { .. }
+        | WordPart::ArraySlice { .. }
+        | WordPart::IndirectExpansion { .. }
+        | WordPart::PrefixMatch { .. }
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::Transformation { .. }
+        | WordPart::ZshQualifiedGlob(_) => None,
+    }
 }
 
 fn word_context_supports_operand_class(context: ExpansionContext) -> bool {

@@ -360,6 +360,21 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::BashCaseFallthrough) {
             rules::portability::bash_case_fallthrough::bash_case_fallthrough(self);
         }
+        if self.is_rule_enabled(Rule::CaseGlobReachability) {
+            rules::correctness::case_glob_reachability::case_glob_reachability(self);
+        }
+        if self.is_rule_enabled(Rule::CaseDefaultBeforeGlob) {
+            rules::correctness::case_default_before_glob::case_default_before_glob(self);
+        }
+        if self.is_rule_enabled(Rule::GetoptsOptionNotInCase) {
+            rules::correctness::getopts_option_not_in_case::getopts_option_not_in_case(self);
+        }
+        if self.is_rule_enabled(Rule::CaseArmNotInGetopts) {
+            rules::correctness::case_arm_not_in_getopts::case_arm_not_in_getopts(self);
+        }
+        if self.is_rule_enabled(Rule::SingleLetterCaseLabel) {
+            rules::style::single_letter_case_label::single_letter_case_label(self);
+        }
         if self.is_rule_enabled(Rule::StandaloneArithmetic) {
             rules::portability::standalone_arithmetic::standalone_arithmetic(self);
         }
