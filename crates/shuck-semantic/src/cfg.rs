@@ -102,7 +102,7 @@ impl ControlFlowGraph {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct RecordedProgram {
     file_commands: RecordedCommandRange,
     function_bodies: FxHashMap<ScopeId, RecordedCommandRange>,
@@ -154,11 +154,11 @@ impl<T> RecordedRange<T> {
         self.len as usize
     }
 
-    pub(crate) fn is_empty(self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.len == 0
     }
 
-    fn as_slice<'a>(self, store: &'a [T]) -> &'a [T] {
+    fn slice(self, store: &[T]) -> &[T] {
         let start = self.start as usize;
         &store[start..start + self.len()]
     }
@@ -296,24 +296,6 @@ pub(crate) enum RecordedListOperator {
     Or,
 }
 
-impl Default for RecordedProgram {
-    fn default() -> Self {
-        Self {
-            file_commands: RecordedCommandRange::empty(),
-            function_bodies: FxHashMap::default(),
-            commands: Vec::new(),
-            command_sequence_items: Vec::new(),
-            isolated_regions: Vec::new(),
-            case_arms: Vec::new(),
-            pipeline_segments: Vec::new(),
-            list_items: Vec::new(),
-            elif_branches: Vec::new(),
-            command_infos: FxHashMap::default(),
-            function_body_scopes: FxHashMap::default(),
-        }
-    }
-}
-
 impl RecordedProgram {
     pub(crate) fn file_commands(&self) -> RecordedCommandRange {
         self.file_commands
@@ -347,30 +329,30 @@ impl RecordedProgram {
     }
 
     pub(crate) fn commands_in(&self, range: RecordedCommandRange) -> &[RecordedCommandId] {
-        range.as_slice(&self.command_sequence_items)
+        range.slice(&self.command_sequence_items)
     }
 
     pub(crate) fn nested_regions(&self, range: RecordedRegionRange) -> &[IsolatedRegion] {
-        range.as_slice(&self.isolated_regions)
+        range.slice(&self.isolated_regions)
     }
 
     pub(crate) fn case_arms(&self, range: RecordedCaseArmRange) -> &[RecordedCaseArm] {
-        range.as_slice(&self.case_arms)
+        range.slice(&self.case_arms)
     }
 
     pub(crate) fn pipeline_segments(
         &self,
         range: RecordedPipelineSegmentRange,
     ) -> &[RecordedPipelineSegment] {
-        range.as_slice(&self.pipeline_segments)
+        range.slice(&self.pipeline_segments)
     }
 
     pub(crate) fn list_items(&self, range: RecordedListItemRange) -> &[RecordedListItem] {
-        range.as_slice(&self.list_items)
+        range.slice(&self.list_items)
     }
 
     pub(crate) fn elif_branches(&self, range: RecordedElifBranchRange) -> &[RecordedElifBranch] {
-        range.as_slice(&self.elif_branches)
+        range.slice(&self.elif_branches)
     }
 
     pub(crate) fn push_command(&mut self, command: RecordedCommand) -> RecordedCommandId {
