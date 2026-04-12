@@ -3751,7 +3751,10 @@ fn terminal_redundant_return_status_span(commands: &StmtSeq) -> Option<Span> {
     let Command::Builtin(BuiltinCommand::Return(command)) = &last.command else {
         return None;
     };
-    if !command.extra_args.is_empty() {
+    if !command.extra_args.is_empty()
+        || !command.assignments.is_empty()
+        || !last.redirects.is_empty()
+    {
         return None;
     }
     let code = command.code.as_ref()?;
@@ -11443,6 +11446,14 @@ h() {
 i() {
   false
   return $? 5
+}
+j() {
+  false
+  x=1 return $?
+}
+k() {
+  false
+  return $? >out
 }
 ";
 
