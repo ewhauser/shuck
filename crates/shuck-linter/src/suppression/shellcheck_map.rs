@@ -292,6 +292,8 @@ impl Default for ShellCheckCodeMap {
             // ShellCheck 0.11.0 reports unquoted variable-backed `[[ ... == ... ]]` patterns as SC2053.
             // Keep SC2301 as a suppression alias for authored C081 metadata.
             (2053, Rule::GlobInStringComparison),
+            // Keep the authored SC2341 compatibility code for the assignment-looking test family.
+            (2341, Rule::ConstantInTestAssignment),
             // ShellCheck 0.11.0 reports unquoted glob operands in `find` predicates as SC2061.
             // Keep SC2304 as a suppression alias for authored C083 metadata.
             (2061, Rule::GlobInFindSubstitution),
@@ -910,6 +912,7 @@ impl Default for ShellCheckCodeMap {
                 (2295, Rule::UnquotedGlobsInFind),
                 (2299, Rule::GlobInGrepPattern),
                 (2301, Rule::GlobInStringComparison),
+                (2341, Rule::ConstantInTestAssignment),
                 (2304, Rule::GlobInFindSubstitution),
                 (2305, Rule::UnquotedGrepRegex),
                 (2349, Rule::GlobWithExpansionInLoop),
@@ -1227,6 +1230,7 @@ mod tests {
         assert_eq!(map.resolve("SC2062"), Some(Rule::UnquotedGrepRegex));
         assert_eq!(map.resolve("SC2305"), Some(Rule::UnquotedGrepRegex));
         assert_eq!(map.resolve("SC2053"), Some(Rule::GlobInStringComparison));
+        assert_eq!(map.resolve("SC2341"), Some(Rule::ConstantInTestAssignment));
         assert_eq!(map.resolve("SC2301"), Some(Rule::GlobInStringComparison));
         assert_eq!(map.resolve("SC2061"), Some(Rule::GlobInFindSubstitution));
         assert_eq!(map.resolve("SC2304"), Some(Rule::GlobInFindSubstitution));
@@ -1254,6 +1258,10 @@ mod tests {
         assert_eq!(
             map.resolve_all("SC2053"),
             vec![Rule::GlobInStringComparison]
+        );
+        assert_eq!(
+            map.resolve_all("SC2341"),
+            vec![Rule::ConstantInTestAssignment]
         );
         assert_eq!(
             map.resolve_all("SC2301"),
@@ -1808,6 +1816,7 @@ mod tests {
             (2295, Rule::UnquotedGlobsInFind),
             (2299, Rule::GlobInGrepPattern),
             (2301, Rule::GlobInStringComparison),
+            (2341, Rule::ConstantInTestAssignment),
             (2304, Rule::GlobInFindSubstitution),
             (2305, Rule::UnquotedGrepRegex),
             (2349, Rule::GlobWithExpansionInLoop),
@@ -2060,6 +2069,7 @@ mod tests {
         assert!(comparison.contains(&(2062, Rule::UnquotedGrepRegex)));
         assert!(comparison.contains(&(2053, Rule::GlobInStringComparison)));
         assert!(comparison.contains(&(2061, Rule::GlobInFindSubstitution)));
+        assert!(comparison.contains(&(2341, Rule::ConstantInTestAssignment)));
         assert!(comparison.contains(&(2293, Rule::LsPipedToXargs)));
         assert!(comparison.contains(&(2294, Rule::LsInSubstitution)));
         assert!(comparison.contains(&(2265, Rule::RedundantReturnStatus)));
