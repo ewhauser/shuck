@@ -5329,12 +5329,6 @@ fn stmt_is_intervening_output_command(
     fact.effective_name_is("echo") || fact.effective_name_is("printf")
 }
 
-fn status_parameter_spans_in_stmt(stmt: &Stmt, source: &str) -> Vec<Span> {
-    let mut spans = Vec::new();
-    collect_status_parameter_spans_in_stmt(stmt, source, &mut spans);
-    spans
-}
-
 fn status_parameter_spans_in_word(word: &Word, source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_status_parameter_spans_in_word(word, source, &mut spans);
@@ -5342,9 +5336,18 @@ fn status_parameter_spans_in_word(word: &Word, source: &str) -> Vec<Span> {
 }
 
 fn followup_status_parameter_spans_in_stmt(stmt: &Stmt, source: &str) -> Vec<Span> {
-    let mut spans = status_parameter_spans_in_stmt(stmt, source);
-    collect_followup_status_parameter_spans_in_command(&stmt.command, source, &mut spans);
+    let mut spans = Vec::new();
+    collect_followup_status_parameter_spans_in_stmt(stmt, source, &mut spans);
     spans
+}
+
+fn collect_followup_status_parameter_spans_in_stmt(
+    stmt: &Stmt,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    collect_status_parameter_spans_in_stmt(stmt, source, spans);
+    collect_followup_status_parameter_spans_in_command(&stmt.command, source, spans);
 }
 
 fn collect_followup_status_parameter_spans_in_command(
@@ -5352,8 +5355,11 @@ fn collect_followup_status_parameter_spans_in_command(
     source: &str,
     spans: &mut Vec<Span>,
 ) {
-    if let Command::Compound(command) = command {
-        match command {
+    match command {
+        Command::Binary(command) if matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
+            collect_followup_status_parameter_spans_in_stmt(&command.right, source, spans);
+        }
+        Command::Compound(command) => match command {
             CompoundCommand::For(command) => {
                 if let Some(words) = command.words.as_deref() {
                     for word in words {
@@ -5396,19 +5402,50 @@ fn collect_followup_status_parameter_spans_in_command(
             }
             CompoundCommand::Time(command) => {
                 if let Some(command) = &command.command {
-                    spans.extend(status_parameter_spans_in_stmt(command, source));
+                    collect_followup_status_parameter_spans_in_stmt(command, source, spans);
                 }
             }
-            CompoundCommand::If(_)
-            | CompoundCommand::While(_)
-            | CompoundCommand::Until(_)
-            | CompoundCommand::Subshell(_)
-            | CompoundCommand::BraceGroup(_)
-            | CompoundCommand::Arithmetic(_)
-            | CompoundCommand::Conditional(_)
-            | CompoundCommand::Coproc(_)
-            | CompoundCommand::Always(_) => {}
+            CompoundCommand::If(command) => {
+                if let Some(first_stmt) = command.condition.first() {
+                    collect_followup_status_parameter_spans_in_stmt(first_stmt, source, spans);
+                }
+            }
+            CompoundCommand::While(command) => {
+                if let Some(first_stmt) = command.condition.first() {
+                    collect_followup_status_parameter_spans_in_stmt(first_stmt, source, spans);
+                }
+            }
+            CompoundCommand::Until(command) => {
+                if let Some(first_stmt) = command.condition.first() {
+                    collect_followup_status_parameter_spans_in_stmt(first_stmt, source, spans);
+                }
+            }
+            CompoundCommand::Subshell(body) | CompoundCommand::BraceGroup(body) => {
+                if let Some(first_stmt) = body.first() {
+                    collect_followup_status_parameter_spans_in_stmt(first_stmt, source, spans);
+                }
+            }
+            CompoundCommand::Coproc(command) => {
+                collect_followup_status_parameter_spans_in_stmt(&command.body, source, spans);
+            }
+            CompoundCommand::Always(command) => {
+                if let Some(first_stmt) = command.body.first() {
+                    collect_followup_status_parameter_spans_in_stmt(first_stmt, source, spans);
+                }
+            }
+            CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_) => {}
+        },
+        Command::AnonymousFunction(command) => {
+            collect_followup_status_parameter_spans_in_stmt(&command.body, source, spans);
+            for word in &command.args {
+                spans.extend(status_parameter_spans_in_word(word, source));
+            }
         }
+        Command::Binary(_)
+        | Command::Simple(_)
+        | Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Function(_) => {}
     }
 }
 

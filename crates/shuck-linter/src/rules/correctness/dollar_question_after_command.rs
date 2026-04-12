@@ -125,4 +125,29 @@ printf '%s\\n' status || return $?
             vec!["$?", "$?"]
         );
     }
+
+    #[test]
+    fn reports_pipeline_followups_after_output_commands() {
+        let source = "\
+#!/bin/bash
+run
+echo status
+true | printf '%s\\n' \"$?\"
+run
+printf '%s\\n' status
+time true | printf '%s\\n' \"$?\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::DollarQuestionAfterCommand),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$?", "$?"]
+        );
+    }
 }
