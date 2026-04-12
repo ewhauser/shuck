@@ -5,16 +5,16 @@ X072 pattern-based `unset` is not portable in `sh`
  --> <source>:3:11
   |
 3 | unset -v "${!prefix_@}"
-  |           ^^^^^^^^^^^^
+  |
 
 X072 pattern-based `unset` is not portable in `sh`
- --> <source>:4:12
+ --> <source>:4:11
   |
 4 | unset -v x${!prefix_*}
-  |            ^^^^^^^^^^^
+  |
 
 X072 pattern-based `unset` is not portable in `sh`
  --> <source>:5:11
   |
 5 | unset -f "${!func_@}"
-  |           ^^^^^^^^^^
+  |
