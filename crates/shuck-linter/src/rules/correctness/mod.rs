@@ -40,6 +40,7 @@ pub mod empty_function_body;
 pub mod empty_test;
 pub mod escaped_negation_in_test;
 pub mod export_with_positional_params;
+pub mod expr_substr_in_test;
 pub mod find_or_without_grouping;
 pub mod find_output_loop;
 pub mod find_output_to_xargs;
@@ -156,6 +157,7 @@ mod tests {
     #[test_case(Rule::ConstantComparisonTest, Path::new("C017.sh"))]
     #[test_case(Rule::ConstantInTestAssignment, Path::new("C110.sh"))]
     #[test_case(Rule::MalformedArithmeticInCondition, Path::new("C118.sh"))]
+    #[test_case(Rule::ExprSubstrInTest, Path::new("C120.sh"))]
     #[test_case(Rule::LoopControlOutsideLoop, Path::new("C018.sh"))]
     #[test_case(Rule::LiteralUnaryStringTest, Path::new("C019.sh"))]
     #[test_case(Rule::TruthyLiteralTest, Path::new("C020.sh"))]

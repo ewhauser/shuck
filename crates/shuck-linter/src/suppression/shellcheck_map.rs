@@ -153,6 +153,7 @@ impl Default for ShellCheckCodeMap {
             (2005, Rule::EchoedCommandSubstitution),
             (2116, Rule::EchoInsideCommandSubstitution),
             (2143, Rule::GrepOutputInTest),
+            (2360, Rule::ExprSubstrInTest),
             (2145, Rule::PositionalArgsInString),
             (2198, Rule::AtSignInStringCompare),
             (2199, Rule::ArraySliceInComparison),
@@ -509,6 +510,7 @@ impl Default for ShellCheckCodeMap {
             (2319, Rule::StatusCaptureAfterBranchTest),
             (2337, Rule::DollarQuestionAfterCommand),
             (2141, Rule::IfsSetToLiteralBackslashN),
+            (2360, Rule::ExprSubstrInTest),
             (2365, Rule::UnreachableAfterExit),
             (2370, Rule::UnusedHeredoc),
             (3010, Rule::DoubleBracketInSh),
@@ -862,6 +864,7 @@ impl Default for ShellCheckCodeMap {
                 (2342, Rule::EgrepDeprecated),
                 (2343, Rule::FgrepDeprecated),
                 (2328, Rule::CommandSubstitutionInAlias),
+                (2360, Rule::ExprSubstrInTest),
                 (2330, Rule::FunctionInAlias),
                 (2376, Rule::DoubleQuoteNesting),
                 (2362, Rule::LocalDeclareCombined),
@@ -944,6 +947,7 @@ mod tests {
             Some(Rule::EchoInsideCommandSubstitution)
         );
         assert_eq!(map.resolve("SC2143"), Some(Rule::GrepOutputInTest));
+        assert_eq!(map.resolve("SC2360"), Some(Rule::ExprSubstrInTest));
         assert_eq!(map.resolve("SC2145"), Some(Rule::PositionalArgsInString));
         assert_eq!(map.resolve("SC2006"), Some(Rule::LegacyBackticks));
         assert_eq!(map.resolve("SC2007"), Some(Rule::LegacyArithmeticExpansion));
@@ -1920,6 +1924,7 @@ mod tests {
             (2383, Rule::CaseArmNotInGetopts),
             (2355, Rule::ZshAssignmentToZero),
             (2359, Rule::ZshParameterFlag),
+            (2360, Rule::ExprSubstrInTest),
             (2365, Rule::UnreachableAfterExit),
             (2370, Rule::UnusedHeredoc),
             (2371, Rule::ZshArraySubscriptInCase),
@@ -2078,6 +2083,7 @@ mod tests {
         assert!(comparison.contains(&(2061, Rule::GlobInFindSubstitution)));
         assert!(comparison.contains(&(1076, Rule::MalformedArithmeticInCondition)));
         assert!(comparison.contains(&(2341, Rule::ConstantInTestAssignment)));
+        assert!(comparison.contains(&(2360, Rule::ExprSubstrInTest)));
         assert!(comparison.contains(&(2293, Rule::LsPipedToXargs)));
         assert!(comparison.contains(&(2294, Rule::LsInSubstitution)));
         assert!(comparison.contains(&(2265, Rule::RedundantReturnStatus)));
@@ -2129,6 +2135,7 @@ mod tests {
         assert!(!comparison.contains(&(2298, Rule::UnquotedTrRange)));
         assert!(!comparison.contains(&(2060, Rule::UnquotedTrRange)));
         assert!(comparison.contains(&(2143, Rule::GrepOutputInTest)));
+        assert!(comparison.contains(&(2360, Rule::ExprSubstrInTest)));
         assert!(comparison.contains(&(2145, Rule::PositionalArgsInString)));
         assert!(comparison.contains(&(2198, Rule::AtSignInStringCompare)));
         assert!(comparison.contains(&(2199, Rule::ArraySliceInComparison)));

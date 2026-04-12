@@ -340,6 +340,12 @@ declare_rules! {
         MalformedArithmeticInCondition
     ),
     (
+        "C120",
+        Category::Correctness,
+        Severity::Warning,
+        ExprSubstrInTest
+    ),
+    (
         "C123",
         Category::Correctness,
         Severity::Error,

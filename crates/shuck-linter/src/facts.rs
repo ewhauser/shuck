@@ -1619,6 +1619,17 @@ impl FunctionPositionalParameterFacts {
 #[derive(Debug, Clone, Copy)]
 pub struct ExprCommandFacts {
     pub uses_arithmetic_operator: bool,
+    uses_substr_string_form: bool,
+}
+
+impl ExprCommandFacts {
+    pub fn uses_arithmetic_operator(self) -> bool {
+        self.uses_arithmetic_operator
+    }
+
+    pub fn uses_substr_string_form(self) -> bool {
+        self.uses_substr_string_form
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -10828,12 +10839,9 @@ fn xargs_long_option_requires_separate_argument(option: &str) -> bool {
 }
 
 fn parse_expr_command(args: &[&Word], source: &str) -> Option<ExprCommandFacts> {
-    if expr_uses_string_form(args, source) {
-        return None;
-    }
-
     Some(ExprCommandFacts {
-        uses_arithmetic_operator: true,
+        uses_arithmetic_operator: !expr_uses_string_form(args, source),
+        uses_substr_string_form: expr_uses_substr_string_form(args, source),
     })
 }
 
@@ -10848,6 +10856,13 @@ fn expr_uses_string_form(args: &[&Word], source: &str) -> bool {
         .and_then(|word| static_word_text(word, source))
         .as_deref()
         .is_some_and(|text| matches!(text, ":" | "=" | "!=" | "<" | ">" | "<=" | ">=" | "=="))
+}
+
+fn expr_uses_substr_string_form(args: &[&Word], source: &str) -> bool {
+    args.first()
+        .and_then(|word| static_word_text(word, source))
+        .as_deref()
+        == Some("substr")
 }
 
 fn parse_exit_command<'a>(command: &'a Command, source: &str) -> Option<ExitCommandFacts<'a>> {

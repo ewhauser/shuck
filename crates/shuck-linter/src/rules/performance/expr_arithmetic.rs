@@ -18,7 +18,11 @@ pub fn expr_arithmetic(checker: &mut Checker) {
         .commands()
         .iter()
         .filter(|fact| fact.effective_name_is("expr"))
-        .filter(|fact| fact.options().expr().is_some())
+        .filter(|fact| {
+            fact.options()
+                .expr()
+                .is_some_and(|expr| expr.uses_arithmetic_operator())
+        })
         .filter_map(|fact| fact.body_name_word().map(|word| word.span))
         .collect::<Vec<_>>();
 
@@ -37,5 +41,13 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "expr");
+    }
+
+    #[test]
+    fn ignores_expr_string_forms() {
+        let source = "#!/bin/sh\nx=$(expr substr foo 1 2)\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ExprArithmetic));
+
+        assert!(diagnostics.is_empty());
     }
 }
