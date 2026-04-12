@@ -46,6 +46,7 @@ pub mod printf_format_variable;
 pub mod ps_grep_pipeline;
 pub mod quoted_dollar_star_loop;
 pub mod read_without_raw;
+pub mod redundant_return_status;
 pub mod redundant_spaces_in_echo;
 pub mod relative_symlink_target;
 pub mod single_iteration_loop;
@@ -116,6 +117,7 @@ mod tests {
     #[test_case(Rule::ConditionalAssignmentShortcut, Path::new("S032.sh"))]
     #[test_case(Rule::BareRead, Path::new("S036.sh"))]
     #[test_case(Rule::RedundantSpacesInEcho, Path::new("S037.sh"))]
+    #[test_case(Rule::RedundantReturnStatus, Path::new("S038.sh"))]
     #[test_case(Rule::UnquotedVariableInSed, Path::new("S044.sh"))]
     #[test_case(Rule::UnquotedWordBetweenQuotes, Path::new("S050.sh"))]
     #[test_case(Rule::UnquotedTrClass, Path::new("S051.sh"))]

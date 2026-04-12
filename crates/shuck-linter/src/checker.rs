@@ -195,6 +195,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::FunctionCalledWithoutArgs) {
             rules::correctness::function_called_without_args::function_called_without_args(self);
         }
+        if self.is_rule_enabled(Rule::RedundantReturnStatus) {
+            rules::style::redundant_return_status::redundant_return_status(self);
+        }
         if self.is_rule_enabled(Rule::FunctionReferencesUnsetParam) {
             rules::correctness::function_references_unset_param::function_references_unset_param(
                 self,

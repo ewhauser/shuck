@@ -553,6 +553,7 @@ declare_rules! {
     ("S032", Category::Style, Severity::Warning, ConditionalAssignmentShortcut),
     ("S036", Category::Style, Severity::Warning, BareRead),
     ("S037", Category::Style, Severity::Warning, RedundantSpacesInEcho),
+    ("S038", Category::Style, Severity::Warning, RedundantReturnStatus),
     ("S044", Category::Style, Severity::Warning, UnquotedVariableInSed),
     ("S050", Category::Style, Severity::Hint, UnquotedWordBetweenQuotes),
     ("S051", Category::Style, Severity::Warning, UnquotedTrClass),
@@ -1036,6 +1037,7 @@ mod tests {
             code_to_rule("S039"),
             Some(Rule::LiteralBackslashInSingleQuotes)
         );
+        assert_eq!(code_to_rule("S038"), Some(Rule::RedundantReturnStatus));
         assert_eq!(
             code_to_rule("SH-172"),
             Some(Rule::LiteralBackslashInSingleQuotes)

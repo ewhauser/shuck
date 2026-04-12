@@ -63,7 +63,7 @@ pub use rules::common::span::{
 };
 pub use rules::common::word::{
     TestOperandClass, conditional_binary_op_is_string_match, static_word_text,
-    word_is_standalone_variable_like,
+    word_is_standalone_status_capture, word_is_standalone_variable_like,
 };
 pub use settings::LinterSettings;
 pub use shell::ShellDialect;

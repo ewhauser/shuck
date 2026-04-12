@@ -50,6 +50,9 @@ impl ShellCheckCodeMap {
         if number == 2260 {
             return vec![Rule::RedirectToCommandName];
         }
+        if number == 2265 {
+            return vec![Rule::RedundantReturnStatus];
+        }
         if number == 2253 {
             return vec![Rule::StatusCaptureAfterBranchTest];
         }
@@ -474,6 +477,7 @@ impl Default for ShellCheckCodeMap {
             (2250, Rule::PatternWithVariable),
             (2255, Rule::SubstWithRedirect),
             (2256, Rule::SubstWithRedirectErr),
+            (2265, Rule::RedundantReturnStatus),
             (2089, Rule::AppendWithEscapedQuotes),
             // ShellCheck 0.11.0 reports declaration cross-reference warnings as SC2318.
             // Keep SC2384 as a suppression alias, but prefer the current code for comparisons.
@@ -779,6 +783,7 @@ impl Default for ShellCheckCodeMap {
                     (2248, Rule::BareSlashMarker),
                     (2257, Rule::ArithmeticRedirectionTarget),
                     (2264, Rule::NestedParameterExpansion),
+                    (2265, Rule::RedundantReturnStatus),
                     (2250, Rule::PatternWithVariable),
                     (2255, Rule::SubstWithRedirect),
                     (2256, Rule::SubstWithRedirectErr),
@@ -1478,6 +1483,7 @@ mod tests {
         assert_eq!(map.resolve("SC2261"), Some(Rule::NonAbsoluteShebang));
         assert_eq!(map.resolve("SC2262"), Some(Rule::TemplateBraceInCommand));
         assert_eq!(map.resolve("SC2264"), Some(Rule::NestedParameterExpansion));
+        assert_eq!(map.resolve("SC2265"), Some(Rule::RedundantReturnStatus));
         assert_eq!(map.resolve("SC2089"), Some(Rule::AppendWithEscapedQuotes));
         assert_eq!(map.resolve("SC2318"), Some(Rule::LocalCrossReference));
         assert_eq!(map.resolve("SC2096"), Some(Rule::DuplicateShebangFlag));
@@ -1785,6 +1791,7 @@ mod tests {
             (2297, Rule::DollarInArithmeticContext),
             (2259, Rule::SubshellTestGroup),
             (2264, Rule::NestedParameterExpansion),
+            (2265, Rule::RedundantReturnStatus),
             (2266, Rule::OverwrittenFunction),
             (2267, Rule::LiteralBackslashInSingleQuotes),
             (2270, Rule::AssignmentToNumericVariable),
@@ -2029,6 +2036,7 @@ mod tests {
         assert!(comparison.contains(&(2061, Rule::GlobInFindSubstitution)));
         assert!(comparison.contains(&(2293, Rule::LsPipedToXargs)));
         assert!(comparison.contains(&(2294, Rule::LsInSubstitution)));
+        assert!(comparison.contains(&(2265, Rule::RedundantReturnStatus)));
         assert!(!comparison.contains(&(2294, Rule::EvalOnArray)));
         assert!(!comparison.contains(&(2295, Rule::UnquotedGlobsInFind)));
         assert!(!comparison.contains(&(2299, Rule::GlobInGrepPattern)));
