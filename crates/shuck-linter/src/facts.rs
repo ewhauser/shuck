@@ -1242,6 +1242,17 @@ impl<'a> EchoCommandFacts<'a> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct TrCommandFacts<'a> {
+    operand_words: Box<[&'a Word]>,
+}
+
+impl<'a> TrCommandFacts<'a> {
+    pub fn operand_words(&self) -> &[&'a Word] {
+        &self.operand_words
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct PrintfCommandFacts<'a> {
     pub format_word: Option<&'a Word>,
@@ -1488,6 +1499,7 @@ pub struct CommandOptionFacts<'a> {
     ssh: Option<SshCommandFacts>,
     read: Option<ReadCommandFacts>,
     echo: Option<EchoCommandFacts<'a>>,
+    tr: Option<TrCommandFacts<'a>>,
     printf: Option<PrintfCommandFacts<'a>>,
     unset: Option<UnsetCommandFacts<'a>>,
     find: Option<FindCommandFacts>,
@@ -1519,6 +1531,10 @@ impl<'a> CommandOptionFacts<'a> {
 
     pub fn echo(&self) -> Option<&EchoCommandFacts<'a>> {
         self.echo.as_ref()
+    }
+
+    pub fn tr(&self) -> Option<&TrCommandFacts<'a>> {
+        self.tr.as_ref()
     }
 
     pub fn printf(&self) -> Option<&PrintfCommandFacts<'a>> {
@@ -1596,6 +1612,8 @@ impl<'a> CommandOptionFacts<'a> {
             echo: normalized
                 .effective_name_is("echo")
                 .then(|| parse_echo_command(normalized.body_args(), source)),
+            tr: (normalized.effective_name_is("tr") && normalized.wrappers.is_empty())
+                .then(|| parse_tr_command(normalized.body_args(), source)),
             printf: normalized.effective_name_is("printf").then(|| {
                 let format_word = printf_format_word(normalized.body_args(), source);
                 PrintfCommandFacts {
@@ -6786,6 +6804,40 @@ fn is_echo_portability_flag(text: &str) -> bool {
             .all(|byte| matches!(byte, b'n' | b'e' | b'E' | b's'))
 }
 
+fn parse_tr_command<'a>(args: &[&'a Word], source: &str) -> TrCommandFacts<'a> {
+    let mut index = 0usize;
+
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+
+        if text == "--" {
+            index += 1;
+            break;
+        }
+
+        if !is_tr_option(text.as_str()) {
+            break;
+        }
+
+        index += 1;
+    }
+
+    TrCommandFacts {
+        operand_words: args[index..].iter().copied().collect(),
+    }
+}
+
+fn is_tr_option(text: &str) -> bool {
+    text.starts_with('-')
+        && text != "-"
+        && !text.starts_with("--")
+        && text[1..]
+            .bytes()
+            .all(|byte| matches!(byte, b'c' | b'C' | b'd' | b's' | b't'))
+}
+
 fn word_starts_with_literal_dash(word: &Word, source: &str) -> bool {
     matches!(
         word.parts_with_spans().next(),
@@ -9147,7 +9199,7 @@ complex[$((i+=1))]+=x
 
     #[test]
     fn summarizes_command_options_and_invokers() {
-        let source = "#!/bin/bash\nread -r name\necho -ne hi\necho '-I' hi\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -name a -o -name b -print\nfind . -name *.cfg\nfind . -name \"$prefix\"*.jar\nfind . -wholename */tmp/*\nfind . -name \\*.ignore\nfind . -type f*\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\n./configure --with-optmizer=${CFLAGS}\nconfigure \"--enable-optmizer=${CFLAGS}\"\n./configure --with-optimizer=${CFLAGS}\nps -p 1 -o comm=\nps p 123 -o comm=\nps -ef\ndoas printf '%s\\n' hi\n";
+        let source = "#!/bin/bash\nread -r name\necho -ne hi\necho '-I' hi\ntr -ds a-z A-Z\ntr -- 'a-z' xyz\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -name a -o -name b -print\nfind . -name *.cfg\nfind . -name \"$prefix\"*.jar\nfind . -wholename */tmp/*\nfind . -name \\*.ignore\nfind . -type f*\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\n./configure --with-optmizer=${CFLAGS}\nconfigure \"--enable-optmizer=${CFLAGS}\"\n./configure --with-optimizer=${CFLAGS}\nps -p 1 -o comm=\nps p 123 -o comm=\nps -ef\ndoas printf '%s\\n' hi\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -9192,6 +9244,35 @@ complex[$((i+=1))]+=x
                 .and_then(|echo| echo.portability_flag_word())
                 .map(|word| word.span.slice(source)),
             None
+        );
+
+        let tr = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_name_is("tr") && fact.options().tr().is_some())
+            .and_then(|fact| fact.options().tr())
+            .expect("expected tr facts");
+        assert_eq!(
+            tr.operand_words()
+                .iter()
+                .map(|word| word.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["a-z", "A-Z"]
+        );
+        let quoted_tr = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("tr"))
+            .nth(1)
+            .and_then(|fact| fact.options().tr())
+            .expect("expected second tr facts");
+        assert_eq!(
+            quoted_tr
+                .operand_words()
+                .iter()
+                .map(|word| word.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["'a-z'", "xyz"]
         );
 
         let printf = facts

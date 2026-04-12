@@ -398,6 +398,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::EchoFlags) {
             rules::portability::echo_flags::echo_flags(self);
         }
+        if self.is_rule_enabled(Rule::TrLowerRange) {
+            rules::portability::tr_lower_range::tr_lower_range(self);
+        }
         if self.is_rule_enabled(Rule::TrapErr) {
             rules::portability::trap_err::trap_err(self);
         }

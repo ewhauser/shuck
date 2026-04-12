@@ -43,6 +43,8 @@ pub mod sourced_with_args;
 pub mod standalone_arithmetic;
 pub mod star_glob_removal_in_sh;
 pub mod substring_expansion;
+mod tr_common;
+pub mod tr_lower_range;
 mod trap_common;
 pub mod trap_err;
 pub mod uppercase_expansion;
@@ -105,6 +107,7 @@ mod tests {
     #[test_case(Rule::ReplacementExpansion, Path::new("X025.sh"))]
     #[test_case(Rule::BashFileSlurp, Path::new("X026.sh"))]
     #[test_case(Rule::EchoFlags, Path::new("X027.sh"))]
+    #[test_case(Rule::TrLowerRange, Path::new("X028.sh"))]
     #[test_case(Rule::SourceBuiltinInSh, Path::new("X031.sh"))]
     #[test_case(Rule::PrintfQFormatInSh, Path::new("X032.sh"))]
     #[test_case(Rule::IfElifBashTest, Path::new("X033.sh"))]

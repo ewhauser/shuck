@@ -1,0 +1,39 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 163
+---
+X028 use `[:lower:]` instead of `a-z` in `tr` for locale-aware lower-case matching
+ --> <source>:4:4
+  |
+4 | tr a-z xyz < foo
+  |
+
+X028 use `[:lower:]` instead of `a-z` in `tr` for locale-aware lower-case matching
+ --> <source>:5:8
+  |
+5 | tr abc a-z < foo
+  |
+
+X028 use `[:lower:]` instead of `a-z` in `tr` for locale-aware lower-case matching
+ --> <source>:6:4
+  |
+6 | tr a-z A-Z < foo
+  |
+
+X028 use `[:lower:]` instead of `a-z` in `tr` for locale-aware lower-case matching
+ --> <source>:7:7
+  |
+7 | tr -d a-z < foo
+  |
+
+X028 use `[:lower:]` instead of `a-z` in `tr` for locale-aware lower-case matching
+ --> <source>:8:7
+  |
+8 | tr -s 'a-z' < foo
+  |
+
+X028 use `[:lower:]` instead of `a-z` in `tr` for locale-aware lower-case matching
+ --> <source>:9:7
+  |
+9 | tr -- "a-z" xyz < foo
+  |

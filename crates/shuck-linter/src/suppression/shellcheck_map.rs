@@ -285,6 +285,7 @@ impl Default for ShellCheckCodeMap {
             // Keep SC3024 as a legacy alias for suppression compatibility.
             (3034, Rule::BashFileSlurp),
             (3037, Rule::EchoFlags),
+            (2018, Rule::TrLowerRange),
             (3025, Rule::PrintfQFormatInSh),
             (3026, Rule::CaretNegationInBracket),
             (3077, Rule::BasePrefixInArithmetic),
@@ -559,6 +560,7 @@ impl Default for ShellCheckCodeMap {
                     (3071, Rule::PlusEqualsInSh),
                     (3034, Rule::BashFileSlurp),
                     (3037, Rule::EchoFlags),
+                    (2018, Rule::TrLowerRange),
                     (3025, Rule::PrintfQFormatInSh),
                     (3052, Rule::AmpersandRedirection),
                     (3050, Rule::BraceFdRedirection),
@@ -1155,6 +1157,7 @@ mod tests {
         assert_eq!(map.resolve("SC3025"), Some(Rule::PrintfQFormatInSh));
         assert_eq!(map.resolve("SC3034"), Some(Rule::BashFileSlurp));
         assert_eq!(map.resolve("SC3037"), Some(Rule::EchoFlags));
+        assert_eq!(map.resolve("SC2018"), Some(Rule::TrLowerRange));
         assert_eq!(map.resolve("SC3024"), Some(Rule::PlusEqualsAppend));
         assert_eq!(map.resolve("SC3055"), Some(Rule::PlusEqualsAppend));
         assert_eq!(map.resolve("SC3071"), Some(Rule::PlusEqualsInSh));
@@ -1686,6 +1689,7 @@ mod tests {
             (3024, Rule::PlusEqualsInSh),
             (3034, Rule::BashFileSlurp),
             (3037, Rule::EchoFlags),
+            (2018, Rule::TrLowerRange),
             (3025, Rule::PrintfQFormatInSh),
             (3026, Rule::CaretNegationInBracket),
             (3028, Rule::ArrayReference),
@@ -1827,6 +1831,7 @@ mod tests {
         assert!(comparison.contains(&(2320, Rule::UnquotedPipeInEcho)));
         assert!(comparison.contains(&(2223, Rule::DefaultValueInColonAssign)));
         assert!(comparison.contains(&(2021, Rule::UnquotedTrRange)));
+        assert!(comparison.contains(&(2018, Rule::TrLowerRange)));
         assert!(!comparison.contains(&(2300, Rule::UnquotedWordBetweenQuotes)));
         assert!(!comparison.contains(&(2307, Rule::UnquotedVariableInTest)));
         assert!(!comparison.contains(&(2346, Rule::DefaultValueInColonAssign)));
