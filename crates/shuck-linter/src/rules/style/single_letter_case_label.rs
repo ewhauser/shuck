@@ -204,4 +204,28 @@ done
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn ignores_subshell_cases_before_the_real_getopts_handler() {
+        let source = "\
+while getopts 'ab' opt; do
+  (
+    case \"$opt\" in
+      a) : ;;
+    esac
+  )
+
+  case \"$opt\" in
+    \"a\") : ;;
+    \"b\") : ;;
+  esac
+done
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SingleLetterCaseLabel),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
 }

@@ -18,12 +18,12 @@ use shuck_ast::{
     ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue,
     ArithmeticPostfixOp, ArithmeticUnaryOp, ArrayElem, ArrayKind, Assignment, AssignmentValue,
     BinaryCommand, BinaryOp, BourneParameterExpansion, BraceQuoteContext, BraceSyntaxKind,
-    BuiltinCommand, CaseItem, CaseTerminator, Command, CommandSubstitutionSyntax, CompoundCommand,
-    ConditionalBinaryOp, ConditionalExpr, ConditionalUnaryOp, DeclClause, DeclOperand, File,
-    ForCommand, FunctionDef, Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp,
-    Pattern, PatternPart, Position, Redirect, RedirectKind, SelectCommand, SimpleCommand,
-    SourceText, Span, Stmt, StmtSeq, Subscript, VarRef, WhileCommand, Word, WordPart, WordPartNode,
-    ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
+    BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command, CommandSubstitutionSyntax,
+    CompoundCommand, ConditionalBinaryOp, ConditionalExpr, ConditionalUnaryOp, DeclClause,
+    DeclOperand, File, ForCommand, FunctionDef, Name, ParameterExpansion, ParameterExpansionSyntax,
+    ParameterOp, Pattern, PatternPart, Position, Redirect, RedirectKind, SelectCommand,
+    SimpleCommand, SourceText, Span, Stmt, StmtSeq, Subscript, VarRef, WhileCommand, Word,
+    WordPart, WordPartNode, ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -6306,7 +6306,7 @@ fn parse_getopts_command_from_condition(
     }
 
     let declared_options = parse_getopts_option_specs(&option_string);
-    (!declared_options.is_empty()).then_some(ParsedGetoptsCommand {
+    Some(ParsedGetoptsCommand {
         declared_options,
         target_name: Name::from(target_text),
     })
@@ -6366,87 +6366,52 @@ fn first_getopts_case_match_in_command(
     source: &str,
 ) -> Option<GetoptsCaseMatch> {
     match command {
-        Command::Binary(command) => first_getopts_case_match_in_command(
-            &command.left.command,
-            target_name,
-            source,
-        )
-        .or_else(|| {
-            matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll).then(|| {
-                first_getopts_case_match_in_command(&command.right.command, target_name, source)
-            })?
-        }),
-        Command::Compound(command) => {
-            first_getopts_case_match_in_compound(command, target_name, source)
+        Command::Binary(command) => {
+            first_getopts_case_match_in_command(&command.left.command, target_name, source)
+        }
+        Command::Compound(CompoundCommand::Case(command))
+            if case_subject_variable_name(&command.word) == Some(target_name) =>
+        {
+            Some(build_getopts_case_match(command, source))
         }
         // Helper definitions are not part of the executable getopts dispatch path.
         Command::Function(_) | Command::AnonymousFunction(_) => None,
-        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => None,
+        Command::Compound(_) | Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => None,
     }
 }
 
-fn first_getopts_case_match_in_compound(
-    command: &CompoundCommand,
-    target_name: &str,
-    source: &str,
-) -> Option<GetoptsCaseMatch> {
-    match command {
-        CompoundCommand::Case(command) => {
-            if case_subject_variable_name(&command.word) == Some(target_name) {
-                let mut has_fallback_pattern = false;
-                let mut has_unknown_coverage = false;
-                let mut invalid_case_pattern_spans = Vec::new();
-                let labels = command
-                    .cases
-                    .iter()
-                    .flat_map(|item| item.patterns.iter())
-                    .filter_map(
-                        |pattern| match classify_getopts_case_pattern(pattern, source) {
-                            GetoptsCasePatternKind::Fallback => {
-                                has_fallback_pattern = true;
-                                None
-                            }
-                            GetoptsCasePatternKind::SingleLabel(label) => Some(label),
-                            GetoptsCasePatternKind::InvalidStaticPattern(span) => {
-                                invalid_case_pattern_spans.push(span);
-                                None
-                            }
-                            GetoptsCasePatternKind::UnknownCoverage => {
-                                has_unknown_coverage = true;
-                                None
-                            }
-                        },
-                    )
-                    .collect::<Vec<_>>();
-                Some(GetoptsCaseMatch {
-                    case_span: command.span,
-                    handled_case_labels: labels,
-                    invalid_case_pattern_spans,
-                    has_fallback_pattern,
-                    has_unknown_coverage,
-                })
-            } else {
-                None
-            }
-        }
-        CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
-            first_getopts_case_match_in_commands(commands, target_name, source)
-        }
-        CompoundCommand::Time(command) => command.command.as_ref().and_then(|stmt| {
-            first_getopts_case_match_in_command(&stmt.command, target_name, source)
-        }),
-        CompoundCommand::If(_)
-        | CompoundCommand::For(_)
-        | CompoundCommand::Repeat(_)
-        | CompoundCommand::Foreach(_)
-        | CompoundCommand::ArithmeticFor(_)
-        | CompoundCommand::While(_)
-        | CompoundCommand::Until(_)
-        | CompoundCommand::Select(_)
-        | CompoundCommand::Always(_)
-        | CompoundCommand::Arithmetic(_)
-        | CompoundCommand::Conditional(_)
-        | CompoundCommand::Coproc(_) => None,
+fn build_getopts_case_match(command: &CaseCommand, source: &str) -> GetoptsCaseMatch {
+    let mut has_fallback_pattern = false;
+    let mut has_unknown_coverage = false;
+    let mut invalid_case_pattern_spans = Vec::new();
+    let labels = command
+        .cases
+        .iter()
+        .flat_map(|item| item.patterns.iter())
+        .filter_map(
+            |pattern| match classify_getopts_case_pattern(pattern, source) {
+                GetoptsCasePatternKind::Fallback => {
+                    has_fallback_pattern = true;
+                    None
+                }
+                GetoptsCasePatternKind::SingleLabel(label) => Some(label),
+                GetoptsCasePatternKind::InvalidStaticPattern(span) => {
+                    invalid_case_pattern_spans.push(span);
+                    None
+                }
+                GetoptsCasePatternKind::UnknownCoverage => {
+                    has_unknown_coverage = true;
+                    None
+                }
+            },
+        )
+        .collect::<Vec<_>>();
+    GetoptsCaseMatch {
+        case_span: command.span,
+        handled_case_labels: labels,
+        invalid_case_pattern_spans,
+        has_fallback_pattern,
+        has_unknown_coverage,
     }
 }
 

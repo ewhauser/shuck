@@ -207,4 +207,41 @@ done
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn reports_undeclared_case_arms_when_getopts_declares_no_options() {
+        let source = "\
+while getopts ':' opt; do
+  case \"$opt\" in
+    a) : ;;
+  esac
+done
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::CaseArmNotInGetopts));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "a");
+    }
+
+    #[test]
+    fn ignores_subshell_cases_before_the_real_getopts_handler() {
+        let source = "\
+while getopts 'a' opt; do
+  (
+    case \"$opt\" in
+      b) : ;;
+    esac
+  )
+
+  case \"$opt\" in
+    a) : ;;
+  esac
+done
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::CaseArmNotInGetopts));
+
+        assert!(diagnostics.is_empty());
+    }
 }
