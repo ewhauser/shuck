@@ -553,6 +553,7 @@ declare_rules! {
     ("S032", Category::Style, Severity::Warning, ConditionalAssignmentShortcut),
     ("S036", Category::Style, Severity::Warning, BareRead),
     ("S037", Category::Style, Severity::Warning, RedundantSpacesInEcho),
+    ("S038", Category::Style, Severity::Warning, RedundantReturnStatus),
     ("S044", Category::Style, Severity::Warning, UnquotedVariableInSed),
     ("S050", Category::Style, Severity::Hint, UnquotedWordBetweenQuotes),
     ("S051", Category::Style, Severity::Warning, UnquotedTrClass),
@@ -621,6 +622,18 @@ declare_rules! {
         LiteralBackslashInSingleQuotes
     ),
     ("S040", Category::Style, Severity::Warning, BackslashBeforeCommand),
+    (
+        "S041",
+        Category::Style,
+        Severity::Warning,
+        FunctionBodyWithoutBraces
+    ),
+    (
+        "S066",
+        Category::Style,
+        Severity::Warning,
+        LocalDeclareCombined
+    ),
     ("S042", Category::Style, Severity::Warning, IfsEqualsAmbiguity),
     ("S043", Category::Style, Severity::Warning, MissingShebangLine),
     ("S053", Category::Style, Severity::Warning, DuplicateShebangFlag),
@@ -656,6 +669,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-079" => Some(Rule::AvoidLetBuiltin),
         "SH-020" => Some(Rule::LetCommand),
         "SH-021" => Some(Rule::DeclareCommand),
+        "SH-289" => Some(Rule::LocalDeclareCombined),
         "SH-029" => Some(Rule::PipefailOption),
         "SH-030" => Some(Rule::WaitOption),
         "SH-022" => Some(Rule::TrapErr),
@@ -716,6 +730,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-038" => Some(Rule::UnquotedArrayExpansion),
         "SH-039" => Some(Rule::UndefinedVariable),
         "SH-040" => Some(Rule::EchoedCommandSubstitution),
+        "SH-170" => Some(Rule::RedundantReturnStatus),
         "SH-168" => Some(Rule::RedundantSpacesInEcho),
         "SH-196" => Some(Rule::UnquotedVariableInSed),
         "SH-205" => Some(Rule::UnquotedWordBetweenQuotes),
@@ -881,6 +896,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-154" => Some(Rule::NestedZshSubstitution),
         "SH-158" => Some(Rule::PlusEqualsAppend),
         "SH-180" => Some(Rule::MultiVarForLoop),
+        "SH-181" => Some(Rule::FunctionBodyWithoutBraces),
         "SH-183" => Some(Rule::ZshPromptBracket),
         "SH-184" => Some(Rule::CshSyntaxInSh),
         "SH-218" => Some(Rule::ZshNestedExpansion),
@@ -1036,12 +1052,21 @@ mod tests {
             code_to_rule("S039"),
             Some(Rule::LiteralBackslashInSingleQuotes)
         );
+        assert_eq!(code_to_rule("S038"), Some(Rule::RedundantReturnStatus));
+        assert_eq!(code_to_rule("SH-170"), Some(Rule::RedundantReturnStatus));
         assert_eq!(
             code_to_rule("SH-172"),
             Some(Rule::LiteralBackslashInSingleQuotes)
         );
         assert_eq!(code_to_rule("S040"), Some(Rule::BackslashBeforeCommand));
         assert_eq!(code_to_rule("SH-173"), Some(Rule::BackslashBeforeCommand));
+        assert_eq!(code_to_rule("S041"), Some(Rule::FunctionBodyWithoutBraces));
+        assert_eq!(
+            code_to_rule("SH-181"),
+            Some(Rule::FunctionBodyWithoutBraces)
+        );
+        assert_eq!(code_to_rule("S066"), Some(Rule::LocalDeclareCombined));
+        assert_eq!(code_to_rule("SH-289"), Some(Rule::LocalDeclareCombined));
         assert_eq!(code_to_rule("SH-026"), Some(Rule::UntrackedSourceFile));
         assert_eq!(code_to_rule("SH-036"), Some(Rule::SingleQuotedLiteral));
         assert_eq!(code_to_rule("SH-037"), Some(Rule::PrintfFormatVariable));

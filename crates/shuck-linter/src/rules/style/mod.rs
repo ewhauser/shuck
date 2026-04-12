@@ -23,6 +23,7 @@ pub mod escaped_underscore;
 pub mod escaped_underscore_literal;
 pub mod export_command_substitution;
 pub mod fgrep_deprecated;
+pub mod function_body_without_braces;
 pub mod function_in_alias;
 pub mod glob_assigned_to_variable;
 pub mod grep_output_in_test;
@@ -34,6 +35,7 @@ pub mod linebreak_before_and;
 pub mod literal_backslash;
 pub mod literal_backslash_in_single_quotes;
 pub mod literal_braces;
+pub mod local_declare_combined;
 pub mod loop_from_command_output;
 pub mod ls_grep_pipeline;
 pub mod ls_in_substitution;
@@ -46,6 +48,7 @@ pub mod printf_format_variable;
 pub mod ps_grep_pipeline;
 pub mod quoted_dollar_star_loop;
 pub mod read_without_raw;
+pub mod redundant_return_status;
 pub mod redundant_spaces_in_echo;
 pub mod relative_symlink_target;
 pub mod single_iteration_loop;
@@ -104,6 +107,8 @@ mod tests {
     #[test_case(Rule::EnvPrefixQuoting, Path::new("S071.sh"))]
     #[test_case(Rule::MixedQuoteWord, Path::new("S076.sh"))]
     #[test_case(Rule::FunctionInAlias, Path::new("S057.sh"))]
+    #[test_case(Rule::FunctionBodyWithoutBraces, Path::new("S041.sh"))]
+    #[test_case(Rule::LocalDeclareCombined, Path::new("S066.sh"))]
     #[test_case(Rule::GrepOutputInTest, Path::new("S019.sh"))]
     #[test_case(Rule::PsGrepPipeline, Path::new("S012.sh"))]
     #[test_case(Rule::LsGrepPipeline, Path::new("S013.sh"))]
@@ -116,6 +121,7 @@ mod tests {
     #[test_case(Rule::ConditionalAssignmentShortcut, Path::new("S032.sh"))]
     #[test_case(Rule::BareRead, Path::new("S036.sh"))]
     #[test_case(Rule::RedundantSpacesInEcho, Path::new("S037.sh"))]
+    #[test_case(Rule::RedundantReturnStatus, Path::new("S038.sh"))]
     #[test_case(Rule::UnquotedVariableInSed, Path::new("S044.sh"))]
     #[test_case(Rule::UnquotedWordBetweenQuotes, Path::new("S050.sh"))]
     #[test_case(Rule::UnquotedTrClass, Path::new("S051.sh"))]

@@ -372,9 +372,9 @@ require semantic model access for call site analysis.
 - [x] **M** C126 (SC2368) `continue-outside-loop-in-func` — continue inside function but outside loop
 - [x] **M** C131 (SC2378) `variable-as-command-name` — unquoted variable as command name
 - [x] **L** C147 (SC2398) `keyword-function-name` — reserved word as function name
-- [ ] **M** S038 (SC2265) `redundant-return-status` — returns status function already propagates
-- [ ] **L** S041 (SC2276) `function-body-without-braces` — bare compound command as body
-- [ ] **L** S066 (SC2362) `local-declare-combined` — `local` and `declare` combined
+- [x] **M** S038 (SC2265) `redundant-return-status` — returns status function already propagates
+- [x] **L** S041 (SC2276) `function-body-without-braces` — bare compound command as body
+- [x] **L** S066 (SC2362) `local-declare-combined` — `local` and `declare` combined
 
 ### Case Statements
 

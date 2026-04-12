@@ -63,7 +63,7 @@ pub use rules::common::span::{
 };
 pub use rules::common::word::{
     TestOperandClass, conditional_binary_op_is_string_match, static_word_text,
-    word_is_standalone_variable_like,
+    word_is_standalone_status_capture, word_is_standalone_variable_like,
 };
 pub use settings::LinterSettings;
 pub use shell::ShellDialect;
@@ -2849,6 +2849,38 @@ foo=1
     }
 
     #[test]
+    fn redundant_return_status_suppressed_by_legacy_shuck_directive() {
+        let source = "\
+#!/bin/sh
+# shuck: disable=SH-170
+f() {
+  false
+  return $?
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let directives = parse_directives(
+            source,
+            indexer.comment_index(),
+            &ShellCheckCodeMap::default(),
+        );
+        let suppressions = SuppressionIndex::new(
+            &directives,
+            &output.file,
+            first_statement_line(&output.file).unwrap_or(u32::MAX),
+        );
+        let diagnostics = lint_file(
+            &output.file,
+            source,
+            &indexer,
+            &LinterSettings::for_rule(Rule::RedundantReturnStatus),
+            Some(&suppressions),
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn local_top_level_suppressed_by_shellcheck_directive() {
         let source = "\
 #!/bin/bash
@@ -2873,6 +2905,38 @@ printf '%s\\n' \"$foo\"
             source,
             &indexer,
             &LinterSettings::default(),
+            Some(&suppressions),
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn local_declare_combined_suppressed_by_shellcheck_alias_directive() {
+        let source = "\
+#!/bin/bash
+# shellcheck disable=SC2316
+f() {
+  local foo
+  declare foo
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let directives = parse_directives(
+            source,
+            indexer.comment_index(),
+            &ShellCheckCodeMap::default(),
+        );
+        let suppressions = SuppressionIndex::new(
+            &directives,
+            &output.file,
+            first_statement_line(&output.file).unwrap_or(u32::MAX),
+        );
+        let diagnostics = lint_file(
+            &output.file,
+            source,
+            &indexer,
+            &LinterSettings::for_rule(Rule::LocalDeclareCombined),
             Some(&suppressions),
         );
         assert!(diagnostics.is_empty());

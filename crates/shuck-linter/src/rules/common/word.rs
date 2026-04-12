@@ -1,5 +1,6 @@
 use shuck_ast::{
-    ConditionalBinaryOp, ConditionalExpr, Pattern, PatternPart, Word, WordPart, WordPartNode,
+    BourneParameterExpansion, ConditionalBinaryOp, ConditionalExpr, Pattern, PatternPart, Word,
+    WordPart, WordPartNode,
 };
 
 pub use super::expansion::{
@@ -88,6 +89,25 @@ pub fn word_is_standalone_variable_like(word: &Word) -> bool {
                 | WordPart::IndirectExpansion { .. }
                 | WordPart::PrefixMatch { .. }
                 | WordPart::Transformation { .. }
+        ),
+        _ => false,
+    }
+}
+
+pub fn word_is_standalone_status_capture(word: &Word) -> bool {
+    matches!(word.parts.as_slice(), [part] if is_standalone_status_capture_part(&part.kind))
+}
+
+fn is_standalone_status_capture_part(part: &WordPart) -> bool {
+    match part {
+        WordPart::Variable(name) => name.as_str() == "?",
+        WordPart::DoubleQuoted { parts, .. } => {
+            matches!(parts.as_slice(), [part] if is_standalone_status_capture_part(&part.kind))
+        }
+        WordPart::Parameter(parameter) => matches!(
+            parameter.bourne(),
+            Some(BourneParameterExpansion::Access { reference })
+                if reference.name.as_str() == "?" && reference.subscript.is_none()
         ),
         _ => false,
     }
@@ -194,13 +214,13 @@ fn classify_pattern_operand(pattern: &Pattern, source: &str) -> TestOperandClass
 
 #[cfg(test)]
 mod tests {
-    use shuck_ast::{Command, CompoundCommand};
+    use shuck_ast::{BuiltinCommand, Command, CompoundCommand};
     use shuck_parser::parser::Parser;
 
     use super::{
         ExpansionContext, TestOperandClass, WordExpansionKind, WordLiteralness, WordQuote,
         WordSubstitutionShape, classify_conditional_operand, classify_contextual_operand,
-        classify_word,
+        classify_word, word_is_standalone_status_capture,
     };
 
     fn parse_commands(source: &str) -> shuck_ast::StmtSeq {
@@ -270,6 +290,48 @@ mod tests {
             classify_word(&command.args[3], source).expansion_kind,
             WordExpansionKind::Array
         );
+    }
+
+    #[test]
+    fn word_is_standalone_status_capture_handles_plain_and_quoted_forms() {
+        let source = "return $?; return \"$?\"; return ${?+0}; return ${?:-1}; return $foo\n";
+        let commands = parse_commands(source);
+
+        let Command::Builtin(BuiltinCommand::Return(plain)) = &commands[0].command else {
+            panic!("expected return builtin");
+        };
+        assert!(word_is_standalone_status_capture(
+            plain.code.as_ref().unwrap()
+        ));
+
+        let Command::Builtin(BuiltinCommand::Return(quoted)) = &commands[1].command else {
+            panic!("expected return builtin");
+        };
+        assert!(word_is_standalone_status_capture(
+            quoted.code.as_ref().unwrap()
+        ));
+
+        let Command::Builtin(BuiltinCommand::Return(operator_default)) = &commands[2].command
+        else {
+            panic!("expected return builtin");
+        };
+        assert!(!word_is_standalone_status_capture(
+            operator_default.code.as_ref().unwrap()
+        ));
+
+        let Command::Builtin(BuiltinCommand::Return(operator_assign)) = &commands[3].command else {
+            panic!("expected return builtin");
+        };
+        assert!(!word_is_standalone_status_capture(
+            operator_assign.code.as_ref().unwrap()
+        ));
+
+        let Command::Builtin(BuiltinCommand::Return(other)) = &commands[4].command else {
+            panic!("expected return builtin");
+        };
+        assert!(!word_is_standalone_status_capture(
+            other.code.as_ref().unwrap()
+        ));
     }
 
     #[test]
