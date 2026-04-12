@@ -1981,6 +1981,7 @@ pub struct LinterFacts<'a> {
     single_test_subshell_spans: Vec<Span>,
     subshell_test_group_spans: Vec<Span>,
     indented_shebang_span: Option<Span>,
+    space_after_hash_bang_span: Option<Span>,
     non_absolute_shebang_span: Option<Span>,
     commented_continuation_comment_spans: Vec<Span>,
     trailing_directive_comment_spans: Vec<Span>,
@@ -2194,6 +2195,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn indented_shebang_span(&self) -> Option<Span> {
         self.indented_shebang_span
+    }
+
+    pub fn space_after_hash_bang_span(&self) -> Option<Span> {
+        self.space_after_hash_bang_span
     }
 
     pub fn non_absolute_shebang_span(&self) -> Option<Span> {
@@ -2693,6 +2698,7 @@ impl<'a> LinterFactsBuilder<'a> {
             single_test_subshell_spans,
             subshell_test_group_spans,
             indented_shebang_span: shebang_header_facts.indented_shebang_span,
+            space_after_hash_bang_span: shebang_header_facts.space_after_hash_bang_span,
             non_absolute_shebang_span: shebang_header_facts.non_absolute_shebang_span,
             commented_continuation_comment_spans,
             trailing_directive_comment_spans,
@@ -3810,6 +3816,7 @@ fn special_positional_parameter_name(name: &str) -> Option<bool> {
 #[derive(Debug, Clone, Copy, Default)]
 struct ShebangHeaderFacts {
     indented_shebang_span: Option<Span>,
+    space_after_hash_bang_span: Option<Span>,
     non_absolute_shebang_span: Option<Span>,
 }
 
@@ -3822,6 +3829,16 @@ fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
     let trimmed = line.trim_start_matches(char::is_whitespace);
     let indented_shebang_span =
         (trimmed.len() != line.len() && trimmed.starts_with("#!")).then(|| first_line_span(line));
+
+    let space_after_hash_bang_span = line
+        .strip_prefix('#')
+        .and_then(|rest| rest.starts_with(char::is_whitespace).then_some(rest))
+        .and_then(|rest| {
+            rest.trim_start_matches(char::is_whitespace)
+                .starts_with('!')
+                .then_some(())
+        })
+        .map(|()| first_line_span(line));
 
     let non_absolute_shebang_span = line.strip_prefix("#!").and_then(|shebang| {
         let interpreter = shebang.split_whitespace().next()?;
@@ -3836,6 +3853,7 @@ fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
 
     ShebangHeaderFacts {
         indented_shebang_span,
+        space_after_hash_bang_span,
         non_absolute_shebang_span,
     }
 }
