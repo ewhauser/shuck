@@ -98,4 +98,25 @@ f() {
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "$?");
     }
+
+    #[test]
+    fn ignores_control_flow_predecessors_and_backgrounded_returns() {
+        let source = "\
+#!/bin/sh
+f() {
+  return 1
+  return $?
+}
+g() {
+  false
+  return $? &
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::RedundantReturnStatus),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
 }

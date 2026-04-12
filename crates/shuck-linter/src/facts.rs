@@ -3744,6 +3744,9 @@ fn terminal_redundant_return_status_span(commands: &StmtSeq) -> Option<Span> {
     if !stmt_is_plain_status_propagating_command(previous) {
         return None;
     }
+    if last.negated || matches!(last.terminator, Some(StmtTerminator::Background(_))) {
+        return None;
+    }
 
     let Command::Builtin(BuiltinCommand::Return(command)) = &last.command else {
         return None;
@@ -3757,10 +3760,7 @@ fn stmt_is_plain_status_propagating_command(stmt: &Stmt) -> bool {
         return false;
     }
 
-    matches!(
-        stmt.command,
-        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_)
-    )
+    matches!(stmt.command, Command::Simple(_) | Command::Decl(_))
 }
 
 fn build_function_positional_parameter_facts(
