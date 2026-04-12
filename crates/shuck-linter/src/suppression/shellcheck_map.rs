@@ -483,6 +483,7 @@ impl Default for ShellCheckCodeMap {
             // Keep SC2384 as a suppression alias, but prefer the current code for comparisons.
             (2318, Rule::LocalCrossReference),
             (2276, Rule::PlusPrefixInAssignment),
+            (2276, Rule::FunctionBodyWithoutBraces),
             // ShellCheck 0.11.0 reports digit-prefixed assignment names as SC2282.
             // Keep SC2388 as a suppression alias, but prefer the current code for comparisons.
             (2282, Rule::BadVarName),
@@ -858,6 +859,10 @@ impl Default for ShellCheckCodeMap {
                 (2328, Rule::CommandSubstitutionInAlias),
                 (2330, Rule::FunctionInAlias),
                 (2376, Rule::DoubleQuoteNesting),
+                // ShellCheck 0.11.0 also uses SC2276 for the bare-compound function-body
+                // portability warning. Keep it as a secondary alias so SC2276 still
+                // resolves to the long-standing C117 suppression target first.
+                (2276, Rule::FunctionBodyWithoutBraces),
                 (2298, Rule::UnquotedTrRange),
                 (2303, Rule::UnquotedTrClass),
                 // ShellCheck 0.11.0 currently emits SC2057 for leading `\!` test operators.
@@ -1489,6 +1494,13 @@ mod tests {
         assert_eq!(map.resolve("SC2096"), Some(Rule::DuplicateShebangFlag));
         assert_eq!(map.resolve("SC2276"), Some(Rule::PlusPrefixInAssignment));
         assert_eq!(
+            map.resolve_all("SC2276"),
+            vec![
+                Rule::PlusPrefixInAssignment,
+                Rule::FunctionBodyWithoutBraces
+            ]
+        );
+        assert_eq!(
             map.resolve("SC2270"),
             Some(Rule::AssignmentToNumericVariable)
         );
@@ -1779,6 +1791,7 @@ mod tests {
             (2255, Rule::SubstWithRedirect),
             (2256, Rule::SubstWithRedirectErr),
             (2276, Rule::PlusPrefixInAssignment),
+            (2276, Rule::FunctionBodyWithoutBraces),
             (2257, Rule::ArithmeticRedirectionTarget),
             (2290, Rule::SubshellInArithmetic),
             (2295, Rule::UnquotedGlobsInFind),
@@ -2037,6 +2050,7 @@ mod tests {
         assert!(comparison.contains(&(2293, Rule::LsPipedToXargs)));
         assert!(comparison.contains(&(2294, Rule::LsInSubstitution)));
         assert!(comparison.contains(&(2265, Rule::RedundantReturnStatus)));
+        assert!(comparison.contains(&(2276, Rule::FunctionBodyWithoutBraces)));
         assert!(!comparison.contains(&(2294, Rule::EvalOnArray)));
         assert!(!comparison.contains(&(2295, Rule::UnquotedGlobsInFind)));
         assert!(!comparison.contains(&(2299, Rule::GlobInGrepPattern)));

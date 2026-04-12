@@ -23,6 +23,7 @@ pub mod escaped_underscore;
 pub mod escaped_underscore_literal;
 pub mod export_command_substitution;
 pub mod fgrep_deprecated;
+pub mod function_body_without_braces;
 pub mod function_in_alias;
 pub mod glob_assigned_to_variable;
 pub mod grep_output_in_test;
@@ -105,6 +106,7 @@ mod tests {
     #[test_case(Rule::EnvPrefixQuoting, Path::new("S071.sh"))]
     #[test_case(Rule::MixedQuoteWord, Path::new("S076.sh"))]
     #[test_case(Rule::FunctionInAlias, Path::new("S057.sh"))]
+    #[test_case(Rule::FunctionBodyWithoutBraces, Path::new("S041.sh"))]
     #[test_case(Rule::GrepOutputInTest, Path::new("S019.sh"))]
     #[test_case(Rule::PsGrepPipeline, Path::new("S012.sh"))]
     #[test_case(Rule::LsGrepPipeline, Path::new("S013.sh"))]

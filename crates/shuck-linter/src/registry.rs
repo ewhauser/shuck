@@ -622,6 +622,12 @@ declare_rules! {
         LiteralBackslashInSingleQuotes
     ),
     ("S040", Category::Style, Severity::Warning, BackslashBeforeCommand),
+    (
+        "S041",
+        Category::Style,
+        Severity::Warning,
+        FunctionBodyWithoutBraces
+    ),
     ("S042", Category::Style, Severity::Warning, IfsEqualsAmbiguity),
     ("S043", Category::Style, Severity::Warning, MissingShebangLine),
     ("S053", Category::Style, Severity::Warning, DuplicateShebangFlag),
@@ -882,6 +888,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-154" => Some(Rule::NestedZshSubstitution),
         "SH-158" => Some(Rule::PlusEqualsAppend),
         "SH-180" => Some(Rule::MultiVarForLoop),
+        "SH-181" => Some(Rule::FunctionBodyWithoutBraces),
         "SH-183" => Some(Rule::ZshPromptBracket),
         "SH-184" => Some(Rule::CshSyntaxInSh),
         "SH-218" => Some(Rule::ZshNestedExpansion),
@@ -1044,6 +1051,11 @@ mod tests {
         );
         assert_eq!(code_to_rule("S040"), Some(Rule::BackslashBeforeCommand));
         assert_eq!(code_to_rule("SH-173"), Some(Rule::BackslashBeforeCommand));
+        assert_eq!(code_to_rule("S041"), Some(Rule::FunctionBodyWithoutBraces));
+        assert_eq!(
+            code_to_rule("SH-181"),
+            Some(Rule::FunctionBodyWithoutBraces)
+        );
         assert_eq!(code_to_rule("SH-026"), Some(Rule::UntrackedSourceFile));
         assert_eq!(code_to_rule("SH-036"), Some(Rule::SingleQuotedLiteral));
         assert_eq!(code_to_rule("SH-037"), Some(Rule::PrintfFormatVariable));
