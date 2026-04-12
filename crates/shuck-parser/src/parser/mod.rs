@@ -4639,7 +4639,9 @@ impl<'a> Parser<'a> {
             || raw_body_text.starts_with('$')
             || has_operation
         {
-            ParameterExpansionSyntax::Zsh(self.parse_zsh_parameter_syntax(&raw_body, raw_body_start))
+            ParameterExpansionSyntax::Zsh(
+                self.parse_zsh_parameter_syntax(&raw_body, raw_body_start),
+            )
         } else {
             ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access {
                 reference: self.parse_loose_var_ref(raw_body_text),
