@@ -325,4 +325,25 @@ done
             "getopts option -b is not handled by this case statement"
         );
     }
+
+    #[test]
+    fn reports_missing_options_for_pipeline_rhs_handlers() {
+        let source = "\
+while getopts 'ab' opt; do
+  printf '%s\\n' \"$opt\" | case \"$opt\" in
+    a) : ;;
+  esac
+done
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::GetoptsOptionNotInCase),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].message,
+            "getopts option -b is not handled by this case statement"
+        );
+    }
 }

@@ -248,4 +248,22 @@ done
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "a");
     }
+
+    #[test]
+    fn reports_pipeline_rhs_handlers() {
+        let source = "\
+while getopts 'ab' opt; do
+  printf '%s\\n' \"$opt\" | case \"$opt\" in
+    a) : ;;
+  esac
+done
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SingleLetterCaseLabel),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "a");
+    }
 }

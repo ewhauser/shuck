@@ -262,4 +262,20 @@ done
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "b");
     }
+
+    #[test]
+    fn reports_pipeline_rhs_handlers() {
+        let source = "\
+while getopts 'a' opt; do
+  printf '%s\\n' \"$opt\" | case \"$opt\" in
+    b) : ;;
+  esac
+done
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::CaseArmNotInGetopts));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "b");
+    }
 }

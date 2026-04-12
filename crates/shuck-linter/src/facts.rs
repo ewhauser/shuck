@@ -6380,9 +6380,16 @@ fn first_getopts_case_match_in_command(
     source: &str,
 ) -> Option<GetoptsCaseMatch> {
     match command {
-        Command::Binary(command) => {
-            first_getopts_case_match_in_command(&command.left.command, target_name, source)
-        }
+        Command::Binary(command) => first_getopts_case_match_in_command(
+            &command.left.command,
+            target_name,
+            source,
+        )
+        .or_else(|| {
+            matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll).then(|| {
+                first_getopts_case_match_in_command(&command.right.command, target_name, source)
+            })?
+        }),
         Command::Compound(CompoundCommand::Case(command))
             if case_subject_variable_name(&command.word) == Some(target_name) =>
         {
