@@ -409,6 +409,7 @@ declare_rules! {
     ("X071", Category::Portability, Severity::Warning, ArrayKeysInSh),
     ("X081", Category::Portability, Severity::Warning, StarGlobRemovalInSh),
     ("X076", Category::Portability, Severity::Warning, ZshParameterFlag),
+    ("X077", Category::Portability, Severity::Warning, NestedDefaultExpansion),
     ("X078", Category::Portability, Severity::Warning, ZshArraySubscriptInCase),
     ("X079", Category::Portability, Severity::Warning, ZshParameterIndexFlag),
     ("X046", Category::Portability, Severity::Warning, ExtglobInTest),
@@ -558,6 +559,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-274" => Some(Rule::HyphenatedFunctionName),
         "SH-234" => Some(Rule::IfsSetToLiteralBackslashN),
         "SH-279" => Some(Rule::UnsetPatternInSh),
+        "SH-291" => Some(Rule::NestedDefaultExpansion),
         "SH-304" => Some(Rule::SourceInsideFunctionInSh),
         "SH-275" => Some(Rule::ErrexitTrapInSh),
         "SH-276" => Some(Rule::SignalNameInTrap),
@@ -1195,6 +1197,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-305"), Some(Rule::StarGlobRemovalInSh));
         assert_eq!(code_to_rule("X076"), Some(Rule::ZshParameterFlag));
         assert_eq!(code_to_rule("SH-286"), Some(Rule::ZshParameterFlag));
+        assert_eq!(code_to_rule("X077"), Some(Rule::NestedDefaultExpansion));
+        assert_eq!(code_to_rule("SH-291"), Some(Rule::NestedDefaultExpansion));
         assert_eq!(code_to_rule("X078"), Some(Rule::ZshArraySubscriptInCase));
         assert_eq!(code_to_rule("SH-299"), Some(Rule::ZshArraySubscriptInCase));
         assert_eq!(code_to_rule("X079"), Some(Rule::ZshParameterIndexFlag));

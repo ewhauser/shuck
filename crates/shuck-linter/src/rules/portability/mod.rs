@@ -27,6 +27,7 @@ pub mod legacy_arithmetic_in_sh;
 pub mod let_command;
 pub mod local_variable_in_sh;
 pub mod multi_var_for_loop;
+pub mod nested_default_expansion;
 pub mod nested_zsh_substitution;
 pub mod pipe_stderr_in_sh;
 pub mod pipefail_option;
@@ -120,6 +121,7 @@ mod tests {
     #[test_case(Rule::NestedZshSubstitution, Path::new("X044.sh"))]
     #[test_case(Rule::PlusEqualsAppend, Path::new("X045.sh"))]
     #[test_case(Rule::MultiVarForLoop, Path::new("X047.sh"))]
+    #[test_case(Rule::NestedDefaultExpansion, Path::new("X077.sh"))]
     #[test_case(Rule::ZshPromptBracket, Path::new("X049.sh"))]
     #[test_case(Rule::CshSyntaxInSh, Path::new("X050.sh"))]
     #[test_case(Rule::ZshNestedExpansion, Path::new("X051.sh"))]
