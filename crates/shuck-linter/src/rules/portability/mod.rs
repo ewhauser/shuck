@@ -19,6 +19,7 @@ pub mod dollar_string_in_sh;
 pub mod errexit_trap_in_sh;
 pub mod function_keyword;
 pub mod function_keyword_in_sh;
+pub mod function_params_in_sh;
 pub mod here_string;
 pub mod indirect_expansion;
 pub mod legacy_arithmetic_in_sh;
@@ -81,6 +82,7 @@ mod tests {
     #[test_case(Rule::TestEqualityOperator, Path::new("X002.sh"))]
     #[test_case(Rule::LocalVariableInSh, Path::new("X003.sh"))]
     #[test_case(Rule::FunctionKeyword, Path::new("X004.sh"))]
+    #[test_case(Rule::FunctionParamsInSh, Path::new("X035.sh"))]
     #[test_case(Rule::BashCaseFallthrough, Path::new("X005.sh"))]
     #[test_case(Rule::ProcessSubstitution, Path::new("X006.sh"))]
     #[test_case(Rule::AnsiCQuoting, Path::new("X007.sh"))]

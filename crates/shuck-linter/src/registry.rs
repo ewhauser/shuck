@@ -382,6 +382,7 @@ declare_rules! {
     ("X032", Category::Portability, Severity::Warning, PrintfQFormatInSh),
     ("X033", Category::Portability, Severity::Warning, IfElifBashTest),
     ("X034", Category::Portability, Severity::Warning, ExtendedGlobInTest),
+    ("X035", Category::Portability, Severity::Warning, FunctionParamsInSh),
     ("X037", Category::Portability, Severity::Warning, ExtglobCase),
     ("X048", Category::Portability, Severity::Warning, ExtglobInCasePattern),
     ("X054", Category::Portability, Severity::Warning, ExtglobInSh),

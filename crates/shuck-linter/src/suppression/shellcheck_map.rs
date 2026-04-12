@@ -209,6 +209,7 @@ impl Default for ShellCheckCodeMap {
             // Keep SC2397 as a suppression alias for historical compatibility.
             (1045, Rule::AmpersandSemicolon),
             (1047, Rule::MissingFi),
+            (1065, Rule::FunctionParamsInSh),
             (1069, Rule::IfBracketGlued),
             (1072, Rule::BrokenTestParse),
             (1073, Rule::BrokenTestEnd),
@@ -491,6 +492,7 @@ impl Default for ShellCheckCodeMap {
                     (1044, Rule::HeredocMissingEnd),
                     (1045, Rule::AmpersandSemicolon),
                     (1047, Rule::MissingFi),
+                    (1065, Rule::FunctionParamsInSh),
                     (1069, Rule::IfBracketGlued),
                     (1070, Rule::ZshRedirPipe),
                     (1072, Rule::BrokenTestParse),
