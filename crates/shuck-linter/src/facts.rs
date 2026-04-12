@@ -3104,15 +3104,24 @@ fn collect_base_prefix_spans_in_parameter_expansion(
                 collect_base_prefix_spans_in_var_ref(reference, source, spans);
             }
             BourneParameterExpansion::Indirect {
-                reference, operand, ..
+                reference,
+                operand,
+                operand_word_ast,
+                ..
             }
             | BourneParameterExpansion::Operation {
-                reference, operand, ..
+                reference,
+                operand,
+                operand_word_ast,
+                ..
             } => {
                 collect_base_prefix_spans_in_var_ref(reference, source, spans);
-                if let Some(operand) = operand {
-                    collect_base_prefix_spans_in_source_text(operand, source, spans);
-                }
+                collect_base_prefix_spans_in_fragment(
+                    operand_word_ast.as_ref(),
+                    operand.as_ref(),
+                    source,
+                    spans,
+                );
             }
             BourneParameterExpansion::Slice {
                 reference,
@@ -3139,7 +3148,7 @@ fn collect_base_prefix_spans_in_parameter_expansion(
                     | shuck_ast::ZshExpansionOperation::Defaulting { .. }
                     | shuck_ast::ZshExpansionOperation::TrimOperation { .. }
                     | shuck_ast::ZshExpansionOperation::ReplacementOperation { .. }
-                    | shuck_ast::ZshExpansionOperation::Unknown(_) => {}
+                    | shuck_ast::ZshExpansionOperation::Unknown { .. } => {}
                 }
             }
         }
@@ -3210,18 +3219,26 @@ fn collect_base_prefix_spans_in_arithmetic(
     collect_base_prefix_spans_in_text(expression.span, source, spans);
 }
 
-fn collect_base_prefix_spans_in_source_text(
-    text: &SourceText,
+fn collect_base_prefix_spans_in_fragment(
+    word: Option<&Word>,
+    text: Option<&SourceText>,
     source: &str,
     spans: &mut Vec<Span>,
 ) {
+    let Some(text) = text else {
+        return;
+    };
     let snippet = text.slice(source);
     if !snippet.contains('#') {
         return;
     }
 
-    let word = Parser::parse_word_fragment(source, snippet, text.span());
-    collect_base_prefix_spans_in_word(&word, source, spans);
+    if let Some(word) = word {
+        collect_base_prefix_spans_in_word(word, source, spans);
+    } else {
+        let word = Parser::parse_word_fragment(source, snippet, text.span());
+        collect_base_prefix_spans_in_word(&word, source, spans);
+    }
 }
 
 fn collect_base_prefix_spans_in_text(span: Span, source: &str, spans: &mut Vec<Span>) {
@@ -4898,15 +4915,24 @@ fn collect_status_parameter_spans_in_parameter_expansion(
                 collect_status_parameter_spans_in_var_ref(reference, source, spans);
             }
             BourneParameterExpansion::Indirect {
-                reference, operand, ..
+                reference,
+                operand,
+                operand_word_ast,
+                ..
             }
             | BourneParameterExpansion::Operation {
-                reference, operand, ..
+                reference,
+                operand,
+                operand_word_ast,
+                ..
             } => {
                 collect_status_parameter_spans_in_var_ref(reference, source, spans);
-                if let Some(operand) = operand {
-                    collect_status_parameter_spans_in_source_text(operand, source, spans);
-                }
+                collect_status_parameter_spans_in_fragment(
+                    operand_word_ast.as_ref(),
+                    operand.as_ref(),
+                    source,
+                    spans,
+                );
             }
             BourneParameterExpansion::Slice {
                 reference,
@@ -4946,30 +4972,52 @@ fn collect_status_parameter_spans_in_parameter_expansion(
                     shuck_ast::ZshExpansionOperation::PatternOperation { operand, .. }
                     | shuck_ast::ZshExpansionOperation::Defaulting { operand, .. }
                     | shuck_ast::ZshExpansionOperation::TrimOperation { operand, .. } => {
-                        collect_status_parameter_spans_in_source_text(operand, source, spans);
+                        collect_status_parameter_spans_in_fragment(
+                            operation.operand_word_ast(),
+                            Some(operand),
+                            source,
+                            spans,
+                        );
                     }
                     shuck_ast::ZshExpansionOperation::ReplacementOperation {
                         pattern,
                         replacement,
                         ..
                     } => {
-                        collect_status_parameter_spans_in_source_text(pattern, source, spans);
-                        if let Some(replacement) = replacement {
-                            collect_status_parameter_spans_in_source_text(
-                                replacement,
-                                source,
-                                spans,
-                            );
-                        }
+                        collect_status_parameter_spans_in_fragment(
+                            operation.pattern_word_ast(),
+                            Some(pattern),
+                            source,
+                            spans,
+                        );
+                        collect_status_parameter_spans_in_fragment(
+                            operation.replacement_word_ast(),
+                            replacement.as_ref(),
+                            source,
+                            spans,
+                        );
                     }
-                    shuck_ast::ZshExpansionOperation::Slice { offset, length } => {
-                        collect_status_parameter_spans_in_source_text(offset, source, spans);
-                        if let Some(length) = length {
-                            collect_status_parameter_spans_in_source_text(length, source, spans);
-                        }
+                    shuck_ast::ZshExpansionOperation::Slice { offset, length, .. } => {
+                        collect_status_parameter_spans_in_fragment(
+                            operation.offset_word_ast(),
+                            Some(offset),
+                            source,
+                            spans,
+                        );
+                        collect_status_parameter_spans_in_fragment(
+                            operation.length_word_ast(),
+                            length.as_ref(),
+                            source,
+                            spans,
+                        );
                     }
-                    shuck_ast::ZshExpansionOperation::Unknown(text) => {
-                        collect_status_parameter_spans_in_source_text(text, source, spans);
+                    shuck_ast::ZshExpansionOperation::Unknown { text, .. } => {
+                        collect_status_parameter_spans_in_fragment(
+                            operation.operand_word_ast(),
+                            Some(text),
+                            source,
+                            spans,
+                        );
                     }
                 }
             }
@@ -5033,12 +5081,28 @@ fn collect_status_parameter_spans_in_source_text(
     source: &str,
     spans: &mut Vec<Span>,
 ) {
+    collect_status_parameter_spans_in_fragment(None, Some(text), source, spans);
+}
+
+fn collect_status_parameter_spans_in_fragment(
+    word: Option<&Word>,
+    text: Option<&SourceText>,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    let Some(text) = text else {
+        return;
+    };
     let snippet = text.slice(source);
     if !snippet.contains("$?") {
         return;
     }
-    let word = Parser::parse_word_fragment(source, snippet, text.span());
-    collect_status_parameter_spans_in_word(&word, source, spans);
+    if let Some(word) = word {
+        collect_status_parameter_spans_in_word(word, source, spans);
+    } else {
+        let word = Parser::parse_word_fragment(source, snippet, text.span());
+        collect_status_parameter_spans_in_word(&word, source, spans);
+    }
 }
 
 fn build_redirect_facts<'a>(

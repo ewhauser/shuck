@@ -585,9 +585,11 @@ fn test_indirect_expansions_preserve_reference_structure() {
         Some(ParameterOp::ReplaceAll {
             pattern,
             replacement,
+            replacement_word_ast,
         }) => {
             assert_eq!(pattern.render(input), "\n");
             assert_eq!(replacement.slice(input), "' '");
+            assert_eq!(replacement_word_ast.render_syntax(input), "' '");
         }
         other => panic!("expected replace-all indirect expansion, got {other:?}"),
     }
@@ -610,8 +612,17 @@ fn test_non_zsh_dialect_parses_zsh_modifier_forms_as_zsh_parameters() {
             kind: ZshDefaultingOp::UseDefault,
             ref operand,
             colon_variant: true,
+            ..
         }) if operand.slice(input) == "%x"
     ));
+    let first_operation = first.operation.as_ref().expect("expected zsh operation");
+    assert_eq!(
+        first_operation
+            .operand_word_ast()
+            .expect("expected defaulting operand word")
+            .render(input),
+        "%x"
+    );
 
     let second = expect_parameter(&command.args[1]);
     let ParameterExpansionSyntax::Zsh(second) = &second.syntax else {
@@ -629,8 +640,24 @@ fn test_non_zsh_dialect_parses_zsh_modifier_forms_as_zsh_parameters() {
             kind: ZshReplacementOp::ReplaceAll,
             ref pattern,
             replacement: Some(ref replacement),
+            ..
         }) if pattern.slice(input) == "$HOME" && replacement.slice(input) == "~"
     ));
+    let second_operation = second.operation.as_ref().expect("expected zsh operation");
+    assert_eq!(
+        second_operation
+            .pattern_word_ast()
+            .expect("expected replacement pattern word")
+            .render(input),
+        "$HOME"
+    );
+    assert_eq!(
+        second_operation
+            .replacement_word_ast()
+            .expect("expected replacement word")
+            .render(input),
+        "~"
+    );
 }
 
 #[test]
@@ -1301,6 +1328,17 @@ fn test_parameter_expansion_operand_stays_source_backed() {
     let operand = operand.expect("expected operand");
     assert!(operand.is_source_backed());
     assert_eq!(operand.slice(input), "$(pwd)");
+
+    let parameter = expect_parameter(word);
+    let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
+        operand_word_ast: Some(operand_word_ast),
+        ..
+    }) = &parameter.syntax
+    else {
+        panic!("expected unified bourne operation");
+    };
+    assert_eq!(operand_word_ast.render(input), "$(pwd)");
+    assert_eq!(operand_word_ast.span.slice(input), "$(pwd)");
 }
 
 #[test]
@@ -1402,6 +1440,7 @@ fn test_parameter_replacement_pattern_stays_source_backed() {
     let ParameterOp::ReplaceFirst {
         pattern,
         replacement,
+        replacement_word_ast,
     } = operator
     else {
         panic!("expected replace-first operator");
@@ -1415,6 +1454,8 @@ fn test_parameter_replacement_pattern_stays_source_backed() {
     ));
     assert!(replacement.is_source_backed());
     assert_eq!(replacement.slice(input), "bar");
+    assert_eq!(replacement_word_ast.render(input), "bar");
+    assert_eq!(replacement_word_ast.span.slice(input), "bar");
 }
 
 #[test]
@@ -1477,6 +1518,7 @@ fn test_parameter_replacement_pattern_preserves_mixed_quote_fragments() {
     let ParameterOp::ReplaceAll {
         pattern,
         replacement,
+        replacement_word_ast,
     } = operator
     else {
         panic!("expected replace-all operator");
@@ -1487,6 +1529,7 @@ fn test_parameter_replacement_pattern_preserves_mixed_quote_fragments() {
         vec!["\"pre\"", "$suffix", "'-'"]
     );
     assert_eq!(replacement.slice(input), "x");
+    assert_eq!(replacement_word_ast.render(input), "x");
     assert!(matches!(
         &pattern.parts[..],
         [
@@ -1528,6 +1571,7 @@ fn test_parameter_replacement_pattern_cooks_escaped_slash() {
     let ParameterOp::ReplaceFirst {
         pattern,
         replacement,
+        replacement_word_ast,
     } = operator
     else {
         panic!("expected replace-first operator");
@@ -1540,6 +1584,7 @@ fn test_parameter_replacement_pattern_cooks_escaped_slash() {
         PatternPart::Literal(text) if !text.is_source_backed() && text == "foo/bar"
     ));
     assert!(replacement.is_source_backed());
+    assert_eq!(replacement_word_ast.render(input), "baz");
     assert_eq!(replacement.slice(input), "baz");
 }
 
@@ -2242,10 +2287,25 @@ fn test_parse_parameter_expansion_preserves_quoted_associative_subscripts() {
 
     let first_subscript = expect_subscript_syntax(first, input, "\"key\"", "key");
     assert!(matches!(first_subscript.kind, SubscriptKind::Ordinary));
+    assert_eq!(
+        first_subscript
+            .word_ast()
+            .expect("expected subscript word AST")
+            .span
+            .slice(input),
+        "\"key\""
+    );
     assert_eq!(command.args[1].render_syntax(input), "${assoc[\"key\"]}");
 
     let second_subscript = expect_subscript_syntax(second, input, "'k'", "k");
     assert!(matches!(second_subscript.kind, SubscriptKind::Ordinary));
+    assert_eq!(
+        second_subscript
+            .word_ast()
+            .expect("expected subscript word AST")
+            .render_syntax(input),
+        "'k'"
+    );
     assert_eq!(command.args[2].render_syntax(input), "${assoc['k']}");
 }
 
@@ -3610,8 +3670,21 @@ fn test_zsh_parameter_modifier_records_modifier_and_target() {
             kind: ZshDefaultingOp::UseDefault,
             ref operand,
             colon_variant: true,
+            ..
         }) if operand.slice(source) == "%x"
     ));
+    let defaulting = second
+        .operation
+        .as_ref()
+        .expect("expected defaulting operation");
+    assert_eq!(
+        defaulting
+            .operand_word_ast()
+            .expect("expected defaulting operand word")
+            .span
+            .slice(source),
+        "%x"
+    );
 }
 
 #[test]
@@ -3666,6 +3739,14 @@ fn test_zsh_parameter_modifier_groups_split_flags_and_preserve_delimited_args() 
             .slice(source),
         "/"
     );
+    assert_eq!(
+        second.modifiers[0]
+            .argument_word_ast()
+            .expect("expected modifier argument word")
+            .span
+            .slice(source),
+        "/"
+    );
     let ZshExpansionTarget::Reference(reference) = &second.target else {
         panic!("expected reference target");
     };
@@ -3696,6 +3777,13 @@ fn test_zsh_parameter_modifier_groups_split_flags_and_preserve_delimited_args() 
             .as_ref()
             .expect("expected modifier argument")
             .slice(source),
+        "/"
+    );
+    assert_eq!(
+        third.modifiers[1]
+            .argument_word_ast()
+            .expect("expected modifier argument word")
+            .render(source),
         "/"
     );
     let ZshExpansionTarget::Reference(reference) = &third.target else {
@@ -3735,8 +3823,20 @@ fn test_zsh_parameter_word_target_preserves_non_reference_target_text() {
         Some(ZshExpansionOperation::PatternOperation {
             kind: ZshPatternOp::Filter,
             ref operand,
+            ..
         }) if operand.slice(source) == "$$"
     ));
+    let operation = parameter
+        .operation
+        .as_ref()
+        .expect("expected pattern operation");
+    assert_eq!(
+        operation
+            .operand_word_ast()
+            .expect("expected pattern operand word")
+            .render(source),
+        "$$"
+    );
 }
 
 #[test]
@@ -3837,8 +3937,21 @@ fn test_zsh_parameter_word_target_accepts_quoted_command_substitution_text() {
         Some(ZshExpansionOperation::TrimOperation {
             kind: ZshTrimOp::RemoveSuffixLong,
             ref operand,
+            ..
         }) if operand.slice(source) == "/Contents/Developer*"
     ));
+    let operation = parameter
+        .operation
+        .as_ref()
+        .expect("expected trim operation");
+    assert_eq!(
+        operation
+            .operand_word_ast()
+            .expect("expected trim operand word")
+            .span
+            .slice(source),
+        "/Contents/Developer*"
+    );
 }
 
 #[test]
@@ -3877,8 +3990,21 @@ fn test_zsh_parameter_length_prefix_preserves_nested_replacement_target() {
             kind: ZshReplacementOp::ReplaceAll,
             ref pattern,
             replacement: Some(ref replacement),
+            ..
         }) if pattern.slice(source) == "${~q}" && replacement.slice(source).is_empty()
     ));
+    let operation = inner
+        .operation
+        .as_ref()
+        .expect("expected replacement operation");
+    assert_eq!(
+        operation
+            .pattern_word_ast()
+            .expect("expected replacement pattern word")
+            .span
+            .slice(source),
+        "${~q}"
+    );
 }
 
 #[test]
@@ -3899,7 +4025,7 @@ fn test_zsh_parameter_colon_modifiers_preserve_targets_without_bourne_slice_offs
     assert_eq!(reference.name.as_str(), "REPLY");
     assert!(matches!(
         reply.operation,
-        Some(ZshExpansionOperation::Unknown(ref operand)) if operand.slice(source) == ":l"
+        Some(ZshExpansionOperation::Unknown { ref text, .. }) if text.slice(source) == ":l"
     ));
 
     let first = expect_parameter(&command.args[1]);
@@ -3912,7 +4038,7 @@ fn test_zsh_parameter_colon_modifiers_preserve_targets_without_bourne_slice_offs
     assert_eq!(reference.name.as_str(), "1");
     assert!(matches!(
         first.operation,
-        Some(ZshExpansionOperation::Unknown(ref operand)) if operand.slice(source) == ":t"
+        Some(ZshExpansionOperation::Unknown { ref text, .. }) if text.slice(source) == ":t"
     ));
 
     let zero = expect_parameter(&command.args[2]);
@@ -3925,8 +4051,16 @@ fn test_zsh_parameter_colon_modifiers_preserve_targets_without_bourne_slice_offs
     assert_eq!(reference.name.as_str(), "0");
     assert!(matches!(
         zero.operation,
-        Some(ZshExpansionOperation::Unknown(ref operand)) if operand.slice(source) == ":h"
+        Some(ZshExpansionOperation::Unknown { ref text, .. }) if text.slice(source) == ":h"
     ));
+    let operation = zero.operation.as_ref().expect("expected unknown operation");
+    assert_eq!(
+        operation
+            .operand_word_ast()
+            .expect("expected unknown operation word")
+            .render(source),
+        ":h"
+    );
 }
 
 #[test]
@@ -3947,7 +4081,7 @@ fn test_zsh_parameter_colon_modifiers_with_digits_preserve_targets() {
     assert_eq!(reference.name.as_str(), "path");
     assert!(matches!(
         first.operation,
-        Some(ZshExpansionOperation::Unknown(ref operand)) if operand.slice(source) == ":A:h3"
+        Some(ZshExpansionOperation::Unknown { ref text, .. }) if text.slice(source) == ":A:h3"
     ));
 
     let second = expect_parameter(&command.args[1]);
@@ -3960,7 +4094,7 @@ fn test_zsh_parameter_colon_modifiers_with_digits_preserve_targets() {
     assert_eq!(reference.name.as_str(), "path");
     assert!(matches!(
         second.operation,
-        Some(ZshExpansionOperation::Unknown(ref operand)) if operand.slice(source) == ":t2"
+        Some(ZshExpansionOperation::Unknown { ref text, .. }) if text.slice(source) == ":t2"
     ));
 }
 
@@ -4130,6 +4264,7 @@ fn test_parse_zsh_arithmetic_shell_word_preserves_nested_length_target() {
             kind: ZshReplacementOp::ReplaceAll,
             ref pattern,
             replacement: Some(ref replacement),
+            ..
         }) if pattern.slice(source) == "${~q}" && replacement.slice(source).is_empty()
     ));
 }
@@ -4205,8 +4340,27 @@ fn test_zsh_parameter_identifier_slices_stay_typed_in_zsh_parameter_nodes() {
         Some(ZshExpansionOperation::Slice {
             ref offset,
             length: Some(ref length),
+            ..
         }) if offset.slice(source) == "i" && length.slice(source) == "j"
     ));
+    let operation = parameter
+        .operation
+        .as_ref()
+        .expect("expected slice operation");
+    assert_eq!(
+        operation
+            .offset_word_ast()
+            .expect("expected slice offset word")
+            .render(source),
+        "i"
+    );
+    assert_eq!(
+        operation
+            .length_word_ast()
+            .expect("expected slice length word")
+            .render(source),
+        "j"
+    );
 }
 
 #[test]
@@ -4253,6 +4407,7 @@ fn test_zsh_nested_parameter_modifier_records_nested_target_and_pattern_operatio
         Some(ZshExpansionOperation::PatternOperation {
             kind: ZshPatternOp::Filter,
             ref operand,
+            ..
         }) if operand.slice(source) == "__gitcomp_builtin_*"
     ));
 }
@@ -4340,7 +4495,7 @@ fn test_zsh_nested_plain_access_targets_preserve_bourne_refs_without_modifier_re
     assert_eq!(reference.name.as_str(), "1");
     assert!(matches!(
         inner.operation,
-        Some(ZshExpansionOperation::Unknown(ref operand)) if operand.slice(source) == ":t"
+        Some(ZshExpansionOperation::Unknown { ref text, .. }) if text.slice(source) == ":t"
     ));
 }
 
@@ -4362,8 +4517,18 @@ fn test_zsh_parameter_supported_operations_are_typed_and_preserve_source_spans()
         Some(ZshExpansionOperation::TrimOperation {
             kind: ZshTrimOp::RemovePrefixShort,
             ref operand,
+            ..
         }) if operand.is_source_backed() && operand.slice(source) == "${needle}"
     ));
+    let trim_operation = trim.operation.as_ref().expect("expected trim operation");
+    assert_eq!(
+        trim_operation
+            .operand_word_ast()
+            .expect("expected trim operand word")
+            .span
+            .slice(source),
+        "${needle}"
+    );
 
     let replacement = expect_parameter(&command.args[1]);
     assert_eq!(
@@ -4379,11 +4544,32 @@ fn test_zsh_parameter_supported_operations_are_typed_and_preserve_source_spans()
             kind: ZshReplacementOp::ReplaceAll,
             ref pattern,
             replacement: Some(ref replacement),
+            ..
         }) if pattern.is_source_backed()
             && pattern.slice(source) == "\"pre\"$suffix"
             && replacement.is_source_backed()
             && replacement.slice(source) == "$replacement"
     ));
+    let replacement_operation = replacement
+        .operation
+        .as_ref()
+        .expect("expected replacement operation");
+    assert_eq!(
+        replacement_operation
+            .pattern_word_ast()
+            .expect("expected replacement pattern word")
+            .span
+            .slice(source),
+        "\"pre\"$suffix"
+    );
+    assert_eq!(
+        replacement_operation
+            .replacement_word_ast()
+            .expect("expected replacement word")
+            .span
+            .slice(source),
+        "$replacement"
+    );
 
     let slice = expect_parameter(&command.args[2]);
     assert_eq!(slice.raw_body.slice(source), "(m)foo:$offset:${length}");
@@ -4395,11 +4581,29 @@ fn test_zsh_parameter_supported_operations_are_typed_and_preserve_source_spans()
         Some(ZshExpansionOperation::Slice {
             ref offset,
             length: Some(ref length),
+            ..
         }) if offset.is_source_backed()
             && offset.slice(source) == "$offset"
             && length.is_source_backed()
             && length.slice(source) == "${length}"
     ));
+    let slice_operation = slice.operation.as_ref().expect("expected slice operation");
+    assert_eq!(
+        slice_operation
+            .offset_word_ast()
+            .expect("expected slice offset word")
+            .span
+            .slice(source),
+        "$offset"
+    );
+    assert_eq!(
+        slice_operation
+            .length_word_ast()
+            .expect("expected slice length word")
+            .span
+            .slice(source),
+        "${length}"
+    );
 
     let unknown = expect_parameter(&command.args[3]);
     assert_eq!(unknown.raw_body.slice(source), "(m)foo:^other");
@@ -4408,9 +4612,21 @@ fn test_zsh_parameter_supported_operations_are_typed_and_preserve_source_spans()
     };
     assert!(matches!(
         unknown.operation,
-        Some(ZshExpansionOperation::Unknown(ref operand))
-            if operand.is_source_backed() && operand.slice(source) == ":^other"
+        Some(ZshExpansionOperation::Unknown { ref text, .. })
+            if text.is_source_backed() && text.slice(source) == ":^other"
     ));
+    let unknown_operation = unknown
+        .operation
+        .as_ref()
+        .expect("expected unknown operation");
+    assert_eq!(
+        unknown_operation
+            .operand_word_ast()
+            .expect("expected unknown operation word")
+            .span
+            .slice(source),
+        ":^other"
+    );
 }
 
 #[test]
@@ -4430,6 +4646,7 @@ fn test_zsh_parameter_operation_kinds_cover_long_trim_and_anchored_replacement()
         Some(ZshExpansionOperation::TrimOperation {
             kind: ZshTrimOp::RemovePrefixLong,
             ref operand,
+            ..
         }) if operand.slice(source) == "pre*"
     ));
 
@@ -4442,6 +4659,7 @@ fn test_zsh_parameter_operation_kinds_cover_long_trim_and_anchored_replacement()
         Some(ZshExpansionOperation::TrimOperation {
             kind: ZshTrimOp::RemoveSuffixLong,
             ref operand,
+            ..
         }) if operand.slice(source) == "post*"
     ));
 
@@ -4455,6 +4673,7 @@ fn test_zsh_parameter_operation_kinds_cover_long_trim_and_anchored_replacement()
             kind: ZshReplacementOp::ReplacePrefix,
             ref pattern,
             replacement: Some(ref replacement),
+            ..
         }) if pattern.slice(source) == "$prefix" && replacement.slice(source) == "$replacement"
     ));
 
@@ -4468,6 +4687,7 @@ fn test_zsh_parameter_operation_kinds_cover_long_trim_and_anchored_replacement()
             kind: ZshReplacementOp::ReplaceSuffix,
             ref pattern,
             replacement: Some(ref replacement),
+            ..
         }) if pattern.slice(source) == "$suffix" && replacement.slice(source) == "$replacement"
     ));
 }

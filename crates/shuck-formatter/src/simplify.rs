@@ -1331,12 +1331,12 @@ fn rewrite_parameter_source_texts(
                         let _ = replacement;
                         0
                     }
-                    ZshExpansionOperation::Slice { offset, length } => {
+                    ZshExpansionOperation::Slice { offset, length, .. } => {
                         let _ = offset;
                         let _ = length;
                         0
                     }
-                    ZshExpansionOperation::Unknown(_) => 0,
+                    ZshExpansionOperation::Unknown { .. } => 0,
                 };
             }
             count
@@ -1376,6 +1376,7 @@ fn render_bourne_parameter_raw_body(syntax: &BourneParameterExpansion, source: &
             operator,
             operand,
             colon_variant,
+            ..
         } => {
             let mut rendered = format!("!{}", render_var_ref_syntax(reference, source));
             if let Some(operator) = operator {
@@ -1414,6 +1415,7 @@ fn render_bourne_parameter_raw_body(syntax: &BourneParameterExpansion, source: &
             operator,
             operand,
             colon_variant,
+            ..
         } => {
             let mut rendered = render_var_ref_syntax(reference, source);
             match operator {
@@ -1448,6 +1450,7 @@ fn render_bourne_parameter_raw_body(syntax: &BourneParameterExpansion, source: &
                 ParameterOp::ReplaceFirst {
                     pattern,
                     replacement,
+                    ..
                 } => {
                     rendered.push('/');
                     pattern.render_syntax_to_buf(source, &mut rendered);
@@ -1457,6 +1460,7 @@ fn render_bourne_parameter_raw_body(syntax: &BourneParameterExpansion, source: &
                 ParameterOp::ReplaceAll {
                     pattern,
                     replacement,
+                    ..
                 } => {
                     rendered.push_str("//");
                     pattern.render_syntax_to_buf(source, &mut rendered);
@@ -1529,6 +1533,7 @@ fn render_zsh_parameter_raw_body(
                 kind,
                 operand,
                 colon_variant,
+                ..
             } => {
                 if *colon_variant {
                     rendered.push(':');
@@ -1541,7 +1546,7 @@ fn render_zsh_parameter_raw_body(
                 });
                 rendered.push_str(operand.slice(source));
             }
-            ZshExpansionOperation::TrimOperation { kind, operand } => {
+            ZshExpansionOperation::TrimOperation { kind, operand, .. } => {
                 rendered.push_str(match kind {
                     shuck_ast::ZshTrimOp::RemovePrefixShort => "#",
                     shuck_ast::ZshTrimOp::RemovePrefixLong => "##",
@@ -1554,6 +1559,7 @@ fn render_zsh_parameter_raw_body(
                 kind,
                 pattern,
                 replacement,
+                ..
             } => {
                 rendered.push_str(match kind {
                     shuck_ast::ZshReplacementOp::ReplaceFirst => "/",
@@ -1567,7 +1573,7 @@ fn render_zsh_parameter_raw_body(
                     rendered.push_str(replacement.slice(source));
                 }
             }
-            ZshExpansionOperation::Slice { offset, length } => {
+            ZshExpansionOperation::Slice { offset, length, .. } => {
                 rendered.push(':');
                 rendered.push_str(offset.slice(source));
                 if let Some(length) = length {
@@ -1575,7 +1581,7 @@ fn render_zsh_parameter_raw_body(
                     rendered.push_str(length.slice(source));
                 }
             }
-            ZshExpansionOperation::Unknown(text) => rendered.push_str(text.slice(source)),
+            ZshExpansionOperation::Unknown { text, .. } => rendered.push_str(text.slice(source)),
         }
     }
 
@@ -1617,10 +1623,12 @@ fn rewrite_parameter_op_source_texts(
         ParameterOp::ReplaceFirst {
             pattern,
             replacement,
+            ..
         }
         | ParameterOp::ReplaceAll {
             pattern,
             replacement,
+            ..
         } => rewrite_pattern_source_texts(pattern, source, visitor) + visitor(replacement, source),
         _ => 0,
     }

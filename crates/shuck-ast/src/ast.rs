@@ -351,6 +351,8 @@ pub struct Subscript {
     pub raw: Option<SourceText>,
     pub kind: SubscriptKind,
     pub interpretation: SubscriptInterpretation,
+    /// Parsed word view of the original subscript syntax.
+    pub word_ast: Option<Word>,
     /// Typed arithmetic view of this subscript when it parses as arithmetic.
     pub arithmetic_ast: Option<ArithmeticExprNode>,
 }
@@ -381,6 +383,10 @@ impl Subscript {
 
     pub fn is_source_backed(&self) -> bool {
         self.syntax_source_text().is_source_backed()
+    }
+
+    pub fn word_ast(&self) -> Option<&Word> {
+        self.word_ast.as_ref()
     }
 }
 
@@ -1317,6 +1323,7 @@ pub enum BourneParameterExpansion {
         reference: VarRef,
         operator: Option<ParameterOp>,
         operand: Option<SourceText>,
+        operand_word_ast: Option<Word>,
         colon_variant: bool,
     },
     PrefixMatch {
@@ -1334,12 +1341,32 @@ pub enum BourneParameterExpansion {
         reference: VarRef,
         operator: ParameterOp,
         operand: Option<SourceText>,
+        operand_word_ast: Option<Word>,
         colon_variant: bool,
     },
     Transformation {
         reference: VarRef,
         operator: char,
     },
+}
+
+impl BourneParameterExpansion {
+    pub fn operand_word_ast(&self) -> Option<&Word> {
+        match self {
+            Self::Indirect {
+                operand_word_ast, ..
+            }
+            | Self::Operation {
+                operand_word_ast, ..
+            } => operand_word_ast.as_ref(),
+            Self::Access { .. }
+            | Self::Length { .. }
+            | Self::Indices { .. }
+            | Self::PrefixMatch { .. }
+            | Self::Slice { .. }
+            | Self::Transformation { .. } => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1363,8 +1390,15 @@ pub enum ZshExpansionTarget {
 pub struct ZshModifier {
     pub name: char,
     pub argument: Option<SourceText>,
+    pub argument_word_ast: Option<Word>,
     pub argument_delimiter: Option<char>,
     pub span: Span,
+}
+
+impl ZshModifier {
+    pub fn argument_word_ast(&self) -> Option<&Word> {
+        self.argument_word_ast.as_ref()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1372,26 +1406,117 @@ pub enum ZshExpansionOperation {
     PatternOperation {
         kind: ZshPatternOp,
         operand: SourceText,
+        operand_word_ast: Word,
     },
     Defaulting {
         kind: ZshDefaultingOp,
         operand: SourceText,
+        operand_word_ast: Word,
         colon_variant: bool,
     },
     TrimOperation {
         kind: ZshTrimOp,
         operand: SourceText,
+        operand_word_ast: Word,
     },
     ReplacementOperation {
         kind: ZshReplacementOp,
         pattern: SourceText,
+        pattern_word_ast: Word,
         replacement: Option<SourceText>,
+        replacement_word_ast: Option<Word>,
     },
     Slice {
         offset: SourceText,
+        offset_word_ast: Word,
         length: Option<SourceText>,
+        length_word_ast: Option<Word>,
     },
-    Unknown(SourceText),
+    Unknown {
+        text: SourceText,
+        word_ast: Word,
+    },
+}
+
+impl ZshExpansionOperation {
+    pub fn operand_word_ast(&self) -> Option<&Word> {
+        match self {
+            Self::PatternOperation {
+                operand_word_ast, ..
+            }
+            | Self::Defaulting {
+                operand_word_ast, ..
+            }
+            | Self::TrimOperation {
+                operand_word_ast, ..
+            } => Some(operand_word_ast),
+            Self::ReplacementOperation { .. } | Self::Slice { .. } => None,
+            Self::Unknown { word_ast, .. } => Some(word_ast),
+        }
+    }
+
+    pub fn pattern_word_ast(&self) -> Option<&Word> {
+        match self {
+            Self::ReplacementOperation {
+                pattern_word_ast, ..
+            } => Some(pattern_word_ast),
+            Self::PatternOperation { .. }
+            | Self::Defaulting { .. }
+            | Self::TrimOperation { .. }
+            | Self::Slice { .. }
+            | Self::Unknown { .. } => None,
+        }
+    }
+
+    pub fn replacement_word_ast(&self) -> Option<&Word> {
+        match self {
+            Self::ReplacementOperation {
+                replacement_word_ast,
+                ..
+            } => replacement_word_ast.as_ref(),
+            Self::PatternOperation { .. }
+            | Self::Defaulting { .. }
+            | Self::TrimOperation { .. }
+            | Self::Slice { .. }
+            | Self::Unknown { .. } => None,
+        }
+    }
+
+    pub fn offset_word_ast(&self) -> Option<&Word> {
+        match self {
+            Self::Slice {
+                offset_word_ast, ..
+            } => Some(offset_word_ast),
+            Self::PatternOperation { .. }
+            | Self::Defaulting { .. }
+            | Self::TrimOperation { .. }
+            | Self::ReplacementOperation { .. }
+            | Self::Unknown { .. } => None,
+        }
+    }
+
+    pub fn length_word_ast(&self) -> Option<&Word> {
+        match self {
+            Self::Slice {
+                length_word_ast, ..
+            } => length_word_ast.as_ref(),
+            Self::PatternOperation { .. }
+            | Self::Defaulting { .. }
+            | Self::TrimOperation { .. }
+            | Self::ReplacementOperation { .. }
+            | Self::Unknown { .. } => None,
+        }
+    }
+
+    pub fn source_text(&self) -> Option<&SourceText> {
+        match self {
+            Self::PatternOperation { operand, .. }
+            | Self::Defaulting { operand, .. }
+            | Self::TrimOperation { operand, .. } => Some(operand),
+            Self::ReplacementOperation { .. } | Self::Slice { .. } => None,
+            Self::Unknown { text, .. } => Some(text),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2374,6 +2499,7 @@ fn fmt_word_part_with_source_mode(
             ParameterOp::ReplaceFirst {
                 pattern,
                 replacement,
+                ..
             } => {
                 write!(f, "${{")?;
                 fmt_var_ref_with_source(f, reference, source)?;
@@ -2384,6 +2510,7 @@ fn fmt_word_part_with_source_mode(
             ParameterOp::ReplaceAll {
                 pattern,
                 replacement,
+                ..
             } => {
                 write!(f, "${{")?;
                 fmt_var_ref_with_source(f, reference, source)?;
@@ -2739,10 +2866,12 @@ fn operator_is_source_backed(operator: &ParameterOp) -> bool {
         ParameterOp::ReplaceFirst {
             pattern,
             replacement,
+            ..
         }
         | ParameterOp::ReplaceAll {
             pattern,
             replacement,
+            ..
         } => pattern.is_source_backed() && replacement.is_source_backed(),
         _ => true,
     }
@@ -2771,11 +2900,13 @@ pub enum ParameterOp {
     ReplaceFirst {
         pattern: Pattern,
         replacement: SourceText,
+        replacement_word_ast: Word,
     },
     /// // pattern replacement (all occurrences)
     ReplaceAll {
         pattern: Pattern,
         replacement: SourceText,
+        replacement_word_ast: Word,
     },
     /// ^ uppercase first char
     UpperFirst,
@@ -2785,6 +2916,33 @@ pub enum ParameterOp {
     LowerFirst,
     /// ,, lowercase all chars
     LowerAll,
+}
+
+impl ParameterOp {
+    pub fn replacement_word_ast(&self) -> Option<&Word> {
+        match self {
+            Self::ReplaceFirst {
+                replacement_word_ast,
+                ..
+            }
+            | Self::ReplaceAll {
+                replacement_word_ast,
+                ..
+            } => Some(replacement_word_ast),
+            Self::UseDefault
+            | Self::AssignDefault
+            | Self::UseReplacement
+            | Self::Error
+            | Self::RemovePrefixShort { .. }
+            | Self::RemovePrefixLong { .. }
+            | Self::RemoveSuffixShort { .. }
+            | Self::RemoveSuffixLong { .. }
+            | Self::UpperFirst
+            | Self::UpperAll
+            | Self::LowerFirst
+            | Self::LowerAll => None,
+        }
+    }
 }
 
 /// I/O redirection.

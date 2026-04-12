@@ -611,16 +611,21 @@ impl<'a> SurfaceFragmentCollector<'a> {
                         }
                         match syntax {
                             BourneParameterExpansion::Operation {
-                                operator, operand, ..
+                                operator,
+                                operand,
+                                operand_word_ast,
+                                ..
                             }
                             | BourneParameterExpansion::Indirect {
                                 operator: Some(operator),
                                 operand,
+                                operand_word_ast,
                                 ..
                             } => {
                                 self.collect_parameter_operator_patterns(
                                     operator,
                                     operand.as_ref(),
+                                    operand_word_ast.as_ref(),
                                     context,
                                 );
                             }
@@ -669,7 +674,12 @@ impl<'a> SurfaceFragmentCollector<'a> {
                         self.record_star_glob_removal(part.span);
                     }
                     self.record_var_ref_subscript(reference);
-                    self.collect_parameter_operator_patterns(operator, operand.as_ref(), context);
+                    self.collect_parameter_operator_patterns(
+                        operator,
+                        operand.as_ref(),
+                        None,
+                        context,
+                    );
                 }
                 WordPart::Length(reference)
                 | WordPart::ArrayLength(reference)
@@ -721,7 +731,12 @@ impl<'a> SurfaceFragmentCollector<'a> {
                             span: part.span,
                             array_keys: false,
                         });
-                    self.collect_parameter_operator_patterns(operator, operand.as_ref(), context);
+                    self.collect_parameter_operator_patterns(
+                        operator,
+                        operand.as_ref(),
+                        None,
+                        context,
+                    );
                 }
                 WordPart::IndirectExpansion {
                     reference,
@@ -773,7 +788,15 @@ impl<'a> SurfaceFragmentCollector<'a> {
         }
     }
 
-    fn collect_source_text_word(&mut self, text: &SourceText, context: SurfaceScanContext<'_>) {
+    fn collect_fragment_word(
+        &mut self,
+        word: Option<&Word>,
+        text: Option<&SourceText>,
+        context: SurfaceScanContext<'_>,
+    ) {
+        let Some(text) = text else {
+            return;
+        };
         let snippet = text.slice(self.source);
         if snippet.is_empty() {
             return;
@@ -782,8 +805,12 @@ impl<'a> SurfaceFragmentCollector<'a> {
         self.collect_raw_substring_expansions_in_span(text.span());
         self.collect_raw_case_modifications_in_span(text.span());
         self.collect_raw_replacement_expansions_in_span(text.span());
-        let word = Parser::parse_word_fragment(self.source, snippet, text.span());
-        self.collect_word(&word, context.without_open_double_quote_scan());
+        if let Some(word) = word {
+            self.collect_word(word, context.without_open_double_quote_scan());
+        } else {
+            let word = Parser::parse_word_fragment(self.source, snippet, text.span());
+            self.collect_word(&word, context.without_open_double_quote_scan());
+        }
     }
 
     fn collect_raw_substring_expansions_in_span(&mut self, span: Span) {
@@ -918,6 +945,7 @@ impl<'a> SurfaceFragmentCollector<'a> {
         &mut self,
         operator: &ParameterOp,
         operand: Option<&SourceText>,
+        operand_word_ast: Option<&Word>,
         context: SurfaceScanContext<'_>,
     ) {
         match operator {
@@ -930,21 +958,25 @@ impl<'a> SurfaceFragmentCollector<'a> {
             ParameterOp::ReplaceFirst {
                 pattern,
                 replacement,
+                ..
             }
             | ParameterOp::ReplaceAll {
                 pattern,
                 replacement,
+                ..
             } => {
                 self.collect_pattern(pattern, context.with_pattern_charclass_scan());
-                self.collect_source_text_word(replacement, context);
+                self.collect_fragment_word(
+                    operator.replacement_word_ast(),
+                    Some(replacement),
+                    context,
+                );
             }
             ParameterOp::UseDefault
             | ParameterOp::AssignDefault
             | ParameterOp::UseReplacement
             | ParameterOp::Error => {
-                if let Some(operand) = operand {
-                    self.collect_source_text_word(operand, context);
-                }
+                self.collect_fragment_word(operand_word_ast, operand, context);
             }
             ParameterOp::UpperFirst
             | ParameterOp::UpperAll

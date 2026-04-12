@@ -540,6 +540,11 @@ impl<'a> RegionCollector<'a> {
             return;
         }
 
+        if let Some(word) = subscript.word_ast() {
+            self.visit_word(word);
+            return;
+        }
+
         let text = subscript.syntax_source_text();
         let word = Parser::parse_word_fragment(self.source, text.slice(self.source), text.span());
         self.visit_word(&word);
