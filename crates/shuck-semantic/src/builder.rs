@@ -1136,6 +1136,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
+        if word_is_semantically_inert(word) {
+            return;
+        }
         self.visit_word_part_nodes(&word.parts, kind, flow, nested_regions);
     }
 
@@ -1146,6 +1149,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
+        if pattern_is_semantically_inert(pattern) {
+            return;
+        }
         self.visit_pattern_part_nodes(&pattern.parts, kind, flow, nested_regions);
     }
 
@@ -1253,6 +1259,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
         match part {
             WordPart::ZshQualifiedGlob(glob) => {
+                if zsh_qualified_glob_is_semantically_inert(glob) {
+                    return;
+                }
                 for segment in &glob.segments {
                     if let ZshGlobSegment::Pattern(pattern) = segment {
                         self.visit_pattern_into(pattern, kind, flow, nested_regions);
@@ -1261,6 +1270,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             }
             WordPart::Literal(_) | WordPart::SingleQuoted { .. } => {}
             WordPart::DoubleQuoted { parts, .. } => {
+                if parts
+                    .iter()
+                    .all(|part| word_part_is_semantically_inert(&part.kind))
+                {
+                    return;
+                }
                 self.visit_word_part_nodes(parts, kind, flow, nested_regions);
             }
             WordPart::Variable(name) => {
@@ -3404,6 +3419,62 @@ fn pattern_group_can_match_empty(kind: PatternGroupKind, patterns: &[Pattern]) -
     }
 }
 
+fn word_is_semantically_inert(word: &Word) -> bool {
+    word.parts
+        .iter()
+        .all(|part| word_part_is_semantically_inert(&part.kind))
+}
+
+fn word_part_is_semantically_inert(part: &WordPart) -> bool {
+    match part {
+        WordPart::Literal(_) | WordPart::SingleQuoted { .. } => true,
+        WordPart::ZshQualifiedGlob(glob) => zsh_qualified_glob_is_semantically_inert(glob),
+        WordPart::DoubleQuoted { parts, .. } => parts
+            .iter()
+            .all(|part| word_part_is_semantically_inert(&part.kind)),
+        WordPart::ArithmeticExpansion { expression_ast, .. } => expression_ast.is_none(),
+        WordPart::Variable(_)
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::Parameter(_)
+        | WordPart::ParameterExpansion { .. }
+        | WordPart::Length(_)
+        | WordPart::ArrayAccess(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::Substring { .. }
+        | WordPart::ArraySlice { .. }
+        | WordPart::IndirectExpansion { .. }
+        | WordPart::PrefixMatch { .. }
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::Transformation { .. } => false,
+    }
+}
+
+fn zsh_qualified_glob_is_semantically_inert(glob: &shuck_ast::ZshQualifiedGlob) -> bool {
+    glob.segments.iter().all(|segment| match segment {
+        ZshGlobSegment::Pattern(pattern) => pattern_is_semantically_inert(pattern),
+        ZshGlobSegment::InlineControl(_) => true,
+    })
+}
+
+fn pattern_is_semantically_inert(pattern: &Pattern) -> bool {
+    pattern
+        .parts
+        .iter()
+        .all(|part| pattern_part_is_semantically_inert(&part.kind))
+}
+
+fn pattern_part_is_semantically_inert(part: &PatternPart) -> bool {
+    match part {
+        PatternPart::Literal(_)
+        | PatternPart::AnyString
+        | PatternPart::AnyChar
+        | PatternPart::CharClass(_) => true,
+        PatternPart::Group { patterns, .. } => patterns.iter().all(pattern_is_semantically_inert),
+        PatternPart::Word(word) => word_is_semantically_inert(word),
+    }
+}
+
 fn ancestor_scopes(scopes: &[Scope], start: ScopeId) -> impl Iterator<Item = ScopeId> + '_ {
     std::iter::successors(Some(start), move |scope| scopes[scope.index()].parent)
 }
@@ -3495,5 +3566,131 @@ fn recorded_list_operator(op: BinaryOp) -> RecordedListOperator {
         BinaryOp::Pipe | BinaryOp::PipeAll => {
             unreachable!("pipeline operators are not valid in logical lists")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shuck_ast::{LiteralText, SourceText};
+
+    fn word(parts: Vec<WordPart>) -> Word {
+        let span = Span::new();
+        Word {
+            parts: parts
+                .into_iter()
+                .map(|part| WordPartNode::new(part, span))
+                .collect(),
+            span,
+            brace_syntax: Vec::new(),
+        }
+    }
+
+    fn pattern(parts: Vec<PatternPart>) -> Pattern {
+        let span = Span::new();
+        Pattern {
+            parts: parts
+                .into_iter()
+                .map(|part| PatternPartNode::new(part, span))
+                .collect(),
+            span,
+        }
+    }
+
+    #[test]
+    fn inert_word_short_circuits_literal_shapes() {
+        let word = word(vec![
+            WordPart::Literal(LiteralText::owned("plain")),
+            WordPart::DoubleQuoted {
+                parts: vec![WordPartNode::new(
+                    WordPart::Literal(LiteralText::owned("quoted")),
+                    Span::new(),
+                )],
+                dollar: false,
+            },
+            WordPart::SingleQuoted {
+                value: SourceText::from("single"),
+                dollar: false,
+            },
+        ]);
+
+        assert!(word_is_semantically_inert(&word));
+    }
+
+    #[test]
+    fn word_with_variable_expansion_is_not_inert() {
+        let word = word(vec![
+            WordPart::Literal(LiteralText::owned("prefix")),
+            WordPart::Variable("HOME".into()),
+        ]);
+
+        assert!(!word_is_semantically_inert(&word));
+    }
+
+    #[test]
+    fn word_with_nested_command_substitution_is_not_inert() {
+        let word = word(vec![WordPart::DoubleQuoted {
+            parts: vec![WordPartNode::new(
+                WordPart::CommandSubstitution {
+                    body: StmtSeq {
+                        leading_comments: Vec::new(),
+                        stmts: Vec::new(),
+                        trailing_comments: Vec::new(),
+                        span: Span::new(),
+                    },
+                    syntax: shuck_ast::CommandSubstitutionSyntax::DollarParen,
+                },
+                Span::new(),
+            )],
+            dollar: false,
+        }]);
+
+        assert!(!word_is_semantically_inert(&word));
+    }
+
+    #[test]
+    fn inert_zsh_qualified_glob_short_circuits() {
+        let word = word(vec![WordPart::ZshQualifiedGlob(
+            shuck_ast::ZshQualifiedGlob {
+                span: Span::new(),
+                segments: vec![
+                    ZshGlobSegment::Pattern(pattern(vec![
+                        PatternPart::Literal(LiteralText::owned("foo")),
+                        PatternPart::AnyString,
+                        PatternPart::Group {
+                            kind: PatternGroupKind::ExactlyOne,
+                            patterns: vec![pattern(vec![PatternPart::CharClass(
+                                SourceText::from("[ab]"),
+                            )])],
+                        },
+                    ])),
+                    ZshGlobSegment::InlineControl(shuck_ast::ZshInlineGlobControl::StartAnchor {
+                        span: Span::new(),
+                    }),
+                ],
+                qualifiers: None,
+            },
+        )]);
+
+        assert!(word_is_semantically_inert(&word));
+    }
+
+    #[test]
+    fn pattern_with_expanding_word_is_not_inert() {
+        let pattern = pattern(vec![PatternPart::Word(word(vec![
+            WordPart::ParameterExpansion {
+                reference: VarRef {
+                    name: "name".into(),
+                    name_span: Span::new(),
+                    subscript: None,
+                    span: Span::new(),
+                },
+                operator: ParameterOp::UseDefault,
+                operand: Some(SourceText::from("fallback")),
+                colon_variant: true,
+            },
+        ]))]);
+
+        assert!(!pattern_is_semantically_inert(&pattern));
     }
 }
