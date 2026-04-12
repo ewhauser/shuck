@@ -8,6 +8,7 @@ use crate::{
     ControlFlowGraph, FunctionScopeKind, ProvidedBinding, ProvidedBindingKind, Reference,
     ReferenceId, ReferenceKind, Scope, ScopeId, ScopeKind, SpanKey, SyntheticRead,
 };
+use std::sync::OnceLock;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReachingDefinitions {
@@ -76,85 +77,102 @@ pub(crate) struct DataflowContext<'a> {
     pub(crate) entry_bindings: &'a [BindingId],
 }
 
+#[derive(Debug)]
+pub(crate) struct ExactVariableDataflow {
+    names: NameTable,
+    binding_data: DenseBindingData,
+    binding_blocks: Vec<Option<BlockId>>,
+    reference_blocks: Vec<Option<BlockId>>,
+    unreachable_blocks: DenseBitSet,
+    reaching_definitions: OnceLock<DenseReachingDefinitions>,
+    initialized_name_states: OnceLock<DenseInitializedNameStates>,
+}
+
+impl ExactVariableDataflow {
+    fn reaching_definitions<'a>(
+        &'a self,
+        context: &DataflowContext<'_>,
+    ) -> &'a DenseReachingDefinitions {
+        self.reaching_definitions.get_or_init(|| {
+            compute_reaching_definitions_dense(
+                context.cfg,
+                context.bindings,
+                &self.binding_data,
+                context.entry_bindings,
+            )
+        })
+    }
+
+    fn initialized_name_states<'a>(
+        &'a self,
+        context: &DataflowContext<'_>,
+    ) -> &'a DenseInitializedNameStates {
+        self.initialized_name_states.get_or_init(|| {
+            compute_initialized_name_states_dense(
+                context.cfg,
+                context.bindings,
+                &self.binding_data,
+                context.entry_bindings,
+            )
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct UnusedAssignmentsResult {
     unused_assignments: Vec<UnusedAssignment>,
     unused_assignment_ids: Vec<BindingId>,
 }
 
-#[derive(Debug, Clone, Default)]
-struct BindingNameData {
-    bindings_by_name: FxHashMap<Name, Vec<BindingId>>,
-}
-
-pub(crate) fn analyze_unused_assignments(context: &DataflowContext<'_>) -> Vec<BindingId> {
-    analyze_unused_assignments_exact(context).unused_assignment_ids
-}
-
 pub(crate) fn analyze_uninitialized_references(
     context: &DataflowContext<'_>,
+    exact: &ExactVariableDataflow,
 ) -> Vec<UninitializedReference> {
-    let names = build_uninitialized_name_table(context.bindings, context.references);
-    let binding_data = build_dense_binding_data_for_scope_count(
-        context.bindings,
-        context
-            .bindings
-            .iter()
-            .map(|binding| binding.scope.index() + 1)
-            .max()
-            .unwrap_or(0),
-        &names,
-    );
-    analyze_uninitialized_references_dense(
-        context.cfg,
-        context.bindings,
-        context.references,
-        context.entry_bindings,
-        context.predefined_runtime_refs,
-        context.guarded_parameter_refs,
-        context.resolved,
-        context.indirect_targets_by_reference,
-        &names,
-        &binding_data,
-    )
+    analyze_uninitialized_references_exact(context, exact)
 }
 
-pub(crate) fn analyze_dead_code(cfg: &ControlFlowGraph) -> Vec<DeadCode> {
-    build_dead_code(cfg)
+pub(crate) fn analyze_unused_assignments(
+    context: &DataflowContext<'_>,
+    exact: &ExactVariableDataflow,
+) -> Vec<BindingId> {
+    analyze_unused_assignments_exact(context, exact).unused_assignment_ids
 }
 
-#[allow(dead_code)]
-pub(crate) fn analyze(context: &DataflowContext<'_>) -> DataflowResult {
-    let binding_name_data = build_binding_name_data(context.bindings);
-    let reaching_definitions = compute_reaching_definitions(
-        context.cfg,
-        context.bindings,
-        &binding_name_data.bindings_by_name,
-        context.entry_bindings,
-    );
+pub(crate) fn build_exact_variable_dataflow(
+    context: &DataflowContext<'_>,
+) -> ExactVariableDataflow {
     let names = build_name_table(
         context.bindings,
         context.references,
         context.synthetic_reads,
     );
-    let dense_binding_data = build_dense_binding_data(context.bindings, context.scopes, &names);
-    let unused_assignments = analyze_unused_assignments_exact(context);
-    let uninitialized_references = analyze_uninitialized_references_dense(
-        context.cfg,
-        context.bindings,
-        context.references,
-        context.entry_bindings,
-        context.predefined_runtime_refs,
-        context.guarded_parameter_refs,
-        context.resolved,
-        context.indirect_targets_by_reference,
-        &names,
-        &dense_binding_data,
-    );
+    let binding_data = build_dense_binding_data(context.bindings, context.scopes, &names);
+    let binding_blocks = build_binding_block_index(context.cfg, context.bindings.len());
+    let reference_blocks = build_reference_block_index(context.cfg, context.references.len());
+    let unreachable_blocks = build_unreachable_block_set(context.cfg);
+
+    ExactVariableDataflow {
+        names,
+        binding_data,
+        binding_blocks,
+        reference_blocks,
+        unreachable_blocks,
+        reaching_definitions: OnceLock::new(),
+        initialized_name_states: OnceLock::new(),
+    }
+}
+
+pub(crate) fn analyze(
+    context: &DataflowContext<'_>,
+    exact: &ExactVariableDataflow,
+) -> DataflowResult {
+    let unused_assignments = analyze_unused_assignments_exact(context, exact);
+    let uninitialized_references = analyze_uninitialized_references_exact(context, exact);
     let dead_code = build_dead_code(context.cfg);
+    let reaching_definitions = exact.reaching_definitions(context);
 
     DataflowResult {
-        reaching_definitions,
+        reaching_definitions: materialize_reaching_definitions(context.cfg, reaching_definitions),
         unused_assignments: unused_assignments.unused_assignments,
         uninitialized_references,
         dead_code,
@@ -162,49 +180,43 @@ pub(crate) fn analyze(context: &DataflowContext<'_>) -> DataflowResult {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn analyze_uninitialized_references_dense(
-    cfg: &ControlFlowGraph,
-    bindings: &[Binding],
-    references: &[Reference],
-    entry_bindings: &[BindingId],
-    predefined_runtime_refs: &FxHashSet<ReferenceId>,
-    guarded_parameter_refs: &FxHashSet<ReferenceId>,
-    resolved: &FxHashMap<ReferenceId, BindingId>,
-    indirect_targets_by_reference: &FxHashMap<ReferenceId, Vec<BindingId>>,
-    names: &NameTable,
-    binding_data: &DenseBindingData,
+pub(crate) fn analyze_dead_code(cfg: &ControlFlowGraph) -> Vec<DeadCode> {
+    build_dead_code(cfg)
+}
+
+fn analyze_uninitialized_references_exact(
+    context: &DataflowContext<'_>,
+    exact: &ExactVariableDataflow,
 ) -> Vec<UninitializedReference> {
-    let reference_blocks = build_reference_block_index(cfg, references.len());
-    let unreachable = build_unreachable_block_set(cfg);
-    let initialized_states =
-        compute_initialized_name_states_dense(cfg, bindings, binding_data, entry_bindings);
-    let maybe_defined = &initialized_states.maybe_in;
-    let definitely_defined = &initialized_states.definite_in;
+    let initialized_name_states = exact.initialized_name_states(context);
+    let maybe_defined = &initialized_name_states.maybe_in;
+    let definitely_defined = &initialized_name_states.definite_in;
 
     let mut uninitialized_references = Vec::new();
-    for reference in references {
+    for reference in context.references {
         if matches!(
             reference.kind,
             ReferenceKind::ImplicitRead | ReferenceKind::DeclarationName
-        ) || predefined_runtime_refs.contains(&reference.id)
-            || guarded_parameter_refs.contains(&reference.id)
+        ) || context.predefined_runtime_refs.contains(&reference.id)
+            || context.guarded_parameter_refs.contains(&reference.id)
         {
             continue;
         }
         if matches!(reference.kind, ReferenceKind::IndirectExpansion)
-            && (resolved.contains_key(&reference.id)
-                || indirect_targets_by_reference.contains_key(&reference.id))
+            && (context.resolved.contains_key(&reference.id)
+                || context
+                    .indirect_targets_by_reference
+                    .contains_key(&reference.id))
         {
             continue;
         }
-        let Some(block_id) = reference_blocks[reference.id.index()] else {
+        let Some(block_id) = exact.reference_blocks[reference.id.index()] else {
             continue;
         };
-        if unreachable.contains(block_id.index()) {
+        if exact.unreachable_blocks.contains(block_id.index()) {
             continue;
         }
-        let Some(name_id) = names.get(&reference.name) else {
+        let Some(name_id) = exact.names.get(&reference.name) else {
             continue;
         };
         let maybe = maybe_defined[block_id.index()].contains(name_id.index());
@@ -248,116 +260,42 @@ fn build_dead_code(cfg: &ControlFlowGraph) -> Vec<DeadCode> {
         .collect()
 }
 
-fn build_binding_name_data(bindings: &[Binding]) -> BindingNameData {
-    let mut bindings_by_name: FxHashMap<Name, Vec<BindingId>> = FxHashMap::default();
+fn build_bindings_by_name(bindings: &[Binding]) -> FxHashMap<Name, Vec<BindingId>> {
+    let mut bindings_by_name = FxHashMap::default();
     for binding in bindings {
         bindings_by_name
             .entry(binding.name.clone())
-            .or_default()
+            .or_insert_with(Vec::new)
             .push(binding.id);
     }
-
-    BindingNameData { bindings_by_name }
+    bindings_by_name
 }
 
-fn compute_reaching_definitions(
-    cfg: &ControlFlowGraph,
-    bindings: &[Binding],
-    bindings_by_name: &FxHashMap<Name, Vec<BindingId>>,
-    entry_bindings: &[BindingId],
-) -> ReachingDefinitions {
-    let entry_blocks = entry_binding_root_blocks(cfg);
-    let block_ids = cfg
-        .blocks()
-        .iter()
-        .map(|block| block.id)
-        .collect::<Vec<_>>();
-    let mut reaching_in: FxHashMap<BlockId, FxHashSet<BindingId>> = FxHashMap::default();
-    let mut reaching_out: FxHashMap<BlockId, FxHashSet<BindingId>> = FxHashMap::default();
-
-    let gen_sets = block_ids
-        .iter()
-        .map(|block_id| (*block_id, gen_set(cfg, *block_id, bindings)))
-        .collect::<FxHashMap<_, _>>();
-    let kill_sets = block_ids
-        .iter()
-        .map(|block_id| {
-            (
-                *block_id,
-                kill_set(cfg, *block_id, bindings, bindings_by_name),
-            )
-        })
-        .collect::<FxHashMap<_, _>>();
-
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for block_id in &block_ids {
-            let mut incoming = cfg
-                .predecessors(*block_id)
-                .iter()
-                .flat_map(|predecessor| {
-                    reaching_out.get(predecessor).into_iter().flatten().copied()
-                })
-                .collect::<FxHashSet<_>>();
-            if entry_blocks.contains(block_id) {
-                incoming.extend(entry_bindings.iter().copied());
-            }
-            let outgoing = gen_sets
-                .get(block_id)
-                .cloned()
-                .unwrap_or_default()
-                .into_iter()
-                .chain(incoming.iter().copied().filter(|binding| {
-                    !kill_sets
-                        .get(block_id)
-                        .is_some_and(|kills| kills.contains(binding))
-                }))
-                .collect::<FxHashSet<_>>();
-
-            if reaching_in.get(block_id) != Some(&incoming) {
-                reaching_in.insert(*block_id, incoming);
-                changed = true;
-            }
-            if reaching_out.get(block_id) != Some(&outgoing) {
-                reaching_out.insert(*block_id, outgoing);
-                changed = true;
-            }
-        }
-    }
-
-    ReachingDefinitions {
-        reaching_in,
-        reaching_out,
-    }
-}
-
-fn analyze_unused_assignments_exact(context: &DataflowContext<'_>) -> UnusedAssignmentsResult {
-    let names = build_name_table(
-        context.bindings,
-        context.references,
-        context.synthetic_reads,
-    );
-    let binding_data = build_dense_binding_data(context.bindings, context.scopes, &names);
+fn analyze_unused_assignments_exact(
+    context: &DataflowContext<'_>,
+    exact: &ExactVariableDataflow,
+) -> UnusedAssignmentsResult {
+    let reaching_definitions = exact.reaching_definitions(context);
     let reference_name_ids = context
         .references
         .iter()
-        .map(|reference| names.get(&reference.name).expect("reference name interned"))
+        .map(|reference| {
+            exact
+                .names
+                .get(&reference.name)
+                .expect("reference name interned")
+        })
         .collect::<Vec<_>>();
     let synthetic_read_name_ids = context
         .synthetic_reads
         .iter()
-        .map(|read| names.get(&read.name).expect("synthetic read name interned"))
+        .map(|read| {
+            exact
+                .names
+                .get(&read.name)
+                .expect("synthetic read name interned")
+        })
         .collect::<Vec<_>>();
-    let binding_blocks = build_binding_block_index(context.cfg, context.bindings.len());
-    let reference_blocks = build_reference_block_index(context.cfg, context.references.len());
-    let unreachable_blocks = build_unreachable_block_set(context.cfg);
-    let reaching_definitions = compute_reaching_definitions_dense(
-        context.cfg,
-        context.bindings,
-        &binding_data,
-        context.entry_bindings,
-    );
     let scope_components = compute_scope_components_dense(
         context.cfg,
         context.scopes.len(),
@@ -376,13 +314,13 @@ fn analyze_unused_assignments_exact(context: &DataflowContext<'_>) -> UnusedAssi
             &reference_name_ids,
             &synthetic_read_name_ids,
             context.call_sites,
-            names.len(),
+            exact.names.len(),
         );
         let interprocedural = compute_interprocedural_read_sets(
             &read_plans,
             &callers_by_callee,
             context.scopes,
-            names.len(),
+            exact.names.len(),
         );
         Some((read_plans, interprocedural))
     };
@@ -395,17 +333,19 @@ fn analyze_unused_assignments_exact(context: &DataflowContext<'_>) -> UnusedAssi
     }
 
     for (reference_index, reference) in context.references.iter().enumerate() {
-        let Some(block_id) = reference_blocks[reference_index] else {
+        let Some(block_id) = exact.reference_blocks[reference_index] else {
             continue;
         };
-        if unreachable_blocks.contains(block_id.index()) {
+        if exact.unreachable_blocks.contains(block_id.index()) {
             continue;
         }
 
         let incoming = &reaching_definitions.reaching_in[block_id.index()];
         let name_id = reference_name_ids[reference_index];
-        used_bindings
-            .or_intersection_with(incoming, &binding_data.bindings_for_name[name_id.index()]);
+        used_bindings.or_intersection_with(
+            incoming,
+            &exact.binding_data.bindings_for_name[name_id.index()],
+        );
 
         let Some(resolved_binding_id) = context.resolved.get(&reference.id).copied() else {
             continue;
@@ -415,8 +355,8 @@ fn analyze_unused_assignments_exact(context: &DataflowContext<'_>) -> UnusedAssi
         if !component.blocks.contains(block_id.index()) {
             used_bindings.or_intersection3_with(
                 &component.exit_defs,
-                &binding_data.bindings_for_name[name_id.index()],
-                &binding_data.bindings_in_scope[resolved_binding.scope.index()],
+                &exact.binding_data.bindings_for_name[name_id.index()],
+                &exact.binding_data.bindings_in_scope[resolved_binding.scope.index()],
             );
         }
 
@@ -438,12 +378,12 @@ fn analyze_unused_assignments_exact(context: &DataflowContext<'_>) -> UnusedAssi
         let Some(block_id) = command_block_for_span(context.cfg, synthetic_read.span) else {
             continue;
         };
-        if unreachable_blocks.contains(block_id.index()) {
+        if exact.unreachable_blocks.contains(block_id.index()) {
             continue;
         }
         used_bindings.or_intersection_with(
             &reaching_definitions.reaching_in[block_id.index()],
-            &binding_data.bindings_for_name[synthetic_read_name_ids[read_index].index()],
+            &exact.binding_data.bindings_for_name[synthetic_read_name_ids[read_index].index()],
         );
     }
 
@@ -453,13 +393,13 @@ fn analyze_unused_assignments_exact(context: &DataflowContext<'_>) -> UnusedAssi
                 let Some(block_id) = command_block_for_span(context.cfg, call.span) else {
                     continue;
                 };
-                if unreachable_blocks.contains(block_id.index()) {
+                if exact.unreachable_blocks.contains(block_id.index()) {
                     continue;
                 }
                 mark_reaching_defs_for_names_used(
                     &mut used_bindings,
                     &reaching_definitions.reaching_in[block_id.index()],
-                    &binding_data.binding_name_ids,
+                    &exact.binding_data.binding_name_ids,
                     &interprocedural.transitive_reads[call.callee_scope.index()],
                 );
             }
@@ -470,7 +410,7 @@ fn analyze_unused_assignments_exact(context: &DataflowContext<'_>) -> UnusedAssi
                 && future_reads_contain_after(
                     binding.scope,
                     binding.span.start.offset,
-                    binding_data.binding_name_ids[binding.id.index()],
+                    exact.binding_data.binding_name_ids[binding.id.index()],
                     read_plans,
                     &interprocedural.future_reads,
                     &interprocedural.escape_reads,
@@ -483,20 +423,20 @@ fn analyze_unused_assignments_exact(context: &DataflowContext<'_>) -> UnusedAssi
 
     let mut unused_assignments = Vec::new();
     for binding in context.bindings {
-        let Some(block_id) = binding_blocks[binding.id.index()] else {
+        let Some(block_id) = exact.binding_blocks[binding.id.index()] else {
             continue;
         };
         if matches!(
             binding.kind,
             BindingKind::FunctionDefinition | BindingKind::Imported
         ) || context.runtime.is_always_used_binding(&binding.name)
-            || unreachable_blocks.contains(block_id.index())
+            || exact.unreachable_blocks.contains(block_id.index())
             || used_bindings.contains(binding.id.index())
         {
             continue;
         }
 
-        let reason = binding_data.next_overwrite[binding.id.index()]
+        let reason = exact.binding_data.next_overwrite[binding.id.index()]
             .map(|by| UnusedReason::Overwritten { by })
             .unwrap_or(UnusedReason::ScopeEnd);
         unused_assignments.push(UnusedAssignment {
@@ -507,8 +447,8 @@ fn analyze_unused_assignments_exact(context: &DataflowContext<'_>) -> UnusedAssi
     let unused_assignment_ids = collapse_redundant_branch_unused_assignment_ids(
         context.cfg,
         context.bindings,
-        &binding_blocks,
-        &unreachable_blocks,
+        &exact.binding_blocks,
+        &exact.unreachable_blocks,
         &unused_assignments,
     );
 
@@ -532,7 +472,7 @@ fn collapse_redundant_branch_unused_assignment_ids(
             .collect();
     }
 
-    let binding_name_data = build_binding_name_data(bindings);
+    let bindings_by_name = build_bindings_by_name(bindings);
     let unused_binding_ids = unused_assignments
         .iter()
         .map(|unused| unused.binding)
@@ -541,7 +481,7 @@ fn collapse_redundant_branch_unused_assignment_ids(
     let mut suppression_context = RedundantBranchUnusedAssignmentContext {
         cfg,
         bindings,
-        bindings_by_name: &binding_name_data.bindings_by_name,
+        bindings_by_name: &bindings_by_name,
         binding_blocks,
         unreachable_blocks,
         unused_binding_ids: &unused_binding_ids,
@@ -830,6 +770,36 @@ struct DenseReachingDefinitions {
     reaching_out: Vec<DenseBitSet>,
 }
 
+fn materialize_reaching_definitions(
+    cfg: &ControlFlowGraph,
+    dense: &DenseReachingDefinitions,
+) -> ReachingDefinitions {
+    let mut reaching_in = FxHashMap::default();
+    let mut reaching_out = FxHashMap::default();
+
+    for block in cfg.blocks() {
+        reaching_in.insert(
+            block.id,
+            dense.reaching_in[block.id.index()]
+                .iter_ones()
+                .map(|binding_index| BindingId(binding_index as u32))
+                .collect::<FxHashSet<_>>(),
+        );
+        reaching_out.insert(
+            block.id,
+            dense.reaching_out[block.id.index()]
+                .iter_ones()
+                .map(|binding_index| BindingId(binding_index as u32))
+                .collect::<FxHashSet<_>>(),
+        );
+    }
+
+    ReachingDefinitions {
+        reaching_in,
+        reaching_out,
+    }
+}
+
 #[derive(Debug, Clone)]
 struct DenseInitializedNameStates {
     maybe_in: Vec<DenseBitSet>,
@@ -923,17 +893,6 @@ fn build_name_table(
     }
     for synthetic_read in synthetic_reads {
         names.intern(&synthetic_read.name);
-    }
-    names
-}
-
-fn build_uninitialized_name_table(bindings: &[Binding], references: &[Reference]) -> NameTable {
-    let mut names = NameTable::default();
-    for binding in bindings {
-        names.intern(&binding.name);
-    }
-    for reference in references {
-        names.intern(&reference.name);
     }
     names
 }
@@ -1742,58 +1701,6 @@ fn mark_reaching_candidate_bindings_used(
             used_bindings.insert(candidate.index());
         }
     }
-}
-
-fn gen_set(
-    cfg: &ControlFlowGraph,
-    block_id: BlockId,
-    bindings: &[Binding],
-) -> FxHashSet<BindingId> {
-    let mut generated = FxHashSet::default();
-    for binding in &cfg.block(block_id).bindings {
-        let binding_data = &bindings[binding.index()];
-        if matches!(binding_data.kind, BindingKind::AppendAssignment) {
-            generated.insert(*binding);
-            continue;
-        }
-
-        generated.retain(|candidate| bindings[candidate.index()].name != binding_data.name);
-        generated.insert(*binding);
-    }
-    generated
-}
-
-fn kill_set(
-    cfg: &ControlFlowGraph,
-    block_id: BlockId,
-    bindings: &[Binding],
-    bindings_by_name: &FxHashMap<Name, Vec<BindingId>>,
-) -> FxHashSet<BindingId> {
-    let block = cfg.block(block_id);
-    let overwritten_names = block
-        .bindings
-        .iter()
-        .filter(|binding| {
-            !matches!(
-                bindings[binding.index()].kind,
-                BindingKind::AppendAssignment
-            )
-        })
-        .map(|binding| bindings[binding.index()].name.clone())
-        .collect::<FxHashSet<_>>();
-
-    let mut killed = FxHashSet::default();
-    for name in overwritten_names {
-        let Some(binding_ids) = bindings_by_name.get(&name) else {
-            continue;
-        };
-        for binding_id in binding_ids {
-            if !block.bindings.contains(binding_id) {
-                killed.insert(*binding_id);
-            }
-        }
-    }
-    killed
 }
 
 fn binding_initializes_name(binding: &Binding) -> Option<ContractCertainty> {

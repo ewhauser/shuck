@@ -71,6 +71,39 @@ fn bench_uninitialized_reference(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_variable_dataflow_combined(c: &mut Criterion) {
+    let mut group = c.benchmark_group("variable_dataflow_combined");
+
+    for case in benchmark_cases() {
+        group.sample_size(case.speed.sample_size());
+        group.throughput(Throughput::Bytes(case.total_bytes()));
+        group.bench_with_input(BenchmarkId::from_parameter(case.name), &case, |b, case| {
+            b.iter_batched(
+                || {
+                    case.files
+                        .iter()
+                        .map(|file| build_semantic(file.source))
+                        .collect::<Vec<_>>()
+                },
+                |models| {
+                    let combined_count: usize = models
+                        .iter()
+                        .map(|model| {
+                            let analysis = model.analysis();
+                            analysis.unused_assignments().len()
+                                + analysis.uninitialized_references().len()
+                        })
+                        .sum();
+                    black_box(combined_count);
+                },
+                BatchSize::LargeInput,
+            );
+        });
+    }
+
+    group.finish();
+}
+
 fn bench_dead_code(c: &mut Criterion) {
     let mut group = c.benchmark_group("dead_code");
 
@@ -104,6 +137,7 @@ criterion_group!(
     benches,
     bench_unused_assignment,
     bench_uninitialized_reference,
+    bench_variable_dataflow_combined,
     bench_dead_code
 );
 criterion_main!(benches);

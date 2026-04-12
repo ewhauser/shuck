@@ -486,6 +486,8 @@ pub struct ReachingDefinitions {
 }
 ```
 
+Internally, the semantic layer uses a dense bitset-based reaching-definitions representation and other shared dense indexes for exact variable dataflow. The exported `ReachingDefinitions` value above is materialized from that dense state only when the public `DataflowResult` is requested.
+
 Computed via standard iterative worklist algorithm over the CFG:
 - **Gen set:** Bindings created in the block.
 - **Kill set:** Bindings for the same variable name created in the block (overwrite earlier definitions).
@@ -535,6 +537,8 @@ pub enum UninitializedCertainty {
 ```
 
 Computed from reaching definitions: if `reaching_in` at the block containing the reference has no binding for the variable name, it is definitely uninitialized. If some predecessor paths have a binding and others don't, it is possibly uninitialized.
+
+The exact SH-003 and SH-039 queries share one cached internal variable-dataflow bundle: name interning, dense binding data, block indexes, unreachable-block tracking, dense reaching definitions, and dense initialized-name states are built once per `SemanticAnalysis` and reused across both queries.
 
 #### Dead Code Detection (SH-351)
 
