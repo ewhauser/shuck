@@ -3734,6 +3734,9 @@ fn collect_terminal_redundant_return_status_spans_in_seq(
     let Some(last) = commands.last() else {
         return;
     };
+    if last.negated || matches!(last.terminator, Some(StmtTerminator::Background(_))) {
+        return;
+    }
     collect_terminal_redundant_return_status_spans_in_stmt(last, spans);
 }
 
@@ -11454,6 +11457,18 @@ j() {
 k() {
   false
   return $? >out
+}
+l() {
+  ! {
+    false
+    return $?
+  }
+}
+m() {
+  {
+    false
+    return $?
+  } &
 }
 ";
 

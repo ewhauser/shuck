@@ -119,6 +119,18 @@ i() {
   false
   return $? >out
 }
+j() {
+  ! {
+    false
+    return $?
+  }
+}
+k() {
+  {
+    false
+    return $?
+  } &
+}
 ";
         let diagnostics = test_snippet(
             source,
