@@ -6166,6 +6166,7 @@ fn build_case_pattern_shadow_facts(
         };
 
         let mut prior_arm_patterns = Vec::<ReachableCasePattern>::new();
+        let mut fallthrough_arm_patterns = Vec::<ReachableCasePattern>::new();
         let mut spent_shadowing_patterns = FxHashSet::default();
 
         for item in &command.cases {
@@ -6176,7 +6177,11 @@ fn build_case_pattern_shadow_facts(
                     continue;
                 };
 
-                for previous in prior_arm_patterns.iter().chain(same_item_patterns.iter()) {
+                for previous in prior_arm_patterns
+                    .iter()
+                    .chain(fallthrough_arm_patterns.iter())
+                    .chain(same_item_patterns.iter())
+                {
                     if spent_shadowing_patterns.contains(&FactSpan::new(previous.span)) {
                         continue;
                     }
@@ -6197,8 +6202,17 @@ fn build_case_pattern_shadow_facts(
                 });
             }
 
-            if item.terminator == CaseTerminator::Break {
-                prior_arm_patterns.extend(same_item_patterns);
+            match item.terminator {
+                CaseTerminator::Break => {
+                    prior_arm_patterns.append(&mut fallthrough_arm_patterns);
+                    prior_arm_patterns.extend(same_item_patterns);
+                }
+                CaseTerminator::FallThrough => {
+                    fallthrough_arm_patterns.extend(same_item_patterns);
+                }
+                CaseTerminator::Continue | CaseTerminator::ContinueMatching => {
+                    fallthrough_arm_patterns.clear();
+                }
             }
         }
     }
@@ -6373,6 +6387,9 @@ fn first_getopts_case_match_in_command(
             if case_subject_variable_name(&command.word) == Some(target_name) =>
         {
             Some(build_getopts_case_match(command, source))
+        }
+        Command::Compound(CompoundCommand::BraceGroup(commands)) => {
+            first_getopts_case_match_in_commands(commands, target_name, source)
         }
         // Helper definitions are not part of the executable getopts dispatch path.
         Command::Function(_) | Command::AnonymousFunction(_) => None,

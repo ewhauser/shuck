@@ -122,4 +122,33 @@ esac
             vec!["foobar"]
         );
     }
+
+    #[test]
+    fn treats_fallthrough_arms_as_shadowing_sources_until_matching_resumes() {
+        let source = "\
+#!/bin/bash
+case \"$x\" in
+  foo*) : ;&
+  bar) : ;;
+  foobar) : ;;
+esac
+case \"$x\" in
+  foo*) : ;&
+  bar) : ;;&
+  foobar) : ;;
+esac
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CaseDefaultBeforeGlob),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["foobar"]
+        );
+    }
 }

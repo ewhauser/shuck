@@ -244,4 +244,22 @@ done
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn reports_brace_group_wrapped_handlers() {
+        let source = "\
+while getopts 'a' opt; do
+  {
+    case \"$opt\" in
+      b) : ;;
+    esac
+  }
+done
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::CaseArmNotInGetopts));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "b");
+    }
 }

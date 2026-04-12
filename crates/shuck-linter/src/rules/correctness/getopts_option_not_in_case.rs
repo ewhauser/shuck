@@ -302,4 +302,27 @@ done
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn reports_missing_options_for_brace_group_wrapped_handlers() {
+        let source = "\
+while getopts 'ab' opt; do
+  {
+    case \"$opt\" in
+      a) : ;;
+    esac
+  }
+done
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::GetoptsOptionNotInCase),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].message,
+            "getopts option -b is not handled by this case statement"
+        );
+    }
 }

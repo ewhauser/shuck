@@ -228,4 +228,24 @@ done
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn reports_brace_group_wrapped_handlers() {
+        let source = "\
+while getopts 'ab' opt; do
+  {
+    case \"$opt\" in
+      a) : ;;
+    esac
+  }
+done
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SingleLetterCaseLabel),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "a");
+    }
 }
