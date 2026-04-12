@@ -642,6 +642,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-134" => Some(Rule::PipeToKill),
         "SH-086" => Some(Rule::PositionalTenBraces),
         "SH-106" => Some(Rule::MissingFi),
+        "SH-107" => Some(Rule::FunctionParamsInSh),
         "SH-109" => Some(Rule::BrokenTestEnd),
         "SH-110" => Some(Rule::BrokenTestParse),
         "SH-111" => Some(Rule::ExtglobCase),
@@ -816,6 +817,7 @@ mod tests {
         assert_eq!(code_to_rule("SH-055"), Some(Rule::ExprArithmetic));
         assert_eq!(code_to_rule("SH-056"), Some(Rule::PsGrepPipeline));
         assert_eq!(code_to_rule("SH-057"), Some(Rule::LsGrepPipeline));
+        assert_eq!(code_to_rule("SH-107"), Some(Rule::FunctionParamsInSh));
         assert_eq!(code_to_rule("S014"), Some(Rule::UnquotedDollarStar));
         assert_eq!(code_to_rule("SH-062"), Some(Rule::UnquotedDollarStar));
         assert_eq!(code_to_rule("S015"), Some(Rule::QuotedDollarStarLoop));
