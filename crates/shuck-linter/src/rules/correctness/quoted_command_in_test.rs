@@ -1,4 +1,4 @@
-use shuck_ast::{Span, Word};
+use shuck_ast::{ConditionalUnaryOp, Span, Word};
 
 use crate::{
     Checker, ConditionalNodeFact, ConditionalOperatorFamily, ExpansionContext, Rule,
@@ -112,7 +112,7 @@ fn collect_conditional_spans(conditional: &crate::ConditionalFact<'_>, source: &
             }
         }
         ConditionalNodeFact::Unary(unary)
-            if unary.operator_family() == ConditionalOperatorFamily::StringUnary
+            if conditional_unary_checks_literal_string(unary)
                 && conditional_operand_looks_like_quoted_pipeline(unary.operand(), source) =>
         {
             if let Some(word) = unary.operand().word() {
@@ -139,7 +139,7 @@ fn collect_conditional_spans(conditional: &crate::ConditionalFact<'_>, source: &
                 }
             }
             ConditionalNodeFact::Unary(unary)
-                if unary.operator_family() == ConditionalOperatorFamily::StringUnary
+                if conditional_unary_checks_literal_string(unary)
                     && conditional_operand_looks_like_quoted_pipeline(unary.operand(), source) =>
             {
                 if let Some(word) = unary.operand().word() {
@@ -151,6 +151,11 @@ fn collect_conditional_spans(conditional: &crate::ConditionalFact<'_>, source: &
     }
 
     spans
+}
+
+fn conditional_unary_checks_literal_string(unary: &crate::ConditionalUnaryFact<'_>) -> bool {
+    unary.operator_family() == ConditionalOperatorFamily::StringUnary
+        || unary.op() == ConditionalUnaryOp::Not
 }
 
 fn simple_test_word_looks_like_quoted_pipeline(checker: &Checker<'_>, span: Span) -> bool {
@@ -276,6 +281,25 @@ test ! \"modprobe | grep snd\"
     }
 
     #[test]
+    fn reports_negated_quoted_pipeline_literals_in_conditionals() {
+        let source = "\
+#!/bin/bash
+[[ ! \"lsmod | grep v4l2loopback\" ]]
+[[ \"$ok\" && ! \"modprobe | grep snd\" ]]
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::QuotedCommandInTest));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["\"lsmod | grep v4l2loopback\"", "\"modprobe | grep snd\""]
+        );
+    }
+
+    #[test]
     fn ignores_non_pipeline_literals_and_binary_comparisons() {
         let source = "\
 #!/bin/sh
@@ -284,6 +308,7 @@ test ! \"modprobe | grep snd\"
 [ \"foo | bar\" = x ]
 [[ \"grep foo file\" = x ]]
 [[ -n \"echo hi\" ]]
+[[ ! \"echo hi\" ]]
 [[ -f \"foo | bar\" ]]
 [[ -x \"foo | bar\" ]]
 ";

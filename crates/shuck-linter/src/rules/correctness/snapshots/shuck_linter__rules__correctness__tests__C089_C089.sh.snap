@@ -25,3 +25,9 @@ C089 this test uses a quoted pipeline literal instead of command output
    |
 13 | [[ "$ok" && "lsmod | grep v4l2loopback" ]]
    |
+
+C089 this test uses a quoted pipeline literal instead of command output
+  --> <source>:16:6
+   |
+16 | [[ ! "lsmod | grep v4l2loopback" ]]
+   |

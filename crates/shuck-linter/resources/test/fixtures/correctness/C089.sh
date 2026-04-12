@@ -12,6 +12,9 @@
 # Invalid: nested `[[ ]]` conditions still only see a string literal here.
 [[ "$ok" && "lsmod | grep v4l2loopback" ]]
 
+# Invalid: negated `[[ ]]` conditions still only negate the literal string.
+[[ ! "lsmod | grep v4l2loopback" ]]
+
 # Valid: plain quoted strings are covered by the generic constant-test rules instead.
 [ "echo hi" ]
 
