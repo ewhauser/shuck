@@ -1229,9 +1229,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             return;
         }
 
-        let text = subscript.syntax_source_text();
-        let word = Parser::parse_word_fragment(self.source, text.slice(self.source), text.span());
-        self.visit_word_into(&word, kind, flow, nested_regions);
+        self.visit_fragment_word(
+            subscript.word_ast(),
+            Some(subscript.syntax_source_text()),
+            kind,
+            flow,
+            nested_regions,
+        );
     }
 
     fn visit_word_part(
@@ -1328,6 +1332,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 self.visit_parameter_operator_operand(
                     operator,
                     operand.as_ref(),
+                    None,
                     kind,
                     flow,
                     nested_regions,
@@ -1506,6 +1511,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     reference,
                     operator,
                     operand,
+                    operand_word_ast,
                     ..
                 } => {
                     let id = self.visit_var_ref_reference(
@@ -1524,6 +1530,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         self.visit_parameter_operator_operand(
                             operator,
                             operand.as_ref(),
+                            operand_word_ast.as_ref(),
                             kind,
                             flow,
                             nested_regions,
@@ -1573,6 +1580,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     reference,
                     operator,
                     operand,
+                    operand_word_ast,
                     ..
                 } => {
                     let reference_id = self.visit_var_ref_reference(
@@ -1597,6 +1605,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     self.visit_parameter_operator_operand(
                         operator,
                         operand.as_ref(),
+                        operand_word_ast.as_ref(),
                         kind,
                         flow,
                         nested_regions,
@@ -1641,53 +1650,91 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 }
 
                 for modifier in &syntax.modifiers {
-                    if let Some(argument) = &modifier.argument {
-                        self.visit_source_text_as_word(argument, kind, flow, nested_regions);
-                    }
+                    self.visit_fragment_word(
+                        modifier.argument_word_ast(),
+                        modifier.argument.as_ref(),
+                        kind,
+                        flow,
+                        nested_regions,
+                    );
                 }
 
                 if let Some(operation) = &syntax.operation {
                     match operation {
                         ZshExpansionOperation::PatternOperation { operand, .. }
                         | ZshExpansionOperation::Defaulting { operand, .. }
-                        | ZshExpansionOperation::TrimOperation { operand, .. }
-                        | ZshExpansionOperation::Unknown(operand) => {
-                            self.visit_source_text_as_word(operand, kind, flow, nested_regions);
-                        }
+                        | ZshExpansionOperation::TrimOperation { operand, .. } => self
+                            .visit_fragment_word(
+                                operation.operand_word_ast(),
+                                Some(operand),
+                                kind,
+                                flow,
+                                nested_regions,
+                            ),
                         ZshExpansionOperation::ReplacementOperation {
                             pattern,
                             replacement,
                             ..
                         } => {
-                            self.visit_source_text_as_word(pattern, kind, flow, nested_regions);
-                            if let Some(replacement) = replacement {
-                                self.visit_source_text_as_word(
-                                    replacement,
-                                    kind,
-                                    flow,
-                                    nested_regions,
-                                );
-                            }
+                            self.visit_fragment_word(
+                                operation.pattern_word_ast(),
+                                Some(pattern),
+                                kind,
+                                flow,
+                                nested_regions,
+                            );
+                            self.visit_fragment_word(
+                                operation.replacement_word_ast(),
+                                replacement.as_ref(),
+                                kind,
+                                flow,
+                                nested_regions,
+                            );
                         }
-                        ZshExpansionOperation::Slice { offset, length } => {
-                            self.visit_source_text_as_word(offset, kind, flow, nested_regions);
-                            if let Some(length) = length {
-                                self.visit_source_text_as_word(length, kind, flow, nested_regions);
-                            }
+                        ZshExpansionOperation::Slice { offset, length, .. } => {
+                            self.visit_fragment_word(
+                                operation.offset_word_ast(),
+                                Some(offset),
+                                kind,
+                                flow,
+                                nested_regions,
+                            );
+                            self.visit_fragment_word(
+                                operation.length_word_ast(),
+                                length.as_ref(),
+                                kind,
+                                flow,
+                                nested_regions,
+                            );
                         }
+                        ZshExpansionOperation::Unknown { text, .. } => self.visit_fragment_word(
+                            operation.operand_word_ast(),
+                            Some(text),
+                            kind,
+                            flow,
+                            nested_regions,
+                        ),
                     }
                 }
             }
         }
     }
 
-    fn visit_source_text_as_word(
+    fn visit_fragment_word(
         &mut self,
-        text: &shuck_ast::SourceText,
+        word: Option<&Word>,
+        text: Option<&shuck_ast::SourceText>,
         kind: WordVisitKind,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
+        if let Some(word) = word {
+            self.visit_word_into(word, kind, flow, nested_regions);
+            return;
+        }
+        let Some(text) = text else {
+            return;
+        };
         let word = Parser::parse_word_fragment(self.source, text.slice(self.source), text.span());
         self.visit_word_into(&word, kind, flow, nested_regions);
     }
@@ -1696,6 +1743,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         &mut self,
         operator: &ParameterOp,
         operand: Option<&shuck_ast::SourceText>,
+        operand_word_ast: Option<&Word>,
         kind: WordVisitKind,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
@@ -1710,21 +1758,27 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             ParameterOp::ReplaceFirst {
                 pattern,
                 replacement,
+                ..
             }
             | ParameterOp::ReplaceAll {
                 pattern,
                 replacement,
+                ..
             } => {
                 self.visit_pattern_into(pattern, kind, flow, nested_regions);
-                self.visit_source_text_as_word(replacement, kind, flow, nested_regions);
+                self.visit_fragment_word(
+                    operator.replacement_word_ast(),
+                    Some(replacement),
+                    kind,
+                    flow,
+                    nested_regions,
+                );
             }
             ParameterOp::UseDefault
             | ParameterOp::AssignDefault
             | ParameterOp::UseReplacement
             | ParameterOp::Error => {
-                if let Some(operand) = operand {
-                    self.visit_source_text_as_word(operand, kind, flow, nested_regions);
-                }
+                self.visit_fragment_word(operand_word_ast, operand, kind, flow, nested_regions);
             }
             ParameterOp::UpperFirst
             | ParameterOp::UpperAll

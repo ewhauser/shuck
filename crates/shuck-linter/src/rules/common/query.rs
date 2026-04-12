@@ -179,6 +179,11 @@ fn collect_subscript_words(subscript: Option<&Subscript>, source: &str, words: &
         return;
     }
 
+    if let Some(word) = subscript.word_ast() {
+        words.push(word.clone());
+        return;
+    }
+
     let text = subscript.syntax_source_text();
     words.push(Parser::parse_word_fragment(
         source,

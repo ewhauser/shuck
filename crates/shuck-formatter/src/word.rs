@@ -1055,6 +1055,7 @@ fn push_parameter_word(
             operator,
             operand,
             colon_variant,
+            ..
         } => {
             rendered.push_str("${!");
             push_var_ref(rendered, reference, source, options);
@@ -1097,6 +1098,7 @@ fn push_parameter_word(
             operator,
             operand,
             colon_variant,
+            ..
         } => {
             render_parameter_expansion(
                 rendered,
@@ -1166,6 +1168,7 @@ fn render_parameter_expansion(
         ParameterOp::ReplaceFirst {
             pattern,
             replacement,
+            ..
         } => {
             rendered.push('/');
             render_pattern_syntax_to_buf(&pattern, source, options, rendered);
@@ -1175,6 +1178,7 @@ fn render_parameter_expansion(
         ParameterOp::ReplaceAll {
             pattern,
             replacement,
+            ..
         } => {
             rendered.push_str("//");
             render_pattern_syntax_to_buf(&pattern, source, options, rendered);

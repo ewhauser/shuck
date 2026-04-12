@@ -1358,10 +1358,12 @@ impl<'a> Parser<'a> {
             ParameterOp::ReplaceFirst {
                 pattern,
                 replacement,
+                ..
             }
             | ParameterOp::ReplaceAll {
                 pattern,
                 replacement,
+                ..
             } => pattern.is_source_backed() && replacement.is_source_backed(),
             _ => true,
         }
@@ -1714,6 +1716,7 @@ impl<'a> Parser<'a> {
             ParameterOp::ReplaceFirst {
                 pattern,
                 replacement,
+                ..
             } => {
                 out.push('/');
                 self.push_pattern_syntax(out, pattern);
@@ -1723,6 +1726,7 @@ impl<'a> Parser<'a> {
             ParameterOp::ReplaceAll {
                 pattern,
                 replacement,
+                ..
             } => {
                 out.push_str("//");
                 self.push_pattern_syntax(out, pattern);
@@ -3251,11 +3255,15 @@ impl<'a> Parser<'a> {
                                 let operator = if replace_all {
                                     ParameterOp::ReplaceAll {
                                         pattern,
+                                        replacement_word_ast: self
+                                            .parse_source_text_as_word(&replacement),
                                         replacement,
                                     }
                                 } else {
                                     ParameterOp::ReplaceFirst {
                                         pattern,
+                                        replacement_word_ast: self
+                                            .parse_source_text_as_word(&replacement),
                                         replacement,
                                     }
                                 };
@@ -3672,11 +3680,15 @@ impl<'a> Parser<'a> {
                             let operator = if replace_all {
                                 ParameterOp::ReplaceAll {
                                     pattern,
+                                    replacement_word_ast: self
+                                        .parse_source_text_as_word(&replacement),
                                     replacement,
                                 }
                             } else {
                                 ParameterOp::ReplaceFirst {
                                     pattern,
+                                    replacement_word_ast: self
+                                        .parse_source_text_as_word(&replacement),
                                     replacement,
                                 }
                             };

@@ -703,9 +703,7 @@ fn walk_word_parts(
                 ..
             } => {
                 walk_var_ref_subscript(reference, model, source, facts);
-                if let Some(operand) = operand {
-                    walk_source_text(operand, model, source, facts);
-                }
+                walk_fragment_word(None, operand.as_ref(), model, source, facts);
                 match operator {
                     shuck_ast::ParameterOp::RemovePrefixShort { pattern }
                     | shuck_ast::ParameterOp::RemovePrefixLong { pattern }
@@ -752,9 +750,7 @@ fn walk_word_parts(
                 reference, operand, ..
             } => {
                 walk_var_ref_subscript(reference, model, source, facts);
-                if let Some(operand) = operand {
-                    walk_source_text(operand, model, source, facts);
-                }
+                walk_fragment_word(None, operand.as_ref(), model, source, facts);
             }
             WordPart::Transformation { reference, .. }
             | WordPart::Length(reference)
@@ -782,12 +778,19 @@ fn walk_parameter_expansion(
                 walk_var_ref_subscript(reference, model, source, facts);
             }
             BourneParameterExpansion::Indirect {
-                reference, operand, ..
+                reference,
+                operand,
+                operand_word_ast,
+                ..
             } => {
                 walk_var_ref_subscript(reference, model, source, facts);
-                if let Some(operand) = operand {
-                    walk_source_text(operand, model, source, facts);
-                }
+                walk_fragment_word(
+                    operand_word_ast.as_ref(),
+                    operand.as_ref(),
+                    model,
+                    source,
+                    facts,
+                );
             }
             BourneParameterExpansion::PrefixMatch { .. } => {}
             BourneParameterExpansion::Slice {
@@ -808,12 +811,17 @@ fn walk_parameter_expansion(
                 reference,
                 operator,
                 operand,
+                operand_word_ast,
                 ..
             } => {
                 walk_var_ref_subscript(reference, model, source, facts);
-                if let Some(operand) = operand {
-                    walk_source_text(operand, model, source, facts);
-                }
+                walk_fragment_word(
+                    operand_word_ast.as_ref(),
+                    operand.as_ref(),
+                    model,
+                    source,
+                    facts,
+                );
                 match operator {
                     shuck_ast::ParameterOp::RemovePrefixShort { pattern }
                     | shuck_ast::ParameterOp::RemovePrefixLong { pattern }
@@ -849,35 +857,69 @@ fn walk_parameter_expansion(
             }
 
             for modifier in &syntax.modifiers {
-                if let Some(argument) = &modifier.argument {
-                    walk_source_text(argument, model, source, facts);
-                }
+                walk_fragment_word(
+                    modifier.argument_word_ast(),
+                    modifier.argument.as_ref(),
+                    model,
+                    source,
+                    facts,
+                );
             }
 
             if let Some(operation) = &syntax.operation {
                 match operation {
                     ZshExpansionOperation::PatternOperation { operand, .. }
                     | ZshExpansionOperation::Defaulting { operand, .. }
-                    | ZshExpansionOperation::TrimOperation { operand, .. }
-                    | ZshExpansionOperation::Unknown(operand) => {
-                        walk_source_text(operand, model, source, facts);
-                    }
+                    | ZshExpansionOperation::TrimOperation { operand, .. } => walk_fragment_word(
+                        operation.operand_word_ast(),
+                        Some(operand),
+                        model,
+                        source,
+                        facts,
+                    ),
                     ZshExpansionOperation::ReplacementOperation {
                         pattern,
                         replacement,
                         ..
                     } => {
-                        walk_source_text(pattern, model, source, facts);
-                        if let Some(replacement) = replacement {
-                            walk_source_text(replacement, model, source, facts);
-                        }
+                        walk_fragment_word(
+                            operation.pattern_word_ast(),
+                            Some(pattern),
+                            model,
+                            source,
+                            facts,
+                        );
+                        walk_fragment_word(
+                            operation.replacement_word_ast(),
+                            replacement.as_ref(),
+                            model,
+                            source,
+                            facts,
+                        );
                     }
-                    ZshExpansionOperation::Slice { offset, length } => {
-                        walk_source_text(offset, model, source, facts);
-                        if let Some(length) = length {
-                            walk_source_text(length, model, source, facts);
-                        }
+                    ZshExpansionOperation::Slice { offset, length, .. } => {
+                        walk_fragment_word(
+                            operation.offset_word_ast(),
+                            Some(offset),
+                            model,
+                            source,
+                            facts,
+                        );
+                        walk_fragment_word(
+                            operation.length_word_ast(),
+                            length.as_ref(),
+                            model,
+                            source,
+                            facts,
+                        );
                     }
+                    ZshExpansionOperation::Unknown { text, .. } => walk_fragment_word(
+                        operation.operand_word_ast(),
+                        Some(text),
+                        model,
+                        source,
+                        facts,
+                    ),
                 }
             }
         }
@@ -952,7 +994,20 @@ fn walk_pattern_parts(
     }
 }
 
-fn walk_source_text(text: &SourceText, model: &SemanticModel, source: &str, facts: &mut AstFacts) {
+fn walk_fragment_word(
+    word: Option<&Word>,
+    text: Option<&SourceText>,
+    model: &SemanticModel,
+    source: &str,
+    facts: &mut AstFacts,
+) {
+    if let Some(word) = word {
+        walk_word(word, model, source, facts);
+        return;
+    }
+    let Some(text) = text else {
+        return;
+    };
     let word = Parser::parse_word_fragment(source, text.slice(source), text.span());
     walk_word(&word, model, source, facts);
 }
@@ -1025,7 +1080,13 @@ fn walk_subscript(
         return;
     }
 
-    walk_source_text(subscript.syntax_source_text(), model, source, facts);
+    walk_fragment_word(
+        subscript.word_ast(),
+        Some(subscript.syntax_source_text()),
+        model,
+        source,
+        facts,
+    );
 }
 
 fn source_path_template(
