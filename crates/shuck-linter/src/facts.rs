@@ -535,6 +535,22 @@ impl<'a> RedirectFact<'a> {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct PathWordFact<'a> {
+    word: &'a Word,
+    context: ExpansionContext,
+}
+
+impl<'a> PathWordFact<'a> {
+    pub fn word(&self) -> &'a Word {
+        self.word
+    }
+
+    pub fn context(&self) -> ExpansionContext {
+        self.context
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct SingleQuotedFragmentFact {
     span: Span,
@@ -1744,6 +1760,7 @@ pub struct CommandOptionFacts<'a> {
     expr: Option<ExprCommandFacts>,
     exit: Option<ExitCommandFacts<'a>>,
     sudo_family: Option<SudoFamilyCommandFacts>,
+    file_operand_words: Box<[&'a Word]>,
 }
 
 impl<'a> CommandOptionFacts<'a> {
@@ -1821,6 +1838,10 @@ impl<'a> CommandOptionFacts<'a> {
 
     pub fn sudo_family(&self) -> Option<&SudoFamilyCommandFacts> {
         self.sudo_family.as_ref()
+    }
+
+    pub fn file_operand_words(&self) -> &[&'a Word] {
+        &self.file_operand_words
     }
 
     fn build(command: &'a Command, normalized: &NormalizedCommand<'a>, source: &str) -> Self {
@@ -1902,6 +1923,11 @@ impl<'a> CommandOptionFacts<'a> {
                         .expect("sudo-family wrapper should preserve its invoker"),
                 }
             }),
+            file_operand_words: same_command_file_operand_words(
+                normalized.effective_or_literal_name(),
+                normalized.body_args(),
+                source,
+            ),
         }
     }
 }
@@ -1917,6 +1943,7 @@ pub struct CommandFact<'a> {
     redirect_facts: Box<[RedirectFact<'a>]>,
     substitution_facts: Box<[SubstitutionFact]>,
     options: CommandOptionFacts<'a>,
+    scope_read_source_words: Box<[PathWordFact<'a>]>,
     simple_test: Option<SimpleTestFact<'a>>,
     conditional: Option<ConditionalFact<'a>>,
 }
@@ -1972,6 +1999,10 @@ impl<'a> CommandFact<'a> {
 
     pub fn options(&self) -> &CommandOptionFacts<'a> {
         &self.options
+    }
+
+    pub fn scope_read_source_words(&self) -> &[PathWordFact<'a>] {
+        &self.scope_read_source_words
     }
 
     pub fn simple_test(&self) -> Option<&SimpleTestFact<'a>> {
@@ -2032,6 +2063,10 @@ impl<'a> CommandFact<'a> {
 
     pub fn body_args(&self) -> &[&'a Word] {
         self.normalized.body_args()
+    }
+
+    pub fn file_operand_words(&self) -> &[&'a Word] {
+        self.options.file_operand_words()
     }
 }
 
@@ -2706,6 +2741,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 redirect_facts,
                 substitution_facts: Vec::new().into_boxed_slice(),
                 options,
+                scope_read_source_words: Vec::new().into_boxed_slice(),
                 simple_test,
                 conditional,
             });
@@ -2717,6 +2753,8 @@ impl<'a> LinterFactsBuilder<'a> {
             fact.substitution_facts = substitutions;
         }
 
+        let if_condition_command_ids =
+            build_if_condition_command_ids(&self.file.body, &command_ids_by_span);
         let elif_condition_command_ids =
             build_elif_condition_command_ids(&self.file.body, &command_ids_by_span);
         let presence_tested_names = build_presence_tested_names(&commands, self.source);
@@ -2734,6 +2772,11 @@ impl<'a> LinterFactsBuilder<'a> {
         let case_pattern_shadows = build_case_pattern_shadow_facts(&commands, self.source);
         let getopts_cases = build_getopts_case_facts(&self.file.body, self.source);
         let pipelines = build_pipeline_facts(&commands, &command_ids_by_span);
+        let scope_read_source_words =
+            build_scope_read_source_words(&commands, &pipelines, &if_condition_command_ids);
+        for (fact, words) in commands.iter_mut().zip(scope_read_source_words) {
+            fact.scope_read_source_words = words;
+        }
         let lists = build_list_facts(&commands, &command_ids_by_span, self.source);
         let single_test_subshell_spans =
             build_single_test_subshell_spans(&commands, &command_ids_by_span, self.source);
@@ -5003,6 +5046,52 @@ fn build_elif_condition_command_ids(
         let Command::Compound(CompoundCommand::If(command)) = visit.command else {
             continue;
         };
+
+        for (condition, _) in &command.elif_branches {
+            for condition_visit in query::iter_commands(
+                condition,
+                CommandWalkOptions {
+                    descend_nested_word_commands: true,
+                },
+            ) {
+                if let Some(id) =
+                    command_id_for_command(condition_visit.command, command_ids_by_span)
+                {
+                    ids.insert(id);
+                }
+            }
+        }
+    }
+
+    ids
+}
+
+fn build_if_condition_command_ids(
+    commands: &StmtSeq,
+    command_ids_by_span: &CommandLookupIndex,
+) -> FxHashSet<CommandId> {
+    let mut ids = FxHashSet::default();
+
+    for visit in query::iter_commands(
+        commands,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+    ) {
+        let Command::Compound(CompoundCommand::If(command)) = visit.command else {
+            continue;
+        };
+
+        for condition_visit in query::iter_commands(
+            &command.condition,
+            CommandWalkOptions {
+                descend_nested_word_commands: true,
+            },
+        ) {
+            if let Some(id) = command_id_for_command(condition_visit.command, command_ids_by_span) {
+                ids.insert(id);
+            }
+        }
 
         for (condition, _) in &command.elif_branches {
             for condition_visit in query::iter_commands(
@@ -9961,6 +10050,391 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
         uses_fixed_strings,
         patterns: patterns.into_boxed_slice(),
     })
+}
+
+fn same_command_file_operand_words<'a>(
+    command_name: Option<&str>,
+    args: &[&'a Word],
+    source: &str,
+) -> Box<[&'a Word]> {
+    match command_name {
+        Some("grep") => grep_file_operand_words(args, source).into_boxed_slice(),
+        Some("sed") => {
+            collect_file_operand_words_after_prefix(args, source, 1, |text| match text {
+                "-e" | "-f" | "--expression" | "--file" => Some(OperandArgAction::SkipNext),
+                _ if text.starts_with("--expression=") || text.starts_with("--file=") => None,
+                _ => None,
+            })
+            .into_boxed_slice()
+        }
+        Some("awk") => {
+            collect_file_operand_words_after_prefix(args, source, 1, |text| match text {
+                "-f" | "-v" | "--file" | "--assign" => Some(OperandArgAction::SkipNext),
+                _ if text.starts_with("--file=") || text.starts_with("--assign=") => None,
+                _ => None,
+            })
+            .into_boxed_slice()
+        }
+        Some("unzip") => {
+            collect_file_operand_words_after_prefix(args, source, 1, |text| match text {
+                "-d" | "--d" | "--directory" => Some(OperandArgAction::SkipNext),
+                _ if text.starts_with("--directory=") => None,
+                _ => None,
+            })
+            .into_boxed_slice()
+        }
+        Some("sort") => {
+            collect_file_operand_words_after_prefix(args, source, 0, |text| match text {
+                "-o" | "--output" => Some(OperandArgAction::IncludeNext),
+                _ if text.starts_with("--output=") => None,
+                _ => None,
+            })
+            .into_boxed_slice()
+        }
+        Some("bsdtar") | Some("tar") => {
+            collect_file_operand_words_after_prefix(args, source, 0, |text| match text {
+                "--exclude" => Some(OperandArgAction::IncludeNext),
+                _ if text.starts_with("--exclude=") => None,
+                _ => None,
+            })
+            .into_boxed_slice()
+        }
+        Some(
+            "cat" | "cp" | "mv" | "head" | "tail" | "cut" | "uniq" | "comm" | "join" | "paste",
+        ) => collect_file_operand_words_after_prefix(args, source, 0, |_| None).into_boxed_slice(),
+        _ => Vec::new().into_boxed_slice(),
+    }
+}
+
+fn build_scope_read_source_words<'a>(
+    commands: &[CommandFact<'a>],
+    pipelines: &[PipelineFact<'a>],
+    if_condition_command_ids: &FxHashSet<CommandId>,
+) -> Vec<Box<[PathWordFact<'a>]>> {
+    let mut words_by_command = vec![Vec::new(); commands.len()];
+
+    for command in commands {
+        let mut scope_words = own_scope_read_source_words(command, if_condition_command_ids);
+        if command_has_file_output_redirect(command) {
+            scope_words.extend(nested_scope_read_source_words(
+                commands,
+                command,
+                if_condition_command_ids,
+            ));
+        }
+        dedup_path_words(&mut scope_words);
+        words_by_command[command.id().index()] = scope_words;
+    }
+
+    for pipeline in pipelines {
+        let writer_ids = pipeline
+            .segments()
+            .iter()
+            .map(|segment| segment.command_id())
+            .filter(|id| {
+                commands
+                    .get(id.index())
+                    .is_some_and(command_has_file_output_redirect)
+            })
+            .collect::<Vec<_>>();
+        if writer_ids.is_empty() {
+            continue;
+        }
+
+        let mut pipeline_words = commands
+            .iter()
+            .filter(|command| contains_span(pipeline.span(), command.span()))
+            .flat_map(|command| own_scope_read_source_words(command, if_condition_command_ids))
+            .collect::<Vec<_>>();
+        dedup_path_words(&mut pipeline_words);
+
+        for writer_id in writer_ids {
+            words_by_command[writer_id.index()].extend(pipeline_words.iter().copied());
+            dedup_path_words(&mut words_by_command[writer_id.index()]);
+        }
+    }
+
+    words_by_command
+        .into_iter()
+        .map(Vec::into_boxed_slice)
+        .collect()
+}
+
+fn own_scope_read_source_words<'a>(
+    command: &CommandFact<'a>,
+    if_condition_command_ids: &FxHashSet<CommandId>,
+) -> Vec<PathWordFact<'a>> {
+    let mut words = command_file_operand_words(command)
+        .into_iter()
+        .map(|word| PathWordFact {
+            word,
+            context: ExpansionContext::CommandArgument,
+        })
+        .collect::<Vec<_>>();
+    if !if_condition_command_ids.contains(&command.id()) {
+        words.extend(command_conditional_path_words(command));
+    }
+    words
+}
+
+fn nested_scope_read_source_words<'a>(
+    commands: &[CommandFact<'a>],
+    command: &CommandFact<'a>,
+    if_condition_command_ids: &FxHashSet<CommandId>,
+) -> Vec<PathWordFact<'a>> {
+    commands
+        .iter()
+        .filter(|other| other.id() != command.id() && contains_span(command.span(), other.span()))
+        .flat_map(|other| own_scope_read_source_words(other, if_condition_command_ids))
+        .collect()
+}
+
+fn dedup_path_words(words: &mut Vec<PathWordFact<'_>>) {
+    let mut seen = FxHashSet::<(FactSpan, ExpansionContext)>::default();
+    words.retain(|fact| seen.insert((FactSpan::new(fact.word().span), fact.context())));
+}
+
+fn command_has_file_output_redirect(command: &CommandFact<'_>) -> bool {
+    command.redirect_facts().iter().any(|redirect| {
+        matches!(
+            redirect.redirect().kind,
+            RedirectKind::Output
+                | RedirectKind::Clobber
+                | RedirectKind::Append
+                | RedirectKind::OutputBoth
+        ) && redirect
+            .analysis()
+            .is_some_and(|analysis| analysis.is_file_target())
+    })
+}
+
+fn command_file_operand_words<'a>(command: &CommandFact<'a>) -> Vec<&'a Word> {
+    command.file_operand_words().to_vec()
+}
+
+fn command_conditional_path_words<'a>(command: &CommandFact<'a>) -> Vec<PathWordFact<'a>> {
+    let mut words = Vec::new();
+
+    if let Some(conditional) = command.conditional() {
+        for node in conditional.nodes() {
+            match node {
+                ConditionalNodeFact::Binary(binary)
+                    if binary.operator_family() == ConditionalOperatorFamily::StringBinary =>
+                {
+                    if let Some(word) = binary.left().word() {
+                        words.push(PathWordFact {
+                            word,
+                            context: ExpansionContext::StringTestOperand,
+                        });
+                    }
+                    if let Some(word) = binary.right().word() {
+                        words.push(PathWordFact {
+                            word,
+                            context: ExpansionContext::StringTestOperand,
+                        });
+                    }
+                }
+                ConditionalNodeFact::Binary(_) => {}
+                ConditionalNodeFact::BareWord(_) | ConditionalNodeFact::Other(_) => {}
+                ConditionalNodeFact::Unary(_) => {}
+            }
+        }
+    }
+
+    words
+}
+
+fn contains_span(outer: Span, inner: Span) -> bool {
+    outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OperandArgAction {
+    IncludeNext,
+    SkipNext,
+}
+
+fn collect_file_operand_words_after_prefix<'a>(
+    args: &[&'a Word],
+    source: &str,
+    skip_initial_positionals: usize,
+    mut option_arg_action: impl FnMut(&str) -> Option<OperandArgAction>,
+) -> Vec<&'a Word> {
+    let mut operands = Vec::new();
+    let mut index = 0usize;
+    let mut options_open = true;
+    let mut pending_option_arg_action: Option<OperandArgAction> = None;
+    let mut remaining_prefix_words = skip_initial_positionals;
+
+    while let Some(word) = args.get(index) {
+        if let Some(action) = pending_option_arg_action.take() {
+            if matches!(action, OperandArgAction::IncludeNext) {
+                operands.push(*word);
+            }
+            index += 1;
+            continue;
+        }
+
+        let Some(text) = static_word_text(word, source) else {
+            if options_open && word_starts_with_literal_dash(word, source) {
+                index += 1;
+                continue;
+            }
+
+            if options_open {
+                options_open = false;
+            }
+
+            if remaining_prefix_words > 0 {
+                remaining_prefix_words -= 1;
+                index += 1;
+                continue;
+            }
+
+            operands.push(*word);
+            index += 1;
+            continue;
+        };
+
+        if options_open && text == "--" {
+            options_open = false;
+            index += 1;
+            continue;
+        }
+
+        if options_open && text.starts_with('-') && text != "-" {
+            if let Some(action) = option_arg_action(text.as_str()) {
+                pending_option_arg_action = Some(action);
+            }
+            index += 1;
+            continue;
+        }
+
+        options_open = false;
+        if remaining_prefix_words > 0 {
+            remaining_prefix_words -= 1;
+            index += 1;
+            continue;
+        }
+
+        operands.push(*word);
+        index += 1;
+    }
+
+    operands
+}
+
+fn grep_file_operand_words<'a>(args: &[&'a Word], source: &str) -> Vec<&'a Word> {
+    let mut index = 0usize;
+    let mut pending_dynamic_option_arg = false;
+    let mut explicit_pattern_source = false;
+
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            if word_starts_with_literal_dash(word, source) {
+                pending_dynamic_option_arg = true;
+                index += 1;
+                continue;
+            }
+
+            if pending_dynamic_option_arg {
+                pending_dynamic_option_arg = false;
+                index += 1;
+                continue;
+            }
+
+            break;
+        };
+
+        if text == "--" {
+            index += 1;
+            break;
+        }
+
+        if !text.starts_with('-') || text == "-" {
+            if pending_dynamic_option_arg {
+                pending_dynamic_option_arg = false;
+                index += 1;
+                continue;
+            }
+
+            break;
+        }
+
+        pending_dynamic_option_arg = false;
+
+        if text == "--only-matching"
+            || text == "--fixed-strings"
+            || matches!(
+                text.as_str(),
+                "--basic-regexp" | "--extended-regexp" | "--perl-regexp"
+            )
+        {
+            index += 1;
+            continue;
+        }
+
+        if text == "--regexp" || text == "--file" {
+            explicit_pattern_source = true;
+            index += if args.get(index + 1).is_some() { 2 } else { 1 };
+            continue;
+        }
+
+        if text.starts_with("--regexp=") || text.starts_with("--file=") {
+            explicit_pattern_source = true;
+            index += 1;
+            continue;
+        }
+
+        if text.starts_with("--") {
+            index += if grep_long_option_takes_argument(text.as_str())
+                && args.get(index + 1).is_some()
+            {
+                2
+            } else {
+                1
+            };
+            continue;
+        }
+
+        let mut chars = text[1..].chars().peekable();
+        let mut consume_next_argument = false;
+        while let Some(flag) = chars.next() {
+            if flag == 'e' {
+                explicit_pattern_source = true;
+                if chars.peek().is_none() {
+                    consume_next_argument = true;
+                }
+                break;
+            }
+
+            if flag == 'f' {
+                explicit_pattern_source = true;
+                if chars.peek().is_none() {
+                    consume_next_argument = true;
+                }
+                break;
+            }
+
+            if grep_option_takes_argument(flag) {
+                if chars.peek().is_none() {
+                    consume_next_argument = true;
+                }
+                break;
+            }
+        }
+
+        index += 1;
+        if consume_next_argument {
+            index += 1;
+        }
+    }
+
+    if !explicit_pattern_source && args.get(index).is_some() {
+        index += 1;
+    }
+
+    args.get(index..).unwrap_or(&[]).iter().copied().collect()
 }
 
 fn grep_pattern_fact<'a>(word: &'a Word, source: &str) -> GrepPatternFact<'a> {

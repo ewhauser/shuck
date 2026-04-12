@@ -94,8 +94,8 @@ pub mod quoted_array_slice;
 pub mod quoted_bash_regex;
 pub mod quoted_bash_source;
 pub mod quoted_command_in_test;
+pub mod redirect_clobbers_input;
 pub mod redirect_to_command_name;
-pub mod stderr_before_stdout_redirect;
 pub mod script_scope_local;
 pub mod set_flags_without_dashes;
 pub mod shebang_not_on_first_line;
@@ -104,6 +104,7 @@ pub mod single_quoted_literal;
 pub mod space_after_hash_bang;
 pub mod spaced_assignment;
 pub mod status_capture_after_branch_test;
+pub mod stderr_before_stdout_redirect;
 pub mod string_compared_with_eq;
 pub mod string_comparison_for_version;
 pub mod subshell_in_arithmetic;
@@ -224,6 +225,7 @@ mod tests {
     #[test_case(Rule::TildeInStringComparison, Path::new("C091.sh"))]
     #[test_case(Rule::IfDollarCommand, Path::new("C092.sh"))]
     #[test_case(Rule::BacktickInCommandPosition, Path::new("C093.sh"))]
+    #[test_case(Rule::RedirectClobbersInput, Path::new("C094.sh"))]
     #[test_case(Rule::GlobWithExpansionInLoop, Path::new("C114.sh"))]
     #[test_case(Rule::AssignmentLooksLikeComparison, Path::new("C095.sh"))]
     #[test_case(Rule::UnquotedPipeInEcho, Path::new("C096.sh"))]

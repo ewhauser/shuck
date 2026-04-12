@@ -722,6 +722,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::StderrBeforeStdoutRedirect) {
             rules::correctness::stderr_before_stdout_redirect::stderr_before_stdout_redirect(self);
         }
+        if self.is_rule_enabled(Rule::RedirectClobbersInput) {
+            rules::correctness::redirect_clobbers_input::redirect_clobbers_input(self);
+        }
         if self.is_rule_enabled(Rule::AmpersandRedirection) {
             rules::portability::ampersand_redirection::ampersand_redirection(self);
         }

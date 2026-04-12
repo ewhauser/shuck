@@ -183,6 +183,9 @@ impl Default for ShellCheckCodeMap {
             // ShellCheck 0.11.0 reports stderr-before-stdout redirect ordering as SC2069.
             // Keep SC2306 as the authored suppression code and compare against the live code.
             (2069, Rule::StderrBeforeStdoutRedirect),
+            // ShellCheck 0.11.0 reports read/write redirect collisions as SC2094.
+            // Keep SC2317 as the authored suppression code and compare against the live code.
+            (2094, Rule::RedirectClobbersInput),
             // ShellCheck 0.11.0 reports single-quoted split-word cases as SC2026.
             // Keep SC2300 as a suppression alias for the authored S050 rule code.
             (2026, Rule::UnquotedWordBetweenQuotes),
@@ -557,6 +560,7 @@ impl Default for ShellCheckCodeMap {
                     (2009, Rule::PsGrepPipeline),
                     (2010, Rule::LsGrepPipeline),
                     (2306, Rule::StderrBeforeStdoutRedirect),
+                    (2317, Rule::RedirectClobbersInput),
                     (2293, Rule::LsPipedToXargs),
                     (2117, Rule::SuWithoutFlag),
                     (2196, Rule::EgrepDeprecated),
@@ -860,6 +864,10 @@ impl Default for ShellCheckCodeMap {
                 (3058, Rule::StarGlobRemovalInSh),
                 (3024, Rule::PlusEqualsInSh),
                 (2351, Rule::XPrefixInTest),
+                // ShellCheck 0.11.0 reports redirect collisions as SC2094.
+                // Keep SC2094 available as the live comparison alias for SC2317.
+                (2094, Rule::RedirectClobbersInput),
+                (2351, Rule::XPrefixInTest),
                 (3062, Rule::DollarStringInSh),
                 (3056, Rule::UnsetPatternInSh),
                 (3072, Rule::CaretNegationInBracket),
@@ -984,10 +992,12 @@ mod tests {
             map.resolve("SC2306"),
             Some(Rule::StderrBeforeStdoutRedirect)
         );
+        assert_eq!(map.resolve("SC2317"), Some(Rule::RedirectClobbersInput));
         assert_eq!(
             map.resolve("SC2069"),
             Some(Rule::StderrBeforeStdoutRedirect)
         );
+        assert_eq!(map.resolve("SC2094"), Some(Rule::RedirectClobbersInput));
         assert_eq!(map.resolve("SC2293"), Some(Rule::LsPipedToXargs));
         assert_eq!(map.resolve("SC2294"), Some(Rule::LsInSubstitution));
         assert_eq!(map.resolve("SC2048"), Some(Rule::UnquotedDollarStar));
@@ -1736,6 +1746,8 @@ mod tests {
             (2294, Rule::LsInSubstitution),
             (2263, Rule::RedundantSpacesInEcho),
             (2069, Rule::StderrBeforeStdoutRedirect),
+            (2317, Rule::RedirectClobbersInput),
+            (2094, Rule::RedirectClobbersInput),
             (2026, Rule::UnquotedWordBetweenQuotes),
             (2027, Rule::DoubleQuoteNesting),
             (2143, Rule::GrepOutputInTest),
