@@ -3744,7 +3744,7 @@ fn terminal_redundant_return_status_span(commands: &StmtSeq) -> Option<Span> {
     let [.., previous, last] = commands.as_slice() else {
         return None;
     };
-    if !stmt_is_plain_status_propagating_command(previous) {
+    if !stmt_is_terminal_status_propagating_command(previous) {
         return None;
     }
     if last.negated || matches!(last.terminator, Some(StmtTerminator::Background(_))) {
@@ -3764,12 +3764,12 @@ fn terminal_redundant_return_status_span(commands: &StmtSeq) -> Option<Span> {
     crate::word_is_standalone_status_capture(code).then_some(code.span)
 }
 
-fn stmt_is_plain_status_propagating_command(stmt: &Stmt) -> bool {
+fn stmt_is_terminal_status_propagating_command(stmt: &Stmt) -> bool {
     if stmt.negated || matches!(stmt.terminator, Some(StmtTerminator::Background(_))) {
         return false;
     }
 
-    matches!(stmt.command, Command::Simple(_) | Command::Decl(_))
+    !matches!(stmt.command, Command::Builtin(_))
 }
 
 fn build_function_positional_parameter_facts(
@@ -11470,6 +11470,16 @@ m() {
     return $?
   } &
 }
+n() {
+  if cond; then
+    false
+  fi
+  return $?
+}
+o() {
+  : | false
+  return $?
+}
 ";
 
         with_facts(source, None, |_, facts| {
@@ -11487,7 +11497,7 @@ m() {
                     .iter()
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
-                vec!["$?"]
+                vec!["$?", "$?", "$?"]
             );
         });
     }

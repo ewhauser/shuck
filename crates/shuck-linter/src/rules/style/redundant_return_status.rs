@@ -100,6 +100,36 @@ f() {
     }
 
     #[test]
+    fn reports_returns_after_terminal_compound_commands() {
+        let source = "\
+#!/bin/sh
+f() {
+  if cond; then
+    false
+  fi
+  return $?
+}
+g() {
+  : | false
+  return $?
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::RedundantReturnStatus),
+        );
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$?", "$?"]
+        );
+    }
+
+    #[test]
     fn ignores_control_flow_predecessors_and_backgrounded_returns() {
         let source = "\
 #!/bin/sh
