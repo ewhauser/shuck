@@ -3123,6 +3123,12 @@ impl<'a> Lexer<'a> {
         // Read lines until we find the delimiter
         loop {
             if self.reinject_buf.is_empty() {
+                // When the body reading drains a reinject buffer (from a
+                // previous heredoc on the same command line), the virtual
+                // offset drifts away from the cursor. Snap it back before
+                // any source-based work so spans and `post_heredoc_offset`
+                // stay within bounds.
+                self.sync_offset_to_cursor();
                 let rest = self.cursor.rest();
                 if rest.is_empty() {
                     content_end = self.current_position();
@@ -4210,5 +4216,40 @@ EOF
         assert_next_token(&mut lexer, TokenKind::Word, Some("{"));
         assert_next_token(&mut lexer, TokenKind::Word, Some("echo"));
         assert_next_token(&mut lexer, TokenKind::Word, Some("}"));
+    }
+
+    #[test]
+    fn test_heredoc_in_arithmetic_fuzz_crash() {
+        // Regression test: the fuzzer found that heredoc re-injection inside
+        // arithmetic context can push self.offset past self.input.len(),
+        // causing a panic in read_unquoted_segment's borrowed-slice path.
+        let data: &[u8] = &[
+            35, 33, 111, 98, 105, 110, 41, 41, 10, 40, 40, 32, 36, 111, 98, 105, 110, 41,
+            41, 10, 40, 40, 32, 36, 53, 32, 43, 32, 49, 32, 6, 0, 0, 0, 0, 0, 0, 0, 41,
+            60, 60, 69, 41, 4, 33, 61, 26, 40, 40, 32, 110, 119, 119, 49, 32, 119, 119,
+            109, 119, 119, 119, 119, 119, 119, 122, 39, 122, 122, 122, 122, 122, 122, 122,
+            122, 122, 122, 122, 122, 0, 0, 0, 0, 0, 41, 60, 60, 69, 41, 4, 33, 61, 26,
+            40, 40, 32, 110, 119, 119, 49, 32, 119, 119, 109, 119, 119, 110, 119, 119, 49,
+            32, 119, 119, 109, 119, 119, 119, 0, 14, 119, 122, 39, 122, 122, 122, 122,
+            122, 122, 122, 47, 33, 122, 122, 122, 122, 122, 122, 122, 122, 122, 122, 40,
+            122, 122, 122, 122, 39, 122, 122, 122, 122, 122, 122, 122, 122, 122, 122, 122,
+            122, 122, 122, 0, 53, 32, 43, 32, 49, 32, 41, 41, 10, 40, 40, 32, 36, 53, 32,
+            43, 32, 49, 32, 6, 0, 0, 0, 0, 0, 0, 0, 41, 60, 60, 69, 41, 4, 33, 61, 26,
+            40, 40, 32, 110, 119, 119, 49, 32, 119, 119, 109, 119, 119, 119, 119, 119,
+            119, 122, 39, 122, 122, 122, 122, 122, 122, 122, 122, 122, 122, 122, 122, 0,
+            0, 0, 0, 0, 41, 60, 60, 69, 41, 4, 33, 61, 26, 40, 40, 32, 110, 119, 119, 48,
+            32, 119, 119, 109, 119, 119, 110, 119, 119, 49, 32, 119, 119, 109, 119, 119,
+            119, 0, 14, 119, 122, 39, 122, 122, 122, 122, 122, 122, 122, 47, 33, 122, 122,
+            122, 122, 122, 122, 122, 122, 122, 122, 40, 122, 122, 122, 122, 39, 122, 122,
+            122, 122, 122, 122, 122, 88, 88, 88, 88, 122, 122, 40, 122, 122, 122, 122, 39,
+            122, 122, 122, 122, 122, 122, 122, 122, 122, 122, 122, 122, 122, 122, 0, 53,
+            32, 43, 32, 49, 32, 53, 41, 10, 40, 40, 32, 36, 53, 32, 43, 32, 49, 32, 6, 0,
+            0, 0, 0, 0, 0, 0, 41, 60, 60, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 0,
+            0, 0,
+        ];
+        let input = std::str::from_utf8(data).unwrap();
+        let script = format!("echo $(({input}))\n");
+        // Must not panic.
+        let _ = crate::parser::Parser::new(&script).parse();
     }
 }
