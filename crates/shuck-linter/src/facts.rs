@@ -10494,7 +10494,7 @@ fn parse_xargs_command(args: &[&Word], source: &str) -> XargsCommandFacts {
                 uses_null_input = true;
             }
 
-            let consume_next_argument = xargs_long_option_takes_argument(long);
+            let consume_next_argument = xargs_long_option_requires_separate_argument(long);
             index += 1;
             if consume_next_argument {
                 index += 1;
@@ -10551,7 +10551,7 @@ fn xargs_short_option_argument_style(flag: char) -> XargsShortOptionArgumentStyl
     }
 }
 
-fn xargs_long_option_takes_argument(option: &str) -> bool {
+fn xargs_long_option_requires_separate_argument(option: &str) -> bool {
     if option.contains('=') {
         return false;
     }
@@ -12187,6 +12187,25 @@ xargs -i0 echo
                 .collect::<Vec<_>>(),
             vec!["-i0"]
         );
+    }
+
+    #[test]
+    fn does_not_consume_null_mode_after_optional_long_eof() {
+        let source = "#!/bin/bash\nfind . -print0 | xargs --eof --null rm\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let xargs = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_name_is("xargs"))
+            .and_then(|fact| fact.options().xargs())
+            .expect("expected xargs facts");
+
+        assert!(xargs.uses_null_input);
     }
 
     #[test]
