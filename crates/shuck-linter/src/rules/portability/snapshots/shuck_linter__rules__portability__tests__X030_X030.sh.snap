@@ -1,0 +1,51 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 167
+---
+X030 use `printf` instead of relying on backslash escapes in `echo`
+ --> <source>:4:6
+  |
+4 | echo \n
+  |
+
+X030 use `printf` instead of relying on backslash escapes in `echo`
+ --> <source>:5:6
+  |
+5 | echo "\\n"
+  |
+
+X030 use `printf` instead of relying on backslash escapes in `echo`
+ --> <source>:6:6
+  |
+6 | echo '\n'
+  |
+
+X030 use `printf` instead of relying on backslash escapes in `echo`
+ --> <source>:7:6
+  |
+7 | echo foo\nbar
+  |
+
+X030 use `printf` instead of relying on backslash escapes in `echo`
+ --> <source>:8:6
+  |
+8 | echo "foo\nbar"
+  |
+
+X030 use `printf` instead of relying on backslash escapes in `echo`
+ --> <source>:9:6
+  |
+9 | echo 'foo\nbar'
+  |
+
+X030 use `printf` instead of relying on backslash escapes in `echo`
+  --> <source>:10:6
+   |
+10 | echo \x41
+   |
+
+X030 use `printf` instead of relying on backslash escapes in `echo`
+  --> <source>:11:6
+   |
+11 | echo \077
+   |

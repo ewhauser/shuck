@@ -159,10 +159,10 @@ Detect extended glob syntax in contexts where it is not supported.
 
 Detect locale-dependent and non-portable echo/tr behavior.
 
-- [ ] **L** X027 (SC3037) `echo-flags` — echo flags depend on shell implementation
-- [ ] **L** X028 (SC2018) `tr-lower-range` — locale-dependent lower-case tr range
-- [ ] **L** X029 (SC2019) `tr-upper-range` — locale-dependent upper-case tr range
-- [ ] **M** X030 (SC2028) `echo-backslash-escapes` — echo backslash escapes are non-portable
+- [x] **L** X027 (SC3037) `echo-flags` — echo flags depend on shell implementation
+- [x] **L** X028 (SC2018) `tr-lower-range` — locale-dependent lower-case tr range
+- [x] **L** X029 (SC2019) `tr-upper-range` — locale-dependent upper-case tr range
+- [x] **M** X030 (SC2028) `echo-backslash-escapes` — echo backslash escapes are non-portable
 
 ### Portability — POSIX sh Function and Variable Syntax
 

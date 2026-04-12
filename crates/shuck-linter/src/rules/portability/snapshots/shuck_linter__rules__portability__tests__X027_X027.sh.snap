@@ -1,0 +1,39 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 160
+---
+X027 echo flags are not portable in `sh` scripts
+ --> <source>:4:6
+  |
+4 | echo -n hi
+  |
+
+X027 echo flags are not portable in `sh` scripts
+ --> <source>:5:6
+  |
+5 | echo -e hi
+  |
+
+X027 echo flags are not portable in `sh` scripts
+ --> <source>:6:6
+  |
+6 | echo -nn hi
+  |
+
+X027 echo flags are not portable in `sh` scripts
+ --> <source>:7:14
+  |
+7 | value=$(echo -ne "hello")
+  |
+
+X027 echo flags are not portable in `sh` scripts
+ --> <source>:8:6
+  |
+8 | echo "-s" hi
+  |
+
+X027 echo flags are not portable in `sh` scripts
+ --> <source>:9:6
+  |
+9 | echo '-e' hi
+  |

@@ -398,6 +398,18 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ReplacementExpansion) {
             rules::portability::replacement_expansion::replacement_expansion(self);
         }
+        if self.is_rule_enabled(Rule::EchoFlags) {
+            rules::portability::echo_flags::echo_flags(self);
+        }
+        if self.is_rule_enabled(Rule::TrLowerRange) {
+            rules::portability::tr_lower_range::tr_lower_range(self);
+        }
+        if self.is_rule_enabled(Rule::TrUpperRange) {
+            rules::portability::tr_upper_range::tr_upper_range(self);
+        }
+        if self.is_rule_enabled(Rule::EchoBackslashEscapes) {
+            rules::portability::echo_backslash_escapes::echo_backslash_escapes(self);
+        }
         if self.is_rule_enabled(Rule::TrapErr) {
             rules::portability::trap_err::trap_err(self);
         }

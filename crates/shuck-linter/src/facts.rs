@@ -1262,6 +1262,33 @@ pub struct ReadCommandFacts {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct EchoCommandFacts<'a> {
+    portability_flag_word: Option<&'a Word>,
+    uses_escape_interpreting_flag: bool,
+}
+
+impl<'a> EchoCommandFacts<'a> {
+    pub fn portability_flag_word(self) -> Option<&'a Word> {
+        self.portability_flag_word
+    }
+
+    pub fn uses_escape_interpreting_flag(self) -> bool {
+        self.uses_escape_interpreting_flag
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TrCommandFacts<'a> {
+    operand_words: Box<[&'a Word]>,
+}
+
+impl<'a> TrCommandFacts<'a> {
+    pub fn operand_words(&self) -> &[&'a Word] {
+        &self.operand_words
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct PrintfCommandFacts<'a> {
     pub format_word: Option<&'a Word>,
     pub uses_q_format: bool,
@@ -1506,6 +1533,8 @@ pub struct CommandOptionFacts<'a> {
     rm: Option<RmCommandFacts>,
     ssh: Option<SshCommandFacts>,
     read: Option<ReadCommandFacts>,
+    echo: Option<EchoCommandFacts<'a>>,
+    tr: Option<TrCommandFacts<'a>>,
     printf: Option<PrintfCommandFacts<'a>>,
     unset: Option<UnsetCommandFacts<'a>>,
     find: Option<FindCommandFacts>,
@@ -1533,6 +1562,14 @@ impl<'a> CommandOptionFacts<'a> {
 
     pub fn read(&self) -> Option<&ReadCommandFacts> {
         self.read.as_ref()
+    }
+
+    pub fn echo(&self) -> Option<&EchoCommandFacts<'a>> {
+        self.echo.as_ref()
+    }
+
+    pub fn tr(&self) -> Option<&TrCommandFacts<'a>> {
+        self.tr.as_ref()
     }
 
     pub fn printf(&self) -> Option<&PrintfCommandFacts<'a>> {
@@ -1607,6 +1644,11 @@ impl<'a> CommandOptionFacts<'a> {
                 .then(|| ReadCommandFacts {
                     uses_raw_input: read_uses_raw_input(normalized.body_args(), source),
                 }),
+            echo: normalized
+                .effective_name_is("echo")
+                .then(|| parse_echo_command(normalized.body_args(), source)),
+            tr: (normalized.effective_name_is("tr") && normalized.wrappers.is_empty())
+                .then(|| parse_tr_command(normalized.body_args(), source)),
             printf: normalized.effective_name_is("printf").then(|| {
                 let format_word = printf_format_word(normalized.body_args(), source);
                 PrintfCommandFacts {
@@ -1866,6 +1908,7 @@ pub struct LinterFacts<'a> {
     arithmetic_for_update_operator_spans: Vec<Span>,
     base_prefix_arithmetic_spans: Vec<Span>,
     escape_scan_matches: Vec<EscapeScanMatch>,
+    echo_backslash_escape_word_spans: Vec<Span>,
     unicode_smart_quote_spans: Vec<Span>,
     pattern_exactly_one_extglob_spans: Vec<Span>,
     pattern_literal_spans: Vec<Span>,
@@ -2154,6 +2197,10 @@ impl<'a> LinterFacts<'a> {
 
     pub(crate) fn escape_scan_matches(&self) -> &[EscapeScanMatch] {
         &self.escape_scan_matches
+    }
+
+    pub fn echo_backslash_escape_word_spans(&self) -> &[Span] {
+        &self.echo_backslash_escape_word_spans
     }
 
     pub fn arithmetic_command_substitution_spans(&self) -> &[Span] {
@@ -2458,6 +2505,8 @@ impl<'a> LinterFactsBuilder<'a> {
                 file_context: self._file_context,
             },
         );
+        let echo_backslash_escape_word_spans =
+            build_echo_backslash_escape_word_spans(&commands, self.source);
         let nested_pattern_charclass_spans = nested_pattern_charclass_spans
             .into_iter()
             .map(FactSpan::new)
@@ -2533,6 +2582,7 @@ impl<'a> LinterFactsBuilder<'a> {
             arithmetic_for_update_operator_spans,
             base_prefix_arithmetic_spans,
             escape_scan_matches,
+            echo_backslash_escape_word_spans,
             unicode_smart_quote_spans,
             pattern_exactly_one_extglob_spans,
             pattern_literal_spans,
@@ -2548,6 +2598,97 @@ impl<'a> LinterFactsBuilder<'a> {
             conditional_portability,
         }
     }
+}
+
+fn build_echo_backslash_escape_word_spans(commands: &[CommandFact<'_>], source: &str) -> Vec<Span> {
+    let mut spans = commands
+        .iter()
+        .filter(|fact| fact.effective_name_is("echo") && fact.wrappers().is_empty())
+        .filter(|fact| !echo_uses_escape_interpreting_flag(fact))
+        .flat_map(|fact| fact.body_args().iter().copied())
+        .filter(|word| word_contains_echo_backslash_escape(word, source))
+        .map(|word| word.span)
+        .collect::<Vec<_>>();
+
+    let mut seen = FxHashSet::default();
+    spans.retain(|span| seen.insert(FactSpan::new(*span)));
+    spans
+}
+
+fn echo_uses_escape_interpreting_flag(command: &CommandFact<'_>) -> bool {
+    command
+        .options()
+        .echo()
+        .is_some_and(|echo| echo.uses_escape_interpreting_flag())
+}
+
+fn word_contains_echo_backslash_escape(word: &Word, source: &str) -> bool {
+    word_parts_contain_echo_backslash_escape(&word.parts, source, false)
+}
+
+fn word_parts_contain_echo_backslash_escape(
+    parts: &[WordPartNode],
+    source: &str,
+    in_double_quotes: bool,
+) -> bool {
+    parts.iter().any(|part| match &part.kind {
+        WordPart::Literal(text) => {
+            let core_text = if in_double_quotes {
+                text.as_str(source, part.span)
+            } else {
+                part.span.slice(source)
+            };
+            let quote_like_text = text.as_str(source, part.span);
+
+            text_contains_echo_backslash_escape(core_text, echo_escape_is_core_family)
+                || text_contains_echo_backslash_escape(quote_like_text, echo_escape_is_quote_like)
+        }
+        WordPart::SingleQuoted { value, .. } => {
+            text_contains_echo_backslash_escape(value.slice(source), echo_escape_is_core_family)
+        }
+        WordPart::DoubleQuoted { parts, .. } => {
+            word_parts_contain_echo_backslash_escape(parts, source, true)
+        }
+        _ => false,
+    })
+}
+
+fn echo_escape_is_core_family(byte: u8) -> bool {
+    matches!(
+        byte,
+        b'a' | b'b' | b'e' | b'f' | b'n' | b'r' | b't' | b'v' | b'x' | b'0'..=b'9'
+    )
+}
+
+fn echo_escape_is_quote_like(byte: u8) -> bool {
+    matches!(byte, b'`' | b'\'')
+}
+
+fn text_contains_echo_backslash_escape(text: &str, is_sensitive: fn(u8) -> bool) -> bool {
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+
+    while index < bytes.len() {
+        if bytes[index] != b'\\' {
+            index += 1;
+            continue;
+        }
+
+        let run_start = index;
+        while index < bytes.len() && bytes[index] == b'\\' {
+            index += 1;
+        }
+
+        let Some(&escaped_byte) = bytes.get(index) else {
+            continue;
+        };
+
+        if index > run_start && is_sensitive(escaped_byte) {
+            return true;
+        }
+    }
+
+    false
 }
 
 fn build_heredoc_fact_summary(
@@ -7074,6 +7215,78 @@ fn read_uses_raw_input(args: &[&Word], source: &str) -> bool {
     false
 }
 
+fn parse_echo_command<'a>(args: &[&'a Word], source: &str) -> EchoCommandFacts<'a> {
+    let mut portability_flag_word = None;
+    let mut uses_escape_interpreting_flag = false;
+
+    for word in args {
+        if !classify_word(word, source).is_fixed_literal() {
+            break;
+        }
+
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+
+        if !is_echo_portability_flag(text.as_str()) {
+            break;
+        }
+
+        portability_flag_word.get_or_insert(*word);
+        uses_escape_interpreting_flag |= text.contains('e');
+    }
+
+    EchoCommandFacts {
+        portability_flag_word,
+        uses_escape_interpreting_flag,
+    }
+}
+
+fn is_echo_portability_flag(text: &str) -> bool {
+    let Some(flags) = text.strip_prefix('-') else {
+        return false;
+    };
+
+    !flags.is_empty()
+        && flags
+            .bytes()
+            .all(|byte| matches!(byte, b'n' | b'e' | b'E' | b's'))
+}
+
+fn parse_tr_command<'a>(args: &[&'a Word], source: &str) -> TrCommandFacts<'a> {
+    let mut index = 0usize;
+
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+
+        if text == "--" {
+            index += 1;
+            break;
+        }
+
+        if !is_tr_option(text.as_str()) {
+            break;
+        }
+
+        index += 1;
+    }
+
+    TrCommandFacts {
+        operand_words: args[index..].iter().copied().collect(),
+    }
+}
+
+fn is_tr_option(text: &str) -> bool {
+    text.starts_with('-')
+        && text != "-"
+        && !text.starts_with("--")
+        && text[1..]
+            .bytes()
+            .all(|byte| matches!(byte, b'c' | b'C' | b'd' | b's' | b't'))
+}
+
 fn word_starts_with_literal_dash(word: &Word, source: &str) -> bool {
     matches!(
         word.parts_with_spans().next(),
@@ -9435,7 +9648,7 @@ complex[$((i+=1))]+=x
 
     #[test]
     fn summarizes_command_options_and_invokers() {
-        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -name a -o -name b -print\nfind . -name *.cfg\nfind . -name \"$prefix\"*.jar\nfind . -wholename */tmp/*\nfind . -name \\*.ignore\nfind . -type f*\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\n./configure --with-optmizer=${CFLAGS}\nconfigure \"--enable-optmizer=${CFLAGS}\"\n./configure --with-optimizer=${CFLAGS}\nps -p 1 -o comm=\nps p 123 -o comm=\nps -ef\ndoas printf '%s\\n' hi\n";
+        let source = "#!/bin/bash\nread -r name\necho -ne hi\necho '-I' hi\necho \"\\\\n\"\necho \\x41\necho \"prefix $VAR \\\\0 suffix\"\ncommand echo \\n\ntr -ds a-z A-Z\ntr -- 'a-z' xyz\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -name a -o -name b -print\nfind . -name *.cfg\nfind . -name \"$prefix\"*.jar\nfind . -wholename */tmp/*\nfind . -name \\*.ignore\nfind . -type f*\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\n./configure --with-optmizer=${CFLAGS}\nconfigure \"--enable-optmizer=${CFLAGS}\"\n./configure --with-optimizer=${CFLAGS}\nps -p 1 -o comm=\nps p 123 -o comm=\nps -ef\ndoas printf '%s\\n' hi\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -9450,6 +9663,73 @@ complex[$((i+=1))]+=x
         assert_eq!(
             read.options().read().map(|read| read.uses_raw_input),
             Some(true)
+        );
+
+        let echo = facts
+            .commands()
+            .iter()
+            .find(|fact| {
+                fact.effective_name_is("echo")
+                    && fact
+                        .options()
+                        .echo()
+                        .and_then(|echo| echo.portability_flag_word())
+                        .is_some()
+            })
+            .and_then(|fact| fact.options().echo())
+            .expect("expected echo facts");
+        assert_eq!(
+            echo.portability_flag_word()
+                .map(|word| word.span.slice(source)),
+            Some("-ne")
+        );
+        assert_eq!(
+            facts
+                .commands()
+                .iter()
+                .filter(|fact| fact.effective_name_is("echo"))
+                .nth(1)
+                .and_then(|fact| fact.options().echo())
+                .and_then(|echo| echo.portability_flag_word())
+                .map(|word| word.span.slice(source)),
+            None
+        );
+        assert_eq!(
+            facts
+                .echo_backslash_escape_word_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["\"\\\\n\"", "\\x41", "\"prefix $VAR \\\\0 suffix\""]
+        );
+
+        let tr = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_name_is("tr") && fact.options().tr().is_some())
+            .and_then(|fact| fact.options().tr())
+            .expect("expected tr facts");
+        assert_eq!(
+            tr.operand_words()
+                .iter()
+                .map(|word| word.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["a-z", "A-Z"]
+        );
+        let quoted_tr = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("tr"))
+            .nth(1)
+            .and_then(|fact| fact.options().tr())
+            .expect("expected second tr facts");
+        assert_eq!(
+            quoted_tr
+                .operand_words()
+                .iter()
+                .map(|word| word.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["'a-z'", "xyz"]
         );
 
         let printf = facts
