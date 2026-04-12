@@ -345,6 +345,12 @@ declare_rules! {
         CaseGlobReachability
     ),
     (
+        "C129",
+        Category::Correctness,
+        Severity::Warning,
+        CaseDefaultBeforeGlob
+    ),
+    (
         "C130",
         Category::Correctness,
         Severity::Warning,
@@ -775,6 +781,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-293" => Some(Rule::UnreachableAfterExit),
         "SH-298" => Some(Rule::UnusedHeredoc),
         "SH-301" => Some(Rule::CaseGlobReachability),
+        "SH-302" => Some(Rule::CaseDefaultBeforeGlob),
         "SH-318" => Some(Rule::HeredocMissingEnd),
         "SH-310" => Some(Rule::MisspelledOptionName),
         "SH-055" => Some(Rule::ExprArithmetic),
@@ -1156,6 +1163,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-298"), Some(Rule::UnusedHeredoc));
         assert_eq!(code_to_rule("C128"), Some(Rule::CaseGlobReachability));
         assert_eq!(code_to_rule("SH-301"), Some(Rule::CaseGlobReachability));
+        assert_eq!(code_to_rule("C129"), Some(Rule::CaseDefaultBeforeGlob));
+        assert_eq!(code_to_rule("SH-302"), Some(Rule::CaseDefaultBeforeGlob));
         assert_eq!(code_to_rule("C138"), Some(Rule::HeredocMissingEnd));
         assert_eq!(code_to_rule("SH-318"), Some(Rule::HeredocMissingEnd));
         assert_eq!(

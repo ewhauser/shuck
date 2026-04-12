@@ -350,6 +350,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::CaseGlobReachability) {
             rules::correctness::case_glob_reachability::case_glob_reachability(self);
         }
+        if self.is_rule_enabled(Rule::CaseDefaultBeforeGlob) {
+            rules::correctness::case_default_before_glob::case_default_before_glob(self);
+        }
         if self.is_rule_enabled(Rule::StandaloneArithmetic) {
             rules::portability::standalone_arithmetic::standalone_arithmetic(self);
         }

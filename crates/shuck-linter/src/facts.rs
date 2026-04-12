@@ -6082,6 +6082,7 @@ fn build_case_pattern_shadow_facts(
         };
 
         let mut prior_arm_patterns = Vec::<ReachableCasePattern>::new();
+        let mut spent_shadowing_patterns = FxHashSet::default();
 
         for item in &command.cases {
             let mut same_item_patterns = Vec::<ReachableCasePattern>::new();
@@ -6092,11 +6093,17 @@ fn build_case_pattern_shadow_facts(
                 };
 
                 for previous in prior_arm_patterns.iter().chain(same_item_patterns.iter()) {
+                    if spent_shadowing_patterns.contains(&FactSpan::new(previous.span)) {
+                        continue;
+                    }
+
                     if previous.matcher.subsumes(&matcher) {
                         shadows.push(CasePatternShadowFact {
                             shadowing_pattern_span: previous.span,
                             shadowed_pattern_span: pattern.span,
                         });
+                        spent_shadowing_patterns.insert(FactSpan::new(previous.span));
+                        break;
                     }
                 }
 

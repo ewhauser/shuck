@@ -89,6 +89,7 @@ mod tests {
                 Rule::UncheckedDirectoryChangeInFunction,
                 Rule::ContinueOutsideLoopInFunction,
                 Rule::CaseGlobReachability,
+                Rule::CaseDefaultBeforeGlob,
             ]
         );
     }
