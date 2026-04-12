@@ -412,7 +412,7 @@ Rules about `[`, `[[`, test operators, and conditional structure. Use
 - [x] [x] **M** C093 (SC2316) `backtick-in-command-position` — backtick substitution as command name
 - [x] **M** C102 (SC2331) `glob-in-test-directory` — glob in `[ -d ]` test
 - [x] **M** C110 (SC2341) `constant-in-test-assignment` — `=` in test looks like assignment
-- [ ] **M** C118 (SC2357) `malformed-arithmetic-in-condition` — malformed arithmetic in condition
+- [x] **M** C118 (SC2357) `malformed-arithmetic-in-condition` — malformed arithmetic in condition
 - [ ] **M** C120 (SC2360) `expr-substr-in-test` — `expr substr` inside test
 - [ ] **M** C121 (SC2361) `string-compared-with-eq` — string compared with `-eq`
 - [ ] **L** C122 (SC2363) `a-flag-in-double-bracket` — `-a` in `[[ ]]` is ambiguous

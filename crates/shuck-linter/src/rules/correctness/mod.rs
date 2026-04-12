@@ -68,6 +68,7 @@ pub mod literal_unary_string_test;
 pub mod local_cross_reference;
 pub mod loop_control_outside_loop;
 pub mod loop_without_end;
+pub mod malformed_arithmetic_in_condition;
 pub mod mapfile_process_substitution;
 pub mod misquoted_heredoc_close;
 pub mod missing_done_in_for_loop;
@@ -154,6 +155,7 @@ mod tests {
     #[test_case(Rule::SudoRedirectionOrder, Path::new("C015.sh"))]
     #[test_case(Rule::ConstantComparisonTest, Path::new("C017.sh"))]
     #[test_case(Rule::ConstantInTestAssignment, Path::new("C110.sh"))]
+    #[test_case(Rule::MalformedArithmeticInCondition, Path::new("C118.sh"))]
     #[test_case(Rule::LoopControlOutsideLoop, Path::new("C018.sh"))]
     #[test_case(Rule::LiteralUnaryStringTest, Path::new("C019.sh"))]
     #[test_case(Rule::TruthyLiteralTest, Path::new("C020.sh"))]

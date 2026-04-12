@@ -156,6 +156,7 @@ impl Default for ShellCheckCodeMap {
             (2145, Rule::PositionalArgsInString),
             (2198, Rule::AtSignInStringCompare),
             (2199, Rule::ArraySliceInComparison),
+            (1076, Rule::MalformedArithmeticInCondition),
             // Modern ShellCheck reuses SC2320 for a different echo/printf `$?` warning.
             // Keep the historical SC2320 comparison slot for C096 and review known corpus deltas.
             (2320, Rule::UnquotedPipeInEcho),
@@ -568,6 +569,7 @@ impl Default for ShellCheckCodeMap {
                     (1072, Rule::BrokenTestParse),
                     (1073, Rule::BrokenTestEnd),
                     (1075, Rule::ElseIf),
+                    (1076, Rule::MalformedArithmeticInCondition),
                     (1078, Rule::OpenDoubleQuote),
                     (1079, Rule::SuspectClosingQuote),
                     (1080, Rule::LinebreakInTest),
@@ -998,6 +1000,10 @@ mod tests {
         assert_eq!(map.resolve("SC1072"), Some(Rule::BrokenTestParse));
         assert_eq!(map.resolve("SC1073"), Some(Rule::BrokenTestEnd));
         assert_eq!(map.resolve("SC1075"), Some(Rule::ElseIf));
+        assert_eq!(
+            map.resolve("SC1076"),
+            Some(Rule::MalformedArithmeticInCondition)
+        );
         assert_eq!(
             map.resolve_all("SC1075"),
             vec![Rule::ElseIf, Rule::ExtglobCase]
@@ -1641,6 +1647,7 @@ mod tests {
             (1072, Rule::BrokenTestParse),
             (1073, Rule::BrokenTestEnd),
             (1075, Rule::ElseIf),
+            (1076, Rule::MalformedArithmeticInCondition),
             (1075, Rule::ExtglobCase),
             (1078, Rule::OpenDoubleQuote),
             (1079, Rule::SuspectClosingQuote),
@@ -2069,6 +2076,7 @@ mod tests {
         assert!(comparison.contains(&(2062, Rule::UnquotedGrepRegex)));
         assert!(comparison.contains(&(2053, Rule::GlobInStringComparison)));
         assert!(comparison.contains(&(2061, Rule::GlobInFindSubstitution)));
+        assert!(comparison.contains(&(1076, Rule::MalformedArithmeticInCondition)));
         assert!(comparison.contains(&(2341, Rule::ConstantInTestAssignment)));
         assert!(comparison.contains(&(2293, Rule::LsPipedToXargs)));
         assert!(comparison.contains(&(2294, Rule::LsInSubstitution)));
@@ -2095,6 +2103,7 @@ mod tests {
         assert!(comparison.contains(&(2139, Rule::CommandSubstitutionInAlias)));
         assert!(comparison.contains(&(2142, Rule::FunctionInAlias)));
         assert!(comparison.contains(&(2027, Rule::DoubleQuoteNesting)));
+        assert!(comparison.contains(&(1076, Rule::MalformedArithmeticInCondition)));
         assert!(comparison.contains(&(2379, Rule::EnvPrefixQuoting)));
         assert!(comparison.contains(&(2140, Rule::MixedQuoteWord)));
         assert!(!comparison.contains(&(2322, Rule::SuWithoutFlag)));

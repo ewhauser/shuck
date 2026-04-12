@@ -334,6 +334,12 @@ declare_rules! {
         PlusPrefixInAssignment
     ),
     (
+        "C118",
+        Category::Correctness,
+        Severity::Warning,
+        MalformedArithmeticInCondition
+    ),
+    (
         "C123",
         Category::Correctness,
         Severity::Error,
