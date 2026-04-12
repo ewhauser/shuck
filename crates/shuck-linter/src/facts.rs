@@ -1980,6 +1980,7 @@ pub struct LinterFacts<'a> {
     lists: Vec<ListFact<'a>>,
     single_test_subshell_spans: Vec<Span>,
     subshell_test_group_spans: Vec<Span>,
+    indented_shebang_span: Option<Span>,
     non_absolute_shebang_span: Option<Span>,
     commented_continuation_comment_spans: Vec<Span>,
     trailing_directive_comment_spans: Vec<Span>,
@@ -2189,6 +2190,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn subshell_test_group_spans(&self) -> &[Span] {
         &self.subshell_test_group_spans
+    }
+
+    pub fn indented_shebang_span(&self) -> Option<Span> {
+        self.indented_shebang_span
     }
 
     pub fn non_absolute_shebang_span(&self) -> Option<Span> {
@@ -2578,7 +2583,7 @@ impl<'a> LinterFactsBuilder<'a> {
             build_single_test_subshell_spans(&commands, &command_ids_by_span, self.source);
         let subshell_test_group_spans =
             build_subshell_test_group_spans(&commands, &command_ids_by_span, self.source);
-        let non_absolute_shebang_span = build_non_absolute_shebang_span(self.source);
+        let shebang_header_facts = build_shebang_header_facts(self.source);
         let commented_continuation_comment_spans =
             build_commented_continuation_comment_spans(self.source, self._indexer);
         let trailing_directive_comment_spans =
@@ -2687,7 +2692,8 @@ impl<'a> LinterFactsBuilder<'a> {
             lists,
             single_test_subshell_spans,
             subshell_test_group_spans,
-            non_absolute_shebang_span,
+            indented_shebang_span: shebang_header_facts.indented_shebang_span,
+            non_absolute_shebang_span: shebang_header_facts.non_absolute_shebang_span,
             commented_continuation_comment_spans,
             trailing_directive_comment_spans,
             condition_status_capture_spans,
@@ -3801,26 +3807,47 @@ fn special_positional_parameter_name(name: &str) -> Option<bool> {
     }
 }
 
-fn build_non_absolute_shebang_span(source: &str) -> Option<Span> {
-    let first_line = source.lines().next()?;
-    let shebang = first_line.strip_prefix("#!")?;
-    let interpreter = shebang.split_whitespace().next()?;
+#[derive(Debug, Clone, Copy, Default)]
+struct ShebangHeaderFacts {
+    indented_shebang_span: Option<Span>,
+    non_absolute_shebang_span: Option<Span>,
+}
 
-    if interpreter.starts_with('/') || interpreter == "/usr/bin/env" {
-        return None;
-    }
-    if has_header_shellcheck_shell_directive(source) {
-        return None;
-    }
-
+fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
+    let Some(first_line) = source.lines().next() else {
+        return ShebangHeaderFacts::default();
+    };
     let line = first_line.trim_end_matches('\r');
+
+    let trimmed = line.trim_start_matches(char::is_whitespace);
+    let indented_shebang_span =
+        (trimmed.len() != line.len() && trimmed.starts_with("#!")).then(|| first_line_span(line));
+
+    let non_absolute_shebang_span = line.strip_prefix("#!").and_then(|shebang| {
+        let interpreter = shebang.split_whitespace().next()?;
+        if interpreter.starts_with('/') || interpreter == "/usr/bin/env" {
+            return None;
+        }
+        if has_header_shellcheck_shell_directive(source) {
+            return None;
+        }
+        Some(first_line_span(line))
+    });
+
+    ShebangHeaderFacts {
+        indented_shebang_span,
+        non_absolute_shebang_span,
+    }
+}
+
+fn first_line_span(line: &str) -> Span {
     let start = Position {
         line: 1,
         column: 1,
         offset: 0,
     };
     let end = start.advanced_by(line);
-    Some(Span::from_positions(start, end))
+    Span::from_positions(start, end)
 }
 
 fn build_commented_continuation_comment_spans(source: &str, indexer: &Indexer) -> Vec<Span> {

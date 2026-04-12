@@ -57,6 +57,7 @@ pub mod if_bracket_glued;
 pub mod if_dollar_command;
 pub mod if_missing_then;
 pub mod ifs_set_to_literal_backslash_n;
+pub mod indented_shebang;
 pub mod invalid_exit_status;
 pub mod keyword_function_name;
 pub mod leading_glob_argument;
@@ -187,6 +188,7 @@ mod tests {
     #[test_case(Rule::PositionalParamAsOperator, Path::new("C070.sh"))]
     #[test_case(Rule::DoubleParenGrouping, Path::new("C071.sh"))]
     #[test_case(Rule::UnicodeQuoteInString, Path::new("C072.sh"))]
+    #[test_case(Rule::IndentedShebang, Path::new("C073.sh"))]
     #[test_case(Rule::CommentedContinuationLine, Path::new("C076.sh"))]
     #[test_case(Rule::SubshellInArithmetic, Path::new("C077.sh"))]
     #[test_case(Rule::UnquotedGlobsInFind, Path::new("C078.sh"))]

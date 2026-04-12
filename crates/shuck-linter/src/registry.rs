@@ -142,6 +142,7 @@ declare_rules! {
     ("C070", Category::Correctness, Severity::Warning, PositionalParamAsOperator),
     ("C071", Category::Correctness, Severity::Warning, DoubleParenGrouping),
     ("C072", Category::Correctness, Severity::Warning, UnicodeQuoteInString),
+    ("C073", Category::Correctness, Severity::Warning, IndentedShebang),
     (
         "C076",
         Category::Correctness,
@@ -801,6 +802,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-187" => Some(Rule::PositionalParamAsOperator),
         "SH-188" => Some(Rule::DoubleParenGrouping),
         "SH-189" => Some(Rule::UnicodeQuoteInString),
+        "SH-191" => Some(Rule::IndentedShebang),
         "SH-224" => Some(Rule::AssignmentLooksLikeComparison),
         "SH-225" => Some(Rule::UnquotedPipeInEcho),
         "SH-227" => Some(Rule::SuWithoutFlag),
@@ -1146,6 +1148,7 @@ mod tests {
         );
         assert_eq!(code_to_rule("SH-188"), Some(Rule::DoubleParenGrouping));
         assert_eq!(code_to_rule("SH-189"), Some(Rule::UnicodeQuoteInString));
+        assert_eq!(code_to_rule("SH-191"), Some(Rule::IndentedShebang));
         assert_eq!(code_to_rule("SH-079"), Some(Rule::AvoidLetBuiltin));
         assert_eq!(
             code_to_rule("SH-224"),

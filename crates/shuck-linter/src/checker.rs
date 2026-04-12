@@ -972,6 +972,9 @@ impl<'a> Checker<'a> {
     }
 
     fn check_flow(&mut self) {
+        if self.is_rule_enabled(Rule::IndentedShebang) {
+            rules::correctness::indented_shebang::indented_shebang(self);
+        }
         if self.is_rule_enabled(Rule::NonAbsoluteShebang) {
             rules::correctness::non_absolute_shebang::non_absolute_shebang(self);
         }

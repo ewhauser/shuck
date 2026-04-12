@@ -409,6 +409,7 @@ impl Default for ShellCheckCodeMap {
             (2210, Rule::BadRedirectionFdOrder),
             (2154, Rule::UndefinedVariable),
             (2239, Rule::NonAbsoluteShebang),
+            (2286, Rule::IndentedShebang),
             (2288, Rule::TemplateBraceInCommand),
             (2289, Rule::CommentedContinuationLine),
             (1133, Rule::LinebreakBeforeAnd),
@@ -704,6 +705,7 @@ impl Default for ShellCheckCodeMap {
                     (2217, Rule::EchoHereDoc),
                     (2154, Rule::UndefinedVariable),
                     (2239, Rule::NonAbsoluteShebang),
+                    (2286, Rule::IndentedShebang),
                     (2288, Rule::TemplateBraceInCommand),
                     (2289, Rule::CommentedContinuationLine),
                     (1133, Rule::LinebreakBeforeAnd),
@@ -1443,6 +1445,7 @@ mod tests {
         );
         assert_eq!(map.resolve("SC2283"), Some(Rule::DoubleParenGrouping));
         assert_eq!(map.resolve("SC2284"), Some(Rule::UnicodeQuoteInString));
+        assert_eq!(map.resolve("SC2286"), Some(Rule::IndentedShebang));
         assert_eq!(map.resolve("SC2288"), Some(Rule::TemplateBraceInCommand));
         assert_eq!(map.resolve("SC2289"), Some(Rule::CommentedContinuationLine));
         assert_eq!(map.resolve("SC2333"), Some(Rule::NonShellSyntaxInScript));
@@ -1727,6 +1730,7 @@ mod tests {
             (2280, Rule::IfsEqualsAmbiguity),
             (2282, Rule::BadVarName),
             (2283, Rule::DoubleParenGrouping),
+            (2286, Rule::IndentedShebang),
             (2288, Rule::TemplateBraceInCommand),
             (2289, Rule::CommentedContinuationLine),
             (2294, Rule::EvalOnArray),
@@ -1876,6 +1880,7 @@ mod tests {
             (3084, Rule::SourceInsideFunctionInSh),
             (2100, Rule::AssignmentLooksLikeComparison),
             (2319, Rule::AssignmentLooksLikeComparison),
+            (2286, Rule::IndentedShebang),
             (2277, Rule::ExtglobInCasePattern),
         ]
         .into_iter()
