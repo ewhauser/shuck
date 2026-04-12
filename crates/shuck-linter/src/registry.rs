@@ -378,6 +378,7 @@ declare_rules! {
     ("X024", Category::Portability, Severity::Warning, CaseModificationExpansion),
     ("X025", Category::Portability, Severity::Warning, ReplacementExpansion),
     ("X026", Category::Portability, Severity::Warning, BashFileSlurp),
+    ("X027", Category::Portability, Severity::Warning, EchoFlags),
     ("X031", Category::Portability, Severity::Warning, SourceBuiltinInSh),
     ("X032", Category::Portability, Severity::Warning, PrintfQFormatInSh),
     ("X033", Category::Portability, Severity::Warning, IfElifBashTest),
@@ -551,6 +552,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-022" => Some(Rule::TrapErr),
         "SH-080" => Some(Rule::SourceBuiltinInSh),
         "SH-081" => Some(Rule::PrintfQFormatInSh),
+        "SH-054" => Some(Rule::EchoFlags),
         "SH-226" => Some(Rule::FunctionKeywordInSh),
         "SH-234" => Some(Rule::IfsSetToLiteralBackslashN),
         "SH-304" => Some(Rule::SourceInsideFunctionInSh),
@@ -1211,5 +1213,7 @@ mod tests {
         assert_eq!(code_to_rule("SH-033"), Some(Rule::ReplacementExpansion));
         assert_eq!(code_to_rule("X026"), Some(Rule::BashFileSlurp));
         assert_eq!(code_to_rule("SH-053"), Some(Rule::BashFileSlurp));
+        assert_eq!(code_to_rule("X027"), Some(Rule::EchoFlags));
+        assert_eq!(code_to_rule("SH-054"), Some(Rule::EchoFlags));
     }
 }

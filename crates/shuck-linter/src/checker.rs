@@ -395,6 +395,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ReplacementExpansion) {
             rules::portability::replacement_expansion::replacement_expansion(self);
         }
+        if self.is_rule_enabled(Rule::EchoFlags) {
+            rules::portability::echo_flags::echo_flags(self);
+        }
         if self.is_rule_enabled(Rule::TrapErr) {
             rules::portability::trap_err::trap_err(self);
         }

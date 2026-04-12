@@ -1232,6 +1232,17 @@ pub struct ReadCommandFacts {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct EchoCommandFacts<'a> {
+    portability_flag_word: Option<&'a Word>,
+}
+
+impl<'a> EchoCommandFacts<'a> {
+    pub fn portability_flag_word(self) -> Option<&'a Word> {
+        self.portability_flag_word
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct PrintfCommandFacts<'a> {
     pub format_word: Option<&'a Word>,
     pub uses_q_format: bool,
@@ -1476,6 +1487,7 @@ pub struct CommandOptionFacts<'a> {
     rm: Option<RmCommandFacts>,
     ssh: Option<SshCommandFacts>,
     read: Option<ReadCommandFacts>,
+    echo: Option<EchoCommandFacts<'a>>,
     printf: Option<PrintfCommandFacts<'a>>,
     unset: Option<UnsetCommandFacts<'a>>,
     find: Option<FindCommandFacts>,
@@ -1503,6 +1515,10 @@ impl<'a> CommandOptionFacts<'a> {
 
     pub fn read(&self) -> Option<&ReadCommandFacts> {
         self.read.as_ref()
+    }
+
+    pub fn echo(&self) -> Option<&EchoCommandFacts<'a>> {
+        self.echo.as_ref()
     }
 
     pub fn printf(&self) -> Option<&PrintfCommandFacts<'a>> {
@@ -1577,6 +1593,9 @@ impl<'a> CommandOptionFacts<'a> {
                 .then(|| ReadCommandFacts {
                     uses_raw_input: read_uses_raw_input(normalized.body_args(), source),
                 }),
+            echo: normalized
+                .effective_name_is("echo")
+                .then(|| parse_echo_command(normalized.body_args(), source)),
             printf: normalized.effective_name_is("printf").then(|| {
                 let format_word = printf_format_word(normalized.body_args(), source);
                 PrintfCommandFacts {
@@ -6746,6 +6765,27 @@ fn read_uses_raw_input(args: &[&Word], source: &str) -> bool {
     false
 }
 
+fn parse_echo_command<'a>(args: &[&'a Word], source: &str) -> EchoCommandFacts<'a> {
+    EchoCommandFacts {
+        portability_flag_word: args.first().copied().filter(|word| {
+            classify_word(word, source).is_fixed_literal()
+                && static_word_text(word, source)
+                    .is_some_and(|text| is_echo_portability_flag(text.as_str()))
+        }),
+    }
+}
+
+fn is_echo_portability_flag(text: &str) -> bool {
+    let Some(flags) = text.strip_prefix('-') else {
+        return false;
+    };
+
+    !flags.is_empty()
+        && flags
+            .bytes()
+            .all(|byte| matches!(byte, b'n' | b'e' | b'E' | b's'))
+}
+
 fn word_starts_with_literal_dash(word: &Word, source: &str) -> bool {
     matches!(
         word.parts_with_spans().next(),
@@ -9107,7 +9147,7 @@ complex[$((i+=1))]+=x
 
     #[test]
     fn summarizes_command_options_and_invokers() {
-        let source = "#!/bin/bash\nread -r name\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -name a -o -name b -print\nfind . -name *.cfg\nfind . -name \"$prefix\"*.jar\nfind . -wholename */tmp/*\nfind . -name \\*.ignore\nfind . -type f*\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\n./configure --with-optmizer=${CFLAGS}\nconfigure \"--enable-optmizer=${CFLAGS}\"\n./configure --with-optimizer=${CFLAGS}\nps -p 1 -o comm=\nps p 123 -o comm=\nps -ef\ndoas printf '%s\\n' hi\n";
+        let source = "#!/bin/bash\nread -r name\necho -ne hi\necho '-I' hi\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -name a -o -name b -print\nfind . -name *.cfg\nfind . -name \"$prefix\"*.jar\nfind . -wholename */tmp/*\nfind . -name \\*.ignore\nfind . -type f*\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\n./configure --with-optmizer=${CFLAGS}\nconfigure \"--enable-optmizer=${CFLAGS}\"\n./configure --with-optimizer=${CFLAGS}\nps -p 1 -o comm=\nps p 123 -o comm=\nps -ef\ndoas printf '%s\\n' hi\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -9122,6 +9162,36 @@ complex[$((i+=1))]+=x
         assert_eq!(
             read.options().read().map(|read| read.uses_raw_input),
             Some(true)
+        );
+
+        let echo = facts
+            .commands()
+            .iter()
+            .find(|fact| {
+                fact.effective_name_is("echo")
+                    && fact
+                        .options()
+                        .echo()
+                        .and_then(|echo| echo.portability_flag_word())
+                        .is_some()
+            })
+            .and_then(|fact| fact.options().echo())
+            .expect("expected echo facts");
+        assert_eq!(
+            echo.portability_flag_word()
+                .map(|word| word.span.slice(source)),
+            Some("-ne")
+        );
+        assert_eq!(
+            facts
+                .commands()
+                .iter()
+                .filter(|fact| fact.effective_name_is("echo"))
+                .nth(1)
+                .and_then(|fact| fact.options().echo())
+                .and_then(|echo| echo.portability_flag_word())
+                .map(|word| word.span.slice(source)),
+            None
         );
 
         let printf = facts

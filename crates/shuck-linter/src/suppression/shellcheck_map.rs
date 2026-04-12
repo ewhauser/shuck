@@ -284,6 +284,7 @@ impl Default for ShellCheckCodeMap {
             // The pinned ShellCheck oracle reports `$(< file)` as SC3034.
             // Keep SC3024 as a legacy alias for suppression compatibility.
             (3034, Rule::BashFileSlurp),
+            (3037, Rule::EchoFlags),
             (3025, Rule::PrintfQFormatInSh),
             (3026, Rule::CaretNegationInBracket),
             (3077, Rule::BasePrefixInArithmetic),
@@ -557,6 +558,7 @@ impl Default for ShellCheckCodeMap {
                     (3024, Rule::PlusEqualsAppend),
                     (3071, Rule::PlusEqualsInSh),
                     (3034, Rule::BashFileSlurp),
+                    (3037, Rule::EchoFlags),
                     (3025, Rule::PrintfQFormatInSh),
                     (3052, Rule::AmpersandRedirection),
                     (3050, Rule::BraceFdRedirection),
@@ -1152,6 +1154,7 @@ mod tests {
         assert_eq!(map.resolve("SC2352"), Some(Rule::DefaultElseInShortCircuit));
         assert_eq!(map.resolve("SC3025"), Some(Rule::PrintfQFormatInSh));
         assert_eq!(map.resolve("SC3034"), Some(Rule::BashFileSlurp));
+        assert_eq!(map.resolve("SC3037"), Some(Rule::EchoFlags));
         assert_eq!(map.resolve("SC3024"), Some(Rule::PlusEqualsAppend));
         assert_eq!(map.resolve("SC3055"), Some(Rule::PlusEqualsAppend));
         assert_eq!(map.resolve("SC3071"), Some(Rule::PlusEqualsInSh));
@@ -1682,6 +1685,7 @@ mod tests {
             (3024, Rule::BashFileSlurp),
             (3024, Rule::PlusEqualsInSh),
             (3034, Rule::BashFileSlurp),
+            (3037, Rule::EchoFlags),
             (3025, Rule::PrintfQFormatInSh),
             (3026, Rule::CaretNegationInBracket),
             (3028, Rule::ArrayReference),
@@ -1859,6 +1863,7 @@ mod tests {
         assert!(comparison.contains(&(3040, Rule::PipefailOption)));
         assert!(comparison.contains(&(3025, Rule::PrintfQFormatInSh)));
         assert!(comparison.contains(&(3048, Rule::WaitOption)));
+        assert!(comparison.contains(&(3037, Rule::EchoFlags)));
         assert!(comparison.contains(&(2217, Rule::EchoHereDoc)));
         assert!(comparison.contains(&(3046, Rule::SourceBuiltinInSh)));
         assert!(comparison.contains(&(3024, Rule::PlusEqualsAppend)));

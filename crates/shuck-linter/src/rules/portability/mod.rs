@@ -16,6 +16,7 @@ pub mod coproc;
 pub mod csh_syntax_in_sh;
 pub mod declare_command;
 pub mod dollar_string_in_sh;
+pub mod echo_flags;
 pub mod errexit_trap_in_sh;
 pub mod function_keyword;
 pub mod function_keyword_in_sh;
@@ -103,6 +104,7 @@ mod tests {
     #[test_case(Rule::CaseModificationExpansion, Path::new("X024.sh"))]
     #[test_case(Rule::ReplacementExpansion, Path::new("X025.sh"))]
     #[test_case(Rule::BashFileSlurp, Path::new("X026.sh"))]
+    #[test_case(Rule::EchoFlags, Path::new("X027.sh"))]
     #[test_case(Rule::SourceBuiltinInSh, Path::new("X031.sh"))]
     #[test_case(Rule::PrintfQFormatInSh, Path::new("X032.sh"))]
     #[test_case(Rule::IfElifBashTest, Path::new("X033.sh"))]
