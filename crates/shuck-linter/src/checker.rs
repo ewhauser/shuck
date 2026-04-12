@@ -894,6 +894,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ExprSubstrInTest) {
             rules::correctness::expr_substr_in_test::expr_substr_in_test(self);
         }
+        if self.is_rule_enabled(Rule::StringComparedWithEq) {
+            rules::correctness::string_compared_with_eq::string_compared_with_eq(self);
+        }
         if self.is_rule_enabled(Rule::MalformedArithmeticInCondition) {
             rules::correctness::malformed_arithmetic_in_condition::malformed_arithmetic_in_condition(
                 self,

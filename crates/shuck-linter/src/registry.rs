@@ -346,6 +346,12 @@ declare_rules! {
         ExprSubstrInTest
     ),
     (
+        "C121",
+        Category::Correctness,
+        Severity::Warning,
+        StringComparedWithEq
+    ),
+    (
         "C123",
         Category::Correctness,
         Severity::Error,

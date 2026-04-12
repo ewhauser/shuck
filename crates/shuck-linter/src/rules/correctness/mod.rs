@@ -101,6 +101,7 @@ pub mod single_quoted_literal;
 pub mod space_after_hash_bang;
 pub mod spaced_assignment;
 pub mod status_capture_after_branch_test;
+pub mod string_compared_with_eq;
 pub mod string_comparison_for_version;
 pub mod subshell_in_arithmetic;
 pub mod subshell_local_assignment;
@@ -156,6 +157,7 @@ mod tests {
     #[test_case(Rule::SudoRedirectionOrder, Path::new("C015.sh"))]
     #[test_case(Rule::ConstantComparisonTest, Path::new("C017.sh"))]
     #[test_case(Rule::ConstantInTestAssignment, Path::new("C110.sh"))]
+    #[test_case(Rule::StringComparedWithEq, Path::new("C121.sh"))]
     #[test_case(Rule::MalformedArithmeticInCondition, Path::new("C118.sh"))]
     #[test_case(Rule::ExprSubstrInTest, Path::new("C120.sh"))]
     #[test_case(Rule::LoopControlOutsideLoop, Path::new("C018.sh"))]
