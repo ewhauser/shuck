@@ -1,0 +1,9 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 235
+---
+C134 getopts option -o is not handled by this case statement
+ --> <source>:5:3
+  |
+5 |   case "$OPT" in
+  |

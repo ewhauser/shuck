@@ -353,6 +353,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::CaseDefaultBeforeGlob) {
             rules::correctness::case_default_before_glob::case_default_before_glob(self);
         }
+        if self.is_rule_enabled(Rule::GetoptsOptionNotInCase) {
+            rules::correctness::getopts_option_not_in_case::getopts_option_not_in_case(self);
+        }
         if self.is_rule_enabled(Rule::StandaloneArithmetic) {
             rules::portability::standalone_arithmetic::standalone_arithmetic(self);
         }

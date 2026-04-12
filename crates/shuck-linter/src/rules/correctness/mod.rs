@@ -48,6 +48,7 @@ pub mod glob_in_string_comparison;
 pub mod glob_in_test_comparison;
 pub mod glob_with_expansion_in_loop;
 pub mod greater_than_in_test;
+pub mod getopts_option_not_in_case;
 pub mod heredoc_closer_not_alone;
 pub mod heredoc_missing_end;
 pub mod if_bracket_glued;
@@ -222,6 +223,7 @@ mod tests {
     #[test_case(Rule::ContinueOutsideLoopInFunction, Path::new("C126.sh"))]
     #[test_case(Rule::CaseGlobReachability, Path::new("C128.sh"))]
     #[test_case(Rule::CaseDefaultBeforeGlob, Path::new("C129.sh"))]
+    #[test_case(Rule::GetoptsOptionNotInCase, Path::new("C134.sh"))]
     #[test_case(Rule::AppendWithEscapedQuotes, Path::new("C130.sh"))]
     #[test_case(Rule::VariableAsCommandName, Path::new("C131.sh"))]
     #[test_case(Rule::MisspelledOptionName, Path::new("C132.sh"))]

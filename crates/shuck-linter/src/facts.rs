@@ -22,8 +22,8 @@ use shuck_ast::{
     ConditionalBinaryOp, ConditionalExpr, ConditionalUnaryOp, DeclClause, DeclOperand, File,
     ForCommand, FunctionDef, Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp,
     Pattern, PatternPart, Position, Redirect, RedirectKind, SelectCommand, SimpleCommand,
-    SourceText, Span, Stmt, StmtSeq, Subscript, VarRef, Word, WordPart, WordPartNode,
-    ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
+    SourceText, Span, Stmt, StmtSeq, Subscript, VarRef, WhileCommand, Word, WordPart,
+    WordPartNode, ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -1015,6 +1015,69 @@ impl CasePatternShadowFact {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GetoptsOptionSpec {
+    option: char,
+    requires_argument: bool,
+}
+
+impl GetoptsOptionSpec {
+    pub fn option(self) -> char {
+        self.option
+    }
+
+    pub fn requires_argument(self) -> bool {
+        self.requires_argument
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GetoptsCaseLabelFact {
+    label: char,
+    span: Span,
+}
+
+impl GetoptsCaseLabelFact {
+    pub fn label(self) -> char {
+        self.label
+    }
+
+    pub fn span(self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct GetoptsCaseFact {
+    case_span: Span,
+    declared_options: Box<[GetoptsOptionSpec]>,
+    handled_case_labels: Box<[GetoptsCaseLabelFact]>,
+    has_fallback_pattern: bool,
+    missing_options: Box<[GetoptsOptionSpec]>,
+}
+
+impl GetoptsCaseFact {
+    pub fn case_span(&self) -> Span {
+        self.case_span
+    }
+
+    pub fn declared_options(&self) -> &[GetoptsOptionSpec] {
+        &self.declared_options
+    }
+
+    pub fn handled_case_labels(&self) -> &[GetoptsCaseLabelFact] {
+        &self.handled_case_labels
+    }
+
+    pub fn has_fallback_pattern(&self) -> bool {
+        self.has_fallback_pattern
+    }
+
+    pub fn missing_options(&self) -> &[GetoptsOptionSpec] {
+        &self.missing_options
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct FunctionHeaderFact<'a> {
     function: &'a FunctionDef,
@@ -1821,6 +1884,7 @@ pub struct LinterFacts<'a> {
     select_headers: Vec<SelectHeaderFact<'a>>,
     case_items: Vec<CaseItemFact<'a>>,
     case_pattern_shadows: Vec<CasePatternShadowFact>,
+    getopts_cases: Vec<GetoptsCaseFact>,
     pipelines: Vec<PipelineFact<'a>>,
     lists: Vec<ListFact<'a>>,
     single_test_subshell_spans: Vec<Span>,
@@ -2010,6 +2074,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn case_pattern_shadows(&self) -> &[CasePatternShadowFact] {
         &self.case_pattern_shadows
+    }
+
+    pub fn getopts_cases(&self) -> &[GetoptsCaseFact] {
+        &self.getopts_cases
     }
 
     pub fn pipelines(&self) -> &[PipelineFact<'a>] {
@@ -2392,6 +2460,7 @@ impl<'a> LinterFactsBuilder<'a> {
             build_select_header_facts(&commands, &command_ids_by_span, self.source);
         let case_items = build_case_item_facts(&commands);
         let case_pattern_shadows = build_case_pattern_shadow_facts(&commands, self.source);
+        let getopts_cases = build_getopts_case_facts(&self.file.body, self.source);
         let pipelines = build_pipeline_facts(&commands, &command_ids_by_span);
         let lists = build_list_facts(&commands, &command_ids_by_span, self.source);
         let single_test_subshell_spans =
@@ -2492,6 +2561,7 @@ impl<'a> LinterFactsBuilder<'a> {
             select_headers,
             case_items,
             case_pattern_shadows,
+            getopts_cases,
             pipelines,
             lists,
             single_test_subshell_spans,
@@ -6120,6 +6190,218 @@ fn build_case_pattern_shadow_facts(
     }
 
     shadows
+}
+
+#[derive(Debug, Clone)]
+struct ParsedGetoptsCommand {
+    declared_options: Vec<GetoptsOptionSpec>,
+    target_name: Name,
+}
+
+fn build_getopts_case_facts(commands: &StmtSeq, source: &str) -> Vec<GetoptsCaseFact> {
+    query::iter_commands(
+        commands,
+        CommandWalkOptions {
+            descend_nested_word_commands: false,
+        },
+    )
+    .filter_map(|visit| {
+        let Command::Compound(CompoundCommand::While(command)) = visit.command else {
+            return None;
+        };
+
+        build_getopts_case_fact_for_while(command, source)
+    })
+    .collect()
+}
+
+fn build_getopts_case_fact_for_while(
+    command: &WhileCommand,
+    source: &str,
+) -> Option<GetoptsCaseFact> {
+    let parsed = parse_getopts_command_from_condition(&command.condition, source)?;
+    let (case_span, handled_case_labels, has_fallback_pattern) =
+        first_getopts_case_match(&command.body, parsed.target_name.as_str(), source)?;
+
+    let handled = handled_case_labels
+        .iter()
+        .map(|label| label.label)
+        .collect::<FxHashSet<_>>();
+    let missing_options = if has_fallback_pattern {
+        Vec::new()
+    } else {
+        parsed
+            .declared_options
+            .iter()
+            .copied()
+            .filter(|option| !handled.contains(&option.option))
+            .collect::<Vec<_>>()
+    };
+
+    Some(GetoptsCaseFact {
+        case_span,
+        declared_options: parsed.declared_options.into_boxed_slice(),
+        handled_case_labels: handled_case_labels.into_boxed_slice(),
+        has_fallback_pattern,
+        missing_options: missing_options.into_boxed_slice(),
+    })
+}
+
+fn parse_getopts_command_from_condition(condition: &StmtSeq, source: &str) -> Option<ParsedGetoptsCommand> {
+    let stmt = condition.last()?;
+    let normalized = command::normalize_command(&stmt.command, source);
+    if !normalized.effective_name_is("getopts") {
+        return None;
+    }
+
+    let args = normalized.body_args();
+    let option_string = static_word_text(args.first()?, source)?;
+    let target_text = static_word_text(args.get(1)?, source)?;
+    if !is_shell_variable_name(&target_text) {
+        return None;
+    }
+
+    let declared_options = parse_getopts_option_specs(&option_string);
+    (!declared_options.is_empty()).then_some(ParsedGetoptsCommand {
+        declared_options,
+        target_name: Name::from(target_text),
+    })
+}
+
+fn parse_getopts_option_specs(option_string: &str) -> Vec<GetoptsOptionSpec> {
+    let mut specs = Vec::new();
+    let mut seen = FxHashSet::default();
+    let mut chars = option_string.chars().peekable();
+
+    if chars.peek() == Some(&':') {
+        chars.next();
+    }
+
+    while let Some(option) = chars.next() {
+        if option == ':' {
+            continue;
+        }
+
+        let requires_argument = chars.peek() == Some(&':');
+        if requires_argument {
+            chars.next();
+        }
+
+        if seen.insert(option) {
+            specs.push(GetoptsOptionSpec {
+                option,
+                requires_argument,
+            });
+        }
+    }
+
+    specs
+}
+
+fn first_getopts_case_match(
+    body: &StmtSeq,
+    target_name: &str,
+    source: &str,
+) -> Option<(Span, Vec<GetoptsCaseLabelFact>, bool)> {
+    query::iter_commands(
+        body,
+        CommandWalkOptions {
+            descend_nested_word_commands: false,
+        },
+    )
+    .find_map(|visit| {
+        let Command::Compound(CompoundCommand::Case(command)) = visit.command else {
+            return None;
+        };
+
+        (case_subject_variable_name(&command.word) == Some(target_name)).then(|| {
+            let mut has_fallback_pattern = false;
+            let labels = command
+                .cases
+                .iter()
+                .flat_map(|item| item.patterns.iter())
+                .filter_map(|pattern| {
+                    if getopts_case_pattern_is_fallback(pattern, source) {
+                        has_fallback_pattern = true;
+                    }
+
+                    let text = static_case_pattern_text(pattern, source)?;
+                    let mut chars = text.chars();
+                    let label = chars.next()?;
+                    chars.next().is_none().then_some(GetoptsCaseLabelFact {
+                        label,
+                        span: pattern.span,
+                    })
+                })
+                .collect::<Vec<_>>();
+            (command.span, labels, has_fallback_pattern)
+        })
+    })
+}
+
+fn getopts_case_pattern_is_fallback(pattern: &Pattern, source: &str) -> bool {
+    let mut tokens = Vec::new();
+    if collect_static_case_pattern_tokens(pattern.span.slice(source), &mut tokens).is_none() {
+        return false;
+    }
+
+    matches!(
+        tokens.as_slice(),
+        [CasePatternToken::AnyString] | [CasePatternToken::AnyChar]
+    )
+}
+
+fn static_case_pattern_text(pattern: &Pattern, source: &str) -> Option<String> {
+    ensure_case_pattern_is_statically_analyzable(pattern, source)?;
+
+    let mut tokens = Vec::new();
+    collect_static_case_pattern_tokens(pattern.span.slice(source), &mut tokens)?;
+    tokens
+        .into_iter()
+        .map(|token| match token {
+            CasePatternToken::Literal(ch) => Some(ch),
+            CasePatternToken::AnyChar | CasePatternToken::AnyString => None,
+        })
+        .collect()
+}
+
+fn case_subject_variable_name(word: &Word) -> Option<&str> {
+    standalone_variable_name_from_word_parts(&word.parts)
+}
+
+fn standalone_variable_name_from_word_parts(parts: &[WordPartNode]) -> Option<&str> {
+    let [part] = parts else {
+        return None;
+    };
+
+    match &part.kind {
+        WordPart::Variable(name) => Some(name.as_str()),
+        WordPart::Parameter(parameter) => match parameter.bourne() {
+            Some(BourneParameterExpansion::Access { reference })
+                if reference.subscript.is_none() =>
+            {
+                Some(reference.name.as_str())
+            }
+            _ => None,
+        },
+        WordPart::DoubleQuoted { parts, .. } => standalone_variable_name_from_word_parts(parts),
+        WordPart::Literal(_)
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ArithmeticExpansion { .. }
+        | WordPart::SingleQuoted { .. }
+        | WordPart::ParameterExpansion { .. }
+        | WordPart::Length(_)
+        | WordPart::ArrayAccess(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::Substring { .. }
+        | WordPart::ArraySlice { .. }
+        | WordPart::IndirectExpansion { .. }
+        | WordPart::PrefixMatch { .. }
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::Transformation { .. }
+        | WordPart::ZshQualifiedGlob(_) => None,
+    }
 }
 
 fn word_context_supports_operand_class(context: ExpansionContext) -> bool {
