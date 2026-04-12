@@ -14,8 +14,9 @@ use shuck_parser::{ShellProfile, ZshEmulationMode, parser::Parser};
 use crate::binding::{Binding, BindingAttributes, BindingKind};
 use crate::call_graph::{CallGraph, CallSite, OverwrittenFunction};
 use crate::cfg::{
-    FlowContext, IsolatedRegion, RecordedCaseArm, RecordedCommand, RecordedCommandInfo,
-    RecordedCommandKind, RecordedListOperator, RecordedPipelineSegment, RecordedProgram,
+    FlowContext, IsolatedRegion, RecordedCaseArm, RecordedCommand, RecordedCommandId,
+    RecordedCommandInfo, RecordedCommandKind, RecordedCommandRange, RecordedElifBranch,
+    RecordedListItem, RecordedListOperator, RecordedPipelineSegment, RecordedProgram,
     RecordedZshCommandEffect, RecordedZshOptionUpdate,
 };
 use crate::declaration::{Declaration, DeclarationBuiltin, DeclarationOperand};
@@ -70,9 +71,7 @@ pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     indirect_target_hints: FxHashMap<BindingId, IndirectTargetHint>,
     indirect_expansion_refs: FxHashSet<ReferenceId>,
     flow_contexts: Vec<(Span, FlowContext)>,
-    recorded_function_bodies: FxHashMap<ScopeId, Vec<RecordedCommand>>,
-    recorded_command_infos: FxHashMap<SpanKey, RecordedCommandInfo>,
-    function_body_scopes: FxHashMap<BindingId, ScopeId>,
+    recorded_program: RecordedProgram,
     command_bindings: FxHashMap<SpanKey, Vec<BindingId>>,
     command_references: FxHashMap<SpanKey, Vec<ReferenceId>>,
     source_directives: FxHashMap<usize, SourceDirectiveOverride>,
@@ -140,9 +139,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             indirect_target_hints: FxHashMap::default(),
             indirect_expansion_refs: FxHashSet::default(),
             flow_contexts: Vec::new(),
-            recorded_function_bodies: FxHashMap::default(),
-            recorded_command_infos: FxHashMap::default(),
-            function_body_scopes: FxHashMap::default(),
+            recorded_program: RecordedProgram::default(),
             command_bindings: FxHashMap::default(),
             command_references: FxHashMap::default(),
             source_directives: parse_source_directives(source, indexer),
@@ -153,6 +150,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             command_stack: Vec::new(),
         };
         let file_commands = builder.visit_stmt_seq(&file.body, FlowState::default());
+        builder.recorded_program.set_file_commands(file_commands);
         builder.mark_scope_completed(ScopeId(0));
         builder.drain_deferred_functions();
 
@@ -178,12 +176,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             indirect_target_hints: builder.indirect_target_hints,
             indirect_expansion_refs: builder.indirect_expansion_refs,
             flow_contexts: builder.flow_contexts,
-            recorded_program: RecordedProgram {
-                file_commands,
-                function_bodies: builder.recorded_function_bodies,
-                command_infos: builder.recorded_command_infos,
-                function_body_scopes: builder.function_body_scopes,
-            },
+            recorded_program: builder.recorded_program,
             command_bindings: builder.command_bindings,
             command_references: builder.command_references,
             heuristic_unused_assignments,
@@ -200,17 +193,43 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
-    fn visit_stmt_seq(&mut self, commands: &StmtSeq, flow: FlowState) -> Vec<RecordedCommand> {
+    fn record_command(
+        &mut self,
+        span: Span,
+        nested_regions: Vec<IsolatedRegion>,
+        kind: RecordedCommandKind,
+    ) -> RecordedCommandId {
+        let nested_regions = self.recorded_program.push_regions(nested_regions);
+        self.recorded_program.push_command(RecordedCommand {
+            span,
+            nested_regions,
+            kind,
+        })
+    }
+
+    fn prepend_nested_regions(&mut self, command: RecordedCommandId, regions: Vec<IsolatedRegion>) {
+        if regions.is_empty() {
+            return;
+        }
+
+        let existing = self.recorded_program.command(command).nested_regions;
+        let mut merged = regions;
+        merged.extend_from_slice(self.recorded_program.nested_regions(existing));
+        self.recorded_program.command_mut(command).nested_regions =
+            self.recorded_program.push_regions(merged);
+    }
+
+    fn visit_stmt_seq(&mut self, commands: &StmtSeq, flow: FlowState) -> RecordedCommandRange {
         let mut recorded = Vec::with_capacity(commands.len());
         self.visit_stmt_seq_into(commands, flow, &mut recorded);
-        recorded
+        self.recorded_program.push_command_ids(recorded)
     }
 
     fn visit_stmt_seq_into(
         &mut self,
         commands: &StmtSeq,
         flow: FlowState,
-        recorded: &mut Vec<RecordedCommand>,
+        recorded: &mut Vec<RecordedCommandId>,
     ) {
         recorded.reserve(commands.len());
         for stmt in commands.iter() {
@@ -218,7 +237,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
-    fn visit_stmt(&mut self, stmt: &Stmt, flow: FlowState) -> RecordedCommand {
+    fn visit_stmt(&mut self, stmt: &Stmt, flow: FlowState) -> RecordedCommandId {
         let span = stmt.span;
         let scope = self.current_scope();
         let context = Self::flow_context(flow);
@@ -226,13 +245,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         self.observer.enter_command(&stmt.command, scope, context);
         self.command_stack.push(span);
 
-        let mut recorded = self.visit_command(&stmt.command, flow);
+        let recorded = self.visit_command(&stmt.command, flow);
         let redirects = self.visit_redirects(&stmt.redirects, flow);
         if !redirects.is_empty() {
-            recorded.nested_regions.splice(0..0, redirects);
+            self.prepend_nested_regions(recorded, redirects);
         }
-        recorded.span = span;
-        self.recorded_command_infos.insert(
+        self.recorded_program.command_mut(recorded).span = span;
+        self.recorded_program.command_infos.insert(
             SpanKey::new(span),
             recorded_command_info(&stmt.command, self.source),
         );
@@ -242,7 +261,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         recorded
     }
 
-    fn visit_command(&mut self, command: &Command, flow: FlowState) -> RecordedCommand {
+    fn visit_command(&mut self, command: &Command, flow: FlowState) -> RecordedCommandId {
         match command {
             Command::Simple(command) => self.visit_simple_command(command, flow),
             Command::Builtin(command) => self.visit_builtin(command, flow),
@@ -258,7 +277,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         &mut self,
         command: &shuck_ast::SimpleCommand,
         flow: FlowState,
-    ) -> RecordedCommand {
+    ) -> RecordedCommandId {
         let mut nested_regions = Vec::new();
         let command_has_name = simple_command_has_name(command, self.source);
         for assignment in &command.assignments {
@@ -309,59 +328,59 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             self.classify_special_simple_command(&callee, command, flow);
         }
 
-        RecordedCommand {
-            span: command.span,
-            nested_regions,
-            kind: RecordedCommandKind::Linear,
-        }
+        self.record_command(command.span, nested_regions, RecordedCommandKind::Linear)
     }
 
-    fn visit_builtin(&mut self, command: &BuiltinCommand, flow: FlowState) -> RecordedCommand {
+    fn visit_builtin(&mut self, command: &BuiltinCommand, flow: FlowState) -> RecordedCommandId {
         match command {
-            BuiltinCommand::Break(command) => RecordedCommand {
-                span: command.span,
-                nested_regions: self.visit_builtin_parts(
+            BuiltinCommand::Break(command) => {
+                let nested_regions = self.visit_builtin_parts(
                     &command.assignments,
                     command.depth.as_ref(),
                     &command.extra_args,
                     flow,
-                ),
-                kind: RecordedCommandKind::Break {
-                    depth: depth_from_word(command.depth.as_ref()),
-                },
-            },
-            BuiltinCommand::Continue(command) => RecordedCommand {
-                span: command.span,
-                nested_regions: self.visit_builtin_parts(
+                );
+                self.record_command(
+                    command.span,
+                    nested_regions,
+                    RecordedCommandKind::Break {
+                        depth: depth_from_word(command.depth.as_ref()),
+                    },
+                )
+            }
+            BuiltinCommand::Continue(command) => {
+                let nested_regions = self.visit_builtin_parts(
                     &command.assignments,
                     command.depth.as_ref(),
                     &command.extra_args,
                     flow,
-                ),
-                kind: RecordedCommandKind::Continue {
-                    depth: depth_from_word(command.depth.as_ref()),
-                },
-            },
-            BuiltinCommand::Return(command) => RecordedCommand {
-                span: command.span,
-                nested_regions: self.visit_builtin_parts(
+                );
+                self.record_command(
+                    command.span,
+                    nested_regions,
+                    RecordedCommandKind::Continue {
+                        depth: depth_from_word(command.depth.as_ref()),
+                    },
+                )
+            }
+            BuiltinCommand::Return(command) => {
+                let nested_regions = self.visit_builtin_parts(
                     &command.assignments,
                     command.code.as_ref(),
                     &command.extra_args,
                     flow,
-                ),
-                kind: RecordedCommandKind::Return,
-            },
-            BuiltinCommand::Exit(command) => RecordedCommand {
-                span: command.span,
-                nested_regions: self.visit_builtin_parts(
+                );
+                self.record_command(command.span, nested_regions, RecordedCommandKind::Return)
+            }
+            BuiltinCommand::Exit(command) => {
+                let nested_regions = self.visit_builtin_parts(
                     &command.assignments,
                     command.code.as_ref(),
                     &command.extra_args,
                     flow,
-                ),
-                kind: RecordedCommandKind::Exit,
-            },
+                );
+                self.record_command(command.span, nested_regions, RecordedCommandKind::Exit)
+            }
         }
     }
 
@@ -394,7 +413,11 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         nested_regions
     }
 
-    fn visit_decl(&mut self, command: &shuck_ast::DeclClause, flow: FlowState) -> RecordedCommand {
+    fn visit_decl(
+        &mut self,
+        command: &shuck_ast::DeclClause,
+        flow: FlowState,
+    ) -> RecordedCommandId {
         let mut nested_regions = Vec::new();
         for assignment in &command.assignments {
             self.visit_assignment_into(
@@ -451,14 +474,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             }
         }
 
-        RecordedCommand {
-            span: command.span,
-            nested_regions,
-            kind: RecordedCommandKind::Linear,
-        }
+        self.record_command(command.span, nested_regions, RecordedCommandKind::Linear)
     }
 
-    fn visit_binary(&mut self, command: &BinaryCommand, flow: FlowState) -> RecordedCommand {
+    fn visit_binary(&mut self, command: &BinaryCommand, flow: FlowState) -> RecordedCommandId {
         match command.op {
             BinaryOp::And | BinaryOp::Or => self.visit_logical_binary(command, flow),
             BinaryOp::Pipe | BinaryOp::PipeAll => self.visit_pipeline_binary(command, flow),
@@ -469,7 +488,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         &mut self,
         command: &BinaryCommand,
         mut flow: FlowState,
-    ) -> RecordedCommand {
+    ) -> RecordedCommandId {
         flow.in_subshell = true;
         let mut commands = Vec::new();
         collect_pipeline_segments(&command.left, &mut commands);
@@ -487,18 +506,19 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             });
         }
 
-        RecordedCommand {
-            span: command.span,
-            nested_regions: Vec::new(),
-            kind: RecordedCommandKind::Pipeline { segments },
-        }
+        let segments = self.recorded_program.push_pipeline_segments(segments);
+        self.record_command(
+            command.span,
+            Vec::new(),
+            RecordedCommandKind::Pipeline { segments },
+        )
     }
 
     fn visit_logical_binary(
         &mut self,
         command: &BinaryCommand,
         flow: FlowState,
-    ) -> RecordedCommand {
+    ) -> RecordedCommandId {
         let mut operators = Vec::new();
         let mut commands = Vec::new();
         collect_logical_segments(&command.left, &mut commands, &mut operators);
@@ -513,57 +533,67 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
 
         let mut recorded = recorded.into_iter();
-        let first = Box::new(
-            recorded
-                .next()
-                .expect("logical lists have at least one command"),
+        let first = recorded
+            .next()
+            .expect("logical lists have at least one command");
+        let rest = self.recorded_program.push_list_items(
+            operators
+                .into_iter()
+                .zip(recorded)
+                .map(|(operator, command)| RecordedListItem { operator, command })
+                .collect(),
         );
-        let rest = operators.into_iter().zip(recorded).collect();
 
-        RecordedCommand {
-            span: command.span,
-            nested_regions: Vec::new(),
-            kind: RecordedCommandKind::List { first, rest },
-        }
+        self.record_command(
+            command.span,
+            Vec::new(),
+            RecordedCommandKind::List { first, rest },
+        )
     }
 
-    fn visit_compound(&mut self, command: &CompoundCommand, flow: FlowState) -> RecordedCommand {
+    fn visit_compound(&mut self, command: &CompoundCommand, flow: FlowState) -> RecordedCommandId {
         match command {
-            CompoundCommand::If(command) => RecordedCommand {
-                span: command.span,
-                nested_regions: Vec::new(),
-                kind: RecordedCommandKind::If {
-                    condition: self.visit_stmt_seq(
-                        &command.condition,
-                        FlowState {
-                            exit_status_checked: true,
-                            ..flow
-                        },
-                    ),
-                    then_branch: self.visit_stmt_seq(&command.then_branch, flow),
-                    elif_branches: command
-                        .elif_branches
-                        .iter()
-                        .map(|(condition, body)| {
-                            (
-                                self.visit_stmt_seq(
-                                    condition,
-                                    FlowState {
-                                        exit_status_checked: true,
-                                        ..flow
-                                    },
-                                ),
-                                self.visit_stmt_seq(body, flow),
-                            )
-                        })
-                        .collect(),
-                    else_branch: command
-                        .else_branch
-                        .as_ref()
-                        .map(|body| self.visit_stmt_seq(body, flow))
-                        .unwrap_or_default(),
-                },
-            },
+            CompoundCommand::If(command) => {
+                let condition = self.visit_stmt_seq(
+                    &command.condition,
+                    FlowState {
+                        exit_status_checked: true,
+                        ..flow
+                    },
+                );
+                let then_branch = self.visit_stmt_seq(&command.then_branch, flow);
+                let elif_branches = command
+                    .elif_branches
+                    .iter()
+                    .map(|(condition, body)| RecordedElifBranch {
+                        condition: self.visit_stmt_seq(
+                            condition,
+                            FlowState {
+                                exit_status_checked: true,
+                                ..flow
+                            },
+                        ),
+                        body: self.visit_stmt_seq(body, flow),
+                    })
+                    .collect();
+                let elif_branches = self.recorded_program.push_elif_branches(elif_branches);
+                let else_branch = command
+                    .else_branch
+                    .as_ref()
+                    .map(|body| self.visit_stmt_seq(body, flow))
+                    .unwrap_or_default();
+
+                self.record_command(
+                    command.span,
+                    Vec::new(),
+                    RecordedCommandKind::If {
+                        condition,
+                        then_branch,
+                        elif_branches,
+                        else_branch,
+                    },
+                )
+            }
             CompoundCommand::For(command) => {
                 let nested_regions = command
                     .words
@@ -582,33 +612,35 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     }
                 }
 
-                RecordedCommand {
-                    span: command.span,
-                    nested_regions,
-                    kind: RecordedCommandKind::For {
-                        body: self.visit_stmt_seq(
-                            &command.body,
-                            FlowState {
-                                loop_depth: flow.loop_depth + 1,
-                                ..flow
-                            },
-                        ),
+                let body = self.visit_stmt_seq(
+                    &command.body,
+                    FlowState {
+                        loop_depth: flow.loop_depth + 1,
+                        ..flow
                     },
-                }
+                );
+                self.record_command(
+                    command.span,
+                    nested_regions,
+                    RecordedCommandKind::For { body },
+                )
             }
-            CompoundCommand::Repeat(command) => RecordedCommand {
-                span: command.span,
-                nested_regions: self.visit_word(&command.count, WordVisitKind::Expansion, flow),
-                kind: RecordedCommandKind::For {
-                    body: self.visit_stmt_seq(
-                        &command.body,
-                        FlowState {
-                            loop_depth: flow.loop_depth + 1,
-                            ..flow
-                        },
-                    ),
-                },
-            },
+            CompoundCommand::Repeat(command) => {
+                let nested_regions =
+                    self.visit_word(&command.count, WordVisitKind::Expansion, flow);
+                let body = self.visit_stmt_seq(
+                    &command.body,
+                    FlowState {
+                        loop_depth: flow.loop_depth + 1,
+                        ..flow
+                    },
+                );
+                self.record_command(
+                    command.span,
+                    nested_regions,
+                    RecordedCommandKind::For { body },
+                )
+            }
             CompoundCommand::Foreach(command) => {
                 let nested_regions =
                     self.visit_words(&command.words, WordVisitKind::Expansion, flow);
@@ -620,19 +652,18 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     BindingAttributes::empty(),
                 );
 
-                RecordedCommand {
-                    span: command.span,
-                    nested_regions,
-                    kind: RecordedCommandKind::For {
-                        body: self.visit_stmt_seq(
-                            &command.body,
-                            FlowState {
-                                loop_depth: flow.loop_depth + 1,
-                                ..flow
-                            },
-                        ),
+                let body = self.visit_stmt_seq(
+                    &command.body,
+                    FlowState {
+                        loop_depth: flow.loop_depth + 1,
+                        ..flow
                     },
-                }
+                );
+                self.record_command(
+                    command.span,
+                    nested_regions,
+                    RecordedCommandKind::For { body },
+                )
             }
             CompoundCommand::ArithmeticFor(command) => {
                 let mut nested_regions = Vec::new();
@@ -651,60 +682,61 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     flow,
                     &mut nested_regions,
                 );
-                RecordedCommand {
-                    span: command.span,
-                    nested_regions,
-                    kind: RecordedCommandKind::ArithmeticFor {
-                        body: self.visit_stmt_seq(
-                            &command.body,
-                            FlowState {
-                                loop_depth: flow.loop_depth + 1,
-                                ..flow
-                            },
-                        ),
+                let body = self.visit_stmt_seq(
+                    &command.body,
+                    FlowState {
+                        loop_depth: flow.loop_depth + 1,
+                        ..flow
                     },
-                }
+                );
+                self.record_command(
+                    command.span,
+                    nested_regions,
+                    RecordedCommandKind::ArithmeticFor { body },
+                )
             }
-            CompoundCommand::While(command) => RecordedCommand {
-                span: command.span,
-                nested_regions: Vec::new(),
-                kind: RecordedCommandKind::While {
-                    condition: self.visit_stmt_seq(
-                        &command.condition,
-                        FlowState {
-                            exit_status_checked: true,
-                            ..flow
-                        },
-                    ),
-                    body: self.visit_stmt_seq(
-                        &command.body,
-                        FlowState {
-                            loop_depth: flow.loop_depth + 1,
-                            ..flow
-                        },
-                    ),
-                },
-            },
-            CompoundCommand::Until(command) => RecordedCommand {
-                span: command.span,
-                nested_regions: Vec::new(),
-                kind: RecordedCommandKind::Until {
-                    condition: self.visit_stmt_seq(
-                        &command.condition,
-                        FlowState {
-                            exit_status_checked: true,
-                            ..flow
-                        },
-                    ),
-                    body: self.visit_stmt_seq(
-                        &command.body,
-                        FlowState {
-                            loop_depth: flow.loop_depth + 1,
-                            ..flow
-                        },
-                    ),
-                },
-            },
+            CompoundCommand::While(command) => {
+                let condition = self.visit_stmt_seq(
+                    &command.condition,
+                    FlowState {
+                        exit_status_checked: true,
+                        ..flow
+                    },
+                );
+                let body = self.visit_stmt_seq(
+                    &command.body,
+                    FlowState {
+                        loop_depth: flow.loop_depth + 1,
+                        ..flow
+                    },
+                );
+                self.record_command(
+                    command.span,
+                    Vec::new(),
+                    RecordedCommandKind::While { condition, body },
+                )
+            }
+            CompoundCommand::Until(command) => {
+                let condition = self.visit_stmt_seq(
+                    &command.condition,
+                    FlowState {
+                        exit_status_checked: true,
+                        ..flow
+                    },
+                );
+                let body = self.visit_stmt_seq(
+                    &command.body,
+                    FlowState {
+                        loop_depth: flow.loop_depth + 1,
+                        ..flow
+                    },
+                );
+                self.record_command(
+                    command.span,
+                    Vec::new(),
+                    RecordedCommandKind::Until { condition, body },
+                )
+            }
             CompoundCommand::Case(command) => {
                 let nested_regions = self.visit_word(&command.word, WordVisitKind::Expansion, flow);
 
@@ -714,31 +746,33 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     .map(|case| {
                         let pattern_regions =
                             self.visit_patterns(&case.patterns, WordVisitKind::Conditional, flow);
-                        let mut commands = self.visit_stmt_seq(&case.body, flow);
+                        let mut commands = Vec::with_capacity(case.body.len());
+                        self.visit_stmt_seq_into(&case.body, flow, &mut commands);
                         if !pattern_regions.is_empty() {
-                            if let Some(first) = commands.first_mut() {
-                                first.nested_regions.splice(0..0, pattern_regions);
+                            if let Some(&first) = commands.first() {
+                                self.prepend_nested_regions(first, pattern_regions);
                             } else {
-                                commands.push(RecordedCommand {
-                                    span: command.span,
-                                    nested_regions: pattern_regions,
-                                    kind: RecordedCommandKind::Linear,
-                                });
+                                commands.push(self.record_command(
+                                    command.span,
+                                    pattern_regions,
+                                    RecordedCommandKind::Linear,
+                                ));
                             }
                         }
                         RecordedCaseArm {
                             terminator: case.terminator,
                             matches_anything: case_arm_matches_anything(&case.patterns),
-                            commands,
+                            commands: self.recorded_program.push_command_ids(commands),
                         }
                     })
                     .collect();
 
-                RecordedCommand {
-                    span: command.span,
+                let arms = self.recorded_program.push_case_arms(arms);
+                self.record_command(
+                    command.span,
                     nested_regions,
-                    kind: RecordedCommandKind::Case { arms },
-                }
+                    RecordedCommandKind::Case { arms },
+                )
             }
             CompoundCommand::Select(command) => {
                 let nested_regions =
@@ -751,19 +785,18 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     BindingAttributes::empty(),
                 );
 
-                RecordedCommand {
-                    span: command.span,
-                    nested_regions,
-                    kind: RecordedCommandKind::Select {
-                        body: self.visit_stmt_seq(
-                            &command.body,
-                            FlowState {
-                                loop_depth: flow.loop_depth + 1,
-                                ..flow
-                            },
-                        ),
+                let body = self.visit_stmt_seq(
+                    &command.body,
+                    FlowState {
+                        loop_depth: flow.loop_depth + 1,
+                        ..flow
                     },
-                }
+                );
+                self.record_command(
+                    command.span,
+                    nested_regions,
+                    RecordedCommandKind::Select { body },
+                )
             }
             CompoundCommand::Subshell(commands) => {
                 let scope = self.push_scope(
@@ -781,87 +814,73 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 self.pop_scope(scope);
                 self.mark_scope_completed(scope);
 
-                RecordedCommand {
-                    span: command_span_from_compound(command),
-                    nested_regions: Vec::new(),
-                    kind: RecordedCommandKind::Subshell { body },
-                }
+                self.record_command(
+                    command_span_from_compound(command),
+                    Vec::new(),
+                    RecordedCommandKind::Subshell { body },
+                )
             }
-            CompoundCommand::BraceGroup(commands) => RecordedCommand {
-                span: command_span_from_compound(command),
-                nested_regions: Vec::new(),
-                kind: RecordedCommandKind::BraceGroup {
-                    body: self.visit_stmt_seq(
-                        commands,
-                        FlowState {
-                            in_block: true,
-                            ..flow
-                        },
-                    ),
-                },
-            },
-            CompoundCommand::Always(command) => RecordedCommand {
-                span: command.span,
-                nested_regions: Vec::new(),
-                kind: RecordedCommandKind::BraceGroup {
-                    body: {
-                        let block_flow = FlowState {
-                            in_block: true,
-                            ..flow
-                        };
-                        let mut body =
-                            Vec::with_capacity(command.body.len() + command.always_body.len());
-                        self.visit_stmt_seq_into(&command.body, block_flow, &mut body);
-                        self.visit_stmt_seq_into(&command.always_body, block_flow, &mut body);
-                        body
+            CompoundCommand::BraceGroup(commands) => {
+                let body = self.visit_stmt_seq(
+                    commands,
+                    FlowState {
+                        in_block: true,
+                        ..flow
                     },
-                },
-            },
+                );
+                self.record_command(
+                    command_span_from_compound(command),
+                    Vec::new(),
+                    RecordedCommandKind::BraceGroup { body },
+                )
+            }
+            CompoundCommand::Always(command) => {
+                let block_flow = FlowState {
+                    in_block: true,
+                    ..flow
+                };
+                let mut body = Vec::with_capacity(command.body.len() + command.always_body.len());
+                self.visit_stmt_seq_into(&command.body, block_flow, &mut body);
+                self.visit_stmt_seq_into(&command.always_body, block_flow, &mut body);
+                let body = self.recorded_program.push_command_ids(body);
+                self.record_command(
+                    command.span,
+                    Vec::new(),
+                    RecordedCommandKind::BraceGroup { body },
+                )
+            }
             CompoundCommand::Arithmetic(command) => {
                 let nested_regions =
                     self.visit_optional_arithmetic_expr(command.expr_ast.as_ref(), flow);
-                RecordedCommand {
-                    span: command.span,
-                    nested_regions,
-                    kind: RecordedCommandKind::Linear,
-                }
+                self.record_command(command.span, nested_regions, RecordedCommandKind::Linear)
             }
             CompoundCommand::Time(command) => {
                 let mut nested_regions = Vec::new();
                 if let Some(command) = &command.command {
-                    nested_regions.extend(Self::flatten_recorded_regions(
-                        self.visit_stmt(command, flow),
-                    ));
+                    let command_id = self.visit_stmt(command, flow);
+                    nested_regions.extend(self.flatten_recorded_regions(command_id));
                 }
-                RecordedCommand {
-                    span: command.span,
-                    nested_regions,
-                    kind: RecordedCommandKind::Linear,
-                }
+                self.record_command(command.span, nested_regions, RecordedCommandKind::Linear)
             }
             CompoundCommand::Conditional(command) => {
                 let nested_regions = self.visit_conditional_expr(&command.expression, flow);
-                RecordedCommand {
-                    span: command.span,
-                    nested_regions,
-                    kind: RecordedCommandKind::Linear,
-                }
+                self.record_command(command.span, nested_regions, RecordedCommandKind::Linear)
             }
-            CompoundCommand::Coproc(command) => RecordedCommand {
-                span: command.span,
-                nested_regions: Self::flatten_recorded_regions(self.visit_stmt(
+            CompoundCommand::Coproc(command) => {
+                let body_command = self.visit_stmt(
                     &command.body,
                     FlowState {
                         in_subshell: true,
                         ..flow
                     },
-                )),
-                kind: RecordedCommandKind::Linear,
-            },
+                );
+                let nested_regions = self.flatten_recorded_regions(body_command);
+                self.record_command(command.span, nested_regions, RecordedCommandKind::Linear)
+            }
         }
     }
 
-    fn visit_function(&mut self, function: &FunctionDef, flow: FlowState) -> RecordedCommand {
+    fn visit_function(&mut self, function: &FunctionDef, flow: FlowState) -> RecordedCommandId {
         let mut nested_regions = Vec::new();
         for entry in &function.header.entries {
             self.visit_word_into(
@@ -886,7 +905,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 span,
                 BindingAttributes::empty(),
             );
-            self.function_body_scopes.insert(binding_id, scope);
+            self.recorded_program
+                .function_body_scopes
+                .insert(binding_id, scope);
         }
         self.deferred_functions.push(DeferredFunction {
             function: function as *const FunctionDef,
@@ -895,18 +916,14 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         });
         self.pop_scope(scope);
 
-        RecordedCommand {
-            span: function.span,
-            nested_regions,
-            kind: RecordedCommandKind::Linear,
-        }
+        self.record_command(function.span, nested_regions, RecordedCommandKind::Linear)
     }
 
     fn visit_anonymous_function(
         &mut self,
         function: &AnonymousFunctionCommand,
         flow: FlowState,
-    ) -> RecordedCommand {
+    ) -> RecordedCommandId {
         let nested_regions = self.visit_words(&function.args, WordVisitKind::Expansion, flow);
         let scope = self.push_scope(
             ScopeKind::Function(FunctionScopeKind::Anonymous),
@@ -917,11 +934,11 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         self.pop_scope(scope);
         self.mark_scope_completed(scope);
 
-        RecordedCommand {
-            span: function.span,
+        self.record_command(
+            function.span,
             nested_regions,
-            kind: RecordedCommandKind::BraceGroup { body },
-        }
+            RecordedCommandKind::BraceGroup { body },
+        )
     }
 
     fn visit_assignment_into(
@@ -1268,7 +1285,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 );
                 self.pop_scope(scope);
                 self.mark_scope_completed(scope);
-                nested_regions.push(IsolatedRegion { scope, commands });
+                nested_regions.push(IsolatedRegion {
+                    scope,
+                    commands: self.recorded_program.push_command_ids(commands),
+                });
             }
             WordPart::ArithmeticExpansion { expression_ast, .. } => {
                 self.visit_optional_arithmetic_expr_into(
@@ -2354,8 +2374,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 // passed into `build`, and we only dereference them while that AST is still alive.
                 let function = unsafe { &*deferred.function };
                 let commands = self.visit_function_like_body(&function.body, deferred.flow);
-                self.recorded_function_bodies
-                    .insert(deferred.scope, commands);
+                self.recorded_program
+                    .set_function_body(deferred.scope, commands);
                 self.mark_scope_completed(deferred.scope);
             }
         }
@@ -2363,7 +2383,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         self.command_stack.clear();
     }
 
-    fn visit_function_like_body(&mut self, body: &Stmt, flow: FlowState) -> Vec<RecordedCommand> {
+    fn visit_function_like_body(&mut self, body: &Stmt, flow: FlowState) -> RecordedCommandRange {
         let flow = FlowState {
             in_function: true,
             ..flow
@@ -2373,7 +2393,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             Command::Compound(CompoundCommand::BraceGroup(commands)) => {
                 self.visit_stmt_seq(commands, flow)
             }
-            _ => vec![self.visit_stmt(body, flow)],
+            _ => {
+                let command = self.visit_stmt(body, flow);
+                self.recorded_program.push_command_ids(vec![command])
+            }
         }
     }
 
@@ -2382,24 +2405,23 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         self.scope_stack.reverse();
     }
 
-    fn flatten_recorded_regions(recorded: RecordedCommand) -> Vec<IsolatedRegion> {
-        let RecordedCommand {
-            nested_regions,
-            kind,
-            ..
-        } = recorded;
-        let mut regions = nested_regions;
+    fn flatten_recorded_regions(&self, recorded: RecordedCommandId) -> Vec<IsolatedRegion> {
+        let recorded = self.recorded_program.command(recorded);
+        let mut regions = self
+            .recorded_program
+            .nested_regions(recorded.nested_regions)
+            .to_vec();
 
-        match kind {
+        match recorded.kind {
             RecordedCommandKind::Linear
             | RecordedCommandKind::Break { .. }
             | RecordedCommandKind::Continue { .. }
             | RecordedCommandKind::Return
             | RecordedCommandKind::Exit => {}
             RecordedCommandKind::List { first, rest } => {
-                regions.extend(Self::flatten_recorded_regions(*first));
-                for (_, command) in rest {
-                    regions.extend(Self::flatten_recorded_regions(command));
+                regions.extend(self.flatten_recorded_regions(first));
+                for item in self.recorded_program.list_items(rest) {
+                    regions.extend(self.flatten_recorded_regions(item.command));
                 }
             }
             RecordedCommandKind::If {
@@ -2408,31 +2430,31 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 elif_branches,
                 else_branch,
             } => {
-                for command in condition {
-                    regions.extend(Self::flatten_recorded_regions(command));
+                for &command in self.recorded_program.commands_in(condition) {
+                    regions.extend(self.flatten_recorded_regions(command));
                 }
-                for command in then_branch {
-                    regions.extend(Self::flatten_recorded_regions(command));
+                for &command in self.recorded_program.commands_in(then_branch) {
+                    regions.extend(self.flatten_recorded_regions(command));
                 }
-                for (condition, branch) in elif_branches {
-                    for command in condition {
-                        regions.extend(Self::flatten_recorded_regions(command));
+                for branch in self.recorded_program.elif_branches(elif_branches) {
+                    for &command in self.recorded_program.commands_in(branch.condition) {
+                        regions.extend(self.flatten_recorded_regions(command));
                     }
-                    for command in branch {
-                        regions.extend(Self::flatten_recorded_regions(command));
+                    for &command in self.recorded_program.commands_in(branch.body) {
+                        regions.extend(self.flatten_recorded_regions(command));
                     }
                 }
-                for command in else_branch {
-                    regions.extend(Self::flatten_recorded_regions(command));
+                for &command in self.recorded_program.commands_in(else_branch) {
+                    regions.extend(self.flatten_recorded_regions(command));
                 }
             }
             RecordedCommandKind::While { condition, body }
             | RecordedCommandKind::Until { condition, body } => {
-                for command in condition {
-                    regions.extend(Self::flatten_recorded_regions(command));
+                for &command in self.recorded_program.commands_in(condition) {
+                    regions.extend(self.flatten_recorded_regions(command));
                 }
-                for command in body {
-                    regions.extend(Self::flatten_recorded_regions(command));
+                for &command in self.recorded_program.commands_in(body) {
+                    regions.extend(self.flatten_recorded_regions(command));
                 }
             }
             RecordedCommandKind::For { body }
@@ -2440,20 +2462,20 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             | RecordedCommandKind::ArithmeticFor { body }
             | RecordedCommandKind::BraceGroup { body }
             | RecordedCommandKind::Subshell { body } => {
-                for command in body {
-                    regions.extend(Self::flatten_recorded_regions(command));
+                for &command in self.recorded_program.commands_in(body) {
+                    regions.extend(self.flatten_recorded_regions(command));
                 }
             }
             RecordedCommandKind::Case { arms } => {
-                for arm in arms {
-                    for command in arm.commands {
-                        regions.extend(Self::flatten_recorded_regions(command));
+                for arm in self.recorded_program.case_arms(arms) {
+                    for &command in self.recorded_program.commands_in(arm.commands) {
+                        regions.extend(self.flatten_recorded_regions(command));
                     }
                 }
             }
             RecordedCommandKind::Pipeline { segments } => {
-                for segment in segments {
-                    regions.extend(Self::flatten_recorded_regions(segment.command));
+                for segment in self.recorded_program.pipeline_segments(segments) {
+                    regions.extend(self.flatten_recorded_regions(segment.command));
                 }
             }
         }
