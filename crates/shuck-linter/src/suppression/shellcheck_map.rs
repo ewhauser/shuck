@@ -861,6 +861,9 @@ impl Default for ShellCheckCodeMap {
                 (2330, Rule::FunctionInAlias),
                 (2376, Rule::DoubleQuoteNesting),
                 (2362, Rule::LocalDeclareCombined),
+                // The pinned ShellCheck oracle still emits this warning family as SC2316.
+                // Keep the authored SC2362 code primary, but accept SC2316 for suppressions.
+                (2316, Rule::LocalDeclareCombined),
                 // ShellCheck 0.11.0 also uses SC2276 for the bare-compound function-body
                 // portability warning. Keep it as a secondary alias so SC2276 still
                 // resolves to the long-standing C117 suppression target first.
@@ -1505,6 +1508,10 @@ mod tests {
         );
         assert_eq!(map.resolve_all("SC2362"), vec![Rule::LocalDeclareCombined]);
         assert_eq!(
+            map.resolve_all("SC2316"),
+            vec![Rule::BacktickInCommandPosition, Rule::LocalDeclareCombined]
+        );
+        assert_eq!(
             map.resolve("SC2270"),
             Some(Rule::AssignmentToNumericVariable)
         );
@@ -1849,6 +1856,7 @@ mod tests {
             (2314, Rule::TildeInStringComparison),
             (2315, Rule::IfDollarCommand),
             (2316, Rule::BacktickInCommandPosition),
+            (2316, Rule::LocalDeclareCombined),
             (2313, Rule::ZshNestedExpansion),
             (2319, Rule::StatusCaptureAfterBranchTest),
             (2337, Rule::DollarQuestionAfterCommand),

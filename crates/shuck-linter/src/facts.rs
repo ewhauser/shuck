@@ -3751,6 +3751,9 @@ fn terminal_redundant_return_status_span(commands: &StmtSeq) -> Option<Span> {
     let Command::Builtin(BuiltinCommand::Return(command)) = &last.command else {
         return None;
     };
+    if !command.extra_args.is_empty() {
+        return None;
+    }
     let code = command.code.as_ref()?;
     crate::word_is_standalone_status_capture(code).then_some(code.span)
 }
@@ -11436,6 +11439,10 @@ h() {
     return $?
   fi
   echo done
+}
+i() {
+  false
+  return $? 5
 }
 ";
 
