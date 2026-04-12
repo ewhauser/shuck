@@ -730,6 +730,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-038" => Some(Rule::UnquotedArrayExpansion),
         "SH-039" => Some(Rule::UndefinedVariable),
         "SH-040" => Some(Rule::EchoedCommandSubstitution),
+        "SH-170" => Some(Rule::RedundantReturnStatus),
         "SH-168" => Some(Rule::RedundantSpacesInEcho),
         "SH-196" => Some(Rule::UnquotedVariableInSed),
         "SH-205" => Some(Rule::UnquotedWordBetweenQuotes),
@@ -1052,6 +1053,7 @@ mod tests {
             Some(Rule::LiteralBackslashInSingleQuotes)
         );
         assert_eq!(code_to_rule("S038"), Some(Rule::RedundantReturnStatus));
+        assert_eq!(code_to_rule("SH-170"), Some(Rule::RedundantReturnStatus));
         assert_eq!(
             code_to_rule("SH-172"),
             Some(Rule::LiteralBackslashInSingleQuotes)
