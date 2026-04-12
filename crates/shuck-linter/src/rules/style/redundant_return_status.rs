@@ -73,9 +73,7 @@ fn terminal_redundant_return_span(commands: &StmtSeq) -> Option<Span> {
     let Command::Builtin(BuiltinCommand::Return(command)) = &last.command else {
         return None;
     };
-    let Some(code) = command.code.as_ref() else {
-        return None;
-    };
+    let code = command.code.as_ref()?;
     word_is_standalone_status_capture(code).then_some(code.span)
 }
 
