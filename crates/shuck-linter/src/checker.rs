@@ -422,6 +422,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::FunctionKeywordInSh) {
             rules::portability::function_keyword_in_sh::function_keyword_in_sh(self);
         }
+        if self.is_rule_enabled(Rule::HyphenatedFunctionName) {
+            rules::portability::hyphenated_function_name::hyphenated_function_name(self);
+        }
         if self.is_rule_enabled(Rule::FunctionParamsInSh) {
             rules::portability::function_params_in_sh::function_params_in_sh(self);
         }

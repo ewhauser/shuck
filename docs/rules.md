@@ -169,7 +169,7 @@ Detect locale-dependent and non-portable echo/tr behavior.
 Detect non-portable function definitions and variable operations.
 
 - [x] **L** X035 (SC1065) `function-params-in-sh` — parameter syntax in sh function
-- [ ] **L** X067 (SC3074) `hyphenated-function-name` — hyphen in function name
+- [x] **L** X067 (SC3074) `hyphenated-function-name` — hyphen in function name
 - [ ] **L** X072 (SC3079) `unset-pattern-in-sh` — pattern-based unset in sh
 - [ ] **M** X077 (SC3083) `nested-default-expansion` — nested default-value expansion in sh
 

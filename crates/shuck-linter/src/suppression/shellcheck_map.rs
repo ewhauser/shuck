@@ -722,6 +722,7 @@ impl Default for ShellCheckCodeMap {
                     (3062, Rule::OptionTestInSh),
                     (3065, Rule::StickyBitTestInSh),
                     (3067, Rule::OwnershipTestInSh),
+                    (3074, Rule::HyphenatedFunctionName),
                 ] {
                     map.entry(sc_code).or_insert(rule);
                 }
@@ -738,6 +739,7 @@ impl Default for ShellCheckCodeMap {
                 (3024, Rule::PlusEqualsInSh),
                 (3062, Rule::DollarStringInSh),
                 (3072, Rule::CaretNegationInBracket),
+                (3033, Rule::HyphenatedFunctionName),
                 (2009, Rule::DoubleParenGrouping),
                 (2294, Rule::LsInSubstitution),
                 (2294, Rule::EvalOnArray),
@@ -1227,6 +1229,11 @@ mod tests {
         assert_eq!(map.resolve("SC3069"), Some(Rule::CStyleForArithmeticInSh));
         assert_eq!(map.resolve("SC3032"), Some(Rule::Coproc));
         assert_eq!(map.resolve("SC3033"), Some(Rule::SelectLoop));
+        assert_eq!(
+            map.resolve_all("SC3033"),
+            vec![Rule::SelectLoop, Rule::HyphenatedFunctionName]
+        );
+        assert_eq!(map.resolve("SC3074"), Some(Rule::HyphenatedFunctionName));
         assert_eq!(map.resolve("SC3039"), Some(Rule::LetCommand));
         assert_eq!(map.resolve("SC3042"), Some(Rule::LetCommand));
         assert_eq!(map.resolve("SC3040"), Some(Rule::PipefailOption));
@@ -1426,6 +1433,7 @@ mod tests {
             (1044, Rule::HeredocMissingEnd),
             (1045, Rule::AmpersandSemicolon),
             (1047, Rule::MissingFi),
+            (1065, Rule::FunctionParamsInSh),
             (1069, Rule::IfBracketGlued),
             (1070, Rule::ZshRedirPipe),
             (1072, Rule::BrokenTestParse),
@@ -1690,6 +1698,8 @@ mod tests {
             (3030, Rule::ArrayAssignment),
             (3032, Rule::Coproc),
             (3033, Rule::SelectLoop),
+            (3033, Rule::HyphenatedFunctionName),
+            (3074, Rule::HyphenatedFunctionName),
             (2338, Rule::UnsetAssociativeArrayElement),
             (2381, Rule::ArrayToStringConversion),
             (3039, Rule::LetCommand),
@@ -1736,7 +1746,13 @@ mod tests {
         .into_iter()
         .collect::<std::collections::HashSet<_>>();
 
-        assert_eq!(mappings.len(), expected.len());
+        assert_eq!(
+            mappings.len(),
+            expected.len(),
+            "missing from expected: {:?}\nextra in expected: {:?}",
+            mappings.difference(&expected).collect::<Vec<_>>(),
+            expected.difference(&mappings).collect::<Vec<_>>()
+        );
         assert_eq!(mappings, expected);
     }
 

@@ -1,0 +1,20 @@
+---
+source: crates/shuck-linter/src/rules/portability/mod.rs
+---
+X067 function names cannot contain hyphens in `sh` scripts
+ --> <source>:3:1
+  |
+3 | my-func() { :; }
+  |
+
+X067 function names cannot contain hyphens in `sh` scripts
+ --> <source>:4:1
+  |
+4 | function other-func { :; }
+  |
+
+X067 function names cannot contain hyphens in `sh` scripts
+ --> <source>:5:1
+  |
+5 | function third-func() { :; }
+  |

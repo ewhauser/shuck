@@ -21,6 +21,7 @@ pub mod function_keyword;
 pub mod function_keyword_in_sh;
 pub mod function_params_in_sh;
 pub mod here_string;
+pub mod hyphenated_function_name;
 pub mod indirect_expansion;
 pub mod legacy_arithmetic_in_sh;
 pub mod let_command;
@@ -144,6 +145,7 @@ mod tests {
     #[test_case(Rule::ATestInSh, Path::new("X061.sh"))]
     #[test_case(Rule::AmpersandRedirectInSh, Path::new("X063.sh"))]
     #[test_case(Rule::PipeStderrInSh, Path::new("X066.sh"))]
+    #[test_case(Rule::HyphenatedFunctionName, Path::new("X067.sh"))]
     #[test_case(Rule::ErrexitTrapInSh, Path::new("X068.sh"))]
     #[test_case(Rule::SignalNameInTrap, Path::new("X069.sh"))]
     #[test_case(Rule::BasePrefixInArithmetic, Path::new("X070.sh"))]

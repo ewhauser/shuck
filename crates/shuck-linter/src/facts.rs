@@ -1004,6 +1004,10 @@ impl<'a> FunctionHeaderFact<'a> {
         self.function
     }
 
+    pub fn function_span_in_source(&self, source: &str) -> Span {
+        trim_trailing_whitespace_span(self.function.span, source)
+    }
+
     pub fn span_in_source(&self, source: &str) -> Span {
         trim_trailing_whitespace_span(self.function.header.span(), source)
     }
