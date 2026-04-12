@@ -79,6 +79,7 @@ pub mod pipe_to_kill;
 pub mod plus_prefix_in_assignment;
 pub mod positional_param_as_operator;
 pub mod positional_ten_braces;
+pub mod possible_variable_misspelling;
 pub mod quoted_array_slice;
 pub mod quoted_bash_regex;
 pub mod quoted_bash_source;
@@ -117,6 +118,7 @@ pub mod untracked_source_file;
 pub mod unused_assignment;
 pub mod unused_heredoc;
 pub mod variable_as_command_name;
+mod variable_reference_common;
 
 #[cfg(test)]
 mod tests {
@@ -243,6 +245,7 @@ mod tests {
     #[test_case(Rule::SubshellLocalAssignment, Path::new("C150.sh"))]
     #[test_case(Rule::CommaArrayElements, Path::new("C151.sh"))]
     #[test_case(Rule::SubshellSideEffect, Path::new("C155.sh"))]
+    #[test_case(Rule::PossibleVariableMisspelling, Path::new("C156.sh"))]
     #[test_case(Rule::IfBracketGlued, Path::new("C157.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());

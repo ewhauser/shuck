@@ -1,0 +1,15 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 238
+---
+C156 reference to `FOOBAR` looks like it may mean `FooBar`
+ --> <source>:8:7
+  |
+8 | echo "$FOOBAR"
+  |
+
+C156 reference to `FOO1` looks like it may mean `foo1`
+  --> <source>:11:7
+   |
+11 | echo "$FOO1"
+   |

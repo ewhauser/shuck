@@ -168,6 +168,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::UndefinedVariable) {
             rules::correctness::undefined_variable::undefined_variable(self);
         }
+        if self.is_rule_enabled(Rule::PossibleVariableMisspelling) {
+            rules::correctness::possible_variable_misspelling::possible_variable_misspelling(self);
+        }
     }
 
     fn check_scopes(&mut self) {

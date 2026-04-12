@@ -1,0 +1,387 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "dylanaraps__neofetch__neofetch"
+    line: 4919
+    end_line: 4919
+    column: 33
+    end_column: 38
+    labels:
+      - directive-handling
+      - project-closure
+    reason: "PPID is a shell-provided parent-process variable here, so the uppercase read can be intentional even though a lowercase helper binding exists elsewhere in the script."
+  - side: shellcheck-only
+    path_suffix: "ohmyzsh__ohmyzsh__plugins__drush__drush.complete.sh"
+    line: 24
+    end_line: 24
+    column: 20
+    end_column: 32
+    labels:
+      - helper-library
+      - shell-collapse
+    reason: "This helper intentionally mirrors a project-specific double-underscore variable name, and shuck keeps C156 narrower than ShellCheck's helper-name guessing in collapsed plugin code."
+  - side: shellcheck-only
+    path_suffix: "ohmyzsh__ohmyzsh__plugins__macos__spotify"
+    line: 197
+    end_line: 197
+    column: 67
+    end_column: 85
+    labels:
+      - helper-library
+      - project-closure
+    reason: "This is a one-off string typo inside helper code, but shuck does not broaden C156 into a general edit-distance spell checker for arbitrary uppercase names."
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
+    line: 116
+    end_line: 116
+    column: 11
+    end_column: 16
+    labels:
+      - helper-library
+      - project-closure
+    reason: "NAME is populated by the sourced os-release file in this branch, so matching it against an unrelated lowercase helper name elsewhere in the file is misleading."
+  - side: shellcheck-only
+    path_suffix: "romkatv__powerlevel10k__gitstatus__gitstatus.plugin.sh"
+    line: 423
+    end_line: 423
+    column: 35
+    end_column: 67
+    labels:
+      - project-closure
+      - shell-collapse
+    reason: "The trailing-underscore variant is a project-specific helper naming convention, and shuck intentionally avoids teaching C156 every collapsed helper suffix pattern."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__gemset"
+    line: 146
+    end_line: 146
+    column: 38
+    end_column: 47
+    reason: "GEM_HOME is a standard runtime variable in this Ruby tooling flow, so treating it as a misspelling of a lowercase helper binding is too aggressive."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__alpine__build.sh"
+    line: 27
+    end_line: 27
+    column: 17
+    end_column: 24
+    reason: "Shuck keeps C156 focused on close naming conventions rather than arbitrary single-character insertions between distinct toolchain variable names."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__ghostscript__build.sh"
+    line: 36
+    end_line: 36
+    column: 21
+    end_column: 32
+    reason: "This underscore-free alias is a broader fuzzy-match case than shuck intentionally handles for C156."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__nethack__build.sh"
+    line: 30
+    end_line: 30
+    column: 13
+    end_column: 21
+    reason: "This warning depends on a loose single-letter omission heuristic, and shuck intentionally keeps C156 narrower to avoid false positives."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__restic-server__build.sh"
+    line: 14
+    end_line: 14
+    column: 11
+    end_column: 20
+    reason: "The underscore-prefixed alias here is a packaging-specific helper name, and shuck does not treat every prefixed variant as a misspelling."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__syncthing__build.sh"
+    line: 27
+    end_line: 27
+    column: 18
+    end_column: 27
+    reason: "This underscore-inserted helper alias is intentionally outside shuck's narrower C156 matching policy."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__syncthing__build.sh"
+    line: 29
+    end_line: 29
+    column: 16
+    end_column: 23
+    reason: "This underscore-inserted helper alias is intentionally outside shuck's narrower C156 matching policy."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__virglrenderer-android__build.sh"
+    line: 28
+    end_line: 28
+    column: 34
+    end_column: 55
+    reason: "The doubled-prefix helper name here is a packaging-specific convention, not a C156 pattern that shuck deliberately guesses."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__root-packages__lvm2__build.sh"
+    line: 28
+    end_line: 28
+    column: 19
+    end_column: 27
+    reason: "This warning relies on a custom helper alias with an inserted prefix character, which shuck intentionally leaves outside the core C156 heuristic."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__scripts__build__setup__termux_setup_zig.sh"
+    line: 11
+    end_line: 11
+    column: 76
+    end_column: 97
+    labels:
+      - directive-handling
+    reason: "This sourced build helper intentionally threads different TERMUX_* variables together, and shuck does not treat those project-specific name shifts as misspellings."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__scripts__build__toolchain__termux_setup_toolchain_23c.sh"
+    line: 6
+    end_line: 6
+    column: 12
+    end_column: 33
+    reason: "The prefixed toolchain helper variable in this packaging script is outside shuck's deliberately narrow C156 matching rules."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__scripts__build__toolchain__termux_setup_toolchain_29.sh"
+    line: 6
+    end_line: 6
+    column: 12
+    end_column: 33
+    reason: "The prefixed toolchain helper variable in this packaging script is outside shuck's deliberately narrow C156 matching rules."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__scripts__build__toolchain__termux_setup_toolchain_gnu.sh"
+    line: 6
+    end_line: 6
+    column: 12
+    end_column: 33
+    reason: "The prefixed toolchain helper variable in this packaging script is outside shuck's deliberately narrow C156 matching rules."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__xbps-src__shutils__common.sh"
+    line: 417
+    end_line: 417
+    column: 70
+    end_column: 87
+    labels:
+      - project-closure
+      - shell-collapse
+    reason: "These cross-build helper names intentionally switch between *_CMD and *_XCMD forms, and shuck does not guess across that project-specific naming family."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__xbps-src__shutils__common.sh"
+    line: 418
+    end_line: 418
+    column: 68
+    end_column: 83
+    labels:
+      - project-closure
+      - shell-collapse
+    reason: "These cross-build helper names intentionally switch between *_CMD and *_XCMD forms, and shuck does not guess across that project-specific naming family."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__xbps-src__shutils__common.sh"
+    line: 419
+    end_line: 419
+    column: 74
+    end_column: 95
+    labels:
+      - project-closure
+      - shell-collapse
+    reason: "These cross-build helper names intentionally switch between *_CMD and *_XCMD forms, and shuck does not guess across that project-specific naming family."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__xbps-src__shutils__common.sh"
+    line: 420
+    end_line: 420
+    column: 69
+    end_column: 85
+    labels:
+      - project-closure
+      - shell-collapse
+    reason: "These cross-build helper names intentionally switch between *_CMD and *_XCMD forms, and shuck does not guess across that project-specific naming family."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__xbps-src__shutils__common.sh"
+    line: 421
+    end_line: 421
+    column: 69
+    end_column: 85
+    labels:
+      - project-closure
+      - shell-collapse
+    reason: "These cross-build helper names intentionally switch between *_CMD and *_XCMD forms, and shuck does not guess across that project-specific naming family."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__xbps-src__shutils__common.sh"
+    line: 435
+    end_line: 435
+    column: 28
+    end_column: 45
+    labels:
+      - project-closure
+      - shell-collapse
+    reason: "These cross-build helper names intentionally switch between *_CMD and *_XCMD forms, and shuck does not guess across that project-specific naming family."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__xbps-src__shutils__common.sh"
+    line: 436
+    end_line: 436
+    column: 30
+    end_column: 49
+    labels:
+      - project-closure
+      - shell-collapse
+    reason: "These cross-build helper names intentionally switch between *_CMD and *_XCMD forms, and shuck does not guess across that project-specific naming family."
+  - side: shuck-only
+    path_suffix: "void-linux__void-packages__common__xbps-src__shutils__common.sh"
+    line: 128
+    end_line: 128
+    column: 17
+    end_column: 32
+    labels:
+      - project-closure
+      - shell-collapse
+    reason: "FUNCNAME is a Bash runtime array in this error helper, so matching it against an unrelated lowercase helper variable elsewhere in the file is too aggressive."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__common__xbps-src__shutils__cross.sh"
+    line: 131
+    end_line: 131
+    column: 5
+    end_column: 21
+    labels:
+      - shell-collapse
+    reason: "This cross-build helper intentionally distinguishes *_XCMD from *_CMD names, and shuck keeps C156 narrower than ShellCheck's project-specific helper guess."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__disabled-packages__botan2__build.sh"
+    line: 27
+    end_line: 27
+    column: 14
+    end_column: 23
+    reason: "Shuck intentionally avoids guessing across the CFLAGS/CPPFLAGS/CXXFLAGS family because that broader heuristic produced too many false positives in packaging scripts."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__disabled-packages__odin__build.sh"
+    line: 26
+    end_line: 26
+    column: 18
+    end_column: 27
+    reason: "Shuck intentionally avoids guessing across the CFLAGS/CPPFLAGS/CXXFLAGS family because that broader heuristic produced too many false positives in packaging scripts."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__aria2__build.sh"
+    line: 30
+    end_line: 30
+    column: 13
+    end_column: 30
+    reason: "Shuck intentionally avoids guessing across the CFLAGS/CPPFLAGS/CXXFLAGS family because that broader heuristic produced too many false positives in packaging scripts."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__botan3__build.sh"
+    line: 27
+    end_line: 27
+    column: 14
+    end_column: 23
+    reason: "Shuck intentionally avoids guessing across the CFLAGS/CPPFLAGS/CXXFLAGS family because that broader heuristic produced too many false positives in packaging scripts."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__dar__build.sh"
+    line: 19
+    end_line: 19
+    column: 14
+    end_column: 23
+    reason: "Shuck intentionally avoids guessing across the CFLAGS/CPPFLAGS/CXXFLAGS family because that broader heuristic produced too many false positives in packaging scripts."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__libnss__build.sh"
+    line: 51
+    end_line: 51
+    column: 12
+    end_column: 19
+    reason: "Shuck intentionally avoids guessing across the CFLAGS/CPPFLAGS/CXXFLAGS family because that broader heuristic produced too many false positives in packaging scripts."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__libpluto__build.sh"
+    line: 50
+    end_line: 50
+    column: 12
+    end_column: 23
+    reason: "Shuck intentionally avoids guessing across the CFLAGS/CPPFLAGS/CXXFLAGS family because that broader heuristic produced too many false positives in packaging scripts."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__libt3widget__build.sh"
+    line: 39
+    end_line: 39
+    column: 14
+    end_column: 23
+    reason: "Shuck intentionally avoids guessing across the CFLAGS/CPPFLAGS/CXXFLAGS family because that broader heuristic produced too many false positives in packaging scripts."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__libtsduck__build.sh"
+    line: 79
+    end_line: 79
+    column: 29
+    end_column: 38
+    reason: "Shuck intentionally avoids guessing across the CFLAGS/CPPFLAGS/CXXFLAGS family because that broader heuristic produced too many false positives in packaging scripts."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__nginx__build.sh"
+    line: 50
+    end_line: 50
+    column: 28
+    end_column: 35
+    reason: "Shuck intentionally avoids guessing across the CFLAGS/CPPFLAGS/CXXFLAGS family because that broader heuristic produced too many false positives in packaging scripts."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__ninja__build.sh"
+    line: 12
+    end_line: 12
+    column: 14
+    end_column: 23
+    reason: "Shuck intentionally avoids guessing across the CFLAGS/CPPFLAGS/CXXFLAGS family because that broader heuristic produced too many false positives in packaging scripts."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__nmon__build.sh"
+    line: 26
+    end_line: 26
+    column: 6
+    end_column: 13
+    reason: "Shuck intentionally avoids guessing across the CFLAGS/CPPFLAGS/CXXFLAGS family because that broader heuristic produced too many false positives in packaging scripts."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__oma__build.sh"
+    line: 49
+    end_line: 49
+    column: 14
+    end_column: 23
+    reason: "Shuck intentionally avoids guessing across the CFLAGS/CPPFLAGS/CXXFLAGS family because that broader heuristic produced too many false positives in packaging scripts."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__p7zip__build.sh"
+    line: 15
+    end_line: 15
+    column: 29
+    end_column: 38
+    reason: "Shuck intentionally avoids guessing across the CFLAGS/CPPFLAGS/CXXFLAGS family because that broader heuristic produced too many false positives in packaging scripts."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__p7zip__build.sh"
+    line: 21
+    end_line: 21
+    column: 28
+    end_column: 35
+    reason: "Shuck intentionally avoids guessing across the CFLAGS/CPPFLAGS/CXXFLAGS family because that broader heuristic produced too many false positives in packaging scripts."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__samba__build.sh"
+    line: 94
+    end_line: 94
+    column: 10
+    end_column: 17
+    reason: "Shuck intentionally avoids guessing across the CFLAGS/CPPFLAGS/CXXFLAGS family because that broader heuristic produced too many false positives in packaging scripts."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__tilde__build.sh"
+    line: 37
+    end_line: 37
+    column: 14
+    end_column: 23
+    reason: "Shuck intentionally avoids guessing across the CFLAGS/CPPFLAGS/CXXFLAGS family because that broader heuristic produced too many false positives in packaging scripts."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__tracepath__build.sh"
+    line: 23
+    end_line: 23
+    column: 6
+    end_column: 13
+    reason: "Shuck intentionally avoids guessing across the CFLAGS/CPPFLAGS/CXXFLAGS family because that broader heuristic produced too many false positives in packaging scripts."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__root-packages__nfs-utils__build.sh"
+    line: 38
+    end_line: 38
+    column: 7
+    end_column: 14
+    reason: "Shuck intentionally avoids guessing across the CFLAGS/CPPFLAGS/CXXFLAGS family because that broader heuristic produced too many false positives in packaging scripts."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__root-packages__v4l-utils__build.sh"
+    line: 33
+    end_line: 33
+    column: 6
+    end_column: 13
+    reason: "Shuck intentionally avoids guessing across the CFLAGS/CPPFLAGS/CXXFLAGS family because that broader heuristic produced too many false positives in packaging scripts."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__x11-packages__azpainter__build.sh"
+    line: 22
+    end_line: 22
+    column: 21
+    end_column: 28
+    reason: "Shuck intentionally avoids guessing across the CFLAGS/CPPFLAGS/CXXFLAGS family because that broader heuristic produced too many false positives in packaging scripts."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__x11-packages__scrot__build.sh"
+    line: 25
+    end_line: 25
+    column: 6
+    end_column: 13
+    reason: "Shuck intentionally avoids guessing across the CFLAGS/CPPFLAGS/CXXFLAGS family because that broader heuristic produced too many false positives in packaging scripts."

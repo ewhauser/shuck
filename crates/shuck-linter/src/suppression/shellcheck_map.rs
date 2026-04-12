@@ -446,6 +446,7 @@ impl Default for ShellCheckCodeMap {
             (2277, Rule::ExtglobInCasePattern),
             (2030, Rule::SubshellSideEffect),
             (2031, Rule::SubshellLocalAssignment),
+            (2153, Rule::PossibleVariableMisspelling),
             (2100, Rule::AssignmentLooksLikeComparison),
             (2319, Rule::StatusCaptureAfterBranchTest),
             (2337, Rule::DollarQuestionAfterCommand),
@@ -579,6 +580,7 @@ impl Default for ShellCheckCodeMap {
                     (2016, Rule::SingleQuotedLiteral),
                     (2030, Rule::SubshellSideEffect),
                     (2031, Rule::SubshellLocalAssignment),
+                    (2153, Rule::PossibleVariableMisspelling),
                     (2013, Rule::LineOrientedInput),
                     (2015, Rule::ChainedTestBranches),
                     (2014, Rule::UnquotedGlobsInFind),
@@ -1328,6 +1330,10 @@ mod tests {
         assert_eq!(map.resolve("SC2168"), Some(Rule::LocalTopLevel));
         assert_eq!(map.resolve("SC2194"), Some(Rule::ConstantCaseSubject));
         assert_eq!(map.resolve("SC2210"), Some(Rule::BadRedirectionFdOrder));
+        assert_eq!(
+            map.resolve("SC2153"),
+            Some(Rule::PossibleVariableMisspelling)
+        );
         assert_eq!(map.resolve("sc2154"), Some(Rule::UndefinedVariable));
         assert_eq!(map.resolve("SC2241"), Some(Rule::InvalidExitStatus));
         assert_eq!(map.resolve("SC2242"), Some(Rule::CasePatternVar));
@@ -1672,6 +1678,7 @@ mod tests {
             (2294, Rule::EvalOnArray),
             (2030, Rule::SubshellSideEffect),
             (2031, Rule::SubshellLocalAssignment),
+            (2153, Rule::PossibleVariableMisspelling),
             (2302, Rule::EscapedNegationInTest),
             (2308, Rule::GreaterThanInTest),
             (2309, Rule::StringComparisonForVersion),
