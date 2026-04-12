@@ -165,4 +165,25 @@ done
             "this case arm does not match any option declared by getopts"
         );
     }
+
+    #[test]
+    fn ignores_branch_local_cases_before_the_real_getopts_handler() {
+        let source = "\
+while getopts 'a' opt; do
+  if true; then
+    case \"$opt\" in
+      b) : ;;
+    esac
+  fi
+
+  case \"$opt\" in
+    a) : ;;
+  esac
+done
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::CaseArmNotInGetopts));
+
+        assert!(diagnostics.is_empty());
+    }
 }

@@ -6386,47 +6386,6 @@ fn first_getopts_case_match_in_compound(
     source: &str,
 ) -> Option<GetoptsCaseMatch> {
     match command {
-        CompoundCommand::If(command) => {
-            first_getopts_case_match_in_commands(&command.condition, target_name, source)
-                .or_else(|| {
-                    first_getopts_case_match_in_commands(&command.then_branch, target_name, source)
-                })
-                .or_else(|| {
-                    command.elif_branches.iter().find_map(|(condition, body)| {
-                        first_getopts_case_match_in_commands(condition, target_name, source)
-                            .or_else(|| {
-                                first_getopts_case_match_in_commands(body, target_name, source)
-                            })
-                    })
-                })
-                .or_else(|| {
-                    command.else_branch.as_ref().and_then(|body| {
-                        first_getopts_case_match_in_commands(body, target_name, source)
-                    })
-                })
-        }
-        CompoundCommand::For(command) => {
-            first_getopts_case_match_in_commands(&command.body, target_name, source)
-        }
-        CompoundCommand::Repeat(command) => {
-            first_getopts_case_match_in_commands(&command.body, target_name, source)
-        }
-        CompoundCommand::Foreach(command) => {
-            first_getopts_case_match_in_commands(&command.body, target_name, source)
-        }
-        CompoundCommand::ArithmeticFor(command) => {
-            first_getopts_case_match_in_commands(&command.body, target_name, source)
-        }
-        CompoundCommand::While(command) => {
-            first_getopts_case_match_in_commands(&command.condition, target_name, source).or_else(
-                || first_getopts_case_match_in_commands(&command.body, target_name, source),
-            )
-        }
-        CompoundCommand::Until(command) => {
-            first_getopts_case_match_in_commands(&command.condition, target_name, source).or_else(
-                || first_getopts_case_match_in_commands(&command.body, target_name, source),
-            )
-        }
         CompoundCommand::Case(command) => {
             if case_subject_variable_name(&command.word) == Some(target_name) {
                 let mut has_fallback_pattern = false;
@@ -6462,29 +6421,27 @@ fn first_getopts_case_match_in_compound(
                     has_unknown_coverage,
                 })
             } else {
-                command.cases.iter().find_map(|item| {
-                    first_getopts_case_match_in_commands(&item.body, target_name, source)
-                })
+                None
             }
-        }
-        CompoundCommand::Select(command) => {
-            first_getopts_case_match_in_commands(&command.body, target_name, source)
         }
         CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
             first_getopts_case_match_in_commands(commands, target_name, source)
         }
-        CompoundCommand::Always(command) => {
-            first_getopts_case_match_in_commands(&command.body, target_name, source).or_else(|| {
-                first_getopts_case_match_in_commands(&command.always_body, target_name, source)
-            })
-        }
-        CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_) => None,
         CompoundCommand::Time(command) => command.command.as_ref().and_then(|stmt| {
             first_getopts_case_match_in_command(&stmt.command, target_name, source)
         }),
-        CompoundCommand::Coproc(command) => {
-            first_getopts_case_match_in_command(&command.body.command, target_name, source)
-        }
+        CompoundCommand::If(_)
+        | CompoundCommand::For(_)
+        | CompoundCommand::Repeat(_)
+        | CompoundCommand::Foreach(_)
+        | CompoundCommand::ArithmeticFor(_)
+        | CompoundCommand::While(_)
+        | CompoundCommand::Until(_)
+        | CompoundCommand::Select(_)
+        | CompoundCommand::Always(_)
+        | CompoundCommand::Arithmetic(_)
+        | CompoundCommand::Conditional(_)
+        | CompoundCommand::Coproc(_) => None,
     }
 }
 
