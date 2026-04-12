@@ -1,0 +1,33 @@
+---
+source: crates/shuck-linter/src/rules/style/mod.rs
+assertion_line: 152
+---
+S064 replace deprecated `xargs -i` with `xargs -I{}`
+ --> <source>:2:34
+  |
+2 | find . -type d -name CVS | xargs -iX rm -rf X
+  |
+
+S064 replace deprecated `xargs -i` with `xargs -I{}`
+ --> <source>:3:34
+  |
+3 | find . -type d -name CVS | xargs -0iX rm -rf X
+  |
+
+S064 replace deprecated `xargs -i` with `xargs -I{}`
+ --> <source>:4:34
+  |
+4 | find . -type d -name CVS | xargs -i{} rm -rf '{}'
+  |
+
+S064 replace deprecated `xargs -i` with `xargs -I{}`
+ --> <source>:5:15
+  |
+5 | command xargs -i echo {}
+  |
+
+S064 replace deprecated `xargs -i` with `xargs -I{}`
+ --> <source>:6:12
+  |
+6 | sudo xargs -i echo {}
+  |

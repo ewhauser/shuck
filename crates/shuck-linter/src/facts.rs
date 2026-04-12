@@ -1489,9 +1489,16 @@ impl MapfileCommandFacts {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct XargsCommandFacts {
     pub uses_null_input: bool,
+    inline_replace_option_spans: Box<[Span]>,
+}
+
+impl XargsCommandFacts {
+    pub fn inline_replace_option_spans(&self) -> &[Span] {
+        &self.inline_replace_option_spans
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1781,18 +1788,7 @@ impl<'a> CommandOptionFacts<'a> {
             .then(|| parse_mapfile_command(normalized.body_args(), source)),
             xargs: normalized
                 .effective_name_is("xargs")
-                .then(|| XargsCommandFacts {
-                    uses_null_input: normalized
-                        .body_args()
-                        .iter()
-                        .filter_map(|word| static_word_text(word, source))
-                        .any(|arg| {
-                            arg == "--null"
-                                || (arg.starts_with('-')
-                                    && !arg.starts_with("--")
-                                    && arg[1..].contains('0'))
-                        }),
-                }),
+                .then(|| parse_xargs_command(normalized.body_args(), source)),
             wait: normalized
                 .effective_name_is("wait")
                 .then(|| parse_wait_command(normalized.body_args(), source)),
@@ -10472,6 +10468,92 @@ fn mapfile_option_takes_argument(flag: char) -> bool {
     matches!(flag, 'u' | 'C' | 'c' | 'd' | 'n' | 'O' | 's')
 }
 
+fn parse_xargs_command(args: &[&Word], source: &str) -> XargsCommandFacts {
+    let mut uses_null_input = false;
+    let mut inline_replace_option_spans = Vec::new();
+    let mut index = 0usize;
+
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            if word_starts_with_literal_dash(word, source) {
+                break;
+            }
+            break;
+        };
+
+        if text == "--" {
+            break;
+        }
+
+        if !text.starts_with('-') || text == "-" {
+            break;
+        }
+
+        if let Some(long) = text.strip_prefix("--") {
+            if long == "null" {
+                uses_null_input = true;
+            }
+
+            let consume_next_argument = xargs_long_option_takes_argument(long);
+            index += 1;
+            if consume_next_argument {
+                index += 1;
+            }
+            continue;
+        }
+
+        let mut chars = text[1..].chars().peekable();
+        let mut consume_next_argument = false;
+        while let Some(flag) = chars.next() {
+            if flag == '0' {
+                uses_null_input = true;
+            }
+            if flag == 'i' {
+                inline_replace_option_spans.push(word.span);
+            }
+
+            if xargs_short_option_takes_argument(flag) {
+                if chars.peek().is_none() {
+                    consume_next_argument = true;
+                }
+                break;
+            }
+        }
+
+        index += 1;
+        if consume_next_argument {
+            index += 1;
+        }
+    }
+
+    XargsCommandFacts {
+        uses_null_input,
+        inline_replace_option_spans: inline_replace_option_spans.into_boxed_slice(),
+    }
+}
+
+fn xargs_short_option_takes_argument(flag: char) -> bool {
+    matches!(flag, 'I' | 'L' | 'l' | 'n' | 'P' | 's' | 'd')
+}
+
+fn xargs_long_option_takes_argument(option: &str) -> bool {
+    if option.contains('=') {
+        return false;
+    }
+
+    matches!(
+        option,
+        "arg-file"
+            | "delimiter"
+            | "eof"
+            | "max-args"
+            | "max-chars"
+            | "max-lines"
+            | "max-procs"
+            | "process-slot-var"
+    )
+}
+
 fn parse_expr_command(args: &[&Word], source: &str) -> Option<ExprCommandFacts> {
     if expr_uses_string_form(args, source) {
         return None;
@@ -11214,7 +11296,7 @@ complex[$((i+=1))]+=x
 
     #[test]
     fn summarizes_command_options_and_invokers() {
-        let source = "#!/bin/bash\nread -r name\necho -ne hi\necho '-I' hi\necho \"\\\\n\"\necho \\x41\necho \"prefix $VAR \\\\0 suffix\"\ncommand echo \\n\ntr -ds a-z A-Z\ntr -- 'a-z' xyz\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -name a -o -name b -print\nfind . -name *.cfg\nfind . -name \"$prefix\"*.jar\nfind . -wholename */tmp/*\nfind . -name \\*.ignore\nfind . -type f*\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\n./configure --with-optmizer=${CFLAGS}\nconfigure \"--enable-optmizer=${CFLAGS}\"\n./configure --with-optimizer=${CFLAGS}\nps -p 1 -o comm=\nps p 123 -o comm=\nps -ef\ndoas printf '%s\\n' hi\n";
+        let source = "#!/bin/bash\nread -r name\necho -ne hi\necho '-I' hi\necho \"\\\\n\"\necho \\x41\necho \"prefix $VAR \\\\0 suffix\"\ncommand echo \\n\ntr -ds a-z A-Z\ntr -- 'a-z' xyz\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -type d -name CVS | xargs -iX rm -rf X\nfind . -type d -name CVS | xargs --replace rm -rf {}\nfind . -name a -o -name b -print\nfind . -name *.cfg\nfind . -name \"$prefix\"*.jar\nfind . -wholename */tmp/*\nfind . -name \\*.ignore\nfind . -type f*\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\n./configure --with-optmizer=${CFLAGS}\nconfigure \"--enable-optmizer=${CFLAGS}\"\n./configure --with-optimizer=${CFLAGS}\nps -p 1 -o comm=\nps p 123 -o comm=\nps -ef\ndoas printf '%s\\n' hi\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -11408,6 +11490,15 @@ complex[$((i+=1))]+=x
             .and_then(|fact| fact.options().xargs())
             .expect("expected xargs facts");
         assert!(xargs.uses_null_input);
+        let inline_replace_option_spans = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("xargs"))
+            .filter_map(|fact| fact.options().xargs())
+            .flat_map(|xargs| xargs.inline_replace_option_spans().iter().copied())
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+        assert_eq!(inline_replace_option_spans, vec!["-iX"]);
 
         let wait = facts
             .commands()
@@ -12033,6 +12124,7 @@ command run0 --version
             .and_then(|fact| fact.options().xargs())
             .expect("expected xargs facts");
         assert!(xargs.uses_null_input);
+        assert!(xargs.inline_replace_option_spans().is_empty());
 
         let exit = facts
             .commands()

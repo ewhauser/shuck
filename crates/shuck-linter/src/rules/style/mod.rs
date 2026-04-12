@@ -65,6 +65,7 @@ pub mod unquoted_tr_range;
 pub mod unquoted_variable_in_sed;
 pub mod unquoted_variable_in_test;
 pub mod unquoted_word_between_quotes;
+pub mod xargs_with_inline_replace;
 
 #[cfg(test)]
 mod tests {
@@ -92,6 +93,7 @@ mod tests {
     #[test_case(Rule::FgrepDeprecated, Path::new("S061.sh"))]
     #[test_case(Rule::DefaultValueInColonAssign, Path::new("S062.sh"))]
     #[test_case(Rule::RelativeSymlinkTarget, Path::new("S063.sh"))]
+    #[test_case(Rule::XargsWithInlineReplace, Path::new("S064.sh"))]
     #[test_case(Rule::BacktickOutputToCommand, Path::new("S067.sh"))]
     #[test_case(Rule::SingleLetterCaseLabel, Path::new("S069.sh"))]
     #[test_case(Rule::DoubleQuoteNesting, Path::new("S070.sh"))]

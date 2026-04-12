@@ -296,6 +296,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::RelativeSymlinkTarget) {
             rules::style::relative_symlink_target::relative_symlink_target(self);
         }
+        if self.is_rule_enabled(Rule::XargsWithInlineReplace) {
+            rules::style::xargs_with_inline_replace::xargs_with_inline_replace(self);
+        }
         if self.is_rule_enabled(Rule::UnquotedTrRange) {
             rules::style::unquoted_tr_range::unquoted_tr_range(self);
         }

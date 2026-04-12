@@ -86,6 +86,9 @@ impl ShellCheckCodeMap {
         if number == 2347 {
             return vec![Rule::RelativeSymlinkTarget];
         }
+        if number == 2350 {
+            return vec![Rule::XargsWithInlineReplace];
+        }
         if number == 2303 {
             return vec![Rule::UnquotedTrClass];
         }
@@ -179,6 +182,10 @@ impl Default for ShellCheckCodeMap {
             (2197, Rule::FgrepDeprecated),
             // SC2347 remains the authored compatibility code for deep relative symlink targets.
             (2347, Rule::RelativeSymlinkTarget),
+            // SC2350 remains the authored compatibility code for `xargs -i` deprecations.
+            // Current ShellCheck releases emit SC2267 for this behavior, recorded in S064
+            // corpus metadata to preserve existing SC2267 suppression semantics.
+            (2350, Rule::XargsWithInlineReplace),
             // ShellCheck 0.11.0 reports command substitutions inside alias definitions as SC2139.
             // Keep SC2328 as a suppression alias for historical compatibility.
             (2139, Rule::CommandSubstitutionInAlias),
@@ -520,6 +527,7 @@ impl Default for ShellCheckCodeMap {
                     (2196, Rule::EgrepDeprecated),
                     (2197, Rule::FgrepDeprecated),
                     (2347, Rule::RelativeSymlinkTarget),
+                    (2350, Rule::XargsWithInlineReplace),
                     (2139, Rule::CommandSubstitutionInAlias),
                     (2142, Rule::FunctionInAlias),
                     (2283, Rule::DoubleParenGrouping),
@@ -966,6 +974,7 @@ mod tests {
         assert_eq!(map.resolve("SC2343"), Some(Rule::FgrepDeprecated));
         assert_eq!(map.resolve("SC2197"), Some(Rule::FgrepDeprecated));
         assert_eq!(map.resolve("SC2347"), Some(Rule::RelativeSymlinkTarget));
+        assert_eq!(map.resolve("SC2350"), Some(Rule::XargsWithInlineReplace));
         assert_eq!(
             map.resolve("SC2139"),
             Some(Rule::CommandSubstitutionInAlias)
@@ -1036,6 +1045,10 @@ mod tests {
         assert_eq!(map.resolve_all("SC2343"), vec![Rule::FgrepDeprecated]);
         assert_eq!(map.resolve_all("SC2197"), vec![Rule::FgrepDeprecated]);
         assert_eq!(map.resolve_all("SC2347"), vec![Rule::RelativeSymlinkTarget]);
+        assert_eq!(
+            map.resolve_all("SC2350"),
+            vec![Rule::XargsWithInlineReplace]
+        );
         assert_eq!(
             map.resolve_all("SC2139"),
             vec![Rule::CommandSubstitutionInAlias]
@@ -1601,6 +1614,7 @@ mod tests {
             (2196, Rule::EgrepDeprecated),
             (2197, Rule::FgrepDeprecated),
             (2347, Rule::RelativeSymlinkTarget),
+            (2350, Rule::XargsWithInlineReplace),
             (2139, Rule::CommandSubstitutionInAlias),
             (2142, Rule::FunctionInAlias),
             (2021, Rule::UnquotedTrRange),
