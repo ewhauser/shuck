@@ -290,6 +290,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::EgrepDeprecated) {
             rules::style::egrep_deprecated::egrep_deprecated(self);
         }
+        if self.is_rule_enabled(Rule::FgrepDeprecated) {
+            rules::style::fgrep_deprecated::fgrep_deprecated(self);
+        }
         if self.is_rule_enabled(Rule::UnquotedTrRange) {
             rules::style::unquoted_tr_range::unquoted_tr_range(self);
         }

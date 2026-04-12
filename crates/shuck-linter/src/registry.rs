@@ -566,6 +566,7 @@ declare_rules! {
     ("S058", Category::Style, Severity::Warning, UnquotedPathInMkdir),
     ("S059", Category::Style, Severity::Warning, DeprecatedTempfileCommand),
     ("S060", Category::Style, Severity::Warning, EgrepDeprecated),
+    ("S061", Category::Style, Severity::Warning, FgrepDeprecated),
     ("S062", Category::Style, Severity::Warning, DefaultValueInColonAssign),
     ("S067", Category::Style, Severity::Warning, BacktickOutputToCommand),
     ("S069", Category::Style, Severity::Hint, SingleLetterCaseLabel),
@@ -714,6 +715,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-163" => Some(Rule::BareRead),
         "SH-245" => Some(Rule::DeprecatedTempfileCommand),
         "SH-247" => Some(Rule::EgrepDeprecated),
+        "SH-248" => Some(Rule::FgrepDeprecated),
         "SH-306" => Some(Rule::DoubleQuoteNesting),
         "SH-309" => Some(Rule::EnvPrefixQuoting),
         "SH-350" => Some(Rule::MixedQuoteWord),
@@ -1088,6 +1090,7 @@ mod tests {
             Some(Rule::DeprecatedTempfileCommand)
         );
         assert_eq!(code_to_rule("SH-247"), Some(Rule::EgrepDeprecated));
+        assert_eq!(code_to_rule("SH-248"), Some(Rule::FgrepDeprecated));
         assert_eq!(code_to_rule("S029"), Some(Rule::LiteralBraces));
         assert_eq!(code_to_rule("SH-116"), Some(Rule::LiteralBraces));
         assert_eq!(code_to_rule("S030"), Some(Rule::HeredocEndSpace));

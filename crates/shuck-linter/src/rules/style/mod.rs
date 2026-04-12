@@ -21,6 +21,7 @@ pub mod env_prefix_quoting;
 pub mod escaped_underscore;
 pub mod escaped_underscore_literal;
 pub mod export_command_substitution;
+pub mod fgrep_deprecated;
 pub mod function_in_alias;
 pub mod glob_assigned_to_variable;
 pub mod grep_output_in_test;
@@ -87,6 +88,7 @@ mod tests {
     #[test_case(Rule::CommandSubstitutionInAlias, Path::new("S056.sh"))]
     #[test_case(Rule::DeprecatedTempfileCommand, Path::new("S059.sh"))]
     #[test_case(Rule::EgrepDeprecated, Path::new("S060.sh"))]
+    #[test_case(Rule::FgrepDeprecated, Path::new("S061.sh"))]
     #[test_case(Rule::DefaultValueInColonAssign, Path::new("S062.sh"))]
     #[test_case(Rule::BacktickOutputToCommand, Path::new("S067.sh"))]
     #[test_case(Rule::SingleLetterCaseLabel, Path::new("S069.sh"))]
