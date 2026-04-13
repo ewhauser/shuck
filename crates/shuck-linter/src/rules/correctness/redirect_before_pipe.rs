@@ -26,19 +26,12 @@ pub fn redirect_before_pipe(checker: &mut Checker) {
 }
 
 fn redirect_spans_for_pipeline(checker: &Checker<'_>, pipeline: &PipelineFact<'_>) -> Vec<Span> {
-    if pipeline
-        .operators()
-        .iter()
-        .any(|operator| operator.op() == BinaryOp::PipeAll)
-    {
-        return Vec::new();
-    }
-
     pipeline
         .segments()
         .iter()
-        .take(pipeline.segments().len().saturating_sub(1))
-        .flat_map(|segment| {
+        .zip(pipeline.operators().iter())
+        .filter(|(_, operator)| operator.op() == BinaryOp::Pipe)
+        .flat_map(|(segment, _)| {
             let fact = checker.facts().command(segment.command_id());
             fact.redirect_facts()
                 .iter()
@@ -93,6 +86,8 @@ mod tests {
 cmd >/dev/null | next
 cmd >out | next
 left | mid >/dev/null | right
+cmd >out | next |& logger
+cmd |& next >/dev/null | logger
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::RedirectBeforePipe));
 
@@ -101,7 +96,7 @@ left | mid >/dev/null | right
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec![">/dev/null", ">out", ">/dev/null"]
+            vec![">/dev/null", ">out", ">/dev/null", ">out", ">/dev/null"]
         );
     }
 

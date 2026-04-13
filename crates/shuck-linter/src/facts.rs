@@ -10243,6 +10243,7 @@ fn own_scope_read_source_words<'a>(
             context: ExpansionContext::CommandArgument,
         })
         .collect::<Vec<_>>();
+    words.extend(command_redirect_read_source_words(command));
     if !if_condition_command_ids.contains(&command.id()) {
         words.extend(command_conditional_path_words(command));
     }
@@ -10282,6 +10283,27 @@ fn command_has_file_output_redirect(command: &CommandFact<'_>) -> bool {
 
 fn command_file_operand_words<'a>(command: &CommandFact<'a>) -> Vec<&'a Word> {
     command.file_operand_words().to_vec()
+}
+
+fn command_redirect_read_source_words<'a>(command: &CommandFact<'a>) -> Vec<PathWordFact<'a>> {
+    command
+        .redirect_facts()
+        .iter()
+        .filter_map(|redirect| {
+            if !matches!(
+                redirect.redirect().kind,
+                RedirectKind::Input | RedirectKind::ReadWrite
+            ) {
+                return None;
+            }
+
+            Some(PathWordFact {
+                word: redirect.redirect().word_target()?,
+                context: ExpansionContext::from_redirect_kind(redirect.redirect().kind)
+                    .expect("input redirects should carry a word target context"),
+            })
+        })
+        .collect()
 }
 
 fn command_conditional_path_words<'a>(command: &CommandFact<'a>) -> Vec<PathWordFact<'a>> {

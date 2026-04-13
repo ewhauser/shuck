@@ -35,6 +35,12 @@ fn clobber_spans_for_command(fact: &crate::CommandFact<'_>, source: &str) -> Vec
     let mut read_paths: FxHashMap<ComparablePathKey, Vec<Span>> = FxHashMap::default();
     let mut write_paths: FxHashMap<ComparablePathKey, Vec<Span>> = FxHashMap::default();
     let mut readwrite_paths: FxHashMap<ComparablePathKey, Vec<Span>> = FxHashMap::default();
+    let own_readwrite_spans = fact
+        .redirect_facts()
+        .iter()
+        .filter(|redirect| redirect.redirect().kind == RedirectKind::ReadWrite)
+        .filter_map(|redirect| redirect.redirect().word_target().map(|word| word.span))
+        .collect::<Vec<_>>();
 
     let options = fact.zsh_options();
     for redirect in fact.redirect_facts() {
@@ -77,6 +83,12 @@ fn clobber_spans_for_command(fact: &crate::CommandFact<'_>, source: &str) -> Vec
     }
 
     for source_word in fact.scope_read_source_words() {
+        if source_word.context() == ExpansionContext::RedirectTarget(RedirectKind::ReadWrite)
+            && own_readwrite_spans.contains(&source_word.word().span)
+        {
+            continue;
+        }
+
         let Some(comparable) =
             comparable_path(source_word.word(), source, source_word.context(), options)
         else {
@@ -125,6 +137,8 @@ sed -e 's/x/y/' foo > foo
 sed -es/x/y/ foo > foo
 awk -f prog.awk data.txt > data.txt
 awk -fprog.awk data.txt > data.txt
+cat < bar | gzip > bar
+{ cat < baz; } > baz
 echo \"$(cat \"$f\")\" | sed 's/x/y/' >\"$f\"
 printf '%s\\0' **/* | bsdtar --null --files-from - --exclude .MTREE | gzip -c -f -n > .MTREE
 { [[ \"$f\" == /dev/null ]] || set -x; } &>\"$f\"
@@ -141,8 +155,8 @@ printf '%s\\0' **/* | bsdtar --null --files-from - --exclude .MTREE | gzip -c -f
                 .collect::<Vec<_>>(),
             vec![
                 "foo", "foo", "foo", "foo", "test.c", "test.c", "\"$src\"", "\"$src\"", "foo",
-                "foo", "foo", "foo", "data.txt", "data.txt", "data.txt", "data.txt", "\"$f\"",
-                "\"$f\"", ".MTREE", ".MTREE", "\"$f\"", "\"$f\"",
+                "foo", "foo", "foo", "data.txt", "data.txt", "data.txt", "data.txt", "bar", "bar",
+                "baz", "baz", "\"$f\"", "\"$f\"", ".MTREE", ".MTREE", "\"$f\"", "\"$f\"",
             ]
         );
     }
