@@ -91,7 +91,7 @@ fn clobber_spans_for_command(fact: &crate::CommandFact<'_>, source: &str) -> Vec
 
     let mut spans = Vec::new();
     for (key, read_spans) in &read_paths {
-        let Some(write_spans) = write_paths.get(&key) else {
+        let Some(write_spans) = write_paths.get(key) else {
             continue;
         };
 

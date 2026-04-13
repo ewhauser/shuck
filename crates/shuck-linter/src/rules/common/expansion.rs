@@ -320,7 +320,9 @@ fn push_comparable_path_parts(
                 if reference.subscript.is_none()
                     && is_comparable_parameter_name(reference.name.as_str()) =>
             {
-                components.push(ComparablePathPart::Parameter(reference.name.as_str().into()));
+                components.push(ComparablePathPart::Parameter(
+                    reference.name.as_str().into(),
+                ));
                 Some(())
             }
             _ => None,

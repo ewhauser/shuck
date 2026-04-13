@@ -44,8 +44,9 @@ fn redirect_spans_for_pipeline(checker: &Checker<'_>, pipeline: &PipelineFact<'_
                 .iter()
                 .enumerate()
                 .filter_map(|(index, redirect)| {
-                    stdout_redirect_span_before_pipe(redirect)
-                        .filter(|_| !has_prior_stderr_to_stdout_dup(&fact.redirect_facts()[..index]))
+                    stdout_redirect_span_before_pipe(redirect).filter(|_| {
+                        !has_prior_stderr_to_stdout_dup(&fact.redirect_facts()[..index])
+                    })
                 })
         })
         .collect()
@@ -69,7 +70,10 @@ fn stdout_redirect_span_before_pipe(redirect: &crate::RedirectFact<'_>) -> Optio
 
     if !matches!(
         data.kind,
-        RedirectKind::Output | RedirectKind::Clobber | RedirectKind::Append | RedirectKind::OutputBoth
+        RedirectKind::Output
+            | RedirectKind::Clobber
+            | RedirectKind::Append
+            | RedirectKind::OutputBoth
     ) {
         return None;
     }

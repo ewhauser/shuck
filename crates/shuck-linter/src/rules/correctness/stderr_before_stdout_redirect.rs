@@ -20,13 +20,16 @@ pub fn stderr_before_stdout_redirect(checker: &mut Checker) {
         .structural_commands()
         .flat_map(|fact| {
             let redirects = fact.redirect_facts();
-            redirects.iter().enumerate().filter_map(move |(index, redirect)| {
-                if !is_stderr_to_stdout_redirect(redirect) {
-                    return None;
-                }
-                has_later_stdout_file_redirect(&redirects[index + 1..])
-                    .then_some(redirect.redirect().span)
-            })
+            redirects
+                .iter()
+                .enumerate()
+                .filter_map(move |(index, redirect)| {
+                    if !is_stderr_to_stdout_redirect(redirect) {
+                        return None;
+                    }
+                    has_later_stdout_file_redirect(&redirects[index + 1..])
+                        .then_some(redirect.redirect().span)
+                })
         })
         .collect::<Vec<_>>();
 

@@ -10463,7 +10463,7 @@ fn grep_file_operand_words<'a>(args: &[&'a Word], source: &str) -> Vec<&'a Word>
         index += 1;
     }
 
-    args.get(index..).unwrap_or(&[]).iter().copied().collect()
+    args.get(index..).unwrap_or(&[]).to_vec()
 }
 
 fn grep_pattern_fact<'a>(word: &'a Word, source: &str) -> GrepPatternFact<'a> {

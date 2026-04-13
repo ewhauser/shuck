@@ -145,7 +145,12 @@ fn append_target_for_statement(
         }
     }
 
-    target.map(|key| (key, Span::from_positions(command.body_span().start, anchor_end)))
+    target.map(|key| {
+        (
+            key,
+            Span::from_positions(command.body_span().start, anchor_end),
+        )
+    })
 }
 
 fn commands_for_statement<'a>(
