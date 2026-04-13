@@ -314,6 +314,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ExportCommandSubstitution) {
             rules::style::export_command_substitution::export_command_substitution(self);
         }
+        if self.is_rule_enabled(Rule::CompoundTestOperator) {
+            rules::style::compound_test_operator::compound_test_operator(self);
+        }
         if self.is_rule_enabled(Rule::EchoHereDoc) {
             rules::style::echo_here_doc::echo_here_doc(self);
         }

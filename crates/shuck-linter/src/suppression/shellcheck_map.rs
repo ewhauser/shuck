@@ -153,6 +153,7 @@ impl Default for ShellCheckCodeMap {
             (2005, Rule::EchoedCommandSubstitution),
             (2116, Rule::EchoInsideCommandSubstitution),
             (2143, Rule::GrepOutputInTest),
+            (2166, Rule::CompoundTestOperator),
             (2360, Rule::ExprSubstrInTest),
             (2170, Rule::StringComparedWithEq),
             (2331, Rule::AFlagInDoubleBracket),
@@ -309,6 +310,8 @@ impl Default for ShellCheckCodeMap {
             (2034, Rule::UnusedAssignment),
             (2035, Rule::LeadingGlobArgument),
             (2143, Rule::GrepOutputInTest),
+            (2166, Rule::CompoundTestOperator),
+            (2144, Rule::GlobInTestDirectory),
             // The pinned ShellCheck oracle reports single-item `for ... in ...` loops as SC2043.
             // Keep SC2165 as a suppression alias for the authored S020 metadata.
             (2043, Rule::SingleIterationLoop),
@@ -614,6 +617,8 @@ impl Default for ShellCheckCodeMap {
                     (2164, Rule::UncheckedDirectoryChange),
                     (2263, Rule::RedundantSpacesInEcho),
                     (2143, Rule::GrepOutputInTest),
+                    (2166, Rule::CompoundTestOperator),
+                    (2144, Rule::GlobInTestDirectory),
                     (2145, Rule::PositionalArgsInString),
                     (2198, Rule::AtSignInStringCompare),
                     (2199, Rule::ArraySliceInComparison),
@@ -1054,6 +1059,7 @@ mod tests {
         assert_eq!(map.resolve("SC2021"), Some(Rule::UnquotedTrRange));
         assert_eq!(map.resolve("SC2060"), Some(Rule::UnquotedTrClass));
         assert_eq!(map.resolve("SC2070"), Some(Rule::UnquotedVariableInTest));
+        assert_eq!(map.resolve("SC2166"), Some(Rule::CompoundTestOperator));
         assert_eq!(map.resolve("SC2066"), Some(Rule::QuotedDollarStarLoop));
         assert_eq!(map.resolve("SC2206"), Some(Rule::UnquotedArraySplit));
         assert_eq!(map.resolve("SC2207"), Some(Rule::CommandOutputArraySplit));
@@ -1064,6 +1070,7 @@ mod tests {
             vec![Rule::ArraySliceInComparison]
         );
         assert_eq!(map.resolve_all("SC2144"), vec![Rule::GlobInTestDirectory]);
+        assert_eq!(map.resolve_all("SC2166"), vec![Rule::CompoundTestOperator]);
         assert_eq!(map.resolve_all("SC2331"), vec![Rule::AFlagInDoubleBracket]);
         assert_eq!(map.resolve_all("SC2344"), vec![Rule::AtSignInStringCompare]);
         assert_eq!(
@@ -1077,6 +1084,7 @@ mod tests {
         assert_eq!(map.resolve("SC2293"), Some(Rule::LsPipedToXargs));
         assert_eq!(map.resolve("SC2294"), Some(Rule::LsInSubstitution));
         assert_eq!(map.resolve("SC2144"), Some(Rule::GlobInTestDirectory));
+        assert_eq!(map.resolve("SC2166"), Some(Rule::CompoundTestOperator));
         assert_eq!(map.resolve("SC2331"), Some(Rule::AFlagInDoubleBracket));
         assert_eq!(map.resolve("SC2263"), Some(Rule::RedundantSpacesInEcho));
         assert_eq!(map.resolve("SC3026"), Some(Rule::CaretNegationInBracket));
@@ -1799,6 +1807,7 @@ mod tests {
             (2127, Rule::EchoHereDoc),
             (2154, Rule::UndefinedVariable),
             (2155, Rule::ExportCommandSubstitution),
+            (2166, Rule::CompoundTestOperator),
             (2156, Rule::FindExecDirWithShell),
             (2157, Rule::ConstantComparisonTest),
             (2158, Rule::LiteralUnaryStringTest),

@@ -7,6 +7,7 @@ pub mod backtick_output_to_command;
 pub mod bare_read;
 pub mod command_output_array_split;
 pub mod command_substitution_in_alias;
+pub mod compound_test_operator;
 pub mod conditional_assignment_shortcut;
 pub mod default_value_in_colon_assign;
 pub mod deprecated_tempfile_command;
@@ -92,6 +93,7 @@ mod tests {
     #[test_case(Rule::UnquotedArrayExpansion, Path::new("S008.sh"))]
     #[test_case(Rule::EchoedCommandSubstitution, Path::new("S009.sh"))]
     #[test_case(Rule::ExportCommandSubstitution, Path::new("S010.sh"))]
+    #[test_case(Rule::CompoundTestOperator, Path::new("S011.sh"))]
     #[test_case(Rule::EchoInsideCommandSubstitution, Path::new("S016.sh"))]
     #[test_case(Rule::CommandSubstitutionInAlias, Path::new("S056.sh"))]
     #[test_case(Rule::DeprecatedTempfileCommand, Path::new("S059.sh"))]
