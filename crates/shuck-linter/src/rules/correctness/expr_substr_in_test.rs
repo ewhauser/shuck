@@ -1,10 +1,9 @@
 use shuck_ast::Span;
 
-use crate::rules::common::word::WordClassification;
 use crate::{
     Checker, CommandSubstitutionKind, ConditionalNodeFact, ConditionalOperatorFamily,
     ExpansionContext, Rule, SimpleTestOperatorFamily, SimpleTestShape, SubstitutionFact, Violation,
-    WordFactContext,
+    WordClassification, WordFactContext,
 };
 
 pub struct ExprSubstrInTest;

@@ -1,0 +1,45 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 272
+---
+C102 unquoted globs in file tests can match multiple paths
+ --> <source>:2:6
+  |
+2 | [ -d mtp2* ]
+  |
+
+C102 unquoted globs in file tests can match multiple paths
+ --> <source>:3:6
+  |
+3 | [ -f foo* -a -e bar* -a -L baz* ]
+  |
+
+C102 unquoted globs in file tests can match multiple paths
+ --> <source>:3:17
+  |
+3 | [ -f foo* -a -e bar* -a -L baz* ]
+  |
+
+C102 unquoted globs in file tests can match multiple paths
+ --> <source>:3:28
+  |
+3 | [ -f foo* -a -e bar* -a -L baz* ]
+  |
+
+C102 unquoted globs in file tests can match multiple paths
+ --> <source>:4:7
+  |
+4 | [[ -r qux* && -w quux* ]]
+  |
+
+C102 unquoted globs in file tests can match multiple paths
+ --> <source>:4:18
+  |
+4 | [[ -r qux* && -w quux* ]]
+  |
+
+C102 unquoted globs in file tests can match multiple paths
+ --> <source>:6:9
+  |
+6 | test -d mtp2*
+  |

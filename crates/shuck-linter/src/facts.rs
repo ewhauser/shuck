@@ -265,12 +265,10 @@ impl<'a> SimpleTestFact<'a> {
                 return self
                     .effective_operator_word()
                     .into_iter()
-                    .filter_map(|word| {
-                        (self
-                            .effective_operand_class(1)
+                    .filter(|word| {
+                        self.effective_operand_class(1)
                             .is_some_and(|class| class.is_fixed_literal())
-                            && classify_word(word, source).quote == WordQuote::Unquoted)
-                            .then(|| word)
+                            && classify_word(word, source).quote == WordQuote::Unquoted
                     })
                     .filter_map(|word| {
                         static_word_text(word, source)
@@ -288,11 +286,11 @@ impl<'a> SimpleTestFact<'a> {
         self.effective_operands()
             .iter()
             .enumerate()
-            .filter_map(|(index, word)| {
-                self.effective_operand_class(index)
+            .filter(|(index, _word)| {
+                self.effective_operand_class(*index)
                     .is_some_and(|class| class.is_fixed_literal())
-                    .then(|| (word, classify_word(word, source)))
             })
+            .map(|(_index, word)| (word, classify_word(word, source)))
             .filter_map(|(word, classification)| {
                 (classification.quote == WordQuote::Unquoted)
                     .then_some(word)

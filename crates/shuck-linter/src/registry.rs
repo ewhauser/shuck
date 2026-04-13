@@ -250,6 +250,12 @@ declare_rules! {
         IfsSetToLiteralBackslashN
     ),
     (
+        "C102",
+        Category::Correctness,
+        Severity::Warning,
+        GlobInTestDirectory
+    ),
+    (
         "C103",
         Category::Correctness,
         Severity::Warning,

@@ -52,6 +52,7 @@ pub mod glob_in_find_substitution;
 pub mod glob_in_grep_pattern;
 pub mod glob_in_string_comparison;
 pub mod glob_in_test_comparison;
+pub mod glob_in_test_directory;
 pub mod glob_with_expansion_in_loop;
 pub mod greater_than_in_test;
 pub mod heredoc_closer_not_alone;
@@ -212,6 +213,7 @@ mod tests {
     #[test_case(Rule::EscapedNegationInTest, Path::new("C082.sh"))]
     #[test_case(Rule::GlobInFindSubstitution, Path::new("C083.sh"))]
     #[test_case(Rule::UnquotedGrepRegex, Path::new("C084.sh"))]
+    #[test_case(Rule::GlobInTestDirectory, Path::new("C102.sh"))]
     #[test_case(Rule::GreaterThanInTest, Path::new("C086.sh"))]
     #[test_case(Rule::StringComparisonForVersion, Path::new("C087.sh"))]
     #[test_case(Rule::MixedAndOrInCondition, Path::new("C088.sh"))]

@@ -62,7 +62,7 @@ pub use rules::common::span::{
     word_zsh_flag_modifier_spans, word_zsh_nested_expansion_spans,
 };
 pub use rules::common::word::{
-    TestOperandClass, conditional_binary_op_is_string_match, static_word_text,
+    TestOperandClass, WordClassification, conditional_binary_op_is_string_match, static_word_text,
     word_is_standalone_status_capture, word_is_standalone_variable_like,
 };
 pub use settings::LinterSettings;

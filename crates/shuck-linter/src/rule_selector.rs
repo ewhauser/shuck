@@ -83,6 +83,9 @@ mod tests {
         assert_eq!(
             selector.into_rule_set().iter().collect::<Vec<_>>(),
             vec![
+                Rule::ExprSubstrInTest,
+                Rule::StringComparedWithEq,
+                Rule::AFlagInDoubleBracket,
                 Rule::FunctionReferencesUnsetParam,
                 Rule::UnreachableAfterExit,
                 Rule::UnusedHeredoc,

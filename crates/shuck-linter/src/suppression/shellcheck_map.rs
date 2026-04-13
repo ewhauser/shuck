@@ -806,6 +806,7 @@ impl Default for ShellCheckCodeMap {
                     (2257, Rule::ArithmeticRedirectionTarget),
                     (2264, Rule::NestedParameterExpansion),
                     (2265, Rule::RedundantReturnStatus),
+                    (2144, Rule::GlobInTestDirectory),
                     (2250, Rule::PatternWithVariable),
                     (2255, Rule::SubstWithRedirect),
                     (2256, Rule::SubstWithRedirectErr),
@@ -880,6 +881,9 @@ impl Default for ShellCheckCodeMap {
                 (2343, Rule::FgrepDeprecated),
                 (2328, Rule::CommandSubstitutionInAlias),
                 (2360, Rule::ExprSubstrInTest),
+                (2357, Rule::MalformedArithmeticInCondition),
+                (2361, Rule::StringComparedWithEq),
+                (2363, Rule::AFlagInDoubleBracket),
                 (2330, Rule::FunctionInAlias),
                 (2376, Rule::DoubleQuoteNesting),
                 (2362, Rule::LocalDeclareCombined),
@@ -1078,6 +1082,12 @@ mod tests {
         assert_eq!(map.resolve_all("SC2144"), vec![Rule::GlobInTestDirectory]);
         assert_eq!(map.resolve_all("SC2166"), vec![Rule::CompoundTestOperator]);
         assert_eq!(map.resolve_all("SC2331"), vec![Rule::AFlagInDoubleBracket]);
+        assert_eq!(
+            map.resolve_all("SC2357"),
+            vec![Rule::MalformedArithmeticInCondition]
+        );
+        assert_eq!(map.resolve_all("SC2361"), vec![Rule::StringComparedWithEq]);
+        assert_eq!(map.resolve_all("SC2363"), vec![Rule::AFlagInDoubleBracket]);
         assert_eq!(map.resolve_all("SC2344"), vec![Rule::AtSignInStringCompare]);
         assert_eq!(
             map.resolve_all("SC2345"),
@@ -1092,6 +1102,9 @@ mod tests {
         assert_eq!(map.resolve("SC2144"), Some(Rule::GlobInTestDirectory));
         assert_eq!(map.resolve("SC2166"), Some(Rule::CompoundTestOperator));
         assert_eq!(map.resolve("SC2331"), Some(Rule::AFlagInDoubleBracket));
+        assert_eq!(map.resolve("SC2357"), Some(Rule::MalformedArithmeticInCondition));
+        assert_eq!(map.resolve("SC2361"), Some(Rule::StringComparedWithEq));
+        assert_eq!(map.resolve("SC2363"), Some(Rule::AFlagInDoubleBracket));
         assert_eq!(map.resolve("SC2263"), Some(Rule::RedundantSpacesInEcho));
         assert_eq!(map.resolve("SC3026"), Some(Rule::CaretNegationInBracket));
         assert_eq!(map.resolve("SC3072"), Some(Rule::CaretNegationInBracket));
@@ -1724,6 +1737,7 @@ mod tests {
             (2369, Rule::TrapSignalNumbers),
             (2139, Rule::CommandSubstitutionInAlias),
             (2142, Rule::FunctionInAlias),
+            (2144, Rule::GlobInTestDirectory),
             (2021, Rule::UnquotedTrRange),
             (2060, Rule::UnquotedTrClass),
             (2335, Rule::UnquotedPathInMkdir),
@@ -2018,6 +2032,9 @@ mod tests {
             (3055, Rule::ArrayKeysInSh),
             (2268, Rule::XPrefixInTest),
             (2351, Rule::XPrefixInTest),
+            (2357, Rule::MalformedArithmeticInCondition),
+            (2361, Rule::StringComparedWithEq),
+            (2363, Rule::AFlagInDoubleBracket),
             (3057, Rule::SubstringExpansion),
             (3058, Rule::BashCaseFallthrough),
             (3085, Rule::StarGlobRemovalInSh),

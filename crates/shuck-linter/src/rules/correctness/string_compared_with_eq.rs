@@ -111,9 +111,9 @@ fn conditional_operand_looks_like_string_value(
         .is_some_and(|(word, classification)| {
             classification.is_fixed_literal()
                 && static_word_text(word, source).is_some_and(|text| {
-                    !looks_like_decimal_integer(&text)
-                        && !(operand.quote() == Some(WordQuote::Unquoted)
-                            && looks_like_shell_variable_name(&text))
+                    !(looks_like_decimal_integer(&text)
+                        || (operand.quote() == Some(WordQuote::Unquoted)
+                            && looks_like_shell_variable_name(&text)))
                 })
         })
 }
