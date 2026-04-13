@@ -26,7 +26,7 @@ pub(super) struct SurfaceFragmentFacts {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-struct SurfaceScanContext<'a> {
+pub(super) struct SurfaceScanContext<'a> {
     command_name: Option<&'a str>,
     assignment_target: Option<&'a str>,
     nested_word_command: bool,
@@ -36,22 +36,24 @@ struct SurfaceScanContext<'a> {
 }
 
 impl<'a> SurfaceScanContext<'a> {
-    fn new() -> Self {
+    pub(super) fn new(command_name: Option<&'a str>, nested_word_command: bool) -> Self {
         Self {
+            command_name,
+            nested_word_command,
             collect_open_double_quotes: true,
             collect_pattern_charclasses: false,
             ..Self::default()
         }
     }
 
-    fn with_assignment_target(self, assignment_target: &'a str) -> Self {
+    pub(super) fn with_assignment_target(self, assignment_target: &'a str) -> Self {
         Self {
             assignment_target: Some(assignment_target),
             ..self
         }
     }
 
-    fn variable_set_operand(self) -> Self {
+    pub(super) fn variable_set_operand(self) -> Self {
         Self {
             variable_set_operand: true,
             ..self
@@ -65,7 +67,7 @@ impl<'a> SurfaceScanContext<'a> {
         }
     }
 
-    fn with_pattern_charclass_scan(self) -> Self {
+    pub(super) fn with_pattern_charclass_scan(self) -> Self {
         Self {
             collect_pattern_charclasses: true,
             ..self
@@ -73,28 +75,20 @@ impl<'a> SurfaceScanContext<'a> {
     }
 }
 
-struct SurfaceFragmentCollector<'a> {
-    commands: &'a [CommandFact<'a>],
-    command_ids_by_span: &'a CommandLookupIndex,
+pub(super) struct SurfaceFragmentSink<'a> {
     source: &'a str,
     facts: SurfaceFragmentFacts,
 }
 
-impl<'a> SurfaceFragmentCollector<'a> {
-    fn new(
-        commands: &'a [CommandFact<'a>],
-        command_ids_by_span: &'a CommandLookupIndex,
-        source: &'a str,
-    ) -> Self {
+impl<'a> SurfaceFragmentSink<'a> {
+    pub(super) fn new(source: &'a str) -> Self {
         Self {
-            commands,
-            command_ids_by_span,
             source,
             facts: SurfaceFragmentFacts::default(),
         }
     }
 
-    fn finish(self) -> SurfaceFragmentFacts {
+    pub(super) fn finish(self) -> SurfaceFragmentFacts {
         self.facts
     }
 
@@ -172,254 +166,23 @@ impl<'a> SurfaceFragmentCollector<'a> {
             .push(StarGlobRemovalFragmentFact { span });
     }
 
-    fn collect_commands(&mut self, commands: &StmtSeq) {
-        for command in commands.iter() {
-            self.collect_command(command);
-        }
-    }
-
-    fn collect_command(&mut self, stmt: &Stmt) {
-        let command_name_storage = self
-            .command_fact_for_command(&stmt.command)
-            .and_then(CommandFact::effective_or_literal_name)
-            .map(str::to_owned)
-            .map(String::into_boxed_str);
-        let nested_word_command = self
-            .command_fact_for_command(&stmt.command)
-            .is_some_and(CommandFact::is_nested_word_command);
-        let context = SurfaceScanContext {
-            command_name: command_name_storage.as_deref(),
-            nested_word_command,
-            ..SurfaceScanContext::new()
-        };
-
-        match &stmt.command {
-            Command::Simple(command) => self.collect_simple_command(command, context),
-            Command::Builtin(command) => self.collect_builtin(command),
-            Command::Decl(command) => self.collect_decl_command(command),
-            Command::Binary(command) => {
-                self.collect_command(&command.left);
-                self.collect_command(&command.right);
-            }
-            Command::Compound(command) => self.collect_compound(command),
-            Command::Function(function) => {
-                for entry in &function.header.entries {
-                    self.collect_word(&entry.word, context);
-                }
-                self.collect_command(&function.body);
-            }
-            Command::AnonymousFunction(function) => {
-                for word in &function.args {
-                    self.collect_word(word, context);
-                }
-                self.collect_command(&function.body);
-            }
-        }
-
-        self.collect_redirects(
-            &stmt.redirects,
-            SurfaceScanContext {
-                nested_word_command,
-                ..SurfaceScanContext::new()
-            },
-        );
-    }
-
-    fn collect_simple_command(&mut self, command: &SimpleCommand, context: SurfaceScanContext<'_>) {
-        self.collect_assignments(&command.assignments, context);
-        self.collect_word(&command.name, context);
-
-        if context.command_name == Some("unset") {
-            for word in &command.args {
-                if word_looks_like_unset_array_target(word, self.source) {
-                    self.facts.subscript_spans.push(word.span);
-                }
-            }
-        }
-
-        let variable_set_operand = simple_command_variable_set_operand(command, self.source);
-        for word in &command.args {
-            let word_context =
-                if variable_set_operand.is_some_and(|operand| std::ptr::eq(word, operand)) {
-                    context.variable_set_operand()
-                } else {
-                    context
-                };
-            self.collect_word(word, word_context);
-        }
-    }
-
-    fn collect_builtin(&mut self, command: &BuiltinCommand) {
-        let context = SurfaceScanContext::new();
-        match command {
-            BuiltinCommand::Break(command) => {
-                self.collect_assignments(&command.assignments, context);
-                if let Some(word) = &command.depth {
-                    self.collect_word(word, context);
-                }
-                self.collect_words(&command.extra_args, context);
-            }
-            BuiltinCommand::Continue(command) => {
-                self.collect_assignments(&command.assignments, context);
-                if let Some(word) = &command.depth {
-                    self.collect_word(word, context);
-                }
-                self.collect_words(&command.extra_args, context);
-            }
-            BuiltinCommand::Return(command) => {
-                self.collect_assignments(&command.assignments, context);
-                if let Some(word) = &command.code {
-                    self.collect_word(word, context);
-                }
-                self.collect_words(&command.extra_args, context);
-            }
-            BuiltinCommand::Exit(command) => {
-                self.collect_assignments(&command.assignments, context);
-                if let Some(word) = &command.code {
-                    self.collect_word(word, context);
-                }
-                self.collect_words(&command.extra_args, context);
-            }
-        }
-    }
-
-    fn collect_decl_command(&mut self, command: &DeclClause) {
-        let context = SurfaceScanContext::new();
-        self.collect_assignments(&command.assignments, context);
-        for operand in &command.operands {
-            match operand {
-                DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
-                    self.collect_word(word, context);
-                }
-                DeclOperand::Name(reference) => {
-                    self.record_var_ref_subscript(reference);
-                    query::visit_var_ref_subscript_words_with_source(
-                        reference,
-                        self.source,
-                        &mut |word| self.collect_word(word, context),
-                    );
-                }
-                DeclOperand::Assignment(assignment) => self.collect_assignment(assignment, context),
-            }
-        }
-    }
-
-    fn collect_compound(&mut self, command: &CompoundCommand) {
-        match command {
-            CompoundCommand::If(command) => {
-                self.collect_commands(&command.condition);
-                self.collect_commands(&command.then_branch);
-                for (condition, body) in &command.elif_branches {
-                    self.collect_commands(condition);
-                    self.collect_commands(body);
-                }
-                if let Some(body) = &command.else_branch {
-                    self.collect_commands(body);
-                }
-            }
-            CompoundCommand::For(command) => {
-                if let Some(words) = &command.words {
-                    self.collect_words(words, SurfaceScanContext::new());
-                }
-                self.collect_commands(&command.body);
-            }
-            CompoundCommand::Repeat(command) => {
-                self.collect_word(&command.count, SurfaceScanContext::new());
-                self.collect_commands(&command.body);
-            }
-            CompoundCommand::Foreach(command) => {
-                self.collect_words(&command.words, SurfaceScanContext::new());
-                self.collect_commands(&command.body);
-            }
-            CompoundCommand::ArithmeticFor(command) => self.collect_commands(&command.body),
-            CompoundCommand::While(command) => {
-                self.collect_commands(&command.condition);
-                self.collect_commands(&command.body);
-            }
-            CompoundCommand::Until(command) => {
-                self.collect_commands(&command.condition);
-                self.collect_commands(&command.body);
-            }
-            CompoundCommand::Case(command) => {
-                self.collect_word(&command.word, SurfaceScanContext::new());
-                for case in &command.cases {
-                    self.collect_patterns(
-                        &case.patterns,
-                        SurfaceScanContext::new().with_pattern_charclass_scan(),
-                    );
-                    self.collect_commands(&case.body);
-                }
-            }
-            CompoundCommand::Select(command) => {
-                self.collect_words(&command.words, SurfaceScanContext::new());
-                self.collect_commands(&command.body);
-            }
-            CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
-                self.collect_commands(commands);
-            }
-            CompoundCommand::Always(command) => {
-                self.collect_commands(&command.body);
-                self.collect_commands(&command.always_body);
-            }
-            CompoundCommand::Arithmetic(_) => {}
-            CompoundCommand::Time(command) => {
-                if let Some(command) = &command.command {
-                    self.collect_command(command);
-                }
-            }
-            CompoundCommand::Conditional(command) => {
-                self.collect_conditional_expr(&command.expression, SurfaceScanContext::new());
-            }
-            CompoundCommand::Coproc(command) => self.collect_command(&command.body),
-        }
-    }
-
-    fn collect_assignments(&mut self, assignments: &[Assignment], context: SurfaceScanContext<'_>) {
-        for assignment in assignments {
-            self.collect_assignment(assignment, context);
-        }
-    }
-
-    fn collect_assignment(&mut self, assignment: &Assignment, context: SurfaceScanContext<'_>) {
-        let context = context.with_assignment_target(assignment.target.name.as_str());
-        self.record_var_ref_subscript(&assignment.target);
-        query::visit_var_ref_subscript_words_with_source(
-            &assignment.target,
-            self.source,
-            &mut |word| self.collect_word(word, context),
-        );
-        match &assignment.value {
-            AssignmentValue::Scalar(word) => self.collect_word(word, context),
-            AssignmentValue::Compound(array) => {
-                for element in &array.elements {
-                    match element {
-                        ArrayElem::Sequential(word) => self.collect_word(word, context),
-                        ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
-                            self.record_subscript(Some(key));
-                            query::visit_subscript_words(Some(key), self.source, &mut |word| {
-                                self.collect_word(word, context);
-                            });
-                            self.collect_word(value, context);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    fn collect_words(&mut self, words: &[Word], context: SurfaceScanContext<'_>) {
+    pub(super) fn collect_words(&mut self, words: &[Word], context: SurfaceScanContext<'_>) {
         for word in words {
             self.collect_word(word, context);
         }
     }
 
-    fn collect_patterns(&mut self, patterns: &[Pattern], context: SurfaceScanContext<'_>) {
+    pub(super) fn collect_patterns(
+        &mut self,
+        patterns: &[Pattern],
+        context: SurfaceScanContext<'_>,
+    ) {
         for pattern in patterns {
             self.collect_pattern(pattern, context);
         }
     }
 
-    fn collect_word(&mut self, word: &Word, context: SurfaceScanContext<'_>) {
+    pub(super) fn collect_word(&mut self, word: &Word, context: SurfaceScanContext<'_>) {
         collect_unicode_smart_quote_spans_in_word_parts(
             &word.parts,
             self.source,
@@ -433,6 +196,12 @@ impl<'a> SurfaceFragmentCollector<'a> {
         self.collect_raw_replacement_expansions_in_span(word.span);
         self.collect_raw_case_modifications_in_span(word.span);
         self.collect_word_parts(&word.parts, context);
+    }
+
+    pub(super) fn record_unset_array_target_word(&mut self, word: &Word) {
+        if word_looks_like_unset_array_target(word, self.source) {
+            self.facts.subscript_spans.push(word.span);
+        }
     }
 
     fn collect_open_double_quote_fragments(&mut self, word: &Word) {
@@ -560,16 +329,14 @@ impl<'a> SurfaceFragmentCollector<'a> {
                 }
                 WordPart::CommandSubstitution {
                     syntax: CommandSubstitutionSyntax::Backtick,
-                    body,
+                    body: _,
                     ..
                 } => {
                     self.facts
                         .backticks
                         .push(BacktickFragmentFact { span: part.span });
-                    self.collect_commands(body);
                 }
-                WordPart::CommandSubstitution { body, .. }
-                | WordPart::ProcessSubstitution { body, .. } => self.collect_commands(body),
+                WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => {}
                 WordPart::Parameter(parameter) => {
                     if is_nested_parameter_expansion(parameter, self.source) {
                         self.facts
@@ -764,7 +531,7 @@ impl<'a> SurfaceFragmentCollector<'a> {
         }
     }
 
-    fn collect_pattern(&mut self, pattern: &Pattern, context: SurfaceScanContext<'_>) {
+    pub(super) fn collect_pattern(&mut self, pattern: &Pattern, context: SurfaceScanContext<'_>) {
         for (part, span) in pattern.parts_with_spans() {
             match part {
                 PatternPart::Group { kind, patterns } => {
@@ -886,7 +653,11 @@ impl<'a> SurfaceFragmentCollector<'a> {
         }
     }
 
-    fn collect_redirects(&mut self, redirects: &[Redirect], context: SurfaceScanContext<'_>) {
+    pub(super) fn collect_redirects(
+        &mut self,
+        redirects: &[Redirect],
+        context: SurfaceScanContext<'_>,
+    ) {
         for redirect in redirects {
             match redirect.word_target() {
                 Some(word) => self.collect_word(word, context),
@@ -899,44 +670,6 @@ impl<'a> SurfaceFragmentCollector<'a> {
                         self.collect_word(&heredoc.body, context.without_open_double_quote_scan());
                     }
                 }
-            }
-        }
-    }
-
-    fn collect_conditional_expr(
-        &mut self,
-        expression: &ConditionalExpr,
-        context: SurfaceScanContext<'_>,
-    ) {
-        match expression {
-            ConditionalExpr::Binary(expr) => {
-                self.collect_conditional_expr(&expr.left, context);
-                self.collect_conditional_expr(&expr.right, context);
-            }
-            ConditionalExpr::Unary(expr) => {
-                let context = if expr.op == ConditionalUnaryOp::VariableSet {
-                    context.variable_set_operand()
-                } else {
-                    context
-                };
-                self.collect_conditional_expr(&expr.expr, context);
-            }
-            ConditionalExpr::Parenthesized(expr) => {
-                self.collect_conditional_expr(&expr.expr, context);
-            }
-            ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
-                self.collect_word(word, context)
-            }
-            ConditionalExpr::Pattern(pattern) => {
-                self.collect_pattern(pattern, context.with_pattern_charclass_scan())
-            }
-            ConditionalExpr::VarRef(reference) => {
-                self.record_var_ref_subscript(reference);
-                query::visit_var_ref_subscript_words_with_source(
-                    reference,
-                    self.source,
-                    &mut |word| self.collect_word(word, context),
-                );
             }
         }
     }
@@ -1011,11 +744,11 @@ impl<'a> SurfaceFragmentCollector<'a> {
         }
     }
 
-    fn record_var_ref_subscript(&mut self, reference: &VarRef) {
+    pub(super) fn record_var_ref_subscript(&mut self, reference: &VarRef) {
         self.record_subscript(reference.subscript.as_ref());
     }
 
-    fn record_subscript(&mut self, subscript: Option<&Subscript>) {
+    pub(super) fn record_subscript(&mut self, subscript: Option<&Subscript>) {
         let Some(subscript) = subscript else {
             return;
         };
@@ -1023,10 +756,6 @@ impl<'a> SurfaceFragmentCollector<'a> {
             return;
         }
         self.facts.subscript_spans.push(subscript.span());
-    }
-
-    fn command_fact_for_command(&self, command: &Command) -> Option<&CommandFact<'a>> {
-        command_fact_for_command(command, self.commands, self.command_ids_by_span)
     }
 }
 
@@ -1373,17 +1102,6 @@ fn next_parameter_expansion_candidate(text: &str, search_start: usize) -> Option
     None
 }
 
-pub(super) fn build_surface_fragment_facts<'a>(
-    file: &'a File,
-    commands: &'a [CommandFact<'a>],
-    command_ids_by_span: &'a CommandLookupIndex,
-    source: &'a str,
-) -> SurfaceFragmentFacts {
-    let mut collector = SurfaceFragmentCollector::new(commands, command_ids_by_span, source);
-    collector.collect_commands(&file.body);
-    collector.finish()
-}
-
 fn collect_positional_parameter_operator_spans_in_arithmetic(
     expansion_span: Span,
     expression: &SourceText,
@@ -1613,7 +1331,7 @@ fn is_nested_parameter_expansion(parameter: &shuck_ast::ParameterExpansion, sour
 fn contains_nested_parameter_marker(text: &str) -> bool {
     text.starts_with("${${") || text.starts_with("${#${") || text.starts_with("${!${")
 }
-fn simple_command_variable_set_operand<'a>(
+pub(super) fn simple_command_variable_set_operand<'a>(
     command: &'a SimpleCommand,
     source: &str,
 ) -> Option<&'a Word> {

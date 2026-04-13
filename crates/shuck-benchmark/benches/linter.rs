@@ -1,12 +1,61 @@
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use criterion::{
+    BatchSize, BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main,
+};
 use shuck_benchmark::{benchmark_cases, configure_benchmark_allocator, parse_fixture};
 use shuck_indexer::Indexer;
 use shuck_linter::{
-    LinterSettings, ShellCheckCodeMap, SuppressionIndex, first_statement_line, lint_file,
-    parse_directives,
+    LinterFacts, LinterSettings, ShellCheckCodeMap, ShellDialect, SuppressionIndex,
+    classify_file_context, first_statement_line, lint_file, parse_directives,
 };
+use shuck_parser::parser::ParseOutput;
+use shuck_semantic::SemanticModel;
 
 configure_benchmark_allocator!();
+
+struct PreparedFactsInput {
+    source: &'static str,
+    output: ParseOutput,
+    indexer: Indexer,
+    semantic: SemanticModel,
+    file_context: shuck_linter::FileContext,
+}
+
+fn prepare_facts_input(source: &'static str) -> PreparedFactsInput {
+    let output = parse_fixture(source);
+    let indexer = Indexer::new(source, &output);
+    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let shell = ShellDialect::infer(source, None);
+    let file_context = classify_file_context(source, None, shell);
+
+    PreparedFactsInput {
+        source,
+        output,
+        indexer,
+        semantic,
+        file_context,
+    }
+}
+
+fn build_linter_facts(input: &PreparedFactsInput) -> usize {
+    let facts = LinterFacts::build(
+        &input.output.file,
+        input.source,
+        &input.semantic,
+        &input.indexer,
+        &input.file_context,
+    );
+
+    black_box(
+        facts.commands().len()
+            + facts.word_facts().len()
+            + facts.single_quoted_fragments().len()
+            + facts.backtick_fragments().len()
+            + facts.pattern_charclass_spans().len()
+            + facts.substring_expansion_fragments().len()
+            + facts.case_modification_fragments().len()
+            + facts.replacement_expansion_fragments().len(),
+    )
+}
 
 fn lint_source(
     source: &str,
@@ -34,6 +83,32 @@ fn lint_source(
     black_box(diagnostics.len())
 }
 
+fn bench_linter_facts(c: &mut Criterion) {
+    let mut group = c.benchmark_group("linter_facts");
+
+    for case in benchmark_cases() {
+        group.sample_size(case.speed.sample_size());
+        group.throughput(Throughput::Bytes(case.total_bytes()));
+        group.bench_with_input(BenchmarkId::from_parameter(case.name), &case, |b, case| {
+            b.iter_batched(
+                || {
+                    case.files
+                        .iter()
+                        .map(|file| prepare_facts_input(file.source))
+                        .collect::<Vec<_>>()
+                },
+                |inputs| {
+                    let facts_size: usize = inputs.iter().map(build_linter_facts).sum();
+                    black_box(facts_size);
+                },
+                BatchSize::LargeInput,
+            );
+        });
+    }
+
+    group.finish();
+}
+
 fn bench_linter(c: &mut Criterion) {
     let mut group = c.benchmark_group("linter");
     let settings = LinterSettings::default();
@@ -57,5 +132,5 @@ fn bench_linter(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_linter);
+criterion_group!(benches, bench_linter_facts, bench_linter);
 criterion_main!(benches);
