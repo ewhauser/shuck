@@ -722,6 +722,10 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-234" => Some(Rule::IfsSetToLiteralBackslashN),
         "SH-236" => Some(Rule::GlobInTestDirectory),
         "SH-246" => Some(Rule::ConstantInTestAssignment),
+        "SH-284" => Some(Rule::MalformedArithmeticInCondition),
+        "SH-287" => Some(Rule::ExprSubstrInTest),
+        "SH-288" => Some(Rule::StringComparedWithEq),
+        "SH-290" => Some(Rule::AFlagInDoubleBracket),
         "SH-279" => Some(Rule::UnsetPatternInSh),
         "SH-291" => Some(Rule::NestedDefaultExpansion),
         "SH-304" => Some(Rule::SourceInsideFunctionInSh),
@@ -770,6 +774,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-038" => Some(Rule::UnquotedArrayExpansion),
         "SH-039" => Some(Rule::UndefinedVariable),
         "SH-040" => Some(Rule::EchoedCommandSubstitution),
+        "SH-051" => Some(Rule::CompoundTestOperator),
         "SH-170" => Some(Rule::RedundantReturnStatus),
         "SH-168" => Some(Rule::RedundantSpacesInEcho),
         "SH-196" => Some(Rule::UnquotedVariableInSed),
@@ -1084,7 +1089,9 @@ mod tests {
         assert_eq!(code_to_rule("S062"), Some(Rule::DefaultValueInColonAssign));
         assert_eq!(code_to_rule("S063"), Some(Rule::RelativeSymlinkTarget));
         assert_eq!(code_to_rule("S064"), Some(Rule::XargsWithInlineReplace));
+        assert_eq!(code_to_rule("S011"), Some(Rule::CompoundTestOperator));
         assert_eq!(code_to_rule("S065"), Some(Rule::XPrefixInTest));
+        assert_eq!(code_to_rule("SH-051"), Some(Rule::CompoundTestOperator));
         assert_eq!(
             code_to_rule("SH-251"),
             Some(Rule::DefaultValueInColonAssign)
@@ -1295,6 +1302,20 @@ mod tests {
         assert_eq!(code_to_rule("SH-249"), Some(Rule::AtSignInStringCompare));
         assert_eq!(code_to_rule("C112"), Some(Rule::ArraySliceInComparison));
         assert_eq!(code_to_rule("SH-250"), Some(Rule::ArraySliceInComparison));
+        assert_eq!(
+            code_to_rule("C118"),
+            Some(Rule::MalformedArithmeticInCondition)
+        );
+        assert_eq!(
+            code_to_rule("SH-284"),
+            Some(Rule::MalformedArithmeticInCondition)
+        );
+        assert_eq!(code_to_rule("C120"), Some(Rule::ExprSubstrInTest));
+        assert_eq!(code_to_rule("SH-287"), Some(Rule::ExprSubstrInTest));
+        assert_eq!(code_to_rule("C121"), Some(Rule::StringComparedWithEq));
+        assert_eq!(code_to_rule("SH-288"), Some(Rule::StringComparedWithEq));
+        assert_eq!(code_to_rule("C122"), Some(Rule::AFlagInDoubleBracket));
+        assert_eq!(code_to_rule("SH-290"), Some(Rule::AFlagInDoubleBracket));
         assert_eq!(code_to_rule("C106"), Some(Rule::AppendToArrayAsString));
         assert_eq!(code_to_rule("SH-241"), Some(Rule::AppendToArrayAsString));
         assert_eq!(code_to_rule("C107"), Some(Rule::DollarQuestionAfterCommand));
