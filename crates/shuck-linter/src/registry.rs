@@ -158,6 +158,18 @@ declare_rules! {
     ("C083", Category::Correctness, Severity::Warning, GlobInFindSubstitution),
     ("C084", Category::Correctness, Severity::Warning, UnquotedGrepRegex),
     (
+        "C085",
+        Category::Correctness,
+        Severity::Warning,
+        StderrBeforeStdoutRedirect
+    ),
+    (
+        "C094",
+        Category::Correctness,
+        Severity::Warning,
+        RedirectClobbersInput
+    ),
+    (
         "C079",
         Category::Correctness,
         Severity::Warning,
@@ -344,6 +356,12 @@ declare_rules! {
         Category::Correctness,
         Severity::Warning,
         MalformedArithmeticInCondition
+    ),
+    (
+        "C119",
+        Category::Correctness,
+        Severity::Warning,
+        RedirectBeforePipe
     ),
     (
         "C120",
@@ -678,6 +696,7 @@ declare_rules! {
     ("S072", Category::Style, Severity::Warning, LinebreakBeforeAnd),
     ("S073", Category::Style, Severity::Warning, SpacedTabstripClose),
     ("S074", Category::Style, Severity::Warning, AmpersandSemicolon),
+    ("S075", Category::Style, Severity::Warning, CombineAppends),
 }
 
 pub fn code_to_rule(code: &str) -> Option<Rule> {
@@ -845,6 +864,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-329" => Some(Rule::LinebreakBeforeAnd),
         "SH-330" => Some(Rule::SpacedTabstripClose),
         "SH-335" => Some(Rule::AmpersandSemicolon),
+        "SH-349" => Some(Rule::CombineAppends),
         "SH-339" => Some(Rule::SubshellLocalAssignment),
         "SH-121" => Some(Rule::CStyleComment),
         "SH-123" => Some(Rule::CPrototypeFragment),
@@ -862,6 +882,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-159" => Some(Rule::SubstWithRedirect),
         "SH-160" => Some(Rule::SubstWithRedirectErr),
         "SH-165" => Some(Rule::RedirectToCommandName),
+        "SH-285" => Some(Rule::RedirectBeforePipe),
         "SH-166" => Some(Rule::NonAbsoluteShebang),
         "SH-167" => Some(Rule::TemplateBraceInCommand),
         "SH-169" => Some(Rule::NestedParameterExpansion),
@@ -873,6 +894,8 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-179" => Some(Rule::BareClosingBrace),
         "SH-186" => Some(Rule::BackslashBeforeClosingBacktick),
         "SH-187" => Some(Rule::PositionalParamAsOperator),
+        "SH-211" => Some(Rule::StderrBeforeStdoutRedirect),
+        "SH-222" => Some(Rule::RedirectClobbersInput),
         "SH-188" => Some(Rule::DoubleParenGrouping),
         "SH-189" => Some(Rule::UnicodeQuoteInString),
         "SH-190" => Some(Rule::MissingShebangLine),
@@ -1200,6 +1223,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-330"), Some(Rule::SpacedTabstripClose));
         assert_eq!(code_to_rule("S074"), Some(Rule::AmpersandSemicolon));
         assert_eq!(code_to_rule("SH-335"), Some(Rule::AmpersandSemicolon));
+        assert_eq!(code_to_rule("S075"), Some(Rule::CombineAppends));
+        assert_eq!(code_to_rule("SH-349"), Some(Rule::CombineAppends));
         assert_eq!(code_to_rule("C040"), Some(Rule::LinebreakInTest));
         assert_eq!(code_to_rule("SH-115"), Some(Rule::LinebreakInTest));
         assert_eq!(code_to_rule("C041"), Some(Rule::CStyleComment));
@@ -1208,6 +1233,13 @@ mod tests {
         assert_eq!(code_to_rule("SH-123"), Some(Rule::CPrototypeFragment));
         assert_eq!(code_to_rule("C043"), Some(Rule::BadRedirectionFdOrder));
         assert_eq!(code_to_rule("SH-129"), Some(Rule::BadRedirectionFdOrder));
+        assert_eq!(code_to_rule("C085"), Some(Rule::StderrBeforeStdoutRedirect));
+        assert_eq!(code_to_rule("C094"), Some(Rule::RedirectClobbersInput));
+        assert_eq!(
+            code_to_rule("SH-211"),
+            Some(Rule::StderrBeforeStdoutRedirect)
+        );
+        assert_eq!(code_to_rule("SH-222"), Some(Rule::RedirectClobbersInput));
         assert_eq!(code_to_rule("SH-141"), Some(Rule::InvalidExitStatus));
         assert_eq!(code_to_rule("SH-142"), Some(Rule::CasePatternVar));
         assert_eq!(

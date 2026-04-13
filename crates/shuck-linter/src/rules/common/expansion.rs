@@ -1,6 +1,7 @@
 use shuck_ast::{
     BourneParameterExpansion, ParameterExpansion, ParameterExpansionSyntax, PrefixMatchKind,
-    Redirect, RedirectKind, SubscriptSelector, Word, WordPart, WordPartNode, ZshExpansionOperation,
+    Redirect, RedirectKind, Span, SubscriptSelector, Word, WordPart, WordPartNode,
+    ZshExpansionOperation,
 };
 use shuck_semantic::{OptionValue, ZshOptionState};
 
@@ -206,6 +207,165 @@ impl RedirectTargetAnalysis {
     pub fn can_expand_to_multiple_fields(self) -> bool {
         self.expansion.can_expand_to_multiple_fields
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum ComparablePathKey {
+    Literal(Box<str>),
+    Parameter(Box<str>),
+    Template(Box<[ComparablePathPart]>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum ComparablePathPart {
+    Literal(Box<str>),
+    Parameter(Box<str>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ComparablePath {
+    span: Span,
+    key: ComparablePathKey,
+}
+
+impl ComparablePath {
+    pub(crate) fn span(&self) -> Span {
+        self.span
+    }
+
+    pub(crate) fn key(&self) -> &ComparablePathKey {
+        &self.key
+    }
+}
+
+pub(crate) fn comparable_path(
+    word: &Word,
+    source: &str,
+    context: ExpansionContext,
+    options: Option<&ZshOptionState>,
+) -> Option<ComparablePath> {
+    let analysis = analyze_word(word, source, options);
+    if analysis.has_command_substitution()
+        || analysis.hazards.command_or_process_substitution
+        || analysis.has_array_expansion()
+    {
+        return None;
+    }
+
+    let runtime_literal = analyze_literal_runtime(word, source, context, options);
+    if runtime_literal.hazards.pathname_matching
+        || runtime_literal.hazards.brace_fanout
+        || runtime_literal.hazards.command_or_process_substitution
+        || runtime_literal.hazards.arithmetic_expansion
+        || runtime_literal.hazards.runtime_pattern
+    {
+        return None;
+    }
+
+    let key = comparable_path_key_from_parts(&word.parts, source)?;
+    if key == ComparablePathKey::Literal("/dev/null".into()) {
+        return None;
+    }
+
+    Some(ComparablePath {
+        span: word.span,
+        key,
+    })
+}
+
+fn comparable_path_key_from_parts(
+    parts: &[WordPartNode],
+    source: &str,
+) -> Option<ComparablePathKey> {
+    let mut components = Vec::new();
+    for part in parts {
+        push_comparable_path_parts(part, source, &mut components)?;
+    }
+
+    match components.as_slice() {
+        [ComparablePathPart::Literal(text)] => Some(ComparablePathKey::Literal(text.clone())),
+        [ComparablePathPart::Parameter(name)] => Some(ComparablePathKey::Parameter(name.clone())),
+        [] => None,
+        _ => Some(ComparablePathKey::Template(components.into_boxed_slice())),
+    }
+}
+
+fn push_comparable_path_parts(
+    part: &WordPartNode,
+    source: &str,
+    components: &mut Vec<ComparablePathPart>,
+) -> Option<()> {
+    match &part.kind {
+        WordPart::Literal(text) => {
+            push_comparable_literal(text.as_str(source, part.span), components);
+            Some(())
+        }
+        WordPart::SingleQuoted { value, .. } => {
+            push_comparable_literal(value.slice(source), components);
+            Some(())
+        }
+        WordPart::DoubleQuoted { parts, .. } => {
+            for part in parts {
+                push_comparable_path_parts(part, source, components)?;
+            }
+            Some(())
+        }
+        WordPart::Variable(name) if is_comparable_parameter_name(name.as_str()) => {
+            components.push(ComparablePathPart::Parameter(name.as_str().into()));
+            Some(())
+        }
+        WordPart::Variable(_) => None,
+        WordPart::Parameter(parameter) => match parameter.bourne()? {
+            BourneParameterExpansion::Access { reference }
+                if reference.subscript.is_none()
+                    && is_comparable_parameter_name(reference.name.as_str()) =>
+            {
+                components.push(ComparablePathPart::Parameter(
+                    reference.name.as_str().into(),
+                ));
+                Some(())
+            }
+            _ => None,
+        },
+        WordPart::ZshQualifiedGlob(_)
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ArithmeticExpansion { .. }
+        | WordPart::ParameterExpansion { .. }
+        | WordPart::Length(_)
+        | WordPart::ArrayAccess(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::Substring { .. }
+        | WordPart::ArraySlice { .. }
+        | WordPart::IndirectExpansion { .. }
+        | WordPart::PrefixMatch { .. }
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::Transformation { .. } => None,
+    }
+}
+
+fn push_comparable_literal(text: &str, components: &mut Vec<ComparablePathPart>) {
+    if text.is_empty() {
+        return;
+    }
+
+    match components.last_mut() {
+        Some(ComparablePathPart::Literal(existing)) => {
+            let mut merged = existing.to_string();
+            merged.push_str(text);
+            *existing = merged.into_boxed_str();
+        }
+        _ => components.push(ComparablePathPart::Literal(text.into())),
+    }
+}
+
+fn is_comparable_parameter_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(first) if first == '_' || first.is_ascii_alphabetic() => {}
+        _ => return false,
+    }
+    chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1036,8 +1196,9 @@ mod tests {
     use shuck_parser::parser::{Parser, ShellDialect};
 
     use super::{
-        ExpansionAnalysis, ExpansionContext, ExpansionValueShape, RedirectDevNullStatus,
-        WordLiteralness, WordQuote, analyze_literal_runtime, analyze_redirect_target, analyze_word,
+        ComparablePathKey, ComparablePathPart, ExpansionAnalysis, ExpansionContext,
+        ExpansionValueShape, RedirectDevNullStatus, WordLiteralness, WordQuote,
+        analyze_literal_runtime, analyze_redirect_target, analyze_word, comparable_path,
     };
 
     fn parse_argument_words(source: &str) -> Vec<shuck_ast::Word> {
@@ -1240,6 +1401,70 @@ mod tests {
         );
         assert!(tilde.runtime_literal.is_runtime_sensitive());
         assert!(tilde.is_runtime_sensitive());
+    }
+
+    #[test]
+    fn comparable_path_accepts_simple_literals_and_single_parameter_expansions() {
+        let source = "cmd foo \"$src\" \"${dst}\" ~/.zshrc \"$dir/Cargo.toml\" $tmpf \"$@\" \"$(printf hi)\" <(cat) *.log /dev/null\n";
+        let words = parse_argument_words(source);
+
+        assert_eq!(
+            comparable_path(&words[0], source, ExpansionContext::CommandArgument, None)
+                .expect("expected literal path")
+                .key(),
+            &ComparablePathKey::Literal("foo".into())
+        );
+        assert_eq!(
+            comparable_path(&words[1], source, ExpansionContext::CommandArgument, None)
+                .expect("expected parameter path")
+                .key(),
+            &ComparablePathKey::Parameter("src".into())
+        );
+        assert_eq!(
+            comparable_path(&words[2], source, ExpansionContext::CommandArgument, None)
+                .expect("expected parameter path")
+                .key(),
+            &ComparablePathKey::Parameter("dst".into())
+        );
+        assert_eq!(
+            comparable_path(&words[3], source, ExpansionContext::CommandArgument, None)
+                .expect("expected tilde literal")
+                .key(),
+            &ComparablePathKey::Literal("~/.zshrc".into())
+        );
+        assert_eq!(
+            comparable_path(&words[4], source, ExpansionContext::CommandArgument, None)
+                .expect("expected path template")
+                .key(),
+            &ComparablePathKey::Template(
+                [
+                    ComparablePathPart::Parameter("dir".into()),
+                    ComparablePathPart::Literal("/Cargo.toml".into()),
+                ]
+                .into()
+            )
+        );
+        assert_eq!(
+            comparable_path(&words[5], source, ExpansionContext::CommandArgument, None)
+                .expect("expected bare parameter path")
+                .key(),
+            &ComparablePathKey::Parameter("tmpf".into())
+        );
+        assert!(
+            comparable_path(&words[6], source, ExpansionContext::CommandArgument, None).is_none()
+        );
+        assert!(
+            comparable_path(&words[7], source, ExpansionContext::CommandArgument, None).is_none()
+        );
+        assert!(
+            comparable_path(&words[8], source, ExpansionContext::CommandArgument, None).is_none()
+        );
+        assert!(
+            comparable_path(&words[9], source, ExpansionContext::CommandArgument, None).is_none()
+        );
+        assert!(
+            comparable_path(&words[10], source, ExpansionContext::CommandArgument, None).is_none()
+        );
     }
 
     #[test]

@@ -94,6 +94,8 @@ pub mod quoted_array_slice;
 pub mod quoted_bash_regex;
 pub mod quoted_bash_source;
 pub mod quoted_command_in_test;
+pub mod redirect_before_pipe;
+pub mod redirect_clobbers_input;
 pub mod redirect_to_command_name;
 pub mod script_scope_local;
 pub mod set_flags_without_dashes;
@@ -103,6 +105,7 @@ pub mod single_quoted_literal;
 pub mod space_after_hash_bang;
 pub mod spaced_assignment;
 pub mod status_capture_after_branch_test;
+pub mod stderr_before_stdout_redirect;
 pub mod string_compared_with_eq;
 pub mod string_comparison_for_version;
 pub mod subshell_in_arithmetic;
@@ -213,6 +216,7 @@ mod tests {
     #[test_case(Rule::EscapedNegationInTest, Path::new("C082.sh"))]
     #[test_case(Rule::GlobInFindSubstitution, Path::new("C083.sh"))]
     #[test_case(Rule::UnquotedGrepRegex, Path::new("C084.sh"))]
+    #[test_case(Rule::StderrBeforeStdoutRedirect, Path::new("C085.sh"))]
     #[test_case(Rule::GlobInTestDirectory, Path::new("C102.sh"))]
     #[test_case(Rule::GreaterThanInTest, Path::new("C086.sh"))]
     #[test_case(Rule::StringComparisonForVersion, Path::new("C087.sh"))]
@@ -222,6 +226,8 @@ mod tests {
     #[test_case(Rule::TildeInStringComparison, Path::new("C091.sh"))]
     #[test_case(Rule::IfDollarCommand, Path::new("C092.sh"))]
     #[test_case(Rule::BacktickInCommandPosition, Path::new("C093.sh"))]
+    #[test_case(Rule::RedirectClobbersInput, Path::new("C094.sh"))]
+    #[test_case(Rule::RedirectBeforePipe, Path::new("C119.sh"))]
     #[test_case(Rule::GlobWithExpansionInLoop, Path::new("C114.sh"))]
     #[test_case(Rule::AssignmentLooksLikeComparison, Path::new("C095.sh"))]
     #[test_case(Rule::UnquotedPipeInEcho, Path::new("C096.sh"))]

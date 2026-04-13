@@ -180,6 +180,15 @@ impl Default for ShellCheckCodeMap {
             (2293, Rule::LsPipedToXargs),
             (2294, Rule::LsInSubstitution),
             (2263, Rule::RedundantSpacesInEcho),
+            // ShellCheck 0.11.0 reports stderr-before-stdout redirect ordering as SC2069.
+            // Keep SC2306 as the authored suppression code and compare against the live code.
+            (2069, Rule::StderrBeforeStdoutRedirect),
+            // ShellCheck 0.11.0 reports redirect-before-pipe warnings as SC2358.
+            // Keep SC2358 as the authored compatibility code and compare directly.
+            (2358, Rule::RedirectBeforePipe),
+            // ShellCheck 0.11.0 reports read/write redirect collisions as SC2094.
+            // Keep SC2317 as the authored suppression code and compare against the live code.
+            (2094, Rule::RedirectClobbersInput),
             // ShellCheck 0.11.0 reports single-quoted split-word cases as SC2026.
             // Keep SC2300 as a suppression alias for the authored S050 rule code.
             (2026, Rule::UnquotedWordBetweenQuotes),
@@ -246,6 +255,7 @@ impl Default for ShellCheckCodeMap {
             // ShellCheck 0.11.0 reports `foo &;` as SC1045.
             // Keep SC2397 as a suppression alias for historical compatibility.
             (1045, Rule::AmpersandSemicolon),
+            (2129, Rule::CombineAppends),
             // ShellCheck 0.11.0 reports case-pattern shadowing as SC2221.
             // Keep SC2373 as a suppression alias for the authored C128 rule code.
             (2221, Rule::CaseGlobReachability),
@@ -553,6 +563,9 @@ impl Default for ShellCheckCodeMap {
                     (2126, Rule::GrepCountPipeline),
                     (2009, Rule::PsGrepPipeline),
                     (2010, Rule::LsGrepPipeline),
+                    (2306, Rule::StderrBeforeStdoutRedirect),
+                    (2358, Rule::RedirectBeforePipe),
+                    (2317, Rule::RedirectClobbersInput),
                     (2293, Rule::LsPipedToXargs),
                     (2117, Rule::SuWithoutFlag),
                     (2196, Rule::EgrepDeprecated),
@@ -573,6 +586,7 @@ impl Default for ShellCheckCodeMap {
                     (1041, Rule::HeredocCloserNotAlone),
                     (1044, Rule::HeredocMissingEnd),
                     (1045, Rule::AmpersandSemicolon),
+                    (2129, Rule::CombineAppends),
                     (1047, Rule::MissingFi),
                     (1065, Rule::FunctionParamsInSh),
                     (1069, Rule::IfBracketGlued),
@@ -856,6 +870,10 @@ impl Default for ShellCheckCodeMap {
                 (3058, Rule::StarGlobRemovalInSh),
                 (3024, Rule::PlusEqualsInSh),
                 (2351, Rule::XPrefixInTest),
+                // ShellCheck 0.11.0 reports redirect collisions as SC2094.
+                // Keep SC2094 available as the live comparison alias for SC2317.
+                (2094, Rule::RedirectClobbersInput),
+                (2351, Rule::XPrefixInTest),
                 (3062, Rule::DollarStringInSh),
                 (3056, Rule::UnsetPatternInSh),
                 (3072, Rule::CaretNegationInBracket),
@@ -863,6 +881,7 @@ impl Default for ShellCheckCodeMap {
                 (2009, Rule::DoubleParenGrouping),
                 (2294, Rule::LsInSubstitution),
                 (2294, Rule::EvalOnArray),
+                (2069, Rule::StderrBeforeStdoutRedirect),
                 (2373, Rule::CaseGlobReachability),
                 (2374, Rule::CaseDefaultBeforeGlob),
                 (2372, Rule::SingleLetterCaseLabel),
@@ -975,6 +994,16 @@ mod tests {
         assert_eq!(map.resolve("SC2126"), Some(Rule::GrepCountPipeline));
         assert_eq!(map.resolve("SC2009"), Some(Rule::PsGrepPipeline));
         assert_eq!(map.resolve("SC2010"), Some(Rule::LsGrepPipeline));
+        assert_eq!(
+            map.resolve("SC2306"),
+            Some(Rule::StderrBeforeStdoutRedirect)
+        );
+        assert_eq!(map.resolve("SC2317"), Some(Rule::RedirectClobbersInput));
+        assert_eq!(
+            map.resolve("SC2069"),
+            Some(Rule::StderrBeforeStdoutRedirect)
+        );
+        assert_eq!(map.resolve("SC2094"), Some(Rule::RedirectClobbersInput));
         assert_eq!(map.resolve("SC2293"), Some(Rule::LsPipedToXargs));
         assert_eq!(map.resolve("SC2294"), Some(Rule::LsInSubstitution));
         assert_eq!(map.resolve("SC2048"), Some(Rule::UnquotedDollarStar));
@@ -1333,6 +1362,7 @@ mod tests {
         );
         assert_eq!(map.resolve("SC1019"), Some(Rule::EmptyTest));
         assert_eq!(map.resolve("SC1045"), Some(Rule::AmpersandSemicolon));
+        assert_eq!(map.resolve("SC2129"), Some(Rule::CombineAppends));
         assert_eq!(map.resolve("SC2024"), Some(Rule::SudoRedirectionOrder));
         assert_eq!(map.resolve("SC2035"), Some(Rule::LeadingGlobArgument));
         assert_eq!(map.resolve("SC2043"), Some(Rule::SingleIterationLoop));
@@ -1548,6 +1578,7 @@ mod tests {
         assert_eq!(map.resolve_all("SC2268"), vec![Rule::XPrefixInTest]);
         assert_eq!(map.resolve("SC2239"), Some(Rule::NonAbsoluteShebang));
         assert_eq!(map.resolve("SC2260"), Some(Rule::RedirectToCommandName));
+        assert_eq!(map.resolve("SC2358"), Some(Rule::RedirectBeforePipe));
         assert_eq!(map.resolve("SC2261"), Some(Rule::NonAbsoluteShebang));
         assert_eq!(map.resolve("SC2262"), Some(Rule::TemplateBraceInCommand));
         assert_eq!(map.resolve("SC2264"), Some(Rule::NestedParameterExpansion));
@@ -1684,6 +1715,7 @@ mod tests {
             (1041, Rule::HeredocCloserNotAlone),
             (1044, Rule::HeredocMissingEnd),
             (1045, Rule::AmpersandSemicolon),
+            (2129, Rule::CombineAppends),
             (1047, Rule::MissingFi),
             (1065, Rule::FunctionParamsInSh),
             (1069, Rule::IfBracketGlued),
@@ -1718,9 +1750,14 @@ mod tests {
             (2009, Rule::PsGrepPipeline),
             (2009, Rule::DoubleParenGrouping),
             (2010, Rule::LsGrepPipeline),
+            (2306, Rule::StderrBeforeStdoutRedirect),
+            (2358, Rule::RedirectBeforePipe),
             (2293, Rule::LsPipedToXargs),
             (2294, Rule::LsInSubstitution),
             (2263, Rule::RedundantSpacesInEcho),
+            (2069, Rule::StderrBeforeStdoutRedirect),
+            (2317, Rule::RedirectClobbersInput),
+            (2094, Rule::RedirectClobbersInput),
             (2026, Rule::UnquotedWordBetweenQuotes),
             (2027, Rule::DoubleQuoteNesting),
             (2143, Rule::GrepOutputInTest),
@@ -1957,6 +1994,7 @@ mod tests {
             (2395, Rule::MisquotedHeredocClose),
             (2396, Rule::UntilMissingDo),
             (2397, Rule::AmpersandSemicolon),
+            (2129, Rule::CombineAppends),
             (2221, Rule::CaseGlobReachability),
             (2373, Rule::CaseGlobReachability),
             (2222, Rule::CaseDefaultBeforeGlob),
@@ -2124,6 +2162,8 @@ mod tests {
         assert!(comparison.contains(&(3042, Rule::LetCommand)));
         assert!(comparison.contains(&(2009, Rule::PsGrepPipeline)));
         assert!(comparison.contains(&(2010, Rule::LsGrepPipeline)));
+        assert!(comparison.contains(&(2069, Rule::StderrBeforeStdoutRedirect)));
+        assert!(comparison.contains(&(2358, Rule::RedirectBeforePipe)));
         assert!(comparison.contains(&(2014, Rule::UnquotedGlobsInFind)));
         assert!(comparison.contains(&(2231, Rule::GlobWithExpansionInLoop)));
         assert!(comparison.contains(&(2022, Rule::GlobInGrepPattern)));

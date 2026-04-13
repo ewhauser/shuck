@@ -1,0 +1,86 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C094 this command reads and writes the same file
+ --> <source>:2:7
+  |
+2 | cat < foo > foo
+  |
+
+C094 this command reads and writes the same file
+ --> <source>:2:13
+  |
+2 | cat < foo > foo
+  |
+
+C094 this command reads and writes the same file
+ --> <source>:3:6
+  |
+3 | sort foo > foo
+  |
+
+C094 this command reads and writes the same file
+ --> <source>:3:12
+  |
+3 | sort foo > foo
+  |
+
+C094 this command reads and writes the same file
+ --> <source>:4:15
+  |
+4 | unzip -p "$1" test.c > test.c
+  |
+
+C094 this command reads and writes the same file
+ --> <source>:4:24
+  |
+4 | unzip -p "$1" test.c > test.c
+  |
+
+C094 this command reads and writes the same file
+ --> <source>:5:7
+  |
+5 | cat < "$src" > "$src"
+  |
+
+C094 this command reads and writes the same file
+ --> <source>:5:16
+  |
+5 | cat < "$src" > "$src"
+  |
+
+C094 this command reads and writes the same file
+ --> <source>:6:13
+  |
+6 | echo "$(cat "$f")" | sed 's/x/y/' >"$f"
+  |
+
+C094 this command reads and writes the same file
+ --> <source>:6:36
+  |
+6 | echo "$(cat "$f")" | sed 's/x/y/' >"$f"
+  |
+
+C094 this command reads and writes the same file
+ --> <source>:7:61
+  |
+7 | printf '%s\0' **/* | bsdtar --null --files-from - --exclude .MTREE | gzip -c -f -n > .MTREE
+  |
+
+C094 this command reads and writes the same file
+ --> <source>:7:86
+  |
+7 | printf '%s\0' **/* | bsdtar --null --files-from - --exclude .MTREE | gzip -c -f -n > .MTREE
+  |
+
+C094 this command reads and writes the same file
+ --> <source>:8:6
+  |
+8 | { [[ "$f" == /dev/null ]] || set -x; } &>"$f"
+  |
+
+C094 this command reads and writes the same file
+ --> <source>:8:42
+  |
+8 | { [[ "$f" == /dev/null ]] || set -x; } &>"$f"
+  |

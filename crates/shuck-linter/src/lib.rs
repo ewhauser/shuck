@@ -27,17 +27,19 @@ pub use facts::{
     ConditionalOperatorFamily, ConditionalPortabilityFacts, ConditionalUnaryFact, ExitCommandFacts,
     FactSpan, FindCommandFacts, FindExecDirCommandFacts, ForHeaderFact, FunctionHeaderFact,
     LegacyArithmeticFragmentFact, LinterFacts, ListFact, ListOperatorFact, LoopHeaderWordFact,
-    PipelineFact, PipelineOperatorFact, PipelineSegmentFact, PositionalParameterFragmentFact,
-    PrintfCommandFacts, ReadCommandFacts, RedirectFact, RmCommandFacts, SelectHeaderFact,
-    SimpleTestFact, SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax,
-    SingleQuotedFragmentFact, SshCommandFacts, SubstitutionFact, SubstitutionHostKind,
-    SudoFamilyCommandFacts, SudoFamilyInvoker, UnsetCommandFacts, WaitCommandFacts, WordFact,
-    WordFactContext, WordFactHostKind, XargsCommandFacts, leading_literal_word_prefix,
+    PathWordFact, PipelineFact, PipelineOperatorFact, PipelineSegmentFact,
+    PositionalParameterFragmentFact, PrintfCommandFacts, ReadCommandFacts, RedirectFact,
+    RmCommandFacts, SelectHeaderFact, SimpleTestFact, SimpleTestOperatorFamily, SimpleTestShape,
+    SimpleTestSyntax, SingleQuotedFragmentFact, SshCommandFacts, StatementFact, SubstitutionFact,
+    SubstitutionHostKind, SudoFamilyCommandFacts, SudoFamilyInvoker, UnsetCommandFacts,
+    WaitCommandFacts, WordFact, WordFactContext, WordFactHostKind, XargsCommandFacts,
+    leading_literal_word_prefix,
 };
 pub use registry::{Category, Rule, code_to_rule};
 pub use rule_selector::{RuleSelector, SelectorParseError};
 pub use rule_set::RuleSet;
 pub use rules::common::command::{DeclarationKind, WrapperKind};
+pub(crate) use rules::common::expansion::{ComparablePathKey, comparable_path};
 pub use rules::common::expansion::{ExpansionContext, WordQuote};
 pub use rules::common::query::CommandSubstitutionKind;
 pub use rules::common::safe_value::{SafeValueIndex, SafeValueQuery};

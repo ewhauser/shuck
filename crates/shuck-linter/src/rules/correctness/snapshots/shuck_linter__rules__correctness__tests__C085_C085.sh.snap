@@ -1,0 +1,20 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C085 stderr is redirected before stdout is redirected
+ --> <source>:4:9
+  |
+4 | echo ok 2>&1 >/dev/null
+  |
+
+C085 stderr is redirected before stdout is redirected
+ --> <source>:5:9
+  |
+5 | echo ok 2>&1 >>file
+  |
+
+C085 stderr is redirected before stdout is redirected
+ --> <source>:6:9
+  |
+6 | echo ok 2>&1 1>/dev/null
+  |

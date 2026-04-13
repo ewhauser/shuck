@@ -570,6 +570,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::AmpersandSemicolon) {
             rules::style::ampersand_semicolon::ampersand_semicolon(self);
         }
+        if self.is_rule_enabled(Rule::CombineAppends) {
+            rules::style::combine_appends::combine_appends(self);
+        }
         if self.is_rule_enabled(Rule::UnquotedArrayExpansion) {
             rules::style::unquoted_array_expansion::unquoted_array_expansion(self);
         }
@@ -718,6 +721,15 @@ impl<'a> Checker<'a> {
         }
         if self.is_rule_enabled(Rule::BadRedirectionFdOrder) {
             rules::correctness::bad_redirection_fd_order::bad_redirection_fd_order(self);
+        }
+        if self.is_rule_enabled(Rule::StderrBeforeStdoutRedirect) {
+            rules::correctness::stderr_before_stdout_redirect::stderr_before_stdout_redirect(self);
+        }
+        if self.is_rule_enabled(Rule::RedirectClobbersInput) {
+            rules::correctness::redirect_clobbers_input::redirect_clobbers_input(self);
+        }
+        if self.is_rule_enabled(Rule::RedirectBeforePipe) {
+            rules::correctness::redirect_before_pipe::redirect_before_pipe(self);
         }
         if self.is_rule_enabled(Rule::AmpersandRedirection) {
             rules::portability::ampersand_redirection::ampersand_redirection(self);
