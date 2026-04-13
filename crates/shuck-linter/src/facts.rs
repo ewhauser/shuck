@@ -252,6 +252,78 @@ impl<'a> SimpleTestFact<'a> {
             .flatten()
     }
 
+    pub fn effective_operator_word(&self) -> Option<&'a Word> {
+        match self.effective_shape {
+            SimpleTestShape::Unary => self.effective_operands().first().copied(),
+            SimpleTestShape::Binary => self.effective_operands().get(1).copied(),
+            SimpleTestShape::Empty | SimpleTestShape::Truthy | SimpleTestShape::Other => None,
+        }
+    }
+
+    pub fn compound_operator_spans(&self, source: &str) -> Vec<Span> {
+        match self.effective_shape {
+            SimpleTestShape::Binary => {
+                return self
+                    .effective_operator_word()
+                    .into_iter()
+                    .filter(|word| {
+                        self.effective_operand_class(1)
+                            .is_some_and(|class| class.is_fixed_literal())
+                            && classify_word(word, source).quote == WordQuote::Unquoted
+                    })
+                    .filter_map(|word| {
+                        static_word_text(word, source)
+                            .is_some_and(|text| matches!(text.as_str(), "-a" | "-o"))
+                            .then_some(word.span)
+                    })
+                    .collect();
+            }
+            SimpleTestShape::Other => {}
+            SimpleTestShape::Empty | SimpleTestShape::Truthy | SimpleTestShape::Unary => {
+                return Vec::new();
+            }
+        }
+
+        self.effective_operands()
+            .iter()
+            .enumerate()
+            .filter(|(index, _word)| {
+                self.effective_operand_class(*index)
+                    .is_some_and(|class| class.is_fixed_literal())
+            })
+            .map(|(_index, word)| (word, classify_word(word, source)))
+            .filter_map(|(word, classification)| {
+                (classification.quote == WordQuote::Unquoted)
+                    .then_some(word)
+                    .and_then(|word| {
+                        static_word_text(word, source)
+                            .is_some_and(|text| matches!(text.as_str(), "-a" | "-o"))
+                            .then_some(word.span)
+                    })
+            })
+            .collect()
+    }
+
+    pub fn is_abort_like_bracket_test(&self, source: &str) -> bool {
+        if self.syntax != SimpleTestSyntax::Bracket
+            || self.effective_shape != SimpleTestShape::Other
+        {
+            return false;
+        }
+
+        self.effective_operands()
+            .iter()
+            .enumerate()
+            .any(|(index, word)| {
+                self.effective_operand_class(index)
+                    .is_some_and(|class| class.is_fixed_literal())
+                    && matches!(
+                        static_word_text(word, source).as_deref(),
+                        Some("(") | Some(")")
+                    )
+            })
+    }
+
     pub fn binary_operand_classes(&self) -> Option<(TestOperandClass, TestOperandClass)> {
         (self.shape == SimpleTestShape::Binary)
             .then(|| Some((self.operand_class(0)?, self.operand_class(2)?)))
@@ -1620,6 +1692,17 @@ impl FunctionPositionalParameterFacts {
 #[derive(Debug, Clone, Copy)]
 pub struct ExprCommandFacts {
     pub uses_arithmetic_operator: bool,
+    uses_substr_string_form: bool,
+}
+
+impl ExprCommandFacts {
+    pub fn uses_arithmetic_operator(self) -> bool {
+        self.uses_arithmetic_operator
+    }
+
+    pub fn uses_substr_string_form(self) -> bool {
+        self.uses_substr_string_form
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -2050,6 +2133,38 @@ impl<'a> LinterFacts<'a> {
 
     pub fn commands(&self) -> &[CommandFact<'a>] {
         &self.commands
+    }
+
+    pub fn malformed_bracket_test_spans(&self, source: &str) -> Vec<Span> {
+        self.commands
+            .iter()
+            .filter(|fact| fact.static_utility_name_is("["))
+            .filter(|fact| {
+                fact.body_args()
+                    .last()
+                    .and_then(|word| static_word_text(word, source))
+                    .as_deref()
+                    != Some("]")
+            })
+            .map(|fact| fact.body_name_word().map_or(fact.span(), |word| word.span))
+            .collect()
+    }
+
+    pub fn abort_like_bracket_test_spans(&self, source: &str) -> Vec<Span> {
+        self.commands
+            .iter()
+            .filter_map(|fact| {
+                let simple_test = fact.simple_test()?;
+                simple_test
+                    .is_abort_like_bracket_test(source)
+                    .then_some(simple_test)
+            })
+            .map(|simple_test| {
+                simple_test
+                    .effective_operator_word()
+                    .map_or_else(|| simple_test.operands()[0].span, |word| word.span)
+            })
+            .collect()
     }
 
     pub fn function_positional_parameter_facts(
@@ -10752,7 +10867,7 @@ fn configure_option_misspelling(option_name: &str) -> Option<&'static str> {
     }
 }
 
-pub(crate) fn leading_literal_word_prefix(word: &Word, source: &str) -> String {
+pub fn leading_literal_word_prefix(word: &Word, source: &str) -> String {
     let mut prefix = String::new();
     collect_leading_literal_word_parts(&word.parts, source, &mut prefix);
     prefix
@@ -10990,12 +11105,9 @@ fn xargs_long_option_requires_separate_argument(option: &str) -> bool {
 }
 
 fn parse_expr_command(args: &[&Word], source: &str) -> Option<ExprCommandFacts> {
-    if expr_uses_string_form(args, source) {
-        return None;
-    }
-
     Some(ExprCommandFacts {
-        uses_arithmetic_operator: true,
+        uses_arithmetic_operator: !expr_uses_string_form(args, source),
+        uses_substr_string_form: expr_uses_substr_string_form(args, source),
     })
 }
 
@@ -11010,6 +11122,13 @@ fn expr_uses_string_form(args: &[&Word], source: &str) -> bool {
         .and_then(|word| static_word_text(word, source))
         .as_deref()
         .is_some_and(|text| matches!(text, ":" | "=" | "!=" | "<" | ">" | "<=" | ">=" | "=="))
+}
+
+fn expr_uses_substr_string_form(args: &[&Word], source: &str) -> bool {
+    args.first()
+        .and_then(|word| static_word_text(word, source))
+        .as_deref()
+        == Some("substr")
 }
 
 fn parse_exit_command<'a>(command: &'a Command, source: &str) -> Option<ExitCommandFacts<'a>> {

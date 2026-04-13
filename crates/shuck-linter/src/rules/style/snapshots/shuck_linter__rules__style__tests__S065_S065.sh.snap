@@ -1,0 +1,56 @@
+---
+source: crates/shuck-linter/src/rules/style/mod.rs
+---
+S065 this comparison uses the legacy x-prefix idiom
+ --> <source>:2:3
+  |
+2 | [ x = x ]
+  |
+
+S065 this comparison uses the legacy x-prefix idiom
+ --> <source>:3:3
+  |
+3 | [ x = xbar ]
+  |
+
+S065 this comparison uses the legacy x-prefix idiom
+ --> <source>:4:3
+  |
+4 | [ xfoo = xbar ]
+  |
+
+S065 this comparison uses the legacy x-prefix idiom
+ --> <source>:5:3
+  |
+5 | [ "xfoo" = "x$browser" ]
+  |
+
+S065 this comparison uses the legacy x-prefix idiom
+ --> <source>:6:6
+  |
+6 | test "x$browser" != "x"
+  |
+
+S065 this comparison uses the legacy x-prefix idiom
+ --> <source>:7:4
+  |
+7 | [[ x = xbar ]]
+  |
+
+S065 this comparison uses the legacy x-prefix idiom
+ --> <source>:8:4
+  |
+8 | [[ "x$browser" != "x" ]]
+  |
+
+S065 this comparison uses the legacy x-prefix idiom
+ --> <source>:9:3
+  |
+9 | [ "x$browser" = "x$other" ]
+  |
+
+S065 this comparison uses the legacy x-prefix idiom
+  --> <source>:10:3
+   |
+10 | [ x = "x$browser" ]
+   |

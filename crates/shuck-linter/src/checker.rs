@@ -314,6 +314,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ExportCommandSubstitution) {
             rules::style::export_command_substitution::export_command_substitution(self);
         }
+        if self.is_rule_enabled(Rule::CompoundTestOperator) {
+            rules::style::compound_test_operator::compound_test_operator(self);
+        }
         if self.is_rule_enabled(Rule::EchoHereDoc) {
             rules::style::echo_here_doc::echo_here_doc(self);
         }
@@ -884,6 +887,29 @@ impl<'a> Checker<'a> {
         }
         if self.is_rule_enabled(Rule::GlobInStringComparison) {
             rules::correctness::glob_in_string_comparison::glob_in_string_comparison(self);
+        }
+        if self.is_rule_enabled(Rule::GlobInTestDirectory) {
+            rules::correctness::glob_in_test_directory::glob_in_test_directory(self);
+        }
+        if self.is_rule_enabled(Rule::ConstantInTestAssignment) {
+            rules::correctness::constant_in_test_assignment::constant_in_test_assignment(self);
+        }
+        if self.is_rule_enabled(Rule::ExprSubstrInTest) {
+            rules::correctness::expr_substr_in_test::expr_substr_in_test(self);
+        }
+        if self.is_rule_enabled(Rule::StringComparedWithEq) {
+            rules::correctness::string_compared_with_eq::string_compared_with_eq(self);
+        }
+        if self.is_rule_enabled(Rule::XPrefixInTest) {
+            rules::style::x_prefix_in_test::x_prefix_in_test(self);
+        }
+        if self.is_rule_enabled(Rule::AFlagInDoubleBracket) {
+            rules::correctness::a_flag_in_double_bracket::a_flag_in_double_bracket(self);
+        }
+        if self.is_rule_enabled(Rule::MalformedArithmeticInCondition) {
+            rules::correctness::malformed_arithmetic_in_condition::malformed_arithmetic_in_condition(
+                self,
+            );
         }
         if self.is_rule_enabled(Rule::UnquotedVariableInTest) {
             rules::style::unquoted_variable_in_test::unquoted_variable_in_test(self);

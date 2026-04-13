@@ -1,0 +1,14 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C121 this comparison uses `-eq` with a string value
+ --> <source>:2:9
+  |
+2 | [[ $VER -eq "latest" ]]
+  |
+
+C121 this comparison uses `-eq` with a string value
+ --> <source>:3:8
+  |
+3 | [ $VER -eq "latest" ]
+  |

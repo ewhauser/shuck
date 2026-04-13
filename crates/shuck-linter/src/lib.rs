@@ -32,7 +32,7 @@ pub use facts::{
     SimpleTestFact, SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax,
     SingleQuotedFragmentFact, SshCommandFacts, SubstitutionFact, SubstitutionHostKind,
     SudoFamilyCommandFacts, SudoFamilyInvoker, UnsetCommandFacts, WaitCommandFacts, WordFact,
-    WordFactContext, WordFactHostKind, XargsCommandFacts,
+    WordFactContext, WordFactHostKind, XargsCommandFacts, leading_literal_word_prefix,
 };
 pub use registry::{Category, Rule, code_to_rule};
 pub use rule_selector::{RuleSelector, SelectorParseError};
@@ -62,7 +62,8 @@ pub use rules::common::span::{
     word_zsh_flag_modifier_spans, word_zsh_nested_expansion_spans,
 };
 pub use rules::common::word::{
-    TestOperandClass, conditional_binary_op_is_string_match, static_word_text,
+    TestOperandClass, WordClassification, conditional_binary_op_is_string_match,
+    is_shell_variable_name, static_word_text, text_looks_like_nontrivial_arithmetic_expression,
     word_is_standalone_status_capture, word_is_standalone_variable_like,
 };
 pub use settings::LinterSettings;

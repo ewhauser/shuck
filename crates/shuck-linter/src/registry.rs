@@ -250,6 +250,12 @@ declare_rules! {
         IfsSetToLiteralBackslashN
     ),
     (
+        "C102",
+        Category::Correctness,
+        Severity::Warning,
+        GlobInTestDirectory
+    ),
+    (
         "C103",
         Category::Correctness,
         Severity::Warning,
@@ -292,6 +298,12 @@ declare_rules! {
         MapfileProcessSubstitution
     ),
     (
+        "C110",
+        Category::Correctness,
+        Severity::Warning,
+        ConstantInTestAssignment
+    ),
+    (
         "C111",
         Category::Correctness,
         Severity::Warning,
@@ -326,6 +338,30 @@ declare_rules! {
         Category::Correctness,
         Severity::Warning,
         PlusPrefixInAssignment
+    ),
+    (
+        "C118",
+        Category::Correctness,
+        Severity::Warning,
+        MalformedArithmeticInCondition
+    ),
+    (
+        "C120",
+        Category::Correctness,
+        Severity::Warning,
+        ExprSubstrInTest
+    ),
+    (
+        "C121",
+        Category::Correctness,
+        Severity::Warning,
+        StringComparedWithEq
+    ),
+    (
+        "C122",
+        Category::Correctness,
+        Severity::Warning,
+        AFlagInDoubleBracket
     ),
     (
         "C123",
@@ -542,6 +578,7 @@ declare_rules! {
     ("S008", Category::Style, Severity::Warning, UnquotedArrayExpansion),
     ("S009", Category::Style, Severity::Warning, EchoedCommandSubstitution),
     ("S010", Category::Style, Severity::Warning, ExportCommandSubstitution),
+    ("S011", Category::Style, Severity::Warning, CompoundTestOperator),
     ("S012", Category::Style, Severity::Warning, PsGrepPipeline),
     ("S013", Category::Style, Severity::Warning, LsGrepPipeline),
     ("S014", Category::Style, Severity::Warning, UnquotedDollarStar),
@@ -574,6 +611,7 @@ declare_rules! {
     ("S062", Category::Style, Severity::Warning, DefaultValueInColonAssign),
     ("S063", Category::Style, Severity::Warning, RelativeSymlinkTarget),
     ("S064", Category::Style, Severity::Warning, XargsWithInlineReplace),
+    ("S065", Category::Style, Severity::Warning, XPrefixInTest),
     ("S067", Category::Style, Severity::Warning, BacktickOutputToCommand),
     ("S068", Category::Style, Severity::Warning, TrapSignalNumbers),
     ("S069", Category::Style, Severity::Hint, SingleLetterCaseLabel),
@@ -682,6 +720,12 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-226" => Some(Rule::FunctionKeywordInSh),
         "SH-274" => Some(Rule::HyphenatedFunctionName),
         "SH-234" => Some(Rule::IfsSetToLiteralBackslashN),
+        "SH-236" => Some(Rule::GlobInTestDirectory),
+        "SH-246" => Some(Rule::ConstantInTestAssignment),
+        "SH-284" => Some(Rule::MalformedArithmeticInCondition),
+        "SH-287" => Some(Rule::ExprSubstrInTest),
+        "SH-288" => Some(Rule::StringComparedWithEq),
+        "SH-290" => Some(Rule::AFlagInDoubleBracket),
         "SH-279" => Some(Rule::UnsetPatternInSh),
         "SH-291" => Some(Rule::NestedDefaultExpansion),
         "SH-304" => Some(Rule::SourceInsideFunctionInSh),
@@ -730,6 +774,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-038" => Some(Rule::UnquotedArrayExpansion),
         "SH-039" => Some(Rule::UndefinedVariable),
         "SH-040" => Some(Rule::EchoedCommandSubstitution),
+        "SH-051" => Some(Rule::CompoundTestOperator),
         "SH-170" => Some(Rule::RedundantReturnStatus),
         "SH-168" => Some(Rule::RedundantSpacesInEcho),
         "SH-196" => Some(Rule::UnquotedVariableInSed),
@@ -742,6 +787,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-248" => Some(Rule::FgrepDeprecated),
         "SH-252" => Some(Rule::RelativeSymlinkTarget),
         "SH-255" => Some(Rule::XargsWithInlineReplace),
+        "SH-256" => Some(Rule::XPrefixInTest),
         "SH-306" => Some(Rule::DoubleQuoteNesting),
         "SH-309" => Some(Rule::EnvPrefixQuoting),
         "SH-350" => Some(Rule::MixedQuoteWord),
@@ -1043,11 +1089,15 @@ mod tests {
         assert_eq!(code_to_rule("S062"), Some(Rule::DefaultValueInColonAssign));
         assert_eq!(code_to_rule("S063"), Some(Rule::RelativeSymlinkTarget));
         assert_eq!(code_to_rule("S064"), Some(Rule::XargsWithInlineReplace));
+        assert_eq!(code_to_rule("S011"), Some(Rule::CompoundTestOperator));
+        assert_eq!(code_to_rule("S065"), Some(Rule::XPrefixInTest));
+        assert_eq!(code_to_rule("SH-051"), Some(Rule::CompoundTestOperator));
         assert_eq!(
             code_to_rule("SH-251"),
             Some(Rule::DefaultValueInColonAssign)
         );
         assert_eq!(code_to_rule("SH-025"), Some(Rule::DynamicSourcePath));
+        assert_eq!(code_to_rule("SH-256"), Some(Rule::XPrefixInTest));
         assert_eq!(
             code_to_rule("S039"),
             Some(Rule::LiteralBackslashInSingleQuotes)
@@ -1252,6 +1302,20 @@ mod tests {
         assert_eq!(code_to_rule("SH-249"), Some(Rule::AtSignInStringCompare));
         assert_eq!(code_to_rule("C112"), Some(Rule::ArraySliceInComparison));
         assert_eq!(code_to_rule("SH-250"), Some(Rule::ArraySliceInComparison));
+        assert_eq!(
+            code_to_rule("C118"),
+            Some(Rule::MalformedArithmeticInCondition)
+        );
+        assert_eq!(
+            code_to_rule("SH-284"),
+            Some(Rule::MalformedArithmeticInCondition)
+        );
+        assert_eq!(code_to_rule("C120"), Some(Rule::ExprSubstrInTest));
+        assert_eq!(code_to_rule("SH-287"), Some(Rule::ExprSubstrInTest));
+        assert_eq!(code_to_rule("C121"), Some(Rule::StringComparedWithEq));
+        assert_eq!(code_to_rule("SH-288"), Some(Rule::StringComparedWithEq));
+        assert_eq!(code_to_rule("C122"), Some(Rule::AFlagInDoubleBracket));
+        assert_eq!(code_to_rule("SH-290"), Some(Rule::AFlagInDoubleBracket));
         assert_eq!(code_to_rule("C106"), Some(Rule::AppendToArrayAsString));
         assert_eq!(code_to_rule("SH-241"), Some(Rule::AppendToArrayAsString));
         assert_eq!(code_to_rule("C107"), Some(Rule::DollarQuestionAfterCommand));

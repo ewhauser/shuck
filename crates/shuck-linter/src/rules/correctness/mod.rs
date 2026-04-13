@@ -1,3 +1,4 @@
+pub mod a_flag_in_double_bracket;
 pub mod append_to_array_as_string;
 pub mod append_with_escaped_quotes;
 pub mod arithmetic_redirection_target;
@@ -27,6 +28,7 @@ pub mod comma_array_elements;
 pub mod commented_continuation_line;
 pub mod constant_case_subject;
 pub mod constant_comparison_test;
+pub mod constant_in_test_assignment;
 pub mod continue_outside_loop_in_function;
 pub mod dangling_else;
 pub mod default_else_in_short_circuit;
@@ -39,6 +41,7 @@ pub mod empty_function_body;
 pub mod empty_test;
 pub mod escaped_negation_in_test;
 pub mod export_with_positional_params;
+pub mod expr_substr_in_test;
 pub mod find_or_without_grouping;
 pub mod find_output_loop;
 pub mod find_output_to_xargs;
@@ -49,6 +52,7 @@ pub mod glob_in_find_substitution;
 pub mod glob_in_grep_pattern;
 pub mod glob_in_string_comparison;
 pub mod glob_in_test_comparison;
+pub mod glob_in_test_directory;
 pub mod glob_with_expansion_in_loop;
 pub mod greater_than_in_test;
 pub mod heredoc_closer_not_alone;
@@ -67,6 +71,7 @@ pub mod literal_unary_string_test;
 pub mod local_cross_reference;
 pub mod loop_control_outside_loop;
 pub mod loop_without_end;
+pub mod malformed_arithmetic_in_condition;
 pub mod mapfile_process_substitution;
 pub mod misquoted_heredoc_close;
 pub mod missing_done_in_for_loop;
@@ -98,6 +103,7 @@ pub mod single_quoted_literal;
 pub mod space_after_hash_bang;
 pub mod spaced_assignment;
 pub mod status_capture_after_branch_test;
+pub mod string_compared_with_eq;
 pub mod string_comparison_for_version;
 pub mod subshell_in_arithmetic;
 pub mod subshell_local_assignment;
@@ -152,6 +158,11 @@ mod tests {
     #[test_case(Rule::LocalTopLevel, Path::new("C014.sh"))]
     #[test_case(Rule::SudoRedirectionOrder, Path::new("C015.sh"))]
     #[test_case(Rule::ConstantComparisonTest, Path::new("C017.sh"))]
+    #[test_case(Rule::ConstantInTestAssignment, Path::new("C110.sh"))]
+    #[test_case(Rule::StringComparedWithEq, Path::new("C121.sh"))]
+    #[test_case(Rule::AFlagInDoubleBracket, Path::new("C122.sh"))]
+    #[test_case(Rule::MalformedArithmeticInCondition, Path::new("C118.sh"))]
+    #[test_case(Rule::ExprSubstrInTest, Path::new("C120.sh"))]
     #[test_case(Rule::LoopControlOutsideLoop, Path::new("C018.sh"))]
     #[test_case(Rule::LiteralUnaryStringTest, Path::new("C019.sh"))]
     #[test_case(Rule::TruthyLiteralTest, Path::new("C020.sh"))]
@@ -202,6 +213,7 @@ mod tests {
     #[test_case(Rule::EscapedNegationInTest, Path::new("C082.sh"))]
     #[test_case(Rule::GlobInFindSubstitution, Path::new("C083.sh"))]
     #[test_case(Rule::UnquotedGrepRegex, Path::new("C084.sh"))]
+    #[test_case(Rule::GlobInTestDirectory, Path::new("C102.sh"))]
     #[test_case(Rule::GreaterThanInTest, Path::new("C086.sh"))]
     #[test_case(Rule::StringComparisonForVersion, Path::new("C087.sh"))]
     #[test_case(Rule::MixedAndOrInCondition, Path::new("C088.sh"))]

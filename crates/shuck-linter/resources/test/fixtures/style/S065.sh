@@ -1,0 +1,16 @@
+#!/bin/bash
+[ x = x ]
+[ x = xbar ]
+[ xfoo = xbar ]
+[ "xfoo" = "x$browser" ]
+test "x$browser" != "x"
+[[ x = xbar ]]
+[[ "x$browser" != "x" ]]
+[ "x$browser" = "x$other" ]
+[ x = "x$browser" ]
+[ "x$browser" = "$other" ]
+[ x = "$browser" ]
+[ xfoo = y ]
+[ "x$browser" = "y" ]
+[[ prefix$browser = prefix ]]
+[[ x = y ]]

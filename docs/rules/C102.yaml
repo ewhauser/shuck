@@ -3,12 +3,12 @@ legacy_name: glob-in-test-directory
 new_category: Correctness
 new_code: C102
 runtime_kind: ast
-shellcheck_code: SC2331
+shellcheck_code: SC2144
 shells:
   - sh
   - bash
   - dash
-description: "A glob pattern inside a `[ -d ... ]` test may match multiple paths."
+description: "A glob pattern inside a unary file test may match multiple paths."
 rationale: Quote the path or use a loop to test each match.
 source:
   shell_checks_rule: rules/SH-236.yaml
@@ -19,4 +19,4 @@ examples:
     code: |
       #!/bin/bash
       # shellcheck disable=2154
-      if [ -d mtp2* ]; then echo found; fi
+      if [ -f mtp2* ]; then echo found; fi

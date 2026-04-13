@@ -1,0 +1,20 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C118 this test mixes arithmetic syntax into a comparison
+ --> <source>:2:8
+  |
+2 | if [ 1 + 2 -eq 3 ]; then :; fi
+  |
+
+C118 this test mixes arithmetic syntax into a comparison
+ --> <source>:3:11
+  |
+3 | if test 1 + 2 -eq 3; then :; fi
+  |
+
+C118 this test mixes arithmetic syntax into a comparison
+ --> <source>:5:11
+  |
+5 | if [ "$x" + 1 -eq 2 ]; then :; fi
+  |
