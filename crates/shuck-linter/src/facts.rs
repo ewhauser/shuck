@@ -10089,19 +10089,32 @@ fn same_command_file_operand_words<'a>(
     match command_name {
         Some("grep") => grep_file_operand_words(args, source).into_boxed_slice(),
         Some("sed") => {
-            collect_file_operand_words_after_prefix(args, source, 1, |text| match text {
-                "-e" | "-f" | "--expression" | "--file" => Some(OperandArgAction::SkipNext),
-                _ if text.starts_with("--expression=") || text.starts_with("--file=") => None,
-                _ => None,
-            })
+            let skip_initial_positionals =
+                usize::from(!sed_has_explicit_script_source(args, source));
+            collect_file_operand_words_after_prefix(
+                args,
+                source,
+                skip_initial_positionals,
+                |text| match text {
+                    "-e" | "-f" | "--expression" | "--file" => Some(OperandArgAction::SkipNext),
+                    _ if text.starts_with("--expression=") || text.starts_with("--file=") => None,
+                    _ => None,
+                },
+            )
             .into_boxed_slice()
         }
         Some("awk") => {
-            collect_file_operand_words_after_prefix(args, source, 1, |text| match text {
-                "-f" | "-v" | "--file" | "--assign" => Some(OperandArgAction::SkipNext),
-                _ if text.starts_with("--file=") || text.starts_with("--assign=") => None,
-                _ => None,
-            })
+            let skip_initial_positionals = usize::from(!awk_has_file_program_source(args, source));
+            collect_file_operand_words_after_prefix(
+                args,
+                source,
+                skip_initial_positionals,
+                |text| match text {
+                    "-f" | "-v" | "--file" | "--assign" => Some(OperandArgAction::SkipNext),
+                    _ if text.starts_with("--file=") || text.starts_with("--assign=") => None,
+                    _ => None,
+                },
+            )
             .into_boxed_slice()
         }
         Some("unzip") => {
@@ -10133,6 +10146,22 @@ fn same_command_file_operand_words<'a>(
         ) => collect_file_operand_words_after_prefix(args, source, 0, |_| None).into_boxed_slice(),
         _ => Vec::new().into_boxed_slice(),
     }
+}
+
+fn sed_has_explicit_script_source(args: &[&Word], source: &str) -> bool {
+    args.iter()
+        .filter_map(|word| static_word_text(word, source))
+        .any(|text| {
+            matches!(text.as_str(), "-e" | "-f" | "--expression" | "--file")
+                || text.starts_with("--expression=")
+                || text.starts_with("--file=")
+        })
+}
+
+fn awk_has_file_program_source(args: &[&Word], source: &str) -> bool {
+    args.iter()
+        .filter_map(|word| static_word_text(word, source))
+        .any(|text| matches!(text.as_str(), "-f" | "--file") || text.starts_with("--file="))
 }
 
 fn build_scope_read_source_words<'a>(
