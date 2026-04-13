@@ -1,7 +1,8 @@
 use shuck_ast::{
-    BourneParameterExpansion, ConditionalBinaryOp, ConditionalExpr, Pattern, PatternPart, Word,
-    WordPart, WordPartNode,
+    ArithmeticExpr, BourneParameterExpansion, Command, CompoundCommand, ConditionalBinaryOp,
+    ConditionalExpr, Pattern, PatternPart, Word, WordPart, WordPartNode,
 };
+use shuck_parser::parser::Parser;
 
 pub use super::expansion::{
     ExpansionContext, WordExpansionKind, WordLiteralness, WordQuote, WordSubstitutionShape,
@@ -62,6 +63,43 @@ impl TestOperandClass {
 pub fn static_word_text(word: &Word, source: &str) -> Option<String> {
     let mut result = String::new();
     collect_static_word_text(&word.parts, source, &mut result).then_some(result)
+}
+
+pub fn is_shell_variable_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(first) if first == '_' || first.is_ascii_alphabetic() => {
+            chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+        }
+        _ => false,
+    }
+}
+
+pub fn text_looks_like_nontrivial_arithmetic_expression(text: &str) -> bool {
+    let text = text.trim();
+    if text.is_empty() {
+        return false;
+    }
+
+    let source = format!("(( {text} ))");
+    let Ok(file) = Parser::new(&source).parse() else {
+        return false;
+    };
+
+    let Some(statement) = file.file.body.first() else {
+        return false;
+    };
+
+    let Command::Compound(CompoundCommand::Arithmetic(command)) = &statement.command else {
+        return false;
+    };
+
+    command.expr_ast.as_ref().is_some_and(|expr| {
+        !matches!(
+            expr.kind,
+            ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_)
+        )
+    })
 }
 
 pub fn conditional_binary_op_is_string_match(op: ConditionalBinaryOp) -> bool {
@@ -220,7 +258,8 @@ mod tests {
     use super::{
         ExpansionContext, TestOperandClass, WordExpansionKind, WordLiteralness, WordQuote,
         WordSubstitutionShape, classify_conditional_operand, classify_contextual_operand,
-        classify_word, word_is_standalone_status_capture,
+        classify_word, is_shell_variable_name, text_looks_like_nontrivial_arithmetic_expression,
+        word_is_standalone_status_capture,
     };
 
     fn parse_commands(source: &str) -> shuck_ast::StmtSeq {
@@ -264,6 +303,26 @@ mod tests {
             classify_word(&command.args[1], source).substitution_shape,
             WordSubstitutionShape::Mixed
         );
+    }
+
+    #[test]
+    fn shell_variable_name_helper_matches_identifier_rules() {
+        assert!(is_shell_variable_name("name"));
+        assert!(is_shell_variable_name("_name123"));
+        assert!(!is_shell_variable_name("1name"));
+        assert!(!is_shell_variable_name("name-value"));
+    }
+
+    #[test]
+    fn arithmetic_text_helper_requires_nontrivial_expressions() {
+        assert!(text_looks_like_nontrivial_arithmetic_expression("1 + 2"));
+        assert!(text_looks_like_nontrivial_arithmetic_expression("arr[1]"));
+        assert!(text_looks_like_nontrivial_arithmetic_expression("++count"));
+        assert!(!text_looks_like_nontrivial_arithmetic_expression("123"));
+        assert!(!text_looks_like_nontrivial_arithmetic_expression("name"));
+        assert!(!text_looks_like_nontrivial_arithmetic_expression(
+            "latest value"
+        ));
     }
 
     #[test]

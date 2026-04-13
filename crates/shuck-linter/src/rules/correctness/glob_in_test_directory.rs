@@ -1,8 +1,8 @@
 use shuck_ast::{ConditionalUnaryOp, Span, Word};
 
 use crate::{
-    Checker, ConditionalFact, ConditionalNodeFact, Rule, SimpleTestFact, Violation,
-    static_word_text, word_unquoted_glob_pattern_spans,
+    Checker, ConditionalFact, ConditionalNodeFact, Rule, SimpleTestFact, SimpleTestShape,
+    Violation, static_word_text, word_unquoted_glob_pattern_spans,
 };
 
 pub struct GlobInTestDirectory;
@@ -39,7 +39,15 @@ pub fn glob_in_test_directory(checker: &mut Checker) {
 }
 
 fn simple_test_file_test_spans(simple_test: &SimpleTestFact<'_>, source: &str) -> Vec<Span> {
-    collect_directory_operand_spans(simple_test.operands(), source)
+    let mut spans = Vec::new();
+    if let Some(span) = simple_test_unary_file_test_span(simple_test, source) {
+        spans.push(span);
+    }
+    spans.extend(collect_directory_operand_spans(
+        simple_test.operands(),
+        source,
+    ));
+    spans
 }
 
 fn conditional_file_test_spans(conditional: &ConditionalFact<'_>, source: &str) -> Vec<Span> {
@@ -118,6 +126,28 @@ fn collect_directory_operand_spans(operands: &[&Word], source: &str) -> Vec<Span
     spans
 }
 
+fn simple_test_unary_file_test_span(
+    simple_test: &SimpleTestFact<'_>,
+    source: &str,
+) -> Option<Span> {
+    if simple_test.effective_shape() != SimpleTestShape::Unary {
+        return None;
+    }
+
+    if !is_simple_test_file_test_unary_operator(
+        simple_test
+            .effective_operator_word()
+            .and_then(|word| static_word_text(word, source)),
+    ) {
+        return None;
+    }
+
+    simple_test
+        .effective_operands()
+        .get(1)
+        .and_then(|word| reportable_glob_span(word, source))
+}
+
 fn reportable_glob_span(word: &Word, source: &str) -> Option<Span> {
     (!word_unquoted_glob_pattern_spans(word, source).is_empty()).then_some(word.span)
 }
@@ -136,6 +166,7 @@ fn is_file_test_operator(token: Option<&str>) -> bool {
                 | "-b"
                 | "-p"
                 | "-S"
+                | "-h"
                 | "-L"
                 | "-k"
                 | "-g"
@@ -151,6 +182,10 @@ fn is_file_test_operator(token: Option<&str>) -> bool {
     )
 }
 
+fn is_simple_test_file_test_unary_operator(token: Option<String>) -> bool {
+    matches!(token.as_deref(), Some("-a")) || is_file_test_operator(token.as_deref())
+}
+
 #[cfg(test)]
 mod tests {
     use crate::test::test_snippet;
@@ -162,6 +197,8 @@ mod tests {
 #!/bin/bash
 [ -d mtp2* ]
 test -f foo*
+[ -a foo_alias* ]
+[ -h link_alias* ]
 [ -e bar* -a -L baz* ]
 [[ -r qux* && -w quux* ]]
 ";
@@ -173,7 +210,16 @@ test -f foo*
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["mtp2*", "foo*", "bar*", "baz*", "qux*", "quux*"]
+            vec![
+                "mtp2*",
+                "foo*",
+                "foo_alias*",
+                "link_alias*",
+                "bar*",
+                "baz*",
+                "qux*",
+                "quux*",
+            ]
         );
     }
 

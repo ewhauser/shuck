@@ -2,7 +2,8 @@ use shuck_ast::{ConditionalBinaryOp, Span};
 
 use crate::{
     Checker, ConditionalNodeFact, ConditionalOperandFact, Rule, SimpleTestShape, Violation,
-    WordQuote, static_word_text,
+    WordQuote, is_shell_variable_name, static_word_text,
+    text_looks_like_nontrivial_arithmetic_expression,
 };
 
 pub struct StringComparedWithEq;
@@ -112,8 +113,9 @@ fn conditional_operand_looks_like_string_value(
             classification.is_fixed_literal()
                 && static_word_text(word, source).is_some_and(|text| {
                     !(looks_like_decimal_integer(&text)
+                        || text_looks_like_nontrivial_arithmetic_expression(&text)
                         || (operand.quote() == Some(WordQuote::Unquoted)
-                            && looks_like_shell_variable_name(&text)))
+                            && is_shell_variable_name(&text)))
                 })
         })
 }
@@ -124,16 +126,6 @@ fn looks_like_decimal_integer(text: &str) -> bool {
         .or_else(|| text.strip_prefix('-'))
         .unwrap_or(text);
     !text.is_empty() && text.chars().all(|ch| ch.is_ascii_digit())
-}
-
-fn looks_like_shell_variable_name(name: &str) -> bool {
-    let mut chars = name.chars();
-    match chars.next() {
-        Some(first) if first == '_' || first.is_ascii_alphabetic() => {
-            chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
-        }
-        _ => false,
-    }
 }
 
 #[cfg(test)]
@@ -174,6 +166,8 @@ mod tests {
 [[ $VER -ne latest ]]
 [[ $VER -eq 123 ]]
 [ $VER -eq +123 ]
+[[ 1+2 -eq 3 ]]
+[[ \"1 + 2\" -eq 3 ]]
 [[ __iterator -eq 0 || -n \"${__next}\" ]]
 ";
         let diagnostics = test_snippet(

@@ -3,7 +3,7 @@ use shuck_ast::Span;
 use crate::{
     Checker, ConditionalNodeFact, ConditionalOperatorFamily, ExpansionContext, Rule,
     SimpleTestOperatorFamily, SimpleTestShape, Violation, WordFactContext, WordQuote,
-    double_quoted_scalar_affix_span,
+    double_quoted_scalar_affix_span, is_shell_variable_name,
 };
 
 pub struct ConstantInTestAssignment;
@@ -150,17 +150,7 @@ fn word_looks_like_assignment_like(
     }
 
     let name = prefix.trim_end_matches('=');
-    looks_like_shell_variable_name(name)
-}
-
-fn looks_like_shell_variable_name(name: &str) -> bool {
-    let mut chars = name.chars();
-    match chars.next() {
-        Some(first) if first == '_' || first.is_ascii_alphabetic() => {
-            chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
-        }
-        _ => false,
-    }
+    is_shell_variable_name(name)
 }
 
 #[cfg(test)]
