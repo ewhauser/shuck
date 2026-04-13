@@ -570,6 +570,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::AmpersandSemicolon) {
             rules::style::ampersand_semicolon::ampersand_semicolon(self);
         }
+        if self.is_rule_enabled(Rule::CombineAppends) {
+            rules::style::combine_appends::combine_appends(self);
+        }
         if self.is_rule_enabled(Rule::UnquotedArrayExpansion) {
             rules::style::unquoted_array_expansion::unquoted_array_expansion(self);
         }

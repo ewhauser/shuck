@@ -5,6 +5,7 @@ pub mod avoid_let_builtin;
 pub mod backslash_before_command;
 pub mod backtick_output_to_command;
 pub mod bare_read;
+pub mod combine_appends;
 pub mod command_output_array_split;
 pub mod command_substitution_in_alias;
 pub mod compound_test_operator;
@@ -159,6 +160,7 @@ mod tests {
     #[test_case(Rule::LinebreakBeforeAnd, Path::new("S072.sh"))]
     #[test_case(Rule::SpacedTabstripClose, Path::new("S073.sh"))]
     #[test_case(Rule::AmpersandSemicolon, Path::new("S074.sh"))]
+    #[test_case(Rule::CombineAppends, Path::new("S075.sh"))]
     fn rules(rule: Rule, path: &Path) -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", rule.code(), path.display());
         let (diagnostics, source) = test_path(

@@ -255,6 +255,7 @@ impl Default for ShellCheckCodeMap {
             // ShellCheck 0.11.0 reports `foo &;` as SC1045.
             // Keep SC2397 as a suppression alias for historical compatibility.
             (1045, Rule::AmpersandSemicolon),
+            (2129, Rule::CombineAppends),
             // ShellCheck 0.11.0 reports case-pattern shadowing as SC2221.
             // Keep SC2373 as a suppression alias for the authored C128 rule code.
             (2221, Rule::CaseGlobReachability),
@@ -585,6 +586,7 @@ impl Default for ShellCheckCodeMap {
                     (1041, Rule::HeredocCloserNotAlone),
                     (1044, Rule::HeredocMissingEnd),
                     (1045, Rule::AmpersandSemicolon),
+                    (2129, Rule::CombineAppends),
                     (1047, Rule::MissingFi),
                     (1065, Rule::FunctionParamsInSh),
                     (1069, Rule::IfBracketGlued),
@@ -1360,6 +1362,7 @@ mod tests {
         );
         assert_eq!(map.resolve("SC1019"), Some(Rule::EmptyTest));
         assert_eq!(map.resolve("SC1045"), Some(Rule::AmpersandSemicolon));
+        assert_eq!(map.resolve("SC2129"), Some(Rule::CombineAppends));
         assert_eq!(map.resolve("SC2024"), Some(Rule::SudoRedirectionOrder));
         assert_eq!(map.resolve("SC2035"), Some(Rule::LeadingGlobArgument));
         assert_eq!(map.resolve("SC2043"), Some(Rule::SingleIterationLoop));
@@ -1712,6 +1715,7 @@ mod tests {
             (1041, Rule::HeredocCloserNotAlone),
             (1044, Rule::HeredocMissingEnd),
             (1045, Rule::AmpersandSemicolon),
+            (2129, Rule::CombineAppends),
             (1047, Rule::MissingFi),
             (1065, Rule::FunctionParamsInSh),
             (1069, Rule::IfBracketGlued),
@@ -1990,6 +1994,7 @@ mod tests {
             (2395, Rule::MisquotedHeredocClose),
             (2396, Rule::UntilMissingDo),
             (2397, Rule::AmpersandSemicolon),
+            (2129, Rule::CombineAppends),
             (2221, Rule::CaseGlobReachability),
             (2373, Rule::CaseGlobReachability),
             (2222, Rule::CaseDefaultBeforeGlob),

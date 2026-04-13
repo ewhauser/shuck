@@ -34,7 +34,7 @@ use std::borrow::Cow;
 use self::{
     command_flow::{
         build_case_item_facts, build_for_header_facts, build_list_facts, build_pipeline_facts,
-        build_select_header_facts, build_single_test_subshell_spans,
+        build_select_header_facts, build_single_test_subshell_spans, build_statement_facts,
         build_subshell_test_group_spans, build_substitution_facts,
     },
     conditional_portability::build_conditional_portability_facts,
@@ -1445,6 +1445,27 @@ impl<'a> ListFact<'a> {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct StatementFact {
+    body_span: Span,
+    stmt_span: Span,
+    command_id: CommandId,
+}
+
+impl StatementFact {
+    pub fn body_span(&self) -> Span {
+        self.body_span
+    }
+
+    pub fn stmt_span(&self) -> Span {
+        self.stmt_span
+    }
+
+    pub fn command_id(&self) -> CommandId {
+        self.command_id
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct ReadCommandFacts {
     pub uses_raw_input: bool,
 }
@@ -2096,6 +2117,7 @@ pub struct LinterFacts<'a> {
     getopts_cases: Vec<GetoptsCaseFact>,
     pipelines: Vec<PipelineFact<'a>>,
     lists: Vec<ListFact<'a>>,
+    statement_facts: Vec<StatementFact>,
     single_test_subshell_spans: Vec<Span>,
     subshell_test_group_spans: Vec<Span>,
     indented_shebang_span: Option<Span>,
@@ -2344,6 +2366,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn lists(&self) -> &[ListFact<'a>] {
         &self.lists
+    }
+
+    pub fn statement_facts(&self) -> &[StatementFact] {
+        &self.statement_facts
     }
 
     pub fn single_test_subshell_spans(&self) -> &[Span] {
@@ -2778,6 +2804,8 @@ impl<'a> LinterFactsBuilder<'a> {
             fact.scope_read_source_words = words;
         }
         let lists = build_list_facts(&commands, &command_ids_by_span, self.source);
+        let statement_facts =
+            build_statement_facts(&commands, &command_ids_by_span, &self.file.body);
         let single_test_subshell_spans =
             build_single_test_subshell_spans(&commands, &command_ids_by_span, self.source);
         let subshell_test_group_spans =
@@ -2891,6 +2919,7 @@ impl<'a> LinterFactsBuilder<'a> {
             getopts_cases,
             pipelines,
             lists,
+            statement_facts,
             single_test_subshell_spans,
             subshell_test_group_spans,
             indented_shebang_span: shebang_header_facts.indented_shebang_span,
