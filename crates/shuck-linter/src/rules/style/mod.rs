@@ -72,6 +72,7 @@ pub mod unquoted_tr_range;
 pub mod unquoted_variable_in_sed;
 pub mod unquoted_variable_in_test;
 pub mod unquoted_word_between_quotes;
+pub mod x_prefix_in_test;
 pub mod xargs_with_inline_replace;
 
 #[cfg(test)]
@@ -102,6 +103,7 @@ mod tests {
     #[test_case(Rule::DefaultValueInColonAssign, Path::new("S062.sh"))]
     #[test_case(Rule::RelativeSymlinkTarget, Path::new("S063.sh"))]
     #[test_case(Rule::XargsWithInlineReplace, Path::new("S064.sh"))]
+    #[test_case(Rule::XPrefixInTest, Path::new("S065.sh"))]
     #[test_case(Rule::BacktickOutputToCommand, Path::new("S067.sh"))]
     #[test_case(Rule::TrapSignalNumbers, Path::new("S068.sh"))]
     #[test_case(Rule::SingleLetterCaseLabel, Path::new("S069.sh"))]

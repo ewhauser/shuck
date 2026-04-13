@@ -156,6 +156,9 @@ impl Default for ShellCheckCodeMap {
             (2166, Rule::CompoundTestOperator),
             (2360, Rule::ExprSubstrInTest),
             (2170, Rule::StringComparedWithEq),
+            (2268, Rule::XPrefixInTest),
+            // Current ShellCheck releases report the x-prefix comparison family as SC2268.
+            // Keep SC2351 as a suppression alias for the authored S065 metadata.
             (2331, Rule::AFlagInDoubleBracket),
             (2145, Rule::PositionalArgsInString),
             (2198, Rule::AtSignInStringCompare),
@@ -312,6 +315,7 @@ impl Default for ShellCheckCodeMap {
             (2143, Rule::GrepOutputInTest),
             (2166, Rule::CompoundTestOperator),
             (2144, Rule::GlobInTestDirectory),
+            (2268, Rule::XPrefixInTest),
             // The pinned ShellCheck oracle reports single-item `for ... in ...` loops as SC2043.
             // Keep SC2165 as a suppression alias for the authored S020 metadata.
             (2043, Rule::SingleIterationLoop),
@@ -616,6 +620,7 @@ impl Default for ShellCheckCodeMap {
                     (2375, Rule::ZshParameterIndexFlag),
                     (2164, Rule::UncheckedDirectoryChange),
                     (2263, Rule::RedundantSpacesInEcho),
+                    (2268, Rule::XPrefixInTest),
                     (2143, Rule::GrepOutputInTest),
                     (2166, Rule::CompoundTestOperator),
                     (2144, Rule::GlobInTestDirectory),
@@ -849,6 +854,7 @@ impl Default for ShellCheckCodeMap {
                 (3055, Rule::ArrayKeysInSh),
                 (3058, Rule::StarGlobRemovalInSh),
                 (3024, Rule::PlusEqualsInSh),
+                (2351, Rule::XPrefixInTest),
                 (3062, Rule::DollarStringInSh),
                 (3056, Rule::UnsetPatternInSh),
                 (3072, Rule::CaretNegationInBracket),
@@ -1521,7 +1527,9 @@ mod tests {
         assert_eq!(map.resolve("SC2255"), Some(Rule::SubstWithRedirect));
         assert_eq!(map.resolve("SC2256"), Some(Rule::SubstWithRedirectErr));
         assert_eq!(map.resolve("SC2238"), Some(Rule::RedirectToCommandName));
-        assert_eq!(map.resolve("SC2268"), None);
+        assert_eq!(map.resolve("SC2268"), Some(Rule::XPrefixInTest));
+        assert_eq!(map.resolve("SC2351"), Some(Rule::XPrefixInTest));
+        assert_eq!(map.resolve_all("SC2268"), vec![Rule::XPrefixInTest]);
         assert_eq!(map.resolve("SC2239"), Some(Rule::NonAbsoluteShebang));
         assert_eq!(map.resolve("SC2260"), Some(Rule::RedirectToCommandName));
         assert_eq!(map.resolve("SC2261"), Some(Rule::NonAbsoluteShebang));
@@ -2008,6 +2016,8 @@ mod tests {
             (3054, Rule::ArrayReference),
             (3055, Rule::PlusEqualsAppend),
             (3055, Rule::ArrayKeysInSh),
+            (2268, Rule::XPrefixInTest),
+            (2351, Rule::XPrefixInTest),
             (3057, Rule::SubstringExpansion),
             (3058, Rule::BashCaseFallthrough),
             (3085, Rule::StarGlobRemovalInSh),

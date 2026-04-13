@@ -32,7 +32,7 @@ pub use facts::{
     SimpleTestFact, SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax,
     SingleQuotedFragmentFact, SshCommandFacts, SubstitutionFact, SubstitutionHostKind,
     SudoFamilyCommandFacts, SudoFamilyInvoker, UnsetCommandFacts, WaitCommandFacts, WordFact,
-    WordFactContext, WordFactHostKind, XargsCommandFacts,
+    WordFactContext, WordFactHostKind, XargsCommandFacts, leading_literal_word_prefix,
 };
 pub use registry::{Category, Rule, code_to_rule};
 pub use rule_selector::{RuleSelector, SelectorParseError};

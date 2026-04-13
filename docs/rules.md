@@ -417,7 +417,7 @@ Rules about `[`, `[[`, test operators, and conditional structure. Use
 - [x] **M** C121 (SC2361) `string-compared-with-eq` — string compared with `-eq`
 - [x] **L** C122 (SC2363) `a-flag-in-double-bracket` — `-a` in `[[ ]]` is ambiguous
 - [x] **M** S011 (SC2166) `compound-test-operator` — `-a`/`-o` inside `[` expression
-- [ ] **L** S065 (SC2351) `x-prefix-in-test` — `x$var` idiom for empty-string safety
+- [x] **L** S065 (SC2351) `x-prefix-in-test` — `x$var` idiom for empty-string safety
 
 ### Glob and Pattern Matching
 

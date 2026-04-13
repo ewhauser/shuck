@@ -605,6 +605,7 @@ declare_rules! {
     ("S062", Category::Style, Severity::Warning, DefaultValueInColonAssign),
     ("S063", Category::Style, Severity::Warning, RelativeSymlinkTarget),
     ("S064", Category::Style, Severity::Warning, XargsWithInlineReplace),
+    ("S065", Category::Style, Severity::Warning, XPrefixInTest),
     ("S067", Category::Style, Severity::Warning, BacktickOutputToCommand),
     ("S068", Category::Style, Severity::Warning, TrapSignalNumbers),
     ("S069", Category::Style, Severity::Hint, SingleLetterCaseLabel),
@@ -775,6 +776,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-248" => Some(Rule::FgrepDeprecated),
         "SH-252" => Some(Rule::RelativeSymlinkTarget),
         "SH-255" => Some(Rule::XargsWithInlineReplace),
+        "SH-256" => Some(Rule::XPrefixInTest),
         "SH-306" => Some(Rule::DoubleQuoteNesting),
         "SH-309" => Some(Rule::EnvPrefixQuoting),
         "SH-350" => Some(Rule::MixedQuoteWord),
@@ -1076,11 +1078,13 @@ mod tests {
         assert_eq!(code_to_rule("S062"), Some(Rule::DefaultValueInColonAssign));
         assert_eq!(code_to_rule("S063"), Some(Rule::RelativeSymlinkTarget));
         assert_eq!(code_to_rule("S064"), Some(Rule::XargsWithInlineReplace));
+        assert_eq!(code_to_rule("S065"), Some(Rule::XPrefixInTest));
         assert_eq!(
             code_to_rule("SH-251"),
             Some(Rule::DefaultValueInColonAssign)
         );
         assert_eq!(code_to_rule("SH-025"), Some(Rule::DynamicSourcePath));
+        assert_eq!(code_to_rule("SH-256"), Some(Rule::XPrefixInTest));
         assert_eq!(
             code_to_rule("S039"),
             Some(Rule::LiteralBackslashInSingleQuotes)

@@ -900,6 +900,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::StringComparedWithEq) {
             rules::correctness::string_compared_with_eq::string_compared_with_eq(self);
         }
+        if self.is_rule_enabled(Rule::XPrefixInTest) {
+            rules::style::x_prefix_in_test::x_prefix_in_test(self);
+        }
         if self.is_rule_enabled(Rule::AFlagInDoubleBracket) {
             rules::correctness::a_flag_in_double_bracket::a_flag_in_double_bracket(self);
         }
