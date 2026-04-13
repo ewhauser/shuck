@@ -10155,13 +10155,27 @@ fn sed_has_explicit_script_source(args: &[&Word], source: &str) -> bool {
             matches!(text.as_str(), "-e" | "-f" | "--expression" | "--file")
                 || text.starts_with("--expression=")
                 || text.starts_with("--file=")
+                || short_option_cluster_contains_flag(text.as_str(), 'e')
+                || short_option_cluster_contains_flag(text.as_str(), 'f')
         })
 }
 
 fn awk_has_file_program_source(args: &[&Word], source: &str) -> bool {
     args.iter()
         .filter_map(|word| static_word_text(word, source))
-        .any(|text| matches!(text.as_str(), "-f" | "--file") || text.starts_with("--file="))
+        .any(|text| {
+            matches!(text.as_str(), "-f" | "--file")
+                || text.starts_with("--file=")
+                || short_option_cluster_contains_flag(text.as_str(), 'f')
+        })
+}
+
+fn short_option_cluster_contains_flag(text: &str, flag: char) -> bool {
+    let Some(cluster) = text.strip_prefix('-') else {
+        return false;
+    };
+
+    !cluster.is_empty() && !cluster.starts_with('-') && cluster.contains(flag)
 }
 
 fn build_scope_read_source_words<'a>(

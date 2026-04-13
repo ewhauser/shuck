@@ -122,7 +122,9 @@ sort foo > foo
 unzip -p \"$1\" test.c > test.c
 cat < \"$src\" > \"$src\"
 sed -e 's/x/y/' foo > foo
+sed -es/x/y/ foo > foo
 awk -f prog.awk data.txt > data.txt
+awk -fprog.awk data.txt > data.txt
 echo \"$(cat \"$f\")\" | sed 's/x/y/' >\"$f\"
 printf '%s\\0' **/* | bsdtar --null --files-from - --exclude .MTREE | gzip -c -f -n > .MTREE
 { [[ \"$f\" == /dev/null ]] || set -x; } &>\"$f\"
@@ -139,8 +141,8 @@ printf '%s\\0' **/* | bsdtar --null --files-from - --exclude .MTREE | gzip -c -f
                 .collect::<Vec<_>>(),
             vec![
                 "foo", "foo", "foo", "foo", "test.c", "test.c", "\"$src\"", "\"$src\"", "foo",
-                "foo", "data.txt", "data.txt", "\"$f\"", "\"$f\"", ".MTREE", ".MTREE", "\"$f\"",
-                "\"$f\"",
+                "foo", "foo", "foo", "data.txt", "data.txt", "data.txt", "data.txt", "\"$f\"",
+                "\"$f\"", ".MTREE", ".MTREE", "\"$f\"", "\"$f\"",
             ]
         );
     }
