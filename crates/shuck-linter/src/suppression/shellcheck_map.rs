@@ -1102,7 +1102,10 @@ mod tests {
         assert_eq!(map.resolve("SC2144"), Some(Rule::GlobInTestDirectory));
         assert_eq!(map.resolve("SC2166"), Some(Rule::CompoundTestOperator));
         assert_eq!(map.resolve("SC2331"), Some(Rule::AFlagInDoubleBracket));
-        assert_eq!(map.resolve("SC2357"), Some(Rule::MalformedArithmeticInCondition));
+        assert_eq!(
+            map.resolve("SC2357"),
+            Some(Rule::MalformedArithmeticInCondition)
+        );
         assert_eq!(map.resolve("SC2361"), Some(Rule::StringComparedWithEq));
         assert_eq!(map.resolve("SC2363"), Some(Rule::AFlagInDoubleBracket));
         assert_eq!(map.resolve("SC2263"), Some(Rule::RedundantSpacesInEcho));
