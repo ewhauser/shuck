@@ -168,6 +168,8 @@ printf '%s\\0' **/* | bsdtar --null --files-from - --exclude .MTREE | gzip -c -f
 exec 4<> \"$LOG_PATH\"
 cat < foo > bar
 sort foo > bar
+sort -o out.txt in.txt > out.txt
+sort --output=log.txt input.txt > log.txt
 echo foo > foo
 printf '%s\\n' foo > foo
 cat < \"$src\" > \"$dst\"

@@ -10127,7 +10127,7 @@ fn same_command_file_operand_words<'a>(
         }
         Some("sort") => {
             collect_file_operand_words_after_prefix(args, source, 0, |text| match text {
-                "-o" | "--output" => Some(OperandArgAction::IncludeNext),
+                "-o" | "--output" => Some(OperandArgAction::SkipNext),
                 _ if text.starts_with("--output=") => None,
                 _ => None,
             })
