@@ -235,17 +235,38 @@ The remaining security rows from the older `2026-04-10` batch were reconfirmed n
 | K001 `rm-glob-on-variable-path` | ✅ filters parsed `rm` option facts and zsh glob-setting facts only | ✅ dangerous-path extraction stays centralized in shared command facts | ✅ positives plus safe-`rm`, literal-path, expansion-shape, and indirect-expansion negatives | vetted |
 | K004 `find-execdir-with-shell` | ✅ filters parsed `find -execdir` shell-command facts only | ✅ `find -execdir` shell-script extraction stays centralized in shared command facts | ✅ `sh -c` and `bash -c` positives plus safe helper and non-interpolating shell negatives | vetted |
 
+## Validation Review (2026-04-14)
+
+The remaining implemented test/conditional and redirection rows that were not yet called out above were reviewed next against the same three gates.
+
+| Rule | Facts-only / no walks | Duplication | Coverage status | Outcome |
+|---|---|---|---|---|
+| C102 `glob-in-test-directory` | ✅ filters simple-test and conditional facts plus shared unquoted-glob helpers only | ✅ file-test operator and glob-shape detection stay centralized in shared helpers | ✅ positives plus quoted and non-file-test negatives | vetted |
+| C110 `constant-in-test-assignment` | ✅ filters simple-test/conditional facts and word facts only | ✅ assignment-looking operand detection stays centralized in shared word-classification helpers | ✅ positives plus literal and unexpanded negatives | vetted |
+| C118 `malformed-arithmetic-in-condition` | ✅ filters simple-test/conditional facts and word facts only | ✅ arithmetic/operator classification stays shared through word facts and conditional operator families | ✅ positives plus arithmetic-expansion and plain-comparison negatives | vetted |
+| C120 `expr-substr-in-test` | ✅ filters command, substitution, and test facts only | ✅ `expr` option parsing and substitution ownership stay centralized in shared facts | ✅ positives plus non-substr and non-test negatives | vetted |
+| C121 `string-compared-with-eq` | ✅ filters simple-test/conditional facts plus shared word/arithmetic classifiers only | ✅ string-vs-arithmetic discrimination stays centralized in shared helpers | ✅ positives plus numeric and non-`-eq` negatives | vetted |
+| C122 `a-flag-in-double-bracket` | ✅ filters conditional unary facts only | ✅ operator classification stays centralized in conditional facts | ✅ positives plus bracket-test and other-unary negatives | vetted |
+| S011 `compound-test-operator` | ✅ filters simple-test facts and malformed-bracket guard facts only | ✅ compound-operator span extraction stays on the shared simple-test fact | ✅ positives plus plain-test and malformed-bracket negatives | vetted |
+| S065 `x-prefix-in-test` | ✅ filters simple-test/conditional facts plus the shared literal-prefix helper only | ✅ x-prefix detection stays centralized in the shared prefix helper | ✅ positives plus single-sided and non-prefix negatives | vetted |
+| C085 `stderr-before-stdout-redirect` | ✅ filters redirect facts only | ✅ malformed numeric-target detection stays scoped to redirect facts without duplicating path or pipeline analysis | ✅ positives plus standard and non-numeric redirect negatives | vetted |
+| C094 `redirect-clobbers-input` | ✅ filters structural command facts plus shared comparable-path expansion only | ✅ read/write path normalization stays centralized in shared expansion helpers | ✅ matching-path positives plus echo/printf, distinct-path, and safe-sort negatives | vetted |
+| C119 `redirect-before-pipe` | ✅ filters pipeline and redirect facts only | ✅ stderr-dup overlap handling stays scoped to shared redirect analysis | ✅ positives plus stderr-only, pipeall, and non-file-target negatives | vetted |
+| S075 `combine-appends` | ✅ filters statement/pipeline/redirect facts plus shared comparable-path expansion only | ✅ append-target normalization stays centralized in shared comparable-path helpers | ✅ three-command-run positives plus grouped, two-command, and case-arm negatives | vetted |
+
 ## Post-Implementation Cleanup
 
 - [x] Validate the portability expansion batch (`X026`, `X045`, `X055`, `X064`, `X071`, `X081`) for facts-only rule logic, overlap ownership, and regression coverage.
 - [x] Validate the echo/tr portability batch (`X027`, `X028`, `X029`, `X030`) for facts-only rule logic, shared-helper scope, and regression coverage.
 - [x] Validate the POSIX sh function/variable portability rules that already clear the review bar (`X067`, `X072`).
 - [x] Validate the first implemented test/conditional batch (`C082`, `C086`, `C087`, `C088`, `C089`, `C090`, `C091`, `C092`, `C093`) for facts-only rule logic, overlap ownership, and regression coverage.
+- [x] Validate the remaining implemented test/conditional rules that already clear the review bar (`C102`, `C110`, `C118`, `C120`, `C121`, `C122`, `S011`, `S065`) for facts-only rule logic, overlap ownership, and regression coverage.
 - [x] Validate the glob/pattern batch (`C078`, `C080`, `C081`, `C083`, `C084`, `C114`, `S055`) for facts-only rule logic, overlap ownership, and regression coverage.
 - [x] Validate the quoting/expansion batch (`C096`, `C099`, `C100`, `C105`, `C111`, `C112`, `S014`, `S015`, `S017`, `S018`, `S021`, `S050`, `S052`, `S058`, `S062`, `S067`, `S070`, `S071`, `S076`) for facts-only rule logic, overlap ownership, and regression coverage.
 - [x] Validate the array-operation rules that already clear the review bar (`C106`, `C133`, `C148`, `C151`) for facts-only rule logic, overlap ownership, and regression coverage.
 - [x] Validate the command-specific style rules that already clear the review bar (`S061`, `S064`, `S068`) for facts-only rule logic, overlap ownership, and regression coverage.
 - [x] Validate the shebang/script-structure batch (`C073`, `C074`, `C075`, `S043`, `S053`) for facts-only rule logic, overlap ownership, and regression coverage.
+- [x] Validate the remaining implemented redirection/pipe rules that already clear the review bar (`C085`, `C094`, `C119`, `S075`) for facts-only rule logic, overlap ownership, and regression coverage.
 - [x] Validate the boolean/short-circuit batch (`C079`, `C115`, `S020`, `S032`) for facts-only rule logic, overlap ownership, and regression coverage.
 - [x] Validate the function/scope rules that already clear the review bar (`C125`, `C126`, `C131`, `C147`, `S038`, `S041`, `S066`) for facts-only rule logic, overlap ownership, and regression coverage.
 - [x] Validate the case/getopts batch (`C128`, `C129`, `C134`, `C135`, `S069`) for facts-only rule logic, overlap ownership, and regression coverage.
@@ -253,11 +274,8 @@ The remaining security rows from the older `2026-04-10` batch were reconfirmed n
 - [x] Validate the heredoc batch (`C127`, `C138`, `C144`, `C145`, `S030`, `S033`, `S073`) for facts-only rule logic, overlap ownership, and regression coverage.
 - [x] Sync the already-reviewed structural parse-diagnostic roadmap markers (`C142`, `C143`, `C146`, `C157`) after reconfirming their shared parse-diagnostic ownership and regression coverage.
 - [x] Sync the already-reviewed security roadmap markers (`K001`, `K004`) after reconfirming their shared command-fact ownership and regression coverage.
-- [ ] Move `C108` unset associative-array operand parsing into facts or shared unset-option data so the rule file stops reparsing `name[key]` text and quote state on its own.
-- [ ] Move `S063` symlink-target selection into facts or shared `ln` option parsing so the rule file stops reconstructing `ln -s/-t/--` operand semantics on its own.
-- [ ] Move `X035` function-parameter fallback detection into facts or shared parse-diagnostic infrastructure so the rule file stops reconstructing paired commands and source layout on its own.
-- [ ] Decide whether `X077` should remain listed as implemented; either add a real matcher with triggering regression coverage or explicitly document it as an oracle-parity no-op.
-- [ ] Move the shared function binding and call-arity resolution behind `C097`/`C123` into facts or a shared semantic helper so the rule files stop duplicating visible-binding lookup and function-span trimming.
+- [ ] Move `C097` function binding and call-arity resolution into facts or a shared semantic helper so the rule file stops duplicating visible-binding lookup and function-span trimming.
+- [ ] Move `C123` function binding and call-arity resolution into facts or a shared semantic helper so the rule file stops duplicating visible-binding lookup and function-span trimming.
 
 ## Remaining Rules
 
@@ -410,14 +428,14 @@ Rules about `[`, `[[`, test operators, and conditional structure. Use
 - [x] [x] **M** C091 (SC2314) `tilde-in-string-comparison` — literal tilde in quoted comparison
 - [x] [x] **M** C092 (SC2315) `if-dollar-command` — command substitution output as condition
 - [x] [x] **M** C093 (SC2316) `backtick-in-command-position` — backtick substitution as command name
-- [x] **M** C102 (SC2331) `glob-in-test-directory` — glob in `[ -d ]` test
-- [x] **M** C110 (SC2341) `constant-in-test-assignment` — `=` in test looks like assignment
-- [x] **M** C118 (SC2357) `malformed-arithmetic-in-condition` — malformed arithmetic in condition
-- [x] **M** C120 (SC2360) `expr-substr-in-test` — `expr substr` inside test
-- [x] **M** C121 (SC2361) `string-compared-with-eq` — string compared with `-eq`
-- [x] **L** C122 (SC2363) `a-flag-in-double-bracket` — `-a` in `[[ ]]` is ambiguous
-- [x] **M** S011 (SC2166) `compound-test-operator` — `-a`/`-o` inside `[` expression
-- [x] **L** S065 (SC2351) `x-prefix-in-test` — `x$var` idiom for empty-string safety
+- [x] [x] **M** C102 (SC2331) `glob-in-test-directory` — glob in `[ -d ]` test
+- [x] [x] **M** C110 (SC2341) `constant-in-test-assignment` — `=` in test looks like assignment
+- [x] [x] **M** C118 (SC2357) `malformed-arithmetic-in-condition` — malformed arithmetic in condition
+- [x] [x] **M** C120 (SC2360) `expr-substr-in-test` — `expr substr` inside test
+- [x] [x] **M** C121 (SC2361) `string-compared-with-eq` — string compared with `-eq`
+- [x] [x] **L** C122 (SC2363) `a-flag-in-double-bracket` — `-a` in `[[ ]]` is ambiguous
+- [x] [x] **M** S011 (SC2166) `compound-test-operator` — `-a`/`-o` inside `[` expression
+- [x] [x] **L** S065 (SC2351) `x-prefix-in-test` — `x$var` idiom for empty-string safety
 
 ### Glob and Pattern Matching
 
@@ -551,10 +569,10 @@ Rules about arithmetic expansion and arithmetic-context issues.
 
 Rules about redirection ordering, clobbering, and pipe interactions.
 
-- [x] **M** C085 (SC2306) `stderr-before-stdout-redirect` — stderr redirected before stdout
-- [x] **M** C094 (SC2317) `redirect-clobbers-input` — read and write same file via redirect
-- [x] **M** C119 (SC2358) `redirect-before-pipe` — redirect before pipe only affects LHS
-- [x] **M** S075 (SC2129) `combine-appends` — multiple commands append same file separately
+- [x] [x] **M** C085 (SC2306) `stderr-before-stdout-redirect` — stderr redirected before stdout
+- [x] [x] **M** C094 (SC2317) `redirect-clobbers-input` — read and write same file via redirect
+- [x] [x] **M** C119 (SC2358) `redirect-before-pipe` — redirect before pipe only affects LHS
+- [x] [x] **M** S075 (SC2129) `combine-appends` — multiple commands append same file separately
 
 ### Boolean Logic and Short-Circuit
 
