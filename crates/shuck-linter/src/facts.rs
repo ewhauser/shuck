@@ -1507,6 +1507,7 @@ pub struct PrintfCommandFacts<'a> {
 pub struct UnsetCommandFacts<'a> {
     pub function_mode: bool,
     operand_words: Box<[&'a Word]>,
+    operand_facts: Box<[UnsetOperandFact<'a>]>,
     prefix_match_operand_spans: Box<[Span]>,
     options_parseable: bool,
 }
@@ -1518,6 +1519,10 @@ impl<'a> UnsetCommandFacts<'a> {
 
     pub fn prefix_match_operand_spans(&self) -> &[Span] {
         &self.prefix_match_operand_spans
+    }
+
+    pub(crate) fn operand_facts(&self) -> &[UnsetOperandFact<'a>] {
+        &self.operand_facts
     }
 
     pub fn targets_function_name(&self, source: &str, target_name: &str) -> bool {
@@ -1536,6 +1541,38 @@ impl<'a> UnsetCommandFacts<'a> {
         }
 
         false
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct UnsetOperandFact<'a> {
+    word: &'a Word,
+    array_subscript: Option<UnsetArraySubscriptFact>,
+}
+
+impl<'a> UnsetOperandFact<'a> {
+    pub(crate) fn word(&self) -> &'a Word {
+        self.word
+    }
+
+    pub(crate) fn array_subscript(&self) -> Option<&UnsetArraySubscriptFact> {
+        self.array_subscript.as_ref()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct UnsetArraySubscriptFact {
+    name: Name,
+    key_contains_quote: bool,
+}
+
+impl UnsetArraySubscriptFact {
+    pub(crate) fn name(&self) -> &Name {
+        &self.name
+    }
+
+    pub(crate) fn key_contains_quote(&self) -> bool {
+        self.key_contains_quote
     }
 }
 
@@ -10999,6 +11036,7 @@ fn parse_unset_command<'a>(args: &[&'a Word], source: &str) -> UnsetCommandFacts
     let mut parsing_options = true;
     let mut options_parseable = true;
     let mut operands = Vec::new();
+    let mut operand_facts = Vec::new();
     let mut prefix_match_operand_spans = Vec::new();
 
     for word in args {
@@ -11010,6 +11048,7 @@ fn parse_unset_command<'a>(args: &[&'a Word], source: &str) -> UnsetCommandFacts
 
             collect_word_prefix_match_spans(word, &mut prefix_match_operand_spans);
             operands.push(*word);
+            operand_facts.push(parse_unset_operand_fact(word, source));
             continue;
         };
 
@@ -11031,14 +11070,32 @@ fn parse_unset_command<'a>(args: &[&'a Word], source: &str) -> UnsetCommandFacts
 
         collect_word_prefix_match_spans(word, &mut prefix_match_operand_spans);
         operands.push(*word);
+        operand_facts.push(parse_unset_operand_fact(word, source));
     }
 
     UnsetCommandFacts {
         function_mode,
         operand_words: operands.into_boxed_slice(),
+        operand_facts: operand_facts.into_boxed_slice(),
         prefix_match_operand_spans: prefix_match_operand_spans.into_boxed_slice(),
         options_parseable,
     }
+}
+
+fn parse_unset_operand_fact<'a>(word: &'a Word, source: &str) -> UnsetOperandFact<'a> {
+    UnsetOperandFact {
+        word,
+        array_subscript: parse_unset_array_subscript(word.span.slice(source)),
+    }
+}
+
+fn parse_unset_array_subscript(text: &str) -> Option<UnsetArraySubscriptFact> {
+    let (name, key_with_bracket) = text.split_once('[')?;
+    let key = key_with_bracket.strip_suffix(']')?;
+    is_shell_variable_name(name).then(|| UnsetArraySubscriptFact {
+        name: Name::from(name),
+        key_contains_quote: key.chars().any(|ch| ch == '\'' || ch == '"'),
+    })
 }
 
 fn collect_word_prefix_match_spans(word: &Word, spans: &mut Vec<Span>) {
@@ -13144,6 +13201,54 @@ unset parts[\"$key\"] extra
                 .map(|word| word.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["parts[\"$key\"]", "extra"]
+        );
+    }
+
+    #[test]
+    fn records_unset_array_subscript_details_in_operand_facts() {
+        let source = "\
+#!/bin/bash
+declare -A parts
+declare -a nums
+key=one
+unset parts[\"$key\"] plain \"parts[safe]\" 'parts[also_safe]' nums[1]
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let unset = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_name_is("unset"))
+            .and_then(|fact| fact.options().unset())
+            .expect("expected unset facts");
+
+        let operand_subscripts = unset
+            .operand_facts()
+            .iter()
+            .map(|operand| {
+                operand.array_subscript().map(|subscript| {
+                    (
+                        operand.word().span.slice(source),
+                        subscript.name().as_str().to_owned(),
+                        subscript.key_contains_quote(),
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            operand_subscripts,
+            vec![
+                Some(("parts[\"$key\"]", "parts".to_owned(), true)),
+                None,
+                None,
+                None,
+                Some(("nums[1]", "nums".to_owned(), false)),
+            ]
         );
     }
 

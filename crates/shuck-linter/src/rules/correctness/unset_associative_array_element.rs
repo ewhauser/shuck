@@ -1,4 +1,3 @@
-use shuck_ast::Name;
 use shuck_semantic::BindingAttributes;
 
 use crate::{Checker, Rule, Violation};
@@ -16,7 +15,6 @@ impl Violation for UnsetAssociativeArrayElement {
 }
 
 pub fn unset_associative_array_element(checker: &mut Checker) {
-    let source = checker.source();
     let semantic = checker.semantic();
     let mut spans = Vec::new();
 
@@ -29,44 +27,26 @@ pub fn unset_associative_array_element(checker: &mut Checker) {
             continue;
         };
 
-        for operand in unset.operand_words() {
-            let Some((name, key_text)) = parse_array_operand(operand.span.slice(source)) else {
+        for operand in unset.operand_facts() {
+            let Some(array_subscript) = operand.array_subscript() else {
                 continue;
             };
-            if !key_contains_quote(key_text) {
+            if !array_subscript.key_contains_quote() {
                 continue;
             }
 
-            let Some(visible) = semantic.visible_binding(&Name::from(name), operand.span) else {
+            let Some(visible) =
+                semantic.visible_binding(array_subscript.name(), operand.word().span)
+            else {
                 continue;
             };
             if visible.attributes.contains(BindingAttributes::ASSOC) {
-                spans.push(operand.span);
+                spans.push(operand.word().span);
             }
         }
     }
 
     checker.report_all_dedup(spans, || UnsetAssociativeArrayElement);
-}
-
-fn parse_array_operand(text: &str) -> Option<(&str, &str)> {
-    let (name, key_with_bracket) = text.split_once('[')?;
-    let key = key_with_bracket.strip_suffix(']')?;
-    is_shell_name(name).then_some((name, key))
-}
-
-fn is_shell_name(text: &str) -> bool {
-    let mut chars = text.chars();
-    let Some(first) = chars.next() else {
-        return false;
-    };
-
-    (first == '_' || first.is_ascii_alphabetic())
-        && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
-}
-
-fn key_contains_quote(text: &str) -> bool {
-    text.chars().any(|ch| ch == '\'' || ch == '"')
 }
 
 #[cfg(test)]
