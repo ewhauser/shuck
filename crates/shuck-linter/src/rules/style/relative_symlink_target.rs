@@ -1,7 +1,4 @@
-use crate::{
-    Checker, CommandFact, ExpansionContext, Rule, ShellDialect, Violation, WordFactContext,
-    static_word_text,
-};
+use crate::{Checker, ExpansionContext, Rule, ShellDialect, Violation, WordFactContext};
 
 pub struct RelativeSymlinkTarget;
 
@@ -23,12 +20,12 @@ pub fn relative_symlink_target(checker: &mut Checker) {
         return;
     }
 
-    let source = checker.source();
     let spans = checker
         .facts()
         .commands()
         .iter()
-        .flat_map(|command| ln_symlink_target_words(command, source))
+        .filter_map(|command| command.options().ln())
+        .flat_map(|ln| ln.symlink_target_words().iter().copied())
         .filter_map(|word| {
             let fact = checker.facts().word_fact(
                 word.span,
@@ -46,117 +43,6 @@ pub fn relative_symlink_target(checker: &mut Checker) {
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || RelativeSymlinkTarget);
-}
-
-fn ln_symlink_target_words<'a>(
-    command: &'a CommandFact<'a>,
-    source: &str,
-) -> Vec<&'a shuck_ast::Word> {
-    if !command.effective_name_is("ln") {
-        return Vec::new();
-    }
-
-    let args = command.body_args();
-    let mut index = 0usize;
-    let mut saw_symbolic_flag = false;
-    let mut target_directory_mode = false;
-
-    while let Some(word) = args.get(index) {
-        let Some(text) = static_word_text(word, source) else {
-            break;
-        };
-
-        if text == "--" {
-            index += 1;
-            break;
-        }
-
-        if !text.starts_with('-') || text == "-" {
-            break;
-        }
-
-        if let Some(long) = text.strip_prefix("--") {
-            match long {
-                "symbolic" => saw_symbolic_flag = true,
-                "target-directory" => {
-                    target_directory_mode = true;
-                    index += 1;
-                    if args.get(index).is_none() {
-                        return Vec::new();
-                    }
-                }
-                "suffix" => {
-                    index += 1;
-                    if args.get(index).is_none() {
-                        return Vec::new();
-                    }
-                }
-                "backup"
-                | "directory"
-                | "force"
-                | "interactive"
-                | "logical"
-                | "no-dereference"
-                | "no-target-directory"
-                | "physical"
-                | "relative"
-                | "verbose" => {}
-                _ if long.starts_with("target-directory=") => {
-                    target_directory_mode = true;
-                }
-                _ if long.starts_with("suffix=") => {}
-                _ => return Vec::new(),
-            }
-
-            index += 1;
-            continue;
-        }
-
-        let mut chars = text[1..].chars().peekable();
-        while let Some(flag) = chars.next() {
-            match flag {
-                's' => saw_symbolic_flag = true,
-                't' => {
-                    target_directory_mode = true;
-                    if chars.peek().is_none() {
-                        index += 1;
-                        if args.get(index).is_none() {
-                            return Vec::new();
-                        }
-                    }
-                    break;
-                }
-                'S' => {
-                    if chars.peek().is_none() {
-                        index += 1;
-                        if args.get(index).is_none() {
-                            return Vec::new();
-                        }
-                    }
-                    break;
-                }
-                'b' | 'd' | 'f' | 'F' | 'i' | 'L' | 'n' | 'P' | 'r' | 'T' | 'v' => {}
-                _ => return Vec::new(),
-            }
-        }
-
-        index += 1;
-    }
-
-    if !saw_symbolic_flag {
-        return Vec::new();
-    }
-
-    let operands = &args[index..];
-    if operands.is_empty() {
-        return Vec::new();
-    }
-
-    if target_directory_mode {
-        operands.to_vec()
-    } else {
-        operands.first().copied().into_iter().collect()
-    }
 }
 
 fn is_deep_relative_target(text: &str) -> bool {

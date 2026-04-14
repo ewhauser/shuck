@@ -1624,6 +1624,17 @@ impl WaitCommandFacts {
 }
 
 #[derive(Debug, Clone)]
+pub struct LnCommandFacts<'a> {
+    symlink_target_words: Box<[&'a Word]>,
+}
+
+impl<'a> LnCommandFacts<'a> {
+    pub fn symlink_target_words(&self) -> &[&'a Word] {
+        &self.symlink_target_words
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct GrepCommandFacts<'a> {
     pub uses_only_matching: bool,
     pub uses_fixed_strings: bool,
@@ -1774,6 +1785,7 @@ pub struct CommandOptionFacts<'a> {
     mapfile: Option<MapfileCommandFacts>,
     xargs: Option<XargsCommandFacts>,
     wait: Option<WaitCommandFacts>,
+    ln: Option<LnCommandFacts<'a>>,
     grep: Option<GrepCommandFacts<'a>>,
     ps: Option<PsCommandFacts>,
     set: Option<SetCommandFacts>,
@@ -1831,6 +1843,10 @@ impl<'a> CommandOptionFacts<'a> {
 
     pub fn wait(&self) -> Option<&WaitCommandFacts> {
         self.wait.as_ref()
+    }
+
+    pub fn ln(&self) -> Option<&LnCommandFacts<'a>> {
+        self.ln.as_ref()
     }
 
     pub fn grep(&self) -> Option<&GrepCommandFacts<'a>> {
@@ -1919,6 +1935,10 @@ impl<'a> CommandOptionFacts<'a> {
             wait: normalized
                 .effective_name_is("wait")
                 .then(|| parse_wait_command(normalized.body_args(), source)),
+            ln: normalized
+                .effective_name_is("ln")
+                .then(|| parse_ln_command(normalized.body_args(), source))
+                .flatten(),
             grep: normalized
                 .effective_name_is("grep")
                 .then(|| parse_grep_command(normalized.body_args(), source))
@@ -11505,6 +11525,103 @@ fn parse_wait_command(args: &[&Word], source: &str) -> WaitCommandFacts {
     }
 }
 
+fn parse_ln_command<'a>(args: &[&'a Word], source: &str) -> Option<LnCommandFacts<'a>> {
+    let mut index = 0usize;
+    let mut saw_symbolic_flag = false;
+    let mut target_directory_mode = false;
+
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+
+        if text == "--" {
+            index += 1;
+            break;
+        }
+
+        if !text.starts_with('-') || text == "-" {
+            break;
+        }
+
+        if let Some(long) = text.strip_prefix("--") {
+            match long {
+                "symbolic" => saw_symbolic_flag = true,
+                "target-directory" => {
+                    target_directory_mode = true;
+                    index += 1;
+                    args.get(index)?;
+                }
+                "suffix" => {
+                    index += 1;
+                    args.get(index)?;
+                }
+                "backup"
+                | "directory"
+                | "force"
+                | "interactive"
+                | "logical"
+                | "no-dereference"
+                | "no-target-directory"
+                | "physical"
+                | "relative"
+                | "verbose" => {}
+                _ if long.starts_with("target-directory=") => {
+                    target_directory_mode = true;
+                }
+                _ if long.starts_with("suffix=") => {}
+                _ => return None,
+            }
+
+            index += 1;
+            continue;
+        }
+
+        let mut chars = text[1..].chars().peekable();
+        while let Some(flag) = chars.next() {
+            match flag {
+                's' => saw_symbolic_flag = true,
+                't' => {
+                    target_directory_mode = true;
+                    if chars.peek().is_none() {
+                        index += 1;
+                        args.get(index)?;
+                    }
+                    break;
+                }
+                'S' => {
+                    if chars.peek().is_none() {
+                        index += 1;
+                        args.get(index)?;
+                    }
+                    break;
+                }
+                'b' | 'd' | 'f' | 'F' | 'i' | 'L' | 'n' | 'P' | 'r' | 'T' | 'v' => {}
+                _ => return None,
+            }
+        }
+
+        index += 1;
+    }
+
+    if !saw_symbolic_flag {
+        return None;
+    }
+
+    let operands = &args[index..];
+    if operands.is_empty() {
+        return None;
+    }
+
+    Some(LnCommandFacts {
+        symlink_target_words: if target_directory_mode {
+            operands.to_vec().into_boxed_slice()
+        } else {
+            vec![operands[0]].into_boxed_slice()
+        },
+    })
+}
+
 fn wait_option_consumes_argument(text: &str) -> bool {
     let Some(flags) = text.strip_prefix('-') else {
         return false;
@@ -12819,6 +12936,54 @@ complex[$((i+=1))]+=x
             .and_then(|fact| fact.options().sudo_family())
             .expect("expected sudo-family facts");
         assert_eq!(doas.invoker, SudoFamilyInvoker::Doas);
+    }
+
+    #[test]
+    fn summarizes_ln_symlink_target_operands() {
+        let source = "\
+#!/bin/bash
+ln -s ../../alpha alpha-link
+ln -st/tmp ../../beta ../../gamma
+ln --symbolic --target-directory=/tmp ../../delta ../../epsilon
+ln -s -- ../../zeta zeta-link
+ln -sT ../../eta eta-link
+command ln -s ../../wrapped wrapped
+ln ../../hard hard-link
+ln -t /tmp ../../theta
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let symlink_targets = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("ln"))
+            .map(|fact| {
+                fact.options().ln().map(|ln| {
+                    ln.symlink_target_words()
+                        .iter()
+                        .map(|word| word.span.slice(source))
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            symlink_targets,
+            vec![
+                Some(vec!["../../alpha"]),
+                Some(vec!["../../beta", "../../gamma"]),
+                Some(vec!["../../delta", "../../epsilon"]),
+                Some(vec!["../../zeta"]),
+                Some(vec!["../../eta"]),
+                Some(vec!["../../wrapped"]),
+                None,
+                None,
+            ]
+        );
     }
 
     #[test]
