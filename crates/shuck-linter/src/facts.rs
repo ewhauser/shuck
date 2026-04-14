@@ -2109,6 +2109,7 @@ pub struct LinterFacts<'a> {
     array_assignment_split_word_indices: Vec<usize>,
     function_headers: Vec<FunctionHeaderFact<'a>>,
     function_body_without_braces_spans: Vec<Span>,
+    function_parameter_fallback_spans: Vec<Span>,
     redundant_return_status_spans: Vec<Span>,
     for_headers: Vec<ForHeaderFact<'a>>,
     select_headers: Vec<SelectHeaderFact<'a>>,
@@ -2334,6 +2335,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn function_body_without_braces_spans(&self) -> &[Span] {
         &self.function_body_without_braces_spans
+    }
+
+    pub fn function_parameter_fallback_spans(&self) -> &[Span] {
+        &self.function_parameter_fallback_spans
     }
 
     pub fn redundant_return_status_spans(&self) -> &[Span] {
@@ -2789,6 +2794,11 @@ impl<'a> LinterFactsBuilder<'a> {
             function_body_without_braces_spans,
             redundant_return_status_spans,
         } = build_function_style_facts(&self.file.body);
+        let function_parameter_fallback_spans = build_function_parameter_fallback_spans(
+            &commands,
+            &structural_command_ids,
+            self.source,
+        );
         let function_positional_parameter_facts =
             build_function_positional_parameter_facts(self.semantic, &commands);
         let for_headers = build_for_header_facts(&commands, &command_ids_by_span, self.source);
@@ -2911,6 +2921,7 @@ impl<'a> LinterFactsBuilder<'a> {
             array_assignment_split_word_indices,
             function_headers,
             function_body_without_braces_spans,
+            function_parameter_fallback_spans,
             redundant_return_status_spans,
             for_headers,
             select_headers,
@@ -3865,6 +3876,53 @@ fn build_function_style_facts(body: &StmtSeq) -> FunctionStyleFactSummary<'_> {
     summary
 }
 
+fn build_function_parameter_fallback_spans(
+    commands: &[CommandFact<'_>],
+    structural_command_ids: &[CommandId],
+    source: &str,
+) -> Vec<Span> {
+    let structural_commands = structural_command_ids
+        .iter()
+        .copied()
+        .map(|id| &commands[id.index()])
+        .collect::<Vec<_>>();
+
+    structural_commands
+        .windows(2)
+        .filter_map(|pair| function_parameter_fallback_span(pair, source))
+        .collect()
+}
+
+fn function_parameter_fallback_span(pair: &[&CommandFact<'_>], source: &str) -> Option<Span> {
+    let [first, second] = pair else {
+        return None;
+    };
+    let name = first.normalized().effective_or_literal_name()?;
+    if !is_plausible_shell_function_name(name) || !first.normalized().body_args().is_empty() {
+        return None;
+    }
+    if !matches!(first.command(), Command::Simple(_)) {
+        return None;
+    }
+    let Command::Compound(CompoundCommand::Subshell(commands)) = second.command() else {
+        return None;
+    };
+    if commands.is_empty() {
+        return None;
+    }
+    if first.span().start.line != second.span().start.line {
+        return None;
+    }
+    let tail = source.get(second.span().end.offset..)?;
+    if !matches!(next_function_body_delimiter(tail), Some('{') | Some('(')) {
+        return None;
+    }
+    let text = first.span().slice(source);
+    let relative = text.find('(')?;
+    let start = first.span().start.advanced_by(&text[..relative]);
+    Some(Span::from_positions(start, start.advanced_by("(")))
+}
+
 fn function_body_without_braces_span(function: &FunctionDef) -> Option<Span> {
     match &function.body.command {
         Command::Compound(CompoundCommand::BraceGroup(_)) => None,
@@ -3876,6 +3934,78 @@ fn function_body_without_braces_span(function: &FunctionDef) -> Option<Span> {
         | Command::Function(_)
         | Command::AnonymousFunction(_) => None,
     }
+}
+
+fn next_function_body_delimiter(text: &str) -> Option<char> {
+    let mut tail = text;
+
+    loop {
+        tail = trim_shell_layout_prefix(tail);
+
+        if let Some(rest) = tail.strip_prefix('#') {
+            tail = rest.split_once('\n').map_or("", |(_, rest)| rest);
+            continue;
+        }
+
+        return tail.chars().next();
+    }
+}
+
+fn trim_shell_layout_prefix(text: &str) -> &str {
+    let mut tail = text;
+
+    loop {
+        tail = tail.trim_start_matches([' ', '\t', '\r', '\n']);
+
+        if let Some(rest) = tail
+            .strip_prefix("\\\r\n")
+            .or_else(|| tail.strip_prefix("\\\n"))
+        {
+            tail = rest;
+            continue;
+        }
+
+        return tail;
+    }
+}
+
+fn is_plausible_shell_function_name(name: &str) -> bool {
+    let Some(first) = name.chars().next() else {
+        return false;
+    };
+    if !matches!(first, 'a'..='z' | 'A'..='Z' | '_') {
+        return false;
+    }
+    if !name
+        .chars()
+        .all(|ch| matches!(ch, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '-'))
+    {
+        return false;
+    }
+    !matches!(
+        name,
+        "!" | "{"
+            | "}"
+            | "if"
+            | "then"
+            | "else"
+            | "elif"
+            | "fi"
+            | "do"
+            | "done"
+            | "case"
+            | "esac"
+            | "for"
+            | "in"
+            | "while"
+            | "until"
+            | "time"
+            | "[["
+            | "]]"
+            | "function"
+            | "select"
+            | "coproc"
+    )
 }
 
 fn collect_terminal_redundant_return_status_spans(function: &FunctionDef, spans: &mut Vec<Span>) {
