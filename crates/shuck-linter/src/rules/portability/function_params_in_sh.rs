@@ -1,5 +1,3 @@
-use shuck_ast::{Command, CompoundCommand, Span};
-
 use crate::{Checker, Rule, ShellDialect, Violation};
 
 pub struct FunctionParamsInSh;
@@ -22,117 +20,10 @@ pub fn function_params_in_sh(checker: &mut Checker) {
         return;
     }
 
-    let spans = checker
-        .facts()
-        .structural_commands()
-        .collect::<Vec<_>>()
-        .windows(2)
-        .filter_map(|pair| function_parameter_syntax_span(pair, checker.source()))
-        .collect::<Vec<_>>();
-
-    checker.report_all_dedup(spans, || FunctionParamsInSh);
-}
-
-fn function_parameter_syntax_span(pair: &[&crate::CommandFact<'_>], source: &str) -> Option<Span> {
-    let [first, second] = pair else {
-        return None;
-    };
-    let name = first.normalized().effective_or_literal_name()?;
-    if !is_plausible_shell_function_name(name) || !first.normalized().body_args().is_empty() {
-        return None;
-    }
-    if !matches!(first.command(), Command::Simple(_)) {
-        return None;
-    }
-    let Command::Compound(CompoundCommand::Subshell(commands)) = second.command() else {
-        return None;
-    };
-    if commands.is_empty() {
-        return None;
-    }
-    if first.span().start.line != second.span().start.line {
-        return None;
-    }
-    let tail = source.get(second.span().end.offset..)?;
-    if !matches!(next_function_body_delimiter(tail), Some('{') | Some('(')) {
-        return None;
-    }
-    let text = first.span().slice(source);
-    let relative = text.find('(')?;
-    let start = first.span().start.advanced_by(&text[..relative]);
-    Some(Span::from_positions(start, start.advanced_by("(")))
-}
-
-fn next_function_body_delimiter(text: &str) -> Option<char> {
-    let mut tail = text;
-
-    loop {
-        tail = trim_shell_layout_prefix(tail);
-
-        if let Some(rest) = tail.strip_prefix('#') {
-            tail = rest.split_once('\n').map_or("", |(_, rest)| rest);
-            continue;
-        }
-
-        return tail.chars().next();
-    }
-}
-
-fn trim_shell_layout_prefix(text: &str) -> &str {
-    let mut tail = text;
-
-    loop {
-        tail = tail.trim_start_matches([' ', '\t', '\r', '\n']);
-
-        if let Some(rest) = tail
-            .strip_prefix("\\\r\n")
-            .or_else(|| tail.strip_prefix("\\\n"))
-        {
-            tail = rest;
-            continue;
-        }
-
-        return tail;
-    }
-}
-
-fn is_plausible_shell_function_name(name: &str) -> bool {
-    let Some(first) = name.chars().next() else {
-        return false;
-    };
-    if !matches!(first, 'a'..='z' | 'A'..='Z' | '_') {
-        return false;
-    }
-    if !name
-        .chars()
-        .all(|ch| matches!(ch, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '-'))
-    {
-        return false;
-    }
-    !matches!(
-        name,
-        "!" | "{"
-            | "}"
-            | "if"
-            | "then"
-            | "else"
-            | "elif"
-            | "fi"
-            | "do"
-            | "done"
-            | "case"
-            | "esac"
-            | "for"
-            | "in"
-            | "while"
-            | "until"
-            | "time"
-            | "[["
-            | "]]"
-            | "function"
-            | "select"
-            | "coproc"
-    )
+    checker.report_all_dedup(
+        checker.facts().function_parameter_fallback_spans().to_vec(),
+        || FunctionParamsInSh,
+    );
 }
 
 #[cfg(test)]
