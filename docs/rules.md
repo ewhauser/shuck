@@ -274,8 +274,16 @@ The remaining implemented test/conditional and redirection rows that were not ye
 - [x] Validate the heredoc batch (`C127`, `C138`, `C144`, `C145`, `S030`, `S033`, `S073`) for facts-only rule logic, overlap ownership, and regression coverage.
 - [x] Sync the already-reviewed structural parse-diagnostic roadmap markers (`C142`, `C143`, `C146`, `C157`) after reconfirming their shared parse-diagnostic ownership and regression coverage.
 - [x] Sync the already-reviewed security roadmap markers (`K001`, `K004`) after reconfirming their shared command-fact ownership and regression coverage.
-- [ ] Move `C097` function binding and call-arity resolution into facts or a shared semantic helper so the rule file stops duplicating visible-binding lookup and function-span trimming.
-- [ ] Move `C123` function binding and call-arity resolution into facts or a shared semantic helper so the rule file stops duplicating visible-binding lookup and function-span trimming.
+- [ ] Move `C108` unset associative-array operand parsing into facts or shared unset-option data so the rule file stops reparsing `name[key]` text and quote state on its own.
+- [ ] Move `S063` symlink-target selection into facts or shared `ln` option parsing so the rule file stops reconstructing `ln -s/-t/--` operand semantics on its own.
+- [ ] Move `X035` function-parameter fallback detection into facts or shared parse-diagnostic infrastructure so the rule file stops reconstructing paired commands and source layout on its own.
+- [ ] Decide whether `X077` should remain listed as implemented; either add a real matcher with triggering regression coverage or explicitly document it as an oracle-parity no-op.
+- [ ] Move `C108` unset associative-array operand parsing into facts or shared unset-option data so the rule file stops reparsing `name[key]` text and quote state on its own.
+- [ ] Move `S063` symlink-target selection into facts or shared `ln` option parsing so the rule file stops reconstructing `ln -s/-t/--` operand semantics on its own.
+- [ ] Move `X035` function-parameter fallback detection into facts or shared parse-diagnostic infrastructure so the rule file stops reconstructing paired commands and source layout on its own.
+- [ ] Decide whether `X077` should remain listed as implemented; either add a real matcher with triggering regression coverage or explicitly document it as an oracle-parity no-op.
+- [x] Move `C097` function binding and call-arity resolution into facts or a shared semantic helper so the rule file stops duplicating visible-binding lookup and function-span trimming.
+- [x] Move `C123` function binding and call-arity resolution into facts or a shared semantic helper so the rule file stops duplicating visible-binding lookup and function-span trimming.
 
 ## Remaining Rules
 
