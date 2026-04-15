@@ -27,6 +27,7 @@ pub fn unquoted_command_substitution(checker: &mut Checker) {
                     matches!(
                         substitution.host_kind(),
                         SubstitutionHostKind::CommandArgument
+                            | SubstitutionHostKind::HereStringOperand
                             | SubstitutionHostKind::DeclarationAssignmentValue
                             | SubstitutionHostKind::AssignmentTargetSubscript
                             | SubstitutionHostKind::DeclarationNameSubscript
@@ -63,10 +64,10 @@ mod tests {
     }
 
     #[test]
-    fn ignores_redirect_and_here_string_contexts() {
+    fn reports_here_strings_but_ignores_other_redirect_contexts() {
         let source = "\
 #!/bin/bash
-cat <<< $(printf here) >$(printf out)
+cat <<< $(printf here) <<< \"$(printf quoted-here)\" >$(printf out)
 printf '%s\\n' $(printf arg)
 ";
         let diagnostics = test_snippet(
@@ -79,7 +80,7 @@ printf '%s\\n' $(printf arg)
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$(printf arg)"]
+            vec!["$(printf here)", "$(printf arg)"]
         );
     }
 
