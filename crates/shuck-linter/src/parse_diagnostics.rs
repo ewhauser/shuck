@@ -6,8 +6,8 @@ use shuck_parser::parser::{ParseDiagnostic, Parser, ShellDialect as ParseShellDi
 use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::rules::correctness::c_prototype_fragment::CPrototypeFragment;
 use crate::rules::correctness::dangling_else::DanglingElse;
-use crate::rules::correctness::if_missing_then::IfMissingThen;
 use crate::rules::correctness::if_bracket_glued::IfBracketGlued;
+use crate::rules::correctness::if_missing_then::IfMissingThen;
 use crate::rules::correctness::loop_without_end::LoopWithoutEnd;
 use crate::rules::correctness::missing_done_in_for_loop::MissingDoneInForLoop;
 use crate::rules::correctness::missing_fi::MissingFi;

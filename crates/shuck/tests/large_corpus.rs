@@ -2295,11 +2295,10 @@ fn build_rule_to_shellcheck_index(
             .and_modify(|current| *current = (*current).min(sc_code))
             .or_insert(sc_code);
     }
-    let index = index
+    index
         .into_iter()
         .map(|(rule_code, sc_code)| (rule_code, format!("SC{sc_code}")))
-        .collect::<HashMap<_, _>>();
-    index
+        .collect::<HashMap<_, _>>()
 }
 
 fn build_shellcheck_to_rule_index(
@@ -3389,11 +3388,14 @@ mod tests {
 
         assert_eq!(validate_selected_rules_for_large_corpus(&rules), Ok(()));
         assert!(rule_index.is_empty());
-        assert_eq!(build_shellcheck_filter_codes(Some(rules), true), Some(HashSet::new()));
-        assert!(shellcheck_index.get(&1009).is_none());
-        assert!(shellcheck_index.get(&2301).is_none());
-        assert!(shellcheck_index.get(&3010).is_none());
-        assert!(shellcheck_index.get(&3054).is_none());
+        assert_eq!(
+            build_shellcheck_filter_codes(Some(rules), true),
+            Some(HashSet::new())
+        );
+        assert!(!shellcheck_index.contains_key(&1009));
+        assert!(!shellcheck_index.contains_key(&2301));
+        assert!(!shellcheck_index.contains_key(&3010));
+        assert!(!shellcheck_index.contains_key(&3054));
     }
 
     #[test]
@@ -3442,9 +3444,8 @@ mod tests {
         assert_eq!(
             shellcheck_codes,
             HashSet::from([
-                1001, 1002, 1003, 1004, 1012, 1036, 1049, 1070, 1074, 1087, 1088, 1140, 1141,
-                2082, 2113, 2195, 2202, 2203, 2240, 2277, 2290, 2296, 2298, 2387, 3002, 3033,
-                3044,
+                1001, 1002, 1003, 1004, 1012, 1036, 1049, 1070, 1074, 1087, 1088, 1140, 1141, 2082,
+                2113, 2195, 2202, 2203, 2240, 2277, 2290, 2296, 2298, 2387, 3002, 3033, 3044,
             ])
         );
     }
