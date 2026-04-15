@@ -9,17 +9,6 @@ COMMON_CORPUS_DIR="${CORPUS_DIR}/common"
 FORMATTER_CORPUS_DIR="${CORPUS_DIR}/formatter"
 ARTIFACTS_DIR="${FUZZ_DIR}/artifacts"
 
-TARGETS=(
-  parser_fuzz
-  lexer_fuzz
-  arithmetic_fuzz
-  glob_fuzz
-  recovered_parser_fuzz
-  formatter_consistency_fuzz
-  formatter_validity_fuzz
-  linter_no_panic_fuzz
-)
-
 COMMON_TARGETS=(
   parser_fuzz
   lexer_fuzz
@@ -145,7 +134,7 @@ seed_from_directory() {
   [[ -d "${directory}" ]] || return 0
 
   while IFS= read -r file; do
-    local relative_path="${file#${ROOT_DIR}/}"
+    local relative_path="${file:$(( ${#ROOT_DIR} + 1 ))}"
     local sanitized_name="${relative_path//\//__}"
     cp "${file}" "${destination}/${sanitized_name}"
   done < <(
