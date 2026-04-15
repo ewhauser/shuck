@@ -1615,6 +1615,23 @@ fn test_parameter_replacement_word_keeps_escaped_single_quotes_literal() {
 }
 
 #[test]
+fn test_decode_cooked_word_keeps_variable_after_literal_backslash() {
+    let cooked = r#"\$HOME"#;
+    let span = Span::from_positions(Position::new(), Position::new().advanced_by(cooked));
+    let word = Parser::new("").decode_word_text(cooked, span, span.start, false);
+
+    assert_eq!(word.parts.len(), 2);
+    let WordPart::Literal(text) = &word.parts[0].kind else {
+        panic!("expected literal backslash prefix");
+    };
+    assert_eq!(text.as_str("", word.parts[0].span), "\\");
+    assert!(matches!(
+        &word.parts[1].kind,
+        WordPart::Variable(name) if name.as_str() == "HOME"
+    ));
+}
+
+#[test]
 fn test_parse_arithmetic_command_with_command_substitution() {
     let input = "(($(date -u) > DATE))\n";
     let script = Parser::new(input).parse().unwrap().file;

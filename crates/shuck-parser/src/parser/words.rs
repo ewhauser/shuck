@@ -2435,7 +2435,6 @@ impl<'a> Parser<'a> {
         let mut current = String::new();
         let mut current_start = base;
         let mut cursor = base;
-        let mut escaped = false;
 
         while chars.peek().is_some() {
             let part_start = cursor;
@@ -2451,21 +2450,15 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            if escaped {
+            if preserve_quote_fragments
+                && ch == '\\'
+                && matches!(chars.peek().copied(), Some('\'' | '"'))
+            {
                 if current.is_empty() {
                     current_start = part_start;
                 }
                 current.push(ch);
-                escaped = false;
-                continue;
-            }
-
-            if ch == '\\' {
-                if current.is_empty() {
-                    current_start = part_start;
-                }
-                current.push(ch);
-                escaped = true;
+                current.push(Self::next_word_char_unwrap(&mut chars, &mut cursor));
                 continue;
             }
 
