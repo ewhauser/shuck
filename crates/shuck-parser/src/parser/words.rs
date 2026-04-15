@@ -2450,6 +2450,18 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
+            if preserve_quote_fragments
+                && ch == '\\'
+                && matches!(chars.peek().copied(), Some('\'' | '"'))
+            {
+                if current.is_empty() {
+                    current_start = part_start;
+                }
+                current.push(ch);
+                current.push(Self::next_word_char_unwrap(&mut chars, &mut cursor));
+                continue;
+            }
+
             if preserve_quote_fragments && ch == '\'' {
                 self.flush_literal_part(parts, &mut current, current_start, part_start);
 
