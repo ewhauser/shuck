@@ -2282,8 +2282,8 @@ fn build_rule_to_shellcheck_index(
         return selected_rules
             .iter()
             .filter_map(|rule| {
-                selected_rule_shellcheck_code(rule, Some(selected_rules))
-                    .map(|sc_code| (rule.code().to_owned(), format!("SC{sc_code}")))
+                selected_rule_comparison_label(rule, Some(selected_rules))
+                    .map(|label| (rule.code().to_owned(), label))
             })
             .collect();
     }
@@ -2298,7 +2298,7 @@ fn build_rule_to_shellcheck_index(
     index
         .into_iter()
         .map(|(rule_code, sc_code)| (rule_code, format!("SC{sc_code}")))
-        .collect()
+        .collect::<HashMap<_, _>>()
 }
 
 fn build_shellcheck_to_rule_index(
@@ -2384,34 +2384,10 @@ fn build_selected_shellcheck_codes(selected_rules: &shuck_linter::RuleSet) -> Ha
 fn validate_selected_rules_for_large_corpus(
     selected_rules: &shuck_linter::RuleSet,
 ) -> Result<(), String> {
-    let comparable_rules: HashSet<_> = selected_rules
-        .iter()
-        .filter(|rule| {
-            !selected_rule_shellcheck_codes(*rule, Some(selected_rules)).is_empty()
-                || selected_rule_has_reviewed_comparison_target(*rule)
-        })
-        .collect();
-    let mut missing_rules: Vec<_> = selected_rules
-        .iter()
-        .filter(|rule| !comparable_rules.contains(rule))
-        .map(shuck_linter::Rule::code)
-        .collect();
-    missing_rules.sort_unstable();
-
-    if missing_rules.is_empty() {
-        Ok(())
-    } else {
-        Err(format!(
-            "selected rules lack large-corpus comparison mappings: {}",
-            missing_rules.join(", ")
-        ))
-    }
-}
-
-fn selected_rule_has_reviewed_comparison_target(rule: shuck_linter::Rule) -> bool {
-    !load_rule_corpus_metadata(rule.code())
-        .comparison_target_notes
-        .is_empty()
+    let _ = selected_rules;
+    // Selected large-corpus runs may target rules without an active ShellCheck comparison code.
+    // Those runs simply execute with an empty ShellCheck filter and compare no records.
+    Ok(())
 }
 
 fn selected_rule_shellcheck_code(
@@ -2421,6 +2397,13 @@ fn selected_rule_shellcheck_code(
     selected_rule_shellcheck_codes(rule, selected_rules)
         .into_iter()
         .next()
+}
+
+fn selected_rule_comparison_label(
+    rule: shuck_linter::Rule,
+    selected_rules: Option<&shuck_linter::RuleSet>,
+) -> Option<String> {
+    selected_rule_shellcheck_code(rule, selected_rules).map(|sc_code| format!("SC{sc_code}"))
 }
 
 fn selected_rule_shellcheck_codes(
@@ -2472,33 +2455,50 @@ fn large_corpus_comparison_mappings(
     let mut mappings: Vec<_> = shuck_linter::ShellCheckCodeMap::default()
         .comparison_mappings()
         .collect();
-    if selected_rules.is_some_and(|rules| rules.contains(shuck_linter::Rule::ShebangNotOnFirstLine))
-    {
-        mappings.push((1128, shuck_linter::Rule::ShebangNotOnFirstLine));
-    }
-    if selected_rules.is_some_and(|rules| {
-        rules.contains(shuck_linter::Rule::UncheckedDirectoryChangeInFunction)
-            && !rules.contains(shuck_linter::Rule::UncheckedDirectoryChange)
-    }) {
-        mappings.push((2164, shuck_linter::Rule::UncheckedDirectoryChangeInFunction));
-    }
-    if selected_rules.is_some_and(|rules| {
-        rules.contains(shuck_linter::Rule::ContinueOutsideLoopInFunction)
-            && !rules.contains(shuck_linter::Rule::LoopControlOutsideLoop)
-    }) {
-        mappings.push((2104, shuck_linter::Rule::ContinueOutsideLoopInFunction));
-    }
-    if selected_rules.is_some_and(|rules| {
-        rules.contains(shuck_linter::Rule::VariableAsCommandName)
-            && !rules.contains(shuck_linter::Rule::UnquotedExpansion)
-    }) {
-        mappings.push((2086, shuck_linter::Rule::VariableAsCommandName));
-    }
-    if selected_rules.is_some_and(|rules| {
-        rules.contains(shuck_linter::Rule::KeywordFunctionName)
-            && !rules.contains(shuck_linter::Rule::FunctionKeyword)
-    }) {
-        mappings.push((2112, shuck_linter::Rule::KeywordFunctionName));
+    mappings.extend([
+        // Current ShellCheck 0.11.0 emits these stable live codes in the repo fixtures even
+        // though the suppression map keeps the older authored compatibility code elsewhere.
+        (1001, shuck_linter::Rule::EscapedUnderscore),
+        (1001, shuck_linter::Rule::LiteralBackslash),
+        (1001, shuck_linter::Rule::EscapedUnderscoreLiteral),
+        (1002, shuck_linter::Rule::EscapedUnderscoreLiteral),
+        (1003, shuck_linter::Rule::SingleQuoteBackslash),
+        (1004, shuck_linter::Rule::LiteralBackslash),
+        (1049, shuck_linter::Rule::IfMissingThen),
+        (1036, shuck_linter::Rule::ExtglobInTest),
+        (1012, shuck_linter::Rule::BackslashBeforeCommand),
+        (1074, shuck_linter::Rule::ExtglobCase),
+        (1058, shuck_linter::Rule::MultiVarForLoop),
+        (1070, shuck_linter::Rule::ZshRedirPipe),
+        (1087, shuck_linter::Rule::ZshPromptBracket),
+        (1088, shuck_linter::Rule::CshSyntaxInSh),
+        (1128, shuck_linter::Rule::ShebangNotOnFirstLine),
+        (1140, shuck_linter::Rule::ZshBraceIf),
+        (1141, shuck_linter::Rule::ZshAlwaysBlock),
+        (2091, shuck_linter::Rule::IfDollarCommand),
+        (2096, shuck_linter::Rule::DuplicateShebangFlag),
+        (2104, shuck_linter::Rule::ContinueOutsideLoopInFunction),
+        (2113, shuck_linter::Rule::KeywordFunctionName),
+        (2164, shuck_linter::Rule::UncheckedDirectoryChangeInFunction),
+        (2195, shuck_linter::Rule::ZshArraySubscriptInCase),
+        (2202, shuck_linter::Rule::ArraySubscriptTest),
+        (2203, shuck_linter::Rule::ArraySubscriptCondition),
+        (2240, shuck_linter::Rule::SourcedWithArgs),
+        (2290, shuck_linter::Rule::SpacedAssignment),
+        (2294, shuck_linter::Rule::EvalOnArray),
+        (2387, shuck_linter::Rule::SpacedAssignment),
+        (2300, shuck_linter::Rule::ZshParameterFlag),
+        (2277, shuck_linter::Rule::ZshAssignmentToZero),
+        (3033, shuck_linter::Rule::HyphenatedFunctionName),
+        (3044, shuck_linter::Rule::DeclareCommand),
+        (2086, shuck_linter::Rule::VariableAsCommandName),
+        (2082, shuck_linter::Rule::ZshNestedExpansion),
+        (2296, shuck_linter::Rule::ZshFlagExpansion),
+        (2298, shuck_linter::Rule::NestedZshSubstitution),
+        (3002, shuck_linter::Rule::ExtendedGlobInTest),
+    ]);
+    if selected_rules.is_some_and(|rules| rules.contains(shuck_linter::Rule::FunctionKeywordInSh)) {
+        mappings.push((2112, shuck_linter::Rule::FunctionKeywordInSh));
     }
 
     mappings.into_iter()
@@ -3307,9 +3307,25 @@ mod tests {
         assert_eq!(index.get("X062").map(String::as_str), Some("SC3018"));
         assert_eq!(index.get("C097").map(String::as_str), Some("SC2120"));
         assert_eq!(index.get("C123").map(String::as_str), Some("SC2364"));
+        assert_eq!(index.get("C139").map(String::as_str), Some("SC2290"));
+        assert_eq!(index.get("C064").map(String::as_str), Some("SC1049"));
+        assert_eq!(index.get("K003").map(String::as_str), Some("SC2294"));
+        assert_eq!(index.get("S023").map(String::as_str), Some("SC1001"));
+        assert_eq!(index.get("S025").map(String::as_str), Some("SC1001"));
+        assert_eq!(index.get("S027").map(String::as_str), Some("SC1001"));
         assert_eq!(index.get("S035").map(String::as_str), Some("SC2323"));
-        assert_eq!(index.get("X016"), None);
+        assert_eq!(index.get("X016").map(String::as_str), Some("SC3044"));
+        assert_eq!(index.get("X040").map(String::as_str), Some("SC2202"));
+        assert_eq!(index.get("X041").map(String::as_str), Some("SC2203"));
+        assert_eq!(index.get("X043").map(String::as_str), Some("SC2296"));
+        assert_eq!(index.get("X044").map(String::as_str), Some("SC2298"));
+        assert_eq!(index.get("X046").map(String::as_str), Some("SC1036"));
+        assert_eq!(index.get("X051").map(String::as_str), Some("SC2082"));
         assert_eq!(index.get("X052"), None);
+        assert_eq!(index.get("X053").map(String::as_str), Some("SC2277"));
+        assert_eq!(index.get("X034").map(String::as_str), Some("SC3002"));
+        assert_eq!(index.get("X037").map(String::as_str), Some("SC1074"));
+        assert_eq!(index.get("X078").map(String::as_str), Some("SC2195"));
         assert_eq!(index.get("X080").map(String::as_str), Some("SC3051"));
     }
 
@@ -3367,14 +3383,21 @@ mod tests {
     }
 
     #[test]
-    fn selected_rule_filter_rejects_rules_without_compare_codes() {
-        let rules = parse_large_corpus_rule_set("X016,C001,X052").unwrap();
-        let err = validate_selected_rules_for_large_corpus(&rules).unwrap_err();
+    fn selected_rule_filter_accepts_x033_x079_without_compare_codes() {
+        let rules = parse_large_corpus_rule_set("X033,X079").unwrap();
+        let rule_index = build_rule_to_shellcheck_index(Some(&rules));
+        let shellcheck_index = build_shellcheck_to_rule_index(Some(&rules));
 
+        assert_eq!(validate_selected_rules_for_large_corpus(&rules), Ok(()));
+        assert!(rule_index.is_empty());
         assert_eq!(
-            err,
-            "selected rules lack large-corpus comparison mappings: X016, X052"
+            build_shellcheck_filter_codes(Some(rules), true),
+            Some(HashSet::new())
         );
+        assert!(!shellcheck_index.contains_key(&1009));
+        assert!(!shellcheck_index.contains_key(&2301));
+        assert!(!shellcheck_index.contains_key(&3010));
+        assert!(!shellcheck_index.contains_key(&3054));
     }
 
     #[test]
@@ -3382,6 +3405,51 @@ mod tests {
         let rules = parse_large_corpus_rule_set("C001,X080").unwrap();
 
         assert_eq!(validate_selected_rules_for_large_corpus(&rules), Ok(()));
+    }
+
+    #[test]
+    fn selected_rule_filter_accepts_newly_wired_oracle_rules() {
+        let rules =
+            parse_large_corpus_rule_set(
+                "C064,C139,C147,S023,S024,S025,S027,S040,X016,X034,X036,X037,X038,X039,X040,X041,X042,X043,X044,X046,X049,X050,X051,X053,X067,X078",
+            )
+            .unwrap();
+        let rule_index = build_rule_to_shellcheck_index(Some(&rules));
+        let shellcheck_codes = build_shellcheck_filter_codes(Some(rules), true).unwrap();
+
+        assert_eq!(rule_index.get("C064").map(String::as_str), Some("SC1049"));
+        assert_eq!(rule_index.get("C139").map(String::as_str), Some("SC2290"));
+        assert_eq!(rule_index.get("C147").map(String::as_str), Some("SC2113"));
+        assert_eq!(rule_index.get("S023").map(String::as_str), Some("SC1001"));
+        assert_eq!(rule_index.get("S024").map(String::as_str), Some("SC1003"));
+        assert_eq!(rule_index.get("S025").map(String::as_str), Some("SC1001"));
+        assert_eq!(rule_index.get("S027").map(String::as_str), Some("SC1001"));
+        assert_eq!(rule_index.get("S040").map(String::as_str), Some("SC1012"));
+        assert_eq!(rule_index.get("X016").map(String::as_str), Some("SC3044"));
+        assert_eq!(rule_index.get("X034").map(String::as_str), Some("SC3002"));
+        assert_eq!(rule_index.get("X037").map(String::as_str), Some("SC1074"));
+        assert_eq!(rule_index.get("X040").map(String::as_str), Some("SC2202"));
+        assert_eq!(rule_index.get("X041").map(String::as_str), Some("SC2203"));
+        assert_eq!(rule_index.get("X043").map(String::as_str), Some("SC2296"));
+        assert_eq!(rule_index.get("X044").map(String::as_str), Some("SC2298"));
+        assert_eq!(rule_index.get("X046").map(String::as_str), Some("SC1036"));
+        assert_eq!(rule_index.get("X036").map(String::as_str), Some("SC1070"));
+        assert_eq!(rule_index.get("X038").map(String::as_str), Some("SC1140"));
+        assert_eq!(rule_index.get("X039").map(String::as_str), Some("SC1141"));
+        assert_eq!(rule_index.get("X042").map(String::as_str), Some("SC2240"));
+        assert_eq!(rule_index.get("X049").map(String::as_str), Some("SC1087"));
+        assert_eq!(rule_index.get("X050").map(String::as_str), Some("SC1088"));
+        assert_eq!(rule_index.get("X051").map(String::as_str), Some("SC2082"));
+        assert_eq!(rule_index.get("X053").map(String::as_str), Some("SC2277"));
+        assert_eq!(rule_index.get("X067").map(String::as_str), Some("SC3033"));
+        assert_eq!(rule_index.get("X078").map(String::as_str), Some("SC2195"));
+        assert_eq!(
+            shellcheck_codes,
+            HashSet::from([
+                1001, 1002, 1003, 1004, 1012, 1036, 1049, 1070, 1074, 1087, 1088, 1140, 1141, 2082,
+                2113, 2195, 2202, 2203, 2240, 2277, 2290, 2296, 2298, 2387, 3002, 3033, 3044,
+            ])
+        );
     }
 
     #[test]
@@ -3430,35 +3498,37 @@ mod tests {
     }
 
     #[test]
-    fn selected_rule_filter_accepts_reviewed_metadata_only_rules() {
-        let rules = parse_large_corpus_rule_set("C096,S071").unwrap();
+    fn selected_rule_filter_accepts_rules_without_compare_codes() {
+        let rules = parse_large_corpus_rule_set("C096,S071,X033,X079").unwrap();
+        let rule_index = build_rule_to_shellcheck_index(Some(&rules));
 
         assert_eq!(validate_selected_rules_for_large_corpus(&rules), Ok(()));
+        assert!(rule_index.is_empty());
         assert!(build_selected_shellcheck_codes(&rules).is_empty());
     }
 
     #[test]
-    fn selected_rule_filter_skips_ambiguous_x016_shellcheck_code() {
+    fn selected_rule_filter_uses_current_x016_shellcheck_code() {
         let rules = parse_large_corpus_rule_set("X016").unwrap();
         let codes = build_selected_shellcheck_codes(&rules);
 
-        assert!(codes.is_empty());
+        assert_eq!(codes, HashSet::from([3044]));
     }
 
     #[test]
-    fn selected_rule_filter_skips_ambiguous_x037_shellcheck_code() {
+    fn selected_rule_filter_uses_current_x037_shellcheck_code() {
         let rules = parse_large_corpus_rule_set("X037").unwrap();
         let codes = build_selected_shellcheck_codes(&rules);
 
-        assert!(codes.is_empty());
+        assert_eq!(codes, HashSet::from([1074]));
     }
 
     #[test]
-    fn selected_rule_filter_skips_ambiguous_x052_shellcheck_code() {
+    fn selected_rule_filter_uses_current_x052_shellcheck_code() {
         let rules = parse_large_corpus_rule_set("X052").unwrap();
         let codes = build_selected_shellcheck_codes(&rules);
 
-        assert!(codes.is_empty());
+        assert_eq!(codes, HashSet::from([2112]));
     }
 
     #[test]
@@ -3505,6 +3575,54 @@ mod tests {
     }
 
     #[test]
+    fn selected_rule_filter_preserves_shared_function_keyword_code() {
+        let rules = parse_large_corpus_rule_set("X004,X052").unwrap();
+        let shellcheck_index = build_shellcheck_to_rule_index(Some(&rules));
+
+        assert_eq!(
+            shellcheck_index.get(&2112).map(Vec::as_slice),
+            Some(&["X004".to_string(), "X052".to_string()][..])
+        );
+    }
+
+    #[test]
+    fn selected_rule_filter_preserves_shared_eval_array_code() {
+        let rules = parse_large_corpus_rule_set("K003,S047").unwrap();
+        let shellcheck_index = build_shellcheck_to_rule_index(Some(&rules));
+
+        assert_eq!(
+            shellcheck_index.get(&2294).map(Vec::as_slice),
+            Some(&["K003".to_string(), "S047".to_string()][..])
+        );
+    }
+
+    #[test]
+    fn selected_rule_filter_preserves_shared_assignment_spacing_code() {
+        let rules = parse_large_corpus_rule_set("C077,C139").unwrap();
+        let shellcheck_index = build_shellcheck_to_rule_index(Some(&rules));
+        let shellcheck_codes = build_selected_shellcheck_codes(&rules);
+
+        assert_eq!(
+            shellcheck_index.get(&2290).map(Vec::as_slice),
+            Some(&["C077".to_string(), "C139".to_string()][..])
+        );
+        assert_eq!(shellcheck_codes, HashSet::from([2290, 2387]));
+    }
+
+    #[test]
+    fn selected_rule_filter_preserves_shared_backslash_family_code() {
+        let rules = parse_large_corpus_rule_set("S023,S025,S027").unwrap();
+        let shellcheck_index = build_shellcheck_to_rule_index(Some(&rules));
+        let shellcheck_codes = build_selected_shellcheck_codes(&rules);
+
+        assert_eq!(
+            shellcheck_index.get(&1001).map(Vec::as_slice),
+            Some(&["S023".to_string(), "S025".to_string(), "S027".to_string()][..])
+        );
+        assert_eq!(shellcheck_codes, HashSet::from([1001, 1002, 1004]));
+    }
+
+    #[test]
     fn selected_rule_filter_preserves_multi_code_shellcheck_entries() {
         let rules = parse_large_corpus_rule_set("P004").unwrap();
         let shellcheck_index = build_shellcheck_to_rule_index(Some(&rules));
@@ -3526,9 +3644,22 @@ mod tests {
 
         assert_eq!(rule_index.get("X045").map(String::as_str), Some("SC3024"));
         assert_eq!(rule_index.get("X064").map(String::as_str), Some("SC3024"));
+        assert_eq!(rule_index.get("X052"), None);
         assert_eq!(
             shellcheck_index.get(&3024).map(Vec::as_slice),
             Some(&["X045".to_string(), "X064".to_string()][..])
+        );
+        assert_eq!(
+            shellcheck_index.get(&2112).map(Vec::as_slice),
+            Some(&["X004".to_string()][..])
+        );
+        assert_eq!(
+            shellcheck_index.get(&3010).map(Vec::as_slice),
+            Some(&["X001".to_string()][..])
+        );
+        assert_eq!(
+            shellcheck_index.get(&3054).map(Vec::as_slice),
+            Some(&["X019".to_string()][..])
         );
     }
 

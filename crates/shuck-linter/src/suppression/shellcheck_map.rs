@@ -164,9 +164,6 @@ impl Default for ShellCheckCodeMap {
             (2198, Rule::AtSignInStringCompare),
             (2199, Rule::ArraySliceInComparison),
             (1076, Rule::MalformedArithmeticInCondition),
-            // Modern ShellCheck reuses SC2320 for a different echo/printf `$?` warning.
-            // Keep the historical SC2320 comparison slot for C096 and review known corpus deltas.
-            (2320, Rule::UnquotedPipeInEcho),
             // ShellCheck 0.11.0 reports quoted array-to-scalar assignments as SC2124.
             // Keep SC2325 as a suppression alias for the authored C099 rule code.
             (2124, Rule::QuotedArraySlice),
@@ -221,8 +218,6 @@ impl Default for ShellCheckCodeMap {
             // ShellCheck 0.11.0 reports split double-quoted strings around variables as SC2027.
             // Keep SC2376 as a suppression alias for the authored S070 rule code.
             (2027, Rule::DoubleQuoteNesting),
-            // SC2379 remains the authored compatibility code for env-prefix quoting checks.
-            (2379, Rule::EnvPrefixQuoting),
             (2140, Rule::MixedQuoteWord),
             // ShellCheck 0.11.0 reports `tr [:upper:] [:lower:]`-style class warnings as SC2060.
             // Keep SC2303 as a suppression alias for the authored S051 rule code.
@@ -2199,7 +2194,7 @@ mod tests {
         assert!(comparison.contains(&(2142, Rule::FunctionInAlias)));
         assert!(comparison.contains(&(2027, Rule::DoubleQuoteNesting)));
         assert!(comparison.contains(&(1076, Rule::MalformedArithmeticInCondition)));
-        assert!(comparison.contains(&(2379, Rule::EnvPrefixQuoting)));
+        assert!(!comparison.contains(&(2379, Rule::EnvPrefixQuoting)));
         assert!(comparison.contains(&(2140, Rule::MixedQuoteWord)));
         assert!(!comparison.contains(&(2322, Rule::SuWithoutFlag)));
         assert!(!comparison.contains(&(2340, Rule::DeprecatedTempfileCommand)));
@@ -2212,7 +2207,7 @@ mod tests {
         assert!(comparison.contains(&(2060, Rule::UnquotedTrClass)));
         assert!(comparison.contains(&(2335, Rule::UnquotedPathInMkdir)));
         assert!(comparison.contains(&(2070, Rule::UnquotedVariableInTest)));
-        assert!(comparison.contains(&(2320, Rule::UnquotedPipeInEcho)));
+        assert!(!comparison.contains(&(2320, Rule::UnquotedPipeInEcho)));
         assert!(comparison.contains(&(2223, Rule::DefaultValueInColonAssign)));
         assert!(comparison.contains(&(2021, Rule::UnquotedTrRange)));
         assert!(comparison.contains(&(2018, Rule::TrLowerRange)));
@@ -2280,7 +2275,7 @@ mod tests {
         assert!(comparison.contains(&(3070, Rule::AmpersandRedirectInSh)));
         assert!(comparison.contains(&(3073, Rule::PipeStderrInSh)));
         assert!(comparison.contains(&(2004, Rule::DollarInArithmetic)));
-        assert!(comparison.contains(&(2320, Rule::UnquotedPipeInEcho)));
+        assert!(!comparison.contains(&(2320, Rule::UnquotedPipeInEcho)));
         assert!(comparison.contains(&(2321, Rule::ArrayIndexArithmetic)));
         assert!(comparison.contains(&(2120, Rule::FunctionCalledWithoutArgs)));
         assert!(comparison.contains(&(2364, Rule::FunctionReferencesUnsetParam)));

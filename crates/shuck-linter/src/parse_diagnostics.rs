@@ -7,6 +7,7 @@ use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::rules::correctness::c_prototype_fragment::CPrototypeFragment;
 use crate::rules::correctness::dangling_else::DanglingElse;
 use crate::rules::correctness::if_bracket_glued::IfBracketGlued;
+use crate::rules::correctness::if_missing_then::IfMissingThen;
 use crate::rules::correctness::loop_without_end::LoopWithoutEnd;
 use crate::rules::correctness::missing_done_in_for_loop::MissingDoneInForLoop;
 use crate::rules::correctness::missing_fi::MissingFi;
@@ -60,6 +61,11 @@ pub(crate) fn collect_parse_rule_diagnostics(
             .any(|diagnostic| is_missing_fi_error(&diagnostic.message))
     {
         diagnostics.push(Diagnostic::new(MissingFi, eof_point(file)));
+    }
+    if enabled_rules.contains(crate::Rule::IfMissingThen)
+        && let Some(span) = if_missing_then_span(source, parse_diagnostics)
+    {
+        diagnostics.push(Diagnostic::new(IfMissingThen, span));
     }
     if enabled_rules.contains(crate::Rule::LoopWithoutEnd)
         && missing_done_loop_kind == Some(MissingDoneLoopKind::NonFor)
@@ -139,6 +145,188 @@ pub(crate) fn collect_parse_rule_diagnostics(
 
 fn is_missing_fi_error(message: &str) -> bool {
     message.starts_with("expected 'fi'")
+}
+
+fn is_missing_then_error(message: &str) -> bool {
+    message.starts_with("expected 'then'")
+}
+
+fn if_missing_then_span(source: &str, parse_diagnostics: &[ParseDiagnostic]) -> Option<Span> {
+    parse_diagnostics.iter().find_map(|diagnostic| {
+        if !is_missing_then_error(&diagnostic.message)
+            && !is_expected_command_error(&diagnostic.message)
+        {
+            return None;
+        }
+
+        let mut line = diagnostic.span.start.line;
+        let mut saw_then = false;
+        while line > 0 {
+            let text = line_text_at(source, line)?;
+            let trimmed = text.trim_start();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                line = line.saturating_sub(1);
+                continue;
+            }
+
+            if trimmed == "fi" || trimmed == "else" {
+                line = line.saturating_sub(1);
+                continue;
+            }
+            if line_contains_shell_word(trimmed, "then") {
+                saw_then = true;
+                line = line.saturating_sub(1);
+                continue;
+            }
+            if trimmed == "if" || trimmed.starts_with("if ") || trimmed.starts_with("if\t") {
+                if saw_then {
+                    return None;
+                }
+                let offset = line_start_offset(source, line)?;
+                let start = position_at_offset(source, offset)?;
+                return Some(Span::from_positions(start, start));
+            }
+            if trimmed == "elif" || trimmed.starts_with("elif ") || trimmed.starts_with("elif\t") {
+                return None;
+            }
+
+            line = line.saturating_sub(1);
+        }
+
+        None
+    })
+}
+
+fn line_contains_shell_word(line: &str, word: &str) -> bool {
+    let bytes = line.as_bytes();
+    let mut token = String::new();
+    let mut index = 0usize;
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+    let mut double_quote_escape = false;
+    let mut in_backticks = false;
+    let mut parameter_expansion_depth = 0usize;
+    let mut command_substitution_depth = 0usize;
+
+    while index < bytes.len() {
+        let byte = bytes[index];
+
+        if in_single_quotes {
+            token.push('_');
+            if byte == b'\'' {
+                in_single_quotes = false;
+            }
+            index += 1;
+            continue;
+        }
+
+        if in_double_quotes {
+            token.push('_');
+            if double_quote_escape {
+                double_quote_escape = false;
+            } else if byte == b'\\' {
+                double_quote_escape = true;
+            } else if byte == b'"' {
+                in_double_quotes = false;
+            }
+            index += 1;
+            continue;
+        }
+
+        if in_backticks {
+            token.push('_');
+            if byte == b'\\' && index + 1 < bytes.len() {
+                token.push('_');
+                index += 2;
+                continue;
+            }
+            if byte == b'`' {
+                in_backticks = false;
+            }
+            index += 1;
+            continue;
+        }
+
+        if parameter_expansion_depth > 0 {
+            token.push('_');
+            if byte == b'$' && bytes.get(index + 1) == Some(&b'{') {
+                token.push('_');
+                parameter_expansion_depth += 1;
+                index += 2;
+                continue;
+            }
+            if byte == b'}' {
+                parameter_expansion_depth -= 1;
+            }
+            index += 1;
+            continue;
+        }
+
+        if command_substitution_depth > 0 {
+            token.push('_');
+            if byte == b'$' && bytes.get(index + 1) == Some(&b'(') {
+                token.push('_');
+                command_substitution_depth += 1;
+                index += 2;
+                continue;
+            }
+            if byte == b')' {
+                command_substitution_depth -= 1;
+            }
+            index += 1;
+            continue;
+        }
+
+        match byte {
+            b'\'' => {
+                token.push('_');
+                in_single_quotes = true;
+            }
+            b'"' => {
+                token.push('_');
+                in_double_quotes = true;
+            }
+            b'`' => {
+                token.push('_');
+                in_backticks = true;
+            }
+            b'\\' => {
+                token.push('_');
+                if index + 1 < bytes.len() {
+                    token.push('_');
+                    index += 1;
+                }
+            }
+            b'$' if bytes.get(index + 1) == Some(&b'{') => {
+                token.push('_');
+                token.push('_');
+                parameter_expansion_depth = 1;
+                index += 1;
+            }
+            b'$' if bytes.get(index + 1) == Some(&b'(') => {
+                token.push('_');
+                token.push('_');
+                command_substitution_depth = 1;
+                index += 1;
+            }
+            b'#' if token.is_empty() => break,
+            byte if byte.is_ascii_whitespace() || is_shell_word_separator(byte as char) => {
+                if token == word {
+                    return true;
+                }
+                token.clear();
+            }
+            _ => token.push(char::from(byte)),
+        }
+
+        index += 1;
+    }
+
+    token == word
+}
+
+fn is_shell_word_separator(ch: char) -> bool {
+    matches!(ch, ';' | '&' | '|' | '(' | ')' | '{' | '}' | '<' | '>')
 }
 
 fn is_loop_without_end_error(message: &str) -> bool {
@@ -778,7 +966,10 @@ fn line_start_offset(source: &str, target_line: usize) -> Option<usize> {
 mod tests {
     use shuck_parser::parser::Parser;
 
-    use super::{collect_parse_rule_diagnostics, if_bracket_glued_span_on_line};
+    use super::{
+        collect_parse_rule_diagnostics, if_bracket_glued_span_on_line, is_expected_command_error,
+        line_contains_shell_word,
+    };
     use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
@@ -984,6 +1175,81 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::MissingDoneInForLoop);
+    }
+
+    #[test]
+    fn line_contains_shell_word_ignores_expansion_internals() {
+        assert!(line_contains_shell_word("if true; then :; fi", "then"));
+        assert!(line_contains_shell_word(
+            "if true; then # keep body valid",
+            "then"
+        ));
+        assert!(!line_contains_shell_word("${then}", "then"));
+        assert!(!line_contains_shell_word("$(then)", "then"));
+        assert!(!line_contains_shell_word("`then`", "then"));
+    }
+
+    #[test]
+    fn ignores_inline_then_before_later_expected_command_for_c064() {
+        let source = "#!/bin/sh\nif true; then :; fi\n&&\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::IfMissingThen);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(
+            recovered
+                .diagnostics
+                .iter()
+                .any(|diagnostic| is_expected_command_error(&diagnostic.message))
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_missing_then_even_when_later_lines_expand_then_identifiers() {
+        let source = "#!/bin/sh\nif true\n  echo ${then}\nfi\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::IfMissingThen);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::IfMissingThen);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 1);
+    }
+
+    #[test]
+    fn ignores_then_with_trailing_comment_before_later_expected_command_for_c064() {
+        let source = "#!/bin/sh\nif true; then # keep body valid\n  :\nfi\n&&\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::IfMissingThen);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(
+            recovered
+                .diagnostics
+                .iter()
+                .any(|diagnostic| is_expected_command_error(&diagnostic.message))
+        );
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
