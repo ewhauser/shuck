@@ -173,12 +173,7 @@ fn if_missing_then_span(source: &str, parse_diagnostics: &[ParseDiagnostic]) -> 
                 line = line.saturating_sub(1);
                 continue;
             }
-            if trimmed == "then"
-                || trimmed.starts_with("then ")
-                || trimmed.starts_with("then\t")
-                || trimmed.ends_with("; then")
-                || trimmed.ends_with(" then")
-            {
+            if line_contains_shell_word(trimmed, "then") {
                 saw_then = true;
                 line = line.saturating_sub(1);
                 continue;
@@ -200,6 +195,67 @@ fn if_missing_then_span(source: &str, parse_diagnostics: &[ParseDiagnostic]) -> 
 
         None
     })
+}
+
+fn line_contains_shell_word(line: &str, word: &str) -> bool {
+    let mut token = String::new();
+    let mut chars = line.chars().peekable();
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+    let mut double_quote_escape = false;
+
+    while let Some(ch) = chars.next() {
+        if in_single_quotes {
+            token.push('_');
+            if ch == '\'' {
+                in_single_quotes = false;
+            }
+            continue;
+        }
+
+        if in_double_quotes {
+            token.push('_');
+            if double_quote_escape {
+                double_quote_escape = false;
+            } else if ch == '\\' {
+                double_quote_escape = true;
+            } else if ch == '"' {
+                in_double_quotes = false;
+            }
+            continue;
+        }
+
+        match ch {
+            '\'' => {
+                token.push('_');
+                in_single_quotes = true;
+            }
+            '"' => {
+                token.push('_');
+                in_double_quotes = true;
+            }
+            '\\' => {
+                token.push('_');
+                if chars.next().is_some() {
+                    token.push('_');
+                }
+            }
+            '#' if token.is_empty() => break,
+            ch if ch.is_ascii_whitespace() || is_shell_word_separator(ch) => {
+                if token == word {
+                    return true;
+                }
+                token.clear();
+            }
+            _ => token.push(ch),
+        }
+    }
+
+    token == word
+}
+
+fn is_shell_word_separator(ch: char) -> bool {
+    matches!(ch, ';' | '&' | '|' | '(' | ')' | '{' | '}' | '<' | '>')
 }
 
 fn is_loop_without_end_error(message: &str) -> bool {
@@ -839,7 +895,9 @@ fn line_start_offset(source: &str, target_line: usize) -> Option<usize> {
 mod tests {
     use shuck_parser::parser::Parser;
 
-    use super::{collect_parse_rule_diagnostics, if_bracket_glued_span_on_line};
+    use super::{
+        collect_parse_rule_diagnostics, if_bracket_glued_span_on_line, is_expected_command_error,
+    };
     use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
@@ -1045,6 +1103,50 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::MissingDoneInForLoop);
+    }
+
+    #[test]
+    fn ignores_inline_then_before_later_expected_command_for_c064() {
+        let source = "#!/bin/sh\nif true; then :; fi\n&&\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::IfMissingThen);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(
+            recovered
+                .diagnostics
+                .iter()
+                .any(|diagnostic| is_expected_command_error(&diagnostic.message))
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_then_with_trailing_comment_before_later_expected_command_for_c064() {
+        let source = "#!/bin/sh\nif true; then # keep body valid\n  :\nfi\n&&\n";
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rule(Rule::IfMissingThen);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(
+            recovered
+                .diagnostics
+                .iter()
+                .any(|diagnostic| is_expected_command_error(&diagnostic.message))
+        );
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
