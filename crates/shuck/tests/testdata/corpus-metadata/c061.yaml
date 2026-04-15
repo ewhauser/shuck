@@ -1,3 +1,7 @@
+comparison_target_notes:
+  - current_shellcheck_code: "SC2262"
+    reason: "The nix-pinned ShellCheck oracle used by the large-corpus harness reports double-brace command-name placeholder findings as SC2288, so C061 compares against that live bucket instead of the older authored compatibility code."
+
 reviewed_divergences:
   - side: shellcheck-only
     path_suffix: "termux__termux-packages__packages__openssl__add-trusted-certificate"
