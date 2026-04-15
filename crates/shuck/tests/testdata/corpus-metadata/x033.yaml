@@ -1,3 +1,0 @@
-reviewed_divergences:
-  - side: shuck-only
-    reason: "the current nix-provided ShellCheck build does not emit a dedicated compatibility code for `elif [[ ... ]]` in POSIX sh, so Shuck's explicit X033 portability hits are tracked as reviewed divergence until the oracle exposes a stable counterpart"

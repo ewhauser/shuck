@@ -1,7 +1,0 @@
-comparison_target_notes:
-  - current_shellcheck_code: "SC2379"
-    reason: "Current ShellCheck releases do not surface SC2379 in mapped large-corpus comparisons, even when the script uses quoted expansion-only command-prefix assignments."
-
-reviewed_divergences:
-  - side: shuck-only
-    reason: "S071 intentionally warns on command-prefix assignments made only of double-quoted scalar expansions, because these prefix assignments already pass a single scalar value to the invoked command without the splitting and globbing hazards that usually justify the quotes."

@@ -6,6 +6,7 @@ use shuck_parser::parser::{ParseDiagnostic, Parser, ShellDialect as ParseShellDi
 use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::rules::correctness::c_prototype_fragment::CPrototypeFragment;
 use crate::rules::correctness::dangling_else::DanglingElse;
+use crate::rules::correctness::if_missing_then::IfMissingThen;
 use crate::rules::correctness::if_bracket_glued::IfBracketGlued;
 use crate::rules::correctness::loop_without_end::LoopWithoutEnd;
 use crate::rules::correctness::missing_done_in_for_loop::MissingDoneInForLoop;
@@ -60,6 +61,11 @@ pub(crate) fn collect_parse_rule_diagnostics(
             .any(|diagnostic| is_missing_fi_error(&diagnostic.message))
     {
         diagnostics.push(Diagnostic::new(MissingFi, eof_point(file)));
+    }
+    if enabled_rules.contains(crate::Rule::IfMissingThen)
+        && let Some(span) = if_missing_then_span(source, parse_diagnostics)
+    {
+        diagnostics.push(Diagnostic::new(IfMissingThen, span));
     }
     if enabled_rules.contains(crate::Rule::LoopWithoutEnd)
         && missing_done_loop_kind == Some(MissingDoneLoopKind::NonFor)
@@ -139,6 +145,61 @@ pub(crate) fn collect_parse_rule_diagnostics(
 
 fn is_missing_fi_error(message: &str) -> bool {
     message.starts_with("expected 'fi'")
+}
+
+fn is_missing_then_error(message: &str) -> bool {
+    message.starts_with("expected 'then'")
+}
+
+fn if_missing_then_span(source: &str, parse_diagnostics: &[ParseDiagnostic]) -> Option<Span> {
+    parse_diagnostics.iter().find_map(|diagnostic| {
+        if !is_missing_then_error(&diagnostic.message)
+            && !is_expected_command_error(&diagnostic.message)
+        {
+            return None;
+        }
+
+        let mut line = diagnostic.span.start.line;
+        let mut saw_then = false;
+        while line > 0 {
+            let text = line_text_at(source, line)?;
+            let trimmed = text.trim_start();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                line = line.saturating_sub(1);
+                continue;
+            }
+
+            if trimmed == "fi" || trimmed == "else" {
+                line = line.saturating_sub(1);
+                continue;
+            }
+            if trimmed == "then"
+                || trimmed.starts_with("then ")
+                || trimmed.starts_with("then\t")
+                || trimmed.ends_with("; then")
+                || trimmed.ends_with(" then")
+            {
+                saw_then = true;
+                line = line.saturating_sub(1);
+                continue;
+            }
+            if trimmed == "if" || trimmed.starts_with("if ") || trimmed.starts_with("if\t") {
+                if saw_then {
+                    return None;
+                }
+                let offset = line_start_offset(source, line)?;
+                let start = position_at_offset(source, offset)?;
+                return Some(Span::from_positions(start, start));
+            }
+            if trimmed == "elif" || trimmed.starts_with("elif ") || trimmed.starts_with("elif\t") {
+                return None;
+            }
+
+            line = line.saturating_sub(1);
+        }
+
+        None
+    })
 }
 
 fn is_loop_without_end_error(message: &str) -> bool {

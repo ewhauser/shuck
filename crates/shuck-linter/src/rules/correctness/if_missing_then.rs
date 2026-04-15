@@ -13,7 +13,7 @@ impl Violation for IfMissingThen {
 }
 
 pub fn if_missing_then(_checker: &mut Checker) {
-    // The parser rejects malformed `if` blocks without `then` before lints run.
+    // Parse diagnostics synthesize this rule before the normal lint walk runs.
 }
 
 #[cfg(test)]
@@ -32,5 +32,21 @@ fi
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::IfMissingThen));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_missing_then_from_parse_diagnostics() {
+        let source = "\
+#!/bin/sh
+if [ \"$x\" ]
+  echo ok
+fi
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::IfMissingThen));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].code(), "C064");
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 1);
     }
 }
