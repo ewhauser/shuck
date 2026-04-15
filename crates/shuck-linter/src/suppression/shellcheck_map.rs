@@ -1,6 +1,6 @@
 use rustc_hash::FxHashMap;
 
-use crate::Rule;
+use crate::{Rule, RuleSet};
 
 /// Maps shellcheck SC codes to shuck rules.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -8,6 +8,7 @@ pub struct ShellCheckCodeMap {
     map: FxHashMap<u32, Rule>,
     aliases: Vec<(u32, Rule)>,
     comparison: Vec<(u32, Rule)>,
+    comparison_aliases: Vec<(u32, Rule)>,
 }
 
 impl ShellCheckCodeMap {
@@ -24,7 +25,23 @@ impl ShellCheckCodeMap {
 
     /// Mappings that are stable enough to compare in the large corpus harness.
     pub fn comparison_mappings(&self) -> impl Iterator<Item = (u32, Rule)> + '_ {
-        self.comparison.iter().copied()
+        self.comparison
+            .iter()
+            .copied()
+            .chain(self.comparison_aliases.iter().copied())
+    }
+
+    /// Comparison mappings, plus selected-rule-only live aliases that would be too broad to
+    /// expose during mapped-only whole-corpus runs.
+    pub fn comparison_mappings_for_rules(
+        &self,
+        selected_rules: Option<&RuleSet>,
+    ) -> impl Iterator<Item = (u32, Rule)> + '_ {
+        self.comparison_mappings().chain(
+            selected_rules
+                .filter(|rules| rules.contains(Rule::FunctionKeywordInSh))
+                .map(|_| (2112, Rule::FunctionKeywordInSh)),
+        )
     }
 
     /// Look up a shellcheck code like `SC2086`.
@@ -538,6 +555,49 @@ impl Default for ShellCheckCodeMap {
             (3067, Rule::OwnershipTestInSh),
         ];
 
+        let comparison_aliases = vec![
+            // Current ShellCheck 0.11.0 emits these stable live codes in the repo fixtures even
+            // though the suppression map keeps the older authored compatibility code elsewhere.
+            (1001, Rule::EscapedUnderscore),
+            (1001, Rule::LiteralBackslash),
+            (1001, Rule::EscapedUnderscoreLiteral),
+            (1002, Rule::EscapedUnderscoreLiteral),
+            (1003, Rule::SingleQuoteBackslash),
+            (1004, Rule::LiteralBackslash),
+            (1049, Rule::IfMissingThen),
+            (1036, Rule::ExtglobInTest),
+            (1012, Rule::BackslashBeforeCommand),
+            (1074, Rule::ExtglobCase),
+            (1058, Rule::MultiVarForLoop),
+            (1070, Rule::ZshRedirPipe),
+            (1087, Rule::ZshPromptBracket),
+            (1088, Rule::CshSyntaxInSh),
+            (1128, Rule::ShebangNotOnFirstLine),
+            (1140, Rule::ZshBraceIf),
+            (1141, Rule::ZshAlwaysBlock),
+            (2091, Rule::IfDollarCommand),
+            (2096, Rule::DuplicateShebangFlag),
+            (2104, Rule::ContinueOutsideLoopInFunction),
+            (2113, Rule::KeywordFunctionName),
+            (2164, Rule::UncheckedDirectoryChangeInFunction),
+            (2195, Rule::ZshArraySubscriptInCase),
+            (2202, Rule::ArraySubscriptTest),
+            (2203, Rule::ArraySubscriptCondition),
+            (2240, Rule::SourcedWithArgs),
+            (2290, Rule::SpacedAssignment),
+            (2294, Rule::EvalOnArray),
+            (2387, Rule::SpacedAssignment),
+            (2300, Rule::ZshParameterFlag),
+            (2277, Rule::ZshAssignmentToZero),
+            (3033, Rule::HyphenatedFunctionName),
+            (3044, Rule::DeclareCommand),
+            (2086, Rule::VariableAsCommandName),
+            (2082, Rule::ZshNestedExpansion),
+            (2296, Rule::ZshFlagExpansion),
+            (2298, Rule::NestedZshSubstitution),
+            (3002, Rule::ExtendedGlobInTest),
+        ];
+
         Self {
             map: {
                 let mut map = FxHashMap::default();
@@ -961,6 +1021,7 @@ impl Default for ShellCheckCodeMap {
                 (2127, Rule::EchoHereDoc),
             ],
             comparison,
+            comparison_aliases,
         }
     }
 }
@@ -2173,7 +2234,7 @@ mod tests {
         assert!(comparison.contains(&(2265, Rule::RedundantReturnStatus)));
         assert!(comparison.contains(&(2276, Rule::FunctionBodyWithoutBraces)));
         assert!(comparison.contains(&(2362, Rule::LocalDeclareCombined)));
-        assert!(!comparison.contains(&(2294, Rule::EvalOnArray)));
+        assert!(comparison.contains(&(2294, Rule::EvalOnArray)));
         assert!(!comparison.contains(&(2295, Rule::UnquotedGlobsInFind)));
         assert!(!comparison.contains(&(2299, Rule::GlobInGrepPattern)));
         assert!(!comparison.contains(&(2301, Rule::GlobInStringComparison)));
@@ -2301,8 +2362,8 @@ mod tests {
         assert!(!comparison.contains(&(2381, Rule::ArrayToStringConversion)));
         assert!(!comparison.contains(&(2353, Rule::AssignmentToNumericVariable)));
         assert!(!comparison.contains(&(2354, Rule::PlusPrefixInAssignment)));
-        assert!(!comparison.contains(&(2290, Rule::SpacedAssignment)));
-        assert!(!comparison.contains(&(2387, Rule::SpacedAssignment)));
+        assert!(comparison.contains(&(2290, Rule::SpacedAssignment)));
+        assert!(comparison.contains(&(2387, Rule::SpacedAssignment)));
         assert!(!comparison.contains(&(2280, Rule::IfsEqualsAmbiguity)));
         assert!(!comparison.contains(&(2388, Rule::BadVarName)));
         assert!(!comparison.contains(&(2384, Rule::LocalCrossReference)));
@@ -2319,7 +2380,7 @@ mod tests {
         assert!(!comparison.contains(&(3071, Rule::PlusEqualsInSh)));
         assert!(!comparison.contains(&(3024, Rule::BashFileSlurp)));
         assert!(!comparison.contains(&(3084, Rule::SourceInsideFunctionInSh)));
-        assert!(!comparison.contains(&(3044, Rule::DeclareCommand)));
+        assert!(comparison.contains(&(3044, Rule::DeclareCommand)));
         assert!(!comparison.contains(&(3063, Rule::CStyleForInSh)));
         assert!(!comparison.contains(&(3064, Rule::LegacyArithmeticInSh)));
         assert!(!comparison.contains(&(3069, Rule::CStyleForArithmeticInSh)));
@@ -2328,5 +2389,75 @@ mod tests {
         assert!(!comparison.contains(&(2386, Rule::HeredocMissingEnd)));
         assert!(!comparison.contains(&(2393, Rule::SpacedTabstripClose)));
         assert!(!comparison.contains(&(1040, Rule::HeredocEndSpace)));
+    }
+
+    #[test]
+    fn comparison_mappings_include_live_oracle_aliases() {
+        let comparison = ShellCheckCodeMap::default()
+            .comparison_mappings()
+            .collect::<std::collections::HashSet<_>>();
+
+        for mapping in [
+            (1001, Rule::EscapedUnderscore),
+            (1001, Rule::LiteralBackslash),
+            (1001, Rule::EscapedUnderscoreLiteral),
+            (1002, Rule::EscapedUnderscoreLiteral),
+            (1003, Rule::SingleQuoteBackslash),
+            (1004, Rule::LiteralBackslash),
+            (1049, Rule::IfMissingThen),
+            (1036, Rule::ExtglobInTest),
+            (1012, Rule::BackslashBeforeCommand),
+            (1074, Rule::ExtglobCase),
+            (1058, Rule::MultiVarForLoop),
+            (1070, Rule::ZshRedirPipe),
+            (1087, Rule::ZshPromptBracket),
+            (1088, Rule::CshSyntaxInSh),
+            (1128, Rule::ShebangNotOnFirstLine),
+            (1140, Rule::ZshBraceIf),
+            (1141, Rule::ZshAlwaysBlock),
+            (2091, Rule::IfDollarCommand),
+            (2096, Rule::DuplicateShebangFlag),
+            (2104, Rule::ContinueOutsideLoopInFunction),
+            (2113, Rule::KeywordFunctionName),
+            (2164, Rule::UncheckedDirectoryChangeInFunction),
+            (2195, Rule::ZshArraySubscriptInCase),
+            (2202, Rule::ArraySubscriptTest),
+            (2203, Rule::ArraySubscriptCondition),
+            (2240, Rule::SourcedWithArgs),
+            (2290, Rule::SpacedAssignment),
+            (2294, Rule::EvalOnArray),
+            (2387, Rule::SpacedAssignment),
+            (2300, Rule::ZshParameterFlag),
+            (2277, Rule::ZshAssignmentToZero),
+            (3033, Rule::HyphenatedFunctionName),
+            (3044, Rule::DeclareCommand),
+            (2086, Rule::VariableAsCommandName),
+            (2082, Rule::ZshNestedExpansion),
+            (2296, Rule::ZshFlagExpansion),
+            (2298, Rule::NestedZshSubstitution),
+            (3002, Rule::ExtendedGlobInTest),
+        ] {
+            assert!(
+                comparison.contains(&mapping),
+                "missing comparison alias {mapping:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn comparison_mappings_for_rules_include_selected_only_live_aliases() {
+        let mut selected_rules = RuleSet::default();
+        selected_rules.insert(Rule::FunctionKeywordInSh);
+
+        let comparison = ShellCheckCodeMap::default()
+            .comparison_mappings_for_rules(Some(&selected_rules))
+            .collect::<std::collections::HashSet<_>>();
+
+        assert!(comparison.contains(&(2112, Rule::FunctionKeywordInSh)));
+
+        let unselected = ShellCheckCodeMap::default()
+            .comparison_mappings()
+            .collect::<std::collections::HashSet<_>>();
+        assert!(!unselected.contains(&(2112, Rule::FunctionKeywordInSh)));
     }
 }

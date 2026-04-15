@@ -2451,10 +2451,10 @@ fn selected_rule_shellcheck_codes(
 }
 
 fn large_corpus_comparison_mappings(
-    _selected_rules: Option<&shuck_linter::RuleSet>,
+    selected_rules: Option<&shuck_linter::RuleSet>,
 ) -> impl Iterator<Item = (u32, shuck_linter::Rule)> {
     shuck_linter::ShellCheckCodeMap::default()
-        .comparison_mappings()
+        .comparison_mappings_for_rules(selected_rules)
         .collect::<Vec<_>>()
         .into_iter()
 }
@@ -3269,6 +3269,25 @@ mod tests {
 
         assert_eq!(codes, vec![2034, 2086]);
         assert!(!filtered.parse_aborted);
+    }
+
+    #[test]
+    fn large_corpus_comparison_mappings_use_shared_live_aliases() {
+        let mappings = large_corpus_comparison_mappings(None).collect::<HashSet<_>>();
+
+        assert!(mappings.contains(&(3044, shuck_linter::Rule::DeclareCommand)));
+        assert!(mappings.contains(&(2096, shuck_linter::Rule::DuplicateShebangFlag)));
+        assert!(mappings.contains(&(2086, shuck_linter::Rule::VariableAsCommandName)));
+    }
+
+    #[test]
+    fn large_corpus_comparison_mappings_include_selected_rule_only_aliases() {
+        let selected_rules =
+            shuck_linter::RuleSet::from_iter([shuck_linter::Rule::FunctionKeywordInSh]);
+        let mappings =
+            large_corpus_comparison_mappings(Some(&selected_rules)).collect::<HashSet<_>>();
+
+        assert!(mappings.contains(&(2112, shuck_linter::Rule::FunctionKeywordInSh)));
     }
 
     #[test]
