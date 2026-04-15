@@ -2435,6 +2435,7 @@ impl<'a> Parser<'a> {
         let mut current = String::new();
         let mut current_start = base;
         let mut cursor = base;
+        let mut escaped = false;
 
         while chars.peek().is_some() {
             let part_start = cursor;
@@ -2447,6 +2448,24 @@ impl<'a> Parser<'a> {
                 if let Some(literal_ch) = Self::next_word_char(&mut chars, &mut cursor) {
                     current.push(literal_ch);
                 }
+                continue;
+            }
+
+            if escaped {
+                if current.is_empty() {
+                    current_start = part_start;
+                }
+                current.push(ch);
+                escaped = false;
+                continue;
+            }
+
+            if ch == '\\' {
+                if current.is_empty() {
+                    current_start = part_start;
+                }
+                current.push(ch);
+                escaped = true;
                 continue;
             }
 

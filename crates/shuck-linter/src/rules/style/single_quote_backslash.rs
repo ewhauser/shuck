@@ -63,4 +63,18 @@ printf '%s\\n' \"foo\\\\bar\"
             vec![""]
         );
     }
+
+    #[test]
+    fn ignores_escaped_single_quotes_inside_replacement_expansions() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' \"${dest_dir//\\'/\\'\\\\\\'\\'}\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SingleQuoteBackslash),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
 }

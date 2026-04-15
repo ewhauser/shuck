@@ -1589,6 +1589,32 @@ fn test_parameter_replacement_pattern_cooks_escaped_slash() {
 }
 
 #[test]
+fn test_parameter_replacement_word_keeps_escaped_single_quotes_literal() {
+    let input = r#"echo ${dest_dir//\'/\'\\\'\'}"#;
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let word = &command.args[0];
+
+    let (_, operator, _) = expect_parameter_operation_part(&word.parts[0].kind);
+    let ParameterOp::ReplaceAll {
+        replacement: _,
+        replacement_word_ast,
+        ..
+    } = operator
+    else {
+        panic!("expected replace-all operator");
+    };
+
+    assert!(!replacement_word_ast.parts.iter().any(|part| {
+        matches!(part.kind, WordPart::SingleQuoted { .. })
+            && part.span.slice(input).ends_with("\\'")
+    }));
+}
+
+#[test]
 fn test_parse_arithmetic_command_with_command_substitution() {
     let input = "(($(date -u) > DATE))\n";
     let script = Parser::new(input).parse().unwrap().file;
