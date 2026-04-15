@@ -1,6 +1,6 @@
 use rustc_hash::FxHashSet;
-use shuck_ast::{Name, Span};
-use shuck_semantic::{BindingId, ScopeId, ScopeKind};
+use shuck_ast::Span;
+use shuck_semantic::BindingId;
 
 use crate::{Checker, Rule, Violation};
 
@@ -23,34 +23,17 @@ pub fn function_references_unset_param(checker: &mut Checker) {
     let mut violations = Vec::<(Span, String)>::new();
 
     for header in checker.facts().function_headers() {
-        let function = header.function();
-        let Some((name, name_span)) = function.header.entries.first().and_then(|entry| {
-            entry
-                .static_name
-                .as_ref()
-                .map(|name| (name, entry.word.span))
-        }) else {
+        let Some((name, _)) = header.static_name_entry() else {
             continue;
         };
-
-        let Some(binding_id) = checker
-            .semantic()
-            .function_definitions(name)
-            .iter()
-            .copied()
-            .find(|binding_id| checker.semantic().binding(*binding_id).span == name_span)
-        else {
+        let Some(binding_id) = header.binding_id() else {
             continue;
         };
-
         if !reported.insert(binding_id) {
             continue;
         }
 
-        let binding = checker.semantic().binding(binding_id);
-        let Some(function_scope) =
-            function_scope_for(checker, name, binding.scope, function.body.span)
-        else {
+        let Some(function_scope) = header.function_scope() else {
             continue;
         };
 
@@ -62,12 +45,12 @@ pub fn function_references_unset_param(checker: &mut Checker) {
         if required_arg_count <= 1 || positional.resets_positional_parameters() {
             continue;
         }
-        if !function_is_called_without_arguments(checker, name, binding_id) {
+        if !header.call_arity().called_only_without_args() {
             continue;
         }
 
         violations.push((
-            trim_trailing_whitespace_span(function.span, checker.source()),
+            header.function_span_in_source(checker.source()),
             name.to_string(),
         ));
     }
@@ -75,95 +58,6 @@ pub fn function_references_unset_param(checker: &mut Checker) {
     for (span, name) in violations {
         checker.report(FunctionReferencesUnsetParam { name }, span);
     }
-}
-
-fn function_scope_for(
-    checker: &Checker<'_>,
-    name: &Name,
-    enclosing_scope: ScopeId,
-    body_span: Span,
-) -> Option<ScopeId> {
-    checker.semantic().scopes().iter().find_map(|scope| {
-        let ScopeKind::Function(function) = &scope.kind else {
-            return None;
-        };
-        (scope.parent == Some(enclosing_scope)
-            && scope.span == body_span
-            && function.contains_name(name))
-        .then_some(scope.id)
-    })
-}
-
-fn function_is_called_without_arguments(
-    checker: &Checker<'_>,
-    name: &Name,
-    binding_id: BindingId,
-) -> bool {
-    let mut saw_relevant_call = false;
-
-    for site in checker
-        .semantic()
-        .call_sites_for(name)
-        .iter()
-        .filter(|site| call_site_targets_binding(checker, name, binding_id, site))
-    {
-        saw_relevant_call = true;
-        if site.arg_count > 0 {
-            return false;
-        }
-    }
-
-    saw_relevant_call
-}
-
-fn call_site_targets_binding(
-    checker: &Checker<'_>,
-    name: &Name,
-    binding_id: BindingId,
-    site: &shuck_semantic::CallSite,
-) -> bool {
-    visible_binding_at_call_site(checker, name, site) == Some(binding_id)
-}
-
-fn visible_binding_at_call_site(
-    checker: &Checker<'_>,
-    name: &Name,
-    site: &shuck_semantic::CallSite,
-) -> Option<BindingId> {
-    let semantic = checker.semantic();
-    let site_offset = site.span.start.offset;
-    let scopes = semantic
-        .ancestor_scopes(semantic.scope_at(site_offset))
-        .collect::<Vec<_>>();
-
-    scopes
-        .iter()
-        .find_map(|scope| {
-            semantic
-                .function_definitions(name)
-                .iter()
-                .copied()
-                .filter(|candidate| semantic.binding(*candidate).scope == *scope)
-                .filter(|candidate| semantic.binding(*candidate).span.start.offset < site_offset)
-                .max_by_key(|candidate| semantic.binding(*candidate).span.start.offset)
-        })
-        .or_else(|| {
-            scopes.iter().find_map(|scope| {
-                semantic
-                    .function_definitions(name)
-                    .iter()
-                    .copied()
-                    .filter(|candidate| semantic.binding(*candidate).scope == *scope)
-                    .min_by_key(|candidate| semantic.binding(*candidate).span.start.offset)
-            })
-        })
-}
-
-fn trim_trailing_whitespace_span(span: Span, source: &str) -> Span {
-    let trimmed = span
-        .slice(source)
-        .trim_end_matches(|ch: char| ch.is_whitespace());
-    Span::from_positions(span.start, span.start.advanced_by(trimmed))
 }
 
 #[cfg(test)]

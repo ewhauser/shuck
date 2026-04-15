@@ -28,7 +28,9 @@ use shuck_ast::{
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
-use shuck_semantic::{BindingAttributes, BindingKind, ScopeId, SemanticModel, ZshOptionState};
+use shuck_semantic::{
+    BindingAttributes, BindingId, BindingKind, ScopeId, SemanticModel, ZshOptionState,
+};
 use std::borrow::Cow;
 
 use self::{
@@ -1211,11 +1213,30 @@ impl GetoptsCaseFact {
 #[derive(Debug, Clone, Copy)]
 pub struct FunctionHeaderFact<'a> {
     function: &'a FunctionDef,
+    binding_id: Option<BindingId>,
+    scope_id: Option<ScopeId>,
+    call_arity: FunctionCallArityFacts,
 }
 
 impl<'a> FunctionHeaderFact<'a> {
     pub fn function(&self) -> &'a FunctionDef {
         self.function
+    }
+
+    pub fn static_name_entry(&self) -> Option<(&'a Name, Span)> {
+        self.function.static_name_entries().next()
+    }
+
+    pub fn binding_id(&self) -> Option<BindingId> {
+        self.binding_id
+    }
+
+    pub fn function_scope(&self) -> Option<ScopeId> {
+        self.scope_id
+    }
+
+    pub fn call_arity(&self) -> FunctionCallArityFacts {
+        self.call_arity
     }
 
     pub fn function_span_in_source(&self, source: &str) -> Span {
@@ -1240,6 +1261,42 @@ impl<'a> FunctionHeaderFact<'a> {
 
     pub fn trailing_parens_span(&self) -> Option<Span> {
         self.function.header.trailing_parens_span
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FunctionCallArityFacts {
+    call_count: usize,
+    min_arg_count: usize,
+    max_arg_count: usize,
+}
+
+impl FunctionCallArityFacts {
+    pub fn call_count(self) -> usize {
+        self.call_count
+    }
+
+    pub fn min_arg_count(self) -> Option<usize> {
+        (self.call_count != 0).then_some(self.min_arg_count)
+    }
+
+    pub fn max_arg_count(self) -> Option<usize> {
+        (self.call_count != 0).then_some(self.max_arg_count)
+    }
+
+    pub fn called_only_without_args(self) -> bool {
+        self.call_count != 0 && self.max_arg_count == 0
+    }
+
+    fn record_call(&mut self, arg_count: usize) {
+        if self.call_count == 0 {
+            self.min_arg_count = arg_count;
+            self.max_arg_count = arg_count;
+        } else {
+            self.min_arg_count = self.min_arg_count.min(arg_count);
+            self.max_arg_count = self.max_arg_count.max(arg_count);
+        }
+        self.call_count += 1;
     }
 }
 
@@ -2850,7 +2907,7 @@ impl<'a> LinterFactsBuilder<'a> {
             function_headers,
             function_body_without_braces_spans,
             redundant_return_status_spans,
-        } = build_function_style_facts(&self.file.body);
+        } = build_function_style_facts(&self.file.body, self.semantic);
         let function_parameter_fallback_spans = build_function_parameter_fallback_spans(
             &commands,
             &structural_command_ids,
@@ -3905,8 +3962,12 @@ fn collect_base_prefix_spans_in_text(span: Span, source: &str, spans: &mut Vec<S
     }
 }
 
-fn build_function_style_facts(body: &StmtSeq) -> FunctionStyleFactSummary<'_> {
+fn build_function_style_facts<'a>(
+    body: &'a StmtSeq,
+    semantic: &SemanticModel,
+) -> FunctionStyleFactSummary<'a> {
     let mut summary = FunctionStyleFactSummary::default();
+    let mut functions = Vec::new();
 
     for visit in query::iter_commands(
         body,
@@ -3918,9 +3979,7 @@ fn build_function_style_facts(body: &StmtSeq) -> FunctionStyleFactSummary<'_> {
             continue;
         };
 
-        summary
-            .function_headers
-            .push(FunctionHeaderFact { function });
+        functions.push(function);
         if let Some(span) = function_body_without_braces_span(function) {
             summary.function_body_without_braces_spans.push(span);
         }
@@ -3929,6 +3988,26 @@ fn build_function_style_facts(body: &StmtSeq) -> FunctionStyleFactSummary<'_> {
             &mut summary.redundant_return_status_spans,
         );
     }
+
+    let call_arity_by_binding = build_function_call_arity_facts(semantic, &functions);
+    summary.function_headers = functions
+        .into_iter()
+        .map(|function| {
+            let binding_id = function_header_binding_id(semantic, function);
+            let scope_id = binding_id
+                .and_then(|binding_id| function_header_scope_id(semantic, function, binding_id));
+            let call_arity = binding_id
+                .and_then(|binding_id| call_arity_by_binding.get(&binding_id).copied())
+                .unwrap_or_default();
+
+            FunctionHeaderFact {
+                function,
+                binding_id,
+                scope_id,
+                call_arity,
+            }
+        })
+        .collect();
 
     summary
 }
@@ -3979,7 +4058,100 @@ fn function_parameter_fallback_span(pair: &[&CommandFact<'_>], source: &str) -> 
     let start = first.span().start.advanced_by(&text[..relative]);
     Some(Span::from_positions(start, start.advanced_by("(")))
 }
+fn build_function_call_arity_facts(
+    semantic: &SemanticModel,
+    functions: &[&FunctionDef],
+) -> FxHashMap<BindingId, FunctionCallArityFacts> {
+    let mut facts = FxHashMap::<BindingId, FunctionCallArityFacts>::default();
+    let mut seen_names = FxHashSet::default();
 
+    for function in functions {
+        let Some((name, _)) = function.static_name_entries().next() else {
+            continue;
+        };
+        if !seen_names.insert(name.clone()) {
+            continue;
+        }
+
+        for site in semantic.call_sites_for(name) {
+            let Some(binding_id) = visible_function_binding_for_call_site(semantic, name, site)
+            else {
+                continue;
+            };
+            facts
+                .entry(binding_id)
+                .or_default()
+                .record_call(site.arg_count);
+        }
+    }
+
+    facts
+}
+
+fn function_header_binding_id(
+    semantic: &SemanticModel,
+    function: &FunctionDef,
+) -> Option<BindingId> {
+    let (name, name_span) = function.static_name_entries().next()?;
+    semantic
+        .function_definitions(name)
+        .iter()
+        .copied()
+        .find(|binding_id| semantic.binding(*binding_id).span == name_span)
+}
+
+fn function_header_scope_id(
+    semantic: &SemanticModel,
+    function: &FunctionDef,
+    binding_id: BindingId,
+) -> Option<ScopeId> {
+    let (name, _) = function.static_name_entries().next()?;
+    let binding = semantic.binding(binding_id);
+
+    semantic.scopes().iter().find_map(|scope| {
+        let shuck_semantic::ScopeKind::Function(function_scope) = &scope.kind else {
+            return None;
+        };
+        (scope.parent == Some(binding.scope)
+            && scope.span == function.body.span
+            && function_scope.contains_name(name))
+        .then_some(scope.id)
+    })
+}
+
+fn visible_function_binding_for_call_site(
+    semantic: &SemanticModel,
+    name: &Name,
+    site: &shuck_semantic::CallSite,
+) -> Option<BindingId> {
+    let site_offset = site.span.start.offset;
+    let scopes = semantic
+        .ancestor_scopes(semantic.scope_at(site_offset))
+        .collect::<Vec<_>>();
+
+    scopes
+        .iter()
+        .copied()
+        .find_map(|scope| {
+            semantic
+                .function_definitions(name)
+                .iter()
+                .copied()
+                .filter(|candidate| semantic.binding(*candidate).scope == scope)
+                .filter(|candidate| semantic.binding(*candidate).span.start.offset < site_offset)
+                .max_by_key(|candidate| semantic.binding(*candidate).span.start.offset)
+        })
+        .or_else(|| {
+            scopes.iter().copied().find_map(|scope| {
+                semantic
+                    .function_definitions(name)
+                    .iter()
+                    .copied()
+                    .filter(|candidate| semantic.binding(*candidate).scope == scope)
+                    .min_by_key(|candidate| semantic.binding(*candidate).span.start.offset)
+            })
+        })
+}
 fn function_body_without_braces_span(function: &FunctionDef) -> Option<Span> {
     match &function.body.command {
         Command::Compound(CompoundCommand::BraceGroup(_)) => None,
@@ -12578,6 +12750,29 @@ mod tests {
                 header.span_in_source(source).slice(source),
                 "function wrapped()"
             );
+        });
+    }
+
+    #[test]
+    fn function_header_fact_tracks_binding_scope_and_call_arity() {
+        let source = "#!/bin/sh\ngreet ok\ngreet() { echo \"$1\"; }\ngreet\n";
+
+        with_facts(source, None, |_, facts| {
+            let header = facts
+                .function_headers()
+                .iter()
+                .find(|header| {
+                    header
+                        .static_name_entry()
+                        .is_some_and(|(name, _)| name == "greet")
+                })
+                .expect("expected greet header fact");
+
+            assert!(header.binding_id().is_some());
+            assert!(header.function_scope().is_some());
+            assert_eq!(header.call_arity().call_count(), 2);
+            assert_eq!(header.call_arity().min_arg_count(), Some(0));
+            assert_eq!(header.call_arity().max_arg_count(), Some(1));
         });
     }
 
