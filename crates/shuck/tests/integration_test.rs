@@ -51,7 +51,27 @@ fn check_good_file_succeeds() {
 }
 
 #[test]
-fn check_broken_file_reports_parse_error() {
+fn check_unterminated_quote_reports_parse_error() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("broken.sh"),
+        "#!/bin/bash\necho \"unterminated\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path()).arg("check");
+    cmd.assert()
+        .code(1)
+        .stdout(predicate::str::contains("error[parse-error]:"))
+        .stdout(predicate::str::contains("--> broken.sh:2:6"))
+        .stdout(predicate::str::contains("2 | echo \"unterminated"))
+        .stdout(predicate::str::contains("^"));
+}
+
+#[test]
+fn check_missing_then_reports_c064_lint() {
     let tempdir = tempdir().unwrap();
     fs::write(tempdir.path().join("broken.sh"), "#!/bin/bash\nif true\n").unwrap();
 
@@ -60,10 +80,10 @@ fn check_broken_file_reports_parse_error() {
     cmd.current_dir(tempdir.path()).arg("check");
     cmd.assert()
         .code(1)
-        .stdout(predicate::str::contains("error[parse-error]:"))
-        .stdout(predicate::str::contains("--> broken.sh:2:7"))
+        .stdout(predicate::str::contains("warning[C064]:"))
+        .stdout(predicate::str::contains("--> broken.sh:2:1"))
         .stdout(predicate::str::contains("2 | if true"))
-        .stdout(predicate::str::contains("^"));
+        .stdout(predicate::str::contains("| ^"));
 }
 
 #[test]
