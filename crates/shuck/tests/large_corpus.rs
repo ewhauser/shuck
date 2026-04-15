@@ -1062,6 +1062,7 @@ fn evaluate_fixture_compatibility(
                 &sc_run.diagnostics,
                 shellcheck_rule_index,
                 &labels,
+                &src,
             );
             let shuck_records =
                 shuck_compatibility_records(&shuck_run.diagnostics, shellcheck_index, &labels);
@@ -1336,30 +1337,80 @@ fn shellcheck_compatibility_records(
     diagnostics: &[ShellCheckDiagnostic],
     shellcheck_rule_index: &HashMap<u32, Vec<String>>,
     labels: &[String],
+    src: &[u8],
 ) -> Vec<CompatibilityRecord> {
     diagnostics
         .iter()
-        .map(|diag| {
+        .filter_map(|diag| {
             let rule_codes = shellcheck_rule_index
                 .get(&diag.code)
                 .cloned()
                 .unwrap_or_default();
-            CompatibilityRecord {
-                side: CompatibilitySide::ShellcheckOnly,
-                rule_code: (rule_codes.len() == 1).then(|| rule_codes[0].clone()),
-                rule_codes,
-                shellcheck_code: format!("SC{:04}", diag.code),
-                range: DiagnosticRange {
-                    line: diag.line,
-                    end_line: diag.end_line,
-                    column: diag.column,
-                    end_column: diag.end_column,
-                },
-                message: format!("{} {}", diag.level, diag.message),
-                labels: labels.to_vec(),
-            }
+            shellcheck_diagnostic_matches_large_corpus_mapping(diag, &rule_codes, src).then(|| {
+                CompatibilityRecord {
+                    side: CompatibilitySide::ShellcheckOnly,
+                    rule_code: (rule_codes.len() == 1).then(|| rule_codes[0].clone()),
+                    rule_codes,
+                    shellcheck_code: format!("SC{:04}", diag.code),
+                    range: DiagnosticRange {
+                        line: diag.line,
+                        end_line: diag.end_line,
+                        column: diag.column,
+                        end_column: diag.end_column,
+                    },
+                    message: format!("{} {}", diag.level, diag.message),
+                    labels: labels.to_vec(),
+                }
+            })
         })
         .collect()
+}
+
+fn shellcheck_diagnostic_matches_large_corpus_mapping(
+    diag: &ShellCheckDiagnostic,
+    rule_codes: &[String],
+    src: &[u8],
+) -> bool {
+    if diag.code == 1087 && rule_codes.iter().any(|rule_code| rule_code == "X049") {
+        return sc1087_matches_x049_prompt_bracket(src, diag);
+    }
+
+    true
+}
+
+fn sc1087_matches_x049_prompt_bracket(src: &[u8], diag: &ShellCheckDiagnostic) -> bool {
+    let Some(line) = source_line(src, diag.line) else {
+        return false;
+    };
+    let line = String::from_utf8_lossy(line);
+    let split_at = byte_offset_for_column(&line, diag.column).unwrap_or(line.len());
+
+    line[..split_at].contains("%{") && line[split_at..].contains("%}")
+}
+
+fn source_line(src: &[u8], line_number: usize) -> Option<&[u8]> {
+    (line_number != 0)
+        .then(|| src.split(|&b| b == b'\n').nth(line_number - 1))
+        .flatten()
+}
+
+fn byte_offset_for_column(line: &str, column: usize) -> Option<usize> {
+    if column == 0 {
+        return None;
+    }
+
+    if column == 1 {
+        return Some(0);
+    }
+
+    let mut offsets = line
+        .char_indices()
+        .map(|(offset, _)| offset)
+        .skip(column - 1);
+
+    offsets
+        .next()
+        .or_else(|| (column == line.chars().count() + 1).then_some(line.len()))
 }
 
 fn shuck_compatibility_records(
@@ -2024,6 +2075,11 @@ fn resolve_shell(path: &Path, src: &[u8]) -> String {
         .next()
         .map(|line| String::from_utf8_lossy(line).to_lowercase())
         .unwrap_or_default();
+    let trimmed_first_line = first_line.trim_start();
+
+    if trimmed_first_line.starts_with("#compdef") || trimmed_first_line.starts_with("#autoload") {
+        return "zsh".into();
+    }
 
     if first_line.contains("bash") {
         return "bash".into();
@@ -2930,6 +2986,11 @@ mod tests {
     }
 
     #[test]
+    fn resolve_shell_compdef_header_is_zsh() {
+        assert_eq!(resolve_shell(Path::new("_wd.sh"), b"#compdef wd\n"), "zsh");
+    }
+
+    #[test]
     fn resolve_shell_bash_extension_fallback() {
         assert_eq!(
             resolve_shell(Path::new("example.bash"), b"echo hi\n"),
@@ -3189,6 +3250,46 @@ mod tests {
 
         assert_eq!(effective_large_corpus_shell(&fixture), "zsh");
         assert!(fixture_selected_for_large_corpus_zsh_parse(&fixture));
+    }
+
+    #[test]
+    fn x049_sc1087_mapping_keeps_prompt_bracket_context() {
+        let diag = ShellCheckDiagnostic {
+            file: String::new(),
+            code: 1087,
+            line: 1,
+            end_line: 1,
+            column: 6,
+            end_column: 6,
+            level: "error".into(),
+            message: String::new(),
+        };
+
+        assert!(shellcheck_diagnostic_matches_large_corpus_mapping(
+            &diag,
+            &[String::from("X049")],
+            b"X=\"%{$fg_bold[blue]%}text\"\n",
+        ));
+    }
+
+    #[test]
+    fn x049_sc1087_mapping_drops_non_prompt_bracket_context() {
+        let diag = ShellCheckDiagnostic {
+            file: String::new(),
+            code: 1087,
+            line: 1,
+            end_line: 1,
+            column: 18,
+            end_column: 18,
+            level: "error".into(),
+            message: String::new(),
+        };
+
+        assert!(!shellcheck_diagnostic_matches_large_corpus_mapping(
+            &diag,
+            &[String::from("X049")],
+            br#"grep -Ee "^$prefix_re[-.].*$suffix_re\$""#,
+        ));
     }
 
     #[test]
