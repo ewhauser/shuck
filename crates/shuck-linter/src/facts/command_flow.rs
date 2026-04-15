@@ -44,6 +44,18 @@ fn build_command_substitution_facts<'a>(
         );
     });
 
+    visit_here_string_words_for_substitutions(fact.redirects(), &mut |word| {
+        collect_or_update_word_substitution_facts(
+            word,
+            SubstitutionHostKind::HereStringOperand,
+            commands,
+            command_ids_by_span,
+            source,
+            &mut substitutions,
+            &mut substitution_index,
+        );
+    });
+
     visit_declaration_assignment_words_for_substitutions(fact.command(), &mut |word| {
         collect_or_update_word_substitution_facts(
             word,
@@ -737,6 +749,17 @@ fn visit_declaration_assignment_words_for_substitutions(
 
         if let AssignmentValue::Scalar(word) = &assignment.value {
             visitor(word);
+        }
+    }
+}
+
+fn visit_here_string_words_for_substitutions(
+    redirects: &[Redirect],
+    visitor: &mut impl FnMut(&Word),
+) {
+    for redirect in redirects {
+        if redirect.kind == RedirectKind::HereString {
+            visitor(redirect_scan_word(redirect));
         }
     }
 }

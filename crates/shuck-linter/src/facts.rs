@@ -881,6 +881,7 @@ impl<'a> WordFact<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubstitutionHostKind {
     CommandArgument,
+    HereStringOperand,
     DeclarationAssignmentValue,
     AssignmentTargetSubscript,
     DeclarationNameSubscript,
@@ -14077,6 +14078,7 @@ name[$(printf assign)]=1
 declare arr[$(printf decl-name)]
 declare other=$(printf decl-assign-2)
 declare -A map=([$(printf key)]=1)
+cat <<<$(printf here)
 out=$(printf hi > out.txt)
 drop=$(printf hi >/dev/null 2>&1)
 mixed=$(jq -r . <<< \"$status\" || die >&2)
@@ -14123,6 +14125,14 @@ z=$(ls layout.*.h | cut -d. -f2 | xargs echo)
                 SubstitutionOutputIntent::Captured,
                 SubstitutionHostKind::CommandArgument,
                 false,
+                false,
+                false,
+            )));
+            assert!(substitutions.contains(&(
+                "$(printf here)".to_owned(),
+                SubstitutionOutputIntent::Captured,
+                SubstitutionHostKind::HereStringOperand,
+                true,
                 false,
                 false,
             )));
