@@ -208,8 +208,10 @@ fn test_disabled_foreach_probe_restores_checkpoint_when_newline_skip_errors() {
 fn test_parse_with_benchmark_counters_is_repeatable() {
     let input = "echo hello\nprintf '%s' \"$x\"\n";
 
-    let (first, first_counters) = Parser::new(input).parse_with_benchmark_counters().unwrap();
-    let (second, second_counters) = Parser::new(input).parse_with_benchmark_counters().unwrap();
+    let (first, first_counters) = Parser::new(input).parse_with_benchmark_counters();
+    let (second, second_counters) = Parser::new(input).parse_with_benchmark_counters();
+    let first = first.unwrap();
+    let second = second.unwrap();
 
     assert_eq!(first.file.body.len(), second.file.body.len());
     assert_eq!(first.file.span, second.file.span);
