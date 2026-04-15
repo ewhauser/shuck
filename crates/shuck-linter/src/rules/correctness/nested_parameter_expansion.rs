@@ -57,4 +57,30 @@ echo '${${ignored}:-value}'
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn ignores_zsh_nested_expansions() {
+        let source = "\
+#!/bin/zsh
+[[ -n \"$ZSH\" ]] || export ZSH=\"${${(%):-%x}:a:h}\"
+unset ${(M)${(k)parameters[@]}:#__gitcomp_builtin_*} 2>/dev/null
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::NestedParameterExpansion),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_zsh_style_nested_expansions_in_non_zsh_shells() {
+        let source = "#!/bin/sh\nx=${${(M)path:#/*}:-$PWD/$path}\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::NestedParameterExpansion),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
 }

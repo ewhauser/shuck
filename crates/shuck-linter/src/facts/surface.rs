@@ -1317,19 +1317,22 @@ fn closing_double_quote_span(span: Span, source: &str) -> Option<Span> {
 }
 
 fn is_nested_parameter_expansion(parameter: &shuck_ast::ParameterExpansion, source: &str) -> bool {
-    match &parameter.syntax {
-        ParameterExpansionSyntax::Zsh(syntax) => {
-            matches!(syntax.target, ZshExpansionTarget::Nested(_))
-        }
-        ParameterExpansionSyntax::Bourne(_) => {
-            let body = parameter.raw_body.slice(source).trim_start();
-            contains_nested_parameter_marker(body)
-        }
-    }
+    matches!(&parameter.syntax, ParameterExpansionSyntax::Bourne(_))
+        && contains_nested_parameter_marker(parameter.raw_body.slice(source).trim_start())
 }
 
 fn contains_nested_parameter_marker(text: &str) -> bool {
-    text.starts_with("${${") || text.starts_with("${#${") || text.starts_with("${!${")
+    let inner = text
+        .strip_prefix("${${")
+        .or_else(|| text.strip_prefix("${#${"))
+        .or_else(|| text.strip_prefix("${!${"));
+    inner
+        .and_then(|inner| inner.chars().next())
+        .is_some_and(is_bourne_nested_parameter_start)
+}
+
+fn is_bourne_nested_parameter_start(char: char) -> bool {
+    matches!(char, '_' | '@' | '*' | '#' | '?' | '$' | '!' | '-') || char.is_ascii_alphanumeric()
 }
 pub(super) fn simple_command_variable_set_operand<'a>(
     command: &'a SimpleCommand,
