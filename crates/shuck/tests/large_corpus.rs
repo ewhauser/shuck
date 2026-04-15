@@ -2450,7 +2450,7 @@ fn selected_rule_shellcheck_codes(
 }
 
 fn large_corpus_comparison_mappings(
-    _selected_rules: Option<&shuck_linter::RuleSet>,
+    selected_rules: Option<&shuck_linter::RuleSet>,
 ) -> impl Iterator<Item = (u32, shuck_linter::Rule)> {
     let mut mappings: Vec<_> = shuck_linter::ShellCheckCodeMap::default()
         .comparison_mappings()
@@ -2478,7 +2478,6 @@ fn large_corpus_comparison_mappings(
         (2091, shuck_linter::Rule::IfDollarCommand),
         (2096, shuck_linter::Rule::DuplicateShebangFlag),
         (2104, shuck_linter::Rule::ContinueOutsideLoopInFunction),
-        (2112, shuck_linter::Rule::FunctionKeywordInSh),
         (2113, shuck_linter::Rule::KeywordFunctionName),
         (2164, shuck_linter::Rule::UncheckedDirectoryChangeInFunction),
         (2195, shuck_linter::Rule::ZshArraySubscriptInCase),
@@ -2498,6 +2497,9 @@ fn large_corpus_comparison_mappings(
         (2298, shuck_linter::Rule::NestedZshSubstitution),
         (3002, shuck_linter::Rule::ExtendedGlobInTest),
     ]);
+    if selected_rules.is_some_and(|rules| rules.contains(shuck_linter::Rule::FunctionKeywordInSh)) {
+        mappings.push((2112, shuck_linter::Rule::FunctionKeywordInSh));
+    }
 
     mappings.into_iter()
 }
@@ -3319,7 +3321,7 @@ mod tests {
         assert_eq!(index.get("X044").map(String::as_str), Some("SC2298"));
         assert_eq!(index.get("X046").map(String::as_str), Some("SC1036"));
         assert_eq!(index.get("X051").map(String::as_str), Some("SC2082"));
-        assert_eq!(index.get("X052").map(String::as_str), Some("SC2112"));
+        assert_eq!(index.get("X052"), None);
         assert_eq!(index.get("X053").map(String::as_str), Some("SC2277"));
         assert_eq!(index.get("X034").map(String::as_str), Some("SC3002"));
         assert_eq!(index.get("X037").map(String::as_str), Some("SC1074"));
@@ -3642,9 +3644,14 @@ mod tests {
 
         assert_eq!(rule_index.get("X045").map(String::as_str), Some("SC3024"));
         assert_eq!(rule_index.get("X064").map(String::as_str), Some("SC3024"));
+        assert_eq!(rule_index.get("X052"), None);
         assert_eq!(
             shellcheck_index.get(&3024).map(Vec::as_slice),
             Some(&["X045".to_string(), "X064".to_string()][..])
+        );
+        assert_eq!(
+            shellcheck_index.get(&2112).map(Vec::as_slice),
+            Some(&["X004".to_string()][..])
         );
         assert_eq!(
             shellcheck_index.get(&3010).map(Vec::as_slice),
