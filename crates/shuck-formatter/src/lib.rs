@@ -752,6 +752,12 @@ mod tests {
     }
 
     #[test]
+    fn backtick_in_redirect_is_idempotent() {
+        let source = "declare -x foo=1<\\`OF\nhi\nEF\n";
+        assert_idempotent(source, None, &ShellFormatOptions::default());
+    }
+
+    #[test]
     fn preserves_backslash_continued_simple_commands_from_fzf_install() {
         let source = "create_file \"$bind_file\" \\\n  'function fish_user_key_bindings' \\\n  '  fzf --fish | source' \\\n  'end'\n";
         let formatted = format_source(source, None, &ShellFormatOptions::default()).unwrap();
