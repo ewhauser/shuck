@@ -1180,7 +1180,10 @@ mod tests {
     #[test]
     fn line_contains_shell_word_ignores_expansion_internals() {
         assert!(line_contains_shell_word("if true; then :; fi", "then"));
-        assert!(line_contains_shell_word("if true; then # keep body valid", "then"));
+        assert!(line_contains_shell_word(
+            "if true; then # keep body valid",
+            "then"
+        ));
         assert!(!line_contains_shell_word("${then}", "then"));
         assert!(!line_contains_shell_word("$(then)", "then"));
         assert!(!line_contains_shell_word("`then`", "then"));
