@@ -82,9 +82,10 @@ pub fn text_looks_like_nontrivial_arithmetic_expression(text: &str) -> bool {
     }
 
     let source = format!("(( {text} ))");
-    let Ok(file) = Parser::new(&source).parse() else {
+    let file = Parser::new(&source).parse();
+    if file.is_err() {
         return false;
-    };
+    }
 
     let Some(statement) = file.file.body.first() else {
         return false;

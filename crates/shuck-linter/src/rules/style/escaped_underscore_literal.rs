@@ -45,29 +45,25 @@ mod tests {
     use std::path::Path;
 
     use shuck_indexer::Indexer;
-    use shuck_parser::parser::{ParseOutput, Parser, ShellDialect as ParseDialect};
+    use shuck_parser::parser::{Parser, ShellDialect as ParseDialect};
 
     use crate::test::test_snippet;
     use crate::{
-        Diagnostic, LinterSettings, Rule, ShellDialect, lint_file_at_path_with_parse_diagnostics,
+        Diagnostic, LinterSettings, Rule, ShellDialect, lint_file_at_path_with_parse_result,
     };
 
     fn test_posix_snippet_at_path(path: &Path, source: &str) -> Vec<Diagnostic> {
-        let recovered = Parser::with_dialect(source, ParseDialect::Posix).parse_recovered();
-        let output = ParseOutput {
-            file: recovered.file,
-        };
-        let indexer = Indexer::new(source, &output);
+        let parse_result = Parser::with_dialect(source, ParseDialect::Posix).parse();
+        let indexer = Indexer::new(source, &parse_result);
         let settings =
             LinterSettings::for_rule(Rule::EscapedUnderscoreLiteral).with_shell(ShellDialect::Sh);
-        lint_file_at_path_with_parse_diagnostics(
-            &output.file,
+        lint_file_at_path_with_parse_result(
+            &parse_result,
             source,
             &indexer,
             &settings,
             None,
             Some(path),
-            &recovered.diagnostics,
         )
     }
 

@@ -6,6 +6,7 @@ mod common;
 
 use libfuzzer_sys::{Corpus, fuzz_target};
 use shuck_ast::Span;
+use shuck_parser::parser::{ParseResult, ParseStatus};
 
 fuzz_target!(|data: &[u8]| -> Corpus {
     let input = match common::filtered_input(data) {
@@ -21,15 +22,17 @@ fuzz_target!(|data: &[u8]| -> Corpus {
     Corpus::Keep
 });
 
-fn validate_recovered_parse(source: &str, recovered: &shuck_parser::parser::RecoveredParse) {
-    common::assert_span_valid(recovered.file.span, source);
-    assert_eq!(
-        recovered.file.span.end.offset,
-        source.len(),
-        "recovered parse should cover the full source"
-    );
+fn validate_recovered_parse(source: &str, parse_result: &ParseResult) {
+    common::assert_span_valid(parse_result.file.span, source);
+    if parse_result.status != ParseStatus::Fatal {
+        assert_eq!(
+            parse_result.file.span.end.offset,
+            source.len(),
+            "non-fatal parse should cover the full source"
+        );
+    }
 
-    for diagnostic in &recovered.diagnostics {
+    for diagnostic in &parse_result.diagnostics {
         common::assert_span_valid(diagnostic.span, source);
         assert!(
             !diagnostic.message.trim().is_empty(),
@@ -37,7 +40,48 @@ fn validate_recovered_parse(source: &str, recovered: &shuck_parser::parser::Reco
         );
     }
 
-    validate_non_overlapping_root_span(recovered.file.span, source);
+    for span in &parse_result.syntax_facts.zsh_brace_if_spans {
+        common::assert_span_valid(*span, source);
+    }
+
+    for span in &parse_result.syntax_facts.zsh_always_spans {
+        common::assert_span_valid(*span, source);
+    }
+
+    for part in &parse_result.syntax_facts.zsh_case_group_parts {
+        common::assert_span_valid(part.span, source);
+    }
+
+    match parse_result.status {
+        ParseStatus::Clean => {
+            assert!(
+                parse_result.diagnostics.is_empty(),
+                "clean parses should not emit recovery diagnostics"
+            );
+            assert!(
+                parse_result.terminal_error.is_none(),
+                "clean parses should not carry a terminal error"
+            );
+        }
+        ParseStatus::Recovered => {
+            assert!(
+                !parse_result.diagnostics.is_empty(),
+                "recovered parses should include diagnostics"
+            );
+            assert!(
+                parse_result.terminal_error.is_none(),
+                "recovered parses should not carry a terminal error"
+            );
+        }
+        ParseStatus::Fatal => {
+            assert!(
+                parse_result.terminal_error.is_some(),
+                "fatal parses should carry a terminal error"
+            );
+        }
+    }
+
+    validate_non_overlapping_root_span(parse_result.file.span, source);
 }
 
 fn validate_non_overlapping_root_span(span: Span, source: &str) {

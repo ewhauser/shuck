@@ -1,7 +1,5 @@
-use shuck_ast::{
-    Command, CompoundCommand, File, IfSyntax, PatternGroupKind, PatternPart, Position, Span,
-};
-use shuck_parser::parser::{ParseDiagnostic, Parser, ShellDialect as ParseShellDialect};
+use shuck_ast::{Command, CompoundCommand, File, Position, Span};
+use shuck_parser::parser::{ParseDiagnostic, ParseResult};
 
 use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::rules::correctness::c_prototype_fragment::CPrototypeFragment;
@@ -45,18 +43,14 @@ impl Violation for ExtglobInCasePattern {
 pub(crate) fn collect_parse_rule_diagnostics(
     file: &File,
     source: &str,
-    parse_diagnostics: &[ParseDiagnostic],
+    parse_result: Option<&ParseResult>,
     enabled_rules: &RuleSet,
     shell: ShellDialect,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
-    let needs_zsh_recovered = (enabled_rules.contains(crate::Rule::ZshBraceIf)
-        || enabled_rules.contains(crate::Rule::ZshAlwaysBlock))
-        && targets_non_zsh_shell(shell)
-        || enabled_rules.contains(crate::Rule::ExtglobCase) && is_x037_shell(shell)
-        || enabled_rules.contains(crate::Rule::ExtglobInCasePattern) && is_x048_shell(shell);
-    let zsh_recovered = needs_zsh_recovered
-        .then(|| Parser::with_dialect(source, ParseShellDialect::Zsh).parse_recovered());
+    let parse_diagnostics = parse_result
+        .map(|result| result.diagnostics.as_slice())
+        .unwrap_or(&[]);
     let missing_done_loop_kind = (enabled_rules.contains(crate::Rule::LoopWithoutEnd)
         || enabled_rules.contains(crate::Rule::MissingDoneInForLoop))
     .then(|| missing_done_loop_kind(file, source, parse_diagnostics))
@@ -127,23 +121,39 @@ pub(crate) fn collect_parse_rule_diagnostics(
     }
 
     if enabled_rules.contains(crate::Rule::ZshBraceIf) && targets_non_zsh_shell(shell) {
-        for span in zsh_brace_if_spans(&zsh_recovered.as_ref().unwrap().file) {
-            diagnostics.push(Diagnostic::new(ZshBraceIf, span));
+        for span in parse_result
+            .map(|result| result.syntax_facts.zsh_brace_if_spans.as_slice())
+            .unwrap_or(&[])
+        {
+            diagnostics.push(Diagnostic::new(ZshBraceIf, *span));
         }
     }
     if enabled_rules.contains(crate::Rule::ZshAlwaysBlock) && targets_non_zsh_shell(shell) {
-        for span in zsh_always_block_spans(&zsh_recovered.as_ref().unwrap().file, source) {
-            diagnostics.push(Diagnostic::new(ZshAlwaysBlock, span));
+        for span in parse_result
+            .map(|result| result.syntax_facts.zsh_always_spans.as_slice())
+            .unwrap_or(&[])
+        {
+            diagnostics.push(Diagnostic::new(ZshAlwaysBlock, *span));
         }
     }
     if enabled_rules.contains(crate::Rule::ExtglobCase) && is_x037_shell(shell) {
-        for span in zsh_case_leading_group_spans(&zsh_recovered.as_ref().unwrap().file, source) {
-            diagnostics.push(Diagnostic::new(ExtglobCase, span));
+        for part in parse_result
+            .map(|result| result.syntax_facts.zsh_case_group_parts.as_slice())
+            .unwrap_or(&[])
+        {
+            if part.pattern_part_index == 0 {
+                diagnostics.push(Diagnostic::new(ExtglobCase, part.span));
+            }
         }
     }
     if enabled_rules.contains(crate::Rule::ExtglobInCasePattern) && is_x048_shell(shell) {
-        for span in zsh_case_embedded_group_spans(&zsh_recovered.as_ref().unwrap().file, source) {
-            diagnostics.push(Diagnostic::new(ExtglobInCasePattern, span));
+        for part in parse_result
+            .map(|result| result.syntax_facts.zsh_case_group_parts.as_slice())
+            .unwrap_or(&[])
+        {
+            if part.pattern_part_index > 0 {
+                diagnostics.push(Diagnostic::new(ExtglobInCasePattern, part.span));
+            }
         }
     }
 
@@ -800,107 +810,6 @@ fn c_prototype_fragment_span(diagnostic: &ParseDiagnostic, source: &str) -> Opti
     Some(Span::from_positions(point, point))
 }
 
-fn zsh_brace_if_spans(file: &File) -> Vec<Span> {
-    query::iter_commands(&file.body, CommandWalkOptions::default())
-        .filter_map(|visit| {
-            let Command::Compound(CompoundCommand::If(command)) = visit.command else {
-                return None;
-            };
-            let IfSyntax::Brace {
-                left_brace_span, ..
-            } = command.syntax
-            else {
-                return None;
-            };
-            Some(left_brace_span)
-        })
-        .collect()
-}
-
-fn zsh_always_block_spans(file: &File, source: &str) -> Vec<Span> {
-    query::iter_commands(&file.body, CommandWalkOptions::default())
-        .filter_map(|visit| {
-            let Command::Compound(CompoundCommand::Always(command)) = visit.command else {
-                return None;
-            };
-            always_keyword_span(
-                source,
-                command.body.span.end.offset,
-                command.always_body.span.start.offset,
-            )
-            .or(Some(visit.stmt.span))
-        })
-        .collect()
-}
-
-fn zsh_case_group_spans(file: &File, source: &str) -> Vec<(usize, Span)> {
-    query::iter_commands(&file.body, CommandWalkOptions::default())
-        .flat_map(|visit| {
-            let Command::Compound(CompoundCommand::Case(command)) = visit.command else {
-                return Vec::new();
-            };
-
-            command
-                .cases
-                .iter()
-                .flat_map(|case| {
-                    case.patterns.iter().flat_map(|pattern| {
-                        pattern
-                            .parts
-                            .iter()
-                            .enumerate()
-                            .filter_map(|(index, part)| match &part.kind {
-                                PatternPart::Group {
-                                    kind: PatternGroupKind::ExactlyOne,
-                                    ..
-                                } if part.span.slice(source).starts_with('(') => {
-                                    Some((index, part.span))
-                                }
-                                PatternPart::Word(_)
-                                | PatternPart::Literal(_)
-                                | PatternPart::AnyString
-                                | PatternPart::AnyChar
-                                | PatternPart::CharClass(_)
-                                | PatternPart::Group { .. } => None,
-                            })
-                    })
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect()
-}
-
-fn zsh_case_leading_group_spans(file: &File, source: &str) -> Vec<Span> {
-    zsh_case_group_spans(file, source)
-        .into_iter()
-        .filter_map(|(index, span)| (index == 0).then_some(span))
-        .collect()
-}
-
-fn zsh_case_embedded_group_spans(file: &File, source: &str) -> Vec<Span> {
-    zsh_case_group_spans(file, source)
-        .into_iter()
-        .filter_map(|(index, span)| (index > 0).then_some(span))
-        .collect()
-}
-
-fn always_keyword_span(source: &str, search_start: usize, search_end: usize) -> Option<Span> {
-    let search_start = search_start.min(source.len());
-    let search_end = search_end.min(source.len());
-    if search_start >= search_end {
-        return None;
-    }
-
-    let text = &source[search_start..search_end];
-    let relative = text.find("always")?;
-    let start_offset = search_start + relative;
-    let end_offset = start_offset + "always".len();
-
-    let start = position_at_offset(source, start_offset)?;
-    let end = position_at_offset(source, end_offset)?;
-    Some(Span::from_positions(start, end))
-}
-
 fn position_at_offset(source: &str, target_offset: usize) -> Option<Position> {
     if target_offset > source.len() {
         return None;
@@ -976,12 +885,12 @@ mod tests {
     #[test]
     fn maps_missing_fi_parse_error_to_c035_at_end_of_file() {
         let source = "#!/bin/sh\nif true; then\n  :\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::MissingFi);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -995,12 +904,12 @@ mod tests {
     #[test]
     fn maps_function_parameter_parse_error_to_x035() {
         let source = "#!/bin/sh\nfunction g(y) { :; }\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::FunctionParamsInSh);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1013,12 +922,12 @@ mod tests {
     #[test]
     fn maps_function_parameter_parse_error_to_the_paren_near_reported_position() {
         let source = "#!/bin/sh\necho \"$(x)\"; function f(y) { :; }\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::FunctionParamsInSh);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1033,12 +942,12 @@ mod tests {
     #[test]
     fn ignores_missing_fi_parse_error_when_rule_is_not_enabled() {
         let source = "#!/bin/sh\nif true; then\n  :\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::UnusedAssignment);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1049,12 +958,12 @@ mod tests {
     #[test]
     fn maps_loop_without_end_parse_error_to_c141_at_end_of_file() {
         let source = "#!/bin/sh\nwhile true; do\n  :\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::LoopWithoutEnd);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1068,12 +977,12 @@ mod tests {
     #[test]
     fn ignores_loop_without_end_parse_error_when_rule_is_not_enabled() {
         let source = "#!/bin/sh\nwhile true; do\n  :\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::UnusedAssignment);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1084,12 +993,12 @@ mod tests {
     #[test]
     fn ignores_balanced_while_loop_for_c141() {
         let source = "#!/bin/sh\nwhile true; do\n  :\ndone\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::LoopWithoutEnd);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1100,12 +1009,12 @@ mod tests {
     #[test]
     fn ignores_balanced_until_loop_for_c141() {
         let source = "#!/bin/sh\nuntil false; do\n  :\ndone\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::LoopWithoutEnd);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1116,12 +1025,12 @@ mod tests {
     #[test]
     fn ignores_nested_for_loop_missing_done_for_c141() {
         let source = "#!/bin/sh\nwhile true; do\n  for x in a; do\n    :\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::LoopWithoutEnd);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1132,12 +1041,12 @@ mod tests {
     #[test]
     fn ignores_balanced_nested_loops_for_c141() {
         let source = "#!/bin/sh\nwhile true; do\n  until false; do\n    :\n  done\ndone\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::LoopWithoutEnd);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1148,12 +1057,12 @@ mod tests {
     #[test]
     fn ignores_for_loop_missing_done_for_c141() {
         let source = "#!/bin/sh\nfor x in a; do\n  :\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::LoopWithoutEnd);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1164,12 +1073,12 @@ mod tests {
     #[test]
     fn maps_for_loop_missing_done_parse_error_to_c142() {
         let source = "#!/bin/sh\nfor x in a; do\n  :\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::MissingDoneInForLoop);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1193,12 +1102,12 @@ mod tests {
     #[test]
     fn ignores_inline_then_before_later_expected_command_for_c064() {
         let source = "#!/bin/sh\nif true; then :; fi\n&&\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::IfMissingThen);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1215,12 +1124,12 @@ mod tests {
     #[test]
     fn reports_missing_then_even_when_later_lines_expand_then_identifiers() {
         let source = "#!/bin/sh\nif true\n  echo ${then}\nfi\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::IfMissingThen);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1234,12 +1143,12 @@ mod tests {
     #[test]
     fn ignores_then_with_trailing_comment_before_later_expected_command_for_c064() {
         let source = "#!/bin/sh\nif true; then # keep body valid\n  :\nfi\n&&\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::IfMissingThen);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1256,12 +1165,12 @@ mod tests {
     #[test]
     fn maps_for_loop_missing_done_with_line_continuation_and_heredoc_to_c142() {
         let source = "#!/bin/sh\nfor name in \\\n  alpha beta; do\n  cat <<EOF\n$name\nEOF\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::MissingDoneInForLoop);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1273,12 +1182,12 @@ mod tests {
     #[test]
     fn ignores_for_loop_with_heredoc_and_trailing_done_for_c142() {
         let source = "#!/bin/sh\nfor name in \\\n  alpha beta; do\n  cat <<EOF\n$name\nEOF\ndone\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::MissingDoneInForLoop);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1289,12 +1198,12 @@ mod tests {
     #[test]
     fn ignores_while_loop_missing_done_for_c142() {
         let source = "#!/bin/sh\nwhile true; do\n  :\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::MissingDoneInForLoop);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1305,12 +1214,12 @@ mod tests {
     #[test]
     fn maps_dangling_else_parse_error_to_c143() {
         let source = "#!/bin/sh\nif true; then echo yes; else fi\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::DanglingElse);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1322,12 +1231,12 @@ mod tests {
     #[test]
     fn maps_nested_empty_else_parse_error_to_c143() {
         let source = "#!/bin/sh\nif true; then\n  if false; then\n    :\n  else\n  fi\nfi\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::DanglingElse);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1339,12 +1248,12 @@ mod tests {
     #[test]
     fn ignores_non_empty_nested_else_with_other_parse_recovery_noise_for_c143() {
         let source = "#!/bin/sh\nif true; then\n  :\nelse\n  if false; then\n    :\n  fi\nfi\nfi\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::DanglingElse);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1355,12 +1264,12 @@ mod tests {
     #[test]
     fn ignores_dangling_else_parse_error_when_rule_is_not_enabled() {
         let source = "#!/bin/sh\nif true; then echo yes; else fi\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::UnusedAssignment);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1371,12 +1280,12 @@ mod tests {
     #[test]
     fn maps_until_missing_do_parse_error_to_c146() {
         let source = "#!/bin/sh\nuntil :\ndone\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::UntilMissingDo);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1388,12 +1297,12 @@ mod tests {
     #[test]
     fn maps_multiline_until_header_missing_do_parse_error_to_c146() {
         let source = "#!/bin/sh\nuntil\n  false\ndone\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::UntilMissingDo);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1405,12 +1314,12 @@ mod tests {
     #[test]
     fn ignores_non_until_expected_command_parse_errors_for_c146() {
         let source = "#!/bin/sh\nwhile :\ndone\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::UntilMissingDo);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1421,12 +1330,12 @@ mod tests {
     #[test]
     fn ignores_until_with_do_after_comments_and_blank_lines_for_c146() {
         let source = "#!/bin/sh\nuntil false\n  # keep checking\n\ndo\n  :\ndone\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::UntilMissingDo);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1437,12 +1346,12 @@ mod tests {
     #[test]
     fn ignores_plain_until_word_before_done_for_c146() {
         let source = "#!/bin/sh\necho until\ndone\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::UntilMissingDo);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1453,12 +1362,12 @@ mod tests {
     #[test]
     fn maps_if_bracket_glued_parse_error_to_c157() {
         let source = "#!/bin/sh\nif[ \"${1:-}\" = ok ]; then\n  :\nfi\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1479,12 +1388,12 @@ fi
 ;;
 esac
 ";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1519,12 +1428,12 @@ esac
     #[test]
     fn ignores_non_if_bracket_expected_command_parse_errors_for_c157() {
         let source = "#!/bin/sh\nuntil :\ndone\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1544,12 +1453,12 @@ if  [ \"$1\" = ok ]; then
   :
 fi
 ";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1560,12 +1469,12 @@ fi
     #[test]
     fn ignores_quoted_if_bracket_text_on_expected_command_lines_for_c157() {
         let source = "#!/bin/sh\ntrue\n&& printf '%s\\n' \"if[\"\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1576,12 +1485,12 @@ fi
     #[test]
     fn ignores_parameter_expansion_text_containing_if_bracket_on_expected_command_lines_for_c157() {
         let source = "#!/bin/sh\ntrue\n&& echo ${x#if[}\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1592,12 +1501,12 @@ fi
     #[test]
     fn ignores_spaced_parameter_expansion_patterns_containing_if_bracket_for_c157() {
         let source = "#!/bin/sh\ntrue\n&& echo ${x# if[}\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1608,12 +1517,12 @@ fi
     #[test]
     fn ignores_if_bracket_text_inside_comments_after_redirection_operators_for_c157() {
         let source = "#!/bin/sh\ntrue\n&& ># if[\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::IfBracketGlued);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1624,12 +1533,12 @@ fi
     #[test]
     fn maps_linebreak_before_and_parse_error_to_s072() {
         let source = "#!/bin/bash\ntrue\n&& echo x\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::LinebreakBeforeAnd);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Bash,
         );
@@ -1642,12 +1551,12 @@ fi
     #[test]
     fn ignores_non_and_expected_command_parse_errors_for_s072() {
         let source = "#!/bin/sh\nuntil :\ndone\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::LinebreakBeforeAnd);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1658,12 +1567,12 @@ fi
     #[test]
     fn maps_c_prototype_fragment_parse_recovery_to_c042() {
         let source = "#!/bin/sh\nX &NextItem ();\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::CPrototypeFragment);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1677,12 +1586,12 @@ fi
     #[test]
     fn maps_zsh_brace_if_recovery_to_x038() {
         let source = "#!/bin/sh\nif [[ -n \"$x\" ]] {\n  :\n}\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::ZshBraceIf);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1695,12 +1604,12 @@ fi
     #[test]
     fn ignores_missing_then_without_zsh_brace_syntax() {
         let source = "#!/bin/sh\nif [[ -n \"$x\" ]]\n  :\nfi\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::ZshBraceIf);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1711,12 +1620,12 @@ fi
     #[test]
     fn ignores_zsh_brace_if_when_target_shell_is_zsh() {
         let source = "#!/bin/zsh\nif [[ -n \"$x\" ]] {\n  :\n}\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::ZshBraceIf);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Zsh,
         );
@@ -1727,12 +1636,12 @@ fi
     #[test]
     fn maps_zsh_brace_if_recovery_even_with_later_parse_errors() {
         let source = "#!/bin/sh\nif [[ -n \"$x\" ]] {\n  :\n}\nif true; then\n  :\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::ZshBraceIf);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1745,12 +1654,12 @@ fi
     #[test]
     fn maps_zsh_brace_if_for_mksh_targets() {
         let source = "#!/bin/mksh\nif [[ -n \"$x\" ]] {\n  :\n}\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::ZshBraceIf);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Mksh,
         );
@@ -1763,12 +1672,12 @@ fi
     #[test]
     fn maps_zsh_always_block_to_x039() {
         let source = "#!/bin/sh\n{ :; } always { :; }\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::ZshAlwaysBlock);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1786,12 +1695,12 @@ fi
             "  (darwin|freebsd)*) print ok ;;\n",
             "esac\n",
         );
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::ExtglobCase);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1809,14 +1718,14 @@ fi
             "  (darwin|freebsd)*) print ok ;;\n",
             "esac\n",
         );
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::ExtglobCase);
 
         for shell in [ShellDialect::Bash, ShellDialect::Ksh] {
             let diagnostics = collect_parse_rule_diagnostics(
                 &recovered.file,
                 source,
-                &recovered.diagnostics,
+                Some(&recovered),
                 &settings.rules,
                 shell,
             );
@@ -1839,12 +1748,12 @@ fi
             "  foo_(a|b)_*) echo match ;;\n",
             "esac\n",
         );
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::ExtglobInCasePattern);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1864,10 +1773,12 @@ fi
             "{ :; } always { :; }\n",
             "case \"$x\" in\n",
             "  (a|b)*) echo lead ;;\n",
+            "esac\n",
+            "case \"$x\" in\n",
             "  foo_(c|d)_*) echo embedded ;;\n",
             "esac\n",
         );
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rules([
             Rule::ZshBraceIf,
             Rule::ZshAlwaysBlock,
@@ -1877,13 +1788,13 @@ fi
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
         let rules: std::collections::HashSet<_> = diagnostics.iter().map(|d| d.rule).collect();
 
-        assert_eq!(diagnostics.len(), 4);
+        assert_eq!(rules.len(), 4);
         assert!(rules.contains(&Rule::ZshBraceIf));
         assert!(rules.contains(&Rule::ZshAlwaysBlock));
         assert!(rules.contains(&Rule::ExtglobCase));
@@ -1893,12 +1804,12 @@ fi
     #[test]
     fn ignores_non_always_brace_groups_for_x039() {
         let source = "#!/bin/sh\n{ :; }\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::ZshAlwaysBlock);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );
@@ -1909,12 +1820,12 @@ fi
     #[test]
     fn ignores_zsh_always_block_when_target_shell_is_zsh() {
         let source = "#!/bin/zsh\n{ :; } always { :; }\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::ZshAlwaysBlock);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Zsh,
         );
@@ -1925,12 +1836,12 @@ fi
     #[test]
     fn maps_zsh_always_block_even_with_later_parse_errors() {
         let source = "#!/bin/sh\n{ :; } always { :; }\nif true; then\n  :\n";
-        let recovered = Parser::new(source).parse_recovered();
+        let recovered = Parser::new(source).parse();
         let settings = LinterSettings::for_rule(Rule::ZshAlwaysBlock);
         let diagnostics = collect_parse_rule_diagnostics(
             &recovered.file,
             source,
-            &recovered.diagnostics,
+            Some(&recovered),
             &settings.rules,
             ShellDialect::Sh,
         );

@@ -128,9 +128,10 @@ fn load_fixture(path: &Path) -> Result<Fixture> {
 fn run_fixture(fixture: &Fixture) -> Result<()> {
     let observed = run_fixture_in_zsh(fixture)?;
     let profile = ShellProfile::native(ParseShellDialect::Zsh);
-    let parsed = Parser::with_profile(&fixture.source, profile.clone())
-        .parse()
-        .map_err(|err| anyhow::anyhow!("parse error: {err}"))?;
+    let parsed = Parser::with_profile(&fixture.source, profile.clone()).parse();
+    if parsed.is_err() {
+        return Err(anyhow::anyhow!("parse error: {}", parsed.strict_error()));
+    }
     let indexer = Indexer::new(&fixture.source, &parsed);
     let semantic = SemanticModel::build_with_options(
         &parsed.file,

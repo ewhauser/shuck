@@ -1726,9 +1726,10 @@ fn summarize_helper_uncached(
     let Ok(source) = fs::read_to_string(path) else {
         return FileContract::default();
     };
-    let Ok(output) = Parser::new(&source).parse() else {
+    let output = Parser::new(&source).parse();
+    if output.is_err() {
         return FileContract::default();
-    };
+    }
     let indexer = Indexer::new(&source, &output);
     let mut observer = crate::NoopTraversalObserver;
     let mut semantic = build_semantic_model_base(

@@ -65,12 +65,13 @@ fn oils_corpus_matches_parser_expectations() {
             let outcome =
                 panic::catch_unwind(AssertUnwindSafe(|| Parser::new(&spec_case.script).parse()));
             match (expectation, outcome) {
-                (Expectation::ParseOk, Ok(Ok(_))) => {}
-                (Expectation::ParseErr, Ok(Err(_))) => {}
-                (Expectation::ParseOk, Ok(Err(err))) => {
-                    failures.push(format!("{case_key}: unexpected parse error: {err}"))
-                }
-                (Expectation::ParseErr, Ok(Ok(_))) => {
+                (Expectation::ParseOk, Ok(result)) if result.is_ok() => {}
+                (Expectation::ParseErr, Ok(result)) if result.is_err() => {}
+                (Expectation::ParseOk, Ok(result)) => failures.push(format!(
+                    "{case_key}: unexpected parse error: {}",
+                    result.strict_error()
+                )),
+                (Expectation::ParseErr, Ok(_)) => {
                     failures.push(format!("{case_key}: unexpected parse success"))
                 }
                 (_, Err(_)) => failures.push(format!("{case_key}: parser panic")),
@@ -115,12 +116,13 @@ fn zsh_fixture_cases_match_parser_expectations_in_zsh_mode() {
                 Parser::with_dialect(&spec_case.script, ShellDialect::Zsh).parse()
             }));
             match (expectation, outcome) {
-                (Expectation::ParseOk, Ok(Ok(_))) => {}
-                (Expectation::ParseErr, Ok(Err(_))) => {}
-                (Expectation::ParseOk, Ok(Err(err))) => {
-                    failures.push(format!("{case_key}: unexpected parse error: {err}"))
-                }
-                (Expectation::ParseErr, Ok(Ok(_))) => {
+                (Expectation::ParseOk, Ok(result)) if result.is_ok() => {}
+                (Expectation::ParseErr, Ok(result)) if result.is_err() => {}
+                (Expectation::ParseOk, Ok(result)) => failures.push(format!(
+                    "{case_key}: unexpected parse error: {}",
+                    result.strict_error()
+                )),
+                (Expectation::ParseErr, Ok(_)) => {
                     failures.push(format!("{case_key}: unexpected parse success"))
                 }
                 (_, Err(_)) => failures.push(format!("{case_key}: parser panic")),
@@ -186,10 +188,10 @@ fn zsh_idioms_fixture_cases_parse_in_zsh_mode() {
         .cases
         .iter()
         .filter_map(|spec_case| {
-            match Parser::with_dialect(&spec_case.script, ShellDialect::Zsh).parse() {
-                Ok(_) => None,
-                Err(err) => Some(format!("{}: {err}", spec_case.name)),
-            }
+            let result = Parser::with_dialect(&spec_case.script, ShellDialect::Zsh).parse();
+            result
+                .is_err()
+                .then(|| format!("{}: {}", spec_case.name, result.strict_error()))
         })
         .collect::<Vec<_>>();
 

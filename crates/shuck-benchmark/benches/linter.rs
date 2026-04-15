@@ -7,14 +7,14 @@ use shuck_linter::{
     LinterFacts, LinterSettings, ShellCheckCodeMap, ShellDialect, SuppressionIndex,
     classify_file_context, first_statement_line, lint_file, parse_directives,
 };
-use shuck_parser::parser::ParseOutput;
+use shuck_parser::parser::ParseResult;
 use shuck_semantic::SemanticModel;
 
 configure_benchmark_allocator!();
 
 struct PreparedFactsInput {
     source: &'static str,
-    output: ParseOutput,
+    output: ParseResult,
     indexer: Indexer,
     semantic: SemanticModel,
     file_context: shuck_linter::FileContext,

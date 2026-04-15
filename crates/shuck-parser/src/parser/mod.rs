@@ -68,10 +68,94 @@ const HARD_MAX_AST_DEPTH: usize = 100;
 /// Default maximum parser operations (matches ExecutionLimits default)
 const DEFAULT_MAX_PARSER_OPERATIONS: usize = 100_000;
 
-/// The result of a successful parse: a script plus collected comments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParseStatus {
+    Clean,
+    Recovered,
+    Fatal,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ZshCaseGroupPart {
+    pub pattern_part_index: usize,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SyntaxFacts {
+    pub zsh_brace_if_spans: Vec<Span>,
+    pub zsh_always_spans: Vec<Span>,
+    pub zsh_case_group_parts: Vec<ZshCaseGroupPart>,
+}
+
+/// The result of parsing a script, including any recovery diagnostics and
+/// syntax facts collected along the way.
 #[derive(Debug, Clone)]
-pub struct ParseOutput {
+pub struct ParseResult {
     pub file: File,
+    pub diagnostics: Vec<ParseDiagnostic>,
+    pub status: ParseStatus,
+    pub terminal_error: Option<Error>,
+    pub syntax_facts: SyntaxFacts,
+}
+
+impl ParseResult {
+    pub fn is_ok(&self) -> bool {
+        self.status == ParseStatus::Clean
+    }
+
+    pub fn is_err(&self) -> bool {
+        !self.is_ok()
+    }
+
+    pub fn strict_error(&self) -> Error {
+        self.terminal_error.clone().unwrap_or_else(|| {
+            let diagnostic = self
+                .diagnostics
+                .first()
+                .expect("non-clean parse result should include a diagnostic or terminal error");
+            Error::parse_at(
+                diagnostic.message.clone(),
+                diagnostic.span.start.line,
+                diagnostic.span.start.column,
+            )
+        })
+    }
+
+    pub fn unwrap(self) -> Self {
+        if self.is_ok() {
+            self
+        } else {
+            panic!(
+                "called `ParseResult::unwrap()` on a non-clean parse: {}",
+                self.strict_error()
+            )
+        }
+    }
+
+    pub fn expect(self, message: &str) -> Self {
+        if self.is_ok() {
+            self
+        } else {
+            panic!("{message}: {}", self.strict_error())
+        }
+    }
+
+    pub fn unwrap_err(self) -> Error {
+        if self.is_err() {
+            self.strict_error()
+        } else {
+            panic!("called `ParseResult::unwrap_err()` on a clean parse")
+        }
+    }
+
+    pub fn expect_err(self, message: &str) -> Error {
+        if self.is_err() {
+            self.strict_error()
+        } else {
+            panic!("{message}")
+        }
+    }
 }
 
 #[cfg(feature = "benchmarking")]
@@ -1379,6 +1463,7 @@ pub struct Parser<'a> {
     /// Active brace-body parsing contexts, used to distinguish compact zsh
     /// closers from literal `}` arguments.
     brace_body_stack: Vec<BraceBodyContext>,
+    syntax_facts: SyntaxFacts,
     shell_profile: ShellProfile,
     zsh_timeline: Option<Arc<ZshOptionTimeline>>,
     dialect: ShellDialect,
@@ -1403,6 +1488,7 @@ struct ParserCheckpoint<'a> {
     expand_next_word: bool,
     brace_group_depth: usize,
     brace_body_stack: Vec<BraceBodyContext>,
+    syntax_facts: SyntaxFacts,
     #[cfg(feature = "benchmarking")]
     benchmark_counters: Option<ParserBenchmarkCounters>,
 }
@@ -1412,13 +1498,6 @@ struct ParserCheckpoint<'a> {
 pub struct ParseDiagnostic {
     pub message: String,
     pub span: Span,
-}
-
-/// The result of a recovered parse: a partial script plus parse diagnostics.
-#[derive(Debug, Clone)]
-pub struct RecoveredParse {
-    pub file: File,
-    pub diagnostics: Vec<ParseDiagnostic>,
 }
 
 #[derive(Debug, Clone)]
@@ -1748,6 +1827,7 @@ impl<'a> Parser<'a> {
             expand_next_word: false,
             brace_group_depth: 0,
             brace_body_stack: Vec::new(),
+            syntax_facts: SyntaxFacts::default(),
             dialect: shell_profile.dialect,
             shell_profile,
             zsh_timeline,
@@ -1887,6 +1967,34 @@ impl<'a> Parser<'a> {
             self.comments.push(Comment {
                 range: token.span.to_range(),
             });
+        }
+    }
+
+    fn record_zsh_brace_if_span(&mut self, span: Span) {
+        if !self.syntax_facts.zsh_brace_if_spans.contains(&span) {
+            self.syntax_facts.zsh_brace_if_spans.push(span);
+        }
+    }
+
+    fn record_zsh_always_span(&mut self, span: Span) {
+        if !self.syntax_facts.zsh_always_spans.contains(&span) {
+            self.syntax_facts.zsh_always_spans.push(span);
+        }
+    }
+
+    fn record_zsh_case_group_part(&mut self, pattern_part_index: usize, span: Span) {
+        if !self
+            .syntax_facts
+            .zsh_case_group_parts
+            .iter()
+            .any(|fact| fact.pattern_part_index == pattern_part_index && fact.span == span)
+        {
+            self.syntax_facts
+                .zsh_case_group_parts
+                .push(ZshCaseGroupPart {
+                    pattern_part_index,
+                    span,
+                });
         }
     }
 
@@ -3109,17 +3217,17 @@ impl<'a> Parser<'a> {
             .unwrap_or_else(|| self.shell_profile.clone());
         let inner_parser =
             Parser::with_limits_and_profile(source, remaining_depth, self.fuel, nested_profile);
-        match inner_parser.parse() {
-            Ok(mut output) => {
-                Self::rebase_file(&mut output.file, base);
-                output.file.body
-            }
-            Err(_) => StmtSeq {
+        let mut output = inner_parser.parse();
+        if output.is_ok() {
+            Self::rebase_file(&mut output.file, base);
+            output.file.body
+        } else {
+            StmtSeq {
                 leading_comments: Vec::new(),
                 stmts: Vec::new(),
                 trailing_comments: Vec::new(),
                 span: Span::from_positions(base, base),
-            },
+            }
         }
     }
 
@@ -5039,6 +5147,7 @@ impl<'a> Parser<'a> {
             expand_next_word: self.expand_next_word,
             brace_group_depth: self.brace_group_depth,
             brace_body_stack: self.brace_body_stack.clone(),
+            syntax_facts: self.syntax_facts.clone(),
             #[cfg(feature = "benchmarking")]
             benchmark_counters: self.benchmark_counters,
         }
@@ -5060,6 +5169,7 @@ impl<'a> Parser<'a> {
         self.expand_next_word = checkpoint.expand_next_word;
         self.brace_group_depth = checkpoint.brace_group_depth;
         self.brace_body_stack = checkpoint.brace_body_stack;
+        self.syntax_facts = checkpoint.syntax_facts;
         #[cfg(feature = "benchmarking")]
         {
             self.benchmark_counters = checkpoint.benchmark_counters;

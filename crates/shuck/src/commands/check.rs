@@ -14,7 +14,7 @@ use shuck_linter::{
 };
 use shuck_parser::{
     Error as ParseError,
-    parser::{ParseDiagnostic, ParseOutput, Parser},
+    parser::{ParseDiagnostic, ParseResult, ParseStatus, Parser},
 };
 
 use crate::ExitStatus;
@@ -258,58 +258,44 @@ fn analyze_file(
     };
 
     let linter_settings = base_linter_settings.clone().with_shell(inferred_shell);
-    let (cache_data, diagnostics) = match Parser::with_dialect(&source, parse_dialect).parse() {
-        Ok(output) => lint_parsed_output(
-            &pending,
-            &source,
-            output,
-            &[],
-            &linter_settings,
-            shellcheck_map,
-            include_source,
-        ),
-        Err(ParseError::Parse {
+    let parse_result = Parser::with_dialect(&source, parse_dialect).parse();
+    let lint_result = lint_parsed_output(
+        &pending,
+        &source,
+        &parse_result,
+        &linter_settings,
+        shellcheck_map,
+        include_source,
+    );
+    let handled_parse_diagnostic = linter_settings
+        .rules
+        .contains(shuck_linter::Rule::MissingFi)
+        && parse_diagnostics_include_missing_fi(&parse_result.diagnostics);
+    let (cache_data, diagnostics) = if parse_result.status == ParseStatus::Fatal
+        && lint_result.1.is_empty()
+        && !handled_parse_diagnostic
+    {
+        let ParseError::Parse {
             message,
             line,
             column,
-        }) => {
-            let recovered = Parser::with_dialect(&source, parse_dialect).parse_recovered();
-            let output = ParseOutput {
-                file: recovered.file,
-            };
-            let recovered_result = lint_parsed_output(
-                &pending,
-                &source,
-                output,
-                &recovered.diagnostics,
-                &linter_settings,
-                shellcheck_map,
-                include_source,
-            );
-            let handled_parse_diagnostic = linter_settings
-                .rules
-                .contains(shuck_linter::Rule::MissingFi)
-                && parse_diagnostics_include_missing_fi(&recovered.diagnostics);
-
-            if !recovered_result.1.is_empty() || handled_parse_diagnostic {
-                recovered_result
-            } else {
-                (
-                    CheckCacheData::ParseError(ParseCacheFailure {
-                        message: message.clone(),
-                        line,
-                        column,
-                    }),
-                    vec![DisplayedDiagnostic {
-                        path: pending.file.display_path.clone(),
-                        span: DisplaySpan::point(line, column),
-                        message,
-                        kind: DisplayedDiagnosticKind::ParseError,
-                        source: include_source.then_some(source.clone()),
-                    }],
-                )
-            }
-        }
+        } = parse_result.strict_error();
+        (
+            CheckCacheData::ParseError(ParseCacheFailure {
+                message: message.clone(),
+                line,
+                column,
+            }),
+            vec![DisplayedDiagnostic {
+                path: pending.file.display_path.clone(),
+                span: DisplaySpan::point(line, column),
+                message,
+                kind: DisplayedDiagnosticKind::ParseError,
+                source: include_source.then_some(source.clone()),
+            }],
+        )
+    } else {
+        lint_result
     };
 
     Ok(FileCheckResult {
@@ -323,29 +309,27 @@ fn analyze_file(
 fn lint_parsed_output(
     pending: &PendingProjectFile,
     source: &str,
-    output: ParseOutput,
-    parse_diagnostics: &[ParseDiagnostic],
+    parse_result: &ParseResult,
     linter_settings: &LinterSettings,
     shellcheck_map: &ShellCheckCodeMap,
     include_source: bool,
 ) -> (CheckCacheData, Vec<DisplayedDiagnostic>) {
-    let indexer = Indexer::new(source, &output);
+    let indexer = Indexer::new(source, parse_result);
     let directives = parse_directives(source, indexer.comment_index(), shellcheck_map);
     let suppression_index = (!directives.is_empty()).then(|| {
         SuppressionIndex::new(
             &directives,
-            &output.file,
-            first_statement_line(&output.file).unwrap_or(u32::MAX),
+            &parse_result.file,
+            first_statement_line(&parse_result.file).unwrap_or(u32::MAX),
         )
     });
-    let diagnostics = shuck_linter::lint_file_at_path_with_parse_diagnostics(
-        &output.file,
+    let diagnostics = shuck_linter::lint_file_at_path_with_parse_result(
+        parse_result,
         source,
         &indexer,
         linter_settings,
         suppression_index.as_ref(),
         Some(&pending.file.absolute_path),
-        parse_diagnostics,
     );
     let diagnostic_source =
         (!diagnostics.is_empty() && include_source).then(|| Arc::<str>::from(source));

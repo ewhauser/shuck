@@ -135,7 +135,7 @@ fn collect_compound_comments(command: &AstCompoundCommand, comments: &mut Vec<Co
     }
 }
 
-fn assert_comment_ranges_valid(source: &str, output: &ParseOutput) {
+fn assert_comment_ranges_valid(source: &str, output: &ParseResult) {
     let comments = collect_file_comments(&output.file);
     for (i, comment) in comments.iter().enumerate() {
         let start = usize::from(comment.range.start());

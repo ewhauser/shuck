@@ -4,7 +4,11 @@ use super::*;
 fn test_parse_simple_command() {
     let input = "echo hello";
     let parser = Parser::new(input);
-    let script = parser.parse().unwrap().file;
+    let parsed = parser.parse().unwrap();
+    assert_eq!(parsed.status, ParseStatus::Clean);
+    assert!(parsed.diagnostics.is_empty());
+    assert!(parsed.terminal_error.is_none());
+    let script = parsed.file;
 
     assert_eq!(script.body.len(), 1);
 
@@ -78,7 +82,10 @@ fn test_parse_multiple_args() {
 
 #[test]
 fn test_unexpected_top_level_token_errors_in_strict_mode() {
-    let error = Parser::new("echo ok\n)\necho later\n").parse().unwrap_err();
+    let parsed = Parser::new("echo ok\n)\necho later\n").parse();
+    assert_eq!(parsed.status, ParseStatus::Fatal);
+    assert!(parsed.terminal_error.is_some());
+    let error = parsed.unwrap_err();
 
     let Error::Parse {
         message,
@@ -93,8 +100,9 @@ fn test_unexpected_top_level_token_errors_in_strict_mode() {
 #[test]
 fn test_parse_recovered_skips_invalid_command_and_continues() {
     let input = "echo one\ncat >\necho two\n";
-    let recovered = Parser::new(input).parse_recovered();
+    let recovered = Parser::new(input).parse();
 
+    assert_eq!(recovered.status, ParseStatus::Fatal);
     assert_eq!(recovered.file.body.len(), 2);
     assert_eq!(recovered.diagnostics.len(), 1);
     assert_eq!(recovered.diagnostics[0].message, "expected word");
@@ -107,6 +115,56 @@ fn test_parse_recovered_skips_invalid_command_and_continues() {
     let second = expect_simple(&recovered.file.body[1]);
     assert_eq!(second.name.render(input), "echo");
     assert_eq!(second.args[0].render(input), "two");
+}
+
+#[test]
+fn test_parse_reports_eof_only_missing_fi_as_recovered() {
+    let input = "if true; then\n  :\n";
+    let parsed = Parser::new(input).parse();
+
+    assert_eq!(parsed.status, ParseStatus::Recovered);
+    assert!(parsed.terminal_error.is_none());
+    assert_eq!(parsed.diagnostics.len(), 1);
+    assert_eq!(parsed.diagnostics[0].message, "expected 'fi'");
+}
+
+#[test]
+fn test_parse_collects_zsh_brace_if_fact_in_bash_mode() {
+    let input = "if [[ -n $x ]] {\n  :\n}\n";
+    let parsed = Parser::new(input).parse();
+
+    assert_eq!(parsed.syntax_facts.zsh_brace_if_spans.len(), 1);
+    assert_eq!(parsed.syntax_facts.zsh_brace_if_spans[0].slice(input), "{");
+}
+
+#[test]
+fn test_parse_collects_zsh_always_fact_in_posix_mode() {
+    let input = "{ :; } always { :; }\n";
+    let parsed = Parser::with_dialect(input, ShellDialect::Posix).parse();
+
+    assert_eq!(parsed.syntax_facts.zsh_always_spans.len(), 1);
+    assert_eq!(
+        parsed.syntax_facts.zsh_always_spans[0].slice(input),
+        "always"
+    );
+}
+
+#[test]
+fn test_parse_collects_zsh_case_group_facts_in_posix_mode() {
+    let input = "case $x in\n  foo_(a|b)_*) echo ok ;;\nesac\n";
+    let parsed = Parser::with_dialect(input, ShellDialect::Posix).parse();
+
+    assert_eq!(parsed.syntax_facts.zsh_case_group_parts.len(), 1);
+    assert_eq!(
+        parsed.syntax_facts.zsh_case_group_parts[0].pattern_part_index,
+        1
+    );
+    assert_eq!(
+        parsed.syntax_facts.zsh_case_group_parts[0]
+            .span
+            .slice(input),
+        "(a|b)"
+    );
 }
 
 #[test]

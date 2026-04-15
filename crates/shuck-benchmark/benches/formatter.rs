@@ -17,7 +17,7 @@ fn format_source_bytes(source: &str, options: &ShellFormatOptions) -> usize {
 
 fn format_file_ast_bytes(
     source: &str,
-    parsed: shuck_parser::parser::ParseOutput,
+    parsed: shuck_parser::parser::ParseResult,
     options: &ShellFormatOptions,
 ) -> usize {
     let formatted = format_file_ast(black_box(source), black_box(parsed.file), None, options)
@@ -26,7 +26,7 @@ fn format_file_ast_bytes(
     output_bytes(source, formatted)
 }
 
-fn formatter_fact_items(source: &str, parsed: &shuck_parser::parser::ParseOutput) -> usize {
+fn formatter_fact_items(source: &str, parsed: &shuck_parser::parser::ParseResult) -> usize {
     black_box(build_formatter_facts(
         black_box(source),
         black_box(&parsed.file),

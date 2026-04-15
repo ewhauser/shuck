@@ -186,59 +186,36 @@ impl<'a> Parser<'a> {
         advanced
     }
 
-    fn parse_impl(&mut self) -> Result<ParseOutput> {
-        // Check if the very first token is an error
-        self.check_error_token()?;
-
-        let file_span =
-            Span::from_positions(Position::new(), Position::new().advanced_by(self.input));
-        let mut stmts = Vec::new();
-
-        while self.current_token.is_some() {
-            self.tick()?;
-            self.skip_newlines()?;
-            self.check_error_token()?;
-            if self.current_token.is_none() {
-                break;
-            }
-            let command_stmts = self.parse_command_list_required()?;
-            self.apply_stmt_list_effects(&command_stmts);
-            stmts.extend(command_stmts);
-        }
-
-        let mut file = File {
-            body: Self::stmt_seq_with_span(file_span, stmts),
-            span: file_span,
-        };
-        self.attach_comments_to_file(&mut file);
-        Ok(ParseOutput { file })
-    }
-
-    /// Parse the input and return the AST with collected comments.
-    pub fn parse(mut self) -> Result<ParseOutput> {
-        self.parse_impl()
-    }
-
-    fn parse_recovered_impl(&mut self) -> RecoveredParse {
+    fn parse_impl(&mut self) -> ParseResult {
         let file_span =
             Span::from_positions(Position::new(), Position::new().advanced_by(self.input));
         let mut stmts = Vec::new();
         let mut diagnostics = Vec::new();
+        let mut terminal_error = None;
 
         while self.current_token.is_some() {
             let checkpoint = self.current_span.start.offset;
 
             if let Err(error) = self.tick() {
-                diagnostics.push(self.parse_diagnostic_from_error(error));
+                diagnostics.push(self.parse_diagnostic_from_error(error.clone()));
+                terminal_error.get_or_insert(error);
                 break;
             }
             if let Err(error) = self.skip_newlines() {
-                diagnostics.push(self.parse_diagnostic_from_error(error));
+                diagnostics.push(self.parse_diagnostic_from_error(error.clone()));
+                terminal_error.get_or_insert(error);
                 break;
             }
             if let Err(error) = self.check_error_token() {
-                diagnostics.push(self.parse_diagnostic_from_error(error));
-                if !self.recover_to_command_boundary(checkpoint) {
+                diagnostics.push(self.parse_diagnostic_from_error(error.clone()));
+                let recovered = self.recover_to_command_boundary(checkpoint);
+                if recovered
+                    || (self.current_token.is_some()
+                        && self.current_span.start.offset < self.input.len())
+                {
+                    terminal_error.get_or_insert(error);
+                }
+                if !recovered && terminal_error.is_some() {
                     break;
                 }
                 continue;
@@ -254,8 +231,15 @@ impl<'a> Parser<'a> {
                     stmts.extend(command_stmts);
                 }
                 Err(error) => {
-                    diagnostics.push(self.parse_diagnostic_from_error(error));
-                    if !self.recover_to_command_boundary(command_start) {
+                    diagnostics.push(self.parse_diagnostic_from_error(error.clone()));
+                    let recovered = self.recover_to_command_boundary(command_start);
+                    if recovered
+                        || (self.current_token.is_some()
+                            && self.current_span.start.offset < self.input.len())
+                    {
+                        terminal_error.get_or_insert(error);
+                    }
+                    if !recovered && terminal_error.is_some() {
                         break;
                     }
                 }
@@ -267,29 +251,34 @@ impl<'a> Parser<'a> {
             span: file_span,
         };
         self.attach_comments_to_file(&mut file);
-        RecoveredParse { file, diagnostics }
+
+        let status = if terminal_error.is_some() {
+            ParseStatus::Fatal
+        } else if diagnostics.is_empty() {
+            ParseStatus::Clean
+        } else {
+            ParseStatus::Recovered
+        };
+
+        ParseResult {
+            file,
+            diagnostics,
+            status,
+            terminal_error,
+            syntax_facts: std::mem::take(&mut self.syntax_facts),
+        }
     }
 
-    /// Parse the input while recovering at top-level command boundaries.
-    pub fn parse_recovered(mut self) -> RecoveredParse {
-        self.parse_recovered_impl()
+    /// Parse the input and return the AST, recovery diagnostics, and syntax facts.
+    pub fn parse(mut self) -> ParseResult {
+        self.parse_impl()
     }
 
     #[cfg(feature = "benchmarking")]
     #[doc(hidden)]
-    pub fn parse_with_benchmark_counters(self) -> Result<(ParseOutput, ParserBenchmarkCounters)> {
+    pub fn parse_with_benchmark_counters(self) -> (ParseResult, ParserBenchmarkCounters) {
         let mut parser = self.rebuild_with_benchmark_counters();
-        let output = parser.parse_impl()?;
-        Ok((output, parser.finish_benchmark_counters()))
-    }
-
-    #[cfg(feature = "benchmarking")]
-    #[doc(hidden)]
-    pub fn parse_recovered_with_benchmark_counters(
-        self,
-    ) -> (RecoveredParse, ParserBenchmarkCounters) {
-        let mut parser = self.rebuild_with_benchmark_counters();
-        let output = parser.parse_recovered_impl();
+        let output = parser.parse_impl();
         (output, parser.finish_benchmark_counters())
     }
 
@@ -858,6 +847,7 @@ impl<'a> Parser<'a> {
                         "syntax error: empty then clause",
                         BraceBodyContext::IfClause,
                     )?;
+                self.record_zsh_brace_if_span(left_brace_span);
                 (
                     IfSyntax::Brace {
                         left_brace_span,
@@ -1989,10 +1979,33 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_case_patterns(&mut self) -> Result<Vec<Pattern>> {
+        self.record_zsh_case_group_parts_from_current_case_header();
         if self.dialect == ShellDialect::Zsh {
             self.parse_zsh_case_patterns()
         } else {
             self.parse_posix_case_patterns()
+        }
+    }
+
+    fn record_zsh_case_group_parts_from_current_case_header(&mut self) {
+        let Ok((pattern_spans, _)) = self.scan_zsh_case_pattern_spans() else {
+            return;
+        };
+
+        for span in pattern_spans {
+            let pattern = self.pattern_from_zsh_case_span(span);
+            for (index, part) in pattern.parts.iter().enumerate() {
+                if matches!(
+                    &part.kind,
+                    PatternPart::Group {
+                        kind: PatternGroupKind::ExactlyOne,
+                        ..
+                    }
+                ) && part.span.slice(self.input).starts_with('(')
+                {
+                    self.record_zsh_case_group_part(index, part.span);
+                }
+            }
         }
     }
 
@@ -2527,7 +2540,13 @@ impl<'a> Parser<'a> {
         let (body, left_brace_span, right_brace_span) =
             self.parse_brace_enclosed_stmt_seq("syntax error: empty brace group", context)?;
 
+        let always_span = self.peek_zsh_always_span();
+        if let Some(span) = always_span {
+            self.record_zsh_always_span(span);
+        }
+
         let compound = if self.dialect.features().zsh_always && self.is_keyword(Keyword::Always) {
+            self.record_zsh_always_span(self.current_span);
             self.advance();
             self.skip_newlines()?;
             if !self.at(TokenKind::LeftBrace) {
@@ -2609,6 +2628,10 @@ impl<'a> Parser<'a> {
         loop {
             self.skip_newlines()?;
 
+            if !allow_brace_body && !stmts.is_empty() && self.at(TokenKind::LeftBrace) {
+                self.record_zsh_brace_if_span(self.current_span);
+            }
+
             if self.at(TokenKind::Semicolon) {
                 let checkpoint = self.checkpoint();
                 self.advance();
@@ -2616,12 +2639,21 @@ impl<'a> Parser<'a> {
                     self.restore(checkpoint);
                     return Err(error);
                 }
+                let brace_if_span =
+                    (!allow_brace_body && !stmts.is_empty() && self.at(TokenKind::LeftBrace))
+                        .then_some(self.current_span);
                 if self.is_keyword(Keyword::Then)
                     || (allow_brace_body && !stmts.is_empty() && self.at(TokenKind::LeftBrace))
                 {
+                    if let Some(span) = brace_if_span {
+                        self.record_zsh_brace_if_span(span);
+                    }
                     break;
                 }
                 self.restore(checkpoint);
+                if let Some(span) = brace_if_span {
+                    self.record_zsh_brace_if_span(span);
+                }
             }
 
             if self.is_keyword(Keyword::Then)
@@ -2640,6 +2672,23 @@ impl<'a> Parser<'a> {
         }
 
         Ok(stmts)
+    }
+
+    fn peek_zsh_always_span(&mut self) -> Option<Span> {
+        if !self.is_keyword(Keyword::Always) {
+            return None;
+        }
+
+        let always_span = self.current_span;
+        let checkpoint = self.checkpoint();
+        self.advance();
+        let result = match self.skip_newlines() {
+            Ok(()) if self.at(TokenKind::LeftBrace) => Some(always_span),
+            Ok(()) => None,
+            Err(_) => None,
+        };
+        self.restore(checkpoint);
+        result
     }
 
     fn has_recorded_comment_between(&self, start_offset: usize, end_offset: usize) -> bool {
@@ -2712,9 +2761,10 @@ impl<'a> Parser<'a> {
         nested.expand_next_word = self.expand_next_word;
 
         let inner_start = self.current_span.start.advanced_by("{");
-        let mut output = nested
-            .parse()
-            .map_err(|error| self.rebase_nested_parse_error(error, inner_start))?;
+        let mut output = nested.parse();
+        if output.is_err() {
+            return Err(self.rebase_nested_parse_error(output.strict_error(), inner_start));
+        }
         Self::rebase_stmt_seq(&mut output.file.body, inner_start);
         self.advance();
         Ok(Some(CompoundCommand::BraceGroup(output.file.body)))
