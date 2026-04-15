@@ -14,7 +14,7 @@ use shuck_linter::{
 };
 use shuck_parser::{
     Error as ParseError,
-    parser::{ParseDiagnostic, ParseResult, ParseStatus, Parser},
+    parser::{ParseResult, Parser},
 };
 
 use crate::ExitStatus;
@@ -267,14 +267,7 @@ fn analyze_file(
         shellcheck_map,
         include_source,
     );
-    let handled_parse_diagnostic = linter_settings
-        .rules
-        .contains(shuck_linter::Rule::MissingFi)
-        && parse_diagnostics_include_missing_fi(&parse_result.diagnostics);
-    let (cache_data, diagnostics) = if parse_result.status == ParseStatus::Fatal
-        && lint_result.1.is_empty()
-        && !handled_parse_diagnostic
-    {
+    let (cache_data, diagnostics) = if parse_result.is_err() && lint_result.1.is_empty() {
         let ParseError::Parse {
             message,
             line,
@@ -360,12 +353,6 @@ fn lint_parsed_output(
     )
 }
 
-fn parse_diagnostics_include_missing_fi(parse_diagnostics: &[ParseDiagnostic]) -> bool {
-    parse_diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.message.starts_with("expected 'fi'"))
-}
-
 fn push_cached_lint_diagnostics(
     report: &mut CheckReport,
     path: &Path,
@@ -402,6 +389,21 @@ mod tests {
 
     use super::*;
     use crate::args::CheckOutputFormatArg;
+
+    fn pending_project_file(path: &Path, project_root: &Path) -> PendingProjectFile {
+        PendingProjectFile {
+            file: crate::discover::DiscoveredFile {
+                display_path: path.strip_prefix(project_root).unwrap().to_path_buf(),
+                absolute_path: path.to_path_buf(),
+                relative_path: path.strip_prefix(project_root).unwrap().to_path_buf(),
+                project_root: crate::discover::ProjectRoot {
+                    storage_root: project_root.to_path_buf(),
+                    canonical_root: fs::canonicalize(project_root).unwrap(),
+                },
+            },
+            file_key: shuck_cache::FileCacheKey::from_path(path).unwrap(),
+        }
+    }
 
     fn cache_root(cwd: &Path) -> PathBuf {
         cwd.join("cache")
@@ -466,6 +468,30 @@ mod tests {
             DisplayedDiagnosticKind::Lint { code, .. } => assert_eq!(code, "C035"),
             other => panic!("expected lint diagnostic, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn reports_missing_fi_as_parse_error_when_parse_rule_is_disabled() {
+        let tempdir = tempdir().unwrap();
+        let broken_path = tempdir.path().join("broken.sh");
+        fs::write(&broken_path, "#!/bin/sh\nif true; then\n  :\n").unwrap();
+
+        let result = analyze_file(
+            pending_project_file(&broken_path, tempdir.path()),
+            &LinterSettings::for_rule(shuck_linter::Rule::UnusedAssignment)
+                .with_analyzed_paths([broken_path.clone()]),
+            &ShellCheckCodeMap::default(),
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(result.diagnostics.len(), 1);
+        assert!(matches!(result.cache_data, CheckCacheData::ParseError(_)));
+        match &result.diagnostics[0].kind {
+            DisplayedDiagnosticKind::ParseError => {}
+            other => panic!("expected parse error, got {other:?}"),
+        }
+        assert!(result.diagnostics[0].message.contains("expected 'fi'"));
     }
 
     #[test]

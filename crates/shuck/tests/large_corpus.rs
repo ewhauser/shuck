@@ -2110,15 +2110,7 @@ fn run_shuck_with_parse_dialect(
         &linter_settings,
         source_path_resolver,
     );
-    let handled_parse_diagnostic = linter_settings
-        .rules
-        .contains(shuck_linter::Rule::MissingFi)
-        && parse_diagnostics_include_missing_fi(&parsed.diagnostics);
-
-    if parsed.status == shuck_parser::parser::ParseStatus::Fatal
-        && diagnostics.is_empty()
-        && !handled_parse_diagnostic
-    {
+    if parsed.is_err() && diagnostics.is_empty() {
         return ShuckRun {
             diagnostics: Vec::new(),
             parse_error: Some(parsed.strict_error().to_string()),
@@ -2159,14 +2151,6 @@ fn lint_large_corpus_output(
         Some(&fixture.path),
         source_path_resolver,
     )
-}
-
-fn parse_diagnostics_include_missing_fi(
-    parse_diagnostics: &[shuck_parser::parser::ParseDiagnostic],
-) -> bool {
-    parse_diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.message.starts_with("expected 'fi'"))
 }
 
 fn run_shuck(
@@ -3873,6 +3857,29 @@ mod tests {
             shell: "sh".into(),
             source_hash: "source-hash".into(),
         }
+    }
+
+    #[test]
+    fn run_shuck_reports_parse_error_when_parse_rule_is_disabled() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let fixture_path = tempdir.path().join("broken.sh");
+        fs::write(&fixture_path, "#!/bin/sh\nif true; then\n  :\n").unwrap();
+        let fixture = fixture_at(&fixture_path, Path::new("broken.sh"));
+
+        let run = run_shuck_with_parse_dialect(
+            &fixture,
+            &shuck_linter::LinterSettings::for_rule(shuck_linter::Rule::UnusedAssignment),
+            None,
+            shuck_parser::ShellDialect::Posix,
+            "sh",
+        );
+
+        assert!(run.diagnostics.is_empty());
+        assert!(
+            run.parse_error
+                .as_deref()
+                .is_some_and(|error| error.contains("expected 'fi'"))
+        );
     }
 
     fn probe(version_text: &str) -> ShellCheckProbe {
