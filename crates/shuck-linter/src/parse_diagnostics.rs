@@ -50,6 +50,13 @@ pub(crate) fn collect_parse_rule_diagnostics(
     shell: ShellDialect,
 ) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
+    let needs_zsh_recovered = (enabled_rules.contains(crate::Rule::ZshBraceIf)
+        || enabled_rules.contains(crate::Rule::ZshAlwaysBlock))
+        && targets_non_zsh_shell(shell)
+        || enabled_rules.contains(crate::Rule::ExtglobCase) && is_x037_shell(shell)
+        || enabled_rules.contains(crate::Rule::ExtglobInCasePattern) && is_x048_shell(shell);
+    let zsh_recovered = needs_zsh_recovered
+        .then(|| Parser::with_dialect(source, ParseShellDialect::Zsh).parse_recovered());
     let missing_done_loop_kind = (enabled_rules.contains(crate::Rule::LoopWithoutEnd)
         || enabled_rules.contains(crate::Rule::MissingDoneInForLoop))
     .then(|| missing_done_loop_kind(file, source, parse_diagnostics))
@@ -120,22 +127,22 @@ pub(crate) fn collect_parse_rule_diagnostics(
     }
 
     if enabled_rules.contains(crate::Rule::ZshBraceIf) && targets_non_zsh_shell(shell) {
-        for span in zsh_brace_if_spans(source) {
+        for span in zsh_brace_if_spans(&zsh_recovered.as_ref().unwrap().file) {
             diagnostics.push(Diagnostic::new(ZshBraceIf, span));
         }
     }
     if enabled_rules.contains(crate::Rule::ZshAlwaysBlock) && targets_non_zsh_shell(shell) {
-        for span in zsh_always_block_spans(source) {
+        for span in zsh_always_block_spans(&zsh_recovered.as_ref().unwrap().file, source) {
             diagnostics.push(Diagnostic::new(ZshAlwaysBlock, span));
         }
     }
     if enabled_rules.contains(crate::Rule::ExtglobCase) && is_x037_shell(shell) {
-        for span in zsh_case_leading_group_spans(source) {
+        for span in zsh_case_leading_group_spans(&zsh_recovered.as_ref().unwrap().file, source) {
             diagnostics.push(Diagnostic::new(ExtglobCase, span));
         }
     }
     if enabled_rules.contains(crate::Rule::ExtglobInCasePattern) && is_x048_shell(shell) {
-        for span in zsh_case_embedded_group_spans(source) {
+        for span in zsh_case_embedded_group_spans(&zsh_recovered.as_ref().unwrap().file, source) {
             diagnostics.push(Diagnostic::new(ExtglobInCasePattern, span));
         }
     }
@@ -793,10 +800,8 @@ fn c_prototype_fragment_span(diagnostic: &ParseDiagnostic, source: &str) -> Opti
     Some(Span::from_positions(point, point))
 }
 
-fn zsh_brace_if_spans(source: &str) -> Vec<Span> {
-    let parsed = Parser::with_dialect(source, ParseShellDialect::Zsh).parse_recovered();
-
-    query::iter_commands(&parsed.file.body, CommandWalkOptions::default())
+fn zsh_brace_if_spans(file: &File) -> Vec<Span> {
+    query::iter_commands(&file.body, CommandWalkOptions::default())
         .filter_map(|visit| {
             let Command::Compound(CompoundCommand::If(command)) = visit.command else {
                 return None;
@@ -812,10 +817,8 @@ fn zsh_brace_if_spans(source: &str) -> Vec<Span> {
         .collect()
 }
 
-fn zsh_always_block_spans(source: &str) -> Vec<Span> {
-    let parsed = Parser::with_dialect(source, ParseShellDialect::Zsh).parse_recovered();
-
-    query::iter_commands(&parsed.file.body, CommandWalkOptions::default())
+fn zsh_always_block_spans(file: &File, source: &str) -> Vec<Span> {
+    query::iter_commands(&file.body, CommandWalkOptions::default())
         .filter_map(|visit| {
             let Command::Compound(CompoundCommand::Always(command)) = visit.command else {
                 return None;
@@ -830,10 +833,8 @@ fn zsh_always_block_spans(source: &str) -> Vec<Span> {
         .collect()
 }
 
-fn zsh_case_group_spans(source: &str) -> Vec<(usize, Span)> {
-    let parsed = Parser::with_dialect(source, ParseShellDialect::Zsh).parse_recovered();
-
-    query::iter_commands(&parsed.file.body, CommandWalkOptions::default())
+fn zsh_case_group_spans(file: &File, source: &str) -> Vec<(usize, Span)> {
+    query::iter_commands(&file.body, CommandWalkOptions::default())
         .flat_map(|visit| {
             let Command::Compound(CompoundCommand::Case(command)) = visit.command else {
                 return Vec::new();
@@ -869,15 +870,15 @@ fn zsh_case_group_spans(source: &str) -> Vec<(usize, Span)> {
         .collect()
 }
 
-fn zsh_case_leading_group_spans(source: &str) -> Vec<Span> {
-    zsh_case_group_spans(source)
+fn zsh_case_leading_group_spans(file: &File, source: &str) -> Vec<Span> {
+    zsh_case_group_spans(file, source)
         .into_iter()
         .filter_map(|(index, span)| (index == 0).then_some(span))
         .collect()
 }
 
-fn zsh_case_embedded_group_spans(source: &str) -> Vec<Span> {
-    zsh_case_group_spans(source)
+fn zsh_case_embedded_group_spans(file: &File, source: &str) -> Vec<Span> {
+    zsh_case_group_spans(file, source)
         .into_iter()
         .filter_map(|(index, span)| (index > 0).then_some(span))
         .collect()
@@ -1851,6 +1852,42 @@ fi
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::ExtglobInCasePattern);
         assert_eq!(diagnostics[0].span.slice(source), "(a|b)");
+    }
+
+    #[test]
+    fn collects_multiple_zsh_recovery_rules_together() {
+        let source = concat!(
+            "#!/bin/sh\n",
+            "if [[ -n \"$x\" ]] {\n",
+            "  :\n",
+            "}\n",
+            "{ :; } always { :; }\n",
+            "case \"$x\" in\n",
+            "  (a|b)*) echo lead ;;\n",
+            "  foo_(c|d)_*) echo embedded ;;\n",
+            "esac\n",
+        );
+        let recovered = Parser::new(source).parse_recovered();
+        let settings = LinterSettings::for_rules([
+            Rule::ZshBraceIf,
+            Rule::ZshAlwaysBlock,
+            Rule::ExtglobCase,
+            Rule::ExtglobInCasePattern,
+        ]);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            &recovered.diagnostics,
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+        let rules: std::collections::HashSet<_> = diagnostics.iter().map(|d| d.rule).collect();
+
+        assert_eq!(diagnostics.len(), 4);
+        assert!(rules.contains(&Rule::ZshBraceIf));
+        assert!(rules.contains(&Rule::ZshAlwaysBlock));
+        assert!(rules.contains(&Rule::ExtglobCase));
+        assert!(rules.contains(&Rule::ExtglobInCasePattern));
     }
 
     #[test]
