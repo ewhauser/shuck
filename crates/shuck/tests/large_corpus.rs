@@ -381,6 +381,8 @@ struct ReviewedDivergenceRecord {
     #[serde(default)]
     path_suffix: Option<String>,
     #[serde(default)]
+    path_contains: Option<String>,
+    #[serde(default)]
     line: Option<usize>,
     #[serde(default)]
     end_line: Option<usize>,
@@ -1255,6 +1257,10 @@ fn reviewed_divergence_reason<'a>(
                 .path_suffix
                 .as_ref()
                 .is_none_or(|suffix| path.ends_with(suffix))
+            && entry
+                .path_contains
+                .as_ref()
+                .is_none_or(|needle| path.contains(needle))
             && entry.line.is_none_or(|line| line == record.range.line)
             && entry
                 .end_line
@@ -3292,6 +3298,7 @@ mod tests {
                 reviewed_divergences: vec![ReviewedDivergenceRecord {
                     side: CompatibilitySide::ShellcheckOnly,
                     path_suffix: Some("repo__script.sh".into()),
+                    path_contains: None,
                     line: Some(19),
                     end_line: Some(19),
                     column: Some(1),
@@ -3335,6 +3342,7 @@ mod tests {
                 reviewed_divergences: vec![ReviewedDivergenceRecord {
                     side: CompatibilitySide::ShuckOnly,
                     path_suffix: None,
+                    path_contains: None,
                     line: None,
                     end_line: None,
                     column: None,
@@ -3415,6 +3423,53 @@ mod tests {
                 .as_deref()
                 .is_some_and(|reason| reason.contains("comparison target note"))
         );
+    }
+
+    #[test]
+    fn reviewed_divergence_classification_matches_path_contains_record() {
+        let metadata = HashMap::from([(
+            "C999".to_string(),
+            RuleCorpusMetadataDocument {
+                reviewed_divergences: vec![ReviewedDivergenceRecord {
+                    side: CompatibilitySide::ShuckOnly,
+                    path_suffix: None,
+                    path_contains: Some("termux__termux-packages__".into()),
+                    line: None,
+                    end_line: None,
+                    column: None,
+                    end_column: None,
+                    labels: Vec::new(),
+                    reason: "path-contains reviewed divergence".into(),
+                }],
+                comparison_target_notes: Vec::new(),
+            },
+        )]);
+        let record = CompatibilityRecord {
+            side: CompatibilitySide::ShuckOnly,
+            rule_code: Some("C999".into()),
+            rule_codes: Vec::new(),
+            shellcheck_code: "SC2034".into(),
+            range: DiagnosticRange {
+                line: 13,
+                end_line: 13,
+                column: 1,
+                end_column: 32,
+            },
+            message: "warning termux variable".into(),
+            labels: Vec::new(),
+        };
+
+        let (classification, reason) = classify_compatibility_record(
+            &record,
+            Path::new("fixtures/termux__termux-packages__packages__foo__build.sh"),
+            &metadata,
+        );
+
+        assert_eq!(
+            classification,
+            CompatibilityClassification::ReviewedDivergence
+        );
+        assert_eq!(reason.as_deref(), Some("path-contains reviewed divergence"));
     }
 
     #[test]
