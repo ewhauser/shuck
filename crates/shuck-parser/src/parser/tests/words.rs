@@ -1117,6 +1117,50 @@ fn test_escaped_backticks_inside_double_quotes_stay_literal() {
 }
 
 #[test]
+fn test_process_substitution_like_text_inside_double_quotes_stays_literal() {
+    let input = "echo \"<(printf hi)\" \" >(printf bye)\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+
+    for word in &command.args {
+        let WordPart::DoubleQuoted { parts, .. } = &word.parts[0].kind else {
+            panic!("expected double-quoted word");
+        };
+        assert!(
+            !parts
+                .iter()
+                .any(|part| matches!(part.kind, WordPart::ProcessSubstitution { .. })),
+            "{:#?}",
+            parts
+        );
+    }
+}
+
+#[test]
+fn test_escaped_process_substitution_like_text_stays_literal() {
+    let input = "echo \\<(printf hi) \\>(printf bye)\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+
+    for word in &command.args {
+        assert!(
+            !word
+                .parts
+                .iter()
+                .any(|part| matches!(part.kind, WordPart::ProcessSubstitution { .. })),
+            "{:#?}",
+            word.parts
+        );
+    }
+}
+
+#[test]
 fn test_unquoted_backtick_substitution_can_contain_spaces() {
     let input = "commands=(`pyenv-commands --sh`)\n";
     let script = Parser::new(input).parse().unwrap().file;

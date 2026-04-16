@@ -38,11 +38,23 @@ struct ParsedWordTarget {
     boundary: WordTargetBoundary,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub(super) struct DecodeWordPartsOptions {
     preserve_quote_fragments: bool,
     parse_dollar_quotes: bool,
     preserve_escaped_expansion_literals: bool,
+    parse_process_substitutions: bool,
+}
+
+impl Default for DecodeWordPartsOptions {
+    fn default() -> Self {
+        Self {
+            preserve_quote_fragments: false,
+            parse_dollar_quotes: false,
+            preserve_escaped_expansion_literals: false,
+            parse_process_substitutions: true,
+        }
+    }
 }
 
 impl<'a> PatternParser<'a> {
@@ -2982,15 +2994,30 @@ impl<'a> Parser<'a> {
 
                 let inner_span = Span::from_positions(content_start, content_end);
                 let inner = if source_backed {
-                    self.decode_word_text(
+                    self.decode_word_text_with_options(
                         inner_span.slice(self.input),
                         inner_span,
                         content_start,
                         true,
+                        DecodeWordPartsOptions {
+                            parse_dollar_quotes: true,
+                            parse_process_substitutions: false,
+                            ..DecodeWordPartsOptions::default()
+                        },
                     )
                 } else {
                     let content = content.unwrap_or_default();
-                    self.decode_word_text(&content, inner_span, content_start, false)
+                    self.decode_word_text_with_options(
+                        &content,
+                        inner_span,
+                        content_start,
+                        false,
+                        DecodeWordPartsOptions {
+                            parse_dollar_quotes: true,
+                            parse_process_substitutions: false,
+                            ..DecodeWordPartsOptions::default()
+                        },
+                    )
                 };
 
                 Self::push_word_part(
@@ -3065,7 +3092,10 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            if matches!(ch, '<' | '>') && chars.peek() == Some(&'(') {
+            if options.parse_process_substitutions
+                && matches!(ch, '<' | '>')
+                && chars.peek() == Some(&'(')
+            {
                 self.flush_literal_part(parts, &mut current, current_start, part_start);
 
                 let is_input = ch == '<';
@@ -3222,15 +3252,30 @@ impl<'a> Parser<'a> {
 
                 let inner_span = Span::from_positions(content_start, content_end);
                 let inner = if source_backed {
-                    self.decode_word_text(
+                    self.decode_word_text_with_options(
                         inner_span.slice(self.input),
                         inner_span,
                         content_start,
                         true,
+                        DecodeWordPartsOptions {
+                            parse_dollar_quotes: true,
+                            parse_process_substitutions: false,
+                            ..DecodeWordPartsOptions::default()
+                        },
                     )
                 } else {
                     let content = content.unwrap_or_default();
-                    self.decode_word_text(&content, inner_span, content_start, false)
+                    self.decode_word_text_with_options(
+                        &content,
+                        inner_span,
+                        content_start,
+                        false,
+                        DecodeWordPartsOptions {
+                            parse_dollar_quotes: true,
+                            parse_process_substitutions: false,
+                            ..DecodeWordPartsOptions::default()
+                        },
+                    )
                 };
 
                 Self::push_word_part(
@@ -4662,6 +4707,25 @@ impl<'a> Parser<'a> {
         self.word_with_parts(parts, span)
     }
 
+    fn decode_word_text_with_options(
+        &mut self,
+        s: &str,
+        span: Span,
+        base: Position,
+        source_backed: bool,
+        options: DecodeWordPartsOptions,
+    ) -> Word {
+        let mut parts = Vec::new();
+        self.decode_word_parts_into_with_quote_fragments(
+            s,
+            base,
+            source_backed,
+            options,
+            &mut parts,
+        );
+        self.word_with_parts(parts, span)
+    }
+
     pub(super) fn decode_fragment_word_text(
         &mut self,
         s: &str,
@@ -4697,6 +4761,7 @@ impl<'a> Parser<'a> {
             source_backed,
             DecodeWordPartsOptions {
                 preserve_escaped_expansion_literals: true,
+                parse_process_substitutions: false,
                 ..DecodeWordPartsOptions::default()
             },
             &mut parts,
