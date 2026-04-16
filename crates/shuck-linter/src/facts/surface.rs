@@ -286,36 +286,49 @@ impl<'a> SurfaceFragmentSink<'a> {
         let mut open_quote = None;
 
         for part in parts {
-            let HeredocBodyPart::Literal(text) = &part.kind else {
-                continue;
-            };
-            let text = text.as_str(self.source, part.span);
-            let mut quote_scan_offset = 0usize;
+            match &part.kind {
+                HeredocBodyPart::Literal(text) => {
+                    let text = text.as_str(self.source, part.span);
 
-            while let Some(relative_quote_offset) = text[quote_scan_offset..].find('\'') {
-                let quote_offset = quote_scan_offset + relative_quote_offset;
-                let quote_start = part.span.start.advanced_by(&text[..quote_offset]);
-                let quote_end = quote_start.advanced_by("'");
+                    for (quote_offset, ch) in text.char_indices() {
+                        match ch {
+                            '\n' => open_quote = None,
+                            '\'' => {
+                                let quote_start =
+                                    part.span.start.advanced_by(&text[..quote_offset]);
+                                if heredoc_single_quote_is_escaped(self.source, quote_start.offset)
+                                {
+                                    continue;
+                                }
+                                let quote_end = quote_start.advanced_by("'");
 
-                if let Some(open_start) = open_quote.take() {
-                    self.facts.single_quoted.push(SingleQuotedFragmentFact {
-                        span: Span::from_positions(open_start, quote_end),
-                        dollar_quoted: false,
-                        command_name: context
-                            .command_name
-                            .map(str::to_owned)
-                            .map(String::into_boxed_str),
-                        assignment_target: context
-                            .assignment_target
-                            .map(str::to_owned)
-                            .map(String::into_boxed_str),
-                        variable_set_operand: context.variable_set_operand,
-                    });
-                } else {
-                    open_quote = Some(quote_start);
+                                if let Some(open_start) = open_quote.take() {
+                                    self.facts.single_quoted.push(SingleQuotedFragmentFact {
+                                        span: Span::from_positions(open_start, quote_end),
+                                        dollar_quoted: false,
+                                        command_name: context
+                                            .command_name
+                                            .map(str::to_owned)
+                                            .map(String::into_boxed_str),
+                                        assignment_target: context
+                                            .assignment_target
+                                            .map(str::to_owned)
+                                            .map(String::into_boxed_str),
+                                        variable_set_operand: context.variable_set_operand,
+                                    });
+                                } else {
+                                    open_quote = Some(quote_start);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
                 }
-
-                quote_scan_offset = quote_offset + '\''.len_utf8();
+                _ => {
+                    if part.span.slice(self.source).contains('\n') {
+                        open_quote = None;
+                    }
+                }
             }
         }
     }
@@ -861,6 +874,27 @@ impl<'a> SurfaceFragmentSink<'a> {
         }
         self.facts.subscript_spans.push(subscript.span());
     }
+}
+
+fn heredoc_single_quote_is_escaped(source: &str, offset: usize) -> bool {
+    if source.as_bytes().get(offset) != Some(&b'\'') {
+        return false;
+    }
+
+    let mut backslash_count = 0usize;
+    let mut cursor = offset;
+    while cursor > 0 {
+        match source.as_bytes()[cursor - 1] {
+            b'\\' => {
+                backslash_count += 1;
+                cursor -= 1;
+            }
+            b'\n' => break,
+            _ => break,
+        }
+    }
+
+    !backslash_count.is_multiple_of(2)
 }
 
 fn parameter_has_array_reference(parameter: &shuck_ast::ParameterExpansion) -> bool {

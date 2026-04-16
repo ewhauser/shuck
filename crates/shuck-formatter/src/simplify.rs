@@ -539,29 +539,28 @@ fn rewrite_compound_words(
 ) -> usize {
     match command {
         CompoundCommand::If(command) => {
-            rewrite_stmt_seq_words(&mut command.condition, source, visitor)
-                + rewrite_stmt_seq_words(&mut command.then_branch, source, visitor)
-                + command
-                    .elif_branches
-                    .iter_mut()
-                    .map(|(condition, body)| {
-                        rewrite_stmt_seq_words(condition, source, visitor)
-                            + rewrite_stmt_seq_words(body, source, visitor)
-                    })
-                    .sum::<usize>()
-                + command
-                    .else_branch
-                    .as_mut()
-                    .map_or(0, |body| rewrite_stmt_seq_words(body, source, visitor))
+            let mut count = rewrite_stmt_seq_words(&mut command.condition, source, visitor)
+                + rewrite_stmt_seq_words(&mut command.then_branch, source, visitor);
+
+            for (condition, body) in &mut command.elif_branches {
+                count += rewrite_stmt_seq_words(condition, source, visitor);
+                count += rewrite_stmt_seq_words(body, source, visitor);
+            }
+
+            if let Some(body) = &mut command.else_branch {
+                count += rewrite_stmt_seq_words(body, source, visitor);
+            }
+
+            count
         }
         CompoundCommand::For(command) => {
-            command
-                .words
-                .iter_mut()
-                .flat_map(|words| words.iter_mut())
-                .map(|word| walk_word(word, source, &mut |word| visitor(word, source)))
-                .sum::<usize>()
-                + rewrite_stmt_seq_words(&mut command.body, source, visitor)
+            let mut count = 0;
+            if let Some(words) = &mut command.words {
+                for word in words {
+                    count += walk_word(word, source, &mut |word| visitor(word, source));
+                }
+            }
+            count + rewrite_stmt_seq_words(&mut command.body, source, visitor)
         }
         CompoundCommand::Repeat(command) => {
             walk_word(&mut command.count, source, &mut |word| {
@@ -569,12 +568,11 @@ fn rewrite_compound_words(
             }) + rewrite_stmt_seq_words(&mut command.body, source, visitor)
         }
         CompoundCommand::Foreach(command) => {
-            command
-                .words
-                .iter_mut()
-                .map(|word| walk_word(word, source, &mut |word| visitor(word, source)))
-                .sum::<usize>()
-                + rewrite_stmt_seq_words(&mut command.body, source, visitor)
+            let mut count = 0;
+            for word in &mut command.words {
+                count += walk_word(word, source, &mut |word| visitor(word, source));
+            }
+            count + rewrite_stmt_seq_words(&mut command.body, source, visitor)
         }
         CompoundCommand::ArithmeticFor(command) => {
             rewrite_stmt_seq_words(&mut command.body, source, visitor)
@@ -588,28 +586,21 @@ fn rewrite_compound_words(
                 + rewrite_stmt_seq_words(&mut command.body, source, visitor)
         }
         CompoundCommand::Case(command) => {
-            walk_word(&mut command.word, source, &mut |word| visitor(word, source))
-                + command
-                    .cases
-                    .iter_mut()
-                    .map(|item| {
-                        item.patterns
-                            .iter_mut()
-                            .map(|pattern| {
-                                walk_pattern(pattern, source, &mut |word| visitor(word, source))
-                            })
-                            .sum::<usize>()
-                            + rewrite_stmt_seq_words(&mut item.body, source, visitor)
-                    })
-                    .sum::<usize>()
+            let mut count = walk_word(&mut command.word, source, &mut |word| visitor(word, source));
+            for item in &mut command.cases {
+                for pattern in &mut item.patterns {
+                    count += walk_pattern(pattern, source, &mut |word| visitor(word, source));
+                }
+                count += rewrite_stmt_seq_words(&mut item.body, source, visitor);
+            }
+            count
         }
         CompoundCommand::Select(command) => {
-            command
-                .words
-                .iter_mut()
-                .map(|word| walk_word(word, source, &mut |word| visitor(word, source)))
-                .sum::<usize>()
-                + rewrite_stmt_seq_words(&mut command.body, source, visitor)
+            let mut count = 0;
+            for word in &mut command.words {
+                count += walk_word(word, source, &mut |word| visitor(word, source));
+            }
+            count + rewrite_stmt_seq_words(&mut command.body, source, visitor)
         }
         CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
             rewrite_stmt_seq_words(commands, source, visitor)
@@ -639,10 +630,11 @@ fn rewrite_stmt_seq_words(
     source: &str,
     visitor: &mut impl FnMut(&mut Word, &str) -> usize,
 ) -> usize {
-    commands
-        .iter_mut()
-        .map(|command| rewrite_stmt_words(command, source, visitor))
-        .sum()
+    let mut count = 0;
+    for command in commands.iter_mut() {
+        count += rewrite_stmt_words(command, source, visitor);
+    }
+    count
 }
 
 fn rewrite_assignment_words(
@@ -652,17 +644,19 @@ fn rewrite_assignment_words(
 ) -> usize {
     match &mut assignment.value {
         AssignmentValue::Scalar(word) => walk_word(word, source, &mut |word| visitor(word, source)),
-        AssignmentValue::Compound(array) => array
-            .elements
-            .iter_mut()
-            .map(|element| match element {
-                ArrayElem::Sequential(word)
-                | ArrayElem::Keyed { value: word, .. }
-                | ArrayElem::KeyedAppend { value: word, .. } => {
-                    walk_word(word, source, &mut |word| visitor(word, source))
-                }
-            })
-            .sum(),
+        AssignmentValue::Compound(array) => {
+            let mut count = 0;
+            for element in &mut array.elements {
+                count += match element {
+                    ArrayElem::Sequential(word)
+                    | ArrayElem::Keyed { value: word, .. }
+                    | ArrayElem::KeyedAppend { value: word, .. } => {
+                        walk_word(word, source, &mut |word| visitor(word, source))
+                    }
+                };
+            }
+            count
+        }
     }
 }
 
@@ -734,11 +728,27 @@ fn walk_word(
 }
 
 fn walk_heredoc_body(
-    _body: &mut HeredocBody,
-    _source: &str,
-    _visitor: &mut impl FnMut(&mut Word) -> usize,
+    body: &mut HeredocBody,
+    source: &str,
+    visitor: &mut dyn FnMut(&mut Word) -> usize,
 ) -> usize {
-    0
+    let mut count = 0;
+
+    for part in &mut body.parts {
+        if let HeredocBodyPart::CommandSubstitution {
+            body: command_body, ..
+        } = &mut part.kind
+        {
+            count +=
+                rewrite_stmt_seq_words(command_body, source, &mut |word, _source| visitor(word));
+        }
+    }
+
+    if count > 0 {
+        body.source_backed = false;
+    }
+
+    count
 }
 
 fn walk_word_part(part: &mut WordPartNode) -> usize {
@@ -761,21 +771,26 @@ fn walk_pattern(
     source: &str,
     visitor: &mut impl FnMut(&mut Word) -> usize,
 ) -> usize {
-    pattern
-        .parts
-        .iter_mut()
-        .map(|part| match &mut part.kind {
-            PatternPart::Group { patterns, .. } => patterns
-                .iter_mut()
-                .map(|pattern| walk_pattern(pattern, source, visitor))
-                .sum(),
+    let mut count = 0;
+
+    for part in &mut pattern.parts {
+        count += match &mut part.kind {
+            PatternPart::Group { patterns, .. } => {
+                let mut inner = 0;
+                for pattern in patterns {
+                    inner += walk_pattern(pattern, source, visitor);
+                }
+                inner
+            }
             PatternPart::Word(word) => walk_word(word, source, visitor),
             PatternPart::Literal(_)
             | PatternPart::AnyString
             | PatternPart::AnyChar
             | PatternPart::CharClass(_) => 0,
-        })
-        .sum()
+        };
+    }
+
+    count
 }
 
 fn walk_conditional_words(
@@ -1155,10 +1170,17 @@ fn rewrite_heredoc_body_source_texts(
     source: &str,
     visitor: &mut impl FnMut(&mut SourceText, &str) -> usize,
 ) -> usize {
-    body.parts
+    let count: usize = body
+        .parts
         .iter_mut()
         .map(|part| rewrite_heredoc_body_part_source_texts(part, source, visitor))
-        .sum()
+        .sum();
+
+    if count > 0 {
+        body.source_backed = false;
+    }
+
+    count
 }
 
 fn rewrite_word_part_source_texts(
@@ -2086,6 +2108,22 @@ mod tests {
         assert_eq!(
             format_with_simplify("echo \"$foo bar\"\n"),
             "echo \"$foo bar\"\n"
+        );
+    }
+
+    #[test]
+    fn quote_tightening_rewrites_command_substitutions_inside_heredoc_bodies() {
+        assert_eq!(
+            format_with_simplify("cat <<EOF\n$(printf \"%s\" \"fo\\$o\")\nEOF\n"),
+            "cat <<EOF\n$(printf '%s' 'fo$o')\nEOF\n"
+        );
+    }
+
+    #[test]
+    fn arithmetic_var_rewrite_updates_expanding_heredoc_bodies() {
+        assert_eq!(
+            format_with_simplify("cat <<EOF\n$(( $a + ${b} ))\nEOF\n"),
+            "cat <<EOF\n$((a + b))\nEOF\n"
         );
     }
 

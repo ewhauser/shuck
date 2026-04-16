@@ -22,7 +22,9 @@ use crate::command::{
 use crate::comments::{SourceComment, SourceMap};
 use crate::facts::FormatterFacts;
 use crate::options::ResolvedShellFormatOptions;
-use crate::word::{render_pattern_syntax_to_buf, render_word_syntax_with_facts_to_buf};
+use crate::word::{
+    render_heredoc_body_to_buf, render_pattern_syntax_to_buf, render_word_syntax_with_facts_to_buf,
+};
 
 enum StreamOutput<'source> {
     Buffer(String),
@@ -182,7 +184,7 @@ pub(crate) fn format_stmt_sequence_streaming_to_buf(
 
 #[derive(Debug, Clone)]
 struct PendingHeredoc {
-    body_span: Span,
+    body: String,
     delimiter: String,
 }
 
@@ -425,7 +427,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         for heredoc in pending {
             self.push_output_str(self.line_ending());
             self.line_start = true;
-            self.write_verbatim(heredoc.body_span.slice(self.source));
+            self.write_verbatim(&heredoc.body);
             self.write_verbatim(&heredoc.delimiter);
         }
     }
@@ -1690,15 +1692,26 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             let Some(heredoc) = redirect.heredoc() else {
                 continue;
             };
+            let body = if heredoc.body.source_backed {
+                heredoc.body.span.slice(source).to_owned()
+            } else {
+                let mut rendered = String::new();
+                render_heredoc_body_to_buf(
+                    &heredoc.body,
+                    source,
+                    &self.options,
+                    self.facts,
+                    &mut rendered,
+                );
+                rendered
+            };
             let mut delimiter = String::new();
             heredoc
                 .delimiter
                 .raw
                 .render_syntax_to_buf(source, &mut delimiter);
-            self.pending_heredocs.push(PendingHeredoc {
-                body_span: heredoc.body.span,
-                delimiter,
-            });
+            self.pending_heredocs
+                .push(PendingHeredoc { body, delimiter });
         }
     }
 

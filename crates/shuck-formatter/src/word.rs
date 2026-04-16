@@ -3,8 +3,9 @@ use std::fmt::Write as _;
 use shuck_ast::{
     ArithmeticAssignOp, ArithmeticBinaryOp, ArithmeticExpansionSyntax, ArithmeticExpr,
     ArithmeticExprNode, ArithmeticLvalue, ArithmeticPostfixOp, ArithmeticUnaryOp,
-    BourneParameterExpansion, Command, CommandSubstitutionSyntax, CompoundCommand, ParameterOp,
-    Pattern, Stmt, StmtSeq, SubscriptSelector, VarRef, Word, WordPart,
+    BourneParameterExpansion, Command, CommandSubstitutionSyntax, CompoundCommand, HeredocBody,
+    HeredocBodyPart, ParameterOp, Pattern, Stmt, StmtSeq, SubscriptSelector, VarRef, Word,
+    WordPart,
 };
 use shuck_format::IndentStyle;
 use shuck_format::{FormatResult, text, write};
@@ -66,6 +67,19 @@ pub(crate) fn render_word_syntax_with_facts_to_buf(
         Some(facts),
         rendered,
     );
+}
+
+pub(crate) fn render_heredoc_body_to_buf(
+    body: &HeredocBody,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+    _facts: &FormatterFacts<'_>,
+    rendered: &mut String,
+) {
+    for part in &body.parts {
+        render_heredoc_body_part(rendered, &part.kind, part.span, source, options, _facts)
+            .expect("writing into a String should not fail");
+    }
 }
 
 fn render_word_syntax_internal(
@@ -161,6 +175,106 @@ fn render_word_parts(
             rendered, &part.kind, part.span, source, options, source_map, facts,
         )?;
     }
+    Ok(())
+}
+
+fn render_heredoc_body_part(
+    rendered: &mut String,
+    part: &HeredocBodyPart,
+    span: shuck_ast::Span,
+    source: &str,
+    options: &ResolvedShellFormatOptions,
+    _facts: &FormatterFacts<'_>,
+) -> Result<(), std::fmt::Error> {
+    match part {
+        HeredocBodyPart::Literal(text) => rendered.push_str(text.as_str(source, span)),
+        HeredocBodyPart::Variable(name) => {
+            std::write!(rendered, "${name}")?;
+        }
+        HeredocBodyPart::CommandSubstitution { body, syntax } => {
+            let raw = raw_source_slice(span, source);
+            let multiline = raw.is_some_and(|raw| raw.contains('\n'))
+                || raw.is_none() && *syntax == CommandSubstitutionSyntax::DollarParen;
+
+            if render_command_substitution(
+                rendered,
+                body,
+                span.end.offset,
+                source,
+                options,
+                multiline,
+                None,
+                None,
+            )
+            .is_none()
+            {
+                if let Some(raw) = raw {
+                    rendered.push_str(raw);
+                } else {
+                    std::write!(rendered, "$({body:?})")?;
+                }
+            }
+        }
+        HeredocBodyPart::ArithmeticExpansion {
+            expression,
+            expression_ast,
+            syntax,
+        } => {
+            if matches!(syntax, ArithmeticExpansionSyntax::LegacyBracket) {
+                push_trimmed_arithmetic_expansion_source(
+                    rendered,
+                    expression.slice(source),
+                    *syntax,
+                );
+            } else if let Some(expression_ast) = expression_ast {
+                if !expression.is_source_backed() {
+                    push_trimmed_arithmetic_expansion_source(
+                        rendered,
+                        expression.slice(source),
+                        *syntax,
+                    );
+                } else {
+                    match syntax {
+                        ArithmeticExpansionSyntax::DollarParenParen => {
+                            rendered.push_str("$((");
+                            push_arithmetic_expr(
+                                rendered,
+                                expression_ast,
+                                ArithmeticContext::TopLevel,
+                                source,
+                                options,
+                            );
+                            rendered.push_str("))");
+                        }
+                        ArithmeticExpansionSyntax::LegacyBracket => {
+                            rendered.push_str("$[");
+                            push_arithmetic_expr(
+                                rendered,
+                                expression_ast,
+                                ArithmeticContext::TopLevel,
+                                source,
+                                options,
+                            );
+                            rendered.push(']');
+                        }
+                    }
+                }
+            } else {
+                match syntax {
+                    ArithmeticExpansionSyntax::DollarParenParen => {
+                        std::write!(rendered, "$(({}))", expression.slice(source))?;
+                    }
+                    ArithmeticExpansionSyntax::LegacyBracket => {
+                        std::write!(rendered, "$[{}]", expression.slice(source))?;
+                    }
+                }
+            }
+        }
+        HeredocBodyPart::Parameter(parameter) => {
+            push_parameter_word(rendered, parameter, source, options)?;
+        }
+    }
+
     Ok(())
 }
 
