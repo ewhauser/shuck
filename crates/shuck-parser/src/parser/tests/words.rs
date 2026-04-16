@@ -37,8 +37,16 @@ fn test_parse_word_fragment_preserves_original_span_for_cooked_text() {
 
     let word = Parser::parse_word_fragment(source, "foo/bar", span);
 
+    assert_eq!(word.render(source), "foo/bar");
     assert_eq!(word.span, span);
     assert_eq!(word.span.slice(source), source);
+    assert!(matches!(
+        &word.parts[..],
+        [WordPartNode {
+            kind: WordPart::Literal(text),
+            ..
+        }] if !text.is_source_backed() && text == "foo/bar"
+    ));
 }
 
 #[test]

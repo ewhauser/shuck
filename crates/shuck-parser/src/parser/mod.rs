@@ -1962,6 +1962,9 @@ impl<'a> Parser<'a> {
         let start = Position::new();
         let fragment_span = Span::from_positions(start, start.advanced_by(text));
         let mut word = parser.parse_word_with_context(text, fragment_span, start, source_backed);
+        if !source_backed {
+            Self::materialize_word_source_backing(&mut word, text);
+        }
         Self::rebase_word(&mut word, span.start);
         word.span = span;
         word
@@ -3715,6 +3718,445 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn materialize_literal_text_source_backing(text: &mut LiteralText, span: Span, source: &str) {
+        if text.is_source_backed() {
+            *text = LiteralText::owned(span.slice(source).to_string());
+        }
+    }
+
+    fn materialize_source_text_source_backing(text: &mut SourceText, source: &str) {
+        if text.is_source_backed() {
+            let span = text.span();
+            let cooked = text.slice(source).to_string();
+            *text = SourceText::cooked(span, cooked);
+        }
+    }
+
+    fn materialize_word_source_backing(word: &mut Word, source: &str) {
+        for part in &mut word.parts {
+            Self::materialize_word_part_source_backing(part, source);
+        }
+    }
+
+    fn materialize_pattern_source_backing(pattern: &mut Pattern, source: &str) {
+        for part in &mut pattern.parts {
+            Self::materialize_pattern_part_source_backing(part, source);
+        }
+    }
+
+    fn materialize_pattern_part_source_backing(part: &mut PatternPartNode, source: &str) {
+        match &mut part.kind {
+            PatternPart::Literal(text) => {
+                Self::materialize_literal_text_source_backing(text, part.span, source);
+            }
+            PatternPart::CharClass(text) => {
+                Self::materialize_source_text_source_backing(text, source);
+            }
+            PatternPart::Group { patterns, .. } => {
+                for pattern in patterns {
+                    Self::materialize_pattern_source_backing(pattern, source);
+                }
+            }
+            PatternPart::Word(word) => Self::materialize_word_source_backing(word, source),
+            PatternPart::AnyString | PatternPart::AnyChar => {}
+        }
+    }
+
+    fn materialize_word_part_source_backing(part: &mut WordPartNode, source: &str) {
+        match &mut part.kind {
+            WordPart::Literal(text) => {
+                Self::materialize_literal_text_source_backing(text, part.span, source);
+            }
+            WordPart::ZshQualifiedGlob(glob) => {
+                Self::materialize_zsh_qualified_glob_source_backing(glob, source);
+            }
+            WordPart::SingleQuoted { value, .. } => {
+                Self::materialize_source_text_source_backing(value, source);
+            }
+            WordPart::DoubleQuoted { parts, .. } => {
+                for part in parts {
+                    Self::materialize_word_part_source_backing(part, source);
+                }
+            }
+            WordPart::Parameter(parameter) => {
+                Self::materialize_source_text_source_backing(&mut parameter.raw_body, source);
+                Self::materialize_parameter_expansion_syntax_source_backing(
+                    &mut parameter.syntax,
+                    source,
+                );
+            }
+            WordPart::ParameterExpansion {
+                reference,
+                operator,
+                operand,
+                ..
+            } => {
+                Self::materialize_var_ref_source_backing(reference, source);
+                Self::materialize_parameter_operator_source_backing(operator, source);
+                if let Some(operand) = operand {
+                    Self::materialize_source_text_source_backing(operand, source);
+                }
+            }
+            WordPart::ArrayAccess(reference)
+            | WordPart::Length(reference)
+            | WordPart::ArrayLength(reference)
+            | WordPart::ArrayIndices(reference)
+            | WordPart::Transformation { reference, .. } => {
+                Self::materialize_var_ref_source_backing(reference, source);
+            }
+            WordPart::Substring {
+                reference,
+                offset,
+                offset_ast,
+                length,
+                length_ast,
+                ..
+            }
+            | WordPart::ArraySlice {
+                reference,
+                offset,
+                offset_ast,
+                length,
+                length_ast,
+                ..
+            } => {
+                Self::materialize_var_ref_source_backing(reference, source);
+                Self::materialize_source_text_source_backing(offset, source);
+                if let Some(expr) = offset_ast {
+                    Self::materialize_arithmetic_expr_source_backing(expr, source);
+                }
+                if let Some(length) = length {
+                    Self::materialize_source_text_source_backing(length, source);
+                }
+                if let Some(expr) = length_ast {
+                    Self::materialize_arithmetic_expr_source_backing(expr, source);
+                }
+            }
+            WordPart::IndirectExpansion {
+                reference,
+                operator,
+                operand,
+                ..
+            } => {
+                Self::materialize_var_ref_source_backing(reference, source);
+                if let Some(operator) = operator {
+                    Self::materialize_parameter_operator_source_backing(operator, source);
+                }
+                if let Some(operand) = operand {
+                    Self::materialize_source_text_source_backing(operand, source);
+                }
+            }
+            WordPart::ArithmeticExpansion {
+                expression,
+                expression_ast,
+                ..
+            } => {
+                Self::materialize_source_text_source_backing(expression, source);
+                if let Some(expr) = expression_ast {
+                    Self::materialize_arithmetic_expr_source_backing(expr, source);
+                }
+            }
+            WordPart::CommandSubstitution { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::Variable(_)
+            | WordPart::PrefixMatch { .. } => {}
+        }
+    }
+
+    fn materialize_var_ref_source_backing(reference: &mut VarRef, source: &str) {
+        if let Some(subscript) = &mut reference.subscript {
+            Self::materialize_subscript_source_backing(subscript, source);
+        }
+    }
+
+    fn materialize_subscript_source_backing(subscript: &mut Subscript, source: &str) {
+        Self::materialize_source_text_source_backing(&mut subscript.text, source);
+        if let Some(raw) = &mut subscript.raw {
+            Self::materialize_source_text_source_backing(raw, source);
+        }
+        if let Some(word_ast) = &mut subscript.word_ast {
+            Self::materialize_word_source_backing(word_ast, source);
+        }
+        if let Some(expr) = &mut subscript.arithmetic_ast {
+            Self::materialize_arithmetic_expr_source_backing(expr, source);
+        }
+    }
+
+    fn materialize_zsh_qualified_glob_source_backing(glob: &mut ZshQualifiedGlob, source: &str) {
+        for segment in &mut glob.segments {
+            match segment {
+                ZshGlobSegment::Pattern(pattern) => {
+                    Self::materialize_pattern_source_backing(pattern, source);
+                }
+                ZshGlobSegment::InlineControl(_) => {}
+            }
+        }
+        if let Some(qualifiers) = &mut glob.qualifiers {
+            for fragment in &mut qualifiers.fragments {
+                match fragment {
+                    ZshGlobQualifier::LetterSequence { text, .. } => {
+                        Self::materialize_source_text_source_backing(text, source);
+                    }
+                    ZshGlobQualifier::NumericArgument { start, end, .. } => {
+                        Self::materialize_source_text_source_backing(start, source);
+                        if let Some(end) = end {
+                            Self::materialize_source_text_source_backing(end, source);
+                        }
+                    }
+                    ZshGlobQualifier::Negation { .. } | ZshGlobQualifier::Flag { .. } => {}
+                }
+            }
+        }
+    }
+
+    fn materialize_parameter_expansion_syntax_source_backing(
+        syntax: &mut ParameterExpansionSyntax,
+        source: &str,
+    ) {
+        match syntax {
+            ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+                BourneParameterExpansion::Access { reference }
+                | BourneParameterExpansion::Length { reference }
+                | BourneParameterExpansion::Indices { reference }
+                | BourneParameterExpansion::Transformation { reference, .. } => {
+                    Self::materialize_var_ref_source_backing(reference, source);
+                }
+                BourneParameterExpansion::Indirect {
+                    reference,
+                    operator,
+                    operand,
+                    operand_word_ast,
+                    ..
+                } => {
+                    Self::materialize_var_ref_source_backing(reference, source);
+                    if let Some(operator) = operator {
+                        Self::materialize_parameter_operator_source_backing(operator, source);
+                    }
+                    if let Some(operand) = operand {
+                        Self::materialize_source_text_source_backing(operand, source);
+                    }
+                    if let Some(word_ast) = operand_word_ast {
+                        Self::materialize_word_source_backing(word_ast, source);
+                    }
+                }
+                BourneParameterExpansion::PrefixMatch { .. } => {}
+                BourneParameterExpansion::Slice {
+                    reference,
+                    offset,
+                    offset_ast,
+                    length,
+                    length_ast,
+                } => {
+                    Self::materialize_var_ref_source_backing(reference, source);
+                    Self::materialize_source_text_source_backing(offset, source);
+                    if let Some(expr) = offset_ast {
+                        Self::materialize_arithmetic_expr_source_backing(expr, source);
+                    }
+                    if let Some(length) = length {
+                        Self::materialize_source_text_source_backing(length, source);
+                    }
+                    if let Some(expr) = length_ast {
+                        Self::materialize_arithmetic_expr_source_backing(expr, source);
+                    }
+                }
+                BourneParameterExpansion::Operation {
+                    reference,
+                    operator,
+                    operand,
+                    operand_word_ast,
+                    ..
+                } => {
+                    Self::materialize_var_ref_source_backing(reference, source);
+                    Self::materialize_parameter_operator_source_backing(operator, source);
+                    if let Some(operand) = operand {
+                        Self::materialize_source_text_source_backing(operand, source);
+                    }
+                    if let Some(word_ast) = operand_word_ast {
+                        Self::materialize_word_source_backing(word_ast, source);
+                    }
+                }
+            },
+            ParameterExpansionSyntax::Zsh(syntax) => {
+                match &mut syntax.target {
+                    ZshExpansionTarget::Reference(reference) => {
+                        Self::materialize_var_ref_source_backing(reference, source);
+                    }
+                    ZshExpansionTarget::Word(word) => {
+                        Self::materialize_word_source_backing(word, source);
+                    }
+                    ZshExpansionTarget::Nested(parameter) => {
+                        Self::materialize_source_text_source_backing(
+                            &mut parameter.raw_body,
+                            source,
+                        );
+                        Self::materialize_parameter_expansion_syntax_source_backing(
+                            &mut parameter.syntax,
+                            source,
+                        );
+                    }
+                    ZshExpansionTarget::Empty => {}
+                }
+                for modifier in &mut syntax.modifiers {
+                    if let Some(argument) = &mut modifier.argument {
+                        Self::materialize_source_text_source_backing(argument, source);
+                    }
+                    if let Some(argument_word_ast) = &mut modifier.argument_word_ast {
+                        Self::materialize_word_source_backing(argument_word_ast, source);
+                    }
+                }
+                if let Some(operation) = &mut syntax.operation {
+                    match operation {
+                        ZshExpansionOperation::PatternOperation {
+                            operand,
+                            operand_word_ast,
+                            ..
+                        }
+                        | ZshExpansionOperation::Defaulting {
+                            operand,
+                            operand_word_ast,
+                            ..
+                        }
+                        | ZshExpansionOperation::TrimOperation {
+                            operand,
+                            operand_word_ast,
+                            ..
+                        } => {
+                            Self::materialize_source_text_source_backing(operand, source);
+                            Self::materialize_word_source_backing(operand_word_ast, source);
+                        }
+                        ZshExpansionOperation::Unknown { text, word_ast } => {
+                            Self::materialize_source_text_source_backing(text, source);
+                            Self::materialize_word_source_backing(word_ast, source);
+                        }
+                        ZshExpansionOperation::ReplacementOperation {
+                            pattern,
+                            pattern_word_ast,
+                            replacement,
+                            replacement_word_ast,
+                            ..
+                        } => {
+                            Self::materialize_source_text_source_backing(pattern, source);
+                            Self::materialize_word_source_backing(pattern_word_ast, source);
+                            if let Some(replacement) = replacement {
+                                Self::materialize_source_text_source_backing(replacement, source);
+                            }
+                            if let Some(replacement_word_ast) = replacement_word_ast {
+                                Self::materialize_word_source_backing(
+                                    replacement_word_ast,
+                                    source,
+                                );
+                            }
+                        }
+                        ZshExpansionOperation::Slice {
+                            offset,
+                            offset_word_ast,
+                            length,
+                            length_word_ast,
+                        } => {
+                            Self::materialize_source_text_source_backing(offset, source);
+                            Self::materialize_word_source_backing(offset_word_ast, source);
+                            if let Some(length) = length {
+                                Self::materialize_source_text_source_backing(length, source);
+                            }
+                            if let Some(length_word_ast) = length_word_ast {
+                                Self::materialize_word_source_backing(length_word_ast, source);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn materialize_parameter_operator_source_backing(
+        operator: &mut ParameterOp,
+        source: &str,
+    ) {
+        match operator {
+            ParameterOp::RemovePrefixShort { pattern }
+            | ParameterOp::RemovePrefixLong { pattern }
+            | ParameterOp::RemoveSuffixShort { pattern }
+            | ParameterOp::RemoveSuffixLong { pattern } => {
+                Self::materialize_pattern_source_backing(pattern, source);
+            }
+            ParameterOp::ReplaceFirst {
+                pattern,
+                replacement,
+                replacement_word_ast,
+            }
+            | ParameterOp::ReplaceAll {
+                pattern,
+                replacement,
+                replacement_word_ast,
+            } => {
+                Self::materialize_pattern_source_backing(pattern, source);
+                Self::materialize_source_text_source_backing(replacement, source);
+                Self::materialize_word_source_backing(replacement_word_ast, source);
+            }
+            ParameterOp::UseDefault
+            | ParameterOp::AssignDefault
+            | ParameterOp::UseReplacement
+            | ParameterOp::Error
+            | ParameterOp::UpperFirst
+            | ParameterOp::UpperAll
+            | ParameterOp::LowerFirst
+            | ParameterOp::LowerAll => {}
+        }
+    }
+
+    fn materialize_arithmetic_expr_source_backing(
+        expr: &mut ArithmeticExprNode,
+        source: &str,
+    ) {
+        match &mut expr.kind {
+            ArithmeticExpr::Number(text) => {
+                Self::materialize_source_text_source_backing(text, source);
+            }
+            ArithmeticExpr::Variable(_) => {}
+            ArithmeticExpr::Indexed { index, .. } => {
+                Self::materialize_arithmetic_expr_source_backing(index, source);
+            }
+            ArithmeticExpr::ShellWord(word) => {
+                Self::materialize_word_source_backing(word, source);
+            }
+            ArithmeticExpr::Parenthesized { expression } => {
+                Self::materialize_arithmetic_expr_source_backing(expression, source);
+            }
+            ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
+                Self::materialize_arithmetic_expr_source_backing(expr, source);
+            }
+            ArithmeticExpr::Binary { left, right, .. } => {
+                Self::materialize_arithmetic_expr_source_backing(left, source);
+                Self::materialize_arithmetic_expr_source_backing(right, source);
+            }
+            ArithmeticExpr::Conditional {
+                condition,
+                then_expr,
+                else_expr,
+            } => {
+                Self::materialize_arithmetic_expr_source_backing(condition, source);
+                Self::materialize_arithmetic_expr_source_backing(then_expr, source);
+                Self::materialize_arithmetic_expr_source_backing(else_expr, source);
+            }
+            ArithmeticExpr::Assignment { target, value, .. } => {
+                Self::materialize_arithmetic_lvalue_source_backing(target, source);
+                Self::materialize_arithmetic_expr_source_backing(value, source);
+            }
+        }
+    }
+
+    fn materialize_arithmetic_lvalue_source_backing(
+        target: &mut ArithmeticLvalue,
+        source: &str,
+    ) {
+        match target {
+            ArithmeticLvalue::Variable(_) => {}
+            ArithmeticLvalue::Indexed { index, .. } => {
+                Self::materialize_arithmetic_expr_source_backing(index, source);
+            }
+        }
+    }
+
     fn rebase_word(word: &mut Word, base: Position) {
         word.span = word.span.rebased(base);
         for brace in &mut word.brace_syntax {
@@ -3831,9 +4273,15 @@ impl<'a> Parser<'a> {
                 }
             }
             WordPart::IndirectExpansion {
-                reference, operand, ..
+                reference,
+                operator,
+                operand,
+                ..
             } => {
                 Self::rebase_var_ref(reference, base);
+                if let Some(operator) = operator {
+                    Self::rebase_parameter_operator(operator, base);
+                }
                 if let Some(operand) = operand {
                     operand.rebased(base);
                 }
