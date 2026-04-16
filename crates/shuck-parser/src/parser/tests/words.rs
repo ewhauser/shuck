@@ -31,6 +31,25 @@ fn test_current_word_cache_tracks_token_changes() {
 }
 
 #[test]
+fn test_parse_word_fragment_preserves_original_span_for_cooked_text() {
+    let source = r#"foo\/bar"#;
+    let span = Span::from_positions(Position::new(), Position::new().advanced_by(source));
+
+    let word = Parser::parse_word_fragment(source, "foo/bar", span);
+
+    assert_eq!(word.render(source), "foo/bar");
+    assert_eq!(word.span, span);
+    assert_eq!(word.span.slice(source), source);
+    assert!(matches!(
+        &word.parts[..],
+        [WordPartNode {
+            kind: WordPart::Literal(text),
+            ..
+        }] if !text.is_source_backed() && text == "foo/bar"
+    ));
+}
+
+#[test]
 fn test_parse_quoted_flow_control_name_stays_simple_command() {
     let input = "'break' 2";
     let parser = Parser::new(input);
@@ -593,6 +612,33 @@ fn test_indirect_expansions_preserve_reference_structure() {
         }
         other => panic!("expected replace-all indirect expansion, got {other:?}"),
     }
+}
+
+#[test]
+fn test_parse_word_fragment_rebases_indirect_operator_spans() {
+    let source = "echo ${!var//$'\\n'/' '}";
+    let start = Position::new().advanced_by("echo ");
+    let span = Span::from_positions(start, start.advanced_by("${!var//$'\\n'/' '}"));
+
+    let word = Parser::parse_word_fragment(source, span.slice(source), span);
+    let parameter = expect_parameter(&word);
+
+    let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Indirect {
+        operator:
+            Some(ParameterOp::ReplaceAll {
+                replacement,
+                replacement_word_ast,
+                ..
+            }),
+        ..
+    }) = &parameter.syntax
+    else {
+        panic!("expected indirect replacement operator");
+    };
+
+    assert_eq!(replacement.slice(source), "' '");
+    assert_eq!(replacement_word_ast.render_syntax(source), "' '");
+    assert_eq!(replacement_word_ast.span.slice(source), "' '");
 }
 
 #[test]
