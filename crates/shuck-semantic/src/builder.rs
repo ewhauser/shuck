@@ -22,6 +22,7 @@ use crate::cfg::{
 use crate::declaration::{Declaration, DeclarationBuiltin, DeclarationOperand};
 use crate::reference::{Reference, ReferenceKind};
 use crate::runtime::RuntimePrelude;
+use crate::source_closure::source_path_template;
 use crate::source_ref::{SourceRef, SourceRefKind, SourceRefResolution};
 use crate::{
     BindingId, FunctionScopeKind, IndirectTargetHint, ReferenceId, Scope, ScopeId, ScopeKind,
@@ -253,7 +254,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         self.recorded_program.command_mut(recorded).span = span;
         self.recorded_program.command_infos.insert(
             SpanKey::new(span),
-            recorded_command_info(&stmt.command, self.source),
+            recorded_command_info(&stmt.command, self.source, self.runtime.bash_enabled()),
         );
 
         self.command_stack.pop();
@@ -2903,9 +2904,15 @@ fn static_word_text(word: &Word, source: &str) -> Option<String> {
     collect_static_word_text(&word.parts, source, &mut result).then_some(result)
 }
 
-fn recorded_command_info(command: &Command, source: &str) -> RecordedCommandInfo {
+fn recorded_command_info(
+    command: &Command,
+    source: &str,
+    bash_runtime_vars_enabled: bool,
+) -> RecordedCommandInfo {
     match command {
-        Command::Simple(command) => recorded_simple_command_info(command, source),
+        Command::Simple(command) => {
+            recorded_simple_command_info(command, source, bash_runtime_vars_enabled)
+        }
         Command::Builtin(_)
         | Command::Decl(_)
         | Command::Binary(_)
@@ -2918,11 +2925,23 @@ fn recorded_command_info(command: &Command, source: &str) -> RecordedCommandInfo
 fn recorded_simple_command_info(
     command: &shuck_ast::SimpleCommand,
     source: &str,
+    bash_runtime_vars_enabled: bool,
 ) -> RecordedCommandInfo {
     let words = std::iter::once(&command.name)
         .chain(command.args.iter())
         .collect::<Vec<_>>();
     let mut static_callee = static_word_text(&command.name, source);
+    let static_args = command
+        .args
+        .iter()
+        .map(|word| static_word_text(word, source))
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    let source_path_template = static_callee
+        .as_deref()
+        .filter(|name| matches!(*name, "source" | "."))
+        .and_then(|_| command.args.first())
+        .and_then(|word| source_path_template(word, source, bash_runtime_vars_enabled));
 
     if static_callee.as_deref() == Some("noglob") {
         static_callee = words.get(1).and_then(|word| static_word_text(word, source));
@@ -2930,6 +2949,8 @@ fn recorded_simple_command_info(
 
     let mut info = RecordedCommandInfo {
         static_callee,
+        static_args,
+        source_path_template,
         zsh_effects: Vec::new(),
     };
     let Some((effect_callee, effect_index)) = normalize_recorded_zsh_effect_command(&words, source)
