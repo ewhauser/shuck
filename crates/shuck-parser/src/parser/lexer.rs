@@ -3258,6 +3258,13 @@ fn scan_double_quoted_command_substitution_segment(
                     index = escaped_next;
                 }
             }
+            '$' if input[next_index..].starts_with('{') => {
+                let consumed = scan_command_subst_parameter_expansion_len(
+                    &input[next_index + '{'.len_utf8()..],
+                    subst_depth,
+                )?;
+                index = next_index + '{'.len_utf8() + consumed;
+            }
             '$' if input[next_index..].starts_with('(')
                 && !input[next_index + '('.len_utf8()..].starts_with('(') =>
             {
@@ -3269,6 +3276,57 @@ fn scan_double_quoted_command_substitution_segment(
             }
             _ => index = next_index,
         }
+    }
+
+    None
+}
+
+fn scan_command_subst_parameter_expansion_len(input: &str, subst_depth: usize) -> Option<usize> {
+    let mut index = 0usize;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+
+    while let Some((ch, next_index)) = next_char_boundary(input, index) {
+        let was_escaped = escaped;
+        if ch == '\\' && !in_single {
+            escaped = !escaped;
+            index = next_index;
+            continue;
+        }
+        escaped = false;
+
+        if !in_single && !was_escaped && ch == '$' {
+            if input[next_index..].starts_with('{')
+                && let Some(consumed) = scan_command_subst_parameter_expansion_len(
+                    &input[next_index + '{'.len_utf8()..],
+                    subst_depth,
+                )
+            {
+                index = next_index + '{'.len_utf8() + consumed;
+                continue;
+            }
+
+            if input[next_index..].starts_with('(')
+                && !input[next_index + '('.len_utf8()..].starts_with('(')
+                && let Some(consumed) = scan_command_substitution_body_len_inner(
+                    &input[next_index + '('.len_utf8()..],
+                    subst_depth + 1,
+                )
+            {
+                index = next_index + '('.len_utf8() + consumed;
+                continue;
+            }
+        }
+
+        match ch {
+            '\'' if !in_double && !was_escaped => in_single = !in_single,
+            '"' if !in_single && !was_escaped => in_double = !in_double,
+            '}' if !in_single && !in_double && !was_escaped => return Some(next_index),
+            _ => {}
+        }
+
+        index = next_index;
     }
 
     None
@@ -3465,6 +3523,18 @@ fn scan_command_substitution_body_len_inner(input: &str, subst_depth: usize) -> 
                     index =
                         skip_command_subst_pending_heredoc(input, index, &delimiter, strip_tabs);
                 }
+            }
+            '$' if input[next_index..].starts_with('{') => {
+                Lexer::flush_command_subst_keyword(
+                    &mut current_word,
+                    &mut pending_case_headers,
+                    &mut case_clause_depth,
+                );
+                let consumed = scan_command_subst_parameter_expansion_len(
+                    &input[next_index + '{'.len_utf8()..],
+                    subst_depth,
+                )?;
+                index = next_index + '{'.len_utf8() + consumed;
             }
             '$' if input[next_index..].starts_with('(')
                 && !input[next_index + '('.len_utf8()..].starts_with('(') =>
@@ -3676,6 +3746,17 @@ mod tests {
         let body = &source[..consumed];
 
         assert!(body.contains("field, direction"));
+        assert!(body.ends_with(')'));
+    }
+
+    #[test]
+    fn test_scan_command_substitution_body_len_handles_parameter_expansion_with_right_paren() {
+        let source = "printf %s ${x//foo/)},1)\"";
+
+        let consumed = scan_command_substitution_body_len(source).expect("expected match");
+        let body = &source[..consumed];
+
+        assert!(body.contains("${x//foo/)},1"));
         assert!(body.ends_with(')'));
     }
 

@@ -68,6 +68,7 @@ h=(\"x\\\",y\")
 i=($((1,2)))
 j=(${x/\\\"/a,b})
 k=(x\\\\\",y\")
+l=($(printf %s ${x//foo/)},1))
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CommaArrayElements));
 

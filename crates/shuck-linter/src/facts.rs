@@ -12543,6 +12543,11 @@ fn scan_array_double_quoted_command_substitution_segment(
                     index = escaped_next;
                 }
             }
+            '$' if text[next_index..].starts_with('{') => {
+                let consumed =
+                    scan_array_parameter_expansion_len(&text[next_index + '{'.len_utf8()..])?;
+                index = next_index + '{'.len_utf8() + consumed;
+            }
             '$' if text[next_index..].starts_with('(')
                 && !text[next_index + '('.len_utf8()..].starts_with('(') =>
             {
@@ -12748,6 +12753,16 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
                         text, index, &delimiter, strip_tabs,
                     );
                 }
+            }
+            '$' if text[next_index..].starts_with('{') => {
+                flush_array_command_subst_keyword(
+                    &mut current_word,
+                    &mut pending_case_headers,
+                    &mut case_clause_depth,
+                );
+                let consumed =
+                    scan_array_parameter_expansion_len(&text[next_index + '{'.len_utf8()..])?;
+                index = next_index + '{'.len_utf8() + consumed;
             }
             '$' if text[next_index..].starts_with('(')
                 && !text[next_index + '('.len_utf8()..].starts_with('(') =>
@@ -13553,6 +13568,26 @@ complex[$((i+=1))]+=x
     #[test]
     fn ignores_commas_inside_piped_heredoc_command_substitution_array_elements() {
         let source = "#!/bin/bash\na=(\"$(cat <<EOF|tr '\\n' ' '\n{\"query\":\"field, direction\"}\nEOF\n)\")\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_parameter_expansions_with_right_parens_in_command_substitutions() {
+        let source = "#!/bin/bash\na=($(printf %s ${x//foo/)},1))\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
