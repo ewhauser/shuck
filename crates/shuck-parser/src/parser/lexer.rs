@@ -3669,18 +3669,22 @@ fn scan_command_subst_parameter_expansion_len(input: &str, subst_depth: usize) -
     let mut index = 0usize;
     let mut in_single = false;
     let mut in_double = false;
+    let mut in_ansi_c_single = false;
+    let mut in_backtick = false;
     let mut escaped = false;
+    let mut ansi_c_quote_pending = false;
 
     while let Some((ch, next_index)) = next_char_boundary(input, index) {
         let was_escaped = escaped;
         if ch == '\\' && !in_single {
             escaped = !escaped;
             index = next_index;
+            ansi_c_quote_pending = false;
             continue;
         }
         escaped = false;
 
-        if !in_single && !was_escaped && ch == '$' {
+        if !in_single && !in_ansi_c_single && !in_backtick && !was_escaped && ch == '$' {
             if input[next_index..].starts_with('{')
                 && let Some(consumed) = scan_command_subst_parameter_expansion_len(
                     &input[next_index + '{'.len_utf8()..],
@@ -3688,6 +3692,7 @@ fn scan_command_subst_parameter_expansion_len(input: &str, subst_depth: usize) -
                 )
             {
                 index = next_index + '{'.len_utf8() + consumed;
+                ansi_c_quote_pending = false;
                 continue;
             }
 
@@ -3699,17 +3704,61 @@ fn scan_command_subst_parameter_expansion_len(input: &str, subst_depth: usize) -
                 )
             {
                 index = next_index + '('.len_utf8() + consumed;
+                ansi_c_quote_pending = false;
                 continue;
             }
         }
 
+        if !in_single
+            && !in_ansi_c_single
+            && !in_double
+            && !in_backtick
+            && !was_escaped
+            && matches!(ch, '<' | '>')
+            && input[next_index..].starts_with('(')
+            && let Some(consumed) = scan_command_substitution_body_len_inner(
+                &input[next_index + '('.len_utf8()..],
+                subst_depth + 1,
+            )
+        {
+            index = next_index + '('.len_utf8() + consumed;
+            ansi_c_quote_pending = false;
+            continue;
+        }
+
         match ch {
-            '\'' if !in_double && !was_escaped => in_single = !in_single,
-            '"' if !in_single && !was_escaped => in_double = !in_double,
-            '}' if !in_single && !in_double && !was_escaped => return Some(next_index),
+            '\'' if !in_double && !in_backtick && !was_escaped => {
+                if in_ansi_c_single {
+                    in_ansi_c_single = false;
+                } else if !in_single && ansi_c_quote_pending {
+                    in_ansi_c_single = true;
+                } else {
+                    in_single = !in_single;
+                }
+            }
+            '"' if !in_single && !in_ansi_c_single && !in_backtick && !was_escaped => {
+                in_double = !in_double
+            }
+            '`' if !in_single && !in_ansi_c_single && !in_double && !was_escaped => {
+                in_backtick = !in_backtick
+            }
+            '}' if !in_single
+                && !in_ansi_c_single
+                && !in_double
+                && !in_backtick
+                && !was_escaped =>
+            {
+                return Some(next_index);
+            }
             _ => {}
         }
 
+        ansi_c_quote_pending = ch == '$'
+            && !in_single
+            && !in_ansi_c_single
+            && !in_double
+            && !in_backtick
+            && !was_escaped;
         index = next_index;
     }
 
@@ -4514,6 +4563,29 @@ mod tests {
 
         assert!(body.contains("`echo foo)`"));
         assert!(body.contains("printf %s ok"));
+        assert!(body.ends_with(')'));
+    }
+
+    #[test]
+    fn test_scan_command_substitution_body_len_handles_backticks_inside_parameter_expansions() {
+        let source = "printf %s ${x/`echo }`/foo)},1)\"";
+
+        let consumed = scan_command_substitution_body_len(source).expect("expected match");
+        let body = &source[..consumed];
+
+        assert!(body.contains("${x/`echo }`/foo)},1"));
+        assert!(body.ends_with(')'));
+    }
+
+    #[test]
+    fn test_scan_command_substitution_body_len_handles_process_substitutions_inside_parameter_expansions()
+     {
+        let source = "printf %s ${x/<(echo })/foo)},1)\"";
+
+        let consumed = scan_command_substitution_body_len(source).expect("expected match");
+        let body = &source[..consumed];
+
+        assert!(body.contains("${x/<(echo })/foo)},1"));
         assert!(body.ends_with(')'));
     }
 
