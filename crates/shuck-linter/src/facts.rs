@@ -2810,15 +2810,11 @@ impl<'a> LinterFactsBuilder<'a> {
                 id,
             });
 
-            match context.condition_kind {
-                Some(query::ConditionKind::If) => {
-                    if_condition_command_ids.insert(id);
-                }
-                Some(query::ConditionKind::Elif) => {
-                    if_condition_command_ids.insert(id);
-                    elif_condition_command_ids.insert(id);
-                }
-                Some(query::ConditionKind::While | query::ConditionKind::Until) | None => {}
+            if context.in_if_condition {
+                if_condition_command_ids.insert(id);
+            }
+            if context.in_elif_condition {
+                elif_condition_command_ids.insert(id);
             }
 
             collect_scalar_bindings(visit.command, &mut scalar_bindings);
@@ -13146,6 +13142,42 @@ done
                 .find(|fact| fact.span().slice(source) == "[[ -f elif_path ]]")
                 .expect("expected nested elif condition command");
             assert!(elif_nested.scope_read_source_words().is_empty());
+            assert!(facts.is_elif_condition_command(elif_nested.id()));
+        });
+    }
+
+    #[test]
+    fn tracks_nested_while_and_until_conditions_inside_if_and_elif_conditions() {
+        let source = "\
+#!/bin/bash
+if while [[ -f if_path ]]; do
+  :
+done; then
+  :
+elif until [[ -f elif_path ]]; do
+  :
+done; then
+  :
+fi
+";
+
+        with_facts(source, None, |_, facts| {
+            let if_nested = facts
+                .commands()
+                .iter()
+                .find(|fact| fact.span().slice(source) == "[[ -f if_path ]]")
+                .expect("expected nested while condition command");
+            assert!(if_nested.scope_read_source_words().is_empty());
+            assert!(facts.is_if_condition_command(if_nested.id()));
+            assert!(!facts.is_elif_condition_command(if_nested.id()));
+
+            let elif_nested = facts
+                .commands()
+                .iter()
+                .find(|fact| fact.span().slice(source) == "[[ -f elif_path ]]")
+                .expect("expected nested until condition command");
+            assert!(elif_nested.scope_read_source_words().is_empty());
+            assert!(facts.is_if_condition_command(elif_nested.id()));
             assert!(facts.is_elif_condition_command(elif_nested.id()));
         });
     }

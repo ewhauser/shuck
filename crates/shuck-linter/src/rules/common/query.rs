@@ -24,6 +24,8 @@ pub(crate) struct CommandTraversalContext {
     pub(crate) walk: WalkContext,
     pub(crate) nested_word_command: bool,
     pub(crate) condition_kind: Option<ConditionKind>,
+    pub(crate) in_if_condition: bool,
+    pub(crate) in_elif_condition: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -367,8 +369,18 @@ fn condition_context(
     context: CommandTraversalContext,
     kind: ConditionKind,
 ) -> CommandTraversalContext {
+    let (in_if_condition, in_elif_condition) = match kind {
+        ConditionKind::If => (true, context.in_elif_condition),
+        ConditionKind::Elif => (true, true),
+        ConditionKind::While | ConditionKind::Until => {
+            (context.in_if_condition, context.in_elif_condition)
+        }
+    };
+
     CommandTraversalContext {
         condition_kind: Some(kind),
+        in_if_condition,
+        in_elif_condition,
         ..context
     }
 }
@@ -850,17 +862,41 @@ fi
                 if name == ":" {
                     return;
                 }
-                visits.push((name, context.nested_word_command, context.condition_kind));
+                visits.push((
+                    name,
+                    context.nested_word_command,
+                    context.condition_kind,
+                    context.in_if_condition,
+                    context.in_elif_condition,
+                ));
             },
         );
 
         assert_eq!(
             visits,
             vec![
-                ("foo".to_owned(), false, Some(ConditionKind::If)),
-                ("bar".to_owned(), true, Some(ConditionKind::If)),
-                ("baz".to_owned(), false, Some(ConditionKind::While)),
-                ("qux".to_owned(), true, Some(ConditionKind::While)),
+                (
+                    "foo".to_owned(),
+                    false,
+                    Some(ConditionKind::If),
+                    true,
+                    false
+                ),
+                ("bar".to_owned(), true, Some(ConditionKind::If), true, false),
+                (
+                    "baz".to_owned(),
+                    false,
+                    Some(ConditionKind::While),
+                    true,
+                    true
+                ),
+                (
+                    "qux".to_owned(),
+                    true,
+                    Some(ConditionKind::While),
+                    true,
+                    true
+                ),
             ]
         );
     }
@@ -890,17 +926,22 @@ done
                 if name == ":" {
                     return;
                 }
-                visits.push((name, context.condition_kind));
+                visits.push((
+                    name,
+                    context.condition_kind,
+                    context.in_if_condition,
+                    context.in_elif_condition,
+                ));
             },
         );
 
         assert_eq!(
             visits,
             vec![
-                ("foo".to_owned(), Some(ConditionKind::If)),
-                ("bar".to_owned(), Some(ConditionKind::While)),
-                ("baz".to_owned(), Some(ConditionKind::Elif)),
-                ("qux".to_owned(), Some(ConditionKind::While)),
+                ("foo".to_owned(), Some(ConditionKind::If), true, false),
+                ("bar".to_owned(), Some(ConditionKind::While), false, false),
+                ("baz".to_owned(), Some(ConditionKind::Elif), true, true),
+                ("qux".to_owned(), Some(ConditionKind::While), false, false),
             ]
         );
     }
