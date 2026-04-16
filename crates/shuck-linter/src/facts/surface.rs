@@ -947,13 +947,9 @@ fn is_plain_substring_expansion_text(text: &str) -> bool {
         return false;
     };
     let name = &inner[..colon_index];
-    if name.is_empty() {
+    if !looks_like_plain_substring_target(name) {
         return false;
     }
-    if name.contains('[') || name.contains(']') {
-        return false;
-    }
-
     let suffix = &inner[colon_index + 1..];
     if suffix.is_empty() {
         return false;
@@ -963,6 +959,16 @@ fn is_plain_substring_expansion_text(text: &str) -> bool {
     }
 
     true
+}
+
+fn looks_like_plain_substring_target(name: &str) -> bool {
+    if name.is_empty() || name.contains('[') || name.contains(']') {
+        return false;
+    }
+
+    matches!(name, "@" | "*" | "?" | "-" | "$")
+        || name.bytes().all(|byte| byte.is_ascii_digit())
+        || is_shell_name(name)
 }
 
 fn plain_case_modification_span(span: Span, source: &str) -> Option<Span> {

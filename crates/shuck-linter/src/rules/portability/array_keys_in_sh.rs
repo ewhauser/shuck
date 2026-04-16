@@ -113,7 +113,7 @@ printf '%s\\n' \"${!arr[*]}\"
     }
 
     #[test]
-    fn owns_array_key_expansions_when_both_indirect_expansion_rules_are_enabled() {
+    fn adds_specific_array_key_diagnostic_without_suppressing_x018() {
         let source = "printf '%s\\n' \"${!arr[*]}\" \"${!name}\"\n";
         let diagnostics = test_snippet(
             source,
@@ -121,12 +121,18 @@ printf '%s\\n' \"${!arr[*]}\"
                 .with_shell(ShellDialect::Sh),
         );
 
-        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics.len(), 3);
         assert!(
             diagnostics
                 .iter()
                 .any(|diagnostic| diagnostic.span.slice(source) == "${!arr[*]}"
                     && diagnostic.rule == Rule::ArrayKeysInSh)
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.span.slice(source) == "${!arr[*]}"
+                    && diagnostic.rule == Rule::IndirectExpansion)
         );
         assert!(
             diagnostics
