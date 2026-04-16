@@ -7,7 +7,7 @@ pub use line_index::LineIndex;
 pub use region_index::{RegionIndex, RegionKind};
 
 use shuck_ast::TextSize;
-use shuck_parser::parser::ParseOutput;
+use shuck_parser::parser::ParseResult;
 
 /// Pre-computed positional and structural index over a parsed shell script.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,7 +20,7 @@ pub struct Indexer {
 
 impl Indexer {
     /// Build an index from parser output and the original source text.
-    pub fn new(source: &str, output: &ParseOutput) -> Self {
+    pub fn new(source: &str, output: &ParseResult) -> Self {
         let line_index = LineIndex::new(source);
         let comment_index = CommentIndex::new(source, &line_index, &output.file);
         let region_index = RegionIndex::new(source, &output.file);

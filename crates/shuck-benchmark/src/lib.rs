@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
+use shuck_parser::parser::{ParseResult, Parser};
 #[cfg(feature = "parser-benchmarking")]
-use shuck_parser::parser::ParserBenchmarkCounters;
-use shuck_parser::parser::{ParseOutput, Parser};
+use shuck_parser::parser::{ParseStatus, ParserBenchmarkCounters};
 
 /// Categorize fixtures by expected runtime so Criterion can spend
 /// more time where it is useful without making the slowest cases drag.
@@ -112,32 +112,14 @@ pub fn resources_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("resources")
 }
 
-fn parse_fixture_with<T, E>(
-    source: &str,
-    parse: impl FnOnce(Parser<'_>) -> std::result::Result<T, E>,
-    recover: impl FnOnce(Parser<'_>) -> T,
-) -> (T, bool) {
-    match parse(Parser::new(source)) {
-        Ok(output) => (output, false),
-        Err(_) => (recover(Parser::new(source)), true),
-    }
-}
-
-pub fn parse_fixture(source: &str) -> ParseOutput {
-    parse_fixture_with(
-        source,
-        |parser| parser.parse(),
-        |parser| ParseOutput {
-            file: parser.parse_recovered().file,
-        },
-    )
-    .0
+pub fn parse_fixture(source: &str) -> ParseResult {
+    Parser::new(source).parse()
 }
 
 #[cfg(feature = "parser-benchmarking")]
 #[doc(hidden)]
 pub struct CountedParseFixtureOutput {
-    pub output: ParseOutput,
+    pub output: ParseResult,
     pub counters: ParserBenchmarkCounters,
     pub recovered: bool,
 }
@@ -145,24 +127,12 @@ pub struct CountedParseFixtureOutput {
 #[cfg(feature = "parser-benchmarking")]
 #[doc(hidden)]
 pub fn parse_fixture_with_benchmark_counters(source: &str) -> CountedParseFixtureOutput {
-    let ((output, counters), recovered) = parse_fixture_with(
-        source,
-        |parser| parser.parse_with_benchmark_counters(),
-        |parser| {
-            let (recovered, counters) = parser.parse_recovered_with_benchmark_counters();
-            (
-                ParseOutput {
-                    file: recovered.file,
-                },
-                counters,
-            )
-        },
-    );
+    let (output, counters) = Parser::new(source).parse_with_benchmark_counters();
 
     CountedParseFixtureOutput {
+        recovered: output.status != ParseStatus::Clean,
         output,
         counters,
-        recovered,
     }
 }
 

@@ -4,11 +4,9 @@ use std::path::Path;
 
 use shuck_indexer::Indexer;
 use shuck_parser::ShellProfile;
-use shuck_parser::parser::{
-    ParseDiagnostic, ParseOutput, Parser, ShellDialect as ParseShellDialect,
-};
+use shuck_parser::parser::{ParseResult, Parser, ShellDialect as ParseShellDialect};
 
-use crate::{Diagnostic, LinterSettings, lint_file_at_path_with_parse_diagnostics};
+use crate::{Diagnostic, LinterSettings, lint_file_at_path_with_parse_result};
 
 fn inferred_shell_profile(
     source: &str,
@@ -32,34 +30,15 @@ fn inferred_shell_profile(
     ShellProfile::native(dialect)
 }
 
-fn parse_for_lint(
-    source: &str,
-    settings: &LinterSettings,
-    path: Option<&Path>,
-) -> (ParseOutput, Vec<ParseDiagnostic>) {
-    let recovered = Parser::with_profile(source, inferred_shell_profile(source, settings, path))
-        .parse_recovered();
-    (
-        ParseOutput {
-            file: recovered.file,
-        },
-        recovered.diagnostics,
-    )
+fn parse_for_lint(source: &str, settings: &LinterSettings, path: Option<&Path>) -> ParseResult {
+    Parser::with_profile(source, inferred_shell_profile(source, settings, path)).parse()
 }
 
 /// Lint a source string directly (no file needed).
 pub fn test_snippet(source: &str, settings: &LinterSettings) -> Vec<Diagnostic> {
-    let (output, parse_diagnostics) = parse_for_lint(source, settings, None);
-    let indexer = Indexer::new(source, &output);
-    lint_file_at_path_with_parse_diagnostics(
-        &output.file,
-        source,
-        &indexer,
-        settings,
-        None,
-        None,
-        &parse_diagnostics,
-    )
+    let parse_result = parse_for_lint(source, settings, None);
+    let indexer = Indexer::new(source, &parse_result);
+    lint_file_at_path_with_parse_result(&parse_result, source, &indexer, settings, None, None)
 }
 
 /// Lint a source string while preserving an explicit path for path-sensitive rules.
@@ -68,17 +47,9 @@ pub fn test_snippet_at_path(
     source: &str,
     settings: &LinterSettings,
 ) -> Vec<Diagnostic> {
-    let (output, parse_diagnostics) = parse_for_lint(source, settings, Some(path));
-    let indexer = Indexer::new(source, &output);
-    lint_file_at_path_with_parse_diagnostics(
-        &output.file,
-        source,
-        &indexer,
-        settings,
-        None,
-        Some(path),
-        &parse_diagnostics,
-    )
+    let parse_result = parse_for_lint(source, settings, Some(path));
+    let indexer = Indexer::new(source, &parse_result);
+    lint_file_at_path_with_parse_result(&parse_result, source, &indexer, settings, None, Some(path))
 }
 
 /// Lint a fixture file relative to `resources/test/fixtures/`.

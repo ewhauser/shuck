@@ -90,9 +90,10 @@ pub fn format_source(
     options: &ShellFormatOptions,
 ) -> Result<FormattedSource> {
     let dialect = options.resolve(source, path).dialect();
-    let parsed = Parser::with_dialect(source, dialect)
-        .parse()
-        .map_err(map_parse_error)?;
+    let parsed = Parser::with_dialect(source, dialect).parse();
+    if parsed.is_err() {
+        return Err(map_parse_error(parsed.strict_error()));
+    }
 
     format_file_ast(source, parsed.file, path, options)
 }
@@ -104,9 +105,10 @@ pub fn source_is_formatted(
     options: &ShellFormatOptions,
 ) -> Result<bool> {
     let dialect = options.resolve(source, path).dialect();
-    let parsed = Parser::with_dialect(source, dialect)
-        .parse()
-        .map_err(map_parse_error)?;
+    let parsed = Parser::with_dialect(source, dialect).parse();
+    if parsed.is_err() {
+        return Err(map_parse_error(parsed.strict_error()));
+    }
 
     let resolved = options.resolve(source, path);
     check_file(source, parsed.file, resolved)
@@ -202,7 +204,7 @@ mod tests {
         source: &str,
         path: Option<&Path>,
         options: &ShellFormatOptions,
-    ) -> shuck_parser::parser::ParseOutput {
+    ) -> shuck_parser::parser::ParseResult {
         let dialect = options.resolve(source, path).dialect();
         Parser::with_dialect(source, dialect).parse().unwrap()
     }

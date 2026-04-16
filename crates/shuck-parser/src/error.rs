@@ -4,7 +4,7 @@
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Shuck error types.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Error {
     /// Parse error occurred while parsing the script.
     ///

@@ -12669,7 +12669,7 @@ mod tests {
         path: Option<&Path>,
         parse_dialect: ParseShellDialect,
         shell: ShellDialect,
-        visit: impl FnOnce(&shuck_parser::parser::ParseOutput, &LinterFacts<'_>),
+        visit: impl FnOnce(&shuck_parser::parser::ParseResult, &LinterFacts<'_>),
     ) {
         let output = Parser::with_dialect(source, parse_dialect).parse().unwrap();
         let indexer = Indexer::new(source, &output);
@@ -12682,7 +12682,7 @@ mod tests {
     fn with_facts(
         source: &str,
         path: Option<&Path>,
-        visit: impl FnOnce(&shuck_parser::parser::ParseOutput, &LinterFacts<'_>),
+        visit: impl FnOnce(&shuck_parser::parser::ParseResult, &LinterFacts<'_>),
     ) {
         with_facts_dialect(
             source,

@@ -10,11 +10,8 @@ use shuck_formatter::{
     format_source, source_is_formatted,
 };
 use shuck_indexer::Indexer;
-use shuck_linter::{Diagnostic, LinterSettings, lint_file_at_path_with_parse_diagnostics};
-use shuck_parser::{
-    ShellDialect as ParseDialect,
-    parser::{ParseOutput, Parser, RecoveredParse},
-};
+use shuck_linter::{Diagnostic, LinterSettings, lint_file_at_path_with_parse_result};
+use shuck_parser::{ShellDialect as ParseDialect, parser::{ParseResult, Parser}};
 
 const MAX_FUZZ_INPUT_BYTES: usize = 16 * 1024;
 const MAX_FUZZ_NESTING: i32 = 64;
@@ -103,13 +100,10 @@ pub(crate) fn assert_span_valid(span: Span, source: &str) {
 pub(crate) fn recovered_parse_and_index(
     source: &str,
     dialect: ParseDialect,
-) -> (RecoveredParse, Indexer) {
-    let recovered = Parser::with_dialect(source, dialect).parse_recovered();
-    let output = ParseOutput {
-        file: recovered.file.clone(),
-    };
-    let indexer = Indexer::new(source, &output);
-    (recovered, indexer)
+) -> (ParseResult, Indexer) {
+    let parse_result = Parser::with_dialect(source, dialect).parse();
+    let indexer = Indexer::new(source, &parse_result);
+    (parse_result, indexer)
 }
 
 pub(crate) fn format_result_to_string(result: FormattedSource, source: &str) -> String {
@@ -124,23 +118,19 @@ pub(crate) fn lint_source_with_recovery(
     path: Option<&Path>,
     dialect: ParseDialect,
 ) -> Vec<Diagnostic> {
-    let recovered = Parser::with_dialect(source, dialect).parse_recovered();
-    let output = ParseOutput {
-        file: recovered.file,
-    };
-    let indexer = Indexer::new(source, &output);
+    let parse_result = Parser::with_dialect(source, dialect).parse();
+    let indexer = Indexer::new(source, &parse_result);
     let settings = match path {
         Some(path) => LinterSettings::default().with_analyzed_paths([path.to_path_buf()]),
         None => LinterSettings::default(),
     };
-    lint_file_at_path_with_parse_diagnostics(
-        &output.file,
+    lint_file_at_path_with_parse_result(
+        &parse_result,
         source,
         &indexer,
         &settings,
         None,
         path,
-        &recovered.diagnostics,
     )
 }
 
@@ -149,19 +139,23 @@ pub(crate) fn lint_source_strict(
     path: &Path,
     dialect: ParseDialect,
 ) -> Vec<Diagnostic> {
-    let output = Parser::with_dialect(source, dialect)
-        .parse()
-        .unwrap_or_else(|err| panic!("strict parse failed for {}: {err}", path.display()));
-    let indexer = Indexer::new(source, &output);
+    let parse_result = Parser::with_dialect(source, dialect).parse();
+    if parse_result.is_err() {
+        panic!(
+            "strict parse failed for {}: {}",
+            path.display(),
+            parse_result.strict_error()
+        );
+    }
+    let indexer = Indexer::new(source, &parse_result);
     let settings = LinterSettings::default().with_analyzed_paths([path.to_path_buf()]);
-    lint_file_at_path_with_parse_diagnostics(
-        &output.file,
+    lint_file_at_path_with_parse_result(
+        &parse_result,
         source,
         &indexer,
         &settings,
         None,
         Some(path),
-        &[],
     )
 }
 
@@ -181,13 +175,16 @@ pub(crate) fn compare_formatting_invariants(source: &str, case: FormatCase) {
     };
 
     let parsed = Parser::with_dialect(source, case.parse_dialect())
-        .parse()
-        .unwrap_or_else(|err| {
-            panic!(
-                "formatter accepted source but strict parsing failed for {}: {err}",
-                case.path().display()
-            )
-        });
+        .parse();
+    let parsed = if parsed.is_err() {
+        panic!(
+            "formatter accepted source but strict parsing failed for {}: {}",
+            case.path().display(),
+            parsed.strict_error()
+        )
+    } else {
+        parsed
+    };
     let from_ast = format_file_ast(source, parsed.file, path, &options).unwrap_or_else(|err| {
         panic!(
             "format_file_ast failed for {}: {err}",
