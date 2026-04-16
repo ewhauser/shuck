@@ -1912,6 +1912,77 @@ fn test_parameter_replacement_word_keeps_escaped_single_quotes_literal() {
 }
 
 #[test]
+fn test_parameter_replacement_spans_cover_complex_pattern_and_replacement_bodies() {
+    let input = "\
+echo ${dest_dir//\\'/\\'\\\\\\'\\'} ${TERMUX_PKG_VERSION_EDITED//${INCORRECT_SYMBOLS:0:1}${INCORRECT_SYMBOLS:1:1}/${INCORRECT_SYMBOLS:0:1}.${INCORRECT_SYMBOLS:1:1}} ${GITHUB_GRAPHQL_QUERIES[$BATCH * $BATCH_SIZE]//\\\\/} ${run_depends/${i}/${dep}}\n\
+";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+
+    assert_eq!(
+        command.args[0]
+            .parts
+            .iter()
+            .map(|part| part.span.slice(input))
+            .collect::<Vec<_>>(),
+        vec![r#"${dest_dir//\'/\'\\\'\'}"#]
+    );
+
+    let spans = command
+        .args
+        .iter()
+        .map(|word| word.parts[0].span.slice(input))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        spans,
+        vec![
+            "${dest_dir//\\'/\\'\\\\\\'\\'}",
+            "${TERMUX_PKG_VERSION_EDITED//${INCORRECT_SYMBOLS:0:1}${INCORRECT_SYMBOLS:1:1}/${INCORRECT_SYMBOLS:0:1}.${INCORRECT_SYMBOLS:1:1}}",
+            "${GITHUB_GRAPHQL_QUERIES[$BATCH * $BATCH_SIZE]//\\\\/}",
+            "${run_depends/${i}/${dep}}",
+        ]
+    );
+
+    let (_, operator, _) = expect_parameter_operation_part(&command.args[1].parts[0].kind);
+    let ParameterOp::ReplaceAll {
+        pattern,
+        replacement,
+        replacement_word_ast,
+    } = operator
+    else {
+        panic!("expected replace-all operator");
+    };
+    assert_eq!(
+        pattern.render(input),
+        "${INCORRECT_SYMBOLS:0:1}${INCORRECT_SYMBOLS:1:1}"
+    );
+    assert_eq!(
+        replacement.slice(input),
+        "${INCORRECT_SYMBOLS:0:1}.${INCORRECT_SYMBOLS:1:1}"
+    );
+    assert_eq!(
+        replacement_word_ast.render(input),
+        "${INCORRECT_SYMBOLS:0:1}.${INCORRECT_SYMBOLS:1:1}"
+    );
+
+    let (_, operator, _) = expect_parameter_operation_part(&command.args[3].parts[0].kind);
+    let ParameterOp::ReplaceFirst {
+        pattern,
+        replacement,
+        replacement_word_ast,
+    } = operator
+    else {
+        panic!("expected replace-first operator");
+    };
+    assert_eq!(pattern.render(input), "${i}");
+    assert_eq!(replacement.slice(input), "${dep}");
+    assert_eq!(replacement_word_ast.render(input), "${dep}");
+}
+
+#[test]
 fn test_decode_cooked_word_keeps_variable_after_literal_backslash() {
     let cooked = r#"\$HOME"#;
     let span = Span::from_positions(Position::new(), Position::new().advanced_by(cooked));

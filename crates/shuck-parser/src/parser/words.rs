@@ -3785,18 +3785,31 @@ impl<'a> Parser<'a> {
                                     source_backed,
                                 );
                                 let pattern = self.pattern_from_source_text(&pattern_text);
-                                let replacement =
+                                let (replacement, consumed_closing_brace) =
                                     if Self::consume_word_char_if(&mut chars, &mut cursor, '/') {
-                                        self.read_source_text_while(
+                                        let replacement = self.read_brace_operand(
                                             &mut chars,
                                             &mut cursor,
-                                            |ch| ch != '}',
                                             source_backed,
+                                        );
+                                        (
+                                            replacement,
+                                            cursor.offset > 0
+                                                && self.input[..cursor.offset].ends_with('}'),
                                         )
                                     } else {
-                                        self.empty_source_text(cursor)
+                                        (self.empty_source_text(cursor), false)
                                     };
-                                Self::consume_word_char_if(&mut chars, &mut cursor, '}');
+                                if !consumed_closing_brace {
+                                    Self::consume_word_char_if(&mut chars, &mut cursor, '}');
+                                }
+                                if !Span::from_positions(part_start, cursor)
+                                    .slice(self.input)
+                                    .ends_with('}')
+                                    && self.input[cursor.offset..].starts_with('}')
+                                {
+                                    cursor.advance('}');
+                                }
                                 let operator = if replace_all {
                                     ParameterOp::ReplaceAll {
                                         pattern,
@@ -4061,18 +4074,31 @@ impl<'a> Parser<'a> {
                                 source_backed,
                             );
                             let pattern = self.pattern_from_source_text(&pattern_text);
-                            let replacement =
+                            let (replacement, consumed_closing_brace) =
                                 if Self::consume_word_char_if(&mut chars, &mut cursor, '/') {
-                                    self.read_source_text_while(
+                                    let replacement = self.read_brace_operand(
                                         &mut chars,
                                         &mut cursor,
-                                        |ch| ch != '}',
                                         source_backed,
+                                    );
+                                    (
+                                        replacement,
+                                        cursor.offset > 0
+                                            && self.input[..cursor.offset].ends_with('}'),
                                     )
                                 } else {
-                                    self.empty_source_text(cursor)
+                                    (self.empty_source_text(cursor), false)
                                 };
-                            Self::consume_word_char_if(&mut chars, &mut cursor, '}');
+                            if !consumed_closing_brace {
+                                Self::consume_word_char_if(&mut chars, &mut cursor, '}');
+                            }
+                            if !Span::from_positions(part_start, cursor)
+                                .slice(self.input)
+                                .ends_with('}')
+                                && self.input[cursor.offset..].starts_with('}')
+                            {
+                                cursor.advance('}');
+                            }
                             let operator = if replace_all {
                                 ParameterOp::ReplaceAll {
                                     pattern,
@@ -4365,18 +4391,31 @@ impl<'a> Parser<'a> {
                                 source_backed,
                             );
                             let pattern = self.pattern_from_source_text(&pattern_text);
-                            let replacement =
+                            let (replacement, consumed_closing_brace) =
                                 if Self::consume_word_char_if(&mut chars, &mut cursor, '/') {
-                                    self.read_source_text_while(
+                                    let replacement = self.read_brace_operand(
                                         &mut chars,
                                         &mut cursor,
-                                        |ch| ch != '}',
                                         source_backed,
+                                    );
+                                    (
+                                        replacement,
+                                        cursor.offset > 0
+                                            && self.input[..cursor.offset].ends_with('}'),
                                     )
                                 } else {
-                                    self.empty_source_text(cursor)
+                                    (self.empty_source_text(cursor), false)
                                 };
-                            Self::consume_word_char_if(&mut chars, &mut cursor, '}');
+                            if !consumed_closing_brace {
+                                Self::consume_word_char_if(&mut chars, &mut cursor, '}');
+                            }
+                            if !Span::from_positions(part_start, cursor)
+                                .slice(self.input)
+                                .ends_with('}')
+                                && self.input[cursor.offset..].starts_with('}')
+                            {
+                                cursor.advance('}');
+                            }
                             let operator = if replace_all {
                                 ParameterOp::ReplaceAll {
                                     pattern,
