@@ -966,7 +966,7 @@ fn looks_like_plain_substring_target(name: &str) -> bool {
         return false;
     }
 
-    matches!(name, "@" | "*")
+    matches!(name, "@" | "*" | "?" | "-" | "$")
         || name.bytes().all(|byte| byte.is_ascii_digit())
         || is_shell_name(name)
 }

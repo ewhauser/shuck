@@ -36,7 +36,7 @@ mod tests {
     fn anchors_on_scalar_and_positional_substring_expansions() {
         let source = "\
 #!/bin/sh
-printf '%s\n' \"${1:1}\" \"${name:2}\" \"${name::2}\" \"${@:1}\" \"${*:1:2}\" \"${arr[@]:1}\" \"${arr[0]:1}\"\n\
+printf '%s\n' \"${1:1}\" \"${name:2}\" \"${name::2}\" \"${@:1}\" \"${*:1:2}\" \"${?:1}\" \"${-:1}\" \"${$:1}\" \"${arr[@]:1}\" \"${arr[0]:1}\"\n\
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubstringExpansion));
 
@@ -45,7 +45,16 @@ printf '%s\n' \"${1:1}\" \"${name:2}\" \"${name::2}\" \"${@:1}\" \"${*:1:2}\" \"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["${1:1}", "${name:2}", "${name::2}", "${@:1}", "${*:1:2}"]
+            vec![
+                "${1:1}",
+                "${name:2}",
+                "${name::2}",
+                "${@:1}",
+                "${*:1:2}",
+                "${?:1}",
+                "${-:1}",
+                "${$:1}",
+            ]
         );
     }
 
