@@ -17,10 +17,13 @@ pub fn indirect_expansion(checker: &mut Checker) {
         return;
     }
 
+    let specific_array_keys_rule_enabled = checker.is_rule_enabled(Rule::ArrayKeysInSh);
+
     let spans = checker
         .facts()
         .indirect_expansion_fragments()
         .iter()
+        .filter(|fragment| !(specific_array_keys_rule_enabled && fragment.array_keys()))
         .map(|fragment| fragment.span())
         .collect::<Vec<_>>();
 
@@ -63,5 +66,32 @@ printf '%s\n' \"${!name}\" \"${!name:-fallback}\" \"${!build_option_@}\" \"${!ar
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn leaves_array_key_expansions_to_x071_when_enabled() {
+        let source = "\
+#!/bin/sh
+printf '%s\n' \"${!name}\" \"${!arr[*]}\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rules([Rule::IndirectExpansion, Rule::ArrayKeysInSh])
+                .with_shell(ShellDialect::Sh),
+        );
+
+        assert_eq!(diagnostics.len(), 2);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.span.slice(source) == "${!name}"
+                    && diagnostic.rule == Rule::IndirectExpansion)
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.span.slice(source) == "${!arr[*]}"
+                    && diagnostic.rule == Rule::ArrayKeysInSh)
+        );
     }
 }
