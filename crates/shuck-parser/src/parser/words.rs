@@ -1155,6 +1155,7 @@ impl<'a> Parser<'a> {
         let mut in_single = false;
         let mut in_ansi_c_single = false;
         let mut in_double = false;
+        let mut in_backtick = false;
         let mut escaped = false;
         let mut ansi_c_quote_pending = false;
 
@@ -1170,7 +1171,7 @@ impl<'a> Parser<'a> {
             }
             escaped = false;
 
-            if !in_single && !in_ansi_c_single && !was_escaped && ch == '$' {
+            if !in_single && !in_ansi_c_single && !in_backtick && !was_escaped && ch == '$' {
                 if text[next_index..].starts_with('{')
                     && let Some(consumed) = Self::scan_array_parameter_expansion_len(
                         &text[next_index + '{'.len_utf8()..],
@@ -1203,7 +1204,7 @@ impl<'a> Parser<'a> {
             }
 
             match ch {
-                '\'' if !in_double && !was_escaped => {
+                '\'' if !in_double && !in_backtick && !was_escaped => {
                     if in_ansi_c_single {
                         in_ansi_c_single = false;
                     } else if !in_single && ansi_c_quote_pending {
@@ -1212,15 +1213,29 @@ impl<'a> Parser<'a> {
                         in_single = !in_single;
                     }
                 }
-                '"' if !in_single && !in_ansi_c_single && !was_escaped => in_double = !in_double,
-                '}' if !in_single && !in_ansi_c_single && !in_double && !was_escaped => {
+                '"' if !in_single && !in_ansi_c_single && !in_backtick && !was_escaped => {
+                    in_double = !in_double
+                }
+                '`' if !in_single && !in_ansi_c_single && !in_double && !was_escaped => {
+                    in_backtick = !in_backtick
+                }
+                '}' if !in_single
+                    && !in_ansi_c_single
+                    && !in_double
+                    && !in_backtick
+                    && !was_escaped =>
+                {
                     return Some(next_index);
                 }
                 _ => {}
             }
 
-            ansi_c_quote_pending =
-                ch == '$' && !in_single && !in_ansi_c_single && !in_double && !was_escaped;
+            ansi_c_quote_pending = ch == '$'
+                && !in_single
+                && !in_ansi_c_single
+                && !in_double
+                && !in_backtick
+                && !was_escaped;
             index = next_index;
         }
 

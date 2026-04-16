@@ -13691,6 +13691,26 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
     }
 
     #[test]
+    fn ignores_commas_inside_backticks_inside_parameter_expansions() {
+        let source = "#!/bin/bash\na=(${x/`echo }`/a,b})\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn summarizes_command_options_and_invokers() {
         let source = "#!/bin/bash\nread -r name\necho -ne hi\necho '-I' hi\necho \"\\\\n\"\necho \\x41\necho \"prefix $VAR \\\\0 suffix\"\ncommand echo \\n\ntr -ds a-z A-Z\ntr -- 'a-z' xyz\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -type d -name CVS | xargs -iX rm -rf X\nfind . -type d -name CVS | xargs --replace rm -rf {}\nfind . -name a -o -name b -print\nfind . -name *.cfg\nfind . -name \"$prefix\"*.jar\nfind . -wholename */tmp/*\nfind . -name \\*.ignore\nfind . -type f*\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\n./configure --with-optmizer=${CFLAGS}\nconfigure \"--enable-optmizer=${CFLAGS}\"\n./configure --with-optimizer=${CFLAGS}\nps -p 1 -o comm=\nps p 123 -o comm=\nps -ef\ndoas printf '%s\\n' hi\n";
         let output = Parser::new(source).parse().unwrap();

@@ -828,6 +828,7 @@ arr=(
   <(printf %s 1,2)
   >(printf %s 3,4)
   ${x/a,b/c}
+  ${x/`echo }`/a,b}
   $((1,2))
   foo,{x,y},bar
 )
@@ -841,7 +842,7 @@ arr=(
         panic!("expected compound array assignment");
     };
 
-    assert_eq!(array.elements.len(), 11, "{:#?}", array.elements);
+    assert_eq!(array.elements.len(), 12, "{:#?}", array.elements);
 
     let ArrayElem::Sequential(first) = &array.elements[0] else {
         panic!("expected first sequential element");
@@ -865,7 +866,8 @@ arr=(
         (6, "<(printf %s 1,2)"),
         (7, ">(printf %s 3,4)"),
         (8, "${x/a,b/c}"),
-        (9, "$((1,2))"),
+        (9, "${x/`echo }`/a,b}"),
+        (10, "$((1,2))"),
     ] {
         let ArrayElem::Sequential(value) = &array.elements[index] else {
             panic!("expected sequential element at index {index}");
@@ -878,7 +880,7 @@ arr=(
         );
     }
 
-    let ArrayElem::Sequential(last) = &array.elements[10] else {
+    let ArrayElem::Sequential(last) = &array.elements[11] else {
         panic!("expected trailing sequential element");
     };
     assert_eq!(last.span.slice(input), "foo,{x,y},bar");
