@@ -1215,6 +1215,21 @@ impl<'a> Parser<'a> {
                 }
             }
 
+            if !in_single
+                && !in_ansi_c_single
+                && !in_double
+                && !in_backtick
+                && !was_escaped
+                && matches!(ch, '<' | '>')
+                && text[next_index..].starts_with('(')
+                && let Some(consumed) =
+                    lexer::scan_command_substitution_body_len(&text[next_index + '('.len_utf8()..])
+            {
+                index = next_index + '('.len_utf8() + consumed;
+                ansi_c_quote_pending = false;
+                continue;
+            }
+
             match ch {
                 '\'' if !in_double && !in_backtick && !was_escaped => {
                     if in_ansi_c_single {
