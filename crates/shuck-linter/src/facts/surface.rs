@@ -677,12 +677,14 @@ impl<'a> SurfaceFragmentSink<'a> {
             return;
         }
 
-        if let Some(word) = word {
-            self.collect_word(word, context.without_open_double_quote_scan());
-        } else {
-            let word = Parser::parse_word_fragment(self.source, snippet, text.span());
-            self.collect_word(&word, context.without_open_double_quote_scan());
-        }
+        debug_assert!(
+            word.is_some(),
+            "parser-backed fragment text should always carry a word AST"
+        );
+        let Some(word) = word else {
+            return;
+        };
+        self.collect_word(word, context.without_open_double_quote_scan());
     }
 
     fn collect_zsh_qualified_glob(

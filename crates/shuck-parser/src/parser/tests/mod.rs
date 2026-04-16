@@ -459,6 +459,82 @@ fn expect_binary(stmt: &Stmt) -> &BinaryCommand {
     command
 }
 
+#[test]
+fn ordinary_subscripts_keep_word_asts_while_selectors_do_not() {
+    let input = "echo ${map[$key]} ${map[@]}\n";
+    let output = Parser::new(input).parse().unwrap();
+    let command = expect_simple(&output.file.body.stmts[0]);
+
+    let ordinary = expect_array_access(&command.args[0]);
+    let ordinary_subscript = expect_subscript(ordinary, input, "$key");
+    assert_eq!(
+        ordinary_subscript
+            .word_ast()
+            .expect("expected ordinary subscript word AST")
+            .render_syntax(input),
+        "$key"
+    );
+
+    let selector = expect_array_access(&command.args[1]);
+    let selector_subscript = expect_subscript(selector, input, "@");
+    assert!(selector_subscript.word_ast().is_none());
+}
+
+#[test]
+fn parser_backed_parameter_fragments_keep_word_asts() {
+    let bash_input = "echo ${name:-$fallback}\n";
+    let bash_output = Parser::new(bash_input).parse().unwrap();
+    let bash_command = expect_simple(&bash_output.file.body.stmts[0]);
+    let bash_parameter = expect_parameter(&bash_command.args[0]);
+    let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
+        operand_word_ast,
+        ..
+    }) = &bash_parameter.syntax
+    else {
+        panic!("expected parameter operation");
+    };
+    assert_eq!(
+        operand_word_ast
+            .as_ref()
+            .expect("expected operand word AST")
+            .render_syntax(bash_input),
+        "$fallback"
+    );
+
+    let zsh_input = "echo ${(j.:.)name//foo/$bar}\n";
+    let zsh_output = Parser::with_dialect(zsh_input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let zsh_command = expect_simple(&zsh_output.file.body.stmts[0]);
+    let zsh_parameter = expect_parameter(&zsh_command.args[0]);
+    let ParameterExpansionSyntax::Zsh(syntax) = &zsh_parameter.syntax else {
+        panic!("expected zsh parameter expansion");
+    };
+    assert_eq!(
+        syntax.modifiers[0]
+            .argument_word_ast()
+            .expect("expected zsh modifier argument word AST")
+            .render_syntax(zsh_input),
+        ":"
+    );
+    let Some(ZshExpansionOperation::ReplacementOperation {
+        pattern_word_ast,
+        replacement_word_ast,
+        ..
+    }) = syntax.operation.as_ref()
+    else {
+        panic!("expected zsh replacement operation");
+    };
+    assert_eq!(pattern_word_ast.render_syntax(zsh_input), "foo");
+    assert_eq!(
+        replacement_word_ast
+            .as_ref()
+            .expect("expected zsh replacement word AST")
+            .render_syntax(zsh_input),
+        "$bar"
+    );
+}
+
 mod commands;
 mod heredocs;
 mod redirects;

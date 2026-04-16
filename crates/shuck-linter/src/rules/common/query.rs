@@ -4,8 +4,6 @@ use shuck_ast::{
     DeclOperand, FunctionDef, HeredocBodyPartNode, Pattern, PatternPart, Redirect, Stmt, StmtSeq,
     Subscript, VarRef, Word, WordPart, WordPartNode, ZshGlobSegment,
 };
-use shuck_parser::parser::Parser;
-
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct WalkContext {
     pub(crate) loop_depth: usize,
@@ -213,7 +211,7 @@ fn collect_var_ref_subscript_words<'a>(reference: &'a VarRef, words: &mut Vec<&'
     );
 }
 
-fn collect_subscript_words(subscript: Option<&Subscript>, source: &str, words: &mut Vec<Word>) {
+fn collect_subscript_words(subscript: Option<&Subscript>, _source: &str, words: &mut Vec<Word>) {
     let Some(subscript) = subscript else {
         return;
     };
@@ -232,12 +230,10 @@ fn collect_subscript_words(subscript: Option<&Subscript>, source: &str, words: &
         return;
     }
 
-    let text = subscript.syntax_source_text();
-    words.push(Parser::parse_word_fragment(
-        source,
-        text.slice(source),
-        text.span(),
-    ));
+    debug_assert!(
+        subscript.word_ast().is_some(),
+        "ordinary subscripts should always carry a word AST"
+    );
 }
 
 fn collect_optional_arithmetic_words<'a>(
@@ -805,11 +801,15 @@ fn collect_heredoc_body_part_visits<'a, F>(
 
 #[cfg(test)]
 mod tests {
-    use shuck_ast::{Command, StmtSeq, Word, WordPart};
+    use shuck_ast::{
+        BourneParameterExpansion, Command, ParameterExpansionSyntax, StmtSeq, VarRef, Word,
+        WordPart,
+    };
     use shuck_parser::parser::Parser;
 
     use super::{
-        CommandWalkOptions, ConditionKind, iter_commands, pipeline_segments, walk_commands,
+        CommandWalkOptions, ConditionKind, iter_commands, pipeline_segments,
+        visit_var_ref_subscript_words_with_source, walk_commands,
     };
 
     fn parse_commands(source: &str) -> StmtSeq {
@@ -826,6 +826,21 @@ mod tests {
             }
         }
         Some(result)
+    }
+
+    fn parameter_access_reference(word: &Word) -> &VarRef {
+        let [part] = word.parts.as_slice() else {
+            panic!("expected single parameter part");
+        };
+        let WordPart::Parameter(parameter) = &part.kind else {
+            panic!("expected parameter part, got {:?}", part.kind);
+        };
+        let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference }) =
+            &parameter.syntax
+        else {
+            panic!("expected access expansion, got {:?}", parameter.syntax);
+        };
+        reference
     }
 
     #[test]
@@ -996,5 +1011,30 @@ done
             .collect::<Vec<_>>();
 
         assert_eq!(segments, vec!["printf", "command", "tee"]);
+    }
+
+    #[test]
+    fn visit_var_ref_subscript_words_uses_parser_backed_subscript_words() {
+        let source = "echo ${map[$key]} ${map[@]}\n";
+        let commands = parse_commands(source);
+        let Command::Simple(command) = &commands.stmts[0].command else {
+            panic!("expected simple command");
+        };
+
+        let ordinary = parameter_access_reference(&command.args[0]);
+        let selector = parameter_access_reference(&command.args[1]);
+
+        let mut ordinary_words = Vec::new();
+        visit_var_ref_subscript_words_with_source(ordinary, source, &mut |word| {
+            ordinary_words.push(word.render_syntax(source));
+        });
+
+        let mut selector_words = Vec::new();
+        visit_var_ref_subscript_words_with_source(selector, source, &mut |word| {
+            selector_words.push(word.render_syntax(source));
+        });
+
+        assert_eq!(ordinary_words, vec!["$key"]);
+        assert!(selector_words.is_empty());
     }
 }

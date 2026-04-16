@@ -4030,12 +4030,14 @@ fn collect_base_prefix_spans_in_fragment(
         return;
     }
 
-    if let Some(word) = word {
-        collect_base_prefix_spans_in_word(word, source, spans);
-    } else {
-        let word = Parser::parse_word_fragment(source, snippet, text.span());
-        collect_base_prefix_spans_in_word(&word, source, spans);
-    }
+    debug_assert!(
+        word.is_some(),
+        "parser-backed fragment text should always carry a word AST"
+    );
+    let Some(word) = word else {
+        return;
+    };
+    collect_base_prefix_spans_in_word(word, source, spans);
 }
 
 fn collect_base_prefix_spans_in_text(span: Span, source: &str, spans: &mut Vec<Span>) {
@@ -7110,7 +7112,13 @@ fn collect_status_parameter_spans_in_source_text(
     source: &str,
     spans: &mut Vec<Span>,
 ) {
-    collect_status_parameter_spans_in_fragment(None, Some(text), source, spans);
+    let snippet = text.slice(source);
+    if !snippet.contains("$?") {
+        return;
+    }
+
+    let word = Parser::parse_word_fragment(source, snippet, text.span());
+    collect_status_parameter_spans_in_word(&word, source, spans);
 }
 
 fn collect_status_parameter_spans_in_fragment(
@@ -7126,12 +7134,14 @@ fn collect_status_parameter_spans_in_fragment(
     if !snippet.contains("$?") {
         return;
     }
-    if let Some(word) = word {
-        collect_status_parameter_spans_in_word(word, source, spans);
-    } else {
-        let word = Parser::parse_word_fragment(source, snippet, text.span());
-        collect_status_parameter_spans_in_word(&word, source, spans);
-    }
+    debug_assert!(
+        word.is_some(),
+        "parser-backed fragment text should always carry a word AST"
+    );
+    let Some(word) = word else {
+        return;
+    };
+    collect_status_parameter_spans_in_word(word, source, spans);
 }
 
 fn build_redirect_facts<'a>(
