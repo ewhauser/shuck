@@ -116,18 +116,20 @@ impl<'a> SurfaceFragmentSink<'a> {
     }
 
     fn record_array_reference(&mut self, span: Span) {
-        let Some(span) = plain_array_reference_span(span, self.source) else {
+        if self
+            .facts
+            .indexed_array_references
+            .iter()
+            .any(|fragment| fragment.span() == span)
+        {
             return;
-        };
+        }
         self.facts
             .indexed_array_references
             .push(IndexedArrayReferenceFragmentFact { span });
     }
 
     fn record_substring_expansion(&mut self, span: Span) {
-        let Some(span) = plain_substring_expansion_span(span, self.source) else {
-            return;
-        };
         if self
             .facts
             .substring_expansions
@@ -142,9 +144,6 @@ impl<'a> SurfaceFragmentSink<'a> {
     }
 
     fn record_case_modification(&mut self, span: Span) {
-        let Some(span) = plain_case_modification_span(span, self.source) else {
-            return;
-        };
         if self
             .facts
             .case_modifications
@@ -159,9 +158,6 @@ impl<'a> SurfaceFragmentSink<'a> {
     }
 
     fn record_replacement_expansion(&mut self, span: Span) {
-        let Some(span) = plain_replacement_expansion_span(span, self.source) else {
-            return;
-        };
         if self
             .facts
             .replacement_expansions
@@ -388,6 +384,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                         .push(LegacyArithmeticFragmentFact { span: part.span });
                     collect_positional_parameter_operator_spans_in_arithmetic(
                         part.span,
+                        expression_ast.as_ref(),
                         expression,
                         self.source,
                         &mut self.facts.positional_parameter_operator_spans,
@@ -405,6 +402,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                 } => {
                     collect_positional_parameter_operator_spans_in_arithmetic(
                         part.span,
+                        expression_ast.as_ref(),
                         expression,
                         self.source,
                         &mut self.facts.positional_parameter_operator_spans,
@@ -605,6 +603,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                         .push(LegacyArithmeticFragmentFact { span: part.span });
                     collect_positional_parameter_operator_spans_in_arithmetic(
                         part.span,
+                        expression_ast.as_ref(),
                         expression,
                         self.source,
                         &mut self.facts.positional_parameter_operator_spans,
@@ -622,6 +621,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                 } => {
                     collect_positional_parameter_operator_spans_in_arithmetic(
                         part.span,
+                        expression_ast.as_ref(),
                         expression,
                         self.source,
                         &mut self.facts.positional_parameter_operator_spans,
@@ -1013,242 +1013,21 @@ fn reference_has_array_subscript(reference: &VarRef) -> bool {
     reference.subscript.is_some()
 }
 
-fn plain_array_reference_span(span: Span, source: &str) -> Option<Span> {
-    let text = span.slice(source);
-    let inner = text.strip_prefix("${")?.strip_suffix('}')?;
-    if inner.starts_with('#') || inner.starts_with('!') || !inner.ends_with(']') {
-        return None;
-    }
-
-    let open = inner.find('[')?;
-    let close = inner.rfind(']')?;
-    if close != inner.len() - 1 || close <= open {
-        return None;
-    }
-
-    Some(span)
-}
-
-fn plain_substring_expansion_span(span: Span, source: &str) -> Option<Span> {
-    let text = span.slice(source);
-    let relative_start = text.find("${")?;
-    let start = span.start.advanced_by(&text[..relative_start]);
-    let after_start = &source[start.offset..];
-    let relative_end = after_start.find('}')?;
-    let end = start.advanced_by(&after_start[..relative_end + '}'.len_utf8()]);
-    let candidate = &after_start[..relative_end + '}'.len_utf8()];
-
-    is_plain_substring_expansion_text(candidate).then_some(Span::from_positions(start, end))
-}
-
-fn is_plain_substring_expansion_text(text: &str) -> bool {
-    let Some(inner) = text
-        .strip_prefix("${")
-        .and_then(|text| text.strip_suffix('}'))
-    else {
-        return false;
-    };
-    if inner.starts_with('#') || inner.starts_with('!') {
-        return false;
-    }
-
-    let Some(colon_index) = inner.find(':') else {
-        return false;
-    };
-    let name = &inner[..colon_index];
-    if !looks_like_plain_substring_target(name) {
-        return false;
-    }
-    let suffix = &inner[colon_index + 1..];
-    if suffix.is_empty() {
-        return false;
-    }
-    if matches!(suffix.chars().next(), Some('-' | '=' | '+' | '?')) {
-        return false;
-    }
-
-    true
-}
-
-fn looks_like_plain_substring_target(name: &str) -> bool {
-    if name.is_empty() || name.contains('[') || name.contains(']') {
-        return false;
-    }
-
-    matches!(name, "@" | "*" | "?" | "-" | "$")
-        || name.bytes().all(|byte| byte.is_ascii_digit())
-        || is_shell_name(name)
-}
-
-fn plain_case_modification_span(span: Span, source: &str) -> Option<Span> {
-    let text = span.slice(source);
-    let relative_start = text.find("${")?;
-    let start = span.start.advanced_by(&text[..relative_start]);
-    let after_start = &source[start.offset..];
-    let relative_end = after_start.find('}')?;
-    let end = start.advanced_by(&after_start[..relative_end + '}'.len_utf8()]);
-    let candidate = &after_start[..relative_end + '}'.len_utf8()];
-
-    is_plain_case_modification_text(candidate).then_some(Span::from_positions(start, end))
-}
-
-fn is_plain_case_modification_text(text: &str) -> bool {
-    let Some(inner) = text
-        .strip_prefix("${")
-        .and_then(|text| text.strip_suffix('}'))
-    else {
-        return false;
-    };
-    if inner.starts_with('#') || inner.starts_with('!') {
-        return false;
-    }
-
-    let mut index = 0;
-    let chars = inner.chars().collect::<Vec<_>>();
-    while index < chars.len()
-        && (chars[index].is_ascii_alphanumeric()
-            || chars[index] == '_'
-            || matches!(chars[index], '@' | '*'))
-    {
-        index += 1;
-    }
-
-    if index == 0 {
-        return false;
-    }
-
-    if chars.get(index) == Some(&'[') {
-        let mut close = index + 1;
-        while close < chars.len() && chars[close] != ']' {
-            close += 1;
-        }
-        if close == chars.len() {
-            return false;
-        }
-        index = close + 1;
-    }
-
-    let Some(&operator) = chars.get(index) else {
-        return false;
-    };
-    if !matches!(operator, '^' | ',') {
-        return false;
-    }
-
-    true
-}
-
-fn plain_replacement_expansion_span(span: Span, source: &str) -> Option<Span> {
-    let text = span.slice(source);
-    let (relative_start, relative_end) = next_parameter_expansion_candidate(text, 0)?;
-    let start = span.start.advanced_by(&text[..relative_start]);
-    let end = span.start.advanced_by(&text[..relative_end]);
-    let candidate = &text[relative_start..relative_end];
-
-    is_plain_replacement_expansion_text(candidate).then_some(Span::from_positions(start, end))
-}
-
-fn is_plain_replacement_expansion_text(text: &str) -> bool {
-    let Some(inner) = text
-        .strip_prefix("${")
-        .and_then(|text| text.strip_suffix('}'))
-    else {
-        return false;
-    };
-    if inner.starts_with('#') || inner.starts_with('!') {
-        return false;
-    }
-
-    let mut index = 0;
-    let chars = inner.chars().collect::<Vec<_>>();
-    while index < chars.len()
-        && (chars[index].is_ascii_alphanumeric()
-            || chars[index] == '_'
-            || matches!(chars[index], '@' | '*'))
-    {
-        index += 1;
-    }
-
-    if index == 0 {
-        return false;
-    }
-
-    if chars.get(index) == Some(&'[') {
-        let mut close = index + 1;
-        while close < chars.len() && chars[close] != ']' {
-            close += 1;
-        }
-        if close == chars.len() {
-            return false;
-        }
-        index = close + 1;
-    }
-
-    if chars.get(index) != Some(&'/') {
-        return false;
-    }
-
-    index += 1;
-    if chars.get(index) == Some(&'/') {
-        index += 1;
-    }
-
-    index < chars.len()
-}
-
-fn next_parameter_expansion_candidate(text: &str, search_start: usize) -> Option<(usize, usize)> {
-    let bytes = text.as_bytes();
-    let mut index = search_start;
-
-    while index + 1 < bytes.len() {
-        match bytes[index] {
-            b'\\' => {
-                index += 2;
-            }
-            b'$' if bytes[index + 1] == b'{' => {
-                let start = index;
-                index += 2;
-                let mut depth = 1;
-
-                while index < bytes.len() {
-                    match bytes[index] {
-                        b'\\' => {
-                            index += 2;
-                        }
-                        b'$' if index + 1 < bytes.len() && bytes[index + 1] == b'{' => {
-                            depth += 1;
-                            index += 2;
-                        }
-                        b'}' => {
-                            depth -= 1;
-                            index += 1;
-                            if depth == 0 {
-                                return Some((start, index));
-                            }
-                        }
-                        _ => {
-                            index += 1;
-                        }
-                    }
-                }
-
-                return None;
-            }
-            _ => {
-                index += 1;
-            }
-        }
-    }
-
-    None
-}
-
 fn collect_positional_parameter_operator_spans_in_arithmetic(
     expansion_span: Span,
+    expression_ast: Option<&ArithmeticExprNode>,
     expression: &SourceText,
     source: &str,
     spans: &mut Vec<Span>,
 ) {
+    if expression_ast.is_some_and(arithmetic_expr_has_positional_parameter_operator) {
+        spans.push(Span::from_positions(
+            expansion_span.start,
+            expansion_span.start,
+        ));
+        return;
+    }
+
     let text = expression.slice(source);
     let mut should_report = false;
     let mut state = ArithmeticScanState::default();
@@ -1300,6 +1079,58 @@ fn collect_positional_parameter_operator_spans_in_arithmetic(
             expansion_span.start,
         ));
     }
+}
+
+fn arithmetic_expr_has_positional_parameter_operator(expression: &ArithmeticExprNode) -> bool {
+    let mut should_report = false;
+    query::visit_arithmetic_words(expression, &mut |word| {
+        if word_has_unquoted_positional_parameter_concatenation(word) {
+            should_report = true;
+        }
+    });
+    should_report
+}
+
+fn word_has_unquoted_positional_parameter_concatenation(word: &Word) -> bool {
+    word.parts.iter().enumerate().any(|(index, part)| {
+        part_is_unquoted_positional_parameter(&part.kind)
+            && (index > 0 || index + 1 < word.parts.len())
+    })
+}
+
+fn part_is_unquoted_positional_parameter(part: &WordPart) -> bool {
+    match part {
+        WordPart::Variable(name) => name_is_positional_parameter(name),
+        WordPart::Parameter(parameter) => matches!(
+            &parameter.syntax,
+            ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
+                if reference.subscript.is_none()
+                    && name_is_positional_parameter(&reference.name)
+        ),
+        WordPart::ArrayAccess(reference) => {
+            reference.subscript.is_none() && name_is_positional_parameter(&reference.name)
+        }
+        WordPart::Literal(_)
+        | WordPart::ZshQualifiedGlob(_)
+        | WordPart::SingleQuoted { .. }
+        | WordPart::DoubleQuoted { .. }
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ArithmeticExpansion { .. }
+        | WordPart::ParameterExpansion { .. }
+        | WordPart::Length(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::Substring { .. }
+        | WordPart::ArraySlice { .. }
+        | WordPart::IndirectExpansion { .. }
+        | WordPart::PrefixMatch { .. }
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::Transformation { .. } => false,
+    }
+}
+
+fn name_is_positional_parameter(name: &Name) -> bool {
+    !name.as_str().is_empty() && name.as_str().bytes().all(|byte| byte.is_ascii_digit())
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -1537,8 +1368,12 @@ fn is_unicode_smart_quote(char: char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{SubscriptSpanIndex, plain_replacement_expansion_span};
-    use shuck_ast::{Position, Span};
+    use super::{
+        SubscriptSpanIndex, arithmetic_expr_has_positional_parameter_operator,
+        word_has_unquoted_positional_parameter_concatenation,
+    };
+    use shuck_ast::{Command, Position, Span, WordPart};
+    use shuck_parser::parser::Parser;
 
     fn span(start: usize, end: usize) -> Span {
         Span::from_positions(
@@ -1567,20 +1402,56 @@ mod tests {
     }
 
     #[test]
-    fn plain_replacement_expansion_span_handles_complex_replacements() {
-        for text in [
-            r#"${dest_dir//\'/\'\\\'\'}"#,
-            r#"${TERMUX_PKG_VERSION//-/.}"#,
-            r#"${TERMUX_PKG_VERSION_EDITED//${INCORRECT_SYMBOLS:0:1}${INCORRECT_SYMBOLS:1:1}/${INCORRECT_SYMBOLS:0:1}.${INCORRECT_SYMBOLS:1:1}}"#,
-            r#"${GITHUB_GRAPHQL_QUERIES[$BATCH * $BATCH_SIZE]//\\/}"#,
-            r#"${run_depends/${i}/${dep}}"#,
-        ] {
-            assert_eq!(
-                plain_replacement_expansion_span(span(0, text.len()), text)
-                    .expect("expected replacement expansion span")
-                    .slice(text),
-                text
+    fn detects_internal_positional_parameter_concatenation_in_arithmetic_words() {
+        for text in ["$1$2", "$1suffix", "prefix$1", "${1}x"] {
+            let word = Parser::parse_word_string(text);
+            assert!(
+                word_has_unquoted_positional_parameter_concatenation(&word),
+                "expected {text:?} to be flagged",
             );
         }
+    }
+
+    #[test]
+    fn ignores_isolated_or_quoted_positional_parameters_in_arithmetic_words() {
+        for text in ["$1", "${1}", "\"$1\"", "'$1'"] {
+            let word = Parser::parse_word_string(text);
+            assert!(
+                !word_has_unquoted_positional_parameter_concatenation(&word),
+                "expected {text:?} to be ignored",
+            );
+        }
+    }
+
+    #[test]
+    fn detects_positional_parameter_operator_in_parsed_arithmetic_shell_word() {
+        let source = "#!/bin/sh\necho \"$(( value + $1suffix ))\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let command = output.file.body.stmts.first().expect("expected command");
+        let Command::Simple(command) = &command.command else {
+            panic!("expected simple command");
+        };
+        let expression_ast = command.args[0]
+            .parts
+            .iter()
+            .find_map(|part| match &part.kind {
+                WordPart::DoubleQuoted { parts, .. } => parts.iter().find_map(|part| {
+                    if let WordPart::ArithmeticExpansion {
+                        expression_ast: Some(expression_ast),
+                        ..
+                    } = &part.kind
+                    {
+                        Some(expression_ast)
+                    } else {
+                        None
+                    }
+                }),
+                _ => None,
+            })
+            .expect("expected parsed arithmetic expression");
+
+        assert!(arithmetic_expr_has_positional_parameter_operator(
+            expression_ast
+        ));
     }
 }

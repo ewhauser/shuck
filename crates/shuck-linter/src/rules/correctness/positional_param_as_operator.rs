@@ -60,6 +60,23 @@ echo \"$(( x ? $1 : y ))\"
     }
 
     #[test]
+    fn reports_concatenated_positional_parameters_in_valid_arithmetic_words() {
+        let source = "\
+#!/bin/sh
+echo \"$(( value + $1suffix ))\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PositionalParamAsOperator),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 7);
+        assert_eq!(diagnostics[0].span.end, diagnostics[0].span.start);
+    }
+
+    #[test]
     fn ignores_non_positional_parameter_expansions_in_arithmetic() {
         let source = "\
 #!/bin/sh
