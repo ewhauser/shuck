@@ -1288,22 +1288,7 @@ impl<'a> Lexer<'a> {
             .rfind('\n')
             .map_or(0, |index| index + 1);
         let prefix = &self.input[line_start..self.offset];
-        let mut chars = prefix.chars().peekable();
-        let mut depth = 0usize;
-
-        while let Some(ch) = chars.next() {
-            if ch == '(' && chars.peek() == Some(&'(') {
-                chars.next();
-                depth += 1;
-                continue;
-            }
-            if ch == ')' && chars.peek() == Some(&')') {
-                chars.next();
-                depth = depth.saturating_sub(1);
-            }
-        }
-
-        depth > 0
+        line_has_unclosed_double_paren(prefix)
     }
 
     /// Check if this is a file descriptor redirect (e.g., 2>, 2>>, 2>&1)
@@ -3226,25 +3211,60 @@ fn next_char_boundary(input: &str, index: usize) -> Option<(char, usize)> {
     Some((ch, index + ch.len_utf8()))
 }
 
-fn inside_unclosed_double_paren_on_line(input: &str, index: usize) -> bool {
-    let line_start = input[..index].rfind('\n').map_or(0, |found| found + 1);
-    let prefix = &input[line_start..index];
-    let mut chars = prefix.chars().peekable();
+fn line_has_unclosed_double_paren(prefix: &str) -> bool {
+    let mut index = 0usize;
     let mut depth = 0usize;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut in_backtick = false;
+    let mut escaped = false;
 
-    while let Some(ch) = chars.next() {
-        if ch == '(' && chars.peek() == Some(&'(') {
-            chars.next();
-            depth += 1;
+    while let Some((ch, next_index)) = next_char_boundary(prefix, index) {
+        let was_escaped = escaped;
+        if ch == '\\' && !in_single {
+            escaped = !escaped;
+            index = next_index;
             continue;
         }
-        if ch == ')' && chars.peek() == Some(&')') {
-            chars.next();
-            depth = depth.saturating_sub(1);
+        escaped = false;
+
+        match ch {
+            '\'' if !in_double && !in_backtick && !was_escaped => in_single = !in_single,
+            '"' if !in_single && !in_backtick && !was_escaped => in_double = !in_double,
+            '`' if !in_single && !in_double && !was_escaped => in_backtick = !in_backtick,
+            '(' if !in_single
+                && !in_double
+                && !in_backtick
+                && !was_escaped
+                && prefix[next_index..].starts_with('(') =>
+            {
+                depth += 1;
+                index = next_index + '('.len_utf8();
+                continue;
+            }
+            ')' if !in_single
+                && !in_double
+                && !in_backtick
+                && !was_escaped
+                && prefix[next_index..].starts_with(')') =>
+            {
+                depth = depth.saturating_sub(1);
+                index = next_index + ')'.len_utf8();
+                continue;
+            }
+            _ => {}
         }
+
+        index = next_index;
     }
 
     depth > 0
+}
+
+fn inside_unclosed_double_paren_on_line(input: &str, index: usize) -> bool {
+    let line_start = input[..index].rfind('\n').map_or(0, |found| found + 1);
+    let prefix = &input[line_start..index];
+    line_has_unclosed_double_paren(prefix)
 }
 
 fn hash_starts_comment(input: &str, index: usize) -> bool {
@@ -3525,6 +3545,11 @@ fn scan_command_substitution_body_len_inner(input: &str, subst_depth: usize) -> 
                     &mut pending_case_headers,
                     &mut case_clause_depth,
                 );
+                if inside_unclosed_double_paren_on_line(input, index) {
+                    index = next_index + '<'.len_utf8();
+                    continue;
+                }
+
                 // Here string (`<<<`) does not queue a heredoc body.
                 if input[next_index + '<'.len_utf8()..].starts_with('<') {
                     index = next_index + '<'.len_utf8() + '<'.len_utf8();
@@ -3815,6 +3840,36 @@ mod tests {
         let index = source.find('#').expect("expected hash");
 
         assert!(!hash_starts_comment(source, index));
+    }
+
+    #[test]
+    fn test_hash_starts_comment_respects_quoted_double_parens() {
+        let source = "printf '((' # comment";
+        let index = source.find('#').expect("expected hash");
+
+        assert!(hash_starts_comment(source, index));
+    }
+
+    #[test]
+    fn test_scan_command_substitution_body_len_handles_quoted_double_parens_before_comments() {
+        let source = "printf '((' # comment with )\nprintf %s 1,2\n)\"";
+
+        let consumed = scan_command_substitution_body_len(source).expect("expected match");
+        let body = &source[..consumed];
+
+        assert!(body.contains("printf %s 1,2"));
+        assert!(body.ends_with(')'));
+    }
+
+    #[test]
+    fn test_scan_command_substitution_body_len_ignores_arithmetic_shift_for_heredoc_detection() {
+        let source = "((x<<2))\nprintf %s 1,2\n)\"";
+
+        let consumed = scan_command_substitution_body_len(source).expect("expected match");
+        let body = &source[..consumed];
+
+        assert!(body.contains("printf %s 1,2"));
+        assert!(body.ends_with(')'));
     }
 
     #[test]

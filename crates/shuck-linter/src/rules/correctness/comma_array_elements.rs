@@ -77,4 +77,20 @@ o=(${x/a,b/{})
 
         assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
+
+    #[test]
+    fn ignores_multiline_command_substitution_scanner_edge_cases() {
+        let source = "\
+#!/bin/bash
+a=($(printf '((' # comment with )
+printf %s 1,2
+))
+b=($( ((x<<2))
+printf %s 3,4
+))
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CommaArrayElements));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
 }

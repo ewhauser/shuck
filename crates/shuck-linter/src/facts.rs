@@ -12503,25 +12503,60 @@ fn next_char_boundary(text: &str, index: usize) -> Option<(char, usize)> {
     Some((ch, index + ch.len_utf8()))
 }
 
-fn inside_unclosed_double_paren_on_line(text: &str, index: usize) -> bool {
-    let line_start = text[..index].rfind('\n').map_or(0, |found| found + 1);
-    let prefix = &text[line_start..index];
-    let mut chars = prefix.chars().peekable();
+fn line_has_unclosed_double_paren(prefix: &str) -> bool {
+    let mut index = 0usize;
     let mut depth = 0usize;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut in_backtick = false;
+    let mut escaped = false;
 
-    while let Some(ch) = chars.next() {
-        if ch == '(' && chars.peek() == Some(&'(') {
-            chars.next();
-            depth += 1;
+    while let Some((ch, next_index)) = next_char_boundary(prefix, index) {
+        let was_escaped = escaped;
+        if ch == '\\' && !in_single {
+            escaped = !escaped;
+            index = next_index;
             continue;
         }
-        if ch == ')' && chars.peek() == Some(&')') {
-            chars.next();
-            depth = depth.saturating_sub(1);
+        escaped = false;
+
+        match ch {
+            '\'' if !in_double && !in_backtick && !was_escaped => in_single = !in_single,
+            '"' if !in_single && !in_backtick && !was_escaped => in_double = !in_double,
+            '`' if !in_single && !in_double && !was_escaped => in_backtick = !in_backtick,
+            '(' if !in_single
+                && !in_double
+                && !in_backtick
+                && !was_escaped
+                && prefix[next_index..].starts_with('(') =>
+            {
+                depth += 1;
+                index = next_index + '('.len_utf8();
+                continue;
+            }
+            ')' if !in_single
+                && !in_double
+                && !in_backtick
+                && !was_escaped
+                && prefix[next_index..].starts_with(')') =>
+            {
+                depth = depth.saturating_sub(1);
+                index = next_index + ')'.len_utf8();
+                continue;
+            }
+            _ => {}
         }
+
+        index = next_index;
     }
 
     depth > 0
+}
+
+fn inside_unclosed_double_paren_on_line(text: &str, index: usize) -> bool {
+    let line_start = text[..index].rfind('\n').map_or(0, |found| found + 1);
+    let prefix = &text[line_start..index];
+    line_has_unclosed_double_paren(prefix)
 }
 
 fn hash_starts_comment(text: &str, index: usize) -> bool {
@@ -12768,6 +12803,11 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
                     &mut pending_case_headers,
                     &mut case_clause_depth,
                 );
+                if inside_unclosed_double_paren_on_line(text, index) {
+                    index = next_index + '<'.len_utf8();
+                    continue;
+                }
+
                 if text[next_index + '('.len_utf8()..].starts_with('<') {
                     index = next_index + '<'.len_utf8() + '<'.len_utf8();
                     continue;
@@ -13712,6 +13752,46 @@ complex[$((i+=1))]+=x
     }
 
     #[test]
+    fn ignores_commas_inside_comments_after_quoted_double_parens() {
+        let source = "#!/bin/bash\na=($(printf '((' # comment with )\nprintf %s 1,2\n))\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_arithmetic_shift_command_substitutions() {
+        let source = "#!/bin/bash\na=($( ((x<<2))\nprintf %s 1,2\n))\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn hash_starts_comment_ignores_zsh_inline_glob_controls_after_left_paren() {
         let source = "[[ \"$buf\" == (#b)(*) ]]";
         let index = source.find('#').expect("expected hash");
@@ -13725,6 +13805,14 @@ complex[$((i+=1))]+=x
         let index = source.find('#').expect("expected hash");
 
         assert!(!super::hash_starts_comment(source, index));
+    }
+
+    #[test]
+    fn hash_starts_comment_respects_quoted_double_parens() {
+        let source = "printf '((' # comment";
+        let index = source.find('#').expect("expected hash");
+
+        assert!(super::hash_starts_comment(source, index));
     }
 
     #[test]
