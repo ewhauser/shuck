@@ -39,6 +39,7 @@ use crate::builder::SemanticModelBuilder;
 use crate::cfg::{RecordedProgram, build_control_flow_graph};
 use crate::dataflow::{DataflowContext, DataflowResult, ExactVariableDataflow};
 use crate::runtime::RuntimePrelude;
+use crate::source_closure::ImportedBindingContractSite;
 use crate::zsh_options::ZshOptionAnalysis;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -295,6 +296,7 @@ pub struct SemanticModel {
     recorded_program: RecordedProgram,
     command_bindings: FxHashMap<SpanKey, Vec<BindingId>>,
     command_references: FxHashMap<SpanKey, Vec<ReferenceId>>,
+    import_origins_by_binding: FxHashMap<BindingId, Vec<PathBuf>>,
     heuristic_unused_assignments: Vec<BindingId>,
     zsh_option_analysis: Option<ZshOptionAnalysis>,
 }
@@ -367,6 +369,7 @@ impl SemanticModel {
             recorded_program: built.recorded_program,
             command_bindings: built.command_bindings,
             command_references: built.command_references,
+            import_origins_by_binding: FxHashMap::default(),
             heuristic_unused_assignments: built.heuristic_unused_assignments,
             zsh_option_analysis,
         }
@@ -560,6 +563,7 @@ impl SemanticModel {
         scope: ScopeId,
         span: Span,
         command_span: Option<Span>,
+        origin_paths: Vec<PathBuf>,
     ) -> BindingId {
         let mut attributes = BindingAttributes::empty();
         if provided.certainty == ContractCertainty::Possible {
@@ -600,6 +604,9 @@ impl SemanticModel {
                 .or_default()
                 .push(id);
         }
+        if !origin_paths.is_empty() {
+            self.import_origins_by_binding.insert(id, origin_paths);
+        }
         id
     }
 
@@ -622,6 +629,11 @@ impl SemanticModel {
 
         let entry_span = Span::from_positions(file.span.start, file.span.start);
         let mut entry_bindings = self.entry_bindings.clone();
+        let function_origin_paths = contract
+            .provided_functions
+            .iter()
+            .map(|function| (function.name.clone(), function.origin_paths.clone()))
+            .collect::<FxHashMap<_, _>>();
         let mut provided_bindings = contract.provided_bindings;
         for function in contract.provided_functions {
             if !provided_bindings.iter().any(|binding| {
@@ -635,7 +647,11 @@ impl SemanticModel {
             }
         }
         for binding in &provided_bindings {
-            let id = self.add_imported_binding(binding, ScopeId(0), entry_span, None);
+            let origin_paths = function_origin_paths
+                .get(&binding.name)
+                .cloned()
+                .unwrap_or_default();
+            let id = self.add_imported_binding(binding, ScopeId(0), entry_span, None, origin_paths);
             entry_bindings.push(id);
         }
 
@@ -653,7 +669,7 @@ impl SemanticModel {
     pub(crate) fn apply_source_contracts(
         &mut self,
         synthetic_reads: Vec<SyntheticRead>,
-        imported_bindings: Vec<(ScopeId, Span, ProvidedBinding)>,
+        imported_bindings: Vec<ImportedBindingContractSite>,
         source_ref_resolutions: Vec<SourceRefResolution>,
         source_ref_explicitness: Vec<bool>,
     ) {
@@ -690,8 +706,14 @@ impl SemanticModel {
             }
         }
 
-        for (scope, span, binding) in imported_bindings {
-            self.add_imported_binding(&binding, scope, span, Some(span));
+        for site in imported_bindings {
+            self.add_imported_binding(
+                &site.binding,
+                site.scope,
+                site.span,
+                Some(site.span),
+                site.origin_paths,
+            );
         }
         self.resolve_unresolved_references();
         self.call_graph = build_call_graph(
@@ -752,6 +774,13 @@ impl SemanticModel {
 
     pub fn source_refs(&self) -> &[SourceRef] {
         &self.source_refs
+    }
+
+    pub fn import_origins_for_binding(&self, id: BindingId) -> &[PathBuf] {
+        self.import_origins_by_binding
+            .get(&id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
     }
 
     pub(crate) fn recorded_program(&self) -> &RecordedProgram {

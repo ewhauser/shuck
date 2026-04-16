@@ -91,7 +91,7 @@ fn should_suppress_overwrite(
                 ))
             || (file_context.has_tag(FileContextTag::DirectiveHandling)
                 && file_context.has_tag(FileContextTag::ProjectClosure)
-                && is_nested_project_closure_import_reimport(
+                && is_nested_project_closure_import_reimport_from_same_origin(
                     checker,
                     overwritten,
                     first.span.end.offset,
@@ -170,7 +170,7 @@ fn is_project_closure_imported_override(
         && !has_same_scope_call_site_between(checker, overwritten, start_offset, end_offset)
 }
 
-fn is_nested_project_closure_import_reimport(
+fn is_nested_project_closure_import_reimport_from_same_origin(
     checker: &Checker<'_>,
     overwritten: &SemanticOverwrittenFunction,
     start_offset: usize,
@@ -183,7 +183,22 @@ fn is_nested_project_closure_import_reimport(
         && matches!(first.kind, BindingKind::Imported)
         && matches!(second.kind, BindingKind::Imported)
         && !matches!(checker.semantic().scope_kind(first.scope), ScopeKind::File)
+        && imported_binding_origins_overlap(checker, overwritten.first, overwritten.second)
         && !has_same_scope_call_site_between(checker, overwritten, start_offset, end_offset)
+}
+
+fn imported_binding_origins_overlap(
+    checker: &Checker<'_>,
+    first: shuck_semantic::BindingId,
+    second: shuck_semantic::BindingId,
+) -> bool {
+    let first_origins = checker.semantic().import_origins_for_binding(first);
+    let second_origins = checker.semantic().import_origins_for_binding(second);
+
+    !first_origins.is_empty()
+        && first_origins
+            .iter()
+            .any(|origin| second_origins.contains(origin))
 }
 
 fn has_same_scope_call_site_between(
@@ -472,6 +487,7 @@ runner() {
   prepare_context
   bats_setup_tracing() { printf '%s\\n' local; }
 }
+runner
 ";
 
         fs::create_dir_all(main.parent().unwrap()).unwrap();
@@ -496,17 +512,18 @@ runner() {
     fn nested_helper_library_reimports_are_suppressed() {
         let temp = tempdir().unwrap();
         let main = temp.path().join("libexec/bats-exec-file");
-        let tracing = temp.path().join("lib/bats-core/tracing.bash");
-        let test_functions = temp.path().join("lib/bats-core/test_functions.bash");
-        let warnings = temp.path().join("lib/bats-core/warnings.bash");
+        let tracing = temp.path().join("libexec/tracing.bash");
+        let test_functions = temp.path().join("libexec/test_functions.bash");
+        let warnings = temp.path().join("libexec/warnings.bash");
         let source = "\
 #!/usr/bin/env bash
 runner() {
-  # shellcheck source=lib/bats-core/tracing.bash
-  source ../lib/bats-core/tracing.bash
-  # shellcheck source=lib/bats-core/test_functions.bash
-  source ../lib/bats-core/test_functions.bash
+  # shellcheck source=./tracing.bash
+  source ./tracing.bash
+  # shellcheck source=./test_functions.bash
+  source ./test_functions.bash
 }
+runner
 ";
 
         fs::create_dir_all(main.parent().unwrap()).unwrap();
@@ -532,6 +549,61 @@ runner() {
         );
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn nested_helper_library_collisions_from_different_origins_still_report() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("libexec/bats-exec-file");
+        let first_helper = temp.path().join("libexec/first.bash");
+        let second_helper = temp.path().join("libexec/second.bash");
+        let test_functions = temp.path().join("libexec/test_functions.bash");
+        let warnings = temp.path().join("libexec/warnings.bash");
+        let source = "\
+#!/usr/bin/env bash
+runner() {
+  # shellcheck source=./first.bash
+  source ./first.bash
+  # shellcheck source=./test_functions.bash
+  source ./test_functions.bash
+}
+runner
+";
+
+        fs::create_dir_all(main.parent().unwrap()).unwrap();
+        fs::create_dir_all(first_helper.parent().unwrap()).unwrap();
+        fs::write(&main, source).unwrap();
+        fs::write(
+            &first_helper,
+            "bats_setup_tracing() { printf '%s\\n' first; }\n",
+        )
+        .unwrap();
+        fs::write(
+            &test_functions,
+            "#!/usr/bin/env bash\nsource ./warnings.bash\n",
+        )
+        .unwrap();
+        fs::write(&warnings, "#!/usr/bin/env bash\nsource ./second.bash\n").unwrap();
+        fs::write(
+            &second_helper,
+            "bats_setup_tracing() { printf '%s\\n' second; }\n",
+        )
+        .unwrap();
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction).with_analyzed_paths([
+                main.clone(),
+                first_helper.clone(),
+                second_helper.clone(),
+                test_functions.clone(),
+                warnings.clone(),
+            ]),
+        );
+
+        assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:?}");
+        assert_eq!(diagnostics[0].rule, Rule::OverwrittenFunction);
     }
 
     #[test]
