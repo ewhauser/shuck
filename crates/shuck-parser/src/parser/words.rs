@@ -3639,14 +3639,11 @@ impl<'a> Parser<'a> {
                                 if Self::consume_word_char_if(&mut chars, &mut cursor, '}') {
                                     None
                                 } else {
-                                    let operand = self.read_source_text_while(
+                                    Some(self.read_brace_operand(
                                         &mut chars,
                                         &mut cursor,
-                                        |ch| ch != '}',
                                         source_backed,
-                                    );
-                                    Self::consume_word_char_if(&mut chars, &mut cursor, '}');
-                                    Some(operand)
+                                    ))
                                 };
                             WordPart::ParameterExpansion {
                                 reference: self.parameter_var_ref(
@@ -3672,14 +3669,11 @@ impl<'a> Parser<'a> {
                                 if Self::consume_word_char_if(&mut chars, &mut cursor, '}') {
                                     None
                                 } else {
-                                    let operand = self.read_source_text_while(
+                                    Some(self.read_brace_operand(
                                         &mut chars,
                                         &mut cursor,
-                                        |ch| ch != '}',
                                         source_backed,
-                                    );
-                                    Self::consume_word_char_if(&mut chars, &mut cursor, '}');
-                                    Some(operand)
+                                    ))
                                 };
                             WordPart::ParameterExpansion {
                                 reference: self.parameter_var_ref(
@@ -3945,14 +3939,11 @@ impl<'a> Parser<'a> {
                                 if Self::consume_word_char_if(&mut chars, &mut cursor, '}') {
                                     None
                                 } else {
-                                    let operand = self.read_source_text_while(
+                                    Some(self.read_brace_operand(
                                         &mut chars,
                                         &mut cursor,
-                                        |ch| ch != '}',
                                         source_backed,
-                                    );
-                                    Self::consume_word_char_if(&mut chars, &mut cursor, '}');
-                                    Some(operand)
+                                    ))
                                 };
                             WordPart::ParameterExpansion {
                                 reference: self
@@ -3974,14 +3965,11 @@ impl<'a> Parser<'a> {
                                 if Self::consume_word_char_if(&mut chars, &mut cursor, '}') {
                                     None
                                 } else {
-                                    let operand = self.read_source_text_while(
+                                    Some(self.read_brace_operand(
                                         &mut chars,
                                         &mut cursor,
-                                        |ch| ch != '}',
                                         source_backed,
-                                    );
-                                    Self::consume_word_char_if(&mut chars, &mut cursor, '}');
-                                    Some(operand)
+                                    ))
                                 };
                             WordPart::ParameterExpansion {
                                 reference: self

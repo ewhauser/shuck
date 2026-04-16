@@ -338,6 +338,11 @@ mod tests {
     }
 
     #[test]
+    fn ignores_escaped_single_quotes_inside_tab_stripped_heredoc_bodies() {
+        assert_eq!(c005("cat <<-EOF\n\t\\'$HOME\\'\nEOF\n"), 0);
+    }
+
+    #[test]
     fn ignores_single_quotes_paired_across_heredoc_newlines() {
         assert_eq!(c005("cat <<EOF\n'$HOME\nstill here'\nEOF\n"), 0);
     }

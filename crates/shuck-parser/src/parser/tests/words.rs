@@ -1421,6 +1421,36 @@ fn test_array_target_parameter_operations_normalize_to_bourne_operations() {
 }
 
 #[test]
+fn test_case_modification_operands_consume_nested_parameter_expansions() {
+    let input = "echo ${name^^${pat}} ${arr[1],,${pat}}\n";
+    let script = Parser::new(input).parse().unwrap().file;
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+
+    let (_, upper_operator, upper_operand) =
+        expect_parameter_operation_part(&command.args[0].parts[0].kind);
+    assert!(matches!(upper_operator, ParameterOp::UpperAll));
+    assert_eq!(
+        upper_operand
+            .expect("expected upper case-modification operand")
+            .slice(input),
+        "${pat}"
+    );
+
+    let (lower_reference, lower_operator, lower_operand) =
+        expect_parameter_operation_part(&command.args[1].parts[0].kind);
+    expect_subscript(lower_reference, input, "1");
+    assert!(matches!(lower_operator, ParameterOp::LowerAll));
+    assert_eq!(
+        lower_operand
+            .expect("expected lower case-modification operand")
+            .slice(input),
+        "${pat}"
+    );
+}
+
+#[test]
 fn test_parameter_expansion_trim_operand_accepts_literal_left_brace_after_multiline_quote() {
     let input = "dns_servercow_info='ServerCow.de\nSite: ServerCow.de\n'\n\nf(){\n  if true; then\n    txtvalue_old=${response#*{\\\"name\\\":\\\"\"$_sub_domain\"\\\",\\\"ttl\\\":20,\\\"type\\\":\\\"TXT\\\",\\\"content\\\":\\\"}\n  fi\n}\n";
     let script = Parser::new(input).parse().unwrap().file;

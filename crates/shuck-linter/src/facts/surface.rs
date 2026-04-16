@@ -296,8 +296,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                             '\'' => {
                                 let quote_start =
                                     part.span.start.advanced_by(&text[..quote_offset]);
-                                if heredoc_single_quote_is_escaped(self.source, quote_start.offset)
-                                {
+                                if heredoc_single_quote_is_escaped(text, quote_offset) {
                                     continue;
                                 }
                                 let quote_end = quote_start.advanced_by("'");
@@ -325,7 +324,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                     }
                 }
                 _ => {
-                    if part.span.slice(self.source).contains('\n') {
+                    if part.span.start.line != part.span.end.line {
                         open_quote = None;
                     }
                 }
@@ -876,15 +875,11 @@ impl<'a> SurfaceFragmentSink<'a> {
     }
 }
 
-fn heredoc_single_quote_is_escaped(source: &str, offset: usize) -> bool {
-    if source.as_bytes().get(offset) != Some(&b'\'') {
-        return false;
-    }
-
+fn heredoc_single_quote_is_escaped(text: &str, quote_offset: usize) -> bool {
     let mut backslash_count = 0usize;
-    let mut cursor = offset;
+    let mut cursor = quote_offset;
     while cursor > 0 {
-        match source.as_bytes()[cursor - 1] {
+        match text.as_bytes()[cursor - 1] {
             b'\\' => {
                 backslash_count += 1;
                 cursor -= 1;
