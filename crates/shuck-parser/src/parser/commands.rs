@@ -2684,19 +2684,23 @@ impl<'a> Parser<'a> {
         }
 
         let checkpoint = self.checkpoint();
-        let followed_by_then = self
-            .parse_brace_group(BraceBodyContext::Ordinary)
-            .and_then(|_| {
-                if self.at(TokenKind::Semicolon) {
-                    self.advance();
-                }
-                self.skip_newlines()?;
-                Ok(self.is_keyword(Keyword::Then))
-            })
-            .unwrap_or(false);
+        let reaches_then = loop {
+            if self.skip_newlines().is_err() {
+                break false;
+            }
+            if self.is_keyword(Keyword::Then) {
+                break true;
+            }
+            if self.current_token.is_none() {
+                break false;
+            }
+            if self.parse_command_list_required().is_err() {
+                break false;
+            }
+        };
         self.restore(checkpoint);
 
-        !followed_by_then
+        !reaches_then
     }
 
     fn peek_zsh_always_span(&mut self) -> Option<Span> {

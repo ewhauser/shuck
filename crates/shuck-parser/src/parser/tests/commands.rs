@@ -146,6 +146,14 @@ fn test_parse_does_not_collect_zsh_brace_if_fact_for_condition_brace_group() {
 }
 
 #[test]
+fn test_parse_does_not_collect_zsh_brace_if_fact_for_later_then_after_brace_group_condition() {
+    let input = "if true; { echo ok; }; echo more; then\n  :\nfi\n";
+    let parsed = Parser::new(input).parse().unwrap();
+
+    assert!(parsed.syntax_facts.zsh_brace_if_spans.is_empty());
+}
+
+#[test]
 fn test_parse_collects_zsh_always_fact_in_posix_mode() {
     let input = "{ :; } always { :; }\n";
     let parsed = Parser::with_dialect(input, ShellDialect::Posix).parse();
