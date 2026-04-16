@@ -685,8 +685,8 @@ impl SemanticModel {
         &self.source_refs
     }
 
-    pub(crate) fn bash_runtime_vars_enabled(&self) -> bool {
-        self.runtime.bash_enabled()
+    pub(crate) fn recorded_program(&self) -> &RecordedProgram {
+        &self.recorded_program
     }
 
     pub(crate) fn set_synthetic_reads(&mut self, synthetic_reads: Vec<SyntheticRead>) {

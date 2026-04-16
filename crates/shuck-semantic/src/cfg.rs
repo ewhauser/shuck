@@ -3,6 +3,7 @@ use shuck_ast::{CaseTerminator, Span};
 use shuck_parser::ZshEmulationMode;
 use std::marker::PhantomData;
 
+use crate::source_closure::SourcePathTemplate;
 use crate::{BindingId, ReferenceId, ScopeId, SpanKey};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -270,6 +271,8 @@ pub(crate) struct RecordedElifBranch {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RecordedCommandInfo {
     pub(crate) static_callee: Option<String>,
+    pub(crate) static_args: Box<[Option<String>]>,
+    pub(crate) source_path_template: Option<SourcePathTemplate>,
     pub(crate) zsh_effects: Vec<RecordedZshCommandEffect>,
 }
 

@@ -3,11 +3,9 @@ use std::path::{Path, PathBuf};
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
-    ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArrayElem, Assignment, AssignmentValue,
-    BourneParameterExpansion, BuiltinCommand, Command, CompoundCommand, ConditionalExpr,
-    DeclOperand, File, FunctionDef, Name, ParameterExpansion, ParameterExpansionSyntax, Pattern,
-    PatternPart, PatternPartNode, Redirect, SourceText, Span, Stmt, StmtSeq, VarRef, Word,
-    WordPart, WordPartNode, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment,
+    ArithmeticExpr, ArithmeticExprNode, BourneParameterExpansion, Command, File, Name,
+    ParameterExpansion, ParameterExpansionSyntax, Span, StmtSeq, VarRef, Word, WordPart,
+    WordPartNode,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -17,6 +15,7 @@ use crate::{
     FunctionScopeKind, ProvidedBinding, ProvidedBindingKind, ScopeId, ScopeKind, SemanticModel,
     SourcePathResolver, SourceRefKind, SourceRefResolution, SpanKey, SyntheticRead,
     build_semantic_model_base,
+    cfg::{RecordedCommandId, RecordedCommandKind, RecordedCommandRange, RecordedProgram},
 };
 
 #[derive(Debug, Clone)]
@@ -82,14 +81,14 @@ pub(crate) fn collect_source_closure_contracts(
 
 fn collect_source_closure_contracts_with_cache(
     model: &SemanticModel,
-    file: &File,
-    source: &str,
+    _file: &File,
+    _source: &str,
     source_path: &Path,
     summaries: &mut FxHashMap<PathBuf, FileContract>,
     active: &mut FxHashSet<PathBuf>,
     context: SourceClosureLookupContext<'_>,
 ) -> SourceClosureContracts {
-    let facts = collect_ast_facts(file, model, source);
+    let facts = collect_ast_facts(model);
     let call_args_by_scope = resolve_literal_call_args_by_scope(model, &facts.calls);
     let mut synthetic_reads = Vec::new();
     let mut imported_bindings = Vec::new();
@@ -395,701 +394,122 @@ struct CallInfo {
 }
 
 #[derive(Debug, Clone)]
-enum SourcePathTemplate {
+pub(crate) enum SourcePathTemplate {
     Interpolated(Vec<TemplatePart>),
 }
 
 #[derive(Debug, Clone)]
-enum TemplatePart {
+pub(crate) enum TemplatePart {
     Literal(String),
     Arg(usize),
     SourceDir,
     SourceFile,
 }
 
-fn collect_ast_facts(file: &File, model: &SemanticModel, source: &str) -> AstFacts {
+fn collect_ast_facts(model: &SemanticModel) -> AstFacts {
     let mut facts = AstFacts {
         source_templates: FxHashMap::default(),
         calls: Vec::new(),
     };
-    walk_stmt_seq(&file.body, model, source, &mut facts);
+    let program = model.recorded_program();
+    collect_commands_in_range(model, program, program.file_commands(), &mut facts);
     facts
 }
 
-fn walk_stmt_seq(commands: &StmtSeq, model: &SemanticModel, source: &str, facts: &mut AstFacts) {
-    for stmt in commands.iter() {
-        walk_stmt(stmt, model, source, facts);
-    }
-}
-
-fn walk_stmt(stmt: &Stmt, model: &SemanticModel, source: &str, facts: &mut AstFacts) {
-    walk_redirects(&stmt.redirects, model, source, facts);
-    walk_command(&stmt.command, model, source, facts);
-}
-
-fn walk_command(command: &Command, model: &SemanticModel, source: &str, facts: &mut AstFacts) {
-    match command {
-        Command::Simple(command) => {
-            if let Some(name) = static_word_text(&command.name, source)
-                && !name.is_empty()
-            {
-                facts.calls.push(CallInfo {
-                    name: Name::from(name.as_str()),
-                    scope: model.scope_at(command.span.start.offset),
-                    span: command.span,
-                    args: command
-                        .args
-                        .iter()
-                        .map(|word| static_word_text(word, source))
-                        .collect(),
-                });
-
-                if matches!(name.as_str(), "source" | ".")
-                    && let Some(argument) = command.args.first()
-                    && let Some(template) =
-                        source_path_template(argument, source, model.bash_runtime_vars_enabled())
-                {
-                    facts
-                        .source_templates
-                        .insert(SpanKey::new(command.span), template);
-                }
-            }
-
-            walk_assignments(&command.assignments, model, source, facts);
-            walk_word(&command.name, model, source, facts);
-            walk_words(&command.args, model, source, facts);
-        }
-        Command::Builtin(BuiltinCommand::Break(command)) => {
-            walk_assignments(&command.assignments, model, source, facts);
-            if let Some(word) = &command.depth {
-                walk_word(word, model, source, facts);
-            }
-            walk_words(&command.extra_args, model, source, facts);
-        }
-        Command::Builtin(BuiltinCommand::Continue(command)) => {
-            walk_assignments(&command.assignments, model, source, facts);
-            if let Some(word) = &command.depth {
-                walk_word(word, model, source, facts);
-            }
-            walk_words(&command.extra_args, model, source, facts);
-        }
-        Command::Builtin(BuiltinCommand::Return(command)) => {
-            walk_assignments(&command.assignments, model, source, facts);
-            if let Some(word) = &command.code {
-                walk_word(word, model, source, facts);
-            }
-            walk_words(&command.extra_args, model, source, facts);
-        }
-        Command::Builtin(BuiltinCommand::Exit(command)) => {
-            walk_assignments(&command.assignments, model, source, facts);
-            if let Some(word) = &command.code {
-                walk_word(word, model, source, facts);
-            }
-            walk_words(&command.extra_args, model, source, facts);
-        }
-        Command::Decl(command) => {
-            walk_assignments(&command.assignments, model, source, facts);
-            for operand in &command.operands {
-                match operand {
-                    DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
-                        walk_word(word, model, source, facts);
-                    }
-                    DeclOperand::Name(name) => walk_var_ref_subscript(name, model, source, facts),
-                    DeclOperand::Assignment(assignment) => {
-                        walk_assignment(assignment, model, source, facts);
-                    }
-                }
-            }
-        }
-        Command::Binary(command) => {
-            walk_stmt(&command.left, model, source, facts);
-            walk_stmt(&command.right, model, source, facts);
-        }
-        Command::Compound(command) => {
-            walk_compound(command, model, source, facts);
-        }
-        Command::Function(FunctionDef { header, body, .. }) => {
-            for entry in &header.entries {
-                walk_word(&entry.word, model, source, facts);
-            }
-            walk_stmt(body, model, source, facts);
-        }
-        Command::AnonymousFunction(function) => {
-            walk_words(&function.args, model, source, facts);
-            walk_stmt(&function.body, model, source, facts);
-        }
-    }
-}
-
-fn walk_compound(
-    command: &CompoundCommand,
+fn collect_commands_in_range(
     model: &SemanticModel,
-    source: &str,
+    program: &RecordedProgram,
+    range: RecordedCommandRange,
     facts: &mut AstFacts,
 ) {
-    match command {
-        CompoundCommand::If(command) => {
-            walk_stmt_seq(&command.condition, model, source, facts);
-            walk_stmt_seq(&command.then_branch, model, source, facts);
-            for (condition, body) in &command.elif_branches {
-                walk_stmt_seq(condition, model, source, facts);
-                walk_stmt_seq(body, model, source, facts);
-            }
-            if let Some(body) = &command.else_branch {
-                walk_stmt_seq(body, model, source, facts);
-            }
-        }
-        CompoundCommand::For(command) => {
-            if let Some(words) = &command.words {
-                walk_words(words, model, source, facts);
-            }
-            walk_stmt_seq(&command.body, model, source, facts);
-        }
-        CompoundCommand::Repeat(command) => {
-            walk_word(&command.count, model, source, facts);
-            walk_stmt_seq(&command.body, model, source, facts);
-        }
-        CompoundCommand::Foreach(command) => {
-            walk_words(&command.words, model, source, facts);
-            walk_stmt_seq(&command.body, model, source, facts);
-        }
-        CompoundCommand::ArithmeticFor(command) => {
-            if let Some(expr) = &command.init_ast {
-                walk_arithmetic_expr(expr, model, source, facts);
-            }
-            if let Some(expr) = &command.condition_ast {
-                walk_arithmetic_expr(expr, model, source, facts);
-            }
-            if let Some(expr) = &command.step_ast {
-                walk_arithmetic_expr(expr, model, source, facts);
-            }
-            walk_stmt_seq(&command.body, model, source, facts)
-        }
-        CompoundCommand::While(command) => {
-            walk_stmt_seq(&command.condition, model, source, facts);
-            walk_stmt_seq(&command.body, model, source, facts);
-        }
-        CompoundCommand::Until(command) => {
-            walk_stmt_seq(&command.condition, model, source, facts);
-            walk_stmt_seq(&command.body, model, source, facts);
-        }
-        CompoundCommand::Case(command) => {
-            walk_word(&command.word, model, source, facts);
-            for case in &command.cases {
-                walk_patterns(&case.patterns, model, source, facts);
-                walk_stmt_seq(&case.body, model, source, facts);
-            }
-        }
-        CompoundCommand::Select(command) => {
-            walk_words(&command.words, model, source, facts);
-            walk_stmt_seq(&command.body, model, source, facts);
-        }
-        CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
-            walk_stmt_seq(commands, model, source, facts);
-        }
-        CompoundCommand::Always(command) => {
-            walk_stmt_seq(&command.body, model, source, facts);
-            walk_stmt_seq(&command.always_body, model, source, facts);
-        }
-        CompoundCommand::Arithmetic(command) => {
-            if let Some(expr) = &command.expr_ast {
-                walk_arithmetic_expr(expr, model, source, facts);
-            }
-        }
-        CompoundCommand::Time(command) => {
-            if let Some(command) = &command.command {
-                walk_stmt(command, model, source, facts);
-            }
-        }
-        CompoundCommand::Conditional(command) => {
-            walk_conditional_expr(&command.expression, model, source, facts)
-        }
-        CompoundCommand::Coproc(command) => walk_stmt(&command.body, model, source, facts),
+    for &command in program.commands_in(range) {
+        collect_command(model, program, command, facts);
     }
 }
 
-fn walk_assignments(
-    assignments: &[Assignment],
+fn collect_command(
     model: &SemanticModel,
-    source: &str,
+    program: &RecordedProgram,
+    command_id: RecordedCommandId,
     facts: &mut AstFacts,
 ) {
-    for assignment in assignments {
-        walk_assignment(assignment, model, source, facts);
-    }
-}
+    let command = program.command(command_id);
+    if let Some(info) = program.command_infos.get(&SpanKey::new(command.span))
+        && let Some(name) = info.static_callee.as_deref()
+        && !name.is_empty()
+    {
+        facts.calls.push(CallInfo {
+            name: Name::from(name),
+            scope: model.scope_at(command.span.start.offset),
+            span: command.span,
+            args: info.static_args.iter().cloned().collect(),
+        });
 
-fn walk_assignment(
-    assignment: &Assignment,
-    model: &SemanticModel,
-    source: &str,
-    facts: &mut AstFacts,
-) {
-    walk_var_ref_subscript(&assignment.target, model, source, facts);
-    match &assignment.value {
-        AssignmentValue::Scalar(word) => walk_word(word, model, source, facts),
-        AssignmentValue::Compound(array) => {
-            for element in &array.elements {
-                match element {
-                    ArrayElem::Sequential(word) => walk_word(word, model, source, facts),
-                    ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
-                        walk_subscript(Some(key), model, source, facts);
-                        walk_word(value, model, source, facts);
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn walk_words(words: &[Word], model: &SemanticModel, source: &str, facts: &mut AstFacts) {
-    for word in words {
-        walk_word(word, model, source, facts);
-    }
-}
-
-fn walk_patterns(patterns: &[Pattern], model: &SemanticModel, source: &str, facts: &mut AstFacts) {
-    for pattern in patterns {
-        walk_pattern(pattern, model, source, facts);
-    }
-}
-
-fn walk_word(word: &Word, model: &SemanticModel, source: &str, facts: &mut AstFacts) {
-    walk_word_parts(&word.parts, model, source, facts);
-}
-
-fn walk_pattern(pattern: &Pattern, model: &SemanticModel, source: &str, facts: &mut AstFacts) {
-    walk_pattern_parts(&pattern.parts, model, source, facts);
-}
-
-fn walk_word_parts(
-    parts: &[WordPartNode],
-    model: &SemanticModel,
-    source: &str,
-    facts: &mut AstFacts,
-) {
-    for part in parts {
-        if word_part_starts_with_shell_expansion(&part.kind)
-            && span_is_backslash_escaped(source, &part.kind, part.span)
+        if matches!(name, "source" | ".")
+            && let Some(template) = info.source_path_template.clone()
         {
-            continue;
-        }
-        match &part.kind {
-            WordPart::ZshQualifiedGlob(glob) => {
-                for segment in &glob.segments {
-                    if let ZshGlobSegment::Pattern(pattern) = segment {
-                        walk_pattern(pattern, model, source, facts);
-                    }
-                }
-            }
-            WordPart::SingleQuoted { .. } => {}
-            WordPart::DoubleQuoted { parts, .. } => walk_word_parts(parts, model, source, facts),
-            WordPart::CommandSubstitution { body, .. }
-            | WordPart::ProcessSubstitution { body, .. } => {
-                walk_stmt_seq(body, model, source, facts)
-            }
-            WordPart::ArithmeticExpansion { expression_ast, .. } => {
-                if let Some(expr) = expression_ast {
-                    walk_arithmetic_expr(expr, model, source, facts);
-                }
-            }
-            WordPart::Parameter(parameter) => {
-                walk_parameter_expansion(parameter, model, source, facts);
-            }
-            WordPart::ParameterExpansion {
-                reference,
-                operator,
-                operand,
-                ..
-            } => {
-                walk_var_ref_subscript(reference, model, source, facts);
-                walk_fragment_word(None, operand.as_ref(), model, source, facts);
-                match operator {
-                    shuck_ast::ParameterOp::RemovePrefixShort { pattern }
-                    | shuck_ast::ParameterOp::RemovePrefixLong { pattern }
-                    | shuck_ast::ParameterOp::RemoveSuffixShort { pattern }
-                    | shuck_ast::ParameterOp::RemoveSuffixLong { pattern }
-                    | shuck_ast::ParameterOp::ReplaceFirst { pattern, .. }
-                    | shuck_ast::ParameterOp::ReplaceAll { pattern, .. } => {
-                        walk_pattern(pattern, model, source, facts);
-                    }
-                    shuck_ast::ParameterOp::UseDefault
-                    | shuck_ast::ParameterOp::AssignDefault
-                    | shuck_ast::ParameterOp::UseReplacement
-                    | shuck_ast::ParameterOp::Error
-                    | shuck_ast::ParameterOp::UpperFirst
-                    | shuck_ast::ParameterOp::UpperAll
-                    | shuck_ast::ParameterOp::LowerFirst
-                    | shuck_ast::ParameterOp::LowerAll => {}
-                }
-            }
-            WordPart::Substring {
-                reference,
-                offset_ast,
-                length_ast,
-                ..
-            }
-            | WordPart::ArraySlice {
-                reference,
-                offset_ast,
-                length_ast,
-                ..
-            } => {
-                walk_var_ref_subscript(reference, model, source, facts);
-                if let Some(offset_ast) = offset_ast {
-                    walk_arithmetic_expr(offset_ast, model, source, facts);
-                }
-                if let Some(length_ast) = length_ast {
-                    walk_arithmetic_expr(length_ast, model, source, facts);
-                }
-            }
-            WordPart::ArrayAccess(reference) => {
-                walk_var_ref_subscript(reference, model, source, facts);
-            }
-            WordPart::IndirectExpansion {
-                reference, operand, ..
-            } => {
-                walk_var_ref_subscript(reference, model, source, facts);
-                walk_fragment_word(None, operand.as_ref(), model, source, facts);
-            }
-            WordPart::Transformation { reference, .. }
-            | WordPart::Length(reference)
-            | WordPart::ArrayLength(reference)
-            | WordPart::ArrayIndices(reference) => {
-                walk_var_ref_subscript(reference, model, source, facts);
-            }
-            WordPart::Literal(_) | WordPart::Variable(_) | WordPart::PrefixMatch { .. } => {}
+            facts
+                .source_templates
+                .insert(SpanKey::new(command.span), template);
         }
     }
-}
 
-fn walk_parameter_expansion(
-    parameter: &ParameterExpansion,
-    model: &SemanticModel,
-    source: &str,
-    facts: &mut AstFacts,
-) {
-    match &parameter.syntax {
-        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
-            BourneParameterExpansion::Access { reference }
-            | BourneParameterExpansion::Length { reference }
-            | BourneParameterExpansion::Indices { reference }
-            | BourneParameterExpansion::Transformation { reference, .. } => {
-                walk_var_ref_subscript(reference, model, source, facts);
-            }
-            BourneParameterExpansion::Indirect {
-                reference,
-                operand,
-                operand_word_ast,
-                ..
-            } => {
-                walk_var_ref_subscript(reference, model, source, facts);
-                walk_fragment_word(
-                    operand_word_ast.as_ref(),
-                    operand.as_ref(),
-                    model,
-                    source,
-                    facts,
-                );
-            }
-            BourneParameterExpansion::PrefixMatch { .. } => {}
-            BourneParameterExpansion::Slice {
-                reference,
-                offset_ast,
-                length_ast,
-                ..
-            } => {
-                walk_var_ref_subscript(reference, model, source, facts);
-                if let Some(offset_ast) = offset_ast {
-                    walk_arithmetic_expr(offset_ast, model, source, facts);
-                }
-                if let Some(length_ast) = length_ast {
-                    walk_arithmetic_expr(length_ast, model, source, facts);
-                }
-            }
-            BourneParameterExpansion::Operation {
-                reference,
-                operator,
-                operand,
-                operand_word_ast,
-                ..
-            } => {
-                walk_var_ref_subscript(reference, model, source, facts);
-                walk_fragment_word(
-                    operand_word_ast.as_ref(),
-                    operand.as_ref(),
-                    model,
-                    source,
-                    facts,
-                );
-                match operator {
-                    shuck_ast::ParameterOp::RemovePrefixShort { pattern }
-                    | shuck_ast::ParameterOp::RemovePrefixLong { pattern }
-                    | shuck_ast::ParameterOp::RemoveSuffixShort { pattern }
-                    | shuck_ast::ParameterOp::RemoveSuffixLong { pattern }
-                    | shuck_ast::ParameterOp::ReplaceFirst { pattern, .. }
-                    | shuck_ast::ParameterOp::ReplaceAll { pattern, .. } => {
-                        walk_pattern(pattern, model, source, facts);
-                    }
-                    shuck_ast::ParameterOp::UseDefault
-                    | shuck_ast::ParameterOp::AssignDefault
-                    | shuck_ast::ParameterOp::UseReplacement
-                    | shuck_ast::ParameterOp::Error
-                    | shuck_ast::ParameterOp::UpperFirst
-                    | shuck_ast::ParameterOp::UpperAll
-                    | shuck_ast::ParameterOp::LowerFirst
-                    | shuck_ast::ParameterOp::LowerAll => {}
-                }
-            }
-        },
-        ParameterExpansionSyntax::Zsh(syntax) => {
-            match &syntax.target {
-                ZshExpansionTarget::Reference(reference) => {
-                    walk_var_ref_subscript(reference, model, source, facts);
-                }
-                ZshExpansionTarget::Word(word) => {
-                    walk_word(word, model, source, facts);
-                }
-                ZshExpansionTarget::Nested(parameter) => {
-                    walk_parameter_expansion(parameter, model, source, facts);
-                }
-                ZshExpansionTarget::Empty => {}
-            }
-
-            for modifier in &syntax.modifiers {
-                walk_fragment_word(
-                    modifier.argument_word_ast(),
-                    modifier.argument.as_ref(),
-                    model,
-                    source,
-                    facts,
-                );
-            }
-
-            if let Some(operation) = &syntax.operation {
-                match operation {
-                    ZshExpansionOperation::PatternOperation { operand, .. }
-                    | ZshExpansionOperation::Defaulting { operand, .. }
-                    | ZshExpansionOperation::TrimOperation { operand, .. } => walk_fragment_word(
-                        operation.operand_word_ast(),
-                        Some(operand),
-                        model,
-                        source,
-                        facts,
-                    ),
-                    ZshExpansionOperation::ReplacementOperation {
-                        pattern,
-                        replacement,
-                        ..
-                    } => {
-                        walk_fragment_word(
-                            operation.pattern_word_ast(),
-                            Some(pattern),
-                            model,
-                            source,
-                            facts,
-                        );
-                        walk_fragment_word(
-                            operation.replacement_word_ast(),
-                            replacement.as_ref(),
-                            model,
-                            source,
-                            facts,
-                        );
-                    }
-                    ZshExpansionOperation::Slice { offset, length, .. } => {
-                        walk_fragment_word(
-                            operation.offset_word_ast(),
-                            Some(offset),
-                            model,
-                            source,
-                            facts,
-                        );
-                        walk_fragment_word(
-                            operation.length_word_ast(),
-                            length.as_ref(),
-                            model,
-                            source,
-                            facts,
-                        );
-                    }
-                    ZshExpansionOperation::Unknown { text, .. } => walk_fragment_word(
-                        operation.operand_word_ast(),
-                        Some(text),
-                        model,
-                        source,
-                        facts,
-                    ),
-                }
-            }
-        }
+    for region in program.nested_regions(command.nested_regions) {
+        collect_commands_in_range(model, program, region.commands, facts);
     }
-}
 
-fn walk_arithmetic_expr(
-    expr: &ArithmeticExprNode,
-    model: &SemanticModel,
-    source: &str,
-    facts: &mut AstFacts,
-) {
-    match &expr.kind {
-        ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_) => {}
-        ArithmeticExpr::Indexed { index, .. } => walk_arithmetic_expr(index, model, source, facts),
-        ArithmeticExpr::ShellWord(word) => walk_word(word, model, source, facts),
-        ArithmeticExpr::Parenthesized { expression } => {
-            walk_arithmetic_expr(expression, model, source, facts)
+    match command.kind {
+        RecordedCommandKind::Linear
+        | RecordedCommandKind::Break { .. }
+        | RecordedCommandKind::Continue { .. }
+        | RecordedCommandKind::Return
+        | RecordedCommandKind::Exit => {}
+        RecordedCommandKind::List { first, rest } => {
+            collect_command(model, program, first, facts);
+            for item in program.list_items(rest) {
+                collect_command(model, program, item.command, facts);
+            }
         }
-        ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
-            walk_arithmetic_expr(expr, model, source, facts)
-        }
-        ArithmeticExpr::Binary { left, right, .. } => {
-            walk_arithmetic_expr(left, model, source, facts);
-            walk_arithmetic_expr(right, model, source, facts);
-        }
-        ArithmeticExpr::Conditional {
+        RecordedCommandKind::If {
             condition,
-            then_expr,
-            else_expr,
+            then_branch,
+            elif_branches,
+            else_branch,
         } => {
-            walk_arithmetic_expr(condition, model, source, facts);
-            walk_arithmetic_expr(then_expr, model, source, facts);
-            walk_arithmetic_expr(else_expr, model, source, facts);
+            collect_commands_in_range(model, program, condition, facts);
+            collect_commands_in_range(model, program, then_branch, facts);
+            for branch in program.elif_branches(elif_branches) {
+                collect_commands_in_range(model, program, branch.condition, facts);
+                collect_commands_in_range(model, program, branch.body, facts);
+            }
+            collect_commands_in_range(model, program, else_branch, facts);
         }
-        ArithmeticExpr::Assignment { target, value, .. } => {
-            walk_arithmetic_lvalue(target, model, source, facts);
-            walk_arithmetic_expr(value, model, source, facts);
+        RecordedCommandKind::While { condition, body }
+        | RecordedCommandKind::Until { condition, body } => {
+            collect_commands_in_range(model, program, condition, facts);
+            collect_commands_in_range(model, program, body, facts);
         }
-    }
-}
-
-fn walk_arithmetic_lvalue(
-    target: &ArithmeticLvalue,
-    model: &SemanticModel,
-    source: &str,
-    facts: &mut AstFacts,
-) {
-    match target {
-        ArithmeticLvalue::Variable(_) => {}
-        ArithmeticLvalue::Indexed { index, .. } => {
-            walk_arithmetic_expr(index, model, source, facts)
+        RecordedCommandKind::For { body }
+        | RecordedCommandKind::Select { body }
+        | RecordedCommandKind::ArithmeticFor { body }
+        | RecordedCommandKind::BraceGroup { body }
+        | RecordedCommandKind::Subshell { body } => {
+            collect_commands_in_range(model, program, body, facts);
         }
-    }
-}
-
-fn walk_pattern_parts(
-    parts: &[PatternPartNode],
-    model: &SemanticModel,
-    source: &str,
-    facts: &mut AstFacts,
-) {
-    for part in parts {
-        match &part.kind {
-            PatternPart::Group { patterns, .. } => walk_patterns(patterns, model, source, facts),
-            PatternPart::Word(word) => walk_word(word, model, source, facts),
-            PatternPart::Literal(_)
-            | PatternPart::AnyString
-            | PatternPart::AnyChar
-            | PatternPart::CharClass(_) => {}
+        RecordedCommandKind::Case { arms } => {
+            for arm in program.case_arms(arms) {
+                collect_commands_in_range(model, program, arm.commands, facts);
+            }
         }
-    }
-}
-
-fn walk_fragment_word(
-    word: Option<&Word>,
-    text: Option<&SourceText>,
-    model: &SemanticModel,
-    source: &str,
-    facts: &mut AstFacts,
-) {
-    if let Some(word) = word {
-        walk_word(word, model, source, facts);
-        return;
-    }
-    let Some(text) = text else {
-        return;
-    };
-    let word = Parser::parse_word_fragment(source, text.slice(source), text.span());
-    walk_word(&word, model, source, facts);
-}
-
-fn walk_redirects(
-    redirects: &[Redirect],
-    model: &SemanticModel,
-    source: &str,
-    facts: &mut AstFacts,
-) {
-    for redirect in redirects {
-        match redirect.word_target() {
-            Some(word) => walk_word(word, model, source, facts),
-            None => {
-                let heredoc = redirect.heredoc().expect("expected heredoc redirect");
-                if heredoc.delimiter.expands_body {
-                    walk_word(&heredoc.body, model, source, facts);
-                }
+        RecordedCommandKind::Pipeline { segments } => {
+            for segment in program.pipeline_segments(segments) {
+                collect_command(model, program, segment.command, facts);
             }
         }
     }
 }
 
-fn walk_conditional_expr(
-    expression: &ConditionalExpr,
-    model: &SemanticModel,
-    source: &str,
-    facts: &mut AstFacts,
-) {
-    match expression {
-        ConditionalExpr::Binary(expr) => {
-            walk_conditional_expr(&expr.left, model, source, facts);
-            walk_conditional_expr(&expr.right, model, source, facts);
-        }
-        ConditionalExpr::Unary(expr) => walk_conditional_expr(&expr.expr, model, source, facts),
-        ConditionalExpr::Parenthesized(expr) => {
-            walk_conditional_expr(&expr.expr, model, source, facts)
-        }
-        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
-            walk_word(word, model, source, facts)
-        }
-        ConditionalExpr::Pattern(pattern) => walk_pattern(pattern, model, source, facts),
-        ConditionalExpr::VarRef(var_ref) => walk_var_ref_subscript(var_ref, model, source, facts),
-    }
-}
-
-fn walk_var_ref_subscript(
-    reference: &VarRef,
-    model: &SemanticModel,
-    source: &str,
-    facts: &mut AstFacts,
-) {
-    walk_subscript(reference.subscript.as_ref(), model, source, facts);
-}
-
-fn walk_subscript(
-    subscript: Option<&shuck_ast::Subscript>,
-    model: &SemanticModel,
-    source: &str,
-    facts: &mut AstFacts,
-) {
-    let Some(subscript) = subscript else {
-        return;
-    };
-    if subscript.selector().is_some() {
-        return;
-    }
-    if let Some(expr) = subscript.arithmetic_ast.as_ref() {
-        walk_arithmetic_expr(expr, model, source, facts);
-        return;
-    }
-
-    walk_fragment_word(
-        subscript.word_ast(),
-        Some(subscript.syntax_source_text()),
-        model,
-        source,
-        facts,
-    );
-}
-
-fn source_path_template(
+pub(crate) fn source_path_template(
     word: &Word,
     source: &str,
     bash_runtime_vars_enabled: bool,
@@ -1929,7 +1349,7 @@ mod tests {
             .unwrap();
         let indexer = Indexer::new(source, &output);
         let model = SemanticModel::build(&output.file, source, &indexer);
-        let facts = collect_ast_facts(&output.file, &model, source);
+        let facts = collect_ast_facts(&model);
         let call_names = facts
             .calls
             .iter()

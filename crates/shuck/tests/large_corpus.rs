@@ -35,6 +35,9 @@ const LARGE_CORPUS_KEEP_GOING_ENV: &str = "SHUCK_LARGE_CORPUS_KEEP_GOING";
 
 const LARGE_CORPUS_DEFAULT_SHELLCHECK_TIMEOUT: Duration = Duration::from_secs(300);
 const LARGE_CORPUS_DEFAULT_SHUCK_TIMEOUT: Duration = Duration::from_secs(30);
+const LARGE_CORPUS_AUTOSCALED_SHUCK_TIMEOUT_BUFFER: Duration = Duration::from_secs(15);
+const LARGE_CORPUS_MAX_AUTOSCALED_SHUCK_TIMEOUT: Duration = Duration::from_secs(150);
+const LARGE_CORPUS_AUTOSCALED_SHUCK_LINES_PER_SEC: usize = 175;
 const LARGE_CORPUS_CACHE_DIR_NAME: &str = ".cache/large-corpus";
 const LARGE_CORPUS_WORKER_COUNT: usize = 4;
 const LARGE_CORPUS_TIMEOUT_FAILURE_CAP: usize = 5;
@@ -268,6 +271,35 @@ fn fixture_progress_label(fixture: &LargeCorpusFixture) -> String {
 
 fn log_large_corpus_timeout(fixture: &LargeCorpusFixture) {
     log_large_corpus_progress(&format!("timeout {}", fixture_progress_label(fixture)));
+}
+
+fn source_line_count(source: &[u8]) -> usize {
+    if source.is_empty() {
+        return 0;
+    }
+
+    let newline_count = source.iter().filter(|&&byte| byte == b'\n').count();
+    if source.last() == Some(&b'\n') {
+        newline_count
+    } else {
+        newline_count + 1
+    }
+}
+
+fn effective_shuck_timeout(source: &[u8], base_timeout: Duration) -> Duration {
+    if env::var_os(LARGE_CORPUS_SHUCK_TIMEOUT_ENV).is_some() {
+        return base_timeout;
+    }
+
+    let line_count = source_line_count(source);
+    let scaled_timeout_secs = line_count.div_ceil(LARGE_CORPUS_AUTOSCALED_SHUCK_LINES_PER_SEC);
+    if scaled_timeout_secs <= base_timeout.as_secs() as usize {
+        return base_timeout;
+    }
+
+    let scaled_timeout = Duration::from_secs(scaled_timeout_secs as u64)
+        + LARGE_CORPUS_AUTOSCALED_SHUCK_TIMEOUT_BUFFER;
+    scaled_timeout.min(LARGE_CORPUS_MAX_AUTOSCALED_SHUCK_TIMEOUT)
 }
 
 fn progress_bucket(total: usize, completed: usize) -> usize {
@@ -1009,6 +1041,7 @@ fn evaluate_fixture_compatibility(
 ) -> FixtureEvaluation {
     let mut evaluation = FixtureEvaluation::default();
     let src = fs::read(&fixture.path).unwrap_or_default();
+    let shuck_timeout = effective_shuck_timeout(&src, shuck_timeout);
 
     let shuck_run = match run_shuck_with_timeout(
         fixture,
@@ -2191,9 +2224,12 @@ fn parse_fixture_for_effective_large_corpus_shell_with_timeout(
     timeout: Duration,
 ) -> Result<Result<(), String>, String> {
     let fixture = fixture.clone();
+    let source = match fs::read_to_string(&fixture.path) {
+        Ok(source) => source,
+        Err(err) => return Ok(Err(format!("read error: {err}"))),
+    };
+    let timeout = effective_shuck_timeout(source.as_bytes(), timeout);
     run_with_timeout("shuck", timeout, move || {
-        let source =
-            fs::read_to_string(&fixture.path).map_err(|err| format!("read error: {err}"))?;
         let shell = effective_large_corpus_shell(&fixture);
         let shell_profile = shell_profile_for_large_corpus_shell(shell);
         let parsed =
