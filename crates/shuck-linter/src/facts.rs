@@ -12612,24 +12612,27 @@ fn flush_array_command_subst_keyword(
     pending_case_headers: &mut usize,
     case_clause_depths: &mut Vec<usize>,
     depth: usize,
+    word_started_at_command_start: &mut bool,
 ) {
     if current_word.is_empty() {
+        *word_started_at_command_start = false;
         return;
     }
 
     match current_word.as_str() {
-        "case" => *pending_case_headers += 1,
+        "case" if *word_started_at_command_start => *pending_case_headers += 1,
         "in" if *pending_case_headers > 0 => {
             *pending_case_headers -= 1;
             case_clause_depths.push(depth);
         }
-        "esac" => {
+        "esac" if *word_started_at_command_start => {
             case_clause_depths.pop();
         }
         _ => {}
     }
 
     current_word.clear();
+    *word_started_at_command_start = false;
 }
 
 fn heredoc_delimiter_is_terminator(
@@ -12716,6 +12719,29 @@ fn scan_array_command_subst_heredoc_delimiter(
     (index > start).then_some((index, cooked))
 }
 
+fn scan_array_ansi_c_single_quoted_command_substitution_segment(
+    text: &str,
+    quote_index: usize,
+) -> Option<usize> {
+    let mut index = quote_index + '\''.len_utf8();
+
+    while let Some((ch, next_index)) = next_char_boundary(text, index) {
+        index = next_index;
+        if ch == '\\' {
+            if let Some((_, escaped_next)) = next_char_boundary(text, index) {
+                index = escaped_next;
+            }
+            continue;
+        }
+
+        if ch == '\'' {
+            return Some(index);
+        }
+    }
+
+    None
+}
+
 fn skip_array_command_subst_pending_heredoc(
     text: &str,
     mut index: usize,
@@ -12753,16 +12779,24 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
     let mut pending_case_headers = 0usize;
     let mut case_clause_depths = Vec::new();
     let mut current_word = String::with_capacity(16);
+    let mut at_command_start = true;
+    let mut expecting_redirection_target = false;
+    let mut current_word_started_at_command_start = false;
 
     while let Some((ch, next_index)) = next_char_boundary(text, index) {
         match ch {
             '#' if hash_starts_comment(text, index) => {
+                let had_word = !current_word.is_empty();
                 flush_array_command_subst_keyword(
                     &mut current_word,
                     &mut pending_case_headers,
                     &mut case_clause_depths,
                     depth,
+                    &mut current_word_started_at_command_start,
                 );
+                if had_word && expecting_redirection_target {
+                    expecting_redirection_target = false;
+                }
                 index = next_index;
                 while let Some((comment_ch, comment_next)) = next_char_boundary(text, index) {
                     index = comment_next;
@@ -12772,6 +12806,8 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
                                 text, index, &delimiter, strip_tabs,
                             );
                         }
+                        at_command_start = true;
+                        expecting_redirection_target = false;
                         break;
                     }
                 }
@@ -12782,9 +12818,12 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
                     &mut pending_case_headers,
                     &mut case_clause_depths,
                     depth,
+                    &mut current_word_started_at_command_start,
                 );
                 depth += 1;
                 index = next_index;
+                at_command_start = true;
+                expecting_redirection_target = false;
             }
             ')' => {
                 flush_array_command_subst_keyword(
@@ -12792,12 +12831,15 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
                     &mut pending_case_headers,
                     &mut case_clause_depths,
                     depth,
+                    &mut current_word_started_at_command_start,
                 );
                 if case_clause_depths
                     .last()
                     .is_some_and(|case_depth| *case_depth == depth)
                 {
                     index = next_index;
+                    at_command_start = true;
+                    expecting_redirection_target = false;
                     continue;
                 }
                 depth -= 1;
@@ -12805,23 +12847,40 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
                 if depth == 0 {
                     return Some(index);
                 }
+                at_command_start = false;
+                expecting_redirection_target = false;
             }
             '"' => {
+                let had_word = !current_word.is_empty();
                 flush_array_command_subst_keyword(
                     &mut current_word,
                     &mut pending_case_headers,
                     &mut case_clause_depths,
                     depth,
+                    &mut current_word_started_at_command_start,
                 );
+                if had_word && expecting_redirection_target {
+                    expecting_redirection_target = false;
+                }
                 index = scan_array_double_quoted_command_substitution_segment(text, next_index)?;
+                if expecting_redirection_target {
+                    expecting_redirection_target = false;
+                } else {
+                    at_command_start = false;
+                }
             }
             '\'' => {
+                let had_word = !current_word.is_empty();
                 flush_array_command_subst_keyword(
                     &mut current_word,
                     &mut pending_case_headers,
                     &mut case_clause_depths,
                     depth,
+                    &mut current_word_started_at_command_start,
                 );
+                if had_word && expecting_redirection_target {
+                    expecting_redirection_target = false;
+                }
                 index = next_index;
                 while let Some((quoted_ch, quoted_next)) = next_char_boundary(text, index) {
                     index = quoted_next;
@@ -12829,26 +12888,69 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
                         break;
                     }
                 }
+                if expecting_redirection_target {
+                    expecting_redirection_target = false;
+                } else {
+                    at_command_start = false;
+                }
             }
             '\\' => {
+                let had_word = !current_word.is_empty();
                 flush_array_command_subst_keyword(
                     &mut current_word,
                     &mut pending_case_headers,
                     &mut case_clause_depths,
                     depth,
+                    &mut current_word_started_at_command_start,
                 );
+                if had_word && expecting_redirection_target {
+                    expecting_redirection_target = false;
+                }
                 index = next_index;
                 if let Some((_, escaped_next)) = next_char_boundary(text, index) {
                     index = escaped_next;
                 }
+                if expecting_redirection_target {
+                    expecting_redirection_target = false;
+                } else {
+                    at_command_start = false;
+                }
             }
-            '<' if text[next_index..].starts_with('<') => {
+            '>' => {
+                let word_was_redirection_fd = current_word_started_at_command_start
+                    && !current_word.is_empty()
+                    && current_word.chars().all(|current| current.is_ascii_digit());
                 flush_array_command_subst_keyword(
                     &mut current_word,
                     &mut pending_case_headers,
                     &mut case_clause_depths,
                     depth,
+                    &mut current_word_started_at_command_start,
                 );
+                if word_was_redirection_fd {
+                    at_command_start = true;
+                }
+                index = next_index;
+                expecting_redirection_target = true;
+            }
+            '<' if text[next_index..].starts_with('<') => {
+                let word_was_redirection_fd = current_word_started_at_command_start
+                    && !current_word.is_empty()
+                    && current_word.chars().all(|current| current.is_ascii_digit());
+                let had_word = !current_word.is_empty();
+                flush_array_command_subst_keyword(
+                    &mut current_word,
+                    &mut pending_case_headers,
+                    &mut case_clause_depths,
+                    depth,
+                    &mut current_word_started_at_command_start,
+                );
+                if had_word && expecting_redirection_target {
+                    expecting_redirection_target = false;
+                }
+                if word_was_redirection_fd {
+                    at_command_start = true;
+                }
                 if inside_unclosed_double_paren_on_line(text, index) {
                     index = next_index + '<'.len_utf8();
                     continue;
@@ -12856,6 +12958,7 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
 
                 if text[next_index + '('.len_utf8()..].starts_with('<') {
                     index = next_index + '<'.len_utf8() + '<'.len_utf8();
+                    expecting_redirection_target = true;
                     continue;
                 }
 
@@ -12866,8 +12969,10 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
                 {
                     pending_heredocs.push((delimiter, strip_tabs));
                     index = delimiter_index;
+                    expecting_redirection_target = false;
                 } else {
                     index = next_index;
+                    expecting_redirection_target = true;
                 }
             }
             '\n' => {
@@ -12876,6 +12981,7 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
                     &mut pending_case_headers,
                     &mut case_clause_depths,
                     depth,
+                    &mut current_word_started_at_command_start,
                 );
                 index = next_index;
                 for (delimiter, strip_tabs) in pending_heredocs.drain(..) {
@@ -12883,41 +12989,105 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
                         text, index, &delimiter, strip_tabs,
                     );
                 }
+                at_command_start = true;
+                expecting_redirection_target = false;
             }
-            '$' if text[next_index..].starts_with('{') => {
+            '$' if text[next_index..].starts_with('\'') => {
+                let had_word = !current_word.is_empty();
                 flush_array_command_subst_keyword(
                     &mut current_word,
                     &mut pending_case_headers,
                     &mut case_clause_depths,
                     depth,
+                    &mut current_word_started_at_command_start,
                 );
+                if had_word && expecting_redirection_target {
+                    expecting_redirection_target = false;
+                }
+                index =
+                    scan_array_ansi_c_single_quoted_command_substitution_segment(text, next_index)?;
+                if expecting_redirection_target {
+                    expecting_redirection_target = false;
+                } else {
+                    at_command_start = false;
+                }
+            }
+            '$' if text[next_index..].starts_with('{') => {
+                let had_word = !current_word.is_empty();
+                flush_array_command_subst_keyword(
+                    &mut current_word,
+                    &mut pending_case_headers,
+                    &mut case_clause_depths,
+                    depth,
+                    &mut current_word_started_at_command_start,
+                );
+                if had_word && expecting_redirection_target {
+                    expecting_redirection_target = false;
+                }
                 let consumed =
                     scan_array_parameter_expansion_len(&text[next_index + '{'.len_utf8()..])?;
                 index = next_index + '{'.len_utf8() + consumed;
+                if expecting_redirection_target {
+                    expecting_redirection_target = false;
+                } else {
+                    at_command_start = false;
+                }
             }
             '$' if text[next_index..].starts_with('(')
                 && !text[next_index + '('.len_utf8()..].starts_with('(') =>
             {
+                let had_word = !current_word.is_empty();
                 flush_array_command_subst_keyword(
                     &mut current_word,
                     &mut pending_case_headers,
                     &mut case_clause_depths,
                     depth,
+                    &mut current_word_started_at_command_start,
                 );
+                if had_word && expecting_redirection_target {
+                    expecting_redirection_target = false;
+                }
                 let consumed =
                     scan_array_command_substitution_len(&text[next_index + '('.len_utf8()..])?;
                 index = next_index + '('.len_utf8() + consumed;
+                if expecting_redirection_target {
+                    expecting_redirection_target = false;
+                } else {
+                    at_command_start = false;
+                }
             }
             _ => {
                 if ch.is_ascii_alphanumeric() || ch == '_' {
+                    if current_word.is_empty() && !expecting_redirection_target && at_command_start
+                    {
+                        current_word_started_at_command_start = true;
+                        at_command_start = false;
+                    }
                     current_word.push(ch);
                 } else {
+                    let had_word = !current_word.is_empty();
                     flush_array_command_subst_keyword(
                         &mut current_word,
                         &mut pending_case_headers,
                         &mut case_clause_depths,
                         depth,
+                        &mut current_word_started_at_command_start,
                     );
+                    if had_word && expecting_redirection_target {
+                        expecting_redirection_target = false;
+                    }
+                    match ch {
+                        ' ' | '\t' => {}
+                        ';' | '|' | '&' => {
+                            at_command_start = true;
+                            expecting_redirection_target = false;
+                        }
+                        _ => {
+                            if !expecting_redirection_target {
+                                at_command_start = false;
+                            }
+                        }
+                    }
                 }
                 index = next_index;
             }
@@ -13884,6 +14054,46 @@ complex[$((i+=1))]+=x
     #[test]
     fn ignores_commas_inside_nested_case_patterns_in_command_substitutions() {
         let source = "#!/bin/bash\na=($( (case $kind in\na) printf %s 1,2 ;;\nesac\n) ))\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_command_substitutions_with_plain_case_words() {
+        let source = "#!/bin/bash\na=($(printf %s 1,2; echo case in))\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_command_substitutions_with_ansi_c_single_quotes() {
+        let source = "#!/bin/bash\na=($(printf %s $'a\\'b'; printf %s 1,2))\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);

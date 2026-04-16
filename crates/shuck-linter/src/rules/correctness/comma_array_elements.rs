@@ -96,6 +96,8 @@ esac
 d=(\"$( (#comment with )
 printf %s 7,8
 ) )\")
+e=($(printf %s 9,10; echo case in))
+f=($(printf %s $'a\\'b'; printf %s 11,12))
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CommaArrayElements));
 

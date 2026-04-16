@@ -2391,24 +2391,101 @@ impl<'a> Lexer<'a> {
         pending_case_headers: &mut usize,
         case_clause_depths: &mut Vec<usize>,
         depth: usize,
+        word_started_at_command_start: &mut bool,
     ) {
         if current_word.is_empty() {
+            *word_started_at_command_start = false;
             return;
         }
 
         match current_word.as_str() {
-            "case" => *pending_case_headers += 1,
+            "case" if *word_started_at_command_start => *pending_case_headers += 1,
             "in" if *pending_case_headers > 0 => {
                 *pending_case_headers -= 1;
                 case_clause_depths.push(depth);
             }
-            "esac" => {
+            "esac" if *word_started_at_command_start => {
                 case_clause_depths.pop();
             }
             _ => {}
         }
 
         current_word.clear();
+        *word_started_at_command_start = false;
+    }
+
+    fn read_command_subst_heredoc_delimiter_into(
+        &mut self,
+        content: &mut Option<String>,
+    ) -> Option<String> {
+        while let Some(ch) = self.peek_char() {
+            if !matches!(ch, ' ' | '\t') {
+                break;
+            }
+            Self::push_capture_char(content, ch);
+            self.advance();
+        }
+
+        let mut cooked = String::new();
+        let mut in_single = false;
+        let mut in_double = false;
+        let mut escaped = false;
+        let mut saw_any = false;
+
+        while let Some(ch) = self.peek_char() {
+            if heredoc_delimiter_is_terminator(ch, in_single, in_double, escaped) {
+                break;
+            }
+
+            saw_any = true;
+            Self::push_capture_char(content, ch);
+            self.advance();
+
+            if escaped {
+                cooked.push(ch);
+                escaped = false;
+                continue;
+            }
+
+            match ch {
+                '\\' if !in_single => escaped = true,
+                '\'' if !in_double => in_single = !in_single,
+                '"' if !in_single => in_double = !in_double,
+                _ => cooked.push(ch),
+            }
+        }
+
+        saw_any.then_some(cooked)
+    }
+
+    fn read_command_subst_pending_heredoc_into(
+        &mut self,
+        content: &mut Option<String>,
+        delimiter: &str,
+        strip_tabs: bool,
+    ) -> bool {
+        loop {
+            let mut line = String::new();
+            let mut saw_newline = false;
+
+            while let Some(ch) = self.peek_char() {
+                self.advance();
+                if ch == '\n' {
+                    saw_newline = true;
+                    break;
+                }
+                line.push(ch);
+            }
+
+            Self::push_capture_str(content, &line);
+            if saw_newline {
+                Self::push_capture_char(content, '\n');
+            }
+
+            if heredoc_line_matches_delimiter(&line, delimiter, strip_tabs) || !saw_newline {
+                return true;
+            }
+        }
     }
 
     fn read_command_subst_into_depth(
@@ -2437,24 +2514,42 @@ impl<'a> Lexer<'a> {
         }
 
         let mut depth = 1;
+        let mut pending_heredocs: Vec<(String, bool)> = Vec::new();
         let mut pending_case_headers = 0usize;
         let mut case_clause_depths = Vec::new();
         let mut current_word = String::with_capacity(16);
+        let mut at_command_start = true;
+        let mut expecting_redirection_target = false;
+        let mut current_word_started_at_command_start = false;
         while let Some(c) = self.peek_char() {
             match c {
                 '#' if !self.should_treat_hash_as_word_char() => {
+                    let had_word = !current_word.is_empty();
                     Self::flush_command_subst_keyword(
                         &mut current_word,
                         &mut pending_case_headers,
                         &mut case_clause_depths,
                         depth,
+                        &mut current_word_started_at_command_start,
                     );
+                    if had_word && expecting_redirection_target {
+                        expecting_redirection_target = false;
+                    }
                     Self::push_capture_char(content, '#');
                     self.advance();
                     while let Some(comment_ch) = self.peek_char() {
                         Self::push_capture_char(content, comment_ch);
                         self.advance();
                         if comment_ch == '\n' {
+                            for (delimiter, strip_tabs) in pending_heredocs.drain(..) {
+                                if !self.read_command_subst_pending_heredoc_into(
+                                    content, &delimiter, strip_tabs,
+                                ) {
+                                    return false;
+                                }
+                            }
+                            at_command_start = true;
+                            expecting_redirection_target = false;
                             break;
                         }
                     }
@@ -2465,10 +2560,13 @@ impl<'a> Lexer<'a> {
                         &mut pending_case_headers,
                         &mut case_clause_depths,
                         depth,
+                        &mut current_word_started_at_command_start,
                     );
                     depth += 1;
                     Self::push_capture_char(content, c);
                     self.advance();
+                    at_command_start = true;
+                    expecting_redirection_target = false;
                 }
                 ')' => {
                     Self::flush_command_subst_keyword(
@@ -2476,6 +2574,7 @@ impl<'a> Lexer<'a> {
                         &mut pending_case_headers,
                         &mut case_clause_depths,
                         depth,
+                        &mut current_word_started_at_command_start,
                     );
                     if case_clause_depths
                         .last()
@@ -2483,6 +2582,8 @@ impl<'a> Lexer<'a> {
                     {
                         Self::push_capture_char(content, ')');
                         self.advance();
+                        at_command_start = true;
+                        expecting_redirection_target = false;
                         continue;
                     }
                     depth -= 1;
@@ -2492,14 +2593,21 @@ impl<'a> Lexer<'a> {
                         return true;
                     }
                     Self::push_capture_char(content, c);
+                    at_command_start = false;
+                    expecting_redirection_target = false;
                 }
                 '"' => {
+                    let had_word = !current_word.is_empty();
                     Self::flush_command_subst_keyword(
                         &mut current_word,
                         &mut pending_case_headers,
                         &mut case_clause_depths,
                         depth,
+                        &mut current_word_started_at_command_start,
                     );
+                    if had_word && expecting_redirection_target {
+                        expecting_redirection_target = false;
+                    }
                     // Nested double-quoted string inside $()
                     Self::push_capture_char(content, '"');
                     self.advance();
@@ -2536,14 +2644,24 @@ impl<'a> Lexer<'a> {
                             }
                         }
                     }
+                    if expecting_redirection_target {
+                        expecting_redirection_target = false;
+                    } else {
+                        at_command_start = false;
+                    }
                 }
                 '\'' => {
+                    let had_word = !current_word.is_empty();
                     Self::flush_command_subst_keyword(
                         &mut current_word,
                         &mut pending_case_headers,
                         &mut case_clause_depths,
                         depth,
+                        &mut current_word_started_at_command_start,
                     );
+                    if had_word && expecting_redirection_target {
+                        expecting_redirection_target = false;
+                    }
                     // Single-quoted string inside $()
                     Self::push_capture_char(content, '\'');
                     self.advance();
@@ -2554,31 +2672,187 @@ impl<'a> Lexer<'a> {
                             break;
                         }
                     }
+                    if expecting_redirection_target {
+                        expecting_redirection_target = false;
+                    } else {
+                        at_command_start = false;
+                    }
                 }
-                '\\' => {
+                '$' if self.second_char() == Some('\'') => {
+                    let had_word = !current_word.is_empty();
                     Self::flush_command_subst_keyword(
                         &mut current_word,
                         &mut pending_case_headers,
                         &mut case_clause_depths,
                         depth,
+                        &mut current_word_started_at_command_start,
                     );
+                    if had_word && expecting_redirection_target {
+                        expecting_redirection_target = false;
+                    }
+                    Self::push_capture_char(content, '$');
+                    self.advance();
+                    Self::push_capture_char(content, '\'');
+                    self.advance();
+                    while let Some(qc) = self.peek_char() {
+                        Self::push_capture_char(content, qc);
+                        self.advance();
+                        if qc == '\\' {
+                            if let Some(esc) = self.peek_char() {
+                                Self::push_capture_char(content, esc);
+                                self.advance();
+                            }
+                            continue;
+                        }
+                        if qc == '\'' {
+                            break;
+                        }
+                    }
+                    if expecting_redirection_target {
+                        expecting_redirection_target = false;
+                    } else {
+                        at_command_start = false;
+                    }
+                }
+                '\\' => {
+                    let had_word = !current_word.is_empty();
+                    Self::flush_command_subst_keyword(
+                        &mut current_word,
+                        &mut pending_case_headers,
+                        &mut case_clause_depths,
+                        depth,
+                        &mut current_word_started_at_command_start,
+                    );
+                    if had_word && expecting_redirection_target {
+                        expecting_redirection_target = false;
+                    }
                     Self::push_capture_char(content, '\\');
                     self.advance();
                     if let Some(esc) = self.peek_char() {
                         Self::push_capture_char(content, esc);
                         self.advance();
                     }
+                    if expecting_redirection_target {
+                        expecting_redirection_target = false;
+                    } else {
+                        at_command_start = false;
+                    }
+                }
+                '<' if self.second_char() == Some('<') => {
+                    let word_was_redirection_fd = current_word_started_at_command_start
+                        && !current_word.is_empty()
+                        && current_word.chars().all(|current| current.is_ascii_digit());
+                    Self::flush_command_subst_keyword(
+                        &mut current_word,
+                        &mut pending_case_headers,
+                        &mut case_clause_depths,
+                        depth,
+                        &mut current_word_started_at_command_start,
+                    );
+                    if word_was_redirection_fd {
+                        at_command_start = true;
+                    }
+
+                    Self::push_capture_char(content, '<');
+                    self.advance();
+                    Self::push_capture_char(content, '<');
+                    self.advance();
+
+                    if self.peek_char() == Some('<') {
+                        Self::push_capture_char(content, '<');
+                        self.advance();
+                        expecting_redirection_target = true;
+                        continue;
+                    }
+
+                    let strip_tabs = if self.peek_char() == Some('-') {
+                        Self::push_capture_char(content, '-');
+                        self.advance();
+                        true
+                    } else {
+                        false
+                    };
+
+                    if let Some(delimiter) = self.read_command_subst_heredoc_delimiter_into(content)
+                    {
+                        pending_heredocs.push((delimiter, strip_tabs));
+                        expecting_redirection_target = false;
+                    } else {
+                        expecting_redirection_target = true;
+                    }
+                }
+                '>' | '<' => {
+                    let word_was_redirection_fd = current_word_started_at_command_start
+                        && !current_word.is_empty()
+                        && current_word.chars().all(|current| current.is_ascii_digit());
+                    Self::flush_command_subst_keyword(
+                        &mut current_word,
+                        &mut pending_case_headers,
+                        &mut case_clause_depths,
+                        depth,
+                        &mut current_word_started_at_command_start,
+                    );
+                    if word_was_redirection_fd {
+                        at_command_start = true;
+                    }
+                    Self::push_capture_char(content, c);
+                    self.advance();
+                    expecting_redirection_target = true;
+                }
+                '\n' => {
+                    Self::flush_command_subst_keyword(
+                        &mut current_word,
+                        &mut pending_case_headers,
+                        &mut case_clause_depths,
+                        depth,
+                        &mut current_word_started_at_command_start,
+                    );
+                    Self::push_capture_char(content, '\n');
+                    self.advance();
+                    for (delimiter, strip_tabs) in pending_heredocs.drain(..) {
+                        if !self.read_command_subst_pending_heredoc_into(
+                            content, &delimiter, strip_tabs,
+                        ) {
+                            return false;
+                        }
+                    }
+                    at_command_start = true;
+                    expecting_redirection_target = false;
                 }
                 _ => {
                     if c.is_ascii_alphanumeric() || c == '_' {
+                        if current_word.is_empty()
+                            && !expecting_redirection_target
+                            && at_command_start
+                        {
+                            current_word_started_at_command_start = true;
+                            at_command_start = false;
+                        }
                         current_word.push(c);
                     } else {
+                        let had_word = !current_word.is_empty();
                         Self::flush_command_subst_keyword(
                             &mut current_word,
                             &mut pending_case_headers,
                             &mut case_clause_depths,
                             depth,
+                            &mut current_word_started_at_command_start,
                         );
+                        if had_word && expecting_redirection_target {
+                            expecting_redirection_target = false;
+                        }
+                        match c {
+                            ' ' | '\t' => {}
+                            ';' | '|' | '&' => {
+                                at_command_start = true;
+                                expecting_redirection_target = false;
+                            }
+                            _ => {
+                                if !expecting_redirection_target {
+                                    at_command_start = false;
+                                }
+                            }
+                        }
                     }
                     Self::push_capture_char(content, c);
                     self.advance();
@@ -3466,6 +3740,29 @@ fn skip_command_subst_pending_heredoc(
     index
 }
 
+fn scan_command_subst_ansi_c_single_quoted_segment(
+    input: &str,
+    quote_index: usize,
+) -> Option<usize> {
+    let mut index = quote_index + '\''.len_utf8();
+
+    while let Some((ch, next_index)) = next_char_boundary(input, index) {
+        index = next_index;
+        if ch == '\\' {
+            if let Some((_, escaped_next)) = next_char_boundary(input, index) {
+                index = escaped_next;
+            }
+            continue;
+        }
+
+        if ch == '\'' {
+            return Some(index);
+        }
+    }
+
+    None
+}
+
 fn scan_command_substitution_body_len_inner(input: &str, subst_depth: usize) -> Option<usize> {
     if subst_depth >= DEFAULT_MAX_SUBST_DEPTH {
         return None;
@@ -3477,16 +3774,24 @@ fn scan_command_substitution_body_len_inner(input: &str, subst_depth: usize) -> 
     let mut pending_case_headers = 0usize;
     let mut case_clause_depths = Vec::new();
     let mut current_word = String::with_capacity(16);
+    let mut at_command_start = true;
+    let mut expecting_redirection_target = false;
+    let mut current_word_started_at_command_start = false;
 
     while let Some((ch, next_index)) = next_char_boundary(input, index) {
         match ch {
             '#' if hash_starts_comment(input, index) => {
+                let had_word = !current_word.is_empty();
                 Lexer::flush_command_subst_keyword(
                     &mut current_word,
                     &mut pending_case_headers,
                     &mut case_clause_depths,
                     depth,
+                    &mut current_word_started_at_command_start,
                 );
+                if had_word && expecting_redirection_target {
+                    expecting_redirection_target = false;
+                }
                 index = next_index;
                 while let Some((comment_ch, comment_next)) = next_char_boundary(input, index) {
                     index = comment_next;
@@ -3496,6 +3801,8 @@ fn scan_command_substitution_body_len_inner(input: &str, subst_depth: usize) -> 
                                 input, index, &delimiter, strip_tabs,
                             );
                         }
+                        at_command_start = true;
+                        expecting_redirection_target = false;
                         break;
                     }
                 }
@@ -3506,9 +3813,12 @@ fn scan_command_substitution_body_len_inner(input: &str, subst_depth: usize) -> 
                     &mut pending_case_headers,
                     &mut case_clause_depths,
                     depth,
+                    &mut current_word_started_at_command_start,
                 );
                 depth += 1;
                 index = next_index;
+                at_command_start = true;
+                expecting_redirection_target = false;
             }
             ')' => {
                 Lexer::flush_command_subst_keyword(
@@ -3516,12 +3826,15 @@ fn scan_command_substitution_body_len_inner(input: &str, subst_depth: usize) -> 
                     &mut pending_case_headers,
                     &mut case_clause_depths,
                     depth,
+                    &mut current_word_started_at_command_start,
                 );
                 if case_clause_depths
                     .last()
                     .is_some_and(|case_depth| *case_depth == depth)
                 {
                     index = next_index;
+                    at_command_start = true;
+                    expecting_redirection_target = false;
                     continue;
                 }
                 depth -= 1;
@@ -3529,27 +3842,44 @@ fn scan_command_substitution_body_len_inner(input: &str, subst_depth: usize) -> 
                 if depth == 0 {
                     return Some(index);
                 }
+                at_command_start = false;
+                expecting_redirection_target = false;
             }
             '"' => {
+                let had_word = !current_word.is_empty();
                 Lexer::flush_command_subst_keyword(
                     &mut current_word,
                     &mut pending_case_headers,
                     &mut case_clause_depths,
                     depth,
+                    &mut current_word_started_at_command_start,
                 );
+                if had_word && expecting_redirection_target {
+                    expecting_redirection_target = false;
+                }
                 index = scan_double_quoted_command_substitution_segment(
                     input,
                     next_index,
                     subst_depth,
                 )?;
+                if expecting_redirection_target {
+                    expecting_redirection_target = false;
+                } else {
+                    at_command_start = false;
+                }
             }
             '\'' => {
+                let had_word = !current_word.is_empty();
                 Lexer::flush_command_subst_keyword(
                     &mut current_word,
                     &mut pending_case_headers,
                     &mut case_clause_depths,
                     depth,
+                    &mut current_word_started_at_command_start,
                 );
+                if had_word && expecting_redirection_target {
+                    expecting_redirection_target = false;
+                }
                 index = next_index;
                 while let Some((quoted_ch, quoted_next)) = next_char_boundary(input, index) {
                     index = quoted_next;
@@ -3557,26 +3887,88 @@ fn scan_command_substitution_body_len_inner(input: &str, subst_depth: usize) -> 
                         break;
                     }
                 }
+                if expecting_redirection_target {
+                    expecting_redirection_target = false;
+                } else {
+                    at_command_start = false;
+                }
             }
-            '\\' => {
+            '$' if input[next_index..].starts_with('\'') => {
+                let had_word = !current_word.is_empty();
                 Lexer::flush_command_subst_keyword(
                     &mut current_word,
                     &mut pending_case_headers,
                     &mut case_clause_depths,
                     depth,
+                    &mut current_word_started_at_command_start,
                 );
+                if had_word && expecting_redirection_target {
+                    expecting_redirection_target = false;
+                }
+                index = scan_command_subst_ansi_c_single_quoted_segment(input, next_index)?;
+                if expecting_redirection_target {
+                    expecting_redirection_target = false;
+                } else {
+                    at_command_start = false;
+                }
+            }
+            '\\' => {
+                let had_word = !current_word.is_empty();
+                Lexer::flush_command_subst_keyword(
+                    &mut current_word,
+                    &mut pending_case_headers,
+                    &mut case_clause_depths,
+                    depth,
+                    &mut current_word_started_at_command_start,
+                );
+                if had_word && expecting_redirection_target {
+                    expecting_redirection_target = false;
+                }
                 index = next_index;
                 if let Some((_, escaped_next)) = next_char_boundary(input, index) {
                     index = escaped_next;
                 }
+                if expecting_redirection_target {
+                    expecting_redirection_target = false;
+                } else {
+                    at_command_start = false;
+                }
             }
-            '<' if input[next_index..].starts_with('<') => {
+            '>' => {
+                let word_was_redirection_fd = current_word_started_at_command_start
+                    && !current_word.is_empty()
+                    && current_word.chars().all(|current| current.is_ascii_digit());
                 Lexer::flush_command_subst_keyword(
                     &mut current_word,
                     &mut pending_case_headers,
                     &mut case_clause_depths,
                     depth,
+                    &mut current_word_started_at_command_start,
                 );
+                if word_was_redirection_fd {
+                    at_command_start = true;
+                }
+                index = next_index;
+                expecting_redirection_target = true;
+            }
+            '<' if input[next_index..].starts_with('<') => {
+                let word_was_redirection_fd = current_word_started_at_command_start
+                    && !current_word.is_empty()
+                    && current_word.chars().all(|current| current.is_ascii_digit());
+                let had_word = !current_word.is_empty();
+                Lexer::flush_command_subst_keyword(
+                    &mut current_word,
+                    &mut pending_case_headers,
+                    &mut case_clause_depths,
+                    depth,
+                    &mut current_word_started_at_command_start,
+                );
+                if had_word && expecting_redirection_target {
+                    expecting_redirection_target = false;
+                }
+                if word_was_redirection_fd {
+                    at_command_start = true;
+                }
                 if inside_unclosed_double_paren_on_line(input, index) {
                     index = next_index + '<'.len_utf8();
                     continue;
@@ -3585,6 +3977,7 @@ fn scan_command_substitution_body_len_inner(input: &str, subst_depth: usize) -> 
                 // Here string (`<<<`) does not queue a heredoc body.
                 if input[next_index + '<'.len_utf8()..].starts_with('<') {
                     index = next_index + '<'.len_utf8() + '<'.len_utf8();
+                    expecting_redirection_target = true;
                     continue;
                 }
 
@@ -3595,8 +3988,10 @@ fn scan_command_substitution_body_len_inner(input: &str, subst_depth: usize) -> 
                 {
                     pending_heredocs.push((delimiter, strip_tabs));
                     index = delimiter_index;
+                    expecting_redirection_target = false;
                 } else {
                     index = next_index;
+                    expecting_redirection_target = true;
                 }
             }
             '\n' => {
@@ -3605,51 +4000,96 @@ fn scan_command_substitution_body_len_inner(input: &str, subst_depth: usize) -> 
                     &mut pending_case_headers,
                     &mut case_clause_depths,
                     depth,
+                    &mut current_word_started_at_command_start,
                 );
                 index = next_index;
                 for (delimiter, strip_tabs) in pending_heredocs.drain(..) {
                     index =
                         skip_command_subst_pending_heredoc(input, index, &delimiter, strip_tabs);
                 }
+                at_command_start = true;
+                expecting_redirection_target = false;
             }
             '$' if input[next_index..].starts_with('{') => {
+                let had_word = !current_word.is_empty();
                 Lexer::flush_command_subst_keyword(
                     &mut current_word,
                     &mut pending_case_headers,
                     &mut case_clause_depths,
                     depth,
+                    &mut current_word_started_at_command_start,
                 );
+                if had_word && expecting_redirection_target {
+                    expecting_redirection_target = false;
+                }
                 let consumed = scan_command_subst_parameter_expansion_len(
                     &input[next_index + '{'.len_utf8()..],
                     subst_depth,
                 )?;
                 index = next_index + '{'.len_utf8() + consumed;
+                if expecting_redirection_target {
+                    expecting_redirection_target = false;
+                } else {
+                    at_command_start = false;
+                }
             }
             '$' if input[next_index..].starts_with('(')
                 && !input[next_index + '('.len_utf8()..].starts_with('(') =>
             {
+                let had_word = !current_word.is_empty();
                 Lexer::flush_command_subst_keyword(
                     &mut current_word,
                     &mut pending_case_headers,
                     &mut case_clause_depths,
                     depth,
+                    &mut current_word_started_at_command_start,
                 );
+                if had_word && expecting_redirection_target {
+                    expecting_redirection_target = false;
+                }
                 let consumed = scan_command_substitution_body_len_inner(
                     &input[next_index + '('.len_utf8()..],
                     subst_depth + 1,
                 )?;
                 index = next_index + '('.len_utf8() + consumed;
+                if expecting_redirection_target {
+                    expecting_redirection_target = false;
+                } else {
+                    at_command_start = false;
+                }
             }
             _ => {
                 if ch.is_ascii_alphanumeric() || ch == '_' {
+                    if current_word.is_empty() && !expecting_redirection_target && at_command_start
+                    {
+                        current_word_started_at_command_start = true;
+                        at_command_start = false;
+                    }
                     current_word.push(ch);
                 } else {
+                    let had_word = !current_word.is_empty();
                     Lexer::flush_command_subst_keyword(
                         &mut current_word,
                         &mut pending_case_headers,
                         &mut case_clause_depths,
                         depth,
+                        &mut current_word_started_at_command_start,
                     );
+                    if had_word && expecting_redirection_target {
+                        expecting_redirection_target = false;
+                    }
+                    match ch {
+                        ' ' | '\t' => {}
+                        ';' | '|' | '&' => {
+                            at_command_start = true;
+                            expecting_redirection_target = false;
+                        }
+                        _ => {
+                            if !expecting_redirection_target {
+                                at_command_start = false;
+                            }
+                        }
+                    }
                 }
                 index = next_index;
             }
@@ -3936,6 +4376,29 @@ mod tests {
 
         assert!(body.contains("printf %s 1,2"));
         assert!(body.ends_with("))"));
+    }
+
+    #[test]
+    fn test_scan_command_substitution_body_len_ignores_plain_case_words_in_commands() {
+        let source = "printf %s 1,2; echo case in)\"";
+
+        let consumed = scan_command_substitution_body_len(source).expect("expected match");
+        let body = &source[..consumed];
+
+        assert!(body.contains("echo case in"));
+        assert!(body.ends_with(')'));
+    }
+
+    #[test]
+    fn test_scan_command_substitution_body_len_handles_ansi_c_quotes_with_escaped_single_quotes() {
+        let source = "printf %s $'a\\'b'; printf %s 1,2)\"";
+
+        let consumed = scan_command_substitution_body_len(source).expect("expected match");
+        let body = &source[..consumed];
+
+        assert!(body.contains("$'a\\'b'"));
+        assert!(body.contains("printf %s 1,2"));
+        assert!(body.ends_with(')'));
     }
 
     #[test]
