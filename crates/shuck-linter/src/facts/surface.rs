@@ -1020,7 +1020,9 @@ fn collect_positional_parameter_operator_spans_in_arithmetic(
     source: &str,
     spans: &mut Vec<Span>,
 ) {
-    if expression_ast.is_some_and(arithmetic_expr_has_positional_parameter_operator) {
+    if expression_ast.is_some_and(|expression_ast| {
+        arithmetic_expr_has_positional_parameter_operator(expression_ast, source)
+    }) {
         spans.push(Span::from_positions(
             expansion_span.start,
             expansion_span.start,
@@ -1081,20 +1083,23 @@ fn collect_positional_parameter_operator_spans_in_arithmetic(
     }
 }
 
-fn arithmetic_expr_has_positional_parameter_operator(expression: &ArithmeticExprNode) -> bool {
+fn arithmetic_expr_has_positional_parameter_operator(
+    expression: &ArithmeticExprNode,
+    source: &str,
+) -> bool {
     let mut should_report = false;
     query::visit_arithmetic_words(expression, &mut |word| {
-        if word_has_unquoted_positional_parameter_concatenation(word) {
+        if word_has_unquoted_positional_parameter_operator_neighbors(word, source) {
             should_report = true;
         }
     });
     should_report
 }
 
-fn word_has_unquoted_positional_parameter_concatenation(word: &Word) -> bool {
+fn word_has_unquoted_positional_parameter_operator_neighbors(word: &Word, source: &str) -> bool {
     word.parts.iter().enumerate().any(|(index, part)| {
         part_is_unquoted_positional_parameter(&part.kind)
-            && (index > 0 || index + 1 < word.parts.len())
+            && positional_parameter_part_has_operator_neighbor(word, index, source)
     })
 }
 
@@ -1131,6 +1136,23 @@ fn part_is_unquoted_positional_parameter(part: &WordPart) -> bool {
 
 fn name_is_positional_parameter(name: &Name) -> bool {
     !name.as_str().is_empty() && name.as_str().bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn positional_parameter_part_has_operator_neighbor(
+    word: &Word,
+    index: usize,
+    source: &str,
+) -> bool {
+    let Some(part) = word.parts.get(index) else {
+        return false;
+    };
+
+    let prefix = &source[word.span.start.offset..part.span.start.offset];
+    let suffix = &source[part.span.end.offset..word.span.end.offset];
+    let prev = prefix.chars().rev().find(|ch| !ch.is_whitespace());
+    let next = suffix.chars().find(|ch| !ch.is_whitespace());
+
+    prev.is_some_and(is_left_operand_neighbor) || next.is_some_and(is_right_operand_neighbor)
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -1370,7 +1392,7 @@ fn is_unicode_smart_quote(char: char) -> bool {
 mod tests {
     use super::{
         SubscriptSpanIndex, arithmetic_expr_has_positional_parameter_operator,
-        word_has_unquoted_positional_parameter_concatenation,
+        word_has_unquoted_positional_parameter_operator_neighbors,
     };
     use shuck_ast::{Command, Position, Span, WordPart};
     use shuck_parser::parser::Parser;
@@ -1402,22 +1424,22 @@ mod tests {
     }
 
     #[test]
-    fn detects_internal_positional_parameter_concatenation_in_arithmetic_words() {
+    fn detects_operator_like_neighbors_around_positional_parameters_in_arithmetic_words() {
         for text in ["$1$2", "$1suffix", "prefix$1", "${1}x"] {
             let word = Parser::parse_word_string(text);
             assert!(
-                word_has_unquoted_positional_parameter_concatenation(&word),
+                word_has_unquoted_positional_parameter_operator_neighbors(&word, text),
                 "expected {text:?} to be flagged",
             );
         }
     }
 
     #[test]
-    fn ignores_isolated_or_quoted_positional_parameters_in_arithmetic_words() {
-        for text in ["$1", "${1}", "\"$1\"", "'$1'"] {
+    fn ignores_non_operator_neighbors_around_positional_parameters_in_arithmetic_words() {
+        for text in ["$1", "${1}", "\"$1\"", "'$1'", "16#$1"] {
             let word = Parser::parse_word_string(text);
             assert!(
-                !word_has_unquoted_positional_parameter_concatenation(&word),
+                !word_has_unquoted_positional_parameter_operator_neighbors(&word, text),
                 "expected {text:?} to be ignored",
             );
         }
@@ -1451,7 +1473,8 @@ mod tests {
             .expect("expected parsed arithmetic expression");
 
         assert!(arithmetic_expr_has_positional_parameter_operator(
-            expression_ast
+            expression_ast,
+            source
         ));
     }
 }

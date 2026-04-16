@@ -93,6 +93,20 @@ echo \"$(( ${#1} ))\"
     }
 
     #[test]
+    fn ignores_base_prefixed_literals_that_use_positional_parameters() {
+        let source = "\
+#!/bin/sh
+echo \"$(( 16#$1 ))\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PositionalParamAsOperator),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn ignores_dollar_tokens_inside_single_quoted_command_substitutions() {
         let source = "\
 #!/bin/sh
