@@ -81,6 +81,7 @@ pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     deferred_functions: Vec<DeferredFunction>,
     scope_stack: Vec<ScopeId>,
     command_stack: Vec<Span>,
+    guarded_parameter_operand_depth: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -149,6 +150,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             deferred_functions: Vec::new(),
             scope_stack: vec![ScopeId(0)],
             command_stack: Vec::new(),
+            guarded_parameter_operand_depth: 0,
         };
         let file_commands = builder.visit_stmt_seq(&file.body, FlowState::default());
         builder.recorded_program.set_file_commands(file_commands);
@@ -1678,7 +1680,6 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 if let Some(operation) = &syntax.operation {
                     match operation {
                         ZshExpansionOperation::PatternOperation { operand, .. }
-                        | ZshExpansionOperation::Defaulting { operand, .. }
                         | ZshExpansionOperation::TrimOperation { operand, .. } => self
                             .visit_fragment_word(
                                 operation.operand_word_ast(),
@@ -1687,6 +1688,17 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                                 flow,
                                 nested_regions,
                             ),
+                        ZshExpansionOperation::Defaulting { operand, .. } => {
+                            self.guarded_parameter_operand_depth += 1;
+                            self.visit_fragment_word(
+                                operation.operand_word_ast(),
+                                Some(operand),
+                                kind,
+                                flow,
+                                nested_regions,
+                            );
+                            self.guarded_parameter_operand_depth -= 1;
+                        }
                         ZshExpansionOperation::ReplacementOperation {
                             pattern,
                             replacement,
@@ -1794,7 +1806,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             | ParameterOp::AssignDefault
             | ParameterOp::UseReplacement
             | ParameterOp::Error => {
+                self.guarded_parameter_operand_depth += 1;
                 self.visit_fragment_word(operand_word_ast, operand, kind, flow, nested_regions);
+                self.guarded_parameter_operand_depth -= 1;
             }
             ParameterOp::UpperFirst
             | ParameterOp::UpperAll
@@ -2278,6 +2292,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             scope,
             span,
         });
+        if self.guarded_parameter_operand_depth > 0 {
+            self.guarded_parameter_refs.insert(id);
+        }
         if let Some(command) = self.command_stack.last().copied() {
             self.command_references
                 .entry(SpanKey::new(command))
