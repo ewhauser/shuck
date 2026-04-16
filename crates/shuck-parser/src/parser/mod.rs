@@ -4041,10 +4041,7 @@ impl<'a> Parser<'a> {
                                 Self::materialize_source_text_source_backing(replacement, source);
                             }
                             if let Some(replacement_word_ast) = replacement_word_ast {
-                                Self::materialize_word_source_backing(
-                                    replacement_word_ast,
-                                    source,
-                                );
+                                Self::materialize_word_source_backing(replacement_word_ast, source);
                             }
                         }
                         ZshExpansionOperation::Slice {
@@ -4068,10 +4065,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn materialize_parameter_operator_source_backing(
-        operator: &mut ParameterOp,
-        source: &str,
-    ) {
+    fn materialize_parameter_operator_source_backing(operator: &mut ParameterOp, source: &str) {
         match operator {
             ParameterOp::RemovePrefixShort { pattern }
             | ParameterOp::RemovePrefixLong { pattern }
@@ -4104,10 +4098,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn materialize_arithmetic_expr_source_backing(
-        expr: &mut ArithmeticExprNode,
-        source: &str,
-    ) {
+    fn materialize_arithmetic_expr_source_backing(expr: &mut ArithmeticExprNode, source: &str) {
         match &mut expr.kind {
             ArithmeticExpr::Number(text) => {
                 Self::materialize_source_text_source_backing(text, source);
@@ -4145,10 +4136,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn materialize_arithmetic_lvalue_source_backing(
-        target: &mut ArithmeticLvalue,
-        source: &str,
-    ) {
+    fn materialize_arithmetic_lvalue_source_backing(target: &mut ArithmeticLvalue, source: &str) {
         match target {
             ArithmeticLvalue::Variable(_) => {}
             ArithmeticLvalue::Indexed { index, .. } => {
