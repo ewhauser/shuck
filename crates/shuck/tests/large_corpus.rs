@@ -413,6 +413,8 @@ struct ReviewedDivergenceRecord {
     #[serde(default)]
     path_suffix: Option<String>,
     #[serde(default)]
+    path_contains: Option<String>,
+    #[serde(default)]
     line: Option<usize>,
     #[serde(default)]
     end_line: Option<usize>,
@@ -1107,13 +1109,14 @@ fn evaluate_fixture_compatibility(
                 &shuck_only,
             );
 
+            let cache_rel_path = fixture.cache_rel_path_key();
             let mut implementation_details = Vec::new();
             let mut mapping_details = Vec::new();
             let mut reviewed_details = Vec::new();
 
             for record in shellcheck_only.into_iter().chain(shuck_only) {
                 let (classification, reason) =
-                    classify_compatibility_record(&record, &fixture.path, corpus_metadata);
+                    classify_compatibility_record(&record, &cache_rel_path, corpus_metadata);
                 let detail = format_compatibility_record(
                     &record,
                     reason.as_deref(),
@@ -1279,15 +1282,18 @@ fn load_all_rule_corpus_metadata() -> HashMap<String, RuleCorpusMetadataDocument
 fn reviewed_divergence_reason<'a>(
     metadata: &'a RuleCorpusMetadataDocument,
     record: &CompatibilityRecord,
-    path: &Path,
+    cache_rel_path: &str,
 ) -> Option<&'a str> {
-    let path = path.to_string_lossy();
     metadata.reviewed_divergences.iter().find_map(|entry| {
         (entry.side == record.side
             && entry
                 .path_suffix
                 .as_ref()
-                .is_none_or(|suffix| path.ends_with(suffix))
+                .is_none_or(|suffix| cache_rel_path.ends_with(suffix))
+            && entry
+                .path_contains
+                .as_ref()
+                .is_none_or(|needle| cache_rel_path.contains(needle))
             && entry.line.is_none_or(|line| line == record.range.line)
             && entry
                 .end_line
@@ -1319,7 +1325,7 @@ fn comparison_target_note_reason<'a>(
 
 fn classify_compatibility_record(
     record: &CompatibilityRecord,
-    path: &Path,
+    cache_rel_path: &str,
     corpus_metadata: &HashMap<String, RuleCorpusMetadataDocument>,
 ) -> (CompatibilityClassification, Option<String>) {
     let rule_codes = compatibility_record_rule_codes(record);
@@ -1337,7 +1343,7 @@ fn classify_compatibility_record(
             return (CompatibilityClassification::Implementation, None);
         };
 
-        if let Some(reason) = reviewed_divergence_reason(metadata, record, path) {
+        if let Some(reason) = reviewed_divergence_reason(metadata, record, cache_rel_path) {
             reviewed_reason.get_or_insert_with(|| reason.to_owned());
             continue;
         }
@@ -3328,6 +3334,7 @@ mod tests {
                 reviewed_divergences: vec![ReviewedDivergenceRecord {
                     side: CompatibilitySide::ShellcheckOnly,
                     path_suffix: Some("repo__script.sh".into()),
+                    path_contains: None,
                     line: Some(19),
                     end_line: Some(19),
                     column: Some(1),
@@ -3354,7 +3361,7 @@ mod tests {
         };
 
         let (classification, reason) =
-            classify_compatibility_record(&record, Path::new("repo__script.sh"), &metadata);
+            classify_compatibility_record(&record, "repo__script.sh", &metadata);
 
         assert_eq!(
             classification,
@@ -3371,6 +3378,7 @@ mod tests {
                 reviewed_divergences: vec![ReviewedDivergenceRecord {
                     side: CompatibilitySide::ShuckOnly,
                     path_suffix: None,
+                    path_contains: None,
                     line: None,
                     end_line: None,
                     column: None,
@@ -3401,9 +3409,9 @@ mod tests {
         };
 
         let (matching_classification, _) =
-            classify_compatibility_record(&matching, Path::new("repo__script.sh"), &metadata);
+            classify_compatibility_record(&matching, "repo__script.sh", &metadata);
         let (non_matching_classification, _) =
-            classify_compatibility_record(&non_matching, Path::new("repo__script.sh"), &metadata);
+            classify_compatibility_record(&non_matching, "repo__script.sh", &metadata);
 
         assert_eq!(
             matching_classification,
@@ -3442,8 +3450,7 @@ mod tests {
             labels: Vec::new(),
         };
 
-        let (classification, reason) =
-            classify_compatibility_record(&record, Path::new("wifi.sh"), &metadata);
+        let (classification, reason) = classify_compatibility_record(&record, "wifi.sh", &metadata);
 
         assert_eq!(classification, CompatibilityClassification::MappingIssue);
         assert!(
@@ -3451,6 +3458,94 @@ mod tests {
                 .as_deref()
                 .is_some_and(|reason| reason.contains("comparison target note"))
         );
+    }
+
+    #[test]
+    fn reviewed_divergence_classification_matches_path_contains_record() {
+        let metadata = HashMap::from([(
+            "C999".to_string(),
+            RuleCorpusMetadataDocument {
+                reviewed_divergences: vec![ReviewedDivergenceRecord {
+                    side: CompatibilitySide::ShuckOnly,
+                    path_suffix: None,
+                    path_contains: Some("termux__termux-packages__".into()),
+                    line: None,
+                    end_line: None,
+                    column: None,
+                    end_column: None,
+                    labels: Vec::new(),
+                    reason: "path-contains reviewed divergence".into(),
+                }],
+                comparison_target_notes: Vec::new(),
+            },
+        )]);
+        let record = CompatibilityRecord {
+            side: CompatibilitySide::ShuckOnly,
+            rule_code: Some("C999".into()),
+            rule_codes: Vec::new(),
+            shellcheck_code: "SC2034".into(),
+            range: DiagnosticRange {
+                line: 13,
+                end_line: 13,
+                column: 1,
+                end_column: 32,
+            },
+            message: "warning termux variable".into(),
+            labels: Vec::new(),
+        };
+
+        let (classification, reason) = classify_compatibility_record(
+            &record,
+            "fixtures/termux__termux-packages__packages__foo__build.sh",
+            &metadata,
+        );
+
+        assert_eq!(
+            classification,
+            CompatibilityClassification::ReviewedDivergence
+        );
+        assert_eq!(reason.as_deref(), Some("path-contains reviewed divergence"));
+    }
+
+    #[test]
+    fn reviewed_divergence_path_contains_uses_cache_relative_path_only() {
+        let metadata = HashMap::from([(
+            "C999".to_string(),
+            RuleCorpusMetadataDocument {
+                reviewed_divergences: vec![ReviewedDivergenceRecord {
+                    side: CompatibilitySide::ShuckOnly,
+                    path_suffix: None,
+                    path_contains: Some("termux__termux-packages__".into()),
+                    line: None,
+                    end_line: None,
+                    column: None,
+                    end_column: None,
+                    labels: Vec::new(),
+                    reason: "path-contains reviewed divergence".into(),
+                }],
+                comparison_target_notes: Vec::new(),
+            },
+        )]);
+        let record = CompatibilityRecord {
+            side: CompatibilitySide::ShuckOnly,
+            rule_code: Some("C999".into()),
+            rule_codes: Vec::new(),
+            shellcheck_code: "SC2034".into(),
+            range: DiagnosticRange {
+                line: 13,
+                end_line: 13,
+                column: 1,
+                end_column: 32,
+            },
+            message: "warning unrelated variable".into(),
+            labels: Vec::new(),
+        };
+
+        let (classification, reason) =
+            classify_compatibility_record(&record, "fixtures/unrelated.sh", &metadata);
+
+        assert_eq!(classification, CompatibilityClassification::Implementation);
+        assert!(reason.is_none());
     }
 
     #[test]
