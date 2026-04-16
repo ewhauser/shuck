@@ -443,6 +443,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                     reference,
                     operator,
                     operand,
+                    operand_word_ast,
                     ..
                 } => {
                     if matches!(
@@ -469,7 +470,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                     self.collect_parameter_operator_patterns(
                         operator,
                         operand.as_ref(),
-                        None,
+                        operand_word_ast.as_ref(),
                         context,
                     );
                 }
@@ -514,6 +515,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                     reference,
                     operator: Some(operator),
                     operand,
+                    operand_word_ast,
                     ..
                 } => {
                     self.record_var_ref_subscript(reference);
@@ -526,7 +528,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                     self.collect_parameter_operator_patterns(
                         operator,
                         operand.as_ref(),
-                        None,
+                        operand_word_ast.as_ref(),
                         context,
                     );
                 }

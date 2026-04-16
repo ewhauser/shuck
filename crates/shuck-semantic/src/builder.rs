@@ -1351,6 +1351,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 reference,
                 operator,
                 operand,
+                operand_word_ast,
                 ..
             } => {
                 let reference_id = self.visit_var_ref_reference(
@@ -1375,7 +1376,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 self.visit_parameter_operator_operand(
                     operator,
                     operand.as_ref(),
-                    None,
+                    operand_word_ast.as_ref(),
                     kind,
                     flow,
                     nested_regions,
@@ -1431,7 +1432,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     span,
                 );
             }
-            WordPart::IndirectExpansion { reference, .. } => {
+            WordPart::IndirectExpansion {
+                reference,
+                operator,
+                operand,
+                operand_word_ast,
+                ..
+            } => {
                 let id = self.visit_var_ref_reference(
                     reference,
                     if matches!(kind, WordVisitKind::Conditional) {
@@ -1444,6 +1451,16 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     span,
                 );
                 self.indirect_expansion_refs.insert(id);
+                if let Some(operator) = operator {
+                    self.visit_parameter_operator_operand(
+                        operator,
+                        operand.as_ref(),
+                        operand_word_ast.as_ref(),
+                        kind,
+                        flow,
+                        nested_regions,
+                    );
+                }
             }
             WordPart::Substring {
                 reference,
@@ -3818,6 +3835,7 @@ mod tests {
                 },
                 operator: ParameterOp::UseDefault,
                 operand: Some(SourceText::from("fallback")),
+                operand_word_ast: Some(Word::literal("fallback")),
                 colon_variant: true,
             },
         ]))]);
