@@ -12490,10 +12490,40 @@ fn next_char_boundary(text: &str, index: usize) -> Option<(char, usize)> {
     Some((ch, index + ch.len_utf8()))
 }
 
+fn inside_unclosed_double_paren_on_line(text: &str, index: usize) -> bool {
+    let line_start = text[..index].rfind('\n').map_or(0, |found| found + 1);
+    let prefix = &text[line_start..index];
+    let mut chars = prefix.chars().peekable();
+    let mut depth = 0usize;
+
+    while let Some(ch) = chars.next() {
+        if ch == '(' && chars.peek() == Some(&'(') {
+            chars.next();
+            depth += 1;
+            continue;
+        }
+        if ch == ')' && chars.peek() == Some(&')') {
+            chars.next();
+            depth = depth.saturating_sub(1);
+        }
+    }
+
+    depth > 0
+}
+
 fn hash_starts_comment(text: &str, index: usize) -> bool {
-    text[..index].chars().next_back().is_none_or(|prev| {
-        prev.is_whitespace() || matches!(prev, ';' | '|' | '&' | '<' | '>' | '(' | ')')
-    })
+    if inside_unclosed_double_paren_on_line(text, index) {
+        return false;
+    }
+
+    let next = text[index + '#'.len_utf8()..].chars().next();
+    text[..index]
+        .chars()
+        .next_back()
+        .is_none_or(|prev| match prev {
+            '(' => next.is_none_or(char::is_whitespace),
+            _ => prev.is_whitespace() || matches!(prev, ';' | '|' | '&' | '<' | '>' | ')'),
+        })
 }
 
 fn flush_array_command_subst_keyword(
@@ -13623,6 +13653,22 @@ complex[$((i+=1))]+=x
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn hash_starts_comment_ignores_zsh_inline_glob_controls_after_left_paren() {
+        let source = "[[ \"$buf\" == (#b)(*) ]]";
+        let index = source.find('#').expect("expected hash");
+
+        assert!(!super::hash_starts_comment(source, index));
+    }
+
+    #[test]
+    fn hash_starts_comment_ignores_hash_inside_unclosed_double_parens() {
+        let source = "(( #c < 256 ))";
+        let index = source.find('#').expect("expected hash");
+
+        assert!(!super::hash_starts_comment(source, index));
     }
 
     #[test]

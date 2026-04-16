@@ -3226,10 +3226,40 @@ fn next_char_boundary(input: &str, index: usize) -> Option<(char, usize)> {
     Some((ch, index + ch.len_utf8()))
 }
 
+fn inside_unclosed_double_paren_on_line(input: &str, index: usize) -> bool {
+    let line_start = input[..index].rfind('\n').map_or(0, |found| found + 1);
+    let prefix = &input[line_start..index];
+    let mut chars = prefix.chars().peekable();
+    let mut depth = 0usize;
+
+    while let Some(ch) = chars.next() {
+        if ch == '(' && chars.peek() == Some(&'(') {
+            chars.next();
+            depth += 1;
+            continue;
+        }
+        if ch == ')' && chars.peek() == Some(&')') {
+            chars.next();
+            depth = depth.saturating_sub(1);
+        }
+    }
+
+    depth > 0
+}
+
 fn hash_starts_comment(input: &str, index: usize) -> bool {
-    input[..index].chars().next_back().is_none_or(|prev| {
-        prev.is_whitespace() || matches!(prev, ';' | '|' | '&' | '<' | '>' | '(' | ')')
-    })
+    if inside_unclosed_double_paren_on_line(input, index) {
+        return false;
+    }
+
+    let next = input[index + '#'.len_utf8()..].chars().next();
+    input[..index]
+        .chars()
+        .next_back()
+        .is_none_or(|prev| match prev {
+            '(' => next.is_none_or(char::is_whitespace),
+            _ => prev.is_whitespace() || matches!(prev, ';' | '|' | '&' | '<' | '>' | ')'),
+        })
 }
 
 fn heredoc_delimiter_is_terminator(
@@ -3769,6 +3799,22 @@ mod tests {
 
         assert!(body.contains("printf %s 1,2"));
         assert!(body.ends_with(')'));
+    }
+
+    #[test]
+    fn test_hash_starts_comment_ignores_zsh_inline_glob_controls_after_left_paren() {
+        let source = "[[ \"$buf\" == (#b)(*) ]]";
+        let index = source.find('#').expect("expected hash");
+
+        assert!(!hash_starts_comment(source, index));
+    }
+
+    #[test]
+    fn test_hash_starts_comment_ignores_hash_inside_unclosed_double_parens() {
+        let source = "(( #c < 256 ))";
+        let index = source.find('#').expect("expected hash");
+
+        assert!(!hash_starts_comment(source, index));
     }
 
     #[test]
