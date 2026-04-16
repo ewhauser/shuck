@@ -1957,9 +1957,13 @@ impl<'a> Parser<'a> {
     /// Parse a fragment against the original source span so part offsets stay
     /// aligned with the surrounding script.
     pub fn parse_word_fragment(source: &str, text: &str, span: Span) -> Word {
-        let mut parser = Parser::new(source);
+        let mut parser = Parser::new(text);
         let source_backed = span.end.offset <= source.len() && span.slice(source) == text;
-        parser.parse_word_with_context(text, span, span.start, source_backed)
+        let start = Position::new();
+        let fragment_span = Span::from_positions(start, start.advanced_by(text));
+        let mut word = parser.parse_word_with_context(text, fragment_span, start, source_backed);
+        Self::rebase_word(&mut word, span.start);
+        word
     }
 
     fn maybe_record_comment(&mut self, token: &LexedToken<'_>) {
