@@ -2149,13 +2149,39 @@ printf '%s %s %s %s\\n' \
   \"${missing_assign:=value}\" \
   \"${missing_replace:+alt}\" \
   \"${missing_error:?missing}\"
-printf '%s %s\\n' \"$missing_assign\" \"$plain_missing\"
+printf '%s %s %s %s %s\\n' \
+  \"${missing_default:-$fallback_name}\" \
+  \"${missing_assign:=${seed_name:-value}}\" \
+  \"${missing_replace:+$replacement_name}\" \
+  \"${missing_error:?$hint_name}\" \
+  \"$missing_assign\"
+printf '%s\\n' \"$fallback_name\" \"$seed_name\" \"$replacement_name\" \"$hint_name\" \"$plain_missing\"
 ";
         let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
 
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
-        assert!(diagnostics[0].message.contains("plain_missing"));
+        assert_eq!(diagnostics.len(), 5);
+        assert!(
+            diagnostics
+                .iter()
+                .all(|d| d.rule == Rule::UndefinedVariable)
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|d| d.message.contains("fallback_name"))
+        );
+        assert!(diagnostics.iter().any(|d| d.message.contains("seed_name")));
+        assert!(
+            diagnostics
+                .iter()
+                .any(|d| d.message.contains("replacement_name"))
+        );
+        assert!(diagnostics.iter().any(|d| d.message.contains("hint_name")));
+        assert!(
+            diagnostics
+                .iter()
+                .any(|d| d.message.contains("plain_missing"))
+        );
     }
 
     #[test]

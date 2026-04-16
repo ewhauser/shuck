@@ -3213,6 +3213,39 @@ printf '%s\\n' \
     }
 
     #[test]
+    fn guarded_parameter_operands_are_not_marked_uninitialized() {
+        let source = "\
+printf '%s\\n' \
+  \"${missing_default:-$fallback_name}\" \
+  \"${missing_assign:=${seed_name:-value}}\" \
+  \"${missing_replace:+$replacement_name}\" \
+  \"${missing_error:?$hint_name}\"
+";
+        let model = model(source);
+        let unresolved = unresolved_names(&model);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_present(
+            &[
+                "fallback_name",
+                "seed_name",
+                "replacement_name",
+                "hint_name",
+            ],
+            &unresolved,
+        );
+        assert_names_absent(
+            &[
+                "fallback_name",
+                "seed_name",
+                "replacement_name",
+                "hint_name",
+            ],
+            &uninitialized,
+        );
+    }
+
+    #[test]
     fn assign_default_parameter_expansion_initializes_later_reads() {
         let source = "\
 printf '%s\\n' \"${config_path:=/tmp/default}\"
