@@ -197,6 +197,42 @@ fn test_parse_escaped_backslash_then_variable_keeps_variable_live() {
 }
 
 #[test]
+fn test_parse_mixed_quoted_and_cooked_plain_continuation_keeps_variable_live() {
+    let input = "echo \"x\"\\\\$HOME\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let word = &command.args[0];
+
+    assert!(matches!(
+        word.parts.as_slice(),
+        [
+            WordPartNode {
+                kind: WordPart::DoubleQuoted { parts, .. },
+                ..
+            },
+            WordPartNode {
+                kind: WordPart::Literal(text),
+                ..
+            },
+            WordPartNode {
+                kind: WordPart::Variable(name),
+                ..
+            }
+        ] if matches!(
+            parts.as_slice(),
+            [WordPartNode {
+                kind: WordPart::Literal(inner),
+                ..
+            }] if inner.as_str(input, parts[0].span) == "x"
+        ) && text.as_str(input, word.parts[1].span) == "\\"
+            && name.as_str() == "HOME"
+    ));
+}
+
+#[test]
 fn test_parse_escaped_command_substitution_stays_literal_in_double_quotes() {
     let input = r#"echo "\$(pwd)""#;
     let script = Parser::new(input).parse().unwrap().file;

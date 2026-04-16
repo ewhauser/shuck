@@ -2843,7 +2843,7 @@ impl<'a> Parser<'a> {
             let wrapper_span = Self::segment_wrapper_span(segment, span);
             let source_backed = segment.span().is_some() && !token.flags.is_synthetic();
             let preserve_escaped_expansion_literals =
-                source_backed && !token.flags.has_cooked_text();
+                source_backed && self.source_matches(content_span, text);
 
             return match segment.kind() {
                 LexedWordSegmentKind::SingleQuoted => Some(self.word_with_parts(
@@ -2935,6 +2935,8 @@ impl<'a> Parser<'a> {
             };
             let wrapper_span = segment.wrapper_span().unwrap_or(content_span);
             let source_backed = segment.span().is_some() && !token.flags.is_synthetic();
+            let preserve_escaped_expansion_literals =
+                source_backed && self.source_matches(content_span, text);
 
             match segment.kind() {
                 LexedWordSegmentKind::SingleQuoted => parts.push(
@@ -2946,11 +2948,12 @@ impl<'a> Parser<'a> {
                 LexedWordSegmentKind::Plain => {
                     if Self::word_text_needs_parse(text) {
                         parts.extend(
-                            self.decode_word_text_preserving_quotes_if_needed(
+                            self.decode_word_text_preserving_quotes_if_needed_with_escape_mode(
                                 text,
                                 content_span,
                                 content_span.start,
                                 source_backed,
+                                preserve_escaped_expansion_literals,
                             )
                             .parts,
                         );
