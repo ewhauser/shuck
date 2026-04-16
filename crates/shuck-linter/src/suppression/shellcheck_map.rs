@@ -174,6 +174,9 @@ impl Default for ShellCheckCodeMap {
             (2360, Rule::ExprSubstrInTest),
             (2170, Rule::StringComparedWithEq),
             (2268, Rule::XPrefixInTest),
+            // Current ShellCheck releases no longer emit a matching backslash-before-command
+            // warning, but authored S040 metadata and SC2268 suppressions should still map here.
+            (2268, Rule::BackslashBeforeCommand),
             // Current ShellCheck releases report the x-prefix comparison family as SC2268.
             // Keep SC2351 as a suppression alias for the authored S065 metadata.
             (2331, Rule::AFlagInDoubleBracket),
@@ -566,7 +569,6 @@ impl Default for ShellCheckCodeMap {
             (1004, Rule::LiteralBackslash),
             (1049, Rule::IfMissingThen),
             (1036, Rule::ExtglobInTest),
-            (1012, Rule::BackslashBeforeCommand),
             (1074, Rule::ExtglobCase),
             (1058, Rule::MultiVarForLoop),
             (1070, Rule::ZshRedirPipe),
@@ -925,6 +927,9 @@ impl Default for ShellCheckCodeMap {
                 (3058, Rule::StarGlobRemovalInSh),
                 (3024, Rule::PlusEqualsInSh),
                 (2351, Rule::XPrefixInTest),
+                // Current ShellCheck releases no longer emit a matching backslash-before-command
+                // warning, but authored S040 metadata and SC2268 suppressions should still map here.
+                (2268, Rule::BackslashBeforeCommand),
                 // ShellCheck 0.11.0 reports redirect collisions as SC2094.
                 // Keep SC2094 available as the live comparison alias for SC2317.
                 (2094, Rule::RedirectClobbersInput),
@@ -1631,7 +1636,10 @@ mod tests {
         assert_eq!(map.resolve("SC2238"), Some(Rule::RedirectToCommandName));
         assert_eq!(map.resolve("SC2268"), Some(Rule::XPrefixInTest));
         assert_eq!(map.resolve("SC2351"), Some(Rule::XPrefixInTest));
-        assert_eq!(map.resolve_all("SC2268"), vec![Rule::XPrefixInTest]);
+        assert_eq!(
+            map.resolve_all("SC2268"),
+            vec![Rule::XPrefixInTest, Rule::BackslashBeforeCommand]
+        );
         assert_eq!(map.resolve("SC2239"), Some(Rule::NonAbsoluteShebang));
         assert_eq!(map.resolve("SC2260"), Some(Rule::RedirectToCommandName));
         assert_eq!(map.resolve("SC2358"), Some(Rule::RedirectBeforePipe));
@@ -2128,6 +2136,7 @@ mod tests {
             (3055, Rule::PlusEqualsAppend),
             (3055, Rule::ArrayKeysInSh),
             (2268, Rule::XPrefixInTest),
+            (2268, Rule::BackslashBeforeCommand),
             (2351, Rule::XPrefixInTest),
             (2357, Rule::MalformedArithmeticInCondition),
             (2361, Rule::StringComparedWithEq),
@@ -2184,7 +2193,6 @@ mod tests {
             Rule::ArraySubscriptTest,
             Rule::ArraySubscriptCondition,
             Rule::ExtglobInTest,
-            Rule::BackslashBeforeCommand,
             Rule::ShebangNotOnFirstLine,
         ]);
 
@@ -2406,7 +2414,6 @@ mod tests {
             (1004, Rule::LiteralBackslash),
             (1049, Rule::IfMissingThen),
             (1036, Rule::ExtglobInTest),
-            (1012, Rule::BackslashBeforeCommand),
             (1074, Rule::ExtglobCase),
             (1058, Rule::MultiVarForLoop),
             (1070, Rule::ZshRedirPipe),
