@@ -50,10 +50,10 @@ fn command_anchor_end(fact: &crate::CommandFact<'_>, source: &str) -> shuck_ast:
         |redirect| redirect.span.end,
     );
 
-    if let Some(terminator_span) = fact.stmt().terminator_span {
-        if terminator_span.start.offset < end.offset {
-            end = terminator_span.start;
-        }
+    if let Some(terminator_span) = fact.stmt().terminator_span
+        && terminator_span.start.offset < end.offset
+    {
+        end = terminator_span.start;
     }
 
     end
