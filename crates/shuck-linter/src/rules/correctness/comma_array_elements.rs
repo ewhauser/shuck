@@ -88,6 +88,10 @@ printf %s 1,2
 b=($( ((x<<2))
 printf %s 3,4
 ))
+c=($( (case $kind in
+a) printf %s 5,6 ;;
+esac
+) ))
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CommaArrayElements));
 

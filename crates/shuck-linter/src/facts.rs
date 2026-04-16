@@ -12577,7 +12577,8 @@ fn hash_starts_comment(text: &str, index: usize) -> bool {
 fn flush_array_command_subst_keyword(
     current_word: &mut String,
     pending_case_headers: &mut usize,
-    case_clause_depth: &mut usize,
+    case_clause_depths: &mut Vec<usize>,
+    depth: usize,
 ) {
     if current_word.is_empty() {
         return;
@@ -12587,9 +12588,11 @@ fn flush_array_command_subst_keyword(
         "case" => *pending_case_headers += 1,
         "in" if *pending_case_headers > 0 => {
             *pending_case_headers -= 1;
-            *case_clause_depth += 1;
+            case_clause_depths.push(depth);
         }
-        "esac" if *case_clause_depth > 0 => *case_clause_depth -= 1,
+        "esac" => {
+            case_clause_depths.pop();
+        }
         _ => {}
     }
 
@@ -12715,7 +12718,7 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
     let mut depth = 1;
     let mut pending_heredocs: Vec<(String, bool)> = Vec::new();
     let mut pending_case_headers = 0usize;
-    let mut case_clause_depth = 0usize;
+    let mut case_clause_depths = Vec::new();
     let mut current_word = String::with_capacity(16);
 
     while let Some((ch, next_index)) = next_char_boundary(text, index) {
@@ -12724,7 +12727,8 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
                 flush_array_command_subst_keyword(
                     &mut current_word,
                     &mut pending_case_headers,
-                    &mut case_clause_depth,
+                    &mut case_clause_depths,
+                    depth,
                 );
                 index = next_index;
                 while let Some((comment_ch, comment_next)) = next_char_boundary(text, index) {
@@ -12743,7 +12747,8 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
                 flush_array_command_subst_keyword(
                     &mut current_word,
                     &mut pending_case_headers,
-                    &mut case_clause_depth,
+                    &mut case_clause_depths,
+                    depth,
                 );
                 depth += 1;
                 index = next_index;
@@ -12752,9 +12757,13 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
                 flush_array_command_subst_keyword(
                     &mut current_word,
                     &mut pending_case_headers,
-                    &mut case_clause_depth,
+                    &mut case_clause_depths,
+                    depth,
                 );
-                if depth == 1 && case_clause_depth > 0 {
+                if case_clause_depths
+                    .last()
+                    .is_some_and(|case_depth| *case_depth == depth)
+                {
                     index = next_index;
                     continue;
                 }
@@ -12768,7 +12777,8 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
                 flush_array_command_subst_keyword(
                     &mut current_word,
                     &mut pending_case_headers,
-                    &mut case_clause_depth,
+                    &mut case_clause_depths,
+                    depth,
                 );
                 index = scan_array_double_quoted_command_substitution_segment(text, next_index)?;
             }
@@ -12776,7 +12786,8 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
                 flush_array_command_subst_keyword(
                     &mut current_word,
                     &mut pending_case_headers,
-                    &mut case_clause_depth,
+                    &mut case_clause_depths,
+                    depth,
                 );
                 index = next_index;
                 while let Some((quoted_ch, quoted_next)) = next_char_boundary(text, index) {
@@ -12790,7 +12801,8 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
                 flush_array_command_subst_keyword(
                     &mut current_word,
                     &mut pending_case_headers,
-                    &mut case_clause_depth,
+                    &mut case_clause_depths,
+                    depth,
                 );
                 index = next_index;
                 if let Some((_, escaped_next)) = next_char_boundary(text, index) {
@@ -12801,7 +12813,8 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
                 flush_array_command_subst_keyword(
                     &mut current_word,
                     &mut pending_case_headers,
-                    &mut case_clause_depth,
+                    &mut case_clause_depths,
+                    depth,
                 );
                 if inside_unclosed_double_paren_on_line(text, index) {
                     index = next_index + '<'.len_utf8();
@@ -12828,7 +12841,8 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
                 flush_array_command_subst_keyword(
                     &mut current_word,
                     &mut pending_case_headers,
-                    &mut case_clause_depth,
+                    &mut case_clause_depths,
+                    depth,
                 );
                 index = next_index;
                 for (delimiter, strip_tabs) in pending_heredocs.drain(..) {
@@ -12841,7 +12855,8 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
                 flush_array_command_subst_keyword(
                     &mut current_word,
                     &mut pending_case_headers,
-                    &mut case_clause_depth,
+                    &mut case_clause_depths,
+                    depth,
                 );
                 let consumed =
                     scan_array_parameter_expansion_len(&text[next_index + '{'.len_utf8()..])?;
@@ -12853,7 +12868,8 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
                 flush_array_command_subst_keyword(
                     &mut current_word,
                     &mut pending_case_headers,
-                    &mut case_clause_depth,
+                    &mut case_clause_depths,
+                    depth,
                 );
                 let consumed =
                     scan_array_command_substitution_len(&text[next_index + '('.len_utf8()..])?;
@@ -12866,7 +12882,8 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
                     flush_array_command_subst_keyword(
                         &mut current_word,
                         &mut pending_case_headers,
-                        &mut case_clause_depth,
+                        &mut case_clause_depths,
+                        depth,
                     );
                 }
                 index = next_index;
@@ -13774,6 +13791,26 @@ complex[$((i+=1))]+=x
     #[test]
     fn ignores_commas_inside_arithmetic_shift_command_substitutions() {
         let source = "#!/bin/bash\na=($( ((x<<2))\nprintf %s 1,2\n))\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_nested_case_patterns_in_command_substitutions() {
+        let source = "#!/bin/bash\na=($( (case $kind in\na) printf %s 1,2 ;;\nesac\n) ))\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
