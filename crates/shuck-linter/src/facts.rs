@@ -12742,6 +12742,10 @@ fn scan_array_ansi_c_single_quoted_command_substitution_segment(
     None
 }
 
+fn scan_array_backtick_command_substitution_segment(text: &str, start: usize) -> Option<usize> {
+    skip_backticks(text.as_bytes(), start)
+}
+
 fn skip_array_command_subst_pending_heredoc(
     text: &str,
     mut index: usize,
@@ -12888,6 +12892,25 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
                         break;
                     }
                 }
+                if expecting_redirection_target {
+                    expecting_redirection_target = false;
+                } else {
+                    at_command_start = false;
+                }
+            }
+            '`' => {
+                let had_word = !current_word.is_empty();
+                flush_array_command_subst_keyword(
+                    &mut current_word,
+                    &mut pending_case_headers,
+                    &mut case_clause_depths,
+                    depth,
+                    &mut current_word_started_at_command_start,
+                );
+                if had_word && expecting_redirection_target {
+                    expecting_redirection_target = false;
+                }
+                index = scan_array_backtick_command_substitution_segment(text, next_index)?;
                 if expecting_redirection_target {
                     expecting_redirection_target = false;
                 } else {
@@ -14094,6 +14117,26 @@ complex[$((i+=1))]+=x
     #[test]
     fn ignores_commas_inside_command_substitutions_with_ansi_c_single_quotes() {
         let source = "#!/bin/bash\na=($(printf %s $'a\\'b'; printf %s 1,2))\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_command_substitutions_with_backticks() {
+        let source = "#!/bin/bash\na=($(printf %s `echo foo)`; printf %s 1,2))\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);

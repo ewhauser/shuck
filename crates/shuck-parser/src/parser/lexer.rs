@@ -2458,6 +2458,25 @@ impl<'a> Lexer<'a> {
         saw_any.then_some(cooked)
     }
 
+    fn read_command_subst_backtick_segment_into(&mut self, content: &mut Option<String>) {
+        Self::push_capture_char(content, '`');
+        self.advance();
+        while let Some(ch) = self.peek_char() {
+            Self::push_capture_char(content, ch);
+            self.advance();
+            if ch == '\\' {
+                if let Some(esc) = self.peek_char() {
+                    Self::push_capture_char(content, esc);
+                    self.advance();
+                }
+                continue;
+            }
+            if ch == '`' {
+                break;
+            }
+        }
+    }
+
     fn read_command_subst_pending_heredoc_into(
         &mut self,
         content: &mut Option<String>,
@@ -2672,6 +2691,25 @@ impl<'a> Lexer<'a> {
                             break;
                         }
                     }
+                    if expecting_redirection_target {
+                        expecting_redirection_target = false;
+                    } else {
+                        at_command_start = false;
+                    }
+                }
+                '`' => {
+                    let had_word = !current_word.is_empty();
+                    Self::flush_command_subst_keyword(
+                        &mut current_word,
+                        &mut pending_case_headers,
+                        &mut case_clause_depths,
+                        depth,
+                        &mut current_word_started_at_command_start,
+                    );
+                    if had_word && expecting_redirection_target {
+                        expecting_redirection_target = false;
+                    }
+                    self.read_command_subst_backtick_segment_into(content);
                     if expecting_redirection_target {
                         expecting_redirection_target = false;
                     } else {
@@ -3763,6 +3801,26 @@ fn scan_command_subst_ansi_c_single_quoted_segment(
     None
 }
 
+fn scan_command_subst_backtick_segment(input: &str, start: usize) -> Option<usize> {
+    let mut index = start;
+
+    while let Some((ch, next_index)) = next_char_boundary(input, index) {
+        index = next_index;
+        if ch == '\\' {
+            if let Some((_, escaped_next)) = next_char_boundary(input, index) {
+                index = escaped_next;
+            }
+            continue;
+        }
+
+        if ch == '`' {
+            return Some(index);
+        }
+    }
+
+    None
+}
+
 fn scan_command_substitution_body_len_inner(input: &str, subst_depth: usize) -> Option<usize> {
     if subst_depth >= DEFAULT_MAX_SUBST_DEPTH {
         return None;
@@ -3887,6 +3945,25 @@ fn scan_command_substitution_body_len_inner(input: &str, subst_depth: usize) -> 
                         break;
                     }
                 }
+                if expecting_redirection_target {
+                    expecting_redirection_target = false;
+                } else {
+                    at_command_start = false;
+                }
+            }
+            '`' => {
+                let had_word = !current_word.is_empty();
+                Lexer::flush_command_subst_keyword(
+                    &mut current_word,
+                    &mut pending_case_headers,
+                    &mut case_clause_depths,
+                    depth,
+                    &mut current_word_started_at_command_start,
+                );
+                if had_word && expecting_redirection_target {
+                    expecting_redirection_target = false;
+                }
+                index = scan_command_subst_backtick_segment(input, next_index)?;
                 if expecting_redirection_target {
                     expecting_redirection_target = false;
                 } else {
@@ -4398,6 +4475,18 @@ mod tests {
 
         assert!(body.contains("$'a\\'b'"));
         assert!(body.contains("printf %s 1,2"));
+        assert!(body.ends_with(')'));
+    }
+
+    #[test]
+    fn test_scan_command_substitution_body_len_handles_backticks_with_right_parens() {
+        let source = "printf %s `echo foo)`; printf %s ok)\"";
+
+        let consumed = scan_command_substitution_body_len(source).expect("expected match");
+        let body = &source[..consumed];
+
+        assert!(body.contains("`echo foo)`"));
+        assert!(body.contains("printf %s ok"));
         assert!(body.ends_with(')'));
     }
 
