@@ -2212,6 +2212,7 @@ pub struct LinterFacts<'a> {
     structural_command_ids: Vec<CommandId>,
     #[cfg_attr(not(test), allow(dead_code))]
     command_ids_by_span: CommandLookupIndex,
+    if_condition_command_ids: FxHashSet<CommandId>,
     elif_condition_command_ids: FxHashSet<CommandId>,
     scalar_bindings: FxHashMap<FactSpan, &'a Word>,
     broken_assoc_key_spans: Vec<Span>,
@@ -2385,6 +2386,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn comma_array_assignment_spans(&self) -> &[Span] {
         &self.comma_array_assignment_spans
+    }
+
+    pub fn is_if_condition_command(&self, id: CommandId) -> bool {
+        self.if_condition_command_ids.contains(&id)
     }
 
     pub fn is_elif_condition_command(&self, id: CommandId) -> bool {
@@ -3143,6 +3148,7 @@ impl<'a> LinterFactsBuilder<'a> {
             commands,
             structural_command_ids,
             command_ids_by_span,
+            if_condition_command_ids,
             elif_condition_command_ids,
             scalar_bindings,
             broken_assoc_key_spans,
@@ -4086,7 +4092,7 @@ fn build_function_header_facts<'a>(
     semantic: &SemanticModel,
     functions: &[&'a FunctionDef],
 ) -> Vec<FunctionHeaderFact<'a>> {
-    let call_arity_by_binding = build_function_call_arity_facts(semantic, &functions);
+    let call_arity_by_binding = build_function_call_arity_facts(semantic, functions);
     functions
         .iter()
         .copied()
@@ -12942,6 +12948,40 @@ fi
                 .find(|fact| fact.span().slice(source) == "[[ -f if_path ]]")
                 .expect("expected nested if condition command");
             assert!(if_nested.scope_read_source_words().is_empty());
+            assert!(facts.is_if_condition_command(if_nested.id()));
+            assert!(!facts.is_elif_condition_command(if_nested.id()));
+
+            let elif_nested = facts
+                .commands()
+                .iter()
+                .find(|fact| fact.span().slice(source) == "[[ -f elif_path ]]")
+                .expect("expected nested elif condition command");
+            assert!(elif_nested.scope_read_source_words().is_empty());
+            assert!(facts.is_elif_condition_command(elif_nested.id()));
+        });
+    }
+
+    #[test]
+    fn tracks_nested_if_and_elif_conditions_inside_while_conditions() {
+        let source = "\
+#!/bin/bash
+while if \"$( [[ -f if_path ]] )\"; then
+  :
+elif \"$( [[ -f elif_path ]] )\"; then
+  :
+fi; do
+  :
+done
+";
+
+        with_facts(source, None, |_, facts| {
+            let if_nested = facts
+                .commands()
+                .iter()
+                .find(|fact| fact.span().slice(source) == "[[ -f if_path ]]")
+                .expect("expected nested if condition command");
+            assert!(if_nested.scope_read_source_words().is_empty());
+            assert!(facts.is_if_condition_command(if_nested.id()));
             assert!(!facts.is_elif_condition_command(if_nested.id()));
 
             let elif_nested = facts

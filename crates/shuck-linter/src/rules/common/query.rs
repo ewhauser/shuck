@@ -367,13 +367,9 @@ fn condition_context(
     context: CommandTraversalContext,
     kind: ConditionKind,
 ) -> CommandTraversalContext {
-    if context.condition_kind.is_some() {
-        context
-    } else {
-        CommandTraversalContext {
-            condition_kind: Some(kind),
-            ..context
-        }
+    CommandTraversalContext {
+        condition_kind: Some(kind),
+        ..context
     }
 }
 
@@ -863,8 +859,48 @@ fi
             vec![
                 ("foo".to_owned(), false, Some(ConditionKind::If)),
                 ("bar".to_owned(), true, Some(ConditionKind::If)),
-                ("baz".to_owned(), false, Some(ConditionKind::Elif)),
-                ("qux".to_owned(), true, Some(ConditionKind::Elif)),
+                ("baz".to_owned(), false, Some(ConditionKind::While)),
+                ("qux".to_owned(), true, Some(ConditionKind::While)),
+            ]
+        );
+    }
+
+    #[test]
+    fn walk_commands_prefers_nested_if_and_elif_condition_kinds_inside_loops() {
+        let source = "\
+while if foo; then bar; elif baz; then qux; fi; do
+  :
+done
+";
+        let commands = parse_commands(source);
+        let mut visits = Vec::new();
+
+        walk_commands(
+            &commands,
+            CommandWalkOptions {
+                descend_nested_word_commands: true,
+            },
+            &mut |visit, context| {
+                let Command::Simple(command) = visit.command else {
+                    return;
+                };
+                let Some(name) = static_word_text(&command.name, source) else {
+                    return;
+                };
+                if name == ":" {
+                    return;
+                }
+                visits.push((name, context.condition_kind));
+            },
+        );
+
+        assert_eq!(
+            visits,
+            vec![
+                ("foo".to_owned(), Some(ConditionKind::If)),
+                ("bar".to_owned(), Some(ConditionKind::While)),
+                ("baz".to_owned(), Some(ConditionKind::Elif)),
+                ("qux".to_owned(), Some(ConditionKind::While)),
             ]
         );
     }
