@@ -168,15 +168,19 @@ fn has_same_scope_call_site_between(
 ) -> bool {
     let first = checker.semantic().binding(overwritten.first);
 
-    checker.semantic().call_sites_for(&overwritten.name).iter().any(|site| {
-        site.scope == first.scope
-            && site.span.start.offset > start_offset
-            && site.span.start.offset < end_offset
-            && checker
-                .semantic()
-                .visible_binding(&overwritten.name, site.span)
-                .is_some_and(|binding| binding.id == overwritten.first)
-    })
+    checker
+        .semantic()
+        .call_sites_for(&overwritten.name)
+        .iter()
+        .any(|site| {
+            site.scope == first.scope
+                && site.span.start.offset > start_offset
+                && site.span.start.offset < end_offset
+                && checker
+                    .semantic()
+                    .visible_binding(&overwritten.name, site.span)
+                    .is_some_and(|binding| binding.id == overwritten.first)
+        })
 }
 
 #[cfg(test)]
