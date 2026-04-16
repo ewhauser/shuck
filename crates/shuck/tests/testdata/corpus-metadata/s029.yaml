@@ -1,6 +1,4 @@
 reviewed_divergences:
-  - side: shuck-only
-    reason: "Shuck keeps literal-brace findings for escaped template and eval string patterns that the ShellCheck oracle frequently suppresses in large helper-script and project-closure contexts."
   - side: shellcheck-only
     path_suffix: "termux__termux-packages__scripts__build__setup__termux_setup_gir.sh"
     line: 105

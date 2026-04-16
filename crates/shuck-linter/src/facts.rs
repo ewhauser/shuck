@@ -4737,7 +4737,10 @@ fn build_literal_brace_spans(
                     brace.kind == BraceSyntaxKind::Literal
                         && brace.quote_context == BraceQuoteContext::Unquoted
                 })
-                .filter(|brace| !is_find_exec_placeholder(commands, fact, brace.span, source))
+                .filter(|brace| {
+                    !is_find_exec_placeholder(commands, fact, brace.span, source)
+                        && !is_xargs_inline_replace_option(commands, fact, brace.span, source)
+                })
                 .flat_map(|brace| brace_literal_edge_spans(brace.span, source)),
         );
 
@@ -4764,6 +4767,10 @@ fn is_find_exec_placeholder(
     }
 
     let command = &commands[fact.command_id().index()];
+    if command.has_wrapper(WrapperKind::FindExec) || command.has_wrapper(WrapperKind::FindExecDir) {
+        return true;
+    }
+
     if command
         .body_name_word()
         .is_some_and(|name_word| name_word.span == fact.span())
@@ -4842,6 +4849,116 @@ fn line_has_find_exec_placeholder_context(source: &str, brace_span: Span) -> boo
         && has_exec_terminator_after
 }
 
+fn is_xargs_inline_replace_option(
+    commands: &[CommandFact<'_>],
+    fact: &WordFact<'_>,
+    brace_span: Span,
+    source: &str,
+) -> bool {
+    if fact.expansion_context() != Some(ExpansionContext::CommandArgument) {
+        return false;
+    }
+
+    let command = &commands[fact.command_id().index()];
+    if !command.effective_name_is("xargs") {
+        return false;
+    }
+
+    xargs_replacement_spans(command.body_args(), source)
+        .into_iter()
+        .any(|span| {
+            span.start.offset <= brace_span.start.offset && span.end.offset >= brace_span.end.offset
+        })
+}
+
+fn xargs_replacement_spans(args: &[&Word], source: &str) -> Vec<Span> {
+    let mut spans = Vec::new();
+    let mut index = 0usize;
+
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+
+        if text == "--" {
+            break;
+        }
+
+        if let Some(long) = text.strip_prefix("--") {
+            if let Some(replacement) = long.strip_prefix("replace=") {
+                if !replacement.is_empty() {
+                    spans.push(word.span);
+                }
+                index += 1;
+                continue;
+            }
+
+            if long == "replace" {
+                let Some(next_word) = args.get(index + 1) else {
+                    break;
+                };
+                spans.push(next_word.span);
+                index += 2;
+                continue;
+            }
+
+            let consume_next_argument = xargs_long_option_requires_separate_argument(long);
+            index += 1;
+            if consume_next_argument {
+                index += 1;
+            }
+            continue;
+        }
+
+        if !text.starts_with('-') || text == "-" {
+            break;
+        }
+
+        let mut chars = text[1..].chars().peekable();
+        let mut consume_next_argument = false;
+
+        while let Some(flag) = chars.next() {
+            match flag {
+                'i' => {
+                    if chars.peek().is_some() {
+                        spans.push(word.span);
+                    }
+                    break;
+                }
+                'I' => {
+                    if chars.peek().is_some() {
+                        spans.push(word.span);
+                    } else {
+                        let Some(next_word) = args.get(index + 1) else {
+                            return spans;
+                        };
+                        spans.push(next_word.span);
+                        consume_next_argument = true;
+                    }
+                    break;
+                }
+                _ => match xargs_short_option_argument_style(flag) {
+                    XargsShortOptionArgumentStyle::None => {}
+                    XargsShortOptionArgumentStyle::OptionalInlineOnly => break,
+                    XargsShortOptionArgumentStyle::Required => {
+                        if chars.peek().is_none() {
+                            consume_next_argument = true;
+                        }
+                        break;
+                    }
+                },
+            }
+        }
+
+        index += 1;
+        if consume_next_argument {
+            index += 1;
+        }
+    }
+
+    spans
+}
+
 fn shellish_words(text: &str) -> Vec<&str> {
     let mut words = Vec::new();
     let mut start = None;
@@ -4887,6 +5004,7 @@ struct LiteralBraceCandidate {
     open_offset: usize,
     after_escaped_dollar: bool,
     has_runtime_shell_sigil_inside: bool,
+    has_brace_expansion_delimiter: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -4988,11 +5106,24 @@ fn escaped_parameter_expansion_brace_edge_spans(word: &Word, source: &str) -> Ve
                 open_offset: index,
                 after_escaped_dollar: previous_char == Some('$') && previous_char_escaped,
                 has_runtime_shell_sigil_inside: false,
+                has_brace_expansion_delimiter: false,
             });
+        } else if ch == ','
+            && let Some(candidate) = literal_stack.last_mut()
+        {
+            candidate.has_brace_expansion_delimiter = true;
+        } else if ch == '.'
+            && previous_char == Some('.')
+            && !previous_char_escaped
+            && let Some(candidate) = literal_stack.last_mut()
+        {
+            candidate.has_brace_expansion_delimiter = true;
         } else if ch == '}'
             && let Some(candidate) = literal_stack.pop()
             && index > candidate.open_offset + 1
             && (candidate.after_escaped_dollar || candidate.has_runtime_shell_sigil_inside)
+            && !candidate.has_brace_expansion_delimiter
+            && !brace_pair_matches_nonliteral_syntax(word, candidate.open_offset, index)
         {
             let open = span.start.advanced_by(&text[..candidate.open_offset]);
             let close = span.start.advanced_by(&text[..index]);
@@ -5119,7 +5250,9 @@ fn raw_escaped_parameter_brace_edge_spans(word: &Word, source: &str) -> Vec<Span
         } else if ch == '}' {
             if parameter_depth > 0 {
                 parameter_depth -= 1;
-            } else if let Some(open_offset) = escaped_parameter_stack.pop() {
+            } else if let Some(open_offset) = escaped_parameter_stack.pop()
+                && !brace_pair_matches_nonliteral_syntax(word, open_offset, index)
+            {
                 let open = span.start.advanced_by(&text[..open_offset]);
                 let close = span.start.advanced_by(&text[..index]);
                 spans.push(Span::from_positions(open, open));
@@ -5133,6 +5266,21 @@ fn raw_escaped_parameter_brace_edge_spans(word: &Word, source: &str) -> Vec<Span
     }
 
     spans
+}
+
+fn brace_pair_matches_nonliteral_syntax(
+    word: &Word,
+    open_offset: usize,
+    close_offset: usize,
+) -> bool {
+    let absolute_open_offset = word.span.start.offset + open_offset;
+    let absolute_close_offset = word.span.start.offset + close_offset + '}'.len_utf8();
+
+    word.brace_syntax().iter().any(|brace| {
+        brace.kind != BraceSyntaxKind::Literal
+            && brace.span.start.offset == absolute_open_offset
+            && brace.span.end.offset == absolute_close_offset
+    })
 }
 
 fn collect_raw_escaped_parameter_exclusions(

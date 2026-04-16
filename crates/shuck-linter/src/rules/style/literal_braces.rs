@@ -56,6 +56,59 @@ fi
     }
 
     #[test]
+    fn ignores_wrapped_and_multiline_find_exec_placeholders() {
+        let source = "\
+#!/bin/bash
+if ! find \"$output_dir\" -mindepth 1 -exec false {} + 2>/dev/null; then
+  exit 1
+fi
+find \"$TERMUX_PREFIX\"/share/doc/\"$TERMUX_PKG_NAME\" \\
+  -type f -execdir sed -i -e 's/\\r$//g' {} +
+find . \\
+  -exec sh -c 'is_empty \"$0\"' {} \\;
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LiteralBraces));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_dynamic_brace_expansions() {
+        let source = "\
+#!/bin/bash
+ln -sf \"${TERMUX_PREFIX}/lib/\"{libjanet.so.${TERMUX_PKG_VERSION},libjanet.so.${TERMUX_PKG_VERSION%.*}}
+ln -sfr $TERMUX_PREFIX/lib/libaircrack-${m}{-$_LT_VER,}.so
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LiteralBraces));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_xargs_inline_replace_options() {
+        let source = "\
+#!/bin/bash
+xargs -I{} basename \"{}\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LiteralBraces));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn reports_xargs_like_literals_after_option_parsing_stops() {
+        let source = "\
+#!/bin/bash
+xargs printf -I{}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LiteralBraces));
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.start.column, 16);
+        assert_eq!(diagnostics[1].span.start.column, 17);
+    }
+
+    #[test]
     fn reports_literal_braces_for_non_find_exec_forms() {
         let source = "\
 #!/bin/bash
