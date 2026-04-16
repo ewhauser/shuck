@@ -79,4 +79,15 @@ EOF
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn ignores_prefix_removal_operands_that_contain_colons() {
+        let source = "\
+#!/bin/sh
+printf '%s\n' \"${name#http://}\" \"${name%https://}\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubstringExpansion));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
 }
