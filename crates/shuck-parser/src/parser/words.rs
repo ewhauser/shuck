@@ -3129,7 +3129,13 @@ impl<'a> Parser<'a> {
                 && matches!(ch, '<' | '>')
                 && chars.peek() == Some(&'(')
             {
-                self.flush_literal_part(parts, &mut current, current_start, part_start);
+                self.flush_literal_part(
+                    parts,
+                    &mut current,
+                    current_start,
+                    part_start,
+                    source_backed,
+                );
 
                 let is_input = ch == '<';
                 Self::next_word_char_unwrap(&mut chars, &mut cursor);
