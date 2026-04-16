@@ -12492,7 +12492,7 @@ fn next_char_boundary(text: &str, index: usize) -> Option<(char, usize)> {
 
 fn hash_starts_comment(text: &str, index: usize) -> bool {
     text[..index].chars().next_back().is_none_or(|prev| {
-        prev.is_whitespace() || matches!(prev, ';' | '|' | '&' | '<' | '>' | '(')
+        prev.is_whitespace() || matches!(prev, ';' | '|' | '&' | '<' | '>' | '(' | ')')
     })
 }
 
@@ -13588,6 +13588,26 @@ complex[$((i+=1))]+=x
     #[test]
     fn ignores_commas_inside_parameter_expansions_with_right_parens_in_command_substitutions() {
         let source = "#!/bin/bash\na=($(printf %s ${x//foo/)},1))\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_case_pattern_comments_after_right_parens() {
+        let source = "#!/bin/bash\na=($(case $kind in\na)# comment with esac )\nprintf %s 1,2 ;;\nesac\n))\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);

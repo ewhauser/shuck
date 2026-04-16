@@ -3228,7 +3228,7 @@ fn next_char_boundary(input: &str, index: usize) -> Option<(char, usize)> {
 
 fn hash_starts_comment(input: &str, index: usize) -> bool {
     input[..index].chars().next_back().is_none_or(|prev| {
-        prev.is_whitespace() || matches!(prev, ';' | '|' | '&' | '<' | '>' | '(')
+        prev.is_whitespace() || matches!(prev, ';' | '|' | '&' | '<' | '>' | '(' | ')')
     })
 }
 
@@ -3757,6 +3757,17 @@ mod tests {
         let body = &source[..consumed];
 
         assert!(body.contains("${x//foo/)},1"));
+        assert!(body.ends_with(')'));
+    }
+
+    #[test]
+    fn test_scan_command_substitution_body_len_handles_case_pattern_comment_after_right_paren() {
+        let source = "case $kind in\na)# comment with esac )\nprintf %s 1,2 ;;\nesac\n)\"";
+
+        let consumed = scan_command_substitution_body_len(source).expect("expected match");
+        let body = &source[..consumed];
+
+        assert!(body.contains("printf %s 1,2"));
         assert!(body.ends_with(')'));
     }
 
