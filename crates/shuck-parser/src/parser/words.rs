@@ -37,6 +37,13 @@ struct ParsedWordTarget {
     boundary: WordTargetBoundary,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct DecodeWordPartsOptions {
+    preserve_quote_fragments: bool,
+    parse_dollar_quotes: bool,
+    preserve_escaped_expansion_literals: bool,
+}
+
 impl<'a> PatternParser<'a> {
     fn new(input: &'a str, word: &'a Word) -> Self {
         Self::from_word_parts_with_mode(input, &word.parts, word.span, PatternParseMode::Standard)
@@ -529,7 +536,11 @@ impl<'a> Parser<'a> {
             text.slice(self.input),
             span.start,
             text.is_source_backed(),
-            true,
+            DecodeWordPartsOptions {
+                preserve_quote_fragments: true,
+                parse_dollar_quotes: true,
+                ..DecodeWordPartsOptions::default()
+            },
             &mut parts,
         );
         PatternParser::from_word_parts(self.input, &parts, span).parse()
@@ -2448,7 +2459,16 @@ impl<'a> Parser<'a> {
         source_backed: bool,
         parts: &mut Vec<WordPartNode>,
     ) {
-        self.decode_word_parts_into_with_quote_fragments(s, base, source_backed, false, parts);
+        self.decode_word_parts_into_with_quote_fragments(
+            s,
+            base,
+            source_backed,
+            DecodeWordPartsOptions {
+                parse_dollar_quotes: true,
+                ..DecodeWordPartsOptions::default()
+            },
+            parts,
+        );
     }
 
     pub(super) fn decode_word_parts_into_with_quote_fragments(
@@ -2456,7 +2476,7 @@ impl<'a> Parser<'a> {
         s: &str,
         base: Position,
         source_backed: bool,
-        preserve_quote_fragments: bool,
+        options: DecodeWordPartsOptions,
         parts: &mut Vec<WordPartNode>,
     ) {
         let mut chars = s.chars().peekable();
@@ -2478,7 +2498,7 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            if preserve_quote_fragments
+            if options.preserve_quote_fragments
                 && ch == '\\'
                 && matches!(chars.peek().copied(), Some('\'' | '"'))
             {
@@ -2490,7 +2510,19 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            if preserve_quote_fragments && ch == '\'' {
+            if options.preserve_escaped_expansion_literals
+                && ch == '\\'
+                && matches!(chars.peek().copied(), Some('$' | '`' | '\\'))
+            {
+                if current.is_empty() {
+                    current_start = part_start;
+                }
+                current.push(ch);
+                current.push(Self::next_word_char_unwrap(&mut chars, &mut cursor));
+                continue;
+            }
+
+            if options.preserve_quote_fragments && ch == '\'' {
                 self.flush_literal_part(parts, &mut current, current_start, part_start);
 
                 let content_start = cursor;
@@ -2547,7 +2579,7 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            if preserve_quote_fragments && ch == '"' {
+            if options.preserve_quote_fragments && ch == '"' {
                 self.flush_literal_part(parts, &mut current, current_start, part_start);
 
                 let content_start = cursor;
@@ -2699,7 +2731,7 @@ impl<'a> Parser<'a> {
 
             self.flush_literal_part(parts, &mut current, current_start, part_start);
 
-            if chars.peek() == Some(&'\'') {
+            if options.parse_dollar_quotes && chars.peek() == Some(&'\'') {
                 Self::next_word_char_unwrap(&mut chars, &mut cursor);
                 let mut ansi = String::new();
                 while let Some(c) = Self::next_word_char(&mut chars, &mut cursor) {
@@ -2740,7 +2772,7 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            if chars.peek() == Some(&'"') {
+            if options.parse_dollar_quotes && chars.peek() == Some(&'"') {
                 Self::next_word_char_unwrap(&mut chars, &mut cursor);
                 let content_start = cursor;
                 let mut content = (!source_backed).then(String::new);
@@ -3500,6 +3532,161 @@ impl<'a> Parser<'a> {
                                 operand: Some(operand),
                                 colon_variant: false,
                             }
+                        } else if next_c == '#' {
+                            Self::next_word_char_unwrap(&mut chars, &mut cursor);
+                            let longest = Self::consume_word_char_if(&mut chars, &mut cursor, '#');
+                            let operand_text =
+                                self.read_brace_operand(&mut chars, &mut cursor, source_backed);
+                            let pattern = self.pattern_from_source_text(&operand_text);
+                            let operator = if longest {
+                                ParameterOp::RemovePrefixLong { pattern }
+                            } else {
+                                ParameterOp::RemovePrefixShort { pattern }
+                            };
+                            WordPart::ParameterExpansion {
+                                reference: self.parameter_var_ref(
+                                    part_start,
+                                    "${",
+                                    &var_name,
+                                    Some(subscript),
+                                    cursor,
+                                ),
+                                operator,
+                                operand: None,
+                                colon_variant: false,
+                            }
+                        } else if next_c == '%' {
+                            Self::next_word_char_unwrap(&mut chars, &mut cursor);
+                            let longest = Self::consume_word_char_if(&mut chars, &mut cursor, '%');
+                            let operand_text =
+                                self.read_brace_operand(&mut chars, &mut cursor, source_backed);
+                            let pattern = self.pattern_from_source_text(&operand_text);
+                            let operator = if longest {
+                                ParameterOp::RemoveSuffixLong { pattern }
+                            } else {
+                                ParameterOp::RemoveSuffixShort { pattern }
+                            };
+                            WordPart::ParameterExpansion {
+                                reference: self.parameter_var_ref(
+                                    part_start,
+                                    "${",
+                                    &var_name,
+                                    Some(subscript),
+                                    cursor,
+                                ),
+                                operator,
+                                operand: None,
+                                colon_variant: false,
+                            }
+                        } else if next_c == '/' {
+                            Self::next_word_char_unwrap(&mut chars, &mut cursor);
+                            let replace_all =
+                                Self::consume_word_char_if(&mut chars, &mut cursor, '/');
+                            let pattern_text = self.read_replacement_pattern(
+                                &mut chars,
+                                &mut cursor,
+                                source_backed,
+                            );
+                            let pattern = self.pattern_from_source_text(&pattern_text);
+                            let replacement =
+                                if Self::consume_word_char_if(&mut chars, &mut cursor, '/') {
+                                    self.read_source_text_while(
+                                        &mut chars,
+                                        &mut cursor,
+                                        |ch| ch != '}',
+                                        source_backed,
+                                    )
+                                } else {
+                                    self.empty_source_text(cursor)
+                                };
+                            Self::consume_word_char_if(&mut chars, &mut cursor, '}');
+                            let operator = if replace_all {
+                                ParameterOp::ReplaceAll {
+                                    pattern,
+                                    replacement_word_ast: self
+                                        .parse_source_text_as_word(&replacement),
+                                    replacement,
+                                }
+                            } else {
+                                ParameterOp::ReplaceFirst {
+                                    pattern,
+                                    replacement_word_ast: self
+                                        .parse_source_text_as_word(&replacement),
+                                    replacement,
+                                }
+                            };
+                            WordPart::ParameterExpansion {
+                                reference: self.parameter_var_ref(
+                                    part_start,
+                                    "${",
+                                    &var_name,
+                                    Some(subscript),
+                                    cursor,
+                                ),
+                                operator,
+                                operand: None,
+                                colon_variant: false,
+                            }
+                        } else if next_c == '^' {
+                            Self::next_word_char_unwrap(&mut chars, &mut cursor);
+                            let operator =
+                                if Self::consume_word_char_if(&mut chars, &mut cursor, '^') {
+                                    ParameterOp::UpperAll
+                                } else {
+                                    ParameterOp::UpperFirst
+                                };
+                            let operand =
+                                if Self::consume_word_char_if(&mut chars, &mut cursor, '}') {
+                                    None
+                                } else {
+                                    Some(self.read_brace_operand(
+                                        &mut chars,
+                                        &mut cursor,
+                                        source_backed,
+                                    ))
+                                };
+                            WordPart::ParameterExpansion {
+                                reference: self.parameter_var_ref(
+                                    part_start,
+                                    "${",
+                                    &var_name,
+                                    Some(subscript),
+                                    cursor,
+                                ),
+                                operator,
+                                operand,
+                                colon_variant: false,
+                            }
+                        } else if next_c == ',' {
+                            Self::next_word_char_unwrap(&mut chars, &mut cursor);
+                            let operator =
+                                if Self::consume_word_char_if(&mut chars, &mut cursor, ',') {
+                                    ParameterOp::LowerAll
+                                } else {
+                                    ParameterOp::LowerFirst
+                                };
+                            let operand =
+                                if Self::consume_word_char_if(&mut chars, &mut cursor, '}') {
+                                    None
+                                } else {
+                                    Some(self.read_brace_operand(
+                                        &mut chars,
+                                        &mut cursor,
+                                        source_backed,
+                                    ))
+                                };
+                            WordPart::ParameterExpansion {
+                                reference: self.parameter_var_ref(
+                                    part_start,
+                                    "${",
+                                    &var_name,
+                                    Some(subscript),
+                                    cursor,
+                                ),
+                                operator,
+                                operand,
+                                colon_variant: false,
+                            }
                         } else if next_c == '@' {
                             Self::next_word_char_unwrap(&mut chars, &mut cursor);
                             if chars.peek().is_some() {
@@ -3748,12 +3935,21 @@ impl<'a> Parser<'a> {
                                 } else {
                                     ParameterOp::UpperFirst
                                 };
-                            Self::consume_word_char_if(&mut chars, &mut cursor, '}');
+                            let operand =
+                                if Self::consume_word_char_if(&mut chars, &mut cursor, '}') {
+                                    None
+                                } else {
+                                    Some(self.read_brace_operand(
+                                        &mut chars,
+                                        &mut cursor,
+                                        source_backed,
+                                    ))
+                                };
                             WordPart::ParameterExpansion {
                                 reference: self
                                     .parameter_var_ref(part_start, "${", &var_name, None, cursor),
                                 operator,
-                                operand: None,
+                                operand,
                                 colon_variant: false,
                             }
                         }
@@ -3765,12 +3961,21 @@ impl<'a> Parser<'a> {
                                 } else {
                                     ParameterOp::LowerFirst
                                 };
-                            Self::consume_word_char_if(&mut chars, &mut cursor, '}');
+                            let operand =
+                                if Self::consume_word_char_if(&mut chars, &mut cursor, '}') {
+                                    None
+                                } else {
+                                    Some(self.read_brace_operand(
+                                        &mut chars,
+                                        &mut cursor,
+                                        source_backed,
+                                    ))
+                                };
                             WordPart::ParameterExpansion {
                                 reference: self
                                     .parameter_var_ref(part_start, "${", &var_name, None, cursor),
                                 operator,
-                                operand: None,
+                                operand,
                                 colon_variant: false,
                             }
                         }
@@ -3937,9 +4142,10 @@ impl<'a> Parser<'a> {
         if source_backed {
             let mut end = *cursor;
             let mut has_escaped_slash = false;
+            let mut nested_parameter_depth = 0usize;
 
             while let Some(&ch) = chars.peek() {
-                if ch == '/' || ch == '}' {
+                if nested_parameter_depth == 0 && (ch == '/' || ch == '}') {
                     end = *cursor;
                     break;
                 }
@@ -3952,6 +4158,25 @@ impl<'a> Parser<'a> {
                         has_escaped_slash = true;
                         Self::next_word_char_unwrap(chars, cursor);
                     }
+                    end = *cursor;
+                    continue;
+                }
+
+                if ch == '$' {
+                    let mut lookahead = chars.clone();
+                    lookahead.next();
+                    if lookahead.peek() == Some(&'{') {
+                        Self::next_word_char_unwrap(chars, cursor);
+                        Self::next_word_char_unwrap(chars, cursor);
+                        nested_parameter_depth += 1;
+                        end = *cursor;
+                        continue;
+                    }
+                }
+
+                if ch == '}' && nested_parameter_depth > 0 {
+                    Self::next_word_char_unwrap(chars, cursor);
+                    nested_parameter_depth -= 1;
                     end = *cursor;
                     continue;
                 }
@@ -3969,8 +4194,9 @@ impl<'a> Parser<'a> {
         } else {
             let mut pattern = String::new();
             let mut end = *cursor;
+            let mut nested_parameter_depth = 0usize;
             while let Some(&ch) = chars.peek() {
-                if ch == '/' || ch == '}' {
+                if nested_parameter_depth == 0 && (ch == '/' || ch == '}') {
                     end = *cursor;
                     break;
                 }
@@ -3984,6 +4210,23 @@ impl<'a> Parser<'a> {
                         continue;
                     }
                     pattern.push('\\');
+                    end = *cursor;
+                    continue;
+                }
+                if ch == '$' {
+                    let mut lookahead = chars.clone();
+                    lookahead.next();
+                    if lookahead.peek() == Some(&'{') {
+                        pattern.push(Self::next_word_char_unwrap(chars, cursor));
+                        pattern.push(Self::next_word_char_unwrap(chars, cursor));
+                        nested_parameter_depth += 1;
+                        end = *cursor;
+                        continue;
+                    }
+                }
+                if ch == '}' && nested_parameter_depth > 0 {
+                    pattern.push(Self::next_word_char_unwrap(chars, cursor));
+                    nested_parameter_depth -= 1;
                     end = *cursor;
                     continue;
                 }
@@ -4014,7 +4257,17 @@ impl<'a> Parser<'a> {
         source_backed: bool,
     ) -> Word {
         let mut parts = Vec::new();
-        self.decode_word_parts_into_with_quote_fragments(s, base, source_backed, true, &mut parts);
+        self.decode_word_parts_into_with_quote_fragments(
+            s,
+            base,
+            source_backed,
+            DecodeWordPartsOptions {
+                preserve_quote_fragments: true,
+                parse_dollar_quotes: true,
+                ..DecodeWordPartsOptions::default()
+            },
+            &mut parts,
+        );
         self.word_with_parts(parts, span)
     }
 
@@ -4023,24 +4276,23 @@ impl<'a> Parser<'a> {
         s: &str,
         span: Span,
         source_backed: bool,
-    ) -> Word {
+    ) -> HeredocBody {
         let mut parts = Vec::new();
-        let mut line_start = span.start;
-
-        for line in s.split_inclusive('\n') {
-            let line_end = line_start.advanced_by(line);
-            let line_span = Span::from_positions(line_start, line_end);
-            let line_word = self.decode_word_text_preserving_quotes_if_needed(
-                line,
-                line_span,
-                line_start,
-                source_backed,
-            );
-            parts.extend(line_word.parts);
-            line_start = line_end;
-        }
-
-        self.word_with_parts(parts, span)
+        self.decode_word_parts_into_with_quote_fragments(
+            s,
+            span.start,
+            source_backed,
+            DecodeWordPartsOptions {
+                preserve_escaped_expansion_literals: true,
+                ..DecodeWordPartsOptions::default()
+            },
+            &mut parts,
+        );
+        let parts = parts
+            .into_iter()
+            .map(Self::heredoc_body_part_from_word_part_node)
+            .collect();
+        self.heredoc_body_with_parts(parts, span, HeredocBodyMode::Expanding, source_backed)
     }
 
     pub(super) fn parse_word_with_context(

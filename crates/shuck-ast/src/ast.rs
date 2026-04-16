@@ -1867,6 +1867,151 @@ impl fmt::Display for Word {
     }
 }
 
+/// Whether a heredoc body expands shell syntax.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HeredocBodyMode {
+    Literal,
+    Expanding,
+}
+
+impl HeredocBodyMode {
+    pub const fn expands(self) -> bool {
+        matches!(self, Self::Expanding)
+    }
+}
+
+/// A heredoc body part paired with its source span.
+#[derive(Debug, Clone)]
+pub struct HeredocBodyPartNode {
+    pub kind: HeredocBodyPart,
+    pub span: Span,
+}
+
+impl HeredocBodyPartNode {
+    pub fn new(kind: HeredocBodyPart, span: Span) -> Self {
+        Self { kind, span }
+    }
+}
+
+/// Parts of a heredoc body.
+#[derive(Debug, Clone)]
+pub enum HeredocBodyPart {
+    Literal(LiteralText),
+    Variable(Name),
+    CommandSubstitution {
+        body: StmtSeq,
+        syntax: CommandSubstitutionSyntax,
+    },
+    ArithmeticExpansion {
+        expression: SourceText,
+        expression_ast: Option<ArithmeticExprNode>,
+        syntax: ArithmeticExpansionSyntax,
+    },
+    Parameter(Box<ParameterExpansion>),
+}
+
+/// A parsed heredoc body with its expansion mode.
+#[derive(Debug, Clone)]
+pub struct HeredocBody {
+    pub mode: HeredocBodyMode,
+    pub source_backed: bool,
+    pub parts: Vec<HeredocBodyPartNode>,
+    pub span: Span,
+}
+
+impl HeredocBody {
+    pub fn literal_with_span(s: impl Into<String>, span: Span) -> Self {
+        Self {
+            mode: HeredocBodyMode::Literal,
+            source_backed: true,
+            parts: vec![HeredocBodyPartNode::new(
+                HeredocBodyPart::Literal(LiteralText::owned(s.into())),
+                span,
+            )],
+            span,
+        }
+    }
+
+    pub fn source_literal_with_spans(span: Span, part_span: Span) -> Self {
+        Self {
+            mode: HeredocBodyMode::Literal,
+            source_backed: true,
+            parts: vec![HeredocBodyPartNode::new(
+                HeredocBodyPart::Literal(LiteralText::source()),
+                part_span,
+            )],
+            span,
+        }
+    }
+
+    pub fn with_mode(mut self, mode: HeredocBodyMode) -> Self {
+        self.mode = mode;
+        self
+    }
+
+    pub fn with_source_backed(mut self, source_backed: bool) -> Self {
+        self.source_backed = source_backed;
+        self
+    }
+
+    pub fn part_span(&self, index: usize) -> Option<Span> {
+        self.parts.get(index).map(|part| part.span)
+    }
+
+    pub fn part(&self, index: usize) -> Option<&HeredocBodyPart> {
+        self.parts.get(index).map(|part| &part.kind)
+    }
+
+    pub fn parts_with_spans(&self) -> impl Iterator<Item = (&HeredocBodyPart, Span)> + '_ {
+        self.parts.iter().map(|part| (&part.kind, part.span))
+    }
+
+    pub fn render(&self, source: &str) -> String {
+        let mut rendered = String::new();
+        self.render_to_buf(source, &mut rendered);
+        rendered
+    }
+
+    pub fn render_syntax(&self, source: &str) -> String {
+        let mut rendered = String::new();
+        self.render_syntax_to_buf(source, &mut rendered);
+        rendered
+    }
+
+    pub fn render_to_buf(&self, source: &str, rendered: &mut String) {
+        self.fmt_with_source(rendered, Some(source))
+            .expect("writing into a String should not fail");
+    }
+
+    pub fn render_syntax_to_buf(&self, source: &str, rendered: &mut String) {
+        self.fmt_with_source(rendered, Some(source))
+            .expect("writing into a String should not fail");
+    }
+
+    fn fmt_with_source(&self, f: &mut impl fmt::Write, source: Option<&str>) -> fmt::Result {
+        let source = source.filter(|_| self.source_backed);
+        if let Some(source) = source
+            && heredoc_body_prefers_whole_source_slice(self)
+            && let Some(slice) = syntax_source_slice(self.span, source)
+        {
+            f.write_str(slice)?;
+            return Ok(());
+        }
+
+        for (part, span) in self.parts_with_spans() {
+            fmt_heredoc_body_part_with_source(f, part, span, source)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl fmt::Display for HeredocBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.fmt_with_source(f, None)
+    }
+}
+
 /// A shell pattern in a pattern-sensitive context such as `case`, `[[ ... == ... ]]`,
 /// or parameter pattern operators.
 #[derive(Debug, Clone)]
@@ -2041,6 +2186,14 @@ fn pattern_prefers_whole_source_slice_in_syntax(pattern: &Pattern) -> bool {
             .parts
             .iter()
             .all(|part| top_level_pattern_part_prefers_source_slice_in_syntax(&part.kind))
+}
+
+fn heredoc_body_prefers_whole_source_slice(body: &HeredocBody) -> bool {
+    !body.parts.is_empty()
+        && body
+            .parts
+            .iter()
+            .all(|part| heredoc_body_part_is_source_backed(&part.kind))
 }
 
 fn top_level_pattern_part_prefers_source_slice_in_syntax(part: &PatternPart) -> bool {
@@ -2651,6 +2804,49 @@ fn fmt_word_part_with_source_mode(
     Ok(())
 }
 
+fn fmt_heredoc_body_part_with_source(
+    f: &mut impl fmt::Write,
+    part: &HeredocBodyPart,
+    span: Span,
+    source: Option<&str>,
+) -> fmt::Result {
+    if let Some(source) = source
+        && heredoc_body_part_is_source_backed(part)
+        && span.end.offset <= source.len()
+    {
+        f.write_str(span.slice(source))?;
+        return Ok(());
+    }
+
+    match part {
+        HeredocBodyPart::Literal(text) => fmt_literal_text(f, text, span, source)?,
+        HeredocBodyPart::Variable(name) => write!(f, "${}", name)?,
+        HeredocBodyPart::CommandSubstitution { body, syntax } => match syntax {
+            CommandSubstitutionSyntax::DollarParen => write!(f, "$({:?})", body)?,
+            CommandSubstitutionSyntax::Backtick => write!(f, "`{:?}`", body)?,
+        },
+        HeredocBodyPart::ArithmeticExpansion {
+            expression, syntax, ..
+        } => match syntax {
+            ArithmeticExpansionSyntax::DollarParenParen => {
+                write!(f, "$(({}))", display_source_text(Some(expression), source))?
+            }
+            ArithmeticExpansionSyntax::LegacyBracket => {
+                write!(f, "$[{}]", display_source_text(Some(expression), source))?
+            }
+        },
+        HeredocBodyPart::Parameter(parameter) => {
+            write!(
+                f,
+                "${{{}}}",
+                display_source_text(Some(&parameter.raw_body), source)
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
 fn part_prefers_source_slice_in_syntax(part: &WordPart) -> bool {
     matches!(
         part,
@@ -2747,6 +2943,15 @@ fn part_is_source_backed(part: &WordPart) -> bool {
         | WordPart::Variable(_)
         | WordPart::PrefixMatch { .. }
         | WordPart::ProcessSubstitution { .. } => true,
+    }
+}
+
+fn heredoc_body_part_is_source_backed(part: &HeredocBodyPart) -> bool {
+    match part {
+        HeredocBodyPart::Literal(text) => text.is_source_backed(),
+        HeredocBodyPart::Variable(_) | HeredocBodyPart::CommandSubstitution { .. } => true,
+        HeredocBodyPart::ArithmeticExpansion { expression, .. } => expression.is_source_backed(),
+        HeredocBodyPart::Parameter(parameter) => parameter.raw_body.is_source_backed(),
     }
 }
 
@@ -3009,7 +3214,7 @@ pub enum RedirectTarget {
 #[derive(Debug, Clone)]
 pub struct Heredoc {
     pub delimiter: HeredocDelimiter,
-    pub body: Word,
+    pub body: HeredocBody,
 }
 
 /// Parsed heredoc delimiter metadata.
@@ -4032,7 +4237,8 @@ mod tests {
             span: Span::new(),
             target: RedirectTarget::Heredoc(Heredoc {
                 delimiter,
-                body: Word::quoted_literal("body"),
+                body: HeredocBody::literal_with_span("body", Span::new())
+                    .with_mode(HeredocBodyMode::Literal),
             }),
         };
 

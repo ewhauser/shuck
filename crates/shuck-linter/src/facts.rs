@@ -16211,6 +16211,44 @@ EOF
     }
 
     #[test]
+    fn surface_facts_track_parameter_operations_in_expanding_heredocs() {
+        let source = "\
+cat <<EOF
+${name:2}
+${arr[0]//x/y}
+${name^^pattern}
+EOF
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .substring_expansion_fragments()
+                    .iter()
+                    .map(|fragment| fragment.span().slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["${name:2}"]
+            );
+            assert_eq!(
+                facts
+                    .replacement_expansion_fragments()
+                    .iter()
+                    .map(|fragment| fragment.span().slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["${arr[0]//x/y}"]
+            );
+            assert_eq!(
+                facts
+                    .case_modification_fragments()
+                    .iter()
+                    .map(|fragment| fragment.span().slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["${name^^pattern}"]
+            );
+        });
+    }
+
+    #[test]
     fn shared_command_traversal_collects_word_facts_and_surface_fragments() {
         let source = "\
 #!/bin/bash

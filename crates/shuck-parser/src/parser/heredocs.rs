@@ -69,7 +69,7 @@ impl<'a> Parser<'a> {
         };
 
         let body = if quoted {
-            Word::quoted_literal_with_span(content, content_span)
+            HeredocBody::literal_with_span(content, content_span).with_source_backed(!strip_tabs)
         } else {
             self.decode_heredoc_body_text(&content, content_span, !strip_tabs)
         };

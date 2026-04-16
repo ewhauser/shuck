@@ -19,14 +19,27 @@ fn build_command_substitution_facts<'a>(
 ) -> Box<[SubstitutionFact]> {
     let mut substitutions = Vec::new();
     let mut substitution_index = FxHashMap::default();
+    let context = SubstitutionFactBuildContext {
+        commands,
+        command_ids_by_span,
+        source,
+    };
 
     visit_command_words_for_substitutions(fact.command(), fact.redirects(), source, &mut |word| {
         collect_or_update_word_substitution_facts(
             word,
             SubstitutionHostKind::Other,
-            commands,
-            command_ids_by_span,
-            source,
+            context,
+            &mut substitutions,
+            &mut substitution_index,
+        );
+    });
+
+    visit_heredoc_bodies_for_substitutions(fact.redirects(), &mut |body| {
+        collect_or_update_heredoc_body_substitution_facts(
+            body,
+            SubstitutionHostKind::Other,
+            context,
             &mut substitutions,
             &mut substitution_index,
         );
@@ -36,9 +49,7 @@ fn build_command_substitution_facts<'a>(
         collect_or_update_word_substitution_facts(
             word,
             SubstitutionHostKind::CommandArgument,
-            commands,
-            command_ids_by_span,
-            source,
+            context,
             &mut substitutions,
             &mut substitution_index,
         );
@@ -48,9 +59,7 @@ fn build_command_substitution_facts<'a>(
         collect_or_update_word_substitution_facts(
             word,
             SubstitutionHostKind::HereStringOperand,
-            commands,
-            command_ids_by_span,
-            source,
+            context,
             &mut substitutions,
             &mut substitution_index,
         );
@@ -60,9 +69,7 @@ fn build_command_substitution_facts<'a>(
         collect_or_update_word_substitution_facts(
             word,
             SubstitutionHostKind::DeclarationAssignmentValue,
-            commands,
-            command_ids_by_span,
-            source,
+            context,
             &mut substitutions,
             &mut substitution_index,
         );
@@ -72,9 +79,7 @@ fn build_command_substitution_facts<'a>(
         collect_or_update_word_substitution_facts(
             word,
             kind,
-            commands,
-            command_ids_by_span,
-            source,
+            context,
             &mut substitutions,
             &mut substitution_index,
         );
@@ -86,26 +91,71 @@ fn build_command_substitution_facts<'a>(
 fn collect_or_update_word_substitution_facts<'a>(
     word: &Word,
     host_kind: SubstitutionHostKind,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
-    source: &str,
+    context: SubstitutionFactBuildContext<'a, '_>,
     substitutions: &mut Vec<SubstitutionFact>,
     substitution_index: &mut FxHashMap<FactSpan, usize>,
 ) {
     let mut occurrences = Vec::new();
     collect_word_substitution_occurrences(&word.parts, false, &mut occurrences);
+    collect_or_update_substitution_facts_from_occurrences(
+        word.span,
+        host_kind,
+        occurrences,
+        context,
+        substitutions,
+        substitution_index,
+    );
+}
 
+fn collect_or_update_heredoc_body_substitution_facts<'a>(
+    body: &shuck_ast::HeredocBody,
+    host_kind: SubstitutionHostKind,
+    context: SubstitutionFactBuildContext<'a, '_>,
+    substitutions: &mut Vec<SubstitutionFact>,
+    substitution_index: &mut FxHashMap<FactSpan, usize>,
+) {
+    let mut occurrences = Vec::new();
+    collect_heredoc_body_substitution_occurrences(&body.parts, &mut occurrences);
+    collect_or_update_substitution_facts_from_occurrences(
+        body.span,
+        host_kind,
+        occurrences,
+        context,
+        substitutions,
+        substitution_index,
+    );
+}
+
+#[derive(Clone, Copy)]
+struct SubstitutionFactBuildContext<'a, 'b> {
+    commands: &'b [CommandFact<'a>],
+    command_ids_by_span: &'b CommandLookupIndex,
+    source: &'b str,
+}
+
+fn collect_or_update_substitution_facts_from_occurrences<'a>(
+    host_span: Span,
+    host_kind: SubstitutionHostKind,
+    occurrences: Vec<SubstitutionOccurrence<'a>>,
+    context: SubstitutionFactBuildContext<'a, '_>,
+    substitutions: &mut Vec<SubstitutionFact>,
+    substitution_index: &mut FxHashMap<FactSpan, usize>,
+) {
     for occurrence in occurrences {
         let key = FactSpan::new(occurrence.span);
         if let Some(&index) = substitution_index.get(&key) {
-            substitutions[index].host_word_span = word.span;
+            substitutions[index].host_word_span = host_span;
             substitutions[index].host_kind = host_kind;
             substitutions[index].unquoted_in_host = occurrence.unquoted_in_host;
             continue;
         }
 
-        let body_facts =
-            classify_substitution_body(occurrence.body, commands, command_ids_by_span, source);
+        let body_facts = classify_substitution_body(
+            occurrence.body,
+            context.commands,
+            context.command_ids_by_span,
+            context.source,
+        );
         substitution_index.insert(key, substitutions.len());
         substitutions.push(SubstitutionFact {
             span: occurrence.span,
@@ -117,7 +167,7 @@ fn collect_or_update_word_substitution_facts<'a>(
             body_contains_echo: body_facts.body_contains_echo,
             body_contains_grep: body_facts.body_contains_grep,
             bash_file_slurp: body_facts.bash_file_slurp,
-            host_word_span: word.span,
+            host_word_span: host_span,
             host_kind,
             unquoted_in_host: occurrence.unquoted_in_host,
         });
@@ -183,6 +233,31 @@ fn collect_word_substitution_occurrences<'a>(
             | WordPart::PrefixMatch { .. }
             | WordPart::Transformation { .. }
             | WordPart::ZshQualifiedGlob(_) => {}
+        }
+    }
+}
+
+fn collect_heredoc_body_substitution_occurrences<'a>(
+    parts: &'a [shuck_ast::HeredocBodyPartNode],
+    occurrences: &mut Vec<SubstitutionOccurrence<'a>>,
+) {
+    for part in parts {
+        match &part.kind {
+            shuck_ast::HeredocBodyPart::ArithmeticExpansion { expression_ast, .. } => {
+                visit_arithmetic_words_in_expression(expression_ast.as_ref(), false, occurrences);
+            }
+            shuck_ast::HeredocBodyPart::CommandSubstitution { body, syntax } => {
+                occurrences.push(SubstitutionOccurrence {
+                    body,
+                    span: part.span,
+                    kind: CommandSubstitutionKind::Command,
+                    command_syntax: Some(*syntax),
+                    unquoted_in_host: true,
+                });
+            }
+            shuck_ast::HeredocBodyPart::Literal(_)
+            | shuck_ast::HeredocBodyPart::Variable(_)
+            | shuck_ast::HeredocBodyPart::Parameter(_) => {}
         }
     }
 }
@@ -652,7 +727,9 @@ fn visit_command_words_for_substitutions(
     }
 
     for redirect in redirects {
-        visitor(redirect_scan_word(redirect));
+        if let Some(word) = redirect.word_target() {
+            visitor(word);
+        }
     }
 }
 
@@ -759,7 +836,24 @@ fn visit_here_string_words_for_substitutions(
 ) {
     for redirect in redirects {
         if redirect.kind == RedirectKind::HereString {
-            visitor(redirect_scan_word(redirect));
+            let word = redirect
+                .word_target()
+                .expect("expected non-heredoc here-string target");
+            visitor(word);
+        }
+    }
+}
+
+fn visit_heredoc_bodies_for_substitutions(
+    redirects: &[Redirect],
+    visitor: &mut impl FnMut(&shuck_ast::HeredocBody),
+) {
+    for redirect in redirects {
+        let Some(heredoc) = redirect.heredoc() else {
+            continue;
+        };
+        if heredoc.delimiter.expands_body {
+            visitor(&heredoc.body);
         }
     }
 }
@@ -947,13 +1041,6 @@ fn visit_conditional_words_for_substitutions(
         ConditionalExpr::VarRef(reference) => {
             query::visit_var_ref_subscript_words_with_source(reference, source, visitor);
         }
-    }
-}
-
-fn redirect_scan_word(redirect: &Redirect) -> &Word {
-    match redirect.word_target() {
-        Some(word) => word,
-        None => &redirect.heredoc().expect("expected heredoc redirect").body,
     }
 }
 

@@ -1,8 +1,8 @@
 use rustc_hash::FxHashMap;
 use shuck_ast::{
     ArrayElem, Assignment, AssignmentValue, BuiltinCommand, Command, CompoundCommand,
-    ConditionalExpr, DeclOperand, File, FunctionDef, Pattern, PatternPart, Redirect, Span, Stmt,
-    StmtSeq, TextSize, Word, WordPart, WordPartNode,
+    ConditionalExpr, DeclOperand, File, FunctionDef, HeredocBodyPartNode, Pattern, PatternPart,
+    Redirect, Span, Stmt, StmtSeq, TextSize, Word, WordPart, WordPartNode,
 };
 
 use crate::Rule;
@@ -434,11 +434,36 @@ where
     F: FnMut(Span),
 {
     for redirect in redirects {
-        let word = match redirect.word_target() {
-            Some(word) => word,
-            None => &redirect.heredoc().expect("expected heredoc redirect").body,
-        };
-        walk_word(word, visit);
+        if let Some(word) = redirect.word_target() {
+            walk_word(word, visit);
+        } else if let Some(heredoc) = redirect.heredoc()
+            && heredoc.delimiter.expands_body
+        {
+            walk_heredoc_body_parts(&heredoc.body.parts, visit);
+        }
+    }
+}
+
+fn walk_heredoc_body_parts<F>(parts: &[HeredocBodyPartNode], visit: &mut F)
+where
+    F: FnMut(Span),
+{
+    for part in parts {
+        match &part.kind {
+            shuck_ast::HeredocBodyPart::ArithmeticExpansion { expression_ast, .. } => {
+                if let Some(expression_ast) = expression_ast.as_ref() {
+                    query::visit_arithmetic_words(expression_ast, &mut |word| {
+                        walk_word(word, visit);
+                    });
+                }
+            }
+            shuck_ast::HeredocBodyPart::CommandSubstitution { body, .. } => {
+                walk_commands(body, visit)
+            }
+            shuck_ast::HeredocBodyPart::Literal(_)
+            | shuck_ast::HeredocBodyPart::Variable(_)
+            | shuck_ast::HeredocBodyPart::Parameter(_) => {}
+        }
     }
 }
 

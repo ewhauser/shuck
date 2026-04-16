@@ -204,7 +204,7 @@ fn test_heredoc_target_preserves_body_span() {
     let redirect = &stmt.redirects[0];
     let heredoc = redirect_heredoc(redirect);
     assert_eq!(heredoc.body.span.slice(input), "hello $name\n");
-    assert!(is_fully_quoted(&heredoc.body));
+    assert!(heredoc_body_is_literal(&heredoc.body));
 }
 
 #[test]
@@ -272,7 +272,10 @@ fn test_backslash_escaped_heredoc_delimiter_is_treated_as_quoted_static_text() {
         assert!(heredoc.delimiter.quoted, "dialect: {dialect:?}");
         assert!(!heredoc.delimiter.expands_body, "dialect: {dialect:?}");
         assert!(!heredoc.delimiter.strip_tabs, "dialect: {dialect:?}");
-        assert!(is_fully_quoted(&heredoc.body), "dialect: {dialect:?}");
+        assert!(
+            heredoc_body_is_literal(&heredoc.body),
+            "dialect: {dialect:?}"
+        );
         assert_eq!(heredoc.body.render(input), "hello $name\n");
     }
 }
@@ -319,7 +322,7 @@ EOF
 
     assert!(heredoc.delimiter.quoted);
     assert!(!heredoc.delimiter.expands_body);
-    assert!(is_fully_quoted(&heredoc.body));
+    assert!(heredoc_body_is_literal(&heredoc.body));
 }
 
 #[test]
@@ -399,7 +402,7 @@ END
     let heredoc = redirect_heredoc(&body[0].redirects[0]);
     assert!(heredoc.delimiter.quoted);
     assert!(!heredoc.delimiter.expands_body);
-    assert!(is_fully_quoted(&heredoc.body));
+    assert!(heredoc_body_is_literal(&heredoc.body));
 }
 
 #[test]
@@ -481,7 +484,7 @@ END
     let heredoc = redirect_heredoc(&body[0].redirects[0]);
     assert!(heredoc.delimiter.quoted);
     assert!(!heredoc.delimiter.expands_body);
-    assert!(is_fully_quoted(&heredoc.body));
+    assert!(heredoc_body_is_literal(&heredoc.body));
 }
 
 #[test]
@@ -506,21 +509,21 @@ fn test_heredoc_targets_preserve_quoted_and_unquoted_decode_behavior() {
     let script = Parser::new(input).parse().unwrap().file;
 
     let unquoted_target = &redirect_heredoc(&script.body[0].redirects[0]).body;
-    assert!(!is_fully_quoted(unquoted_target));
+    assert!(!heredoc_body_is_literal(unquoted_target));
     assert_eq!(unquoted_target.render(input), "hello $name\n");
-    let unquoted_slices = top_level_part_slices(unquoted_target, input);
+    let unquoted_slices = heredoc_top_level_part_slices(unquoted_target, input);
     assert_eq!(unquoted_slices, vec!["hello ", "$name", "\n"]);
     assert!(matches!(
         unquoted_target.parts[1].kind,
-        WordPart::Variable(_)
+        shuck_ast::HeredocBodyPart::Variable(_)
     ));
 
     let quoted_target = &redirect_heredoc(&script.body[1].redirects[0]).body;
-    assert!(is_fully_quoted(quoted_target));
+    assert!(heredoc_body_is_literal(quoted_target));
     assert_eq!(quoted_target.render(input), "hello $name\n");
     assert!(matches!(
         quoted_target.parts.as_slice(),
-        [part] if matches!(&part.kind, WordPart::SingleQuoted { .. })
+        [part] if matches!(&part.kind, shuck_ast::HeredocBodyPart::Literal(_))
     ));
 }
 
@@ -531,13 +534,44 @@ fn test_unquoted_heredoc_body_preserves_multiple_quoted_fragments() {
 
     let body = &redirect_heredoc(&script.body[0].redirects[0]).body;
 
-    assert!(!is_fully_quoted(body));
+    assert!(!heredoc_body_is_literal(body));
     assert_eq!(
-        top_level_part_slices(body, input),
-        vec!["before ", "'$HOME'", " and ", "\"$USER\"", "\n"]
+        heredoc_top_level_part_slices(body, input),
+        vec!["before '", "$HOME", "' and \"", "$USER", "\"\n"]
     );
-    assert!(matches!(body.parts[1].kind, WordPart::SingleQuoted { .. }));
-    assert!(matches!(body.parts[3].kind, WordPart::DoubleQuoted { .. }));
+    assert!(matches!(
+        body.parts[1].kind,
+        shuck_ast::HeredocBodyPart::Variable(_)
+    ));
+    assert!(matches!(
+        body.parts[3].kind,
+        shuck_ast::HeredocBodyPart::Variable(_)
+    ));
+}
+
+#[test]
+fn test_unquoted_heredoc_body_keeps_dollar_quoted_forms_literal() {
+    let input = "cat <<EOF\n$'line\\n' $\"hello\" ${name}\nEOF\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let body = &redirect_heredoc(&script.body[0].redirects[0]).body;
+
+    assert_eq!(
+        heredoc_top_level_part_slices(body, input),
+        vec!["$'line\\n' ", "$\"hello\" ", "${name}", "\n"]
+    );
+    assert!(matches!(
+        body.parts[0].kind,
+        shuck_ast::HeredocBodyPart::Literal(_)
+    ));
+    assert!(matches!(
+        body.parts[1].kind,
+        shuck_ast::HeredocBodyPart::Literal(_)
+    ));
+    assert!(matches!(
+        body.parts[2].kind,
+        shuck_ast::HeredocBodyPart::Parameter(_)
+    ));
 }
 
 #[test]
@@ -557,15 +591,25 @@ EOF
     let script = Parser::new(input).parse().unwrap().file;
 
     let body = &redirect_heredoc(&script.body[0].redirects[0]).body;
-    let slices = top_level_part_slices(body, input);
+    let slices = heredoc_top_level_part_slices(body, input);
 
     assert!(
-        slices.contains(&"\"$CRCsum\""),
-        "expected heredoc body to keep $CRCsum inside a live fragment: {slices:?}"
+        body.parts.iter().any(|part| {
+            matches!(
+                &part.kind,
+                shuck_ast::HeredocBodyPart::Variable(name) if name.as_str() == "CRCsum"
+            )
+        }),
+        "expected heredoc body to keep $CRCsum live: {slices:?}"
     );
     assert!(
-        slices.contains(&"\"$archdirname\""),
-        "expected heredoc body to keep $archdirname inside a live fragment: {slices:?}"
+        body.parts.iter().any(|part| {
+            matches!(
+                &part.kind,
+                shuck_ast::HeredocBodyPart::Variable(name) if name.as_str() == "archdirname"
+            )
+        }),
+        "expected heredoc body to keep $archdirname live: {slices:?}"
     );
 }
 
@@ -580,7 +624,7 @@ fn test_unquoted_heredoc_body_leaves_unmatched_single_quote_literal() {
         !body
             .parts
             .iter()
-            .any(|part| matches!(part.kind, WordPart::SingleQuoted { .. }))
+            .any(|part| matches!(part.kind, shuck_ast::HeredocBodyPart::Parameter(_)))
     );
     assert_eq!(body.render_syntax(input), "'$HOME\n");
 }
@@ -593,9 +637,18 @@ fn test_strip_tabs_heredoc_body_preserves_single_quoted_fragments() {
     let heredoc = redirect_heredoc(&script.body[0].redirects[0]);
 
     assert!(heredoc.delimiter.strip_tabs);
+    assert_eq!(heredoc.body.parts.len(), 3);
     assert!(matches!(
         heredoc.body.parts[0].kind,
-        WordPart::SingleQuoted { .. }
+        shuck_ast::HeredocBodyPart::Literal(_)
+    ));
+    assert!(matches!(
+        heredoc.body.parts[1].kind,
+        shuck_ast::HeredocBodyPart::Variable(_)
+    ));
+    assert!(matches!(
+        heredoc.body.parts[2].kind,
+        shuck_ast::HeredocBodyPart::Literal(_)
     ));
     assert_eq!(heredoc.body.render_syntax(input), "'$HOME'\n");
 }
