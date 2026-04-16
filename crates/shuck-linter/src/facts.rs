@@ -12419,23 +12419,313 @@ fn array_value_has_unquoted_comma(array: &shuck_ast::ArrayExpr, source: &str) ->
 }
 
 fn word_has_unquoted_array_comma(word: &Word, source: &str) -> bool {
-    word.parts.iter().any(|part| {
-        let WordPart::Literal(text) = &part.kind else {
-            return false;
-        };
-        let text = text.as_str(source, part.span);
+    let text = word.span.slice(source);
+    let mut index = 0usize;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut in_backtick = false;
+    let mut escaped = false;
 
-        text.char_indices().any(|(index, ch)| {
-            if ch != ',' {
-                return false;
+    while index < text.len() {
+        let ch = text[index..]
+            .chars()
+            .next()
+            .expect("index is within bounds while scanning array comma candidates");
+        let next_index = index + ch.len_utf8();
+        let was_escaped = escaped;
+        escaped = false;
+
+        if !in_single
+            && !in_backtick
+            && ch == '$'
+        {
+            if text[next_index..].starts_with('(')
+                && !text[next_index + '('.len_utf8()..].starts_with('(')
+                && let Some(consumed) = scan_array_command_substitution_len(
+                    &text[next_index + '('.len_utf8()..],
+                )
+            {
+                index = next_index + '('.len_utf8() + consumed;
+                continue;
             }
 
-            let prefix = &text[..index];
-            let comma = part.span.start.advanced_by(prefix);
-            let escaped = trailing_backslashes(prefix) % 2 == 1;
-            !comma_is_brace_separator(word, source, comma.offset, escaped)
-        })
-    })
+            if text[next_index..].starts_with('{')
+                && let Some(consumed) =
+                    scan_array_parameter_expansion_len(&text[next_index + '{'.len_utf8()..])
+            {
+                index = next_index + '{'.len_utf8() + consumed;
+                continue;
+            }
+        }
+
+        match ch {
+            '\\' if !in_single => escaped = true,
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            '`' if !in_single && !in_double => in_backtick = !in_backtick,
+            ',' if !in_single && !in_double && !in_backtick => {
+                let comma_offset = word.span.start.offset + index;
+                if !comma_is_brace_separator(word, source, comma_offset, was_escaped) {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+
+        index = next_index;
+    }
+
+    false
+}
+
+fn next_char_boundary(text: &str, index: usize) -> Option<(char, usize)> {
+    let ch = text.get(index..)?.chars().next()?;
+    Some((ch, index + ch.len_utf8()))
+}
+
+fn hash_starts_comment(text: &str, index: usize) -> bool {
+    text[..index]
+        .chars()
+        .next_back()
+        .is_none_or(char::is_whitespace)
+}
+
+fn scan_array_double_quoted_command_substitution_segment(
+    text: &str,
+    mut index: usize,
+) -> Option<usize> {
+    while let Some((ch, next_index)) = next_char_boundary(text, index) {
+        match ch {
+            '"' => return Some(next_index),
+            '\\' => {
+                index = next_index;
+                if let Some((_, escaped_next)) = next_char_boundary(text, index) {
+                    index = escaped_next;
+                }
+            }
+            '$'
+                if text[next_index..].starts_with('(')
+                    && !text[next_index + '('.len_utf8()..].starts_with('(') =>
+            {
+                let consumed =
+                    scan_array_command_substitution_len(&text[next_index + '('.len_utf8()..])?;
+                index = next_index + '('.len_utf8() + consumed;
+            }
+            _ => index = next_index,
+        }
+    }
+
+    None
+}
+
+fn scan_array_command_subst_heredoc_delimiter(
+    text: &str,
+    mut index: usize,
+) -> Option<(usize, String)> {
+    while let Some((ch, next_index)) = next_char_boundary(text, index) {
+        if !matches!(ch, ' ' | '\t') {
+            break;
+        }
+        index = next_index;
+    }
+
+    let start = index;
+    let mut cooked = String::new();
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+
+    while let Some((ch, next_index)) = next_char_boundary(text, index) {
+        if !in_single && !in_double && !escaped && ch.is_whitespace() {
+            break;
+        }
+
+        index = next_index;
+        if escaped {
+            cooked.push(ch);
+            escaped = false;
+            continue;
+        }
+
+        match ch {
+            '\\' if !in_single => escaped = true,
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            _ => cooked.push(ch),
+        }
+    }
+
+    (index > start).then_some((index, cooked))
+}
+
+fn skip_array_command_subst_pending_heredoc(
+    text: &str,
+    mut index: usize,
+    delimiter: &str,
+    strip_tabs: bool,
+) -> usize {
+    while index <= text.len() {
+        let rest = &text[index..];
+        let line_len = rest.find('\n').unwrap_or(rest.len());
+        let line = &rest[..line_len];
+        let has_newline = line_len < rest.len();
+
+        index += line_len;
+        if has_newline {
+            index += '\n'.len_utf8();
+        }
+
+        let matches_delimiter = if strip_tabs {
+            line.trim_start_matches('\t') == delimiter
+        } else {
+            line == delimiter
+        };
+        if matches_delimiter || !has_newline {
+            return index;
+        }
+    }
+
+    index
+}
+
+fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
+    let mut index = 0usize;
+    let mut depth = 1;
+    let mut pending_heredocs: Vec<(String, bool)> = Vec::new();
+
+    while let Some((ch, next_index)) = next_char_boundary(text, index) {
+        match ch {
+            '#' if hash_starts_comment(text, index) => {
+                index = next_index;
+                while let Some((comment_ch, comment_next)) = next_char_boundary(text, index) {
+                    index = comment_next;
+                    if comment_ch == '\n' {
+                        for (delimiter, strip_tabs) in pending_heredocs.drain(..) {
+                            index = skip_array_command_subst_pending_heredoc(
+                                text,
+                                index,
+                                &delimiter,
+                                strip_tabs,
+                            );
+                        }
+                        break;
+                    }
+                }
+            }
+            '(' => {
+                depth += 1;
+                index = next_index;
+            }
+            ')' => {
+                depth -= 1;
+                index = next_index;
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            '"' => {
+                index = scan_array_double_quoted_command_substitution_segment(text, next_index)?;
+            }
+            '\'' => {
+                index = next_index;
+                while let Some((quoted_ch, quoted_next)) = next_char_boundary(text, index) {
+                    index = quoted_next;
+                    if quoted_ch == '\'' {
+                        break;
+                    }
+                }
+            }
+            '\\' => {
+                index = next_index;
+                if let Some((_, escaped_next)) = next_char_boundary(text, index) {
+                    index = escaped_next;
+                }
+            }
+            '<' if text[next_index..].starts_with('<') => {
+                if text[next_index + '('.len_utf8()..].starts_with('<') {
+                    index = next_index + '<'.len_utf8() + '<'.len_utf8();
+                    continue;
+                }
+
+                let strip_tabs = text[next_index..].starts_with("<-");
+                let delimiter_start = next_index + if strip_tabs { 2 } else { 1 };
+                if let Some((delimiter_index, delimiter)) =
+                    scan_array_command_subst_heredoc_delimiter(text, delimiter_start)
+                {
+                    pending_heredocs.push((delimiter, strip_tabs));
+                    index = delimiter_index;
+                } else {
+                    index = next_index;
+                }
+            }
+            '\n' => {
+                index = next_index;
+                for (delimiter, strip_tabs) in pending_heredocs.drain(..) {
+                    index = skip_array_command_subst_pending_heredoc(
+                        text,
+                        index,
+                        &delimiter,
+                        strip_tabs,
+                    );
+                }
+            }
+            '$'
+                if text[next_index..].starts_with('(')
+                    && !text[next_index + '('.len_utf8()..].starts_with('(') =>
+            {
+                let consumed =
+                    scan_array_command_substitution_len(&text[next_index + '('.len_utf8()..])?;
+                index = next_index + '('.len_utf8() + consumed;
+            }
+            _ => index = next_index,
+        }
+    }
+
+    None
+}
+
+fn scan_array_parameter_expansion_len(text: &str) -> Option<usize> {
+    let mut index = 0usize;
+    let mut depth = 1usize;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+
+    while let Some((ch, next_index)) = next_char_boundary(text, index) {
+        let was_escaped = escaped;
+        escaped = false;
+
+        if !in_single
+            && ch == '$'
+            && text[next_index..].starts_with('(')
+            && !text[next_index + '('.len_utf8()..].starts_with('(')
+            && let Some(consumed) =
+                scan_array_command_substitution_len(&text[next_index + '('.len_utf8()..])
+        {
+            index = next_index + '('.len_utf8() + consumed;
+            continue;
+        }
+
+        match ch {
+            '\\' if !in_single => escaped = true,
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            '{' if !in_single && !in_double && !was_escaped => depth += 1,
+            '}' if !in_single && !in_double && !was_escaped => {
+                depth -= 1;
+                index = next_index;
+                if depth == 0 {
+                    return Some(index);
+                }
+                continue;
+            }
+            _ => {}
+        }
+
+        index = next_index;
+    }
+
+    None
 }
 
 fn comma_is_brace_separator(word: &Word, source: &str, offset: usize, escaped: bool) -> bool {
@@ -12501,10 +12791,6 @@ fn inside_unquoted_brace_group(word: &Word, source: &str, target_offset: usize) 
     }
 
     false
-}
-
-fn trailing_backslashes(text: &str) -> usize {
-    text.chars().rev().take_while(|ch| *ch == '\\').count()
 }
 
 fn compound_assignment_paren_span(assignment: &Assignment, source: &str) -> Option<Span> {
@@ -12987,6 +13273,26 @@ complex[$((i+=1))]+=x
                 "(x\\, y)",
                 "(foo,{x,y},bar)"
             ]
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_quoted_command_substitution_array_elements() {
+        let source = "#!/bin/bash\nf() {\n\tlocal -a graphql_request=(\n\t\t-X POST\n\t\t-d \"$(\n\t\t\tcat <<-EOF | tr '\\n' ' '\n\t\t\t\t{\"query\":\"field, direction\"}\n\t\t\tEOF\n\t\t)\"\n\t)\n}\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
         );
     }
 

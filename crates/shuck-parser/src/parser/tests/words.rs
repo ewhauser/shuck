@@ -2365,6 +2365,53 @@ fn test_parse_declare_a_threads_associative_kind_into_compound_array() {
 }
 
 #[test]
+fn test_parse_declare_array_preserves_quoted_command_substitution_elements() {
+    let input = "f() {\n\tlocal -a graphql_request=(\n\t\t-X POST\n\t\t-d \"$(\n\t\t\tcat <<-EOF | tr '\\n' ' '\n\t\t\t\t{\"query\":\"field, direction\"}\n\t\t\tEOF\n\t\t)\"\n\t)\n}\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Function(function) = &script.body[0].command else {
+        panic!("expected function");
+    };
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group function body");
+    };
+    assert!(redirects.is_empty());
+    let AstCommand::Decl(command) = &body[0].command else {
+        panic!("expected declaration, got {:#?}", body[0].command);
+    };
+
+    let DeclOperand::Assignment(assignment) = &command.operands[1] else {
+        panic!("expected assignment operand, got {:#?}", command.operands);
+    };
+    let AssignmentValue::Compound(array) = &assignment.value else {
+        panic!("expected compound array assignment");
+    };
+    assert_eq!(array.elements.len(), 4, "{:#?}", array.elements);
+
+    let ArrayElem::Sequential(payload) = &array.elements[3] else {
+        panic!("expected payload element");
+    };
+    assert!(
+        payload.parts.iter().any(|part| {
+            matches!(
+                &part.kind,
+                WordPart::DoubleQuoted { parts, .. }
+                    if parts.iter().any(|part| matches!(
+                        &part.kind,
+                        WordPart::CommandSubstitution {
+                            syntax: CommandSubstitutionSyntax::DollarParen,
+                            ..
+                        }
+                    ))
+            )
+        }),
+        "{:#?}",
+        payload.parts
+    );
+}
+
+#[test]
 fn test_parse_parameter_expansion_preserves_quoted_associative_subscripts() {
     let input = "printf '%s\\n' ${assoc[\"key\"]} ${assoc['k']}\n";
     let script = Parser::new(input).parse().unwrap().file;

@@ -3221,12 +3221,276 @@ fn heredoc_line_matches_delimiter(line: &str, delimiter: &str, strip_tabs: bool)
     }
 }
 
+fn next_char_boundary(input: &str, index: usize) -> Option<(char, usize)> {
+    let ch = input.get(index..)?.chars().next()?;
+    Some((ch, index + ch.len_utf8()))
+}
+
+fn hash_starts_comment(input: &str, index: usize) -> bool {
+    input[..index]
+        .chars()
+        .next_back()
+        .is_none_or(char::is_whitespace)
+}
+
+fn scan_double_quoted_command_substitution_segment(
+    input: &str,
+    mut index: usize,
+    subst_depth: usize,
+) -> Option<usize> {
+    while let Some((ch, next_index)) = next_char_boundary(input, index) {
+        match ch {
+            '"' => return Some(next_index),
+            '\\' => {
+                index = next_index;
+                if let Some((_, escaped_next)) = next_char_boundary(input, index) {
+                    index = escaped_next;
+                }
+            }
+            '$'
+                if input[next_index..].starts_with('(')
+                    && !input[next_index + '('.len_utf8()..].starts_with('(') =>
+            {
+                let consumed = scan_command_substitution_body_len_inner(
+                    &input[next_index + '('.len_utf8()..],
+                    subst_depth + 1,
+                )?;
+                index = next_index + '('.len_utf8() + consumed;
+            }
+            _ => index = next_index,
+        }
+    }
+
+    None
+}
+
+fn scan_command_subst_heredoc_delimiter(input: &str, mut index: usize) -> Option<(usize, String)> {
+    while let Some((ch, next_index)) = next_char_boundary(input, index) {
+        if !matches!(ch, ' ' | '\t') {
+            break;
+        }
+        index = next_index;
+    }
+
+    let start = index;
+    let mut cooked = String::new();
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+
+    while let Some((ch, next_index)) = next_char_boundary(input, index) {
+        if !in_single && !in_double && !escaped && ch.is_whitespace() {
+            break;
+        }
+
+        index = next_index;
+        if escaped {
+            cooked.push(ch);
+            escaped = false;
+            continue;
+        }
+
+        match ch {
+            '\\' if !in_single => escaped = true,
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            _ => cooked.push(ch),
+        }
+    }
+
+    (index > start).then_some((index, cooked))
+}
+
+fn skip_command_subst_pending_heredoc(
+    input: &str,
+    mut index: usize,
+    delimiter: &str,
+    strip_tabs: bool,
+) -> usize {
+    while index <= input.len() {
+        let rest = &input[index..];
+        let line_len = rest.find('\n').unwrap_or(rest.len());
+        let line = &rest[..line_len];
+        let has_newline = line_len < rest.len();
+
+        index += line_len;
+        if has_newline {
+            index += '\n'.len_utf8();
+        }
+
+        if heredoc_line_matches_delimiter(line, delimiter, strip_tabs) || !has_newline {
+            return index;
+        }
+    }
+
+    index
+}
+
+fn scan_command_substitution_body_len_inner(input: &str, subst_depth: usize) -> Option<usize> {
+    if subst_depth >= DEFAULT_MAX_SUBST_DEPTH {
+        return None;
+    }
+
+    let mut index = 0usize;
+    let mut depth = 1;
+    let mut pending_heredocs: Vec<(String, bool)> = Vec::new();
+    let mut pending_case_headers = 0usize;
+    let mut case_clause_depth = 0usize;
+    let mut current_word = String::with_capacity(16);
+
+    while let Some((ch, next_index)) = next_char_boundary(input, index) {
+        match ch {
+            '#' if hash_starts_comment(input, index) => {
+                Lexer::flush_command_subst_keyword(
+                    &mut current_word,
+                    &mut pending_case_headers,
+                    &mut case_clause_depth,
+                );
+                index = next_index;
+                while let Some((comment_ch, comment_next)) = next_char_boundary(input, index) {
+                    index = comment_next;
+                    if comment_ch == '\n' {
+                        for (delimiter, strip_tabs) in pending_heredocs.drain(..) {
+                            index = skip_command_subst_pending_heredoc(
+                                input,
+                                index,
+                                &delimiter,
+                                strip_tabs,
+                            );
+                        }
+                        break;
+                    }
+                }
+            }
+            '(' => {
+                Lexer::flush_command_subst_keyword(
+                    &mut current_word,
+                    &mut pending_case_headers,
+                    &mut case_clause_depth,
+                );
+                depth += 1;
+                index = next_index;
+            }
+            ')' => {
+                Lexer::flush_command_subst_keyword(
+                    &mut current_word,
+                    &mut pending_case_headers,
+                    &mut case_clause_depth,
+                );
+                if depth == 1 && case_clause_depth > 0 {
+                    index = next_index;
+                    continue;
+                }
+                depth -= 1;
+                index = next_index;
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            '"' => {
+                Lexer::flush_command_subst_keyword(
+                    &mut current_word,
+                    &mut pending_case_headers,
+                    &mut case_clause_depth,
+                );
+                index =
+                    scan_double_quoted_command_substitution_segment(input, next_index, subst_depth)?;
+            }
+            '\'' => {
+                Lexer::flush_command_subst_keyword(
+                    &mut current_word,
+                    &mut pending_case_headers,
+                    &mut case_clause_depth,
+                );
+                index = next_index;
+                while let Some((quoted_ch, quoted_next)) = next_char_boundary(input, index) {
+                    index = quoted_next;
+                    if quoted_ch == '\'' {
+                        break;
+                    }
+                }
+            }
+            '\\' => {
+                Lexer::flush_command_subst_keyword(
+                    &mut current_word,
+                    &mut pending_case_headers,
+                    &mut case_clause_depth,
+                );
+                index = next_index;
+                if let Some((_, escaped_next)) = next_char_boundary(input, index) {
+                    index = escaped_next;
+                }
+            }
+            '<' if input[next_index..].starts_with('<') => {
+                Lexer::flush_command_subst_keyword(
+                    &mut current_word,
+                    &mut pending_case_headers,
+                    &mut case_clause_depth,
+                );
+                // Here string (`<<<`) does not queue a heredoc body.
+                if input[next_index + '<'.len_utf8()..].starts_with('<') {
+                    index = next_index + '<'.len_utf8() + '<'.len_utf8();
+                    continue;
+                }
+
+                let strip_tabs = input[next_index..].starts_with("<-");
+                let delimiter_start = next_index + if strip_tabs { 2 } else { 1 };
+                if let Some((delimiter_index, delimiter)) =
+                    scan_command_subst_heredoc_delimiter(input, delimiter_start)
+                {
+                    pending_heredocs.push((delimiter, strip_tabs));
+                    index = delimiter_index;
+                } else {
+                    index = next_index;
+                }
+            }
+            '\n' => {
+                Lexer::flush_command_subst_keyword(
+                    &mut current_word,
+                    &mut pending_case_headers,
+                    &mut case_clause_depth,
+                );
+                index = next_index;
+                for (delimiter, strip_tabs) in pending_heredocs.drain(..) {
+                    index =
+                        skip_command_subst_pending_heredoc(input, index, &delimiter, strip_tabs);
+                }
+            }
+            '$'
+                if input[next_index..].starts_with('(')
+                    && !input[next_index + '('.len_utf8()..].starts_with('(') =>
+            {
+                Lexer::flush_command_subst_keyword(
+                    &mut current_word,
+                    &mut pending_case_headers,
+                    &mut case_clause_depth,
+                );
+                let consumed = scan_command_substitution_body_len_inner(
+                    &input[next_index + '('.len_utf8()..],
+                    subst_depth + 1,
+                )?;
+                index = next_index + '('.len_utf8() + consumed;
+            }
+            _ => {
+                if ch.is_ascii_alphanumeric() || ch == '_' {
+                    current_word.push(ch);
+                } else {
+                    Lexer::flush_command_subst_keyword(
+                        &mut current_word,
+                        &mut pending_case_headers,
+                        &mut case_clause_depth,
+                    );
+                }
+                index = next_index;
+            }
+        }
+    }
+
+    None
+}
+
 pub(super) fn scan_command_substitution_body_len(input: &str) -> Option<usize> {
-    let mut lexer = Lexer::new(input);
-    let mut content = Some(String::new());
-    lexer
-        .read_command_subst_into(&mut content)
-        .then_some(lexer.offset)
+    scan_command_substitution_body_len_inner(input, 0)
 }
 
 #[cfg(test)]
@@ -3360,6 +3624,18 @@ mod tests {
                 .slice(source),
             "foo"
         );
+    }
+
+    #[test]
+    fn test_scan_command_substitution_body_len_handles_tabstripped_heredoc() {
+        let source =
+            "\n\t\t\tcat <<-EOF | tr '\\n' ' '\n\t\t\t\t{\"query\":\"field, direction\"}\n\t\t\tEOF\n\t\t)\"";
+
+        let consumed = scan_command_substitution_body_len(source).expect("expected match");
+        let body = &source[..consumed];
+
+        assert!(body.contains("field, direction"));
+        assert!(body.ends_with(')'));
     }
 
     #[test]
