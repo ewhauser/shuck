@@ -12539,101 +12539,11 @@ fn comma_array_assignment_span(assignment: &Assignment, source: &str) -> Option<
 }
 
 fn array_value_has_unquoted_comma(array: &shuck_ast::ArrayExpr, source: &str) -> bool {
-    array.elements.iter().any(|element| match element {
-        ArrayElem::Sequential(word) => word_has_unquoted_array_comma(word, source),
-        ArrayElem::Keyed { value, .. } | ArrayElem::KeyedAppend { value, .. } => {
-            word_has_unquoted_array_comma(value, source)
-        }
-    })
-}
-
-fn word_has_unquoted_array_comma(word: &Word, source: &str) -> bool {
-    word.parts.iter().any(|part| {
-        let WordPart::Literal(text) = &part.kind else {
-            return false;
-        };
-        let text = text.as_str(source, part.span);
-
-        text.char_indices().any(|(index, ch)| {
-            if ch != ',' {
-                return false;
-            }
-
-            let prefix = &text[..index];
-            let comma = part.span.start.advanced_by(prefix);
-            let escaped = trailing_backslashes(prefix) % 2 == 1;
-            !comma_is_brace_separator(word, source, comma.offset, escaped)
-        })
-    })
-}
-
-fn comma_is_brace_separator(word: &Word, source: &str, offset: usize, escaped: bool) -> bool {
-    if escaped {
-        return false;
-    }
-
-    inside_active_brace_expansion(word, offset) || inside_unquoted_brace_group(word, source, offset)
-}
-
-fn inside_active_brace_expansion(word: &Word, offset: usize) -> bool {
-    word.brace_syntax()
+    let _ = source;
+    array
+        .elements
         .iter()
-        .copied()
-        .filter(|brace| brace.expands())
-        .any(|brace| brace.span.start.offset <= offset && offset < brace.span.end.offset)
-}
-
-fn inside_unquoted_brace_group(word: &Word, source: &str, target_offset: usize) -> bool {
-    let text = word.span.slice(source);
-    let mut in_single = false;
-    let mut in_double = false;
-    let mut escaped = false;
-    let mut brace_depth = 0usize;
-
-    for (index, ch) in text.char_indices() {
-        let absolute = word.span.start.offset + index;
-
-        if absolute == target_offset {
-            return brace_depth > 0;
-        }
-
-        if escaped {
-            escaped = false;
-            continue;
-        }
-
-        match ch {
-            '\\' if !in_single => {
-                escaped = true;
-                continue;
-            }
-            '\'' if !in_double => {
-                in_single = !in_single;
-                continue;
-            }
-            '"' if !in_single => {
-                in_double = !in_double;
-                continue;
-            }
-            _ => {}
-        }
-
-        if in_single || in_double {
-            continue;
-        }
-
-        match ch {
-            '{' if !text[..index].ends_with('$') => brace_depth += 1,
-            '}' if brace_depth > 0 => brace_depth -= 1,
-            _ => {}
-        }
-    }
-
-    false
-}
-
-fn trailing_backslashes(text: &str) -> usize {
-    text.chars().rev().take_while(|ch| *ch == '\\').count()
+        .any(|element| element.value().has_top_level_unquoted_comma())
 }
 
 fn compound_assignment_paren_span(assignment: &Assignment, source: &str) -> Option<Span> {
@@ -13358,6 +13268,506 @@ complex[$((i+=1))]+=x
                 "(x\\, y)",
                 "(foo,{x,y},bar)"
             ]
+        );
+    }
+
+    #[test]
+    fn ignores_commas_after_even_backslashes_before_quote_regions() {
+        let source = "#!/bin/bash\na=(x\\\\\",y\")\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_ansi_c_quoted_array_elements() {
+        let source = "#!/bin/bash\na=($'a\\'b,c')\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_quoted_command_substitution_array_elements() {
+        let source = "#!/bin/bash\nf() {\n\tlocal -a graphql_request=(\n\t\t-X POST\n\t\t-d \"$(\n\t\t\tcat <<-EOF | tr '\\n' ' '\n\t\t\t\t{\"query\":\"field, direction\"}\n\t\t\tEOF\n\t\t)\"\n\t)\n}\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_separator_started_command_substitution_comments() {
+        let source =
+            "#!/bin/bash\na=(\"$(printf '%s' x;# comment with ) and ,\nprintf '%s' y\n)\")\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_grouped_command_substitution_comments() {
+        let source = "#!/bin/bash\na=(\"$( (# comment with )\nprintf %s 1,2\n) )\")\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_compact_grouped_command_substitution_comments() {
+        let source = "#!/bin/bash\na=(\"$( (#comment with )\nprintf %s 1,2\n) )\")\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_command_substitution_case_patterns() {
+        let source = "#!/bin/bash\na=(\"$(case $kind in\nalpha) printf %s 1,2 ;;\nesac)\")\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_piped_heredoc_command_substitution_array_elements() {
+        let source = "#!/bin/bash\na=(\"$(cat <<EOF|tr '\\n' ' '\n{\"query\":\"field, direction\"}\nEOF\n)\")\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_parameter_expansions_with_right_parens_in_command_substitutions() {
+        let source = "#!/bin/bash\na=($(printf %s ${x//foo/)},1))\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_parameter_expansions_with_literal_braces() {
+        let source = "#!/bin/bash\na=(${x/a,b/{})\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_parameter_expansions_with_ansi_c_single_quotes() {
+        let source = "#!/bin/bash\na=(${x/$'a\\'b'/c,d})\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_case_pattern_comments_after_right_parens() {
+        let source = "#!/bin/bash\na=($(case $kind in\na)# comment with esac )\nprintf %s 1,2 ;;\nesac\n))\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_process_substitution_array_elements() {
+        let source = "#!/bin/bash\na=(<(printf %s 1,2))\nb=(>(printf %s 3,4))\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_comments_after_quoted_double_parens() {
+        let source = "#!/bin/bash\na=($(printf '((' # comment with )\nprintf %s 1,2\n))\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_arithmetic_shift_command_substitutions() {
+        let source = "#!/bin/bash\na=($( ((x<<2))\nprintf %s 1,2\n))\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_multiline_command_substitution_scanner_edge_cases() {
+        let source = "\
+#!/bin/bash
+a=($(printf '((' # comment with )
+printf %s 1,2
+))
+b=($( ((x<<2))
+printf %s 3,4
+))
+c=($( (case $kind in
+a) printf %s 5,6 ;;
+esac
+) ))
+d=(\"$( (#comment with )
+printf %s 7,8
+) )\")
+e=($(printf %s 9,10; echo case in))
+f=($(printf %s $'a\\'b'; printf %s 11,12))
+g=($(printf %s `echo foo)`; printf %s 13,14))
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_nested_case_patterns_in_command_substitutions() {
+        let source = "#!/bin/bash\na=($( (case $kind in\na) printf %s 1,2 ;;\nesac\n) ))\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_command_substitutions_with_plain_case_words() {
+        let source = "#!/bin/bash\na=($(printf %s 1,2; echo case in))\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_command_substitutions_with_ansi_c_single_quotes() {
+        let source = "#!/bin/bash\na=($(printf %s $'a\\'b'; printf %s 1,2))\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_command_substitutions_with_backticks() {
+        let source = "#!/bin/bash\na=($(printf %s `echo foo)`; printf %s 1,2))\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_backticks_inside_parameter_expansions() {
+        let source = "#!/bin/bash\na=(${x/`echo }`/a,b})\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_process_substitutions_inside_parameter_expansions() {
+        let source = "#!/bin/bash\na=(${x/<(echo })/foo,bar})\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_after_backticks_inside_parameter_expansions_in_command_substitutions() {
+        let source = "#!/bin/bash\na=(\"$(printf %s ${x/`echo }`/foo)},1)\")\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_after_process_substitutions_inside_parameter_expansions_in_command_substitutions()
+     {
+        let source = "#!/bin/bash\na=(\"$(printf %s ${x/<(echo })/foo)},1)\")\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
         );
     }
 

@@ -816,6 +816,104 @@ fn test_assignment_target_mixed_subscript_and_compound_value_stay_structured() {
 }
 
 #[test]
+fn test_compound_array_value_words_track_top_level_unquoted_commas() {
+    let input = "\
+arr=(
+  alpha,beta
+  head,$tail
+  [k]=v,
+  \"alpha,beta\"
+  $'alpha,beta'
+  $(printf %s 1,2)
+  <(printf %s 1,2)
+  >(printf %s 3,4)
+  ${x/a,b/c}
+  ${x/`echo }`/a,b}
+  ${x/<(echo })/foo,bar}
+  $((1,2))
+  foo,{x,y},bar
+)
+";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let AssignmentValue::Compound(array) = &command.assignments[0].value else {
+        panic!("expected compound array assignment");
+    };
+
+    assert_eq!(array.elements.len(), 13, "{:#?}", array.elements);
+
+    let ArrayElem::Sequential(first) = &array.elements[0] else {
+        panic!("expected first sequential element");
+    };
+    assert!(first.has_top_level_unquoted_comma());
+
+    let ArrayElem::Sequential(second) = &array.elements[1] else {
+        panic!("expected second sequential element");
+    };
+    assert!(second.has_top_level_unquoted_comma());
+
+    let ArrayElem::Keyed { value, .. } = &array.elements[2] else {
+        panic!("expected keyed element");
+    };
+    assert!(value.has_top_level_unquoted_comma());
+
+    for (index, expected_span) in [
+        (3usize, "\"alpha,beta\""),
+        (4, "$'alpha,beta'"),
+        (5, "$(printf %s 1,2)"),
+        (6, "<(printf %s 1,2)"),
+        (7, ">(printf %s 3,4)"),
+        (8, "${x/a,b/c}"),
+        (9, "${x/`echo }`/a,b}"),
+        (10, "${x/<(echo })/foo,bar}"),
+        (11, "$((1,2))"),
+    ] {
+        let ArrayElem::Sequential(value) = &array.elements[index] else {
+            panic!("expected sequential element at index {index}");
+        };
+        assert_eq!(value.span.slice(input), expected_span);
+        assert!(
+            !value.has_top_level_unquoted_comma(),
+            "unexpected comma flag for {}",
+            value.span.slice(input)
+        );
+    }
+
+    let ArrayElem::Sequential(last) = &array.elements[12] else {
+        panic!("expected trailing sequential element");
+    };
+    assert_eq!(last.span.slice(input), "foo,{x,y},bar");
+    assert!(last.has_top_level_unquoted_comma());
+}
+
+#[test]
+fn test_compound_array_process_substitution_stays_typed_for_comma_detection() {
+    let input = "arr=(<(printf %s 1,2) >(printf %s 3,4))\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let AssignmentValue::Compound(array) = &command.assignments[0].value else {
+        panic!("expected compound array assignment");
+    };
+
+    for (index, is_input) in [(0usize, true), (1usize, false)] {
+        let ArrayElem::Sequential(value) = &array.elements[index] else {
+            panic!("expected sequential element at index {index}");
+        };
+        assert!(!value.has_top_level_unquoted_comma());
+        assert!(matches!(
+            &value.parts[0].kind,
+            WordPart::ProcessSubstitution { is_input: actual, .. } if *actual == is_input
+        ));
+    }
+}
+
+#[test]
 fn test_word_part_spans_track_mixed_expansions() {
     let input = "echo pre${name:-fallback}$(printf hi)$((1+2))post\n";
     let script = Parser::new(input).parse().unwrap().file;
@@ -1018,6 +1116,50 @@ fn test_escaped_backticks_inside_double_quotes_stay_literal() {
             .iter()
             .any(|part| matches!(part.kind, WordPart::CommandSubstitution { .. }))
     );
+}
+
+#[test]
+fn test_process_substitution_like_text_inside_double_quotes_stays_literal() {
+    let input = "echo \"<(printf hi)\" \" >(printf bye)\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+
+    for word in &command.args {
+        let WordPart::DoubleQuoted { parts, .. } = &word.parts[0].kind else {
+            panic!("expected double-quoted word");
+        };
+        assert!(
+            !parts
+                .iter()
+                .any(|part| matches!(part.kind, WordPart::ProcessSubstitution { .. })),
+            "{:#?}",
+            parts
+        );
+    }
+}
+
+#[test]
+fn test_escaped_process_substitution_like_text_stays_literal() {
+    let input = "echo \\<(printf hi) \\>(printf bye)\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+
+    for word in &command.args {
+        assert!(
+            !word
+                .parts
+                .iter()
+                .any(|part| matches!(part.kind, WordPart::ProcessSubstitution { .. })),
+            "{:#?}",
+            word.parts
+        );
+    }
 }
 
 #[test]
@@ -2469,6 +2611,414 @@ fn test_parse_declare_a_threads_associative_kind_into_compound_array() {
     assert_eq!(key.interpretation, SubscriptInterpretation::Associative);
 
     assert!(matches!(array.elements[3], ArrayElem::Sequential(_)));
+}
+
+#[test]
+fn test_parse_declare_array_preserves_quoted_command_substitution_elements() {
+    let input = "f() {\n\tlocal -a graphql_request=(\n\t\t-X POST\n\t\t-d \"$(\n\t\t\tcat <<-EOF | tr '\\n' ' '\n\t\t\t\t{\"query\":\"field, direction\"}\n\t\t\tEOF\n\t\t)\"\n\t)\n}\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Function(function) = &script.body[0].command else {
+        panic!("expected function");
+    };
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group function body");
+    };
+    assert!(redirects.is_empty());
+    let AstCommand::Decl(command) = &body[0].command else {
+        panic!("expected declaration, got {:#?}", body[0].command);
+    };
+
+    let DeclOperand::Assignment(assignment) = &command.operands[1] else {
+        panic!("expected assignment operand, got {:#?}", command.operands);
+    };
+    let AssignmentValue::Compound(array) = &assignment.value else {
+        panic!("expected compound array assignment");
+    };
+    assert_eq!(array.elements.len(), 4, "{:#?}", array.elements);
+
+    let ArrayElem::Sequential(payload) = &array.elements[3] else {
+        panic!("expected payload element");
+    };
+    assert!(
+        payload.parts.iter().any(|part| {
+            matches!(
+                &part.kind,
+                WordPart::DoubleQuoted { parts, .. }
+                    if parts.iter().any(|part| matches!(
+                        &part.kind,
+                        WordPart::CommandSubstitution {
+                            syntax: CommandSubstitutionSyntax::DollarParen,
+                            ..
+                        }
+                    ))
+            )
+        }),
+        "{:#?}",
+        payload.parts
+    );
+}
+
+#[test]
+fn test_parse_declare_array_preserves_separator_comment_in_quoted_command_substitution() {
+    let input = "f() {\n\tlocal -a parts=(\n\t\t\"$(printf '%s' x;# comment with ) and ,\n\t\tprintf '%s' y\n\t\t)\"\n\t)\n}\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Function(function) = &script.body[0].command else {
+        panic!("expected function");
+    };
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group function body");
+    };
+    assert!(redirects.is_empty());
+    let AstCommand::Decl(command) = &body[0].command else {
+        panic!("expected declaration, got {:#?}", body[0].command);
+    };
+
+    let DeclOperand::Assignment(assignment) = &command.operands[1] else {
+        panic!("expected assignment operand, got {:#?}", command.operands);
+    };
+    let AssignmentValue::Compound(array) = &assignment.value else {
+        panic!("expected compound array assignment");
+    };
+    assert_eq!(array.elements.len(), 1, "{:#?}", array.elements);
+
+    let ArrayElem::Sequential(payload) = &array.elements[0] else {
+        panic!("expected payload element");
+    };
+    assert!(
+        payload.parts.iter().any(|part| {
+            matches!(
+                &part.kind,
+                WordPart::DoubleQuoted { parts, .. }
+                    if parts.iter().any(|part| matches!(
+                        &part.kind,
+                        WordPart::CommandSubstitution {
+                            syntax: CommandSubstitutionSyntax::DollarParen,
+                            ..
+                        }
+                    ))
+            )
+        }),
+        "{:#?}",
+        payload.parts
+    );
+}
+
+#[test]
+fn test_parse_declare_array_preserves_piped_heredoc_without_spacing_in_command_substitution() {
+    let input = "f() {\n\tlocal -a graphql_request=(\n\t\t\"$(\ncat <<EOF|tr '\\n' ' '\n{\"query\":\"field, direction\"}\nEOF\n\t\t)\"\n\t)\n}\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Function(function) = &script.body[0].command else {
+        panic!("expected function");
+    };
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group function body");
+    };
+    assert!(redirects.is_empty());
+    let AstCommand::Decl(command) = &body[0].command else {
+        panic!("expected declaration, got {:#?}", body[0].command);
+    };
+
+    let DeclOperand::Assignment(assignment) = &command.operands[1] else {
+        panic!("expected assignment operand, got {:#?}", command.operands);
+    };
+    let AssignmentValue::Compound(array) = &assignment.value else {
+        panic!("expected compound array assignment");
+    };
+    assert_eq!(array.elements.len(), 1, "{:#?}", array.elements);
+
+    let ArrayElem::Sequential(payload) = &array.elements[0] else {
+        panic!("expected payload element");
+    };
+    assert!(
+        payload.parts.iter().any(|part| {
+            matches!(
+                &part.kind,
+                WordPart::DoubleQuoted { parts, .. }
+                    if parts.iter().any(|part| matches!(
+                        &part.kind,
+                        WordPart::CommandSubstitution {
+                            syntax: CommandSubstitutionSyntax::DollarParen,
+                            ..
+                        }
+                    ))
+            )
+        }),
+        "{:#?}",
+        payload.parts
+    );
+}
+
+#[test]
+fn test_parse_declare_array_preserves_parameter_expansion_with_right_paren_in_command_substitution()
+{
+    let input = "f() {\n\tlocal -a parts=(\n\t\t\"$(printf %s ${x//foo/)},1)\"\n\t)\n}\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Function(function) = &script.body[0].command else {
+        panic!("expected function");
+    };
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group function body");
+    };
+    assert!(redirects.is_empty());
+    let AstCommand::Decl(command) = &body[0].command else {
+        panic!("expected declaration, got {:#?}", body[0].command);
+    };
+
+    let DeclOperand::Assignment(assignment) = &command.operands[1] else {
+        panic!("expected assignment operand, got {:#?}", command.operands);
+    };
+    let AssignmentValue::Compound(array) = &assignment.value else {
+        panic!("expected compound array assignment");
+    };
+    assert_eq!(array.elements.len(), 1, "{:#?}", array.elements);
+
+    let ArrayElem::Sequential(payload) = &array.elements[0] else {
+        panic!("expected payload element");
+    };
+    assert!(
+        payload.parts.iter().any(|part| {
+            matches!(
+                &part.kind,
+                WordPart::DoubleQuoted { parts, .. }
+                    if parts.iter().any(|part| matches!(
+                        &part.kind,
+                        WordPart::CommandSubstitution {
+                            syntax: CommandSubstitutionSyntax::DollarParen,
+                            ..
+                        }
+                    ))
+            )
+        }),
+        "{:#?}",
+        payload.parts
+    );
+}
+
+#[test]
+fn test_parse_declare_array_preserves_plain_case_words_in_command_substitution() {
+    let input = "f() {\n\tlocal -a parts=(\n\t\t$(printf %s 1,2; echo case in)\n\t)\n}\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Function(function) = &script.body[0].command else {
+        panic!("expected function");
+    };
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group function body");
+    };
+    assert!(redirects.is_empty());
+    let AstCommand::Decl(command) = &body[0].command else {
+        panic!("expected declaration, got {:#?}", body[0].command);
+    };
+
+    let DeclOperand::Assignment(assignment) = &command.operands[1] else {
+        panic!("expected assignment operand, got {:#?}", command.operands);
+    };
+    let AssignmentValue::Compound(array) = &assignment.value else {
+        panic!("expected compound array assignment");
+    };
+    assert_eq!(array.elements.len(), 1, "{:#?}", array.elements);
+
+    let ArrayElem::Sequential(payload) = &array.elements[0] else {
+        panic!("expected payload element");
+    };
+    assert!(
+        payload.parts.iter().any(|part| matches!(
+            &part.kind,
+            WordPart::CommandSubstitution {
+                syntax: CommandSubstitutionSyntax::DollarParen,
+                ..
+            }
+        )),
+        "{:#?}",
+        payload.parts
+    );
+}
+
+#[test]
+fn test_parse_declare_array_preserves_ansi_c_quotes_in_command_substitution() {
+    let input = "f() {\n\tlocal -a parts=(\n\t\t$(printf %s $'a\\'b'; printf %s 1,2)\n\t)\n}\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Function(function) = &script.body[0].command else {
+        panic!("expected function");
+    };
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group function body");
+    };
+    assert!(redirects.is_empty());
+    let AstCommand::Decl(command) = &body[0].command else {
+        panic!("expected declaration, got {:#?}", body[0].command);
+    };
+
+    let DeclOperand::Assignment(assignment) = &command.operands[1] else {
+        panic!("expected assignment operand, got {:#?}", command.operands);
+    };
+    let AssignmentValue::Compound(array) = &assignment.value else {
+        panic!("expected compound array assignment");
+    };
+    assert_eq!(array.elements.len(), 1, "{:#?}", array.elements);
+
+    let ArrayElem::Sequential(payload) = &array.elements[0] else {
+        panic!("expected payload element");
+    };
+    assert!(
+        payload.parts.iter().any(|part| matches!(
+            &part.kind,
+            WordPart::CommandSubstitution {
+                syntax: CommandSubstitutionSyntax::DollarParen,
+                ..
+            }
+        )),
+        "{:#?}",
+        payload.parts
+    );
+}
+
+#[test]
+fn test_parse_declare_array_preserves_backticks_with_right_parens_in_command_substitution() {
+    let input = "f() {\n\tlocal -a parts=(\n\t\t$(printf %s `echo foo)`; printf %s ok)\n\t)\n}\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Function(function) = &script.body[0].command else {
+        panic!("expected function");
+    };
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group function body");
+    };
+    assert!(redirects.is_empty());
+    let AstCommand::Decl(command) = &body[0].command else {
+        panic!("expected declaration, got {:#?}", body[0].command);
+    };
+
+    let DeclOperand::Assignment(assignment) = &command.operands[1] else {
+        panic!("expected assignment operand, got {:#?}", command.operands);
+    };
+    let AssignmentValue::Compound(array) = &assignment.value else {
+        panic!("expected compound array assignment");
+    };
+    assert_eq!(array.elements.len(), 1, "{:#?}", array.elements);
+
+    let ArrayElem::Sequential(payload) = &array.elements[0] else {
+        panic!("expected payload element");
+    };
+    assert!(
+        payload.parts.iter().any(|part| matches!(
+            &part.kind,
+            WordPart::CommandSubstitution {
+                syntax: CommandSubstitutionSyntax::DollarParen,
+                ..
+            }
+        )),
+        "{:#?}",
+        payload.parts
+    );
+}
+
+#[test]
+fn test_parse_declare_array_preserves_backticks_inside_parameter_expansions_in_command_substitution()
+ {
+    let input = "f() {\n\tlocal -a parts=(\n\t\t\"$(printf %s ${x/`echo }`/foo)},1)\"\n\t)\n}\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Function(function) = &script.body[0].command else {
+        panic!("expected function");
+    };
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group function body");
+    };
+    assert!(redirects.is_empty());
+    let AstCommand::Decl(command) = &body[0].command else {
+        panic!("expected declaration, got {:#?}", body[0].command);
+    };
+
+    let DeclOperand::Assignment(assignment) = &command.operands[1] else {
+        panic!("expected assignment operand, got {:#?}", command.operands);
+    };
+    let AssignmentValue::Compound(array) = &assignment.value else {
+        panic!("expected compound array assignment");
+    };
+    assert_eq!(array.elements.len(), 1, "{:#?}", array.elements);
+
+    let ArrayElem::Sequential(payload) = &array.elements[0] else {
+        panic!("expected payload element");
+    };
+    assert!(
+        payload.parts.iter().any(|part| {
+            matches!(
+                &part.kind,
+                WordPart::DoubleQuoted { parts, .. }
+                    if parts.iter().any(|part| matches!(
+                        &part.kind,
+                        WordPart::CommandSubstitution {
+                            syntax: CommandSubstitutionSyntax::DollarParen,
+                            ..
+                        }
+                    ))
+            )
+        }),
+        "{:#?}",
+        payload.parts
+    );
+}
+
+#[test]
+fn test_parse_declare_array_preserves_process_substitutions_inside_parameter_expansions_in_command_substitution()
+ {
+    let input = "f() {\n\tlocal -a parts=(\n\t\t\"$(printf %s ${x/<(echo })/foo)},1)\"\n\t)\n}\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Function(function) = &script.body[0].command else {
+        panic!("expected function");
+    };
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group function body");
+    };
+    assert!(redirects.is_empty());
+    let AstCommand::Decl(command) = &body[0].command else {
+        panic!("expected declaration, got {:#?}", body[0].command);
+    };
+
+    let DeclOperand::Assignment(assignment) = &command.operands[1] else {
+        panic!("expected assignment operand, got {:#?}", command.operands);
+    };
+    let AssignmentValue::Compound(array) = &assignment.value else {
+        panic!("expected compound array assignment");
+    };
+    assert_eq!(array.elements.len(), 1, "{:#?}", array.elements);
+
+    let ArrayElem::Sequential(payload) = &array.elements[0] else {
+        panic!("expected payload element");
+    };
+    assert!(
+        payload.parts.iter().any(|part| {
+            matches!(
+                &part.kind,
+                WordPart::DoubleQuoted { parts, .. }
+                    if parts.iter().any(|part| matches!(
+                        &part.kind,
+                        WordPart::CommandSubstitution {
+                            syntax: CommandSubstitutionSyntax::DollarParen,
+                            ..
+                        }
+                    ))
+            )
+        }),
+        "{:#?}",
+        payload.parts
+    );
 }
 
 #[test]

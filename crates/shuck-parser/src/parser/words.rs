@@ -1,4 +1,5 @@
 use super::*;
+use shuck_ast::ArrayValueWord;
 #[derive(Debug, Clone, Copy)]
 struct PatternCursor {
     segment_index: usize,
@@ -37,11 +38,23 @@ struct ParsedWordTarget {
     boundary: WordTargetBoundary,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub(super) struct DecodeWordPartsOptions {
     preserve_quote_fragments: bool,
     parse_dollar_quotes: bool,
     preserve_escaped_expansion_literals: bool,
+    parse_process_substitutions: bool,
+}
+
+impl Default for DecodeWordPartsOptions {
+    fn default() -> Self {
+        Self {
+            preserve_quote_fragments: false,
+            parse_dollar_quotes: false,
+            preserve_escaped_expansion_literals: false,
+            parse_process_substitutions: true,
+        }
+    }
 }
 
 impl<'a> PatternParser<'a> {
@@ -843,6 +856,17 @@ impl<'a> Parser<'a> {
         self.parse_word_with_context(raw, span, span.start, self.source_matches(span, raw))
     }
 
+    pub(super) fn array_value_word_from_raw_text(
+        &mut self,
+        raw: &str,
+        span: Span,
+    ) -> ArrayValueWord {
+        let word = self.word_from_raw_text(raw, span);
+        let has_top_level_unquoted_comma =
+            self.raw_text_has_top_level_unquoted_array_comma(raw, &word);
+        ArrayValueWord::new(word, has_top_level_unquoted_comma)
+    }
+
     pub(super) fn split_compound_array_elements(&self, inner: &str) -> Vec<(usize, usize)> {
         let mut ranges = Vec::new();
         let mut start: Option<usize> = None;
@@ -964,6 +988,353 @@ impl<'a> Parser<'a> {
         Some(body_start + consumed)
     }
 
+    fn raw_text_has_top_level_unquoted_array_comma(&self, raw: &str, word: &Word) -> bool {
+        let mut index = 0usize;
+        let mut in_single = false;
+        let mut in_ansi_c_single = false;
+        let mut in_double = false;
+        let mut in_backtick = false;
+        let mut escaped = false;
+        let mut ansi_c_quote_pending = false;
+
+        while index < raw.len() {
+            let ch = raw[index..]
+                .chars()
+                .next()
+                .expect("index is within bounds while scanning parser-owned array surface");
+            let next_index = index + ch.len_utf8();
+            let was_escaped = escaped;
+            if ch == '\\' && !in_single {
+                escaped = !escaped;
+                ansi_c_quote_pending = false;
+                index = next_index;
+                continue;
+            }
+            escaped = false;
+
+            if !in_single && !in_ansi_c_single && !in_backtick && !was_escaped && ch == '$' {
+                if raw[next_index..].starts_with("((")
+                    && let Some(consumed) =
+                        Self::scan_array_arithmetic_expansion_len(&raw[next_index + 2..])
+                {
+                    ansi_c_quote_pending = false;
+                    index = next_index + 2 + consumed;
+                    continue;
+                }
+
+                if raw[next_index..].starts_with('(')
+                    && !raw[next_index + '('.len_utf8()..].starts_with('(')
+                    && let Some(consumed) = lexer::scan_command_substitution_body_len(
+                        &raw[next_index + '('.len_utf8()..],
+                    )
+                {
+                    ansi_c_quote_pending = false;
+                    index = next_index + '('.len_utf8() + consumed;
+                    continue;
+                }
+
+                if raw[next_index..].starts_with('{')
+                    && let Some(consumed) = Self::scan_array_parameter_expansion_len(
+                        &raw[next_index + '{'.len_utf8()..],
+                    )
+                {
+                    ansi_c_quote_pending = false;
+                    index = next_index + '{'.len_utf8() + consumed;
+                    continue;
+                }
+            }
+
+            if !in_single
+                && !in_ansi_c_single
+                && !in_double
+                && !in_backtick
+                && !was_escaped
+                && matches!(ch, '<' | '>')
+                && raw[next_index..].starts_with('(')
+                && let Some(consumed) =
+                    lexer::scan_command_substitution_body_len(&raw[next_index + '('.len_utf8()..])
+            {
+                ansi_c_quote_pending = false;
+                index = next_index + '('.len_utf8() + consumed;
+                continue;
+            }
+
+            match ch {
+                '\'' if !in_double && !in_backtick && !was_escaped => {
+                    if in_ansi_c_single {
+                        in_ansi_c_single = false;
+                    } else if !in_single && ansi_c_quote_pending {
+                        in_ansi_c_single = true;
+                    } else {
+                        in_single = !in_single;
+                    }
+                }
+                '"' if !in_single && !in_ansi_c_single && !was_escaped => in_double = !in_double,
+                '`' if !in_single && !in_ansi_c_single && !in_double && !was_escaped => {
+                    in_backtick = !in_backtick
+                }
+                ',' if !in_single && !in_ansi_c_single && !in_double && !in_backtick => {
+                    let comma_offset = word.span.start.offset + index;
+                    if !self.comma_is_brace_separator(word, comma_offset, was_escaped) {
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+
+            ansi_c_quote_pending = ch == '$'
+                && !in_single
+                && !in_ansi_c_single
+                && !in_double
+                && !in_backtick
+                && !was_escaped;
+            index = next_index;
+        }
+
+        false
+    }
+
+    fn scan_array_arithmetic_expansion_len(text: &str) -> Option<usize> {
+        let mut index = 0usize;
+        let mut depth = 2usize;
+        let mut in_single = false;
+        let mut in_double = false;
+        let mut escaped = false;
+
+        while index < text.len() {
+            let ch = text[index..].chars().next()?;
+            let next_index = index + ch.len_utf8();
+            let was_escaped = escaped;
+            if ch == '\\' && !in_single {
+                escaped = !escaped;
+                index = next_index;
+                continue;
+            }
+            escaped = false;
+
+            if !in_single && !was_escaped && ch == '$' {
+                if text[next_index..].starts_with("((")
+                    && let Some(consumed) =
+                        Self::scan_array_arithmetic_expansion_len(&text[next_index + 2..])
+                {
+                    index = next_index + 2 + consumed;
+                    continue;
+                }
+
+                if text[next_index..].starts_with('(')
+                    && !text[next_index + '('.len_utf8()..].starts_with('(')
+                    && let Some(consumed) = lexer::scan_command_substitution_body_len(
+                        &text[next_index + '('.len_utf8()..],
+                    )
+                {
+                    index = next_index + '('.len_utf8() + consumed;
+                    continue;
+                }
+
+                if text[next_index..].starts_with('{')
+                    && let Some(consumed) = Self::scan_array_parameter_expansion_len(
+                        &text[next_index + '{'.len_utf8()..],
+                    )
+                {
+                    index = next_index + '{'.len_utf8() + consumed;
+                    continue;
+                }
+            }
+
+            match ch {
+                '\'' if !in_double && !was_escaped => in_single = !in_single,
+                '"' if !in_single && !was_escaped => in_double = !in_double,
+                '(' if !in_single && !in_double && !was_escaped => depth += 1,
+                ')' if !in_single && !in_double && !was_escaped => {
+                    depth -= 1;
+                    index = next_index;
+                    if depth == 0 {
+                        return Some(index);
+                    }
+                    continue;
+                }
+                _ => {}
+            }
+
+            index = next_index;
+        }
+
+        None
+    }
+
+    fn scan_array_parameter_expansion_len(text: &str) -> Option<usize> {
+        let mut index = 0usize;
+        let mut in_single = false;
+        let mut in_ansi_c_single = false;
+        let mut in_double = false;
+        let mut in_backtick = false;
+        let mut escaped = false;
+        let mut ansi_c_quote_pending = false;
+
+        while index < text.len() {
+            let ch = text[index..].chars().next()?;
+            let next_index = index + ch.len_utf8();
+            let was_escaped = escaped;
+            if ch == '\\' && !in_single {
+                escaped = !escaped;
+                index = next_index;
+                ansi_c_quote_pending = false;
+                continue;
+            }
+            escaped = false;
+
+            if !in_single && !in_ansi_c_single && !in_backtick && !was_escaped && ch == '$' {
+                if text[next_index..].starts_with('{')
+                    && let Some(consumed) = Self::scan_array_parameter_expansion_len(
+                        &text[next_index + '{'.len_utf8()..],
+                    )
+                {
+                    index = next_index + '{'.len_utf8() + consumed;
+                    ansi_c_quote_pending = false;
+                    continue;
+                }
+
+                if text[next_index..].starts_with("((")
+                    && let Some(consumed) =
+                        Self::scan_array_arithmetic_expansion_len(&text[next_index + 2..])
+                {
+                    index = next_index + 2 + consumed;
+                    ansi_c_quote_pending = false;
+                    continue;
+                }
+
+                if text[next_index..].starts_with('(')
+                    && !text[next_index + '('.len_utf8()..].starts_with('(')
+                    && let Some(consumed) = lexer::scan_command_substitution_body_len(
+                        &text[next_index + '('.len_utf8()..],
+                    )
+                {
+                    index = next_index + '('.len_utf8() + consumed;
+                    ansi_c_quote_pending = false;
+                    continue;
+                }
+            }
+
+            if !in_single
+                && !in_ansi_c_single
+                && !in_double
+                && !in_backtick
+                && !was_escaped
+                && matches!(ch, '<' | '>')
+                && text[next_index..].starts_with('(')
+                && let Some(consumed) =
+                    lexer::scan_command_substitution_body_len(&text[next_index + '('.len_utf8()..])
+            {
+                index = next_index + '('.len_utf8() + consumed;
+                ansi_c_quote_pending = false;
+                continue;
+            }
+
+            match ch {
+                '\'' if !in_double && !in_backtick && !was_escaped => {
+                    if in_ansi_c_single {
+                        in_ansi_c_single = false;
+                    } else if !in_single && ansi_c_quote_pending {
+                        in_ansi_c_single = true;
+                    } else {
+                        in_single = !in_single;
+                    }
+                }
+                '"' if !in_single && !in_ansi_c_single && !in_backtick && !was_escaped => {
+                    in_double = !in_double
+                }
+                '`' if !in_single && !in_ansi_c_single && !in_double && !was_escaped => {
+                    in_backtick = !in_backtick
+                }
+                '}' if !in_single
+                    && !in_ansi_c_single
+                    && !in_double
+                    && !in_backtick
+                    && !was_escaped =>
+                {
+                    return Some(next_index);
+                }
+                _ => {}
+            }
+
+            ansi_c_quote_pending = ch == '$'
+                && !in_single
+                && !in_ansi_c_single
+                && !in_double
+                && !in_backtick
+                && !was_escaped;
+            index = next_index;
+        }
+
+        None
+    }
+
+    fn comma_is_brace_separator(&self, word: &Word, offset: usize, escaped: bool) -> bool {
+        if escaped {
+            return false;
+        }
+
+        Self::inside_active_brace_expansion(word, offset)
+            || self.inside_unquoted_brace_group(word, offset)
+    }
+
+    fn inside_active_brace_expansion(word: &Word, offset: usize) -> bool {
+        word.brace_syntax()
+            .iter()
+            .copied()
+            .filter(|brace| brace.expands())
+            .any(|brace| brace.span.start.offset <= offset && offset < brace.span.end.offset)
+    }
+
+    fn inside_unquoted_brace_group(&self, word: &Word, target_offset: usize) -> bool {
+        let text = word.span.slice(self.input);
+        let mut in_single = false;
+        let mut in_double = false;
+        let mut escaped = false;
+        let mut brace_depth = 0usize;
+
+        for (index, ch) in text.char_indices() {
+            let absolute = word.span.start.offset + index;
+
+            if absolute == target_offset {
+                return brace_depth > 0;
+            }
+
+            if escaped {
+                escaped = false;
+                continue;
+            }
+
+            match ch {
+                '\\' if !in_single => {
+                    escaped = true;
+                    continue;
+                }
+                '\'' if !in_double => {
+                    in_single = !in_single;
+                    continue;
+                }
+                '"' if !in_single => {
+                    in_double = !in_double;
+                    continue;
+                }
+                _ => {}
+            }
+
+            if in_single || in_double {
+                continue;
+            }
+
+            match ch {
+                '{' if !text[..index].ends_with('$') => brace_depth += 1,
+                '}' if brace_depth > 0 => brace_depth -= 1,
+                _ => {}
+            }
+        }
+
+        false
+    }
+
     fn raw_source_hash_starts_comment(source: &str, index: usize) -> bool {
         source[..index]
             .chars()
@@ -1054,7 +1425,7 @@ impl<'a> Parser<'a> {
                 .start
                 .advanced_by(&raw[..close_index + 1 + value_offset]);
             let value_span = Span::from_positions(value_start, span.end);
-            let value = self.word_from_raw_text(value_raw, value_span);
+            let value = self.array_value_word_from_raw_text(value_raw, value_span);
             return if append {
                 ArrayElem::KeyedAppend { key, value }
             } else {
@@ -1062,7 +1433,7 @@ impl<'a> Parser<'a> {
             };
         }
 
-        ArrayElem::Sequential(self.word_from_raw_text(raw, span))
+        ArrayElem::Sequential(self.array_value_word_from_raw_text(raw, span))
     }
 
     pub(super) fn parse_array_expr_from_text(
@@ -2638,15 +3009,30 @@ impl<'a> Parser<'a> {
 
                 let inner_span = Span::from_positions(content_start, content_end);
                 let inner = if source_backed {
-                    self.decode_word_text(
+                    self.decode_word_text_with_options(
                         inner_span.slice(self.input),
                         inner_span,
                         content_start,
                         true,
+                        DecodeWordPartsOptions {
+                            parse_dollar_quotes: true,
+                            parse_process_substitutions: false,
+                            ..DecodeWordPartsOptions::default()
+                        },
                     )
                 } else {
                     let content = content.unwrap_or_default();
-                    self.decode_word_text(&content, inner_span, content_start, false)
+                    self.decode_word_text_with_options(
+                        &content,
+                        inner_span,
+                        content_start,
+                        false,
+                        DecodeWordPartsOptions {
+                            parse_dollar_quotes: true,
+                            parse_process_substitutions: false,
+                            ..DecodeWordPartsOptions::default()
+                        },
+                    )
                 };
 
                 Self::push_word_part(
@@ -2714,6 +3100,78 @@ impl<'a> Parser<'a> {
                         body,
                         syntax: CommandSubstitutionSyntax::Backtick,
                     },
+                    part_start,
+                    cursor,
+                );
+                current_start = cursor;
+                continue;
+            }
+
+            if options.parse_process_substitutions
+                && matches!(ch, '<' | '>')
+                && chars.peek() == Some(&'(')
+            {
+                self.flush_literal_part(parts, &mut current, current_start, part_start);
+
+                let is_input = ch == '<';
+                Self::next_word_char_unwrap(&mut chars, &mut cursor);
+                let inner_start = cursor;
+                let body = if source_backed {
+                    let remaining_word_text = chars.clone().collect::<String>();
+                    let consumed = lexer::scan_command_substitution_body_len(&remaining_word_text);
+                    let inner_end = if let Some(consumed) = consumed {
+                        let consumed_text = &remaining_word_text[..consumed];
+                        for _ in consumed_text.chars() {
+                            Self::next_word_char_unwrap(&mut chars, &mut cursor);
+                        }
+                        let inner_text = consumed_text.strip_suffix(')').unwrap_or_default();
+                        inner_start.advanced_by(inner_text)
+                    } else {
+                        let mut depth = 1;
+                        let mut inner_end = inner_start;
+                        while chars.peek().is_some() {
+                            let c = Self::next_word_char_unwrap(&mut chars, &mut cursor);
+                            match c {
+                                '(' => {
+                                    depth += 1;
+                                    inner_end = cursor;
+                                }
+                                ')' => {
+                                    depth -= 1;
+                                    if depth == 0 {
+                                        break;
+                                    }
+                                    inner_end = cursor;
+                                }
+                                _ => inner_end = cursor,
+                            }
+                        }
+                        inner_end
+                    };
+                    self.nested_stmt_seq_from_current_input(inner_start, inner_end)
+                } else {
+                    let mut cmd_str = String::new();
+                    let mut depth = 1;
+                    while let Some(c) = Self::next_word_char(&mut chars, &mut cursor) {
+                        if c == '(' {
+                            depth += 1;
+                            cmd_str.push(c);
+                        } else if c == ')' {
+                            depth -= 1;
+                            if depth == 0 {
+                                break;
+                            }
+                            cmd_str.push(c);
+                        } else {
+                            cmd_str.push(c);
+                        }
+                    }
+                    self.nested_stmt_seq_from_source(&cmd_str, inner_start)
+                };
+
+                Self::push_word_part(
+                    parts,
+                    WordPart::ProcessSubstitution { body, is_input },
                     part_start,
                     cursor,
                 );
@@ -2809,15 +3267,30 @@ impl<'a> Parser<'a> {
 
                 let inner_span = Span::from_positions(content_start, content_end);
                 let inner = if source_backed {
-                    self.decode_word_text(
+                    self.decode_word_text_with_options(
                         inner_span.slice(self.input),
                         inner_span,
                         content_start,
                         true,
+                        DecodeWordPartsOptions {
+                            parse_dollar_quotes: true,
+                            parse_process_substitutions: false,
+                            ..DecodeWordPartsOptions::default()
+                        },
                     )
                 } else {
                     let content = content.unwrap_or_default();
-                    self.decode_word_text(&content, inner_span, content_start, false)
+                    self.decode_word_text_with_options(
+                        &content,
+                        inner_span,
+                        content_start,
+                        false,
+                        DecodeWordPartsOptions {
+                            parse_dollar_quotes: true,
+                            parse_process_substitutions: false,
+                            ..DecodeWordPartsOptions::default()
+                        },
+                    )
                 };
 
                 Self::push_word_part(
@@ -4249,6 +4722,25 @@ impl<'a> Parser<'a> {
         self.word_with_parts(parts, span)
     }
 
+    fn decode_word_text_with_options(
+        &mut self,
+        s: &str,
+        span: Span,
+        base: Position,
+        source_backed: bool,
+        options: DecodeWordPartsOptions,
+    ) -> Word {
+        let mut parts = Vec::new();
+        self.decode_word_parts_into_with_quote_fragments(
+            s,
+            base,
+            source_backed,
+            options,
+            &mut parts,
+        );
+        self.word_with_parts(parts, span)
+    }
+
     pub(super) fn decode_fragment_word_text(
         &mut self,
         s: &str,
@@ -4284,6 +4776,7 @@ impl<'a> Parser<'a> {
             source_backed,
             DecodeWordPartsOptions {
                 preserve_escaped_expansion_literals: true,
+                parse_process_substitutions: false,
                 ..DecodeWordPartsOptions::default()
             },
             &mut parts,
