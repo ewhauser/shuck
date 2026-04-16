@@ -4060,6 +4060,26 @@ EOF
     }
 
     #[test]
+    fn escaped_dollar_word_does_not_report_uninitialized_reads() {
+        let source = "\
+#!/bin/sh
+printf '%s\\n' \"\\$workdir\"
+";
+        let model = model(source);
+        assert!(model.analysis().uninitialized_references().is_empty());
+    }
+
+    #[test]
+    fn escaped_parameter_expansion_with_nested_default_stays_inert() {
+        let source = "\
+#!/bin/sh
+printf '%s\\n' \\${workdir:-$fallback}
+";
+        let model = model(source);
+        assert!(model.analysis().uninitialized_references().is_empty());
+    }
+
+    #[test]
     fn unquoted_heredoc_body_reports_live_uninitialized_reads() {
         let source = "\
 archname=archive
@@ -4858,6 +4878,33 @@ source ./loader.bash
 #!/bin/bash
 SELF=\"${BASH_SOURCE}\"
 source \"$(dirname \"${SELF:-$0}\")/helper.bash\"
+",
+        )
+        .unwrap();
+        fs::write(&helper, "#!/bin/bash\necho \"$flag\"\n").unwrap();
+
+        let model = model_at_path(&main);
+
+        assert!(
+            !model.synthetic_reads.iter().any(|read| read.name == "flag"),
+            "synthetic reads: {:?}",
+            model.synthetic_reads
+        );
+        let unused = reportable_unused_names(&model);
+        assert!(unused.contains(&Name::from("flag")), "unused: {:?}", unused);
+    }
+
+    #[test]
+    fn escaped_bash_source_template_does_not_import_helper() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.bash");
+        let helper = temp.path().join("helper.bash");
+        fs::write(
+            &main,
+            "\
+#!/bin/bash
+flag=1
+source \"\\$(dirname \\\"${BASH_SOURCE[0]}\\\")/helper.bash\"
 ",
         )
         .unwrap();

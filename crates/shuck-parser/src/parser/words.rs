@@ -586,6 +586,23 @@ impl<'a> Parser<'a> {
         base: Position,
         source_backed: bool,
     ) -> Word {
+        self.decode_word_text_preserving_quotes_if_needed_with_escape_mode(
+            s,
+            span,
+            base,
+            source_backed,
+            source_backed,
+        )
+    }
+
+    pub(super) fn decode_word_text_preserving_quotes_if_needed_with_escape_mode(
+        &mut self,
+        s: &str,
+        span: Span,
+        base: Position,
+        source_backed: bool,
+        preserve_escaped_expansion_literals: bool,
+    ) -> Word {
         if !Self::source_text_needs_quote_preserving_decode(s)
             && let Some(word) = self.maybe_parse_zsh_qualified_glob_word(s, span, source_backed)
         {
@@ -593,9 +610,21 @@ impl<'a> Parser<'a> {
         }
 
         if Self::source_text_needs_quote_preserving_decode(s) {
-            self.decode_fragment_word_text(s, span, base, source_backed)
+            self.decode_fragment_word_text_with_escape_mode(
+                s,
+                span,
+                base,
+                source_backed,
+                preserve_escaped_expansion_literals,
+            )
         } else {
-            self.decode_word_text(s, span, base, source_backed)
+            self.decode_word_text_with_escape_mode(
+                s,
+                span,
+                base,
+                source_backed,
+                preserve_escaped_expansion_literals,
+            )
         }
     }
 
@@ -1635,7 +1664,7 @@ impl<'a> Parser<'a> {
         let trimmed_span = Span::from_positions(start, span.end);
         let literal = match literal {
             LiteralText::Source => LiteralText::source(),
-            LiteralText::Owned(text) => {
+            LiteralText::Owned(text) | LiteralText::CookedSource(text) => {
                 let split_at = start.offset.saturating_sub(span.start.offset);
                 LiteralText::owned(text.get(split_at..)?.to_string())
             }
@@ -2825,11 +2854,12 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub(super) fn decode_word_parts_into(
+    fn decode_word_parts_into_with_escape_mode(
         &mut self,
         s: &str,
         base: Position,
         source_backed: bool,
+        preserve_escaped_expansion_literals: bool,
         parts: &mut Vec<WordPartNode>,
     ) {
         self.decode_word_parts_into_with_quote_fragments(
@@ -2838,6 +2868,7 @@ impl<'a> Parser<'a> {
             source_backed,
             DecodeWordPartsOptions {
                 parse_dollar_quotes: true,
+                preserve_escaped_expansion_literals,
                 ..DecodeWordPartsOptions::default()
             },
             parts,
@@ -2867,6 +2898,13 @@ impl<'a> Parser<'a> {
                 }
                 if let Some(literal_ch) = Self::next_word_char(&mut chars, &mut cursor) {
                     current.push(literal_ch);
+                    if literal_ch == '$' && chars.peek() == Some(&'{') {
+                        self.consume_escaped_braced_parameter_literal(
+                            &mut chars,
+                            &mut cursor,
+                            &mut current,
+                        );
+                    }
                 }
                 continue;
             }
@@ -2890,13 +2928,26 @@ impl<'a> Parser<'a> {
                 if current.is_empty() {
                     current_start = part_start;
                 }
-                current.push(ch);
-                current.push(Self::next_word_char_unwrap(&mut chars, &mut cursor));
+                let literal_ch = Self::next_word_char_unwrap(&mut chars, &mut cursor);
+                current.push(literal_ch);
+                if literal_ch == '$' && chars.peek() == Some(&'{') {
+                    self.consume_escaped_braced_parameter_literal(
+                        &mut chars,
+                        &mut cursor,
+                        &mut current,
+                    );
+                }
                 continue;
             }
 
             if options.preserve_quote_fragments && ch == '\'' {
-                self.flush_literal_part(parts, &mut current, current_start, part_start);
+                self.flush_literal_part(
+                    parts,
+                    &mut current,
+                    current_start,
+                    part_start,
+                    source_backed,
+                );
 
                 let content_start = cursor;
                 let mut content = (!source_backed).then(String::new);
@@ -2953,7 +3004,13 @@ impl<'a> Parser<'a> {
             }
 
             if options.preserve_quote_fragments && ch == '"' {
-                self.flush_literal_part(parts, &mut current, current_start, part_start);
+                self.flush_literal_part(
+                    parts,
+                    &mut current,
+                    current_start,
+                    part_start,
+                    source_backed,
+                );
 
                 let content_start = cursor;
                 let mut content = (!source_backed).then(String::new);
@@ -3051,7 +3108,13 @@ impl<'a> Parser<'a> {
             }
 
             if ch == '`' {
-                self.flush_literal_part(parts, &mut current, current_start, part_start);
+                self.flush_literal_part(
+                    parts,
+                    &mut current,
+                    current_start,
+                    part_start,
+                    source_backed,
+                );
 
                 let inner_start = cursor;
                 let body = if source_backed {
@@ -3113,7 +3176,13 @@ impl<'a> Parser<'a> {
                 && matches!(ch, '<' | '>')
                 && chars.peek() == Some(&'(')
             {
-                self.flush_literal_part(parts, &mut current, current_start, part_start);
+                self.flush_literal_part(
+                    parts,
+                    &mut current,
+                    current_start,
+                    part_start,
+                    source_backed,
+                );
 
                 let is_input = ch == '<';
                 Self::next_word_char_unwrap(&mut chars, &mut cursor);
@@ -3189,7 +3258,13 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            self.flush_literal_part(parts, &mut current, current_start, part_start);
+            self.flush_literal_part(
+                parts,
+                &mut current,
+                current_start,
+                part_start,
+                source_backed,
+            );
 
             if options.parse_dollar_quotes && chars.peek() == Some(&'\'') {
                 Self::next_word_char_unwrap(&mut chars, &mut cursor);
@@ -4547,15 +4622,87 @@ impl<'a> Parser<'a> {
             }
         }
 
-        self.flush_literal_part(parts, &mut current, current_start, cursor);
+        self.flush_literal_part(parts, &mut current, current_start, cursor, source_backed);
 
         if parts.is_empty() {
             Self::push_word_part(
                 parts,
-                WordPart::Literal(self.literal_text(String::new(), base, cursor)),
+                WordPart::Literal(self.literal_text(String::new(), base, cursor, source_backed)),
                 base,
                 cursor,
             );
+        }
+    }
+
+    fn consume_escaped_braced_parameter_literal(
+        &self,
+        chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+        cursor: &mut Position,
+        current: &mut String,
+    ) {
+        if chars.peek() != Some(&'{') {
+            return;
+        }
+
+        current.push(Self::next_word_char_unwrap(chars, cursor));
+
+        let mut depth = 1usize;
+        let mut literal_brace_depth = 0usize;
+        let mut in_single = false;
+        let mut in_double = false;
+
+        while let Some(&c) = chars.peek() {
+            match c {
+                '\\' if !in_single => {
+                    Self::next_word_char_unwrap(chars, cursor);
+                    if let Some(&escaped) = chars.peek() {
+                        if !in_double || matches!(escaped, '$' | '"' | '\\' | '`' | '\n') {
+                            current.push(Self::next_word_char_unwrap(chars, cursor));
+                        } else {
+                            current.push('\\');
+                        }
+                    } else {
+                        current.push('\\');
+                    }
+                }
+                '\'' if !in_double => {
+                    in_single = !in_single;
+                    current.push(Self::next_word_char_unwrap(chars, cursor));
+                }
+                '"' if !in_single => {
+                    in_double = !in_double;
+                    current.push(Self::next_word_char_unwrap(chars, cursor));
+                }
+                '$' if !in_single => {
+                    current.push(Self::next_word_char_unwrap(chars, cursor));
+                    if chars.peek() == Some(&'{') {
+                        depth += 1;
+                        current.push(Self::next_word_char_unwrap(chars, cursor));
+                    }
+                }
+                '{' if !in_single && !in_double => {
+                    literal_brace_depth += 1;
+                    current.push(Self::next_word_char_unwrap(chars, cursor));
+                }
+                '}' if !in_single && !in_double => {
+                    if depth == 1 && literal_brace_depth > 0 {
+                        let mut remaining = chars.clone();
+                        remaining.next();
+                        if Self::brace_operand_has_later_top_level_closer(remaining, depth) {
+                            literal_brace_depth -= 1;
+                            current.push(Self::next_word_char_unwrap(chars, cursor));
+                            continue;
+                        }
+                    }
+
+                    current.push(Self::next_word_char_unwrap(chars, cursor));
+                    if depth == 1 {
+                        break;
+                    }
+                    depth -= 1;
+                }
+                _ => current.push(Self::next_word_char_unwrap(chars, cursor)),
+            }
         }
     }
 
@@ -4731,8 +4878,25 @@ impl<'a> Parser<'a> {
         base: Position,
         source_backed: bool,
     ) -> Word {
+        self.decode_word_text_with_escape_mode(s, span, base, source_backed, source_backed)
+    }
+
+    fn decode_word_text_with_escape_mode(
+        &mut self,
+        s: &str,
+        span: Span,
+        base: Position,
+        source_backed: bool,
+        preserve_escaped_expansion_literals: bool,
+    ) -> Word {
         let mut parts = Vec::new();
-        self.decode_word_parts_into(s, base, source_backed, &mut parts);
+        self.decode_word_parts_into_with_escape_mode(
+            s,
+            base,
+            source_backed,
+            preserve_escaped_expansion_literals,
+            &mut parts,
+        );
         self.word_with_parts(parts, span)
     }
 
@@ -4762,6 +4926,17 @@ impl<'a> Parser<'a> {
         base: Position,
         source_backed: bool,
     ) -> Word {
+        self.decode_fragment_word_text_with_escape_mode(s, span, base, source_backed, source_backed)
+    }
+
+    fn decode_fragment_word_text_with_escape_mode(
+        &mut self,
+        s: &str,
+        span: Span,
+        base: Position,
+        source_backed: bool,
+        preserve_escaped_expansion_literals: bool,
+    ) -> Word {
         let mut parts = Vec::new();
         self.decode_word_parts_into_with_quote_fragments(
             s,
@@ -4770,6 +4945,7 @@ impl<'a> Parser<'a> {
             DecodeWordPartsOptions {
                 preserve_quote_fragments: true,
                 parse_dollar_quotes: true,
+                preserve_escaped_expansion_literals,
                 ..DecodeWordPartsOptions::default()
             },
             &mut parts,

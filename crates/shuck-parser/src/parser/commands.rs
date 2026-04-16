@@ -3496,6 +3496,7 @@ impl<'a> Parser<'a> {
                             literal,
                             self.current_span.start,
                             self.current_span.end,
+                            true,
                         )),
                         self.current_span,
                     ));
@@ -3522,6 +3523,7 @@ impl<'a> Parser<'a> {
                             literal,
                             self.current_span.start,
                             self.current_span.end,
+                            true,
                         )),
                         self.current_span,
                     ));

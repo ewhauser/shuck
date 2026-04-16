@@ -2793,11 +2793,12 @@ impl<'a> Parser<'a> {
 
     fn literal_part_from_text(&self, text: &str, span: Span, source_backed: bool) -> WordPartNode {
         WordPartNode::new(
-            WordPart::Literal(if source_backed {
-                LiteralText::source()
-            } else {
-                LiteralText::owned(text.to_string())
-            }),
+            WordPart::Literal(self.literal_text(
+                text.to_string(),
+                span.start,
+                span.end,
+                source_backed,
+            )),
             span,
         )
     }
@@ -2843,6 +2844,8 @@ impl<'a> Parser<'a> {
             let content_span = Self::segment_content_span(segment, span);
             let wrapper_span = Self::segment_wrapper_span(segment, span);
             let source_backed = segment.span().is_some() && !token.flags.is_synthetic();
+            let preserve_escaped_expansion_literals =
+                source_backed && self.source_matches(content_span, text);
 
             return match segment.kind() {
                 LexedWordSegmentKind::SingleQuoted => Some(self.word_with_parts(
@@ -2858,14 +2861,15 @@ impl<'a> Parser<'a> {
                     vec![self.single_quoted_part_from_text(text, content_span, wrapper_span, true)],
                     span,
                 )),
-                LexedWordSegmentKind::Plain if Self::word_text_needs_parse(text) => {
-                    Some(self.decode_word_text_preserving_quotes_if_needed(
+                LexedWordSegmentKind::Plain if Self::word_text_needs_parse(text) => Some(
+                    self.decode_word_text_preserving_quotes_if_needed_with_escape_mode(
                         text,
                         span,
                         content_span.start,
                         source_backed,
-                    ))
-                }
+                        preserve_escaped_expansion_literals,
+                    ),
+                ),
                 LexedWordSegmentKind::DoubleQuoted | LexedWordSegmentKind::DollarDoubleQuoted
                     if Self::word_text_needs_parse(text) =>
                 {
@@ -2933,6 +2937,8 @@ impl<'a> Parser<'a> {
             };
             let wrapper_span = segment.wrapper_span().unwrap_or(content_span);
             let source_backed = segment.span().is_some() && !token.flags.is_synthetic();
+            let preserve_escaped_expansion_literals =
+                source_backed && self.source_matches(content_span, text);
 
             match segment.kind() {
                 LexedWordSegmentKind::SingleQuoted => parts.push(
@@ -2944,11 +2950,12 @@ impl<'a> Parser<'a> {
                 LexedWordSegmentKind::Plain => {
                     if Self::word_text_needs_parse(text) {
                         parts.extend(
-                            self.decode_word_text_preserving_quotes_if_needed(
+                            self.decode_word_text_preserving_quotes_if_needed_with_escape_mode(
                                 text,
                                 content_span,
                                 content_span.start,
                                 source_backed,
+                                preserve_escaped_expansion_literals,
                             )
                             .parts,
                         );
@@ -3759,8 +3766,14 @@ impl<'a> Parser<'a> {
     }
 
     fn materialize_literal_text_source_backing(text: &mut LiteralText, span: Span, source: &str) {
-        if text.is_source_backed() {
-            *text = LiteralText::owned(span.slice(source).to_string());
+        match text {
+            LiteralText::Source => {
+                *text = LiteralText::owned(span.slice(source).to_string());
+            }
+            LiteralText::CookedSource(cooked) => {
+                *text = LiteralText::owned(cooked.to_string());
+            }
+            LiteralText::Owned(_) => {}
         }
     }
 
@@ -4724,21 +4737,35 @@ impl<'a> Parser<'a> {
         current: &mut String,
         current_start: Position,
         end: Position,
+        source_backed: bool,
     ) {
         if !current.is_empty() {
             Self::push_word_part(
                 parts,
-                WordPart::Literal(self.literal_text(std::mem::take(current), current_start, end)),
+                WordPart::Literal(self.literal_text(
+                    std::mem::take(current),
+                    current_start,
+                    end,
+                    source_backed,
+                )),
                 current_start,
                 end,
             );
         }
     }
 
-    fn literal_text(&self, text: String, start: Position, end: Position) -> LiteralText {
+    fn literal_text(
+        &self,
+        text: String,
+        start: Position,
+        end: Position,
+        source_backed: bool,
+    ) -> LiteralText {
         let span = Span::from_positions(start, end);
         if self.source_matches(span, &text) {
             LiteralText::source()
+        } else if source_backed {
+            LiteralText::cooked_source(text)
         } else {
             LiteralText::owned(text)
         }
