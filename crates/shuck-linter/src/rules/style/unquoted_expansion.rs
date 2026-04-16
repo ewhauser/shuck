@@ -222,6 +222,23 @@ $HOME/bin/tool $arg
     }
 
     #[test]
+    fn reports_bourne_transformations_in_command_arguments() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' ${name@U}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${name@U}"]
+        );
+    }
+
+    #[test]
     fn skips_plain_expansion_command_names() {
         let source = "\
 #!/bin/bash
@@ -275,6 +292,26 @@ export PATH=$HOME/bin:$PATH
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$TERMUX_PKG_BUILDER_DIR", "$HOME", "$PATH"]
+        );
+    }
+
+    #[test]
+    fn reports_transformed_decl_assignment_values_in_sh_mode() {
+        let source = "\
+local upper=${TERMUX_ARCH@U}
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/pkg.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedExpansion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${TERMUX_ARCH@U}"]
         );
     }
 

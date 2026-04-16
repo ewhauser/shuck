@@ -982,9 +982,19 @@ fn analyze_parameter_part(
                 false,
                 false,
             ),
-            BourneParameterExpansion::Transformation { .. } => {
-                scalar_part(false, ExpansionHazards::default(), false, false)
-            }
+            BourneParameterExpansion::Transformation { .. } => scalar_part(
+                substitution_can_expand_to_multiple_fields(in_double_quotes, options),
+                ExpansionHazards {
+                    field_splitting: substitution_field_splitting_hazard(in_double_quotes, options),
+                    pathname_matching: substitution_pathname_matching_hazard(
+                        in_double_quotes,
+                        options,
+                    ),
+                    ..ExpansionHazards::default()
+                },
+                false,
+                false,
+            ),
         },
         ParameterExpansionSyntax::Zsh(syntax) => {
             let effective_options = overlay_zsh_modifier_overrides(options, syntax);
@@ -1253,7 +1263,7 @@ mod tests {
         assert_eq!(analyses[4].value_shape, ExpansionValueShape::Unknown);
         assert_eq!(analyses[4].literalness, WordLiteralness::Expanded);
 
-        assert_eq!(analyses[5].value_shape, ExpansionValueShape::Scalar);
+        assert_eq!(analyses[5].value_shape, ExpansionValueShape::MultiField);
         assert_eq!(analyses[5].literalness, WordLiteralness::Expanded);
         assert!(!analyses[5].array_valued);
     }
@@ -1267,6 +1277,16 @@ mod tests {
 
         assert_eq!(analyses[2].value_shape, ExpansionValueShape::Unknown);
         assert!(!analyses[2].can_expand_to_multiple_fields);
+    }
+
+    #[test]
+    fn analyze_word_treats_bourne_transformations_as_split_and_glob_hazards() {
+        let analyses = analyze_argument_words("printf %s ${name@U}\n");
+
+        assert_eq!(analyses[1].value_shape, ExpansionValueShape::MultiField);
+        assert!(analyses[1].hazards.field_splitting);
+        assert!(analyses[1].hazards.pathname_matching);
+        assert!(analyses[1].can_expand_to_multiple_fields);
     }
 
     #[test]
