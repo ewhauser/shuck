@@ -15468,6 +15468,7 @@ printf '%s\n' \"${arr[0]}\" \"${arr[@]}\" \"${arr[*]}\" \"${#arr[0]}\" \"${#arr[
 printf '%s\n' \"${name:2}\" \"${1:1}\" \"${name::2}\" \"${@:1}\" \"${*:1:2}\" \"${arr[@]:1}\" \"${arr[0]:1}\"
 printf '%s\n' \"${name^}\" \"${name^^pattern}\" \"${name,}\" \"${arr[0]^^}\" \"${arr[@],,}\" \"${!name^^}\" \"${name//x/y}\"
 printf '%s\n' \"${name/a/b}\" \"${name//a}\" \"${arr[0]//a/b}\" \"${arr[@]/a/b}\" \"${arr[*]//a}\" \"${!name//a/b}\"
+if [ \"$(dpkg-query -W -f '${db:Status-Status}\\n' package 2>/dev/null)\" != \"installed\" ]; then :; fi
 cat <<EOF
 Expected: '${expected_commit::7}'
 #define LAST_COMMIT_POSITION \"2311 ${GN_COMMIT:0:12}\"

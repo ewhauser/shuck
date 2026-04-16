@@ -215,9 +215,9 @@ impl<'a> SurfaceFragmentSink<'a> {
         if context.collect_open_double_quotes && context.assignment_target.is_none() {
             self.collect_open_double_quote_fragments(word);
         }
-        self.collect_raw_substring_expansions_in_span(word.span);
-        self.collect_raw_replacement_expansions_in_span(word.span);
-        self.collect_raw_case_modifications_in_span(word.span);
+        self.collect_raw_word_substring_expansions_in_span(word.span);
+        self.collect_raw_word_replacement_expansions_in_span(word.span);
+        self.collect_raw_word_case_modifications_in_span(word.span);
         self.collect_word_parts(&word.parts, context);
     }
 
@@ -595,9 +595,9 @@ impl<'a> SurfaceFragmentSink<'a> {
             return;
         }
 
-        self.collect_raw_substring_expansions_in_span(text.span());
-        self.collect_raw_case_modifications_in_span(text.span());
-        self.collect_raw_replacement_expansions_in_span(text.span());
+        self.collect_raw_word_substring_expansions_in_span(text.span());
+        self.collect_raw_word_case_modifications_in_span(text.span());
+        self.collect_raw_word_replacement_expansions_in_span(text.span());
         if let Some(word) = word {
             self.collect_word(word, context.without_open_double_quote_scan());
         } else {
@@ -606,16 +606,13 @@ impl<'a> SurfaceFragmentSink<'a> {
         }
     }
 
-    fn collect_raw_substring_expansions_in_span(&mut self, span: Span) {
+    fn collect_raw_word_substring_expansions_in_span(&mut self, span: Span) {
         let snippet = span.slice(self.source);
         let mut search_start = 0;
 
-        while let Some(relative_start) = snippet[search_start..].find("${") {
-            let start = search_start + relative_start;
-            let Some(relative_end) = snippet[start..].find('}') else {
-                break;
-            };
-            let end = start + relative_end + '}'.len_utf8();
+        while let Some((start, end)) =
+            next_word_parameter_expansion_candidate(snippet, search_start)
+        {
             let candidate = &snippet[start..end];
             if is_plain_substring_expansion_text(candidate) {
                 let span = Span::from_positions(
@@ -628,16 +625,30 @@ impl<'a> SurfaceFragmentSink<'a> {
         }
     }
 
-    fn collect_raw_case_modifications_in_span(&mut self, span: Span) {
+    fn collect_raw_substring_expansions_in_span(&mut self, span: Span) {
         let snippet = span.slice(self.source);
         let mut search_start = 0;
 
-        while let Some(relative_start) = snippet[search_start..].find("${") {
-            let start = search_start + relative_start;
-            let Some(relative_end) = snippet[start..].find('}') else {
-                break;
-            };
-            let end = start + relative_end + '}'.len_utf8();
+        while let Some((start, end)) = next_parameter_expansion_candidate(snippet, search_start) {
+            let candidate = &snippet[start..end];
+            if is_plain_substring_expansion_text(candidate) {
+                let span = Span::from_positions(
+                    span.start.advanced_by(&snippet[..start]),
+                    span.start.advanced_by(&snippet[..end]),
+                );
+                self.record_substring_expansion(span);
+            }
+            search_start = end;
+        }
+    }
+
+    fn collect_raw_word_case_modifications_in_span(&mut self, span: Span) {
+        let snippet = span.slice(self.source);
+        let mut search_start = 0;
+
+        while let Some((start, end)) =
+            next_word_parameter_expansion_candidate(snippet, search_start)
+        {
             let candidate = &snippet[start..end];
             if is_plain_case_modification_text(candidate) {
                 let span = Span::from_positions(
@@ -645,6 +656,42 @@ impl<'a> SurfaceFragmentSink<'a> {
                     span.start.advanced_by(&snippet[..end]),
                 );
                 self.record_case_modification(span);
+            }
+            search_start = end;
+        }
+    }
+
+    fn collect_raw_case_modifications_in_span(&mut self, span: Span) {
+        let snippet = span.slice(self.source);
+        let mut search_start = 0;
+
+        while let Some((start, end)) = next_parameter_expansion_candidate(snippet, search_start) {
+            let candidate = &snippet[start..end];
+            if is_plain_case_modification_text(candidate) {
+                let span = Span::from_positions(
+                    span.start.advanced_by(&snippet[..start]),
+                    span.start.advanced_by(&snippet[..end]),
+                );
+                self.record_case_modification(span);
+            }
+            search_start = end;
+        }
+    }
+
+    fn collect_raw_word_replacement_expansions_in_span(&mut self, span: Span) {
+        let snippet = span.slice(self.source);
+        let mut search_start = 0;
+
+        while let Some((start, end)) =
+            next_word_parameter_expansion_candidate(snippet, search_start)
+        {
+            let candidate = &snippet[start..end];
+            if is_plain_replacement_expansion_text(candidate) {
+                let span = Span::from_positions(
+                    span.start.advanced_by(&snippet[..start]),
+                    span.start.advanced_by(&snippet[..end]),
+                );
+                self.record_replacement_expansion(span);
             }
             search_start = end;
         }
@@ -1095,6 +1142,83 @@ fn next_parameter_expansion_candidate(text: &str, search_start: usize) -> Option
         match bytes[index] {
             b'\\' => {
                 index += 2;
+            }
+            b'$' if bytes[index + 1] == b'{' => {
+                let start = index;
+                index += 2;
+                let mut depth = 1;
+
+                while index < bytes.len() {
+                    match bytes[index] {
+                        b'\\' => {
+                            index += 2;
+                        }
+                        b'$' if index + 1 < bytes.len() && bytes[index + 1] == b'{' => {
+                            depth += 1;
+                            index += 2;
+                        }
+                        b'}' => {
+                            depth -= 1;
+                            index += 1;
+                            if depth == 0 {
+                                return Some((start, index));
+                            }
+                        }
+                        _ => {
+                            index += 1;
+                        }
+                    }
+                }
+
+                return None;
+            }
+            _ => {
+                index += 1;
+            }
+        }
+    }
+
+    None
+}
+
+fn next_word_parameter_expansion_candidate(
+    text: &str,
+    search_start: usize,
+) -> Option<(usize, usize)> {
+    let bytes = text.as_bytes();
+    let mut index = search_start;
+
+    while index + 1 < bytes.len() {
+        match bytes[index] {
+            b'\\' => {
+                index += 2;
+            }
+            b'$' if bytes[index + 1] == b'\'' => {
+                index += 2;
+                while index < bytes.len() {
+                    match bytes[index] {
+                        b'\\' => {
+                            index += 2;
+                        }
+                        b'\'' => {
+                            index += 1;
+                            break;
+                        }
+                        _ => {
+                            index += 1;
+                        }
+                    }
+                }
+            }
+            b'\'' => {
+                index += 1;
+                while index < bytes.len() {
+                    if bytes[index] == b'\'' {
+                        index += 1;
+                        break;
+                    }
+                    index += 1;
+                }
             }
             b'$' if bytes[index + 1] == b'{' => {
                 let start = index;
