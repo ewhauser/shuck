@@ -5793,8 +5793,9 @@ fn build_nonpersistent_assignment_spans(
 ) -> NonpersistentAssignmentSpans {
     let mut candidate_bindings_by_name: FxHashMap<Name, Vec<CandidateSubshellAssignment>> =
         FxHashMap::default();
-    let mut persistent_reset_offsets_by_name: FxHashMap<Name, Vec<PersistentReset>> =
-        FxHashMap::default();
+    let mut persistent_reset_offsets_by_name: FxHashMap<Name, Vec<usize>> = FxHashMap::default();
+    let mut command_id_query_offsets = Vec::new();
+    let mut relevant_references = Vec::new();
 
     for binding in semantic.bindings() {
         if !is_reportable_subshell_assignment(binding.kind, binding.attributes) {
@@ -5826,19 +5827,13 @@ fn build_nonpersistent_assignment_spans(
         if is_within_any_nonpersistent_scope(semantic, binding.span.start.offset) {
             continue;
         }
-        let command_span =
-            innermost_command_span_containing_offset(commands, binding.span.start.offset);
         persistent_reset_offsets_by_name
             .entry(binding.name.clone())
             .or_default()
-            .push(PersistentReset {
-                offset: binding.span.start.offset,
-                command_span,
-            });
+            .push(binding.span.start.offset);
+        command_id_query_offsets.push(binding.span.start.offset);
     }
 
-    let mut later_use_spans = Vec::new();
-    let mut side_effect_spans = Vec::new();
     for reference in semantic.references() {
         if matches!(
             reference.kind,
@@ -5846,7 +5841,35 @@ fn build_nonpersistent_assignment_spans(
         ) {
             continue;
         }
+        if candidate_bindings_by_name.contains_key(&reference.name) {
+            command_id_query_offsets.push(reference.span.start.offset);
+            relevant_references.push(reference);
+        }
+    }
 
+    let innermost_command_ids_by_offset =
+        build_innermost_command_ids_by_offset(commands, command_id_query_offsets);
+    let persistent_reset_offsets_by_name: FxHashMap<Name, Vec<PersistentReset>> =
+        persistent_reset_offsets_by_name
+            .into_iter()
+            .map(|(name, offsets)| {
+                let resets = offsets
+                    .into_iter()
+                    .map(|offset| PersistentReset {
+                        offset,
+                        command_id: precomputed_command_id_for_offset(
+                            &innermost_command_ids_by_offset,
+                            offset,
+                        ),
+                    })
+                    .collect();
+                (name, resets)
+            })
+            .collect();
+
+    let mut later_use_spans = Vec::new();
+    let mut side_effect_spans = Vec::new();
+    for reference in relevant_references {
         let Some(candidate_ids) = candidate_bindings_by_name.get(&reference.name) else {
             continue;
         };
@@ -5855,8 +5878,10 @@ fn build_nonpersistent_assignment_spans(
             .get(&reference.name)
             .map(Vec::as_slice)
             .unwrap_or(&[]);
-        let event_command_span =
-            innermost_command_span_containing_offset(commands, reference.span.start.offset);
+        let event_command_id = precomputed_command_id_for_offset(
+            &innermost_command_ids_by_offset,
+            reference.span.start.offset,
+        );
         let resolved = semantic.resolved_binding(reference.id);
         let mut matched_nonpipeline_candidate = false;
         for candidate in candidate_ids {
@@ -5865,7 +5890,7 @@ fn build_nonpersistent_assignment_spans(
                     reset_offsets,
                     candidate.subshell_end,
                     reference.span.start.offset,
-                    event_command_span,
+                    event_command_id,
                 )
                 || !resolved.is_none_or(|resolved| {
                     resolved.id != candidate.binding_id
@@ -6013,7 +6038,7 @@ struct NonpersistentAssignmentSpans {
 #[derive(Debug, Clone, Copy)]
 struct PersistentReset {
     offset: usize,
-    command_span: Option<Span>,
+    command_id: Option<CommandId>,
 }
 
 fn innermost_nonpersistent_scope_span(
@@ -6074,24 +6099,95 @@ fn has_intervening_persistent_reset(
     resets: &[PersistentReset],
     candidate_end: usize,
     event_offset: usize,
-    event_command_span: Option<Span>,
+    event_command_id: Option<CommandId>,
 ) -> bool {
     resets.iter().any(|reset| {
         reset.offset > candidate_end
             && reset.offset < event_offset
-            && event_command_span.is_none_or(|event_span| reset.command_span != Some(event_span))
+            && event_command_id.is_none_or(|event_id| reset.command_id != Some(event_id))
     })
 }
 
-fn innermost_command_span_containing_offset(
+fn build_innermost_command_ids_by_offset(
     commands: &[CommandFact<'_>],
-    offset: usize,
-) -> Option<Span> {
-    commands
+    mut offsets: Vec<usize>,
+) -> FxHashMap<usize, Option<CommandId>> {
+    if offsets.is_empty() {
+        return FxHashMap::default();
+    }
+
+    offsets.sort_unstable();
+    offsets.dedup();
+
+    let mut command_spans = commands
         .iter()
-        .map(CommandFact::span)
-        .filter(|span| span.start.offset <= offset && offset <= span.end.offset)
-        .min_by_key(|span| span.end.offset - span.start.offset)
+        .map(|command| (command.span(), command.id()))
+        .collect::<Vec<_>>();
+    if command_spans
+        .windows(2)
+        .any(|window| compare_command_offset_entries(window[0], window[1]).is_gt())
+    {
+        command_spans.sort_unstable_by(|left, right| compare_command_offset_entries(*left, *right));
+    }
+
+    let mut command_ids_by_offset = FxHashMap::default();
+    let mut active_commands = Vec::new();
+    let mut next_command = 0;
+    for offset in offsets {
+        pop_finished_commands(&mut active_commands, offset);
+
+        while let Some((span, id)) = command_spans.get(next_command).copied() {
+            if span.start.offset > offset {
+                break;
+            }
+
+            pop_finished_commands(&mut active_commands, span.start.offset);
+            active_commands.push(OpenCommand {
+                end_offset: span.end.offset,
+                id,
+            });
+            next_command += 1;
+        }
+
+        pop_finished_commands(&mut active_commands, offset);
+        command_ids_by_offset.insert(offset, active_commands.last().map(|command| command.id));
+    }
+
+    command_ids_by_offset
+}
+
+fn compare_command_offset_entries(
+    (left_span, left_id): (Span, CommandId),
+    (right_span, right_id): (Span, CommandId),
+) -> std::cmp::Ordering {
+    left_span
+        .start
+        .offset
+        .cmp(&right_span.start.offset)
+        .then_with(|| right_span.end.offset.cmp(&left_span.end.offset))
+        .then_with(|| right_id.index().cmp(&left_id.index()))
+}
+
+fn precomputed_command_id_for_offset(
+    command_ids_by_offset: &FxHashMap<usize, Option<CommandId>>,
+    offset: usize,
+) -> Option<CommandId> {
+    command_ids_by_offset.get(&offset).copied().unwrap_or(None)
+}
+
+#[derive(Debug, Clone, Copy)]
+struct OpenCommand {
+    end_offset: usize,
+    id: CommandId,
+}
+
+fn pop_finished_commands(active_commands: &mut Vec<OpenCommand>, offset: usize) {
+    while active_commands
+        .last()
+        .is_some_and(|command| command.end_offset < offset)
+    {
+        active_commands.pop();
+    }
 }
 
 fn collect_dollar_question_after_command_spans_in_seq(
@@ -12927,6 +13023,66 @@ o() {
         assert_eq!(
             facts.command_id_for_command(&output.file.body[0].command),
             Some(echo_id)
+        );
+    }
+
+    #[test]
+    fn precomputes_innermost_command_ids_for_nested_offsets() {
+        let source = "#!/bin/bash\necho \"$(printf '%s' \"$(uname)\")\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let outer_id = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_or_literal_name() == Some("echo"))
+            .map(|fact| fact.id())
+            .expect("expected outer echo command");
+        let middle_id = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_or_literal_name() == Some("printf"))
+            .map(|fact| fact.id())
+            .expect("expected nested printf command");
+        let inner_id = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_or_literal_name() == Some("uname"))
+            .map(|fact| fact.id())
+            .expect("expected nested uname command");
+
+        let command_ids_by_offset = super::build_innermost_command_ids_by_offset(
+            facts.commands(),
+            vec![
+                source.find("echo").expect("expected echo offset"),
+                source.find("printf").expect("expected printf offset"),
+                source.find("uname").expect("expected uname offset"),
+            ],
+        );
+
+        assert_eq!(
+            super::precomputed_command_id_for_offset(
+                &command_ids_by_offset,
+                source.find("echo").expect("expected echo offset"),
+            ),
+            Some(outer_id)
+        );
+        assert_eq!(
+            super::precomputed_command_id_for_offset(
+                &command_ids_by_offset,
+                source.find("printf").expect("expected printf offset"),
+            ),
+            Some(middle_id)
+        );
+        assert_eq!(
+            super::precomputed_command_id_for_offset(
+                &command_ids_by_offset,
+                source.find("uname").expect("expected uname offset"),
+            ),
+            Some(inner_id)
         );
     }
 
