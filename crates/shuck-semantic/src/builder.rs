@@ -9,7 +9,7 @@ use shuck_ast::{
     WordPart, WordPartNode, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment,
 };
 use shuck_indexer::Indexer;
-use shuck_parser::{ShellProfile, ZshEmulationMode, parser::Parser};
+use shuck_parser::{ShellProfile, ZshEmulationMode};
 
 use crate::binding::{Binding, BindingAttributes, BindingKind};
 use crate::call_graph::{CallGraph, CallSite, OverwrittenFunction};
@@ -1834,15 +1834,14 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
-        if let Some(word) = word {
-            self.visit_word_into(word, kind, flow, nested_regions);
-            return;
-        }
-        let Some(text) = text else {
+        let Some(word) = word else {
+            debug_assert!(
+                text.is_none(),
+                "parser-backed fragment text should always carry a word AST"
+            );
             return;
         };
-        let word = Parser::parse_word_fragment(self.source, text.slice(self.source), text.span());
-        self.visit_word_into(&word, kind, flow, nested_regions);
+        self.visit_word_into(word, kind, flow, nested_regions);
     }
 
     fn visit_parameter_operator_operand(

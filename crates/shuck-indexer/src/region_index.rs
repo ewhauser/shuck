@@ -4,8 +4,6 @@ use shuck_ast::{
     HeredocBodyPartNode, Pattern, PatternPart, PatternPartNode, Redirect, RedirectKind, Stmt,
     StmtSeq, Subscript, TextRange, TextSize, VarRef, Word, WordPart, WordPartNode, ZshGlobSegment,
 };
-use shuck_parser::parser::Parser;
-
 /// A syntactic region that affects lint rule behavior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RegionKind {
@@ -100,7 +98,7 @@ impl RegionIndex {
 }
 
 struct RegionCollector<'a> {
-    source: &'a str,
+    _source: &'a str,
     single_quoted: Vec<TextRange>,
     double_quoted: Vec<TextRange>,
     heredocs: Vec<TextRange>,
@@ -113,7 +111,7 @@ struct RegionCollector<'a> {
 impl<'a> RegionCollector<'a> {
     fn new(source: &'a str) -> Self {
         Self {
-            source,
+            _source: source,
             single_quoted: Vec::new(),
             double_quoted: Vec::new(),
             heredocs: Vec::new(),
@@ -567,9 +565,10 @@ impl<'a> RegionCollector<'a> {
             return;
         }
 
-        let text = subscript.syntax_source_text();
-        let word = Parser::parse_word_fragment(self.source, text.slice(self.source), text.span());
-        self.visit_word(&word);
+        debug_assert!(
+            subscript.word_ast().is_some(),
+            "ordinary subscripts should always carry a word AST"
+        );
     }
 
     fn visit_arithmetic_shell_words(&mut self, expression: &shuck_ast::ArithmeticExprNode) {
