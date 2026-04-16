@@ -12588,12 +12588,21 @@ fn hash_starts_comment(text: &str, index: usize) -> bool {
         return false;
     }
 
-    let next = text[index + '#'.len_utf8()..].chars().next();
+    let next = &text[index + '#'.len_utf8()..];
     text[..index]
         .chars()
         .next_back()
         .is_none_or(|prev| match prev {
-            '(' => next.is_none_or(char::is_whitespace),
+            '(' => {
+                let whitespace_index = next.find(char::is_whitespace);
+                let close_index = next.find(')');
+
+                match (whitespace_index, close_index) {
+                    (Some(whitespace), Some(close)) => whitespace < close,
+                    (Some(_), None) | (None, None) => true,
+                    (None, Some(_)) => false,
+                }
+            }
             _ => prev.is_whitespace() || matches!(prev, ';' | '|' | '&' | '<' | '>' | ')'),
         })
 }
@@ -13693,6 +13702,26 @@ complex[$((i+=1))]+=x
     }
 
     #[test]
+    fn ignores_commas_inside_compact_grouped_command_substitution_comments() {
+        let source = "#!/bin/bash\na=(\"$( (#comment with )\nprintf %s 1,2\n) )\")\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn ignores_commas_inside_command_substitution_case_patterns() {
         let source = "#!/bin/bash\na=(\"$(case $kind in\nalpha) printf %s 1,2 ;;\nesac)\")\n";
         let output = Parser::new(source).parse().unwrap();
@@ -13878,6 +13907,14 @@ complex[$((i+=1))]+=x
         let index = source.find('#').expect("expected hash");
 
         assert!(!super::hash_starts_comment(source, index));
+    }
+
+    #[test]
+    fn hash_starts_comment_allows_grouped_comments_without_space_after_hash() {
+        let source = "(#comment with )";
+        let index = source.find('#').expect("expected hash");
+
+        assert!(super::hash_starts_comment(source, index));
     }
 
     #[test]

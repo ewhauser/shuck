@@ -93,6 +93,9 @@ c=($( (case $kind in
 a) printf %s 5,6 ;;
 esac
 ) ))
+d=(\"$( (#comment with )
+printf %s 7,8
+) )\")
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CommaArrayElements));
 

@@ -3285,12 +3285,21 @@ fn hash_starts_comment(input: &str, index: usize) -> bool {
         return false;
     }
 
-    let next = input[index + '#'.len_utf8()..].chars().next();
+    let next = &input[index + '#'.len_utf8()..];
     input[..index]
         .chars()
         .next_back()
         .is_none_or(|prev| match prev {
-            '(' => next.is_none_or(char::is_whitespace),
+            '(' => {
+                let whitespace_index = next.find(char::is_whitespace);
+                let close_index = next.find(')');
+
+                match (whitespace_index, close_index) {
+                    (Some(whitespace), Some(close)) => whitespace < close,
+                    (Some(_), None) | (None, None) => true,
+                    (None, Some(_)) => false,
+                }
+            }
             _ => prev.is_whitespace() || matches!(prev, ';' | '|' | '&' | '<' | '>' | ')'),
         })
 }
@@ -3862,6 +3871,14 @@ mod tests {
     }
 
     #[test]
+    fn test_hash_starts_comment_allows_grouped_comments_without_space_after_hash() {
+        let source = "(#comment with )";
+        let index = source.find('#').expect("expected hash");
+
+        assert!(hash_starts_comment(source, index));
+    }
+
+    #[test]
     fn test_hash_starts_comment_ignores_hash_inside_unclosed_double_parens() {
         let source = "(( #c < 256 ))";
         let index = source.find('#').expect("expected hash");
@@ -3880,6 +3897,17 @@ mod tests {
     #[test]
     fn test_scan_command_substitution_body_len_handles_quoted_double_parens_before_comments() {
         let source = "printf '((' # comment with )\nprintf %s 1,2\n)\"";
+
+        let consumed = scan_command_substitution_body_len(source).expect("expected match");
+        let body = &source[..consumed];
+
+        assert!(body.contains("printf %s 1,2"));
+        assert!(body.ends_with(')'));
+    }
+
+    #[test]
+    fn test_scan_command_substitution_body_len_handles_grouped_comments_without_space_after_hash() {
+        let source = " (#comment with )\nprintf %s 1,2\n) )\"";
 
         let consumed = scan_command_substitution_body_len(source).expect("expected match");
         let body = &source[..consumed];
