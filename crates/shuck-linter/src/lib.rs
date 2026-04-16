@@ -79,7 +79,7 @@ pub use violation::Violation;
 use rustc_hash::FxHashSet;
 use shuck_ast::{File, TextSize};
 use shuck_indexer::Indexer;
-use shuck_parser::parser::ParseResult;
+use shuck_parser::parser::{ParseResult, Parser};
 use shuck_parser::{ShellDialect as ParseShellDialect, ShellProfile};
 use shuck_semantic::{
     SemanticBuildOptions, SemanticModel, SourcePathResolver, TraversalObserver,
@@ -143,11 +143,7 @@ pub fn analyze_file_at_path_with_resolver(
     source_path: Option<&Path>,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> AnalysisResult {
-    let shell = if settings.shell == ShellDialect::Unknown {
-        ShellDialect::infer(source, source_path)
-    } else {
-        settings.shell
-    };
+    let shell = resolve_shell(settings, source, source_path);
     let file_context = classify_file_context(source, source_path, shell);
     let file_entry_contract =
         ambient_contracts::file_entry_contract(source, source_path, shell, &file_context);
@@ -202,6 +198,18 @@ pub fn analyze_file_at_path_with_resolver(
     }
 }
 
+fn resolve_shell(
+    settings: &LinterSettings,
+    source: &str,
+    source_path: Option<&Path>,
+) -> ShellDialect {
+    if settings.shell == ShellDialect::Unknown {
+        ShellDialect::infer(source, source_path)
+    } else {
+        settings.shell
+    }
+}
+
 fn inferred_shell_profile(shell: ShellDialect) -> ShellProfile {
     let dialect = match shell {
         ShellDialect::Sh | ShellDialect::Dash | ShellDialect::Ksh => ParseShellDialect::Posix,
@@ -210,6 +218,10 @@ fn inferred_shell_profile(shell: ShellDialect) -> ShellProfile {
         ShellDialect::Unknown | ShellDialect::Bash => ParseShellDialect::Bash,
     };
     ShellProfile::native(dialect)
+}
+
+fn parse_for_lint(source: &str, shell: ShellDialect) -> ParseResult {
+    Parser::with_profile(source, inferred_shell_profile(shell)).parse()
 }
 
 pub fn lint_file(
@@ -250,11 +262,8 @@ pub fn lint_file_at_path_with_resolver(
     source_path: Option<&Path>,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> Vec<Diagnostic> {
-    let shell = if settings.shell == ShellDialect::Unknown {
-        ShellDialect::infer(source, source_path)
-    } else {
-        settings.shell
-    };
+    let shell = resolve_shell(settings, source, source_path);
+    let parse_result = parse_for_lint(source, shell);
 
     let mut diagnostics = analyze_file_at_path_with_resolver(
         file,
@@ -268,9 +277,9 @@ pub fn lint_file_at_path_with_resolver(
     .diagnostics;
 
     diagnostics.extend(parse_diagnostics::collect_parse_rule_diagnostics(
-        file,
+        &parse_result.file,
         source,
-        None,
+        Some(&parse_result),
         &settings.rules,
         shell,
     ));
@@ -301,11 +310,7 @@ pub fn lint_file_at_path_with_resolver_and_parse_result(
     source_path: Option<&Path>,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> Vec<Diagnostic> {
-    let shell = if settings.shell == ShellDialect::Unknown {
-        ShellDialect::infer(source, source_path)
-    } else {
-        settings.shell
-    };
+    let shell = resolve_shell(settings, source, source_path);
 
     let mut diagnostics = analyze_file_at_path_with_resolver(
         &parse_result.file,
@@ -435,6 +440,24 @@ mod tests {
     fn default_settings_run_without_emitting_noop_diagnostics() {
         let diagnostics = lint("#!/bin/bash\necho ok\n", &LinterSettings::default());
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn legacy_lint_entrypoints_preserve_parse_rule_diagnostics() {
+        let source = "#!/bin/sh\n{ :; } always { :; }\n";
+        let parse_result = Parser::new(source).parse();
+        let indexer = Indexer::new(source, &parse_result);
+        let diagnostics = lint_file(
+            &parse_result.file,
+            source,
+            &indexer,
+            &LinterSettings::for_rule(Rule::ZshAlwaysBlock),
+            None,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::ZshAlwaysBlock);
+        assert_eq!(diagnostics[0].span.slice(source), "always");
     }
 
     #[test]
