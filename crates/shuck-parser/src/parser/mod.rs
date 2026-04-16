@@ -4354,10 +4354,14 @@ impl<'a> Parser<'a> {
                 BourneParameterExpansion::Indirect {
                     reference,
                     operand,
+                    operator,
                     operand_word_ast,
                     ..
                 } => {
                     Self::rebase_var_ref(reference, base);
+                    if let Some(operator) = operator {
+                        Self::rebase_parameter_operator(operator, base);
+                    }
                     if let Some(operand) = operand {
                         operand.rebased(base);
                     }
