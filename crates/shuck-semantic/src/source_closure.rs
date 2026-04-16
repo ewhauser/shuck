@@ -20,7 +20,7 @@ use crate::{
 #[derive(Debug, Clone)]
 struct SourceClosureContracts {
     synthetic_reads: Vec<SyntheticRead>,
-    imported_bindings: Vec<(ScopeId, Span, ProvidedBinding)>,
+    imported_bindings: Vec<ImportedBindingContractSite>,
     imported_functions: Vec<ImportedFunctionContractSite>,
     source_ref_resolutions: Vec<SourceRefResolution>,
     source_ref_explicitness: Vec<bool>,
@@ -28,7 +28,7 @@ struct SourceClosureContracts {
 
 type SourceClosureContractResult = (
     Vec<SyntheticRead>,
-    Vec<(ScopeId, Span, ProvidedBinding)>,
+    Vec<ImportedBindingContractSite>,
     Vec<SourceRefResolution>,
     Vec<bool>,
 );
@@ -37,6 +37,14 @@ type SourceClosureContractResult = (
 struct SourceClosureLookupContext<'a> {
     source_path_resolver: Option<&'a (dyn SourcePathResolver + Send + Sync)>,
     analyzed_paths: Option<&'a FxHashSet<PathBuf>>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ImportedBindingContractSite {
+    pub(crate) scope: ScopeId,
+    pub(crate) span: Span,
+    pub(crate) binding: ProvidedBinding,
+    pub(crate) origin_paths: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -109,7 +117,12 @@ fn collect_source_closure_contracts_with_cache(
         source_ref_resolutions.push(classify_source_ref_resolution(&source_ref.kind, resolved));
         source_ref_explicitness.push(explicit);
         for provided in contract.provided_bindings.iter().cloned() {
-            imported_bindings.push((scope, source_ref.span, provided));
+            imported_bindings.push(ImportedBindingContractSite {
+                scope,
+                span: source_ref.span,
+                origin_paths: binding_origin_paths(&contract, &provided),
+                binding: provided,
+            });
         }
         imported_functions.extend(imported_function_sites_for_contract(
             scope,
@@ -141,11 +154,12 @@ fn collect_source_closure_contracts_with_cache(
                 });
             }
             for binding in &function_site.contract.provided_bindings {
-                imported_bindings.push((
-                    call.scope,
-                    call.span,
-                    binding_for_imported_function_call(binding, function_site.certainty),
-                ));
+                imported_bindings.push(ImportedBindingContractSite {
+                    scope: call.scope,
+                    span: call.span,
+                    binding: binding_for_imported_function_call(binding, function_site.certainty),
+                    origin_paths: Vec::new(),
+                });
             }
         }
 
@@ -236,20 +250,42 @@ fn dedup_synthetic_reads(reads: Vec<SyntheticRead>) -> Vec<SyntheticRead> {
 }
 
 fn dedup_imported_bindings(
-    bindings: Vec<(ScopeId, Span, ProvidedBinding)>,
-) -> Vec<(ScopeId, Span, ProvidedBinding)> {
+    bindings: Vec<ImportedBindingContractSite>,
+) -> Vec<ImportedBindingContractSite> {
     let mut merged = FxHashMap::default();
-    for (scope, span, binding) in bindings {
+    for site in bindings {
+        let ImportedBindingContractSite {
+            scope,
+            span,
+            binding,
+            origin_paths,
+        } = site;
         let key = (scope, span.start.offset, binding.name.clone(), binding.kind);
-        let entry = merged.entry(key).or_insert((span, binding.certainty));
+        let entry = merged
+            .entry(key)
+            .or_insert((span, binding.certainty, Vec::<PathBuf>::new()));
         entry.1 = entry.1.merge_same_site(binding.certainty);
+        merge_origin_paths(&mut entry.2, &origin_paths);
     }
 
     let mut deduped = Vec::new();
-    for ((scope, _, name, kind), (span, certainty)) in merged {
-        deduped.push((scope, span, ProvidedBinding::new(name, kind, certainty)));
+    for ((scope, _, name, kind), (span, certainty, origin_paths)) in merged {
+        deduped.push(ImportedBindingContractSite {
+            scope,
+            span,
+            binding: ProvidedBinding::new(name, kind, certainty),
+            origin_paths,
+        });
     }
     deduped
+}
+
+fn merge_origin_paths(dest: &mut Vec<PathBuf>, origins: &[PathBuf]) {
+    for origin in origins {
+        if !dest.contains(origin) {
+            dest.push(origin.clone());
+        }
+    }
 }
 
 fn imported_function_sites_for_contract(
@@ -277,6 +313,19 @@ fn function_contract_certainty(contract: &FileContract, name: &Name) -> Contract
         .find(|binding| binding.kind == ProvidedBindingKind::Function && binding.name == *name)
         .map(|binding| binding.certainty)
         .unwrap_or(ContractCertainty::Definite)
+}
+
+fn binding_origin_paths(contract: &FileContract, binding: &ProvidedBinding) -> Vec<PathBuf> {
+    if binding.kind != ProvidedBindingKind::Function {
+        return Vec::new();
+    }
+
+    contract
+        .provided_functions
+        .iter()
+        .find(|function| function.name == binding.name)
+        .map(|function| function.origin_paths.clone())
+        .unwrap_or_default()
 }
 
 fn binding_for_imported_function_call(
@@ -1121,6 +1170,7 @@ fn summarize_helper_uncached(
         contract.add_provided_binding(binding.clone());
     }
     for function in build_scope_function_contracts(
+        path,
         &semantic,
         &analysis,
         ScopeId(0),
@@ -1159,6 +1209,7 @@ fn summarize_scope_body_contract(
 }
 
 fn build_scope_function_contracts(
+    origin_path: &Path,
     semantic: &SemanticModel,
     analysis: &crate::SemanticAnalysis<'_>,
     scope: ScopeId,
@@ -1193,6 +1244,7 @@ fn build_scope_function_contracts(
             .clone();
         for name in names {
             let mut function_contract = FunctionContract::new(name.clone());
+            function_contract.add_origin_path(origin_path.to_path_buf());
             for read in &body_contract.required_reads {
                 function_contract.add_required_read(read.clone());
             }

@@ -48,6 +48,7 @@ pub struct FunctionContract {
     pub name: Name,
     pub required_reads: Vec<Name>,
     pub provided_bindings: Vec<ProvidedBinding>,
+    pub origin_paths: Vec<PathBuf>,
 }
 
 impl FunctionContract {
@@ -56,6 +57,7 @@ impl FunctionContract {
             name,
             required_reads: Vec::new(),
             provided_bindings: Vec::new(),
+            origin_paths: Vec::new(),
         }
     }
 
@@ -80,6 +82,12 @@ impl FunctionContract {
         }
     }
 
+    pub fn add_origin_path(&mut self, path: PathBuf) {
+        if !self.origin_paths.contains(&path) {
+            self.origin_paths.push(path);
+        }
+    }
+
     pub(crate) fn merge_candidate_contracts(contracts: &[Self]) -> Option<Self> {
         let first = contracts.first()?;
         let mut merged = Self::new(first.name.clone());
@@ -97,6 +105,9 @@ impl FunctionContract {
                     .or_insert((0, true));
                 entry.0 += 1;
                 entry.1 &= binding.certainty == ContractCertainty::Definite;
+            }
+            for path in &contract.origin_paths {
+                merged.add_origin_path(path.clone());
             }
         }
 
@@ -151,6 +162,9 @@ impl FileContract {
                 }
                 for binding in &function.provided_bindings {
                     existing.add_provided_binding(binding.clone());
+                }
+                for path in &function.origin_paths {
+                    existing.add_origin_path(path.clone());
                 }
                 merged = true;
                 break;
