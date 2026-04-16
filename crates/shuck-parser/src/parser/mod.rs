@@ -2842,6 +2842,8 @@ impl<'a> Parser<'a> {
             let content_span = Self::segment_content_span(segment, span);
             let wrapper_span = Self::segment_wrapper_span(segment, span);
             let source_backed = segment.span().is_some() && !token.flags.is_synthetic();
+            let preserve_escaped_expansion_literals =
+                source_backed && !token.flags.has_cooked_text();
 
             return match segment.kind() {
                 LexedWordSegmentKind::SingleQuoted => Some(self.word_with_parts(
@@ -2857,14 +2859,15 @@ impl<'a> Parser<'a> {
                     vec![self.single_quoted_part_from_text(text, content_span, wrapper_span, true)],
                     span,
                 )),
-                LexedWordSegmentKind::Plain if Self::word_text_needs_parse(text) => {
-                    Some(self.decode_word_text_preserving_quotes_if_needed(
+                LexedWordSegmentKind::Plain if Self::word_text_needs_parse(text) => Some(
+                    self.decode_word_text_preserving_quotes_if_needed_with_escape_mode(
                         text,
                         span,
                         content_span.start,
                         source_backed,
-                    ))
-                }
+                        preserve_escaped_expansion_literals,
+                    ),
+                ),
                 LexedWordSegmentKind::DoubleQuoted | LexedWordSegmentKind::DollarDoubleQuoted
                     if Self::word_text_needs_parse(text) =>
                 {

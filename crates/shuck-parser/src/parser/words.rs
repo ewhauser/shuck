@@ -586,6 +586,23 @@ impl<'a> Parser<'a> {
         base: Position,
         source_backed: bool,
     ) -> Word {
+        self.decode_word_text_preserving_quotes_if_needed_with_escape_mode(
+            s,
+            span,
+            base,
+            source_backed,
+            source_backed,
+        )
+    }
+
+    pub(super) fn decode_word_text_preserving_quotes_if_needed_with_escape_mode(
+        &mut self,
+        s: &str,
+        span: Span,
+        base: Position,
+        source_backed: bool,
+        preserve_escaped_expansion_literals: bool,
+    ) -> Word {
         if !Self::source_text_needs_quote_preserving_decode(s)
             && let Some(word) = self.maybe_parse_zsh_qualified_glob_word(s, span, source_backed)
         {
@@ -593,9 +610,21 @@ impl<'a> Parser<'a> {
         }
 
         if Self::source_text_needs_quote_preserving_decode(s) {
-            self.decode_fragment_word_text(s, span, base, source_backed)
+            self.decode_fragment_word_text_with_escape_mode(
+                s,
+                span,
+                base,
+                source_backed,
+                preserve_escaped_expansion_literals,
+            )
         } else {
-            self.decode_word_text(s, span, base, source_backed)
+            self.decode_word_text_with_escape_mode(
+                s,
+                span,
+                base,
+                source_backed,
+                preserve_escaped_expansion_literals,
+            )
         }
     }
 
@@ -2823,11 +2852,12 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub(super) fn decode_word_parts_into(
+    fn decode_word_parts_into_with_escape_mode(
         &mut self,
         s: &str,
         base: Position,
         source_backed: bool,
+        preserve_escaped_expansion_literals: bool,
         parts: &mut Vec<WordPartNode>,
     ) {
         self.decode_word_parts_into_with_quote_fragments(
@@ -2836,7 +2866,7 @@ impl<'a> Parser<'a> {
             source_backed,
             DecodeWordPartsOptions {
                 parse_dollar_quotes: true,
-                preserve_escaped_expansion_literals: source_backed,
+                preserve_escaped_expansion_literals,
                 ..DecodeWordPartsOptions::default()
             },
             parts,
@@ -4786,8 +4816,25 @@ impl<'a> Parser<'a> {
         base: Position,
         source_backed: bool,
     ) -> Word {
+        self.decode_word_text_with_escape_mode(s, span, base, source_backed, source_backed)
+    }
+
+    fn decode_word_text_with_escape_mode(
+        &mut self,
+        s: &str,
+        span: Span,
+        base: Position,
+        source_backed: bool,
+        preserve_escaped_expansion_literals: bool,
+    ) -> Word {
         let mut parts = Vec::new();
-        self.decode_word_parts_into(s, base, source_backed, &mut parts);
+        self.decode_word_parts_into_with_escape_mode(
+            s,
+            base,
+            source_backed,
+            preserve_escaped_expansion_literals,
+            &mut parts,
+        );
         self.word_with_parts(parts, span)
     }
 
@@ -4817,6 +4864,17 @@ impl<'a> Parser<'a> {
         base: Position,
         source_backed: bool,
     ) -> Word {
+        self.decode_fragment_word_text_with_escape_mode(s, span, base, source_backed, source_backed)
+    }
+
+    fn decode_fragment_word_text_with_escape_mode(
+        &mut self,
+        s: &str,
+        span: Span,
+        base: Position,
+        source_backed: bool,
+        preserve_escaped_expansion_literals: bool,
+    ) -> Word {
         let mut parts = Vec::new();
         self.decode_word_parts_into_with_quote_fragments(
             s,
@@ -4825,7 +4883,7 @@ impl<'a> Parser<'a> {
             DecodeWordPartsOptions {
                 preserve_quote_fragments: true,
                 parse_dollar_quotes: true,
-                preserve_escaped_expansion_literals: source_backed,
+                preserve_escaped_expansion_literals,
                 ..DecodeWordPartsOptions::default()
             },
             &mut parts,

@@ -172,6 +172,31 @@ fn test_parse_escaped_dollar_expansions_stay_literal_in_script_words() {
 }
 
 #[test]
+fn test_parse_escaped_backslash_then_variable_keeps_variable_live() {
+    let input = "echo \\\\$HOME\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let word = &command.args[0];
+    assert!(matches!(
+        word.parts.as_slice(),
+        [
+            WordPartNode {
+                kind: WordPart::Literal(text),
+                ..
+            },
+            WordPartNode {
+                kind: WordPart::Variable(name),
+                ..
+            }
+        ] if text.as_str(input, word.parts[0].span) == "\\"
+            && name.as_str() == "HOME"
+    ));
+}
+
+#[test]
 fn test_parse_escaped_command_substitution_stays_literal_in_double_quotes() {
     let input = r#"echo "\$(pwd)""#;
     let script = Parser::new(input).parse().unwrap().file;
