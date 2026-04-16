@@ -155,8 +155,10 @@ fn is_project_closure_imported_override(
     end_offset: usize,
 ) -> bool {
     let first = checker.semantic().binding(overwritten.first);
+    let second = checker.semantic().binding(overwritten.second);
 
     matches!(first.kind, BindingKind::Imported)
+        && matches!(second.kind, BindingKind::FunctionDefinition)
         && !has_same_scope_call_site_between(checker, overwritten, start_offset, end_offset)
 }
 
@@ -485,6 +487,45 @@ helper() { printf '%s\\n' local; }
             source,
             &LinterSettings::for_rule(Rule::OverwrittenFunction)
                 .with_analyzed_paths([main.clone(), helper.clone()]),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::OverwrittenFunction);
+    }
+
+    #[test]
+    fn imported_helper_collisions_still_report() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("libexec/bats-gather-tests");
+        let first_helper = temp.path().join("libexec/first.bash");
+        let second_helper = temp.path().join("libexec/second.bash");
+        let source = "\
+#!/usr/bin/env bash
+source ./first.bash
+source ./second.bash
+";
+
+        fs::create_dir_all(main.parent().unwrap()).unwrap();
+        fs::write(&main, source).unwrap();
+        fs::write(
+            &first_helper,
+            "bats_test_function() { printf '%s\\n' first; }\n",
+        )
+        .unwrap();
+        fs::write(
+            &second_helper,
+            "bats_test_function() { printf '%s\\n' second; }\n",
+        )
+        .unwrap();
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction).with_analyzed_paths([
+                main.clone(),
+                first_helper.clone(),
+                second_helper.clone(),
+            ]),
         );
 
         assert_eq!(diagnostics.len(), 1);
