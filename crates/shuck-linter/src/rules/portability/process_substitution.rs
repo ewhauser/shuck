@@ -71,4 +71,28 @@ cat <(printf '%s\n' hi) > >(wc -c)
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn ignores_regex_text_that_only_looks_like_process_substitution() {
+        let source = "\
+#!/bin/sh
+value=$(printf '%s\n' \"<record_id>([^<]*)</record_id>\")
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::ProcessSubstitution));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_regex_text_in_nested_pipeline_command_substitution() {
+        let source = "\
+#!/bin/sh
+_record_id=$(echo \"$response\" | _egrep_o \"<record_id>([^<]*)</record_id><type>TXT</type><host>$fulldomain</host>\" | _egrep_o \"<record_id>([^<]*)</record_id>\" | sed -r \"s/<record_id>([^<]*)<\\/record_id>/\\1/\" | tail -n 1)
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::ProcessSubstitution));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
 }

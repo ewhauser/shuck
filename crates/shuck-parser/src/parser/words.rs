@@ -4763,6 +4763,26 @@ impl<'a> Parser<'a> {
         self.word_with_parts(parts, span)
     }
 
+    pub(super) fn decode_quoted_segment_text(
+        &mut self,
+        s: &str,
+        span: Span,
+        base: Position,
+        source_backed: bool,
+    ) -> Word {
+        self.decode_word_text_with_options(
+            s,
+            span,
+            base,
+            source_backed,
+            DecodeWordPartsOptions {
+                parse_dollar_quotes: true,
+                parse_process_substitutions: false,
+                ..DecodeWordPartsOptions::default()
+            },
+        )
+    }
+
     pub(super) fn decode_heredoc_body_text(
         &mut self,
         s: &str,

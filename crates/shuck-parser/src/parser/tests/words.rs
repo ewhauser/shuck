@@ -1142,6 +1142,82 @@ fn test_process_substitution_like_text_inside_double_quotes_stays_literal() {
 }
 
 #[test]
+fn test_process_substitution_like_regex_inside_nested_command_substitution_stays_literal() {
+    let input = "value=$(printf '%s\\n' \"<record_id>([^<]*)</record_id>\")\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let AssignmentValue::Scalar(value) = &command.assignments[0].value else {
+        panic!("expected scalar assignment");
+    };
+    let WordPart::CommandSubstitution { body, .. } = &value.parts[0].kind else {
+        panic!("expected command substitution");
+    };
+
+    let inner = expect_simple(&body[0]);
+    for word in &inner.args {
+        assert!(
+            !word
+                .parts
+                .iter()
+                .any(|part| matches!(part.kind, WordPart::ProcessSubstitution { .. })),
+            "{:#?}",
+            word.parts
+        );
+    }
+}
+
+#[test]
+fn test_process_substitution_like_regex_inside_nested_pipeline_command_substitution_stays_literal()
+{
+    let input = "_record_id=$(echo \"$response\" | _egrep_o \"<record_id>([^<]*)</record_id><type>TXT</type><host>$fulldomain</host>\" | _egrep_o \"<record_id>([^<]*)</record_id>\" | sed -r \"s/<record_id>([^<]*)<\\/record_id>/\\1/\" | tail -n 1)\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let AssignmentValue::Scalar(value) = &command.assignments[0].value else {
+        panic!("expected scalar assignment");
+    };
+    let WordPart::CommandSubstitution { body, .. } = &value.parts[0].kind else {
+        panic!("expected command substitution");
+    };
+
+    fn word_has_process_substitution(word: &Word) -> bool {
+        word.parts.iter().any(|part| match &part.kind {
+            WordPart::ProcessSubstitution { .. } => true,
+            WordPart::DoubleQuoted { parts, .. } => parts
+                .iter()
+                .any(|part| matches!(part.kind, WordPart::ProcessSubstitution { .. })),
+            _ => false,
+        })
+    }
+
+    fn stmt_has_process_substitution(stmt: &Stmt) -> bool {
+        command_has_process_substitution(&stmt.command)
+    }
+
+    fn command_has_process_substitution(command: &AstCommand) -> bool {
+        match command {
+            AstCommand::Simple(command) => command.args.iter().any(word_has_process_substitution),
+            AstCommand::Binary(binary)
+                if matches!(binary.op, BinaryOp::Pipe | BinaryOp::PipeAll) =>
+            {
+                stmt_has_process_substitution(&binary.left)
+                    || stmt_has_process_substitution(&binary.right)
+            }
+            _ => false,
+        }
+    }
+
+    for stmt in body.iter() {
+        assert!(!stmt_has_process_substitution(stmt), "{:#?}", stmt);
+    }
+}
+
+#[test]
 fn test_escaped_process_substitution_like_text_stays_literal() {
     let input = "echo \\<(printf hi) \\>(printf bye)\n";
     let script = Parser::new(input).parse().unwrap().file;

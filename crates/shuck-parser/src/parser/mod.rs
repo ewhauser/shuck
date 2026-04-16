@@ -2867,7 +2867,7 @@ impl<'a> Parser<'a> {
                 LexedWordSegmentKind::DoubleQuoted | LexedWordSegmentKind::DollarDoubleQuoted
                     if Self::word_text_needs_parse(text) =>
                 {
-                    let inner = self.decode_word_text(
+                    let inner = self.decode_quoted_segment_text(
                         text,
                         content_span,
                         content_span.start,
@@ -2956,7 +2956,7 @@ impl<'a> Parser<'a> {
                 }
                 LexedWordSegmentKind::DoubleQuoted | LexedWordSegmentKind::DollarDoubleQuoted => {
                     if Self::word_text_needs_parse(text) {
-                        let inner = self.decode_word_text(
+                        let inner = self.decode_quoted_segment_text(
                             text,
                             content_span,
                             content_span.start,
