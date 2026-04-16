@@ -11,6 +11,21 @@ pub(crate) struct WalkContext {
     pub(crate) loop_depth: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ConditionKind {
+    If,
+    Elif,
+    While,
+    Until,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct CommandTraversalContext {
+    pub(crate) walk: WalkContext,
+    pub(crate) nested_word_command: bool,
+    pub(crate) condition_kind: Option<ConditionKind>,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct CommandWalkOptions {
     pub(crate) descend_nested_word_commands: bool,
@@ -23,6 +38,12 @@ pub(crate) struct CommandVisit<'a> {
     pub(crate) redirects: &'a [Redirect],
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TraversedCommandVisit<'a> {
+    pub(crate) visit: CommandVisit<'a>,
+    pub(crate) context: CommandTraversalContext,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommandSubstitutionKind {
     Command,
@@ -32,14 +53,39 @@ pub enum CommandSubstitutionKind {
 
 // Structural traversal helpers stay crate-visible so `facts.rs` owns repeated
 // AST walks. Rule implementations should consume `Checker::facts()` instead of
-// calling these walkers directly.
+// calling these walkers directly, while `facts.rs` can opt into the streaming
+// walker when it needs traversal context without a second whole-file pass.
+pub(crate) fn walk_commands<'a, F>(
+    commands: &'a StmtSeq,
+    options: CommandWalkOptions,
+    visitor: &mut F,
+) where
+    F: FnMut(CommandVisit<'a>, CommandTraversalContext),
+{
+    collect_command_visits(
+        commands,
+        options,
+        CommandTraversalContext::default(),
+        visitor,
+    );
+}
+
+pub(crate) fn iter_commands_with_context<'a>(
+    commands: &'a StmtSeq,
+    options: CommandWalkOptions,
+) -> impl Iterator<Item = TraversedCommandVisit<'a>> {
+    let mut visits = Vec::new();
+    walk_commands(commands, options, &mut |visit, context| {
+        visits.push(TraversedCommandVisit { visit, context });
+    });
+    visits.into_iter()
+}
+
 pub(crate) fn iter_commands<'a>(
     commands: &'a StmtSeq,
     options: CommandWalkOptions,
 ) -> impl Iterator<Item = CommandVisit<'a>> {
-    let mut visits = Vec::new();
-    collect_command_visits(commands, options, WalkContext::default(), &mut visits);
-    visits.into_iter()
+    iter_commands_with_context(commands, options).map(|visit| visit.visit)
 }
 
 pub(crate) fn pipeline_segments(command: &Command) -> Option<Vec<&Stmt>> {
@@ -244,70 +290,103 @@ fn visit_arithmetic_lvalue_words(target: &ArithmeticLvalue, visitor: &mut impl F
     }
 }
 
-fn collect_command_visits<'a>(
+fn collect_command_visits<'a, F>(
     commands: &'a StmtSeq,
     options: CommandWalkOptions,
-    context: WalkContext,
-    visits: &mut Vec<CommandVisit<'a>>,
-) {
+    context: CommandTraversalContext,
+    visitor: &mut F,
+) where
+    F: FnMut(CommandVisit<'a>, CommandTraversalContext),
+{
     for stmt in commands.iter() {
-        collect_command_visit(stmt, options, context, visits);
+        collect_command_visit(stmt, options, context, visitor);
     }
 }
 
-fn collect_command_visit<'a>(
+fn collect_command_visit<'a, F>(
     stmt: &'a Stmt,
     options: CommandWalkOptions,
-    context: WalkContext,
-    visits: &mut Vec<CommandVisit<'a>>,
-) {
-    visits.push(CommandVisit {
-        stmt,
-        command: &stmt.command,
-        redirects: &stmt.redirects,
-    });
+    context: CommandTraversalContext,
+    visitor: &mut F,
+) where
+    F: FnMut(CommandVisit<'a>, CommandTraversalContext),
+{
+    visitor(
+        CommandVisit {
+            stmt,
+            command: &stmt.command,
+            redirects: &stmt.redirects,
+        },
+        context,
+    );
 
     match &stmt.command {
         Command::Simple(command) => {
-            collect_assignment_visits(&command.assignments, options, context, visits);
-            collect_word_visits(&command.name, options, context, visits);
-            collect_word_slice_visits(&command.args, options, context, visits);
+            collect_assignment_visits(&command.assignments, options, context, visitor);
+            collect_word_visits(&command.name, options, context, visitor);
+            collect_word_slice_visits(&command.args, options, context, visitor);
         }
-        Command::Builtin(command) => collect_builtin_visits(command, options, context, visits),
+        Command::Builtin(command) => collect_builtin_visits(command, options, context, visitor),
         Command::Decl(command) => {
-            collect_assignment_visits(&command.assignments, options, context, visits);
+            collect_assignment_visits(&command.assignments, options, context, visitor);
             for operand in &command.operands {
                 match operand {
                     DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
-                        collect_word_visits(word, options, context, visits);
+                        collect_word_visits(word, options, context, visitor);
                     }
                     DeclOperand::Name(_) => {}
                     DeclOperand::Assignment(assignment) => {
-                        collect_assignment_visit(assignment, options, context, visits);
+                        collect_assignment_visit(assignment, options, context, visitor);
                     }
                 }
             }
         }
         Command::Binary(command) => {
-            collect_command_visit(&command.left, options, context, visits);
-            collect_command_visit(&command.right, options, context, visits);
+            collect_command_visit(&command.left, options, context, visitor);
+            collect_command_visit(&command.right, options, context, visitor);
         }
         Command::Compound(command) => {
-            collect_compound_visits(command, options, context, visits);
+            collect_compound_visits(command, options, context, visitor);
         }
         Command::Function(FunctionDef { header, body, .. }) => {
             for entry in &header.entries {
-                collect_word_visits(&entry.word, options, context, visits);
+                collect_word_visits(&entry.word, options, context, visitor);
             }
-            collect_command_visit(body, options, context, visits);
+            collect_command_visit(body, options, context, visitor);
         }
         Command::AnonymousFunction(function) => {
-            collect_word_slice_visits(&function.args, options, context, visits);
-            collect_command_visit(&function.body, options, context, visits);
+            collect_word_slice_visits(&function.args, options, context, visitor);
+            collect_command_visit(&function.body, options, context, visitor);
         }
     }
 
-    collect_redirect_visits(&stmt.redirects, options, context, visits);
+    collect_redirect_visits(&stmt.redirects, options, context, visitor);
+}
+
+fn condition_context(
+    context: CommandTraversalContext,
+    kind: ConditionKind,
+) -> CommandTraversalContext {
+    CommandTraversalContext {
+        condition_kind: Some(kind),
+        ..context
+    }
+}
+
+fn loop_context(context: CommandTraversalContext) -> CommandTraversalContext {
+    CommandTraversalContext {
+        walk: WalkContext {
+            loop_depth: context.walk.loop_depth + 1,
+        },
+        ..context
+    }
+}
+
+fn nested_word_context(context: CommandTraversalContext) -> CommandTraversalContext {
+    CommandTraversalContext {
+        nested_word_command: true,
+        ..context
+    }
 }
 
 fn collect_pipeline_segments<'a>(command: &'a BinaryCommand, segments: &mut Vec<&'a Stmt>) {
@@ -326,186 +405,177 @@ fn collect_pipeline_segments<'a>(command: &'a BinaryCommand, segments: &mut Vec<
     }
 }
 
-fn collect_builtin_visits<'a>(
+fn collect_builtin_visits<'a, F>(
     command: &'a BuiltinCommand,
     options: CommandWalkOptions,
-    context: WalkContext,
-    visits: &mut Vec<CommandVisit<'a>>,
-) {
+    context: CommandTraversalContext,
+    visitor: &mut F,
+) where
+    F: FnMut(CommandVisit<'a>, CommandTraversalContext),
+{
     match command {
         BuiltinCommand::Break(command) => {
-            collect_assignment_visits(&command.assignments, options, context, visits);
+            collect_assignment_visits(&command.assignments, options, context, visitor);
             if let Some(word) = &command.depth {
-                collect_word_visits(word, options, context, visits);
+                collect_word_visits(word, options, context, visitor);
             }
-            collect_word_slice_visits(&command.extra_args, options, context, visits);
+            collect_word_slice_visits(&command.extra_args, options, context, visitor);
         }
         BuiltinCommand::Continue(command) => {
-            collect_assignment_visits(&command.assignments, options, context, visits);
+            collect_assignment_visits(&command.assignments, options, context, visitor);
             if let Some(word) = &command.depth {
-                collect_word_visits(word, options, context, visits);
+                collect_word_visits(word, options, context, visitor);
             }
-            collect_word_slice_visits(&command.extra_args, options, context, visits);
+            collect_word_slice_visits(&command.extra_args, options, context, visitor);
         }
         BuiltinCommand::Return(command) => {
-            collect_assignment_visits(&command.assignments, options, context, visits);
+            collect_assignment_visits(&command.assignments, options, context, visitor);
             if let Some(word) = &command.code {
-                collect_word_visits(word, options, context, visits);
+                collect_word_visits(word, options, context, visitor);
             }
-            collect_word_slice_visits(&command.extra_args, options, context, visits);
+            collect_word_slice_visits(&command.extra_args, options, context, visitor);
         }
         BuiltinCommand::Exit(command) => {
-            collect_assignment_visits(&command.assignments, options, context, visits);
+            collect_assignment_visits(&command.assignments, options, context, visitor);
             if let Some(word) = &command.code {
-                collect_word_visits(word, options, context, visits);
+                collect_word_visits(word, options, context, visitor);
             }
-            collect_word_slice_visits(&command.extra_args, options, context, visits);
+            collect_word_slice_visits(&command.extra_args, options, context, visitor);
         }
     }
 }
 
-fn collect_compound_visits<'a>(
+fn collect_compound_visits<'a, F>(
     command: &'a CompoundCommand,
     options: CommandWalkOptions,
-    context: WalkContext,
-    visits: &mut Vec<CommandVisit<'a>>,
-) {
+    context: CommandTraversalContext,
+    visitor: &mut F,
+) where
+    F: FnMut(CommandVisit<'a>, CommandTraversalContext),
+{
     match command {
         CompoundCommand::If(command) => {
-            collect_command_visits(&command.condition, options, context, visits);
-            collect_command_visits(&command.then_branch, options, context, visits);
+            collect_command_visits(
+                &command.condition,
+                options,
+                condition_context(context, ConditionKind::If),
+                visitor,
+            );
+            collect_command_visits(&command.then_branch, options, context, visitor);
             for (condition, body) in &command.elif_branches {
-                collect_command_visits(condition, options, context, visits);
-                collect_command_visits(body, options, context, visits);
+                collect_command_visits(
+                    condition,
+                    options,
+                    condition_context(context, ConditionKind::Elif),
+                    visitor,
+                );
+                collect_command_visits(body, options, context, visitor);
             }
             if let Some(body) = &command.else_branch {
-                collect_command_visits(body, options, context, visits);
+                collect_command_visits(body, options, context, visitor);
             }
         }
         CompoundCommand::For(command) => {
             if let Some(words) = &command.words {
-                collect_word_slice_visits(words, options, context, visits);
+                collect_word_slice_visits(words, options, context, visitor);
             }
-            collect_command_visits(
-                &command.body,
-                options,
-                WalkContext {
-                    loop_depth: context.loop_depth + 1,
-                },
-                visits,
-            );
+            collect_command_visits(&command.body, options, loop_context(context), visitor);
         }
         CompoundCommand::Repeat(command) => {
-            collect_word_visits(&command.count, options, context, visits);
-            collect_command_visits(
-                &command.body,
-                options,
-                WalkContext {
-                    loop_depth: context.loop_depth + 1,
-                },
-                visits,
-            );
+            collect_word_visits(&command.count, options, context, visitor);
+            collect_command_visits(&command.body, options, loop_context(context), visitor);
         }
         CompoundCommand::Foreach(command) => {
-            collect_word_slice_visits(&command.words, options, context, visits);
-            collect_command_visits(
-                &command.body,
-                options,
-                WalkContext {
-                    loop_depth: context.loop_depth + 1,
-                },
-                visits,
-            );
+            collect_word_slice_visits(&command.words, options, context, visitor);
+            collect_command_visits(&command.body, options, loop_context(context), visitor);
         }
-        CompoundCommand::ArithmeticFor(command) => collect_command_visits(
-            &command.body,
-            options,
-            WalkContext {
-                loop_depth: context.loop_depth + 1,
-            },
-            visits,
-        ),
+        CompoundCommand::ArithmeticFor(command) => {
+            collect_command_visits(&command.body, options, loop_context(context), visitor);
+        }
         CompoundCommand::While(command) => {
-            let loop_context = WalkContext {
-                loop_depth: context.loop_depth + 1,
-            };
-            collect_command_visits(&command.condition, options, loop_context, visits);
-            collect_command_visits(&command.body, options, loop_context, visits);
+            let loop_context = loop_context(context);
+            collect_command_visits(
+                &command.condition,
+                options,
+                condition_context(loop_context, ConditionKind::While),
+                visitor,
+            );
+            collect_command_visits(&command.body, options, loop_context, visitor);
         }
         CompoundCommand::Until(command) => {
-            let loop_context = WalkContext {
-                loop_depth: context.loop_depth + 1,
-            };
-            collect_command_visits(&command.condition, options, loop_context, visits);
-            collect_command_visits(&command.body, options, loop_context, visits);
+            let loop_context = loop_context(context);
+            collect_command_visits(
+                &command.condition,
+                options,
+                condition_context(loop_context, ConditionKind::Until),
+                visitor,
+            );
+            collect_command_visits(&command.body, options, loop_context, visitor);
         }
         CompoundCommand::Case(command) => {
-            collect_word_visits(&command.word, options, context, visits);
+            collect_word_visits(&command.word, options, context, visitor);
             for case in &command.cases {
-                collect_pattern_slice_visits(&case.patterns, options, context, visits);
-                collect_command_visits(&case.body, options, context, visits);
+                collect_pattern_slice_visits(&case.patterns, options, context, visitor);
+                collect_command_visits(&case.body, options, context, visitor);
             }
         }
         CompoundCommand::Select(command) => {
-            collect_word_slice_visits(&command.words, options, context, visits);
-            collect_command_visits(
-                &command.body,
-                options,
-                WalkContext {
-                    loop_depth: context.loop_depth + 1,
-                },
-                visits,
-            );
+            collect_word_slice_visits(&command.words, options, context, visitor);
+            collect_command_visits(&command.body, options, loop_context(context), visitor);
         }
         CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
-            collect_command_visits(commands, options, context, visits);
+            collect_command_visits(commands, options, context, visitor);
         }
         CompoundCommand::Always(command) => {
-            collect_command_visits(&command.body, options, context, visits);
-            collect_command_visits(&command.always_body, options, context, visits);
+            collect_command_visits(&command.body, options, context, visitor);
+            collect_command_visits(&command.always_body, options, context, visitor);
         }
         CompoundCommand::Arithmetic(_) => {}
         CompoundCommand::Time(command) => {
             if let Some(command) = &command.command {
-                collect_command_visit(command, options, context, visits);
+                collect_command_visit(command, options, context, visitor);
             }
         }
         CompoundCommand::Conditional(command) => {
-            collect_conditional_visits(&command.expression, options, context, visits);
+            collect_conditional_visits(&command.expression, options, context, visitor);
         }
         CompoundCommand::Coproc(command) => {
-            collect_command_visit(&command.body, options, context, visits);
+            collect_command_visit(&command.body, options, context, visitor);
         }
     }
 }
 
-fn collect_assignment_visits<'a>(
+fn collect_assignment_visits<'a, F>(
     assignments: &'a [Assignment],
     options: CommandWalkOptions,
-    context: WalkContext,
-    visits: &mut Vec<CommandVisit<'a>>,
-) {
+    context: CommandTraversalContext,
+    visitor: &mut F,
+) where
+    F: FnMut(CommandVisit<'a>, CommandTraversalContext),
+{
     for assignment in assignments {
-        collect_assignment_visit(assignment, options, context, visits);
+        collect_assignment_visit(assignment, options, context, visitor);
     }
 }
 
-fn collect_assignment_visit<'a>(
+fn collect_assignment_visit<'a, F>(
     assignment: &'a Assignment,
     options: CommandWalkOptions,
-    context: WalkContext,
-    visits: &mut Vec<CommandVisit<'a>>,
-) {
+    context: CommandTraversalContext,
+    visitor: &mut F,
+) where
+    F: FnMut(CommandVisit<'a>, CommandTraversalContext),
+{
     match &assignment.value {
-        AssignmentValue::Scalar(word) => collect_word_visits(word, options, context, visits),
+        AssignmentValue::Scalar(word) => collect_word_visits(word, options, context, visitor),
         AssignmentValue::Compound(array) => {
             for element in &array.elements {
                 match element {
                     ArrayElem::Sequential(word) => {
-                        collect_word_visits(word, options, context, visits);
+                        collect_word_visits(word, options, context, visitor);
                     }
                     ArrayElem::Keyed { value, .. } | ArrayElem::KeyedAppend { value, .. } => {
-                        collect_word_visits(value, options, context, visits);
+                        collect_word_visits(value, options, context, visitor);
                     }
                 }
             }
@@ -513,69 +583,77 @@ fn collect_assignment_visit<'a>(
     }
 }
 
-fn collect_word_slice_visits<'a>(
+fn collect_word_slice_visits<'a, F>(
     words: &'a [Word],
     options: CommandWalkOptions,
-    context: WalkContext,
-    visits: &mut Vec<CommandVisit<'a>>,
-) {
+    context: CommandTraversalContext,
+    visitor: &mut F,
+) where
+    F: FnMut(CommandVisit<'a>, CommandTraversalContext),
+{
     for word in words {
-        collect_word_visits(word, options, context, visits);
+        collect_word_visits(word, options, context, visitor);
     }
 }
 
-fn collect_pattern_slice_visits<'a>(
+fn collect_pattern_slice_visits<'a, F>(
     patterns: &'a [Pattern],
     options: CommandWalkOptions,
-    context: WalkContext,
-    visits: &mut Vec<CommandVisit<'a>>,
-) {
+    context: CommandTraversalContext,
+    visitor: &mut F,
+) where
+    F: FnMut(CommandVisit<'a>, CommandTraversalContext),
+{
     for pattern in patterns {
-        collect_pattern_visits(pattern, options, context, visits);
+        collect_pattern_visits(pattern, options, context, visitor);
     }
 }
 
-fn collect_word_visits<'a>(
+fn collect_word_visits<'a, F>(
     word: &'a Word,
     options: CommandWalkOptions,
-    context: WalkContext,
-    visits: &mut Vec<CommandVisit<'a>>,
-) {
+    context: CommandTraversalContext,
+    visitor: &mut F,
+) where
+    F: FnMut(CommandVisit<'a>, CommandTraversalContext),
+{
     if !options.descend_nested_word_commands {
         return;
     }
 
-    collect_word_part_visits(&word.parts, options, context, visits);
+    collect_word_part_visits(&word.parts, options, nested_word_context(context), visitor);
 }
 
-fn collect_word_part_visits<'a>(
+fn collect_word_part_visits<'a, F>(
     parts: &'a [WordPartNode],
     options: CommandWalkOptions,
-    context: WalkContext,
-    visits: &mut Vec<CommandVisit<'a>>,
-) {
+    context: CommandTraversalContext,
+    visitor: &mut F,
+) where
+    F: FnMut(CommandVisit<'a>, CommandTraversalContext),
+{
     for part in parts {
         match &part.kind {
             WordPart::ZshQualifiedGlob(glob) => {
                 for pattern in zsh_glob_patterns(glob) {
-                    collect_pattern_visits(pattern, options, context, visits);
+                    collect_pattern_visits(pattern, options, context, visitor);
                 }
             }
             WordPart::DoubleQuoted { parts, .. } => {
-                collect_word_part_visits(parts, options, context, visits);
+                collect_word_part_visits(parts, options, context, visitor);
             }
             WordPart::ArithmeticExpansion { expression_ast, .. } => {
                 if let Some(expression_ast) = expression_ast.as_ref() {
                     let mut arithmetic_words = Vec::new();
                     collect_optional_arithmetic_words(Some(expression_ast), &mut arithmetic_words);
                     for word in arithmetic_words {
-                        collect_word_visits(word, options, context, visits);
+                        collect_word_visits(word, options, context, visitor);
                     }
                 }
             }
             WordPart::CommandSubstitution { body, .. }
             | WordPart::ProcessSubstitution { body, .. } => {
-                collect_command_visits(body, options, context, visits);
+                collect_command_visits(body, options, context, visitor);
             }
             WordPart::Literal(_)
             | WordPart::SingleQuoted { .. }
@@ -595,18 +673,20 @@ fn collect_word_part_visits<'a>(
     }
 }
 
-fn collect_pattern_visits<'a>(
+fn collect_pattern_visits<'a, F>(
     pattern: &'a Pattern,
     options: CommandWalkOptions,
-    context: WalkContext,
-    visits: &mut Vec<CommandVisit<'a>>,
-) {
+    context: CommandTraversalContext,
+    visitor: &mut F,
+) where
+    F: FnMut(CommandVisit<'a>, CommandTraversalContext),
+{
     for (part, _) in pattern.parts_with_spans() {
         match part {
             PatternPart::Group { patterns, .. } => {
-                collect_pattern_slice_visits(patterns, options, context, visits);
+                collect_pattern_slice_visits(patterns, options, context, visitor);
             }
-            PatternPart::Word(word) => collect_word_visits(word, options, context, visits),
+            PatternPart::Word(word) => collect_word_visits(word, options, context, visitor),
             PatternPart::Literal(_)
             | PatternPart::AnyString
             | PatternPart::AnyChar
@@ -615,45 +695,49 @@ fn collect_pattern_visits<'a>(
     }
 }
 
-fn collect_redirect_visits<'a>(
+fn collect_redirect_visits<'a, F>(
     redirects: &'a [Redirect],
     options: CommandWalkOptions,
-    context: WalkContext,
-    visits: &mut Vec<CommandVisit<'a>>,
-) {
+    context: CommandTraversalContext,
+    visitor: &mut F,
+) where
+    F: FnMut(CommandVisit<'a>, CommandTraversalContext),
+{
     for redirect in redirects {
-        collect_word_visits(redirect_walk_word(redirect), options, context, visits);
+        collect_word_visits(redirect_walk_word(redirect), options, context, visitor);
     }
 }
 
-fn collect_conditional_visits<'a>(
+fn collect_conditional_visits<'a, F>(
     expression: &'a ConditionalExpr,
     options: CommandWalkOptions,
-    context: WalkContext,
-    visits: &mut Vec<CommandVisit<'a>>,
-) {
+    context: CommandTraversalContext,
+    visitor: &mut F,
+) where
+    F: FnMut(CommandVisit<'a>, CommandTraversalContext),
+{
     match expression {
         ConditionalExpr::Binary(expr) => {
-            collect_conditional_visits(&expr.left, options, context, visits);
-            collect_conditional_visits(&expr.right, options, context, visits);
+            collect_conditional_visits(&expr.left, options, context, visitor);
+            collect_conditional_visits(&expr.right, options, context, visitor);
         }
         ConditionalExpr::Unary(expr) => {
-            collect_conditional_visits(&expr.expr, options, context, visits)
+            collect_conditional_visits(&expr.expr, options, context, visitor)
         }
         ConditionalExpr::Parenthesized(expr) => {
-            collect_conditional_visits(&expr.expr, options, context, visits);
+            collect_conditional_visits(&expr.expr, options, context, visitor);
         }
         ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
-            collect_word_visits(word, options, context, visits)
+            collect_word_visits(word, options, context, visitor)
         }
         ConditionalExpr::Pattern(pattern) => {
-            collect_pattern_visits(pattern, options, context, visits)
+            collect_pattern_visits(pattern, options, context, visitor)
         }
         ConditionalExpr::VarRef(reference) => {
             let mut subscript_words = Vec::new();
             collect_var_ref_subscript_words(reference, &mut subscript_words);
             for word in subscript_words {
-                collect_word_visits(word, options, context, visits);
+                collect_word_visits(word, options, context, visitor);
             }
         }
     }
@@ -680,7 +764,9 @@ mod tests {
     use shuck_ast::{Command, StmtSeq, Word, WordPart};
     use shuck_parser::parser::Parser;
 
-    use super::{CommandWalkOptions, iter_commands, pipeline_segments};
+    use super::{
+        CommandWalkOptions, ConditionKind, iter_commands, pipeline_segments, walk_commands,
+    };
 
     fn parse_commands(source: &str) -> StmtSeq {
         let output = Parser::new(source).parse().unwrap();
@@ -735,6 +821,88 @@ mod tests {
 
         assert_eq!(structural, vec!["echo"]);
         assert_eq!(nested, vec!["echo", "printf"]);
+    }
+
+    #[test]
+    fn walk_commands_tracks_nested_word_and_condition_context() {
+        let source = "\
+if foo \"$(bar)\"; then
+  :
+elif while baz \"$(qux)\"; do :; done; then
+  :
+fi
+";
+        let commands = parse_commands(source);
+        let mut visits = Vec::new();
+
+        walk_commands(
+            &commands,
+            CommandWalkOptions {
+                descend_nested_word_commands: true,
+            },
+            &mut |visit, context| {
+                let Command::Simple(command) = visit.command else {
+                    return;
+                };
+                let Some(name) = static_word_text(&command.name, source) else {
+                    return;
+                };
+                if name == ":" {
+                    return;
+                }
+                visits.push((name, context.nested_word_command, context.condition_kind));
+            },
+        );
+
+        assert_eq!(
+            visits,
+            vec![
+                ("foo".to_owned(), false, Some(ConditionKind::If)),
+                ("bar".to_owned(), true, Some(ConditionKind::If)),
+                ("baz".to_owned(), false, Some(ConditionKind::While)),
+                ("qux".to_owned(), true, Some(ConditionKind::While)),
+            ]
+        );
+    }
+
+    #[test]
+    fn walk_commands_prefers_nested_if_and_elif_condition_kinds_inside_loops() {
+        let source = "\
+while if foo; then bar; elif baz; then qux; fi; do
+  :
+done
+";
+        let commands = parse_commands(source);
+        let mut visits = Vec::new();
+
+        walk_commands(
+            &commands,
+            CommandWalkOptions {
+                descend_nested_word_commands: true,
+            },
+            &mut |visit, context| {
+                let Command::Simple(command) = visit.command else {
+                    return;
+                };
+                let Some(name) = static_word_text(&command.name, source) else {
+                    return;
+                };
+                if name == ":" {
+                    return;
+                }
+                visits.push((name, context.condition_kind));
+            },
+        );
+
+        assert_eq!(
+            visits,
+            vec![
+                ("foo".to_owned(), Some(ConditionKind::If)),
+                ("bar".to_owned(), Some(ConditionKind::While)),
+                ("baz".to_owned(), Some(ConditionKind::Elif)),
+                ("qux".to_owned(), Some(ConditionKind::While)),
+            ]
+        );
     }
 
     #[test]

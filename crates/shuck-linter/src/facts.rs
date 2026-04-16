@@ -2212,6 +2212,7 @@ pub struct LinterFacts<'a> {
     structural_command_ids: Vec<CommandId>,
     #[cfg_attr(not(test), allow(dead_code))]
     command_ids_by_span: CommandLookupIndex,
+    if_condition_command_ids: FxHashSet<CommandId>,
     elif_condition_command_ids: FxHashSet<CommandId>,
     scalar_bindings: FxHashMap<FactSpan, &'a Word>,
     broken_assoc_key_spans: Vec<Span>,
@@ -2385,6 +2386,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn comma_array_assignment_spans(&self) -> &[Span] {
         &self.comma_array_assignment_spans
+    }
+
+    pub fn is_if_condition_command(&self, id: CommandId) -> bool {
+        self.if_condition_command_ids.contains(&id)
     }
 
     pub fn is_elif_condition_command(&self, id: CommandId) -> bool {
@@ -2735,13 +2740,6 @@ struct ArithmeticFactSummary {
 }
 
 #[derive(Debug, Default)]
-struct FunctionStyleFactSummary<'a> {
-    function_headers: Vec<FunctionHeaderFact<'a>>,
-    function_body_without_braces_spans: Vec<Span>,
-    redundant_return_status_spans: Vec<Span>,
-}
-
-#[derive(Debug, Default)]
 struct HeredocFactSummary {
     unused_heredoc_spans: Vec<Span>,
     heredoc_missing_end_spans: Vec<Span>,
@@ -2770,17 +2768,11 @@ impl<'a> LinterFactsBuilder<'a> {
     }
 
     fn build(self) -> LinterFacts<'a> {
-        let structural_commands = query::iter_commands(
-            &self.file.body,
-            CommandWalkOptions {
-                descend_nested_word_commands: false,
-            },
-        )
-        .map(|visit| FactSpan::new(command_span(visit.command)))
-        .collect::<FxHashSet<_>>();
         let mut commands = Vec::new();
         let mut structural_command_ids = Vec::new();
         let mut command_ids_by_span = CommandLookupIndex::default();
+        let mut if_condition_command_ids = FxHashSet::default();
+        let mut elif_condition_command_ids = FxHashSet::default();
         let mut scalar_bindings = FxHashMap::default();
         let mut broken_assoc_key_spans = Vec::new();
         let mut comma_array_assignment_spans = Vec::new();
@@ -2792,13 +2784,21 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut pattern_charclass_spans = Vec::new();
         let mut arithmetic_summary = ArithmeticFactSummary::default();
         let mut surface_fragments = SurfaceFragmentFacts::default();
+        let mut functions = Vec::new();
+        let mut function_body_without_braces_spans = Vec::new();
+        let mut redundant_return_status_spans = Vec::new();
+        let mut getopts_cases = Vec::new();
+        let mut condition_status_capture_spans = Vec::new();
+        let mut condition_command_substitution_spans = Vec::new();
 
-        for visit in query::iter_commands(
+        for traversed in query::iter_commands_with_context(
             &self.file.body,
             CommandWalkOptions {
                 descend_nested_word_commands: true,
             },
         ) {
+            let visit = traversed.visit;
+            let context = traversed.context;
             let key = FactSpan::new(command_span(visit.command));
             let id = CommandId::new(commands.len());
             let lookup_kind = command_lookup_kind(visit.command);
@@ -2809,6 +2809,17 @@ impl<'a> LinterFactsBuilder<'a> {
                 kind: lookup_kind,
                 id,
             });
+
+            match context.condition_kind {
+                Some(query::ConditionKind::If) => {
+                    if_condition_command_ids.insert(id);
+                }
+                Some(query::ConditionKind::Elif) => {
+                    if_condition_command_ids.insert(id);
+                    elif_condition_command_ids.insert(id);
+                }
+                Some(query::ConditionKind::While | query::ConditionKind::Until) | None => {}
+            }
 
             collect_scalar_bindings(visit.command, &mut scalar_bindings);
             collect_broken_assoc_key_spans(visit.command, self.source, &mut broken_assoc_key_spans);
@@ -2823,7 +2834,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 command_span(visit.command).start.offset,
                 &normalized,
             );
-            let nested_word_command = !structural_commands.contains(&key);
+            let nested_word_command = context.nested_word_command;
             if !nested_word_command {
                 structural_command_ids.push(id);
             }
@@ -2891,6 +2902,130 @@ impl<'a> LinterFactsBuilder<'a> {
                 simple_test,
                 conditional,
             });
+
+            if let Command::Function(function) = visit.command {
+                functions.push(function);
+                if let Some(span) = function_body_without_braces_span(function) {
+                    function_body_without_braces_spans.push(span);
+                }
+                collect_terminal_redundant_return_status_spans(
+                    function,
+                    &mut redundant_return_status_spans,
+                );
+            }
+
+            if !nested_word_command {
+                match visit.command {
+                    Command::Compound(CompoundCommand::If(command)) => {
+                        collect_condition_status_capture_from_body(
+                            &command.condition,
+                            &command.then_branch,
+                            self.source,
+                            &mut condition_status_capture_spans,
+                        );
+
+                        for (condition, branch) in &command.elif_branches {
+                            collect_condition_status_capture_from_body(
+                                condition,
+                                branch,
+                                self.source,
+                                &mut condition_status_capture_spans,
+                            );
+                        }
+
+                        if let Some(else_branch) = &command.else_branch {
+                            let fallback_condition = command
+                                .elif_branches
+                                .last()
+                                .map(|(condition, _)| condition)
+                                .unwrap_or(&command.condition);
+                            collect_condition_status_capture_from_body(
+                                fallback_condition,
+                                else_branch,
+                                self.source,
+                                &mut condition_status_capture_spans,
+                            );
+                        }
+                    }
+                    Command::Compound(CompoundCommand::While(command)) => {
+                        collect_condition_status_capture_from_body(
+                            &command.condition,
+                            &command.body,
+                            self.source,
+                            &mut condition_status_capture_spans,
+                        );
+                        if let Some(case) = build_getopts_case_fact_for_while(command, self.source)
+                        {
+                            getopts_cases.push(case);
+                        }
+                    }
+                    Command::Compound(CompoundCommand::Until(command)) => {
+                        collect_condition_status_capture_from_body(
+                            &command.condition,
+                            &command.body,
+                            self.source,
+                            &mut condition_status_capture_spans,
+                        );
+                    }
+                    Command::Binary(command)
+                        if matches!(command.op, BinaryOp::And | BinaryOp::Or) =>
+                    {
+                        if stmt_terminals_are_test_commands(&command.left, self.source) {
+                            collect_status_parameter_spans_in_stmt(
+                                &command.right,
+                                self.source,
+                                &mut condition_status_capture_spans,
+                            );
+                        }
+                    }
+                    Command::Simple(_)
+                    | Command::Builtin(_)
+                    | Command::Decl(_)
+                    | Command::Binary(_)
+                    | Command::Compound(_)
+                    | Command::Function(_)
+                    | Command::AnonymousFunction(_) => {}
+                }
+            }
+
+            match visit.command {
+                Command::Compound(CompoundCommand::If(command)) => {
+                    collect_condition_command_substitution_from_body(
+                        &command.condition,
+                        self.source,
+                        &mut condition_command_substitution_spans,
+                    );
+
+                    for (condition, _) in &command.elif_branches {
+                        collect_condition_command_substitution_from_body(
+                            condition,
+                            self.source,
+                            &mut condition_command_substitution_spans,
+                        );
+                    }
+                }
+                Command::Compound(CompoundCommand::While(command)) => {
+                    collect_condition_command_substitution_from_body(
+                        &command.condition,
+                        self.source,
+                        &mut condition_command_substitution_spans,
+                    );
+                }
+                Command::Compound(CompoundCommand::Until(command)) => {
+                    collect_condition_command_substitution_from_body(
+                        &command.condition,
+                        self.source,
+                        &mut condition_command_substitution_spans,
+                    );
+                }
+                Command::Simple(_)
+                | Command::Builtin(_)
+                | Command::Decl(_)
+                | Command::Binary(_)
+                | Command::Compound(_)
+                | Command::Function(_)
+                | Command::AnonymousFunction(_) => {}
+            }
         }
 
         let substitution_facts =
@@ -2899,16 +3034,10 @@ impl<'a> LinterFactsBuilder<'a> {
             fact.substitution_facts = substitutions;
         }
 
-        let if_condition_command_ids =
-            build_if_condition_command_ids(&self.file.body, &command_ids_by_span);
-        let elif_condition_command_ids =
-            build_elif_condition_command_ids(&self.file.body, &command_ids_by_span);
         let presence_tested_names = build_presence_tested_names(&commands, self.source);
-        let FunctionStyleFactSummary {
-            function_headers,
-            function_body_without_braces_spans,
-            redundant_return_status_spans,
-        } = build_function_style_facts(&self.file.body, self.semantic);
+        let function_headers = build_function_header_facts(self.semantic, &functions);
+        sort_and_dedup_spans(&mut condition_status_capture_spans);
+        sort_and_dedup_spans(&mut condition_command_substitution_spans);
         let function_parameter_fallback_spans = build_function_parameter_fallback_spans(
             &commands,
             &structural_command_ids,
@@ -2921,7 +3050,6 @@ impl<'a> LinterFactsBuilder<'a> {
             build_select_header_facts(&commands, &command_ids_by_span, self.source);
         let case_items = build_case_item_facts(&commands);
         let case_pattern_shadows = build_case_pattern_shadow_facts(&commands, self.source);
-        let getopts_cases = build_getopts_case_facts(&self.file.body, self.source);
         let pipelines = build_pipeline_facts(&commands, &command_ids_by_span);
         let scope_read_source_words =
             build_scope_read_source_words(&commands, &pipelines, &if_condition_command_ids);
@@ -2940,10 +3068,6 @@ impl<'a> LinterFactsBuilder<'a> {
             build_commented_continuation_comment_spans(self.source, self._indexer);
         let trailing_directive_comment_spans =
             build_trailing_directive_comment_spans(self.source, self._indexer);
-        let condition_status_capture_spans =
-            build_condition_status_capture_spans(&self.file.body, self.source);
-        let condition_command_substitution_spans =
-            build_condition_command_substitution_spans(&self.file.body, self.source);
         let backtick_command_name_spans = build_backtick_command_name_spans(&commands);
         let dollar_question_after_command_spans = build_dollar_question_after_command_spans(
             &self.file.body,
@@ -3024,6 +3148,7 @@ impl<'a> LinterFactsBuilder<'a> {
             commands,
             structural_command_ids,
             command_ids_by_span,
+            if_condition_command_ids,
             elif_condition_command_ids,
             scalar_bindings,
             broken_assoc_key_spans,
@@ -3963,36 +4088,14 @@ fn collect_base_prefix_spans_in_text(span: Span, source: &str, spans: &mut Vec<S
     }
 }
 
-fn build_function_style_facts<'a>(
-    body: &'a StmtSeq,
+fn build_function_header_facts<'a>(
     semantic: &SemanticModel,
-) -> FunctionStyleFactSummary<'a> {
-    let mut summary = FunctionStyleFactSummary::default();
-    let mut functions = Vec::new();
-
-    for visit in query::iter_commands(
-        body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-    ) {
-        let Command::Function(function) = visit.command else {
-            continue;
-        };
-
-        functions.push(function);
-        if let Some(span) = function_body_without_braces_span(function) {
-            summary.function_body_without_braces_spans.push(span);
-        }
-        collect_terminal_redundant_return_status_spans(
-            function,
-            &mut summary.redundant_return_status_spans,
-        );
-    }
-
-    let call_arity_by_binding = build_function_call_arity_facts(semantic, &functions);
-    summary.function_headers = functions
-        .into_iter()
+    functions: &[&'a FunctionDef],
+) -> Vec<FunctionHeaderFact<'a>> {
+    let call_arity_by_binding = build_function_call_arity_facts(semantic, functions);
+    functions
+        .iter()
+        .copied()
         .map(|function| {
             let binding_id = function_header_binding_id(semantic, function);
             let scope_id = binding_id
@@ -4008,9 +4111,7 @@ fn build_function_style_facts<'a>(
                 call_arity,
             }
         })
-        .collect();
-
-    summary
+        .collect()
 }
 
 fn build_function_parameter_fallback_spans(
@@ -5566,201 +5667,6 @@ fn has_header_shellcheck_shell_directive(source: &str) -> bool {
     }
 
     false
-}
-
-fn build_elif_condition_command_ids(
-    commands: &StmtSeq,
-    command_ids_by_span: &CommandLookupIndex,
-) -> FxHashSet<CommandId> {
-    let mut ids = FxHashSet::default();
-
-    for visit in query::iter_commands(
-        commands,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-    ) {
-        let Command::Compound(CompoundCommand::If(command)) = visit.command else {
-            continue;
-        };
-
-        for (condition, _) in &command.elif_branches {
-            for condition_visit in query::iter_commands(
-                condition,
-                CommandWalkOptions {
-                    descend_nested_word_commands: true,
-                },
-            ) {
-                if let Some(id) =
-                    command_id_for_command(condition_visit.command, command_ids_by_span)
-                {
-                    ids.insert(id);
-                }
-            }
-        }
-    }
-
-    ids
-}
-
-fn build_if_condition_command_ids(
-    commands: &StmtSeq,
-    command_ids_by_span: &CommandLookupIndex,
-) -> FxHashSet<CommandId> {
-    let mut ids = FxHashSet::default();
-
-    for visit in query::iter_commands(
-        commands,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-    ) {
-        let Command::Compound(CompoundCommand::If(command)) = visit.command else {
-            continue;
-        };
-
-        for condition_visit in query::iter_commands(
-            &command.condition,
-            CommandWalkOptions {
-                descend_nested_word_commands: true,
-            },
-        ) {
-            if let Some(id) = command_id_for_command(condition_visit.command, command_ids_by_span) {
-                ids.insert(id);
-            }
-        }
-
-        for (condition, _) in &command.elif_branches {
-            for condition_visit in query::iter_commands(
-                condition,
-                CommandWalkOptions {
-                    descend_nested_word_commands: true,
-                },
-            ) {
-                if let Some(id) =
-                    command_id_for_command(condition_visit.command, command_ids_by_span)
-                {
-                    ids.insert(id);
-                }
-            }
-        }
-    }
-
-    ids
-}
-
-fn build_condition_status_capture_spans(commands: &StmtSeq, source: &str) -> Vec<Span> {
-    let mut spans = Vec::new();
-
-    for visit in query::iter_commands(
-        commands,
-        CommandWalkOptions {
-            descend_nested_word_commands: false,
-        },
-    ) {
-        match visit.command {
-            Command::Compound(CompoundCommand::If(command)) => {
-                collect_condition_status_capture_from_body(
-                    &command.condition,
-                    &command.then_branch,
-                    source,
-                    &mut spans,
-                );
-
-                for (condition, branch) in &command.elif_branches {
-                    collect_condition_status_capture_from_body(
-                        condition, branch, source, &mut spans,
-                    );
-                }
-
-                if let Some(else_branch) = &command.else_branch {
-                    let fallback_condition = command
-                        .elif_branches
-                        .last()
-                        .map(|(condition, _)| condition)
-                        .unwrap_or(&command.condition);
-                    collect_condition_status_capture_from_body(
-                        fallback_condition,
-                        else_branch,
-                        source,
-                        &mut spans,
-                    );
-                }
-            }
-            Command::Compound(CompoundCommand::While(command)) => {
-                collect_condition_status_capture_from_body(
-                    &command.condition,
-                    &command.body,
-                    source,
-                    &mut spans,
-                );
-            }
-            Command::Compound(CompoundCommand::Until(command)) => {
-                collect_condition_status_capture_from_body(
-                    &command.condition,
-                    &command.body,
-                    source,
-                    &mut spans,
-                );
-            }
-            Command::Binary(command) if matches!(command.op, BinaryOp::And | BinaryOp::Or) => {
-                if stmt_terminals_are_test_commands(&command.left, source) {
-                    collect_status_parameter_spans_in_stmt(&command.right, source, &mut spans);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    let mut seen = FxHashSet::default();
-    spans.retain(|span| seen.insert(FactSpan::new(*span)));
-    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
-    spans
-}
-
-fn build_condition_command_substitution_spans(commands: &StmtSeq, source: &str) -> Vec<Span> {
-    let mut spans = Vec::new();
-
-    for visit in query::iter_commands(
-        commands,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-    ) {
-        match visit.command {
-            Command::Compound(CompoundCommand::If(command)) => {
-                collect_condition_command_substitution_from_body(
-                    &command.condition,
-                    source,
-                    &mut spans,
-                );
-
-                for (condition, _) in &command.elif_branches {
-                    collect_condition_command_substitution_from_body(condition, source, &mut spans);
-                }
-            }
-            Command::Compound(CompoundCommand::While(command)) => {
-                collect_condition_command_substitution_from_body(
-                    &command.condition,
-                    source,
-                    &mut spans,
-                );
-            }
-            Command::Compound(CompoundCommand::Until(command)) => {
-                collect_condition_command_substitution_from_body(
-                    &command.condition,
-                    source,
-                    &mut spans,
-                );
-            }
-            _ => {}
-        }
-    }
-
-    let mut seen = FxHashSet::default();
-    spans.retain(|span| seen.insert(FactSpan::new(*span)));
-    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
-    spans
 }
 
 fn build_backtick_command_name_spans(commands: &[CommandFact<'_>]) -> Vec<Span> {
@@ -8379,23 +8285,6 @@ struct GetoptsCaseMatch {
     invalid_case_pattern_spans: Vec<Span>,
     has_fallback_pattern: bool,
     has_unknown_coverage: bool,
-}
-
-fn build_getopts_case_facts(commands: &StmtSeq, source: &str) -> Vec<GetoptsCaseFact> {
-    query::iter_commands(
-        commands,
-        CommandWalkOptions {
-            descend_nested_word_commands: false,
-        },
-    )
-    .filter_map(|visit| {
-        let Command::Compound(CompoundCommand::While(command)) = visit.command else {
-            return None;
-        };
-
-        build_getopts_case_fact_for_while(command, source)
-    })
-    .collect()
 }
 
 fn build_getopts_case_fact_for_while(
@@ -12741,6 +12630,12 @@ fn command_fact<'a>(commands: &'a [CommandFact<'a>], id: CommandId) -> &'a Comma
     &commands[id.index()]
 }
 
+fn sort_and_dedup_spans(spans: &mut Vec<Span>) {
+    let mut seen = FxHashSet::default();
+    spans.retain(|span| seen.insert(FactSpan::new(*span)));
+    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+}
+
 fn trim_trailing_whitespace_span(span: Span, source: &str) -> Span {
     let text = span.slice(source);
     let trimmed = text.trim_end_matches(char::is_whitespace);
@@ -13033,6 +12928,146 @@ o() {
             facts.command_id_for_command(&output.file.body[0].command),
             Some(echo_id)
         );
+    }
+
+    #[test]
+    fn tracks_nested_commands_inside_if_and_elif_conditions() {
+        let source = "\
+#!/bin/bash
+if \"$( [[ -f if_path ]] )\"; then
+  :
+elif \"$( [[ -f elif_path ]] )\"; then
+  :
+fi
+";
+
+        with_facts(source, None, |_, facts| {
+            let if_nested = facts
+                .commands()
+                .iter()
+                .find(|fact| fact.span().slice(source) == "[[ -f if_path ]]")
+                .expect("expected nested if condition command");
+            assert!(if_nested.scope_read_source_words().is_empty());
+            assert!(facts.is_if_condition_command(if_nested.id()));
+            assert!(!facts.is_elif_condition_command(if_nested.id()));
+
+            let elif_nested = facts
+                .commands()
+                .iter()
+                .find(|fact| fact.span().slice(source) == "[[ -f elif_path ]]")
+                .expect("expected nested elif condition command");
+            assert!(elif_nested.scope_read_source_words().is_empty());
+            assert!(facts.is_elif_condition_command(elif_nested.id()));
+        });
+    }
+
+    #[test]
+    fn tracks_nested_if_and_elif_conditions_inside_while_conditions() {
+        let source = "\
+#!/bin/bash
+while if \"$( [[ -f if_path ]] )\"; then
+  :
+elif \"$( [[ -f elif_path ]] )\"; then
+  :
+fi; do
+  :
+done
+";
+
+        with_facts(source, None, |_, facts| {
+            let if_nested = facts
+                .commands()
+                .iter()
+                .find(|fact| fact.span().slice(source) == "[[ -f if_path ]]")
+                .expect("expected nested if condition command");
+            assert!(if_nested.scope_read_source_words().is_empty());
+            assert!(facts.is_if_condition_command(if_nested.id()));
+            assert!(!facts.is_elif_condition_command(if_nested.id()));
+
+            let elif_nested = facts
+                .commands()
+                .iter()
+                .find(|fact| fact.span().slice(source) == "[[ -f elif_path ]]")
+                .expect("expected nested elif condition command");
+            assert!(elif_nested.scope_read_source_words().is_empty());
+            assert!(facts.is_elif_condition_command(elif_nested.id()));
+        });
+    }
+
+    #[test]
+    fn preserves_condition_related_span_outputs() {
+        let source = "\
+#!/bin/bash
+if [[ -f foo ]]; then
+  echo $?
+elif [[ -f bar ]]; then
+  echo $?
+fi
+while test -f baz; do
+  echo $?
+done
+if $(printf one); then
+  :
+fi
+while $(printf two); do
+  :
+done
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .condition_command_substitution_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["$(printf one)", "$(printf two)"]
+            );
+            assert_eq!(
+                facts
+                    .condition_status_capture_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["$?", "$?", "$?"]
+            );
+        });
+    }
+
+    #[test]
+    fn keeps_getopts_case_facts_when_loop_body_has_nested_command_content() {
+        let source = "\
+#!/bin/bash
+while getopts 'ab' opt; do
+  echo \"$(printf warmup)\"
+  case \"$opt\" in
+    a)
+      ;;
+    b)
+      echo \"$(printf body)\"
+      ;;
+  esac
+done
+";
+
+        with_facts(source, None, |_, facts| {
+            let [case] = facts.getopts_cases() else {
+                panic!("expected one getopts case fact");
+            };
+
+            assert_eq!(
+                case.case_span().slice(source).trim_end(),
+                "case \"$opt\" in\n    a)\n      ;;\n    b)\n      echo \"$(printf body)\"\n      ;;\n  esac"
+            );
+            assert_eq!(
+                case.handled_case_labels()
+                    .iter()
+                    .map(|label| label.label())
+                    .collect::<Vec<_>>(),
+                vec!['a', 'b']
+            );
+            assert!(case.missing_options().is_empty());
+        });
     }
 
     #[test]
