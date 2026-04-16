@@ -1632,16 +1632,10 @@ f
 
     #[test]
     fn multiline_declare_command_is_clipped_to_opening_line() {
-        let source = "\
-#!/bin/sh
-declare -a values=(
-  one
-  two
-)
-";
+        let source = "#!/bin/sh\ndeclare -a values=(\n  one\n  two\n)\n";
         let diagnostics = lint(source, &LinterSettings::for_rule(Rule::DeclareCommand));
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.slice(source), "declare -a values=(");
+        assert_eq!(diagnostics[0].span.slice(source), "declare -a values");
         assert_eq!(diagnostics[0].span.end.line, 2);
     }
 
