@@ -331,6 +331,10 @@ impl RecordedProgram {
         &mut self.commands[id.index()]
     }
 
+    pub(crate) fn commands(&self) -> &[RecordedCommand] {
+        &self.commands
+    }
+
     pub(crate) fn commands_in(&self, range: RecordedCommandRange) -> &[RecordedCommandId] {
         range.slice(&self.command_sequence_items)
     }

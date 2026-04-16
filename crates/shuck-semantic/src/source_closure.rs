@@ -15,7 +15,6 @@ use crate::{
     FunctionScopeKind, ProvidedBinding, ProvidedBindingKind, ScopeId, ScopeKind, SemanticModel,
     SourcePathResolver, SourceRefKind, SourceRefResolution, SpanKey, SyntheticRead,
     build_semantic_model_base,
-    cfg::{RecordedCommandId, RecordedCommandKind, RecordedCommandRange, RecordedProgram},
 };
 
 #[derive(Debug, Clone)]
@@ -412,37 +411,25 @@ fn collect_ast_facts(model: &SemanticModel) -> AstFacts {
         calls: Vec::new(),
     };
     let program = model.recorded_program();
-    collect_commands_in_range(model, program, program.file_commands(), &mut facts);
-    facts
-}
+    let mut commands = program.commands().iter().collect::<Vec<_>>();
+    commands.sort_by_key(|command| (command.span.start.offset, command.span.end.offset));
 
-fn collect_commands_in_range(
-    model: &SemanticModel,
-    program: &RecordedProgram,
-    range: RecordedCommandRange,
-    facts: &mut AstFacts,
-) {
-    for &command in program.commands_in(range) {
-        collect_command(model, program, command, facts);
-    }
-}
+    for command in commands {
+        let Some(info) = program.command_infos.get(&SpanKey::new(command.span)) else {
+            continue;
+        };
+        let Some(name) = info.static_callee.as_deref() else {
+            continue;
+        };
+        if name.is_empty() {
+            continue;
+        }
 
-fn collect_command(
-    model: &SemanticModel,
-    program: &RecordedProgram,
-    command_id: RecordedCommandId,
-    facts: &mut AstFacts,
-) {
-    let command = program.command(command_id);
-    if let Some(info) = program.command_infos.get(&SpanKey::new(command.span))
-        && let Some(name) = info.static_callee.as_deref()
-        && !name.is_empty()
-    {
         facts.calls.push(CallInfo {
             name: Name::from(name),
             scope: model.scope_at(command.span.start.offset),
             span: command.span,
-            args: info.static_args.iter().cloned().collect(),
+            args: info.static_args.to_vec(),
         });
 
         if matches!(name, "source" | ".")
@@ -453,60 +440,7 @@ fn collect_command(
                 .insert(SpanKey::new(command.span), template);
         }
     }
-
-    for region in program.nested_regions(command.nested_regions) {
-        collect_commands_in_range(model, program, region.commands, facts);
-    }
-
-    match command.kind {
-        RecordedCommandKind::Linear
-        | RecordedCommandKind::Break { .. }
-        | RecordedCommandKind::Continue { .. }
-        | RecordedCommandKind::Return
-        | RecordedCommandKind::Exit => {}
-        RecordedCommandKind::List { first, rest } => {
-            collect_command(model, program, first, facts);
-            for item in program.list_items(rest) {
-                collect_command(model, program, item.command, facts);
-            }
-        }
-        RecordedCommandKind::If {
-            condition,
-            then_branch,
-            elif_branches,
-            else_branch,
-        } => {
-            collect_commands_in_range(model, program, condition, facts);
-            collect_commands_in_range(model, program, then_branch, facts);
-            for branch in program.elif_branches(elif_branches) {
-                collect_commands_in_range(model, program, branch.condition, facts);
-                collect_commands_in_range(model, program, branch.body, facts);
-            }
-            collect_commands_in_range(model, program, else_branch, facts);
-        }
-        RecordedCommandKind::While { condition, body }
-        | RecordedCommandKind::Until { condition, body } => {
-            collect_commands_in_range(model, program, condition, facts);
-            collect_commands_in_range(model, program, body, facts);
-        }
-        RecordedCommandKind::For { body }
-        | RecordedCommandKind::Select { body }
-        | RecordedCommandKind::ArithmeticFor { body }
-        | RecordedCommandKind::BraceGroup { body }
-        | RecordedCommandKind::Subshell { body } => {
-            collect_commands_in_range(model, program, body, facts);
-        }
-        RecordedCommandKind::Case { arms } => {
-            for arm in program.case_arms(arms) {
-                collect_commands_in_range(model, program, arm.commands, facts);
-            }
-        }
-        RecordedCommandKind::Pipeline { segments } => {
-            for segment in program.pipeline_segments(segments) {
-                collect_command(model, program, segment.command, facts);
-            }
-        }
-    }
+    facts
 }
 
 pub(crate) fn source_path_template(
@@ -1360,6 +1294,30 @@ mod tests {
         assert!(call_names.iter().any(|name| name == "dirname"));
         assert!(call_names.iter().any(|name| name == "source"));
     }
+
+    #[test]
+    fn wrapper_commands_keep_inner_call_and_source_template_facts() {
+        let source = "\
+#!/bin/bash
+time . \"$1\"
+coproc loader { . \"$2\"; }
+";
+        let output = Parser::with_dialect(source, ShellDialect::Bash)
+            .parse()
+            .unwrap();
+        let indexer = Indexer::new(source, &output);
+        let model = SemanticModel::build(&output.file, source, &indexer);
+        let facts = collect_ast_facts(&model);
+        let source_call_count = facts
+            .calls
+            .iter()
+            .filter(|call| call.name.as_str() == ".")
+            .count();
+
+        assert_eq!(source_call_count, 2);
+        assert_eq!(facts.source_templates.len(), 2);
+    }
+
     #[cfg(windows)]
     #[test]
     fn source_dir_templates_render_windows_paths_with_shell_separators() {
