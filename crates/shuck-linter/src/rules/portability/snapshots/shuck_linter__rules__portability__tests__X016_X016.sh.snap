@@ -8,7 +8,7 @@ X016 `declare` is not portable in `sh` scripts
   |
 
 X016 `declare` is not portable in `sh` scripts
- --> <source>:8:9
+ --> <source>:8:1
   |
 8 | command declare wrapped=value
   |
