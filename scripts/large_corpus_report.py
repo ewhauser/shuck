@@ -50,6 +50,16 @@ class RuleSummary:
         return self.grouped_reasons.most_common(limit)
 
 
+@dataclass
+class BlockerEntry:
+    bucket: str
+    fixture_path: str
+    record_count: int
+    spans: tuple[str, ...]
+    codes: tuple[str, ...]
+    reasons: tuple[str, ...]
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--log", required=True, help="Path to the large-corpus output log")
@@ -191,6 +201,94 @@ def parse_rule_summaries(section: str | None, repo_root: Path) -> list[RuleSumma
     return sorted(summaries.values(), key=lambda summary: summary.mismatches, reverse=True)
 
 
+def ordered_unique(values: Iterable[str]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        ordered.append(value)
+    return tuple(ordered)
+
+
+def parse_fixture_entries(section: str | None) -> list[tuple[str, list[str]]]:
+    if not section:
+        return []
+
+    entries: list[tuple[str, list[str]]] = []
+    current_fixture: str | None = None
+    current_lines: list[str] = []
+
+    for line in section.splitlines():
+        if FIXTURE_LINE_RE.match(line):
+            if current_fixture is not None:
+                entries.append((current_fixture, current_lines))
+            current_fixture = line
+            current_lines = []
+            continue
+
+        if current_fixture is not None:
+            current_lines.append(line)
+
+    if current_fixture is not None:
+        entries.append((current_fixture, current_lines))
+
+    return entries
+
+
+def default_blocker_reason(bucket: str) -> str:
+    if bucket == "Implementation Diff":
+        return "Direct implementation mismatch with no comparison-target override."
+    if bucket == "Harness Failure":
+        return "Harness execution failed while evaluating this fixture."
+    return "Comparison target or rule mapping could not be resolved cleanly."
+
+
+def parse_blocker_entries(bucket: str, section: str | None) -> list[BlockerEntry]:
+    entries: list[BlockerEntry] = []
+
+    for fixture_path, lines in parse_fixture_entries(section):
+        detail_lines = [line.strip() for line in lines if line.strip()]
+        if not detail_lines:
+            continue
+
+        spans: list[str] = []
+        codes: list[str] = []
+        reasons: list[str] = []
+
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+
+            match = DIAGNOSTIC_LINE_RE.match(line)
+            if match:
+                spans.append(match.group("range"))
+                codes.append(f"{match.group('rule')}/{match.group('shellcheck')}")
+                if " reason=" in stripped:
+                    reasons.append(stripped.split(" reason=", 1)[1].strip())
+                continue
+
+            reasons.append(stripped)
+
+        if not reasons:
+            reasons.append(default_blocker_reason(bucket))
+
+        entries.append(
+            BlockerEntry(
+                bucket=bucket,
+                fixture_path=fixture_path,
+                record_count=len(detail_lines),
+                spans=ordered_unique(spans),
+                codes=ordered_unique(codes) or (bucket,),
+                reasons=ordered_unique(reasons),
+            )
+        )
+
+    return entries
+
+
 def count_diagnostic_records(section: str | None) -> int:
     if not section:
         return 0
@@ -280,6 +378,12 @@ def top_rule_share(rule_summaries: Iterable[RuleSummary], top_n: int = 5) -> flo
     return (top_total / total) * 100.0
 
 
+def render_detail_list(items: tuple[str, ...], class_name: str) -> str:
+    return "\n".join(
+        f'<li class="{class_name}">{html.escape(item)}</li>' for item in items
+    )
+
+
 def render_html(
     *,
     log_path: Path,
@@ -301,6 +405,7 @@ def render_html(
     zsh_harness_failures: int,
     top_five_share: float,
     worker_panic_info: tuple[str, str] | None,
+    blocker_entries: list[BlockerEntry],
     rule_summaries: list[RuleSummary],
 ) -> str:
     panic_text = ""
@@ -340,6 +445,60 @@ def render_html(
         ).strip()
         for summary in rule_summaries
     )
+
+    blocker_rows = "\n".join(
+        """
+            <tr>
+              <td><span class="bucket-chip">{bucket}</span></td>
+              <td>
+                <div class="fixture-name">{fixture_name}</div>
+                <div class="fixture-path"><code>{fixture_path}</code></div>
+              </td>
+              <td>
+                <p class="metric">{record_count}</p>
+                <p class="metric-label">{record_label}</p>
+                {span_list}
+              </td>
+              <td>
+                <div class="chip-list">
+                  {code_chips}
+                </div>
+              </td>
+              <td>
+                <ul class="detail-list">
+                  {reason_items}
+                </ul>
+              </td>
+            </tr>
+        """.format(
+            bucket=html.escape(entry.bucket),
+            fixture_name=html.escape(Path(entry.fixture_path).name),
+            fixture_path=html.escape(entry.fixture_path),
+            record_count=format_number(entry.record_count),
+            record_label="record" if entry.record_count == 1 else "records",
+            span_list=(
+                '<ul class="detail-list detail-list-tight">'
+                f"{render_detail_list(entry.spans, 'detail-item-muted')}"
+                "</ul>"
+                if entry.spans
+                else ""
+            ),
+            code_chips="\n".join(
+                f'<span class="code-chip">{html.escape(code)}</span>'
+                for code in entry.codes
+            ),
+            reason_items=render_detail_list(entry.reasons, "detail-item"),
+        ).strip()
+        for entry in blocker_entries
+    )
+    if not blocker_rows:
+        blocker_rows = """
+            <tr>
+              <td colspan="5">
+                <p class="metric-label">No blocking fixture entries were parsed from the main run.</p>
+              </td>
+            </tr>
+        """.strip()
 
     generated_label = generated_at.strftime("%B %d, %Y %H:%M %Z").replace(" 0", " ")
 
@@ -673,6 +832,76 @@ def render_html(
       color: #164e63;
     }}
 
+    .bucket-chip {{
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(154, 52, 18, 0.18);
+      background: rgba(154, 52, 18, 0.08);
+      color: var(--warn);
+      font-size: 0.84rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }}
+
+    .fixture-name {{
+      font-weight: 700;
+      line-height: 1.35;
+    }}
+
+    .fixture-path {{
+      margin-top: 8px;
+      color: var(--muted);
+      line-height: 1.45;
+      word-break: break-word;
+    }}
+
+    .chip-list {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }}
+
+    .code-chip {{
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(17, 94, 89, 0.16);
+      background: rgba(17, 94, 89, 0.08);
+      color: var(--accent);
+      font-size: 0.84rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }}
+
+    .detail-list {{
+      margin: 0;
+      padding-left: 18px;
+      color: var(--text);
+    }}
+
+    .detail-list-tight {{
+      margin-top: 10px;
+    }}
+
+    .detail-item,
+    .detail-item-muted {{
+      margin: 0 0 8px;
+      line-height: 1.45;
+    }}
+
+    .detail-item:last-child,
+    .detail-item-muted:last-child {{
+      margin-bottom: 0;
+    }}
+
+    .detail-item-muted {{
+      color: var(--muted);
+      font-size: 0.87rem;
+    }}
+
     @media (max-width: 1080px) {{
       .stats {{
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -790,6 +1019,27 @@ def render_html(
         {format_number(corpus_noise)} corpus-noise parse failures, {format_number(main_harness_failures)}
         main harness failures, and {panic_text}.
       </p>
+      <p class="note">
+        The table below stays fixture-focused on blocking entries from the main run. It includes
+        implementation diffs, mapping issues, and harness failures even when they are intentionally
+        excluded from the rule-mismatch table above.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Bucket</th>
+              <th>Fixture</th>
+              <th>Records</th>
+              <th>Codes</th>
+              <th>Why It Blocks</th>
+            </tr>
+          </thead>
+          <tbody>
+            {blocker_rows}
+          </tbody>
+        </table>
+      </div>
     </section>
 
     <div class="footer">
@@ -828,6 +1078,11 @@ def main() -> int:
     zsh_failure_match = ZSH_FAILURE_RE.search(text)
 
     rule_summaries = parse_rule_summaries(implementation_section, repo_root)
+    blocker_entries = (
+        parse_blocker_entries("Implementation Diff", implementation_section)
+        + parse_blocker_entries("Mapping Issue", mapping_section)
+        + parse_blocker_entries("Harness Failure", main_harness_section)
+    )
     implementation_mismatches = sum(summary.mismatches for summary in rule_summaries)
     shellcheck_only = sum(
         count
@@ -858,6 +1113,7 @@ def main() -> int:
         zsh_harness_failures=count_fixture_entries(zsh_harness_section),
         top_five_share=top_rule_share(rule_summaries),
         worker_panic_info=worker_panic(text),
+        blocker_entries=blocker_entries,
         rule_summaries=rule_summaries,
     )
     output_path.write_text(html_text, encoding="utf-8")
