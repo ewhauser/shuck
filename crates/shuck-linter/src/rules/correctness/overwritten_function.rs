@@ -183,11 +183,11 @@ fn is_nested_project_closure_import_reimport_from_same_origin(
         && matches!(first.kind, BindingKind::Imported)
         && matches!(second.kind, BindingKind::Imported)
         && !matches!(checker.semantic().scope_kind(first.scope), ScopeKind::File)
-        && imported_binding_origins_overlap(checker, overwritten.first, overwritten.second)
+        && imported_binding_origins_match_exactly(checker, overwritten.first, overwritten.second)
         && !has_same_scope_call_site_between(checker, overwritten, start_offset, end_offset)
 }
 
-fn imported_binding_origins_overlap(
+fn imported_binding_origins_match_exactly(
     checker: &Checker<'_>,
     first: shuck_semantic::BindingId,
     second: shuck_semantic::BindingId,
@@ -196,9 +196,10 @@ fn imported_binding_origins_overlap(
     let second_origins = checker.semantic().import_origins_for_binding(second);
 
     !first_origins.is_empty()
+        && first_origins.len() == second_origins.len()
         && first_origins
             .iter()
-            .any(|origin| second_origins.contains(origin))
+            .all(|origin| second_origins.contains(origin))
 }
 
 fn has_same_scope_call_site_between(
@@ -599,6 +600,53 @@ runner
                 second_helper.clone(),
                 test_functions.clone(),
                 warnings.clone(),
+            ]),
+        );
+
+        assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:?}");
+        assert_eq!(diagnostics[0].rule, Rule::OverwrittenFunction);
+    }
+
+    #[test]
+    fn nested_helper_library_collisions_with_partial_origin_overlap_still_report() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("libexec/bats-exec-file");
+        let first_helper = temp.path().join("libexec/first.bash");
+        let second_helper = temp.path().join("libexec/second.bash");
+        let shared = temp.path().join("libexec/shared.bash");
+        let source = "\
+#!/usr/bin/env bash
+runner() {
+  # shellcheck source=./first.bash
+  source ./first.bash
+  # shellcheck source=./second.bash
+  source ./second.bash
+}
+runner
+";
+
+        fs::create_dir_all(main.parent().unwrap()).unwrap();
+        fs::write(&main, source).unwrap();
+        fs::write(
+            &first_helper,
+            "#!/usr/bin/env bash\nsource ./shared.bash\nbats_setup_tracing() { printf '%s\\n' first; }\n",
+        )
+        .unwrap();
+        fs::write(
+            &second_helper,
+            "#!/usr/bin/env bash\nsource ./shared.bash\nbats_setup_tracing() { printf '%s\\n' second; }\n",
+        )
+        .unwrap();
+        fs::write(&shared, "bats_setup_tracing() { printf '%s\\n' shared; }\n").unwrap();
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction).with_analyzed_paths([
+                main.clone(),
+                first_helper.clone(),
+                second_helper.clone(),
+                shared.clone(),
             ]),
         );
 
