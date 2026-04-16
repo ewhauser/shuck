@@ -4864,15 +4864,99 @@ fn is_xargs_inline_replace_option(
         return false;
     }
 
-    let text = fact.span().slice(source);
-    let inline_replace = text
-        .strip_prefix("-I")
-        .or_else(|| text.strip_prefix("-i"))
-        .is_some_and(|replacement| !replacement.is_empty());
+    xargs_replacement_spans(command.body_args(), source)
+        .into_iter()
+        .any(|span| {
+            span.start.offset <= brace_span.start.offset && span.end.offset >= brace_span.end.offset
+        })
+}
 
-    inline_replace
-        && fact.span().start.offset <= brace_span.start.offset
-        && fact.span().end.offset >= brace_span.end.offset
+fn xargs_replacement_spans(args: &[&Word], source: &str) -> Vec<Span> {
+    let mut spans = Vec::new();
+    let mut index = 0usize;
+
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+
+        if text == "--" {
+            break;
+        }
+
+        if let Some(long) = text.strip_prefix("--") {
+            if let Some(replacement) = long.strip_prefix("replace=") {
+                if !replacement.is_empty() {
+                    spans.push(word.span);
+                }
+                index += 1;
+                continue;
+            }
+
+            if long == "replace" {
+                let Some(next_word) = args.get(index + 1) else {
+                    break;
+                };
+                spans.push(next_word.span);
+                index += 2;
+                continue;
+            }
+
+            let consume_next_argument = xargs_long_option_requires_separate_argument(long);
+            index += 1;
+            if consume_next_argument {
+                index += 1;
+            }
+            continue;
+        }
+
+        if !text.starts_with('-') || text == "-" {
+            break;
+        }
+
+        let mut chars = text[1..].chars().peekable();
+        let mut consume_next_argument = false;
+
+        while let Some(flag) = chars.next() {
+            match flag {
+                'i' => {
+                    if chars.peek().is_some() {
+                        spans.push(word.span);
+                    }
+                    break;
+                }
+                'I' => {
+                    if chars.peek().is_some() {
+                        spans.push(word.span);
+                    } else {
+                        let Some(next_word) = args.get(index + 1) else {
+                            return spans;
+                        };
+                        spans.push(next_word.span);
+                        consume_next_argument = true;
+                    }
+                    break;
+                }
+                _ => match xargs_short_option_argument_style(flag) {
+                    XargsShortOptionArgumentStyle::None => {}
+                    XargsShortOptionArgumentStyle::OptionalInlineOnly => break,
+                    XargsShortOptionArgumentStyle::Required => {
+                        if chars.peek().is_none() {
+                            consume_next_argument = true;
+                        }
+                        break;
+                    }
+                },
+            }
+        }
+
+        index += 1;
+        if consume_next_argument {
+            index += 1;
+        }
+    }
+
+    spans
 }
 
 fn shellish_words(text: &str) -> Vec<&str> {

@@ -88,11 +88,24 @@ ln -sfr $TERMUX_PREFIX/lib/libaircrack-${m}{-$_LT_VER,}.so
     fn ignores_xargs_inline_replace_options() {
         let source = "\
 #!/bin/bash
-xargs -I{} basename \"{}\" | xargs echo
+xargs -I{} basename \"{}\"
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LiteralBraces));
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn reports_xargs_like_literals_after_option_parsing_stops() {
+        let source = "\
+#!/bin/bash
+xargs printf -I{}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LiteralBraces));
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.start.column, 16);
+        assert_eq!(diagnostics[1].span.start.column, 17);
     }
 
     #[test]
