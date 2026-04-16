@@ -49,13 +49,6 @@ reviewed_divergences:
       - project-closure
       - shell-collapse
     reason: "The trailing-underscore variant is a project-specific helper naming convention, and shuck intentionally avoids teaching C156 every collapsed helper suffix pattern."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__gemset"
-    line: 146
-    end_line: 146
-    column: 38
-    end_column: 47
-    reason: "GEM_HOME is a standard runtime variable in this Ruby tooling flow, so treating it as a misspelling of a lowercase helper binding is too aggressive."
   - side: shellcheck-only
     path_suffix: "termux__termux-packages__packages__alpine__build.sh"
     line: 27
