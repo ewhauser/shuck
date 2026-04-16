@@ -35,7 +35,9 @@ pub fn array_keys_in_sh(checker: &mut Checker) {
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
+    use std::path::Path;
+
+    use crate::test::{test_snippet, test_snippet_at_path};
     use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
@@ -61,6 +63,55 @@ printf '%s\n' \"${!name}\" \"${!build_option_@}\" \"${!arr[*]}\" \"${!arr[@]}\"
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::ArrayKeysInSh).with_shell(ShellDialect::Bash),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn honors_shellcheck_shell_directive_in_plain_script() {
+        let source = "\
+# shellcheck shell=sh
+printf '%s\\n' \"${!arr[*]}\"
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/x071-plain-script"),
+            source,
+            &LinterSettings::for_rule(Rule::ArrayKeysInSh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "${!arr[*]}");
+    }
+
+    #[test]
+    fn shellcheck_shell_directive_overrides_shebang_for_x071() {
+        let source = "\
+#!/bin/bash
+# shellcheck shell=sh
+printf '%s\\n' \"${!arr[*]}\"
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/x071-shell-override"),
+            source,
+            &LinterSettings::for_rule(Rule::ArrayKeysInSh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "${!arr[*]}");
+    }
+
+    #[test]
+    fn shellcheck_shell_directive_can_suppress_x071_under_sh_shebang() {
+        let source = "\
+#!/bin/sh
+# shellcheck shell=bash
+printf '%s\\n' \"${!arr[*]}\"
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/x071-shell-override"),
+            source,
+            &LinterSettings::for_rule(Rule::ArrayKeysInSh),
         );
 
         assert!(diagnostics.is_empty());
