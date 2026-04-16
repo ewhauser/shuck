@@ -230,7 +230,6 @@ impl<'a> SurfaceFragmentSink<'a> {
             &mut self.facts.unicode_smart_quote_spans,
         );
         self.collect_heredoc_body_parts(&body.parts, context);
-        self.collect_parameter_operation_fragments_in_text_span(body.span);
     }
 
     pub(super) fn record_unset_array_target_word(&mut self, word: &Word) {
@@ -330,26 +329,6 @@ impl<'a> SurfaceFragmentSink<'a> {
                     }
                 }
             }
-        }
-    }
-
-    fn collect_parameter_operation_fragments_in_text_span(&mut self, span: Span) {
-        let text = span.slice(self.source);
-        let mut search_start = 0;
-
-        while let Some((relative_start, relative_end)) =
-            next_parameter_expansion_candidate(text, search_start)
-        {
-            let candidate_span = Span::from_positions(
-                span.start.advanced_by(&text[..relative_start]),
-                span.start.advanced_by(&text[..relative_end]),
-            );
-
-            self.record_substring_expansion(candidate_span);
-            self.record_case_modification(candidate_span);
-            self.record_replacement_expansion(candidate_span);
-
-            search_start = relative_end;
         }
     }
 

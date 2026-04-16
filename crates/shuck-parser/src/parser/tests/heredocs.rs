@@ -745,6 +745,25 @@ esac
 }
 
 #[test]
+fn test_strip_tabs_heredoc_body_keeps_parameter_part_source_spans() {
+    let input = "cat <<-EOF\n\tExpected: ${TERMUX_PKG_VERSION//\\~/-}\nEOF\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let heredoc = redirect_heredoc(&script.body[0].redirects[0]);
+    let parameter = heredoc
+        .body
+        .parts
+        .iter()
+        .find(|part| matches!(part.kind, shuck_ast::HeredocBodyPart::Parameter(_)))
+        .expect("expected parameter part");
+
+    assert_eq!(
+        parameter.span.slice(input).trim_end_matches('\n'),
+        "${TERMUX_PKG_VERSION//\\~/-}"
+    );
+}
+
+#[test]
 fn test_comment_ranges_heredoc_no_false_comments() {
     // Lines with # inside a heredoc must NOT produce Comment entries
     let source = "cat <<EOF\n# not a comment\nline two\nEOF\n# real\n";

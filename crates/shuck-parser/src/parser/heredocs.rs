@@ -123,7 +123,6 @@ impl<'a> Parser<'a> {
 
         body.parts = parts;
     }
-
     /// Parse redirections that follow a compound command (>, >>, 2>, etc.)
     pub(super) fn parse_heredoc_redirect(
         &mut self,

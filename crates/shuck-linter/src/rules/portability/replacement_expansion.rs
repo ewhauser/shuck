@@ -147,6 +147,22 @@ EOF
     }
 
     #[test]
+    fn ignores_literal_replacement_expansions_in_nested_heredoc_shell_contexts() {
+        let source = "\
+#!/bin/sh
+cat <<EOF
+$(printf '%s' '${commit//old/new}')
+EOF
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ReplacementExpansion),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn anchors_on_replacement_expansions_with_escaped_and_nested_operands() {
         let source = "\
 #!/bin/sh
