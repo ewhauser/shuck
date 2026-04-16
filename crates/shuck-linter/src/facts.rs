@@ -12433,9 +12433,14 @@ fn word_has_unquoted_array_comma(word: &Word, source: &str) -> bool {
             .expect("index is within bounds while scanning array comma candidates");
         let next_index = index + ch.len_utf8();
         let was_escaped = escaped;
+        if ch == '\\' && !in_single {
+            escaped = !escaped;
+            index = next_index;
+            continue;
+        }
         escaped = false;
 
-        if !in_single && !in_backtick && ch == '$' {
+        if !in_single && !in_backtick && !was_escaped && ch == '$' {
             if text[next_index..].starts_with("((")
                 && let Some(consumed) = scan_array_arithmetic_expansion_len(&text[next_index + 2..])
             {
@@ -12462,7 +12467,6 @@ fn word_has_unquoted_array_comma(word: &Word, source: &str) -> bool {
         }
 
         match ch {
-            '\\' if !in_single => escaped = true,
             '\'' if !in_double && !was_escaped => in_single = !in_single,
             '"' if !in_single && !was_escaped => in_double = !in_double,
             '`' if !in_single && !in_double && !was_escaped => in_backtick = !in_backtick,
@@ -12784,9 +12788,14 @@ fn scan_array_arithmetic_expansion_len(text: &str) -> Option<usize> {
 
     while let Some((ch, next_index)) = next_char_boundary(text, index) {
         let was_escaped = escaped;
+        if ch == '\\' && !in_single {
+            escaped = !escaped;
+            index = next_index;
+            continue;
+        }
         escaped = false;
 
-        if !in_single && ch == '$' {
+        if !in_single && !was_escaped && ch == '$' {
             if text[next_index..].starts_with("((")
                 && let Some(consumed) = scan_array_arithmetic_expansion_len(&text[next_index + 2..])
             {
@@ -12813,7 +12822,6 @@ fn scan_array_arithmetic_expansion_len(text: &str) -> Option<usize> {
         }
 
         match ch {
-            '\\' if !in_single => escaped = true,
             '\'' if !in_double && !was_escaped => in_single = !in_single,
             '"' if !in_single && !was_escaped => in_double = !in_double,
             '(' if !in_single && !in_double && !was_escaped => depth += 1,
@@ -12843,9 +12851,14 @@ fn scan_array_parameter_expansion_len(text: &str) -> Option<usize> {
 
     while let Some((ch, next_index)) = next_char_boundary(text, index) {
         let was_escaped = escaped;
+        if ch == '\\' && !in_single {
+            escaped = !escaped;
+            index = next_index;
+            continue;
+        }
         escaped = false;
 
-        if !in_single && ch == '$' {
+        if !in_single && !was_escaped && ch == '$' {
             if text[next_index..].starts_with("((")
                 && let Some(consumed) = scan_array_arithmetic_expansion_len(&text[next_index + 2..])
             {
@@ -12864,7 +12877,6 @@ fn scan_array_parameter_expansion_len(text: &str) -> Option<usize> {
         }
 
         match ch {
-            '\\' if !in_single => escaped = true,
             '\'' if !in_double && !was_escaped => in_single = !in_single,
             '"' if !in_single && !was_escaped => in_double = !in_double,
             '{' if !in_single && !in_double && !was_escaped => depth += 1,
@@ -12915,16 +12927,19 @@ fn inside_unquoted_brace_group(word: &Word, source: &str, target_offset: usize) 
             return brace_depth > 0;
         }
 
-        if escaped {
+        let was_escaped = escaped;
+        if ch == '\\' && !in_single {
+            escaped = !escaped;
+            continue;
+        }
+        escaped = false;
+
+        if was_escaped {
             escaped = false;
             continue;
         }
 
         match ch {
-            '\\' if !in_single => {
-                escaped = true;
-                continue;
-            }
             '\'' if !in_double => {
                 in_single = !in_single;
                 continue;
@@ -13410,7 +13425,7 @@ complex[$((i+=1))]+=x
 
     #[test]
     fn collects_comma_array_assignment_spans_from_compound_values() {
-        let source = "#!/bin/bash\na=(alpha,beta)\nb=(\"alpha,beta\")\nc=({x,y})\nd=([k]=v, [q]=w)\ne=(x,$y)\nf=(x\\, y)\ng=({$XDG_CONFIG_HOME,$HOME}/{alacritty,}/{.,}alacritty.ym?)\nh=(foo,{x,y},bar)\n";
+        let source = "#!/bin/bash\na=(alpha,beta)\nb=(\"alpha,beta\")\nc=({x,y})\nd=([k]=v, [q]=w)\ne=(x,$y)\nf=(x\\, y)\ng=({$XDG_CONFIG_HOME,$HOME}/{alacritty,}/{.,}alacritty.ym?)\nh=(foo,{x,y},bar)\ni=(\\$((1,2)))\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -13428,8 +13443,29 @@ complex[$((i+=1))]+=x
                 "([k]=v, [q]=w)",
                 "(x,$y)",
                 "(x\\, y)",
-                "(foo,{x,y},bar)"
+                "(foo,{x,y},bar)",
+                "(\\$((1,2)))"
             ]
+        );
+    }
+
+    #[test]
+    fn ignores_commas_after_even_backslashes_before_quote_regions() {
+        let source = "#!/bin/bash\na=(x\\\\\",y\")\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
         );
     }
 

@@ -33,6 +33,7 @@ b=(alpha, beta)
 c=([k]=v, [q]=w)
 d+=(x,y)
 e=(foo,{x,y},bar)
+f=(\\$((1,2)))
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CommaArrayElements));
 
@@ -46,7 +47,8 @@ e=(foo,{x,y},bar)
                 "(alpha, beta)",
                 "([k]=v, [q]=w)",
                 "(x,y)",
-                "(foo,{x,y},bar)"
+                "(foo,{x,y},bar)",
+                "(\\$((1,2)))"
             ]
         );
     }
@@ -65,6 +67,7 @@ g=(${token//,/ })
 h=(\"x\\\",y\")
 i=($((1,2)))
 j=(${x/\\\"/a,b})
+k=(x\\\\\",y\")
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CommaArrayElements));
 
