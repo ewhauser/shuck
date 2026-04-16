@@ -2791,11 +2791,12 @@ impl<'a> Parser<'a> {
 
     fn literal_part_from_text(&self, text: &str, span: Span, source_backed: bool) -> WordPartNode {
         WordPartNode::new(
-            WordPart::Literal(if source_backed {
-                LiteralText::source()
-            } else {
-                LiteralText::owned(text.to_string())
-            }),
+            WordPart::Literal(self.literal_text(
+                text.to_string(),
+                span.start,
+                span.end,
+                source_backed,
+            )),
             span,
         )
     }
@@ -3757,8 +3758,14 @@ impl<'a> Parser<'a> {
     }
 
     fn materialize_literal_text_source_backing(text: &mut LiteralText, span: Span, source: &str) {
-        if text.is_source_backed() {
-            *text = LiteralText::owned(span.slice(source).to_string());
+        match text {
+            LiteralText::Source => {
+                *text = LiteralText::owned(span.slice(source).to_string());
+            }
+            LiteralText::CookedSource(cooked) => {
+                *text = LiteralText::owned(cooked.to_string());
+            }
+            LiteralText::Owned(_) => {}
         }
     }
 
@@ -4672,21 +4679,35 @@ impl<'a> Parser<'a> {
         current: &mut String,
         current_start: Position,
         end: Position,
+        source_backed: bool,
     ) {
         if !current.is_empty() {
             Self::push_word_part(
                 parts,
-                WordPart::Literal(self.literal_text(std::mem::take(current), current_start, end)),
+                WordPart::Literal(self.literal_text(
+                    std::mem::take(current),
+                    current_start,
+                    end,
+                    source_backed,
+                )),
                 current_start,
                 end,
             );
         }
     }
 
-    fn literal_text(&self, text: String, start: Position, end: Position) -> LiteralText {
+    fn literal_text(
+        &self,
+        text: String,
+        start: Position,
+        end: Position,
+        source_backed: bool,
+    ) -> LiteralText {
         let span = Span::from_positions(start, end);
         if self.source_matches(span, &text) {
             LiteralText::source()
+        } else if source_backed {
+            LiteralText::cooked_source(text)
         } else {
             LiteralText::owned(text)
         }

@@ -1635,7 +1635,7 @@ impl<'a> Parser<'a> {
         let trimmed_span = Span::from_positions(start, span.end);
         let literal = match literal {
             LiteralText::Source => LiteralText::source(),
-            LiteralText::Owned(text) => {
+            LiteralText::Owned(text) | LiteralText::CookedSource(text) => {
                 let split_at = start.offset.saturating_sub(span.start.offset);
                 LiteralText::owned(text.get(split_at..)?.to_string())
             }
@@ -2836,6 +2836,7 @@ impl<'a> Parser<'a> {
             source_backed,
             DecodeWordPartsOptions {
                 parse_dollar_quotes: true,
+                preserve_escaped_expansion_literals: source_backed,
                 ..DecodeWordPartsOptions::default()
             },
             parts,
@@ -2888,13 +2889,18 @@ impl<'a> Parser<'a> {
                 if current.is_empty() {
                     current_start = part_start;
                 }
-                current.push(ch);
                 current.push(Self::next_word_char_unwrap(&mut chars, &mut cursor));
                 continue;
             }
 
             if options.preserve_quote_fragments && ch == '\'' {
-                self.flush_literal_part(parts, &mut current, current_start, part_start);
+                self.flush_literal_part(
+                    parts,
+                    &mut current,
+                    current_start,
+                    part_start,
+                    source_backed,
+                );
 
                 let content_start = cursor;
                 let mut content = (!source_backed).then(String::new);
@@ -2951,7 +2957,13 @@ impl<'a> Parser<'a> {
             }
 
             if options.preserve_quote_fragments && ch == '"' {
-                self.flush_literal_part(parts, &mut current, current_start, part_start);
+                self.flush_literal_part(
+                    parts,
+                    &mut current,
+                    current_start,
+                    part_start,
+                    source_backed,
+                );
 
                 let content_start = cursor;
                 let mut content = (!source_backed).then(String::new);
@@ -3049,7 +3061,13 @@ impl<'a> Parser<'a> {
             }
 
             if ch == '`' {
-                self.flush_literal_part(parts, &mut current, current_start, part_start);
+                self.flush_literal_part(
+                    parts,
+                    &mut current,
+                    current_start,
+                    part_start,
+                    source_backed,
+                );
 
                 let inner_start = cursor;
                 let body = if source_backed {
@@ -3187,7 +3205,13 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            self.flush_literal_part(parts, &mut current, current_start, part_start);
+            self.flush_literal_part(
+                parts,
+                &mut current,
+                current_start,
+                part_start,
+                source_backed,
+            );
 
             if options.parse_dollar_quotes && chars.peek() == Some(&'\'') {
                 Self::next_word_char_unwrap(&mut chars, &mut cursor);
@@ -4572,12 +4596,12 @@ impl<'a> Parser<'a> {
             }
         }
 
-        self.flush_literal_part(parts, &mut current, current_start, cursor);
+        self.flush_literal_part(parts, &mut current, current_start, cursor, source_backed);
 
         if parts.is_empty() {
             Self::push_word_part(
                 parts,
-                WordPart::Literal(self.literal_text(String::new(), base, cursor)),
+                WordPart::Literal(self.literal_text(String::new(), base, cursor, source_backed)),
                 base,
                 cursor,
             );
@@ -4795,6 +4819,7 @@ impl<'a> Parser<'a> {
             DecodeWordPartsOptions {
                 preserve_quote_fragments: true,
                 parse_dollar_quotes: true,
+                preserve_escaped_expansion_literals: source_backed,
                 ..DecodeWordPartsOptions::default()
             },
             &mut parts,

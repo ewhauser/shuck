@@ -1,5 +1,13 @@
 use super::*;
 
+fn word_part_tree_contains_variable(parts: &[WordPartNode], expected: &str) -> bool {
+    parts.iter().any(|part| match &part.kind {
+        WordPart::Variable(name) => name == expected,
+        WordPart::DoubleQuoted { parts, .. } => word_part_tree_contains_variable(parts, expected),
+        _ => false,
+    })
+}
+
 #[test]
 fn test_current_word_cache_tracks_token_changes() {
     let input = "\"$foo\" bar\n";
@@ -121,6 +129,70 @@ fn test_parse_variable() {
     } else {
         panic!("expected simple command");
     }
+}
+
+#[test]
+fn test_parse_word_string_keeps_escaped_dollar_literal() {
+    let input = r#"\$HOME"#;
+    let word = Parser::parse_word_string(input);
+
+    assert_eq!(word.render(input), "$HOME");
+    assert_eq!(word.render_syntax(input), input);
+    assert!(matches!(
+        word.parts.as_slice(),
+        [WordPartNode {
+            kind: WordPart::Literal(text),
+            ..
+        }] if text.is_source_backed() && text.as_str(input, word.parts[0].span) == "$HOME"
+    ));
+}
+
+#[test]
+fn test_parse_escaped_dollar_expansions_stay_literal_in_script_words() {
+    let input = r#"echo \$HOME \${USER}"#;
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    assert_eq!(command.args.len(), 2);
+
+    let expected = [("$HOME", r#"\$HOME"#), ("${USER}", r#"\${USER}"#)];
+    for (word, (decoded, syntax)) in command.args.iter().zip(expected) {
+        assert_eq!(word.render(input), decoded);
+        assert_eq!(word.render_syntax(input), syntax);
+        assert!(matches!(
+            word.parts.as_slice(),
+            [WordPartNode {
+                kind: WordPart::Literal(text),
+                ..
+            }] if text.is_source_backed() && text.as_str(input, word.parts[0].span) == decoded
+        ));
+    }
+}
+
+#[test]
+fn test_parse_escaped_command_substitution_stays_literal_in_double_quotes() {
+    let input = r#"echo "\$(pwd)""#;
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let word = &command.args[0];
+
+    assert_eq!(word.render(input), "$(pwd)");
+    assert_eq!(word.render_syntax(input), r#""\$(pwd)""#);
+    let WordPart::DoubleQuoted { parts, .. } = &word.parts[0].kind else {
+        panic!("expected double-quoted word");
+    };
+    assert!(matches!(
+        parts.as_slice(),
+        [WordPartNode {
+            kind: WordPart::Literal(text),
+            ..
+        }] if text.is_source_backed() && text.as_str(input, parts[0].span) == "$(pwd)"
+    ));
 }
 
 #[test]
@@ -1239,6 +1311,27 @@ fn test_escaped_process_substitution_like_text_stays_literal() {
 }
 
 #[test]
+fn test_escaped_backticks_stay_literal_unquoted() {
+    let input = "echo \\`pwd\\`\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let word = &command.args[0];
+
+    assert_eq!(word.render(input), "`pwd`");
+    assert_eq!(word.render_syntax(input), "\\`pwd\\`");
+    assert!(matches!(
+        word.parts.as_slice(),
+        [WordPartNode {
+            kind: WordPart::Literal(text),
+            ..
+        }] if text.is_source_backed() && text.as_str(input, word.parts[0].span) == "`pwd`"
+    ));
+}
+
+#[test]
 fn test_unquoted_backtick_substitution_can_contain_spaces() {
     let input = "commands=(`pyenv-commands --sh`)\n";
     let script = Parser::new(input).parse().unwrap().file;
@@ -1745,9 +1838,7 @@ fn test_parameter_expansion_trim_operand_accepts_literal_left_brace_after_multil
         matches!(
             &part.kind,
             PatternPart::Word(word)
-                if word.parts.iter().any(
-                    |word_part| matches!(&word_part.kind, WordPart::Variable(name) if name == "_sub_domain")
-                )
+                if word_part_tree_contains_variable(&word.parts, "_sub_domain")
         )
     }));
 }

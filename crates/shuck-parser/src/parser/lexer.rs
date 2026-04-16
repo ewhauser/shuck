@@ -1605,6 +1605,9 @@ impl<'a> Lexer<'a> {
                     } else {
                         // Escaped character: backslash quotes the next char
                         // (quote removal — only the literal char survives)
+                        if matches!(next, '$' | '`') {
+                            Self::push_capture_char(&mut word, '\x00');
+                        }
                         Self::push_capture_char(&mut word, next);
                         self.advance();
                         if next == '{'
@@ -1743,7 +1746,13 @@ impl<'a> Lexer<'a> {
         }
 
         if let Some(word) = word {
-            Ok(LexedWordSegment::owned(LexedWordSegmentKind::Plain, word))
+            let span = Some(Span::from_positions(start, self.current_position()));
+            Ok(LexedWordSegment::owned_with_spans(
+                LexedWordSegmentKind::Plain,
+                word,
+                span,
+                span,
+            ))
         } else {
             let end = self.current_position();
             Ok(LexedWordSegment::borrowed(

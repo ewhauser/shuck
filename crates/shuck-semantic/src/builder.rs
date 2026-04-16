@@ -1280,11 +1280,6 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
-        if part_starts_with_shell_expansion(part)
-            && span_is_backslash_escaped(self.source, part, span)
-        {
-            return;
-        }
         match part {
             WordPart::ZshQualifiedGlob(glob) => {
                 if zsh_qualified_glob_is_semantically_inert(glob) {
@@ -2913,86 +2908,6 @@ fn named_target_word(word: &Word, source: &str) -> Option<(Name, Span)> {
     is_name(&text).then_some((Name::from(text), word.span))
 }
 
-fn part_starts_with_shell_expansion(part: &WordPart) -> bool {
-    matches!(
-        part,
-        WordPart::Variable(_)
-            | WordPart::Parameter(_)
-            | WordPart::ParameterExpansion { .. }
-            | WordPart::CommandSubstitution { .. }
-            | WordPart::ProcessSubstitution { .. }
-            | WordPart::ArithmeticExpansion { .. }
-    )
-}
-
-fn span_is_backslash_escaped(source: &str, part: &WordPart, span: Span) -> bool {
-    let Some(offset) = expansion_start_offset(source, part, span) else {
-        return false;
-    };
-    let bytes = source.as_bytes();
-    if offset == 0 || offset > bytes.len() {
-        return false;
-    }
-
-    let mut backslashes = 0usize;
-    let mut index = offset;
-    while index > 0 && bytes[index - 1] == b'\\' {
-        backslashes += 1;
-        index -= 1;
-    }
-
-    backslashes % 2 == 1
-}
-
-fn expansion_start_offset(source: &str, part: &WordPart, span: Span) -> Option<usize> {
-    let bytes = source.as_bytes();
-    let (line_start, line_end) = line_bounds(source, span.start.line)?;
-    let search_start = line_start
-        .saturating_add(span.start.column.saturating_sub(1))
-        .min(line_end);
-
-    (search_start..line_end).find(|&candidate| part_matches_expansion_start(bytes, candidate, part))
-}
-
-fn part_matches_expansion_start(bytes: &[u8], offset: usize, part: &WordPart) -> bool {
-    match part {
-        WordPart::Variable(_)
-        | WordPart::Parameter(_)
-        | WordPart::ParameterExpansion { .. }
-        | WordPart::ArithmeticExpansion { .. } => bytes[offset] == b'$',
-        WordPart::CommandSubstitution { .. } => matches!(bytes[offset], b'$' | b'`'),
-        WordPart::ProcessSubstitution { .. } => {
-            matches!(bytes[offset], b'<' | b'>') && bytes.get(offset + 1) == Some(&b'(')
-        }
-        _ => false,
-    }
-}
-
-fn line_bounds(source: &str, line_number: usize) -> Option<(usize, usize)> {
-    if line_number == 0 {
-        return None;
-    }
-
-    let mut line = 1usize;
-    let mut line_start = 0usize;
-    for (index, byte) in source.bytes().enumerate() {
-        if line == line_number {
-            let line_end = source[index..]
-                .find('\n')
-                .map(|relative| index + relative)
-                .unwrap_or(source.len());
-            return Some((line_start, line_end));
-        }
-
-        if byte == b'\n' {
-            line += 1;
-            line_start = index + 1;
-        }
-    }
-
-    (line == line_number).then_some((line_start, source.len()))
-}
-
 fn static_word_text(word: &Word, source: &str) -> Option<String> {
     let mut result = String::new();
     collect_static_word_text(&word.parts, source, &mut result).then_some(result)
@@ -3462,7 +3377,9 @@ fn depth_from_word(word: Option<&Word>) -> usize {
 fn single_literal_word(word: &Word) -> Option<&str> {
     match word.parts.as_slice() {
         [part] => match &part.kind {
-            WordPart::Literal(shuck_ast::LiteralText::Owned(text)) => Some(text.as_ref()),
+            WordPart::Literal(
+                shuck_ast::LiteralText::Owned(text) | shuck_ast::LiteralText::CookedSource(text),
+            ) => Some(text.as_ref()),
             _ => None,
         },
         _ => None,

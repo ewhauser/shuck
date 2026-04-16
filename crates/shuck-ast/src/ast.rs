@@ -80,6 +80,7 @@ impl From<String> for SourceText {
 pub enum LiteralText {
     Source,
     Owned(Box<str>),
+    CookedSource(Box<str>),
 }
 
 impl LiteralText {
@@ -91,9 +92,20 @@ impl LiteralText {
         Self::Owned(text.into())
     }
 
+    pub fn cooked_source(text: impl Into<Box<str>>) -> Self {
+        Self::CookedSource(text.into())
+    }
+
     pub fn as_str<'a>(&'a self, source: &'a str, span: Span) -> &'a str {
         match self {
             Self::Source => span.slice(source),
+            Self::Owned(text) | Self::CookedSource(text) => text.as_ref(),
+        }
+    }
+
+    pub fn syntax_str<'a>(&'a self, source: &'a str, span: Span) -> &'a str {
+        match self {
+            Self::Source | Self::CookedSource(_) => span.slice(source),
             Self::Owned(text) => text.as_ref(),
         }
     }
@@ -103,11 +115,11 @@ impl LiteralText {
     }
 
     pub fn is_source_backed(&self) -> bool {
-        matches!(self, Self::Source)
+        matches!(self, Self::Source | Self::CookedSource(_))
     }
 
     pub fn is_empty(&self) -> bool {
-        matches!(self, Self::Owned(text) if text.is_empty())
+        matches!(self, Self::Owned(text) | Self::CookedSource(text) if text.is_empty())
     }
 }
 
@@ -125,7 +137,7 @@ impl From<String> for LiteralText {
 
 impl PartialEq<str> for LiteralText {
     fn eq(&self, other: &str) -> bool {
-        matches!(self, Self::Owned(text) if text.as_ref() == other)
+        matches!(self, Self::Owned(text) | Self::CookedSource(text) if text.as_ref() == other)
     }
 }
 
@@ -2450,7 +2462,7 @@ fn fmt_literal_text(
         Some(source) => f.write_str(text.as_str(source, span)),
         None => match text {
             LiteralText::Source => f.write_str("<source>"),
-            LiteralText::Owned(text) => f.write_str(text),
+            LiteralText::Owned(text) | LiteralText::CookedSource(text) => f.write_str(text),
         },
     }
 }
@@ -2465,7 +2477,7 @@ fn fmt_double_quoted_literal_text(
         Some(source) => text.as_str(source, span),
         None => match text {
             LiteralText::Source => "<source>",
-            LiteralText::Owned(text) => text,
+            LiteralText::Owned(text) | LiteralText::CookedSource(text) => text,
         },
     };
 
@@ -2490,7 +2502,14 @@ fn fmt_pattern_part_with_source_mode(
     mode: RenderMode,
 ) -> fmt::Result {
     match part {
-        PatternPart::Literal(text) => fmt_literal_text(f, text, span, source)?,
+        PatternPart::Literal(text) => match (mode, source) {
+            (RenderMode::Syntax, Some(source))
+                if text.is_source_backed() && span.end.offset <= source.len() =>
+            {
+                f.write_str(text.syntax_str(source, span))?
+            }
+            _ => fmt_literal_text(f, text, span, source)?,
+        },
         PatternPart::AnyString => f.write_str("*")?,
         PatternPart::AnyChar => f.write_str("?")?,
         PatternPart::CharClass(text) => match source {
