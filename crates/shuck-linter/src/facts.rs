@@ -13190,24 +13190,28 @@ fn scan_array_process_substitution_len(text: &str) -> Option<usize> {
 fn scan_array_parameter_expansion_len(text: &str) -> Option<usize> {
     let mut index = 0usize;
     let mut in_single = false;
+    let mut in_ansi_c_single = false;
     let mut in_double = false;
     let mut escaped = false;
+    let mut ansi_c_quote_pending = false;
 
     while let Some((ch, next_index)) = next_char_boundary(text, index) {
         let was_escaped = escaped;
         if ch == '\\' && !in_single {
             escaped = !escaped;
             index = next_index;
+            ansi_c_quote_pending = false;
             continue;
         }
         escaped = false;
 
-        if !in_single && !was_escaped && ch == '$' {
+        if !in_single && !in_ansi_c_single && !was_escaped && ch == '$' {
             if text[next_index..].starts_with('{')
                 && let Some(consumed) =
                     scan_array_parameter_expansion_len(&text[next_index + '{'.len_utf8()..])
             {
                 index = next_index + '{'.len_utf8() + consumed;
+                ansi_c_quote_pending = false;
                 continue;
             }
 
@@ -13215,6 +13219,7 @@ fn scan_array_parameter_expansion_len(text: &str) -> Option<usize> {
                 && let Some(consumed) = scan_array_arithmetic_expansion_len(&text[next_index + 2..])
             {
                 index = next_index + 2 + consumed;
+                ansi_c_quote_pending = false;
                 continue;
             }
 
@@ -13224,17 +13229,30 @@ fn scan_array_parameter_expansion_len(text: &str) -> Option<usize> {
                     scan_array_command_substitution_len(&text[next_index + '('.len_utf8()..])
             {
                 index = next_index + '('.len_utf8() + consumed;
+                ansi_c_quote_pending = false;
                 continue;
             }
         }
 
         match ch {
-            '\'' if !in_double && !was_escaped => in_single = !in_single,
-            '"' if !in_single && !was_escaped => in_double = !in_double,
-            '}' if !in_single && !in_double && !was_escaped => return Some(next_index),
+            '\'' if !in_double && !was_escaped => {
+                if in_ansi_c_single {
+                    in_ansi_c_single = false;
+                } else if !in_single && ansi_c_quote_pending {
+                    in_ansi_c_single = true;
+                } else {
+                    in_single = !in_single;
+                }
+            }
+            '"' if !in_single && !in_ansi_c_single && !was_escaped => in_double = !in_double,
+            '}' if !in_single && !in_ansi_c_single && !in_double && !was_escaped => {
+                return Some(next_index);
+            }
             _ => {}
         }
 
+        ansi_c_quote_pending =
+            ch == '$' && !in_single && !in_ansi_c_single && !in_double && !was_escaped;
         index = next_index;
     }
 
@@ -13977,6 +13995,26 @@ complex[$((i+=1))]+=x
     #[test]
     fn ignores_commas_inside_parameter_expansions_with_literal_braces() {
         let source = "#!/bin/bash\na=(${x/a,b/{})\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_parameter_expansions_with_ansi_c_single_quotes() {
+        let source = "#!/bin/bash\na=(${x/$'a\\'b'/c,d})\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
