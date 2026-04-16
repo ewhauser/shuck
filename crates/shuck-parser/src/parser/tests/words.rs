@@ -1004,6 +1004,54 @@ fn test_unquoted_backtick_substitution_can_contain_spaces() {
 }
 
 #[test]
+fn test_compound_array_keeps_quoted_pipelined_heredoc_substitution_as_one_element() {
+    let input = r#"# shellcheck shell=bash
+project=owner/repo
+graphql_request=(
+  -X POST
+  -d "$(
+    cat <<-EOF | tr '\n' ' '
+      {
+        "query": "query {
+          repository(owner: \"${project%/*}\", name: \"${project##*/}\") {
+            refs(refPrefix: \"refs/tags/\")
+          }
+        }"
+      }
+EOF
+  )"
+)
+"#;
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[1].command else {
+        panic!("expected simple command");
+    };
+    let AssignmentValue::Compound(array) = &command.assignments[0].value else {
+        panic!("expected compound assignment");
+    };
+
+    assert_eq!(array.elements.len(), 4);
+    let rendered = array
+        .elements
+        .iter()
+        .map(|element| match element {
+            ArrayElem::Sequential(word) => word.span.slice(input).to_owned(),
+            _ => panic!("expected sequential array element"),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        rendered,
+        vec![
+            "-X",
+            "POST",
+            "-d",
+            "\"$(\n    cat <<-EOF | tr '\\n' ' '\n      {\n        \"query\": \"query {\n          repository(owner: \\\"${project%/*}\\\", name: \\\"${project##*/}\\\") {\n            refs(refPrefix: \\\"refs/tags/\\\")\n          }\n        }\"\n      }\nEOF\n  )\"",
+        ]
+    );
+}
+
+#[test]
 fn test_brace_syntax_marks_unquoted_expansion_candidates() {
     let list_input = "{a,b}";
     let list = Parser::parse_word_string(list_input);

@@ -15741,6 +15741,104 @@ arr=(\"$(printf '%s\\n' \"$x\")\")
     }
 
     #[test]
+    fn array_assignment_split_facts_keep_heredoc_substitutions_as_single_words() {
+        let source = "\
+#!/bin/bash
+arr=(\"$(
+  cat <<-EOF
+    repository(owner: \\\"${project%/*}\\\", name: \\\"${project##*/}\\\")
+EOF
+)\")
+";
+
+        with_facts(source, None, |_, facts| {
+            let split_words = facts
+                .array_assignment_split_word_facts()
+                .map(|fact| fact.span().slice(source).to_owned())
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                split_words,
+                vec![
+                    "\"$(\n  cat <<-EOF\n    repository(owner: \\\"${project%/*}\\\", name: \\\"${project##*/}\\\")\nEOF\n)\""
+                ]
+            );
+        });
+    }
+
+    #[test]
+    fn array_assignment_split_facts_keep_pipelined_heredoc_substitutions_as_single_words() {
+        let source = "\
+#!/bin/bash
+arr=(\"$(
+  cat <<-EOF | tr '\\n' ' '
+    {
+      \\\"query\\\": \\\"query {
+        repository(owner: \\\"${project%/*}\\\", name: \\\"${project##*/}\\\") {
+          refs(refPrefix: \\\"refs/tags/\\\")
+        }
+      }\\\"
+    }
+EOF
+)\")
+";
+
+        with_facts(source, None, |_, facts| {
+            let split_words = facts
+                .array_assignment_split_word_facts()
+                .map(|fact| fact.span().slice(source).to_owned())
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                split_words,
+                vec![
+                    "\"$(\n  cat <<-EOF | tr '\\n' ' '\n    {\n      \\\"query\\\": \\\"query {\n        repository(owner: \\\"${project%/*}\\\", name: \\\"${project##*/}\\\") {\n          refs(refPrefix: \\\"refs/tags/\\\")\n        }\n      }\\\"\n    }\nEOF\n)\""
+                ]
+            );
+        });
+    }
+
+    #[test]
+    fn array_assignment_split_facts_track_realistic_pipelined_heredoc_substitutions() {
+        let source = r#"# shellcheck shell=bash
+project=owner/repo
+graphql_request=(
+  -X POST
+  -d "$(
+    cat <<-EOF | tr '\n' ' '
+      {
+        "query": "query {
+          repository(owner: \"${project%/*}\", name: \"${project##*/}\") {
+            refs(refPrefix: \"refs/tags/\")
+          }
+        }"
+      }
+EOF
+  )"
+)
+"#;
+
+        with_facts(source, None, |_, facts| {
+            let split_facts = facts
+                .array_assignment_split_word_facts()
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                split_facts
+                    .iter()
+                    .map(|fact| fact.span().slice(source))
+                    .collect::<Vec<_>>(),
+                vec![
+                    "-X",
+                    "POST",
+                    "-d",
+                    "\"$(\n    cat <<-EOF | tr '\\n' ' '\n      {\n        \"query\": \"query {\n          repository(owner: \\\"${project%/*}\\\", name: \\\"${project##*/}\\\") {\n            refs(refPrefix: \\\"refs/tags/\\\")\n          }\n        }\"\n      }\nEOF\n  )\"",
+                ]
+            );
+        });
+    }
+
+    #[test]
     fn shared_command_traversal_collects_word_facts_and_surface_fragments() {
         let source = "\
 #!/bin/bash
