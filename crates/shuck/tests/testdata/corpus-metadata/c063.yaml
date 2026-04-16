@@ -20,6 +20,13 @@ reviewed_divergences:
     line: 12
     reason: "This fixture sources nvm.sh and then replaces the version-check helper with a mock implementation to generate test data."
   - side: shuck-only
+    path_suffix: "ohmyzsh__ohmyzsh__oh-my-zsh.sh"
+    line: 3
+    labels:
+      - project-closure
+      - shell-collapse
+    reason: "This formatter helper is replaced with a no-op only on the non-terminal branch, while terminal output still uses the original definition later in the file."
+  - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__requirements__openindiana"
     line: 68
     reason: "This platform-specific helper is part of RVM's override chain, so the overwrite is intentional rather than a real dead-definition bug."

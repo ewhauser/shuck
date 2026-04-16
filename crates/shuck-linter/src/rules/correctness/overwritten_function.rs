@@ -1,4 +1,4 @@
-use shuck_semantic::{OverwrittenFunction as SemanticOverwrittenFunction, ScopeKind};
+use shuck_semantic::{BindingKind, OverwrittenFunction as SemanticOverwrittenFunction, ScopeKind};
 
 use crate::context::FileContextTag;
 use crate::{Checker, Rule, Violation};
@@ -81,6 +81,13 @@ fn should_suppress_overwrite(
                     checker,
                     first.span.end.offset,
                     second.span.start.offset,
+                ))
+            || (file_context.has_tag(FileContextTag::ProjectClosure)
+                && is_project_closure_imported_override(
+                    checker,
+                    overwritten,
+                    first.span.end.offset,
+                    second.span.start.offset,
                 )))
 }
 
@@ -141,9 +148,42 @@ fn has_only_indirect_call_sites_between(
     has_nested_call_site && !has_same_scope_call_between
 }
 
+fn is_project_closure_imported_override(
+    checker: &Checker<'_>,
+    overwritten: &SemanticOverwrittenFunction,
+    start_offset: usize,
+    end_offset: usize,
+) -> bool {
+    let first = checker.semantic().binding(overwritten.first);
+
+    matches!(first.kind, BindingKind::Imported)
+        && !has_same_scope_call_site_between(checker, overwritten, start_offset, end_offset)
+}
+
+fn has_same_scope_call_site_between(
+    checker: &Checker<'_>,
+    overwritten: &SemanticOverwrittenFunction,
+    start_offset: usize,
+    end_offset: usize,
+) -> bool {
+    let first = checker.semantic().binding(overwritten.first);
+
+    checker.semantic().call_sites_for(&overwritten.name).iter().any(|site| {
+        site.scope == first.scope
+            && site.span.start.offset > start_offset
+            && site.span.start.offset < end_offset
+            && checker
+                .semantic()
+                .visible_binding(&overwritten.name, site.span)
+                .is_some_and(|binding| binding.id == overwritten.first)
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::{fs, path::Path};
+
+    use tempfile::tempdir;
 
     use crate::test::test_snippet_at_path;
     use crate::{LinterSettings, Rule};
@@ -359,5 +399,91 @@ helper() { printf '%s\\n' second; }
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn sourced_helper_overrides_in_helper_libraries_are_suppressed() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("libexec/bats-gather-tests");
+        let helper = temp.path().join("libexec/test_functions.bash");
+        let source = "\
+#!/usr/bin/env bash
+source ./test_functions.bash
+bats_test_function() { printf '%s\\n' local; }
+";
+
+        fs::create_dir_all(main.parent().unwrap()).unwrap();
+        fs::write(&main, source).unwrap();
+        fs::write(
+            &helper,
+            "bats_test_function() { printf '%s\\n' imported; }\n",
+        )
+        .unwrap();
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction)
+                .with_analyzed_paths([main.clone(), helper.clone()]),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn sourced_helper_overrides_in_nested_helper_scopes_are_suppressed() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("libexec/bats-exec-file");
+        let helper = temp.path().join("libexec/tracing.bash");
+        let source = "\
+#!/usr/bin/env bash
+runner() {
+  source ./tracing.bash
+  prepare_context
+  bats_setup_tracing() { printf '%s\\n' local; }
+}
+";
+
+        fs::create_dir_all(main.parent().unwrap()).unwrap();
+        fs::write(&main, source).unwrap();
+        fs::write(
+            &helper,
+            "bats_setup_tracing() { printf '%s\\n' imported; }\n",
+        )
+        .unwrap();
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction)
+                .with_analyzed_paths([main.clone(), helper.clone()]),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn sourced_helper_overrides_in_regular_scripts_still_report() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        let source = "\
+#!/usr/bin/env bash
+source ./helper.sh
+helper() { printf '%s\\n' local; }
+";
+
+        fs::write(&main, source).unwrap();
+        fs::write(&helper, "helper() { printf '%s\\n' imported; }\n").unwrap();
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction)
+                .with_analyzed_paths([main.clone(), helper.clone()]),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::OverwrittenFunction);
     }
 }
