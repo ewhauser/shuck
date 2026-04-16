@@ -201,9 +201,79 @@ fn is_in_named_function_scope(scopes: &[Scope], scope: ScopeId, name: &Name) -> 
 }
 
 #[derive(Debug)]
+struct ScopeLookup {
+    children: Vec<Box<[ScopeId]>>,
+}
+
+impl ScopeLookup {
+    fn new(scopes: &[Scope]) -> Self {
+        let mut children = vec![Vec::new(); scopes.len()];
+
+        for scope in scopes {
+            if let Some(parent) = scope.parent {
+                children[parent.index()].push(scope.id);
+            }
+        }
+
+        for scope_ids in &mut children {
+            scope_ids.sort_by_key(|scope_id| {
+                let span = scopes[scope_id.index()].span;
+                (span.start.offset, span.end.offset)
+            });
+        }
+
+        Self {
+            children: children.into_iter().map(Vec::into_boxed_slice).collect(),
+        }
+    }
+
+    fn scope_at(&self, scopes: &[Scope], offset: usize) -> Option<ScopeId> {
+        let root = scopes.first()?;
+        if !contains_offset(root.span, offset) {
+            return None;
+        }
+
+        let mut scope = root.id;
+        while let Some(child) = self.child_scope_at(scopes, scope, offset) {
+            scope = child;
+        }
+
+        Some(scope)
+    }
+
+    fn child_scope_at(&self, scopes: &[Scope], parent: ScopeId, offset: usize) -> Option<ScopeId> {
+        let children = self.children.get(parent.index())?;
+        let cutoff = children
+            .partition_point(|scope_id| scopes[scope_id.index()].span.start.offset <= offset);
+        let mut best: Option<ScopeId> = None;
+        let mut index = cutoff;
+
+        while index > 0 {
+            index -= 1;
+            let scope_id = children[index];
+            let span = scopes[scope_id.index()].span;
+            if span.end.offset < offset {
+                break;
+            }
+            if contains_offset(span, offset) {
+                match best {
+                    Some(current)
+                        if scope_span_width(scopes[current.index()].span)
+                            <= scope_span_width(span) => {}
+                    _ => best = Some(scope_id),
+                }
+            }
+        }
+
+        best
+    }
+}
+
+#[derive(Debug)]
 pub struct SemanticModel {
     shell_profile: ShellProfile,
     scopes: Vec<Scope>,
+    scope_lookup: ScopeLookup,
     bindings: Vec<Binding>,
     references: Vec<Reference>,
     predefined_runtime_refs: FxHashSet<ReferenceId>,
@@ -271,9 +341,11 @@ impl SemanticModel {
             &built.bindings,
             &built.recorded_program,
         );
+        let scope_lookup = ScopeLookup::new(&built.scopes);
         Self {
             shell_profile: built.shell_profile,
             scopes: built.scopes,
+            scope_lookup,
             bindings: built.bindings,
             references: built.references,
             predefined_runtime_refs: built.predefined_runtime_refs,
@@ -457,11 +529,8 @@ impl SemanticModel {
     }
 
     pub fn scope_at(&self, offset: usize) -> ScopeId {
-        self.scopes
-            .iter()
-            .filter(|scope| contains_offset(scope.span, offset))
-            .min_by_key(|scope| scope.span.end.offset - scope.span.start.offset)
-            .map(|scope| scope.id)
+        self.scope_lookup
+            .scope_at(&self.scopes, offset)
             .unwrap_or(ScopeId(0))
     }
 
@@ -1107,12 +1176,26 @@ fn contains_offset(span: Span, offset: usize) -> bool {
     span.start.offset <= offset && offset <= span.end.offset
 }
 
+fn scope_span_width(span: Span) -> usize {
+    span.end.offset.saturating_sub(span.start.offset)
+}
+
 fn contains_span(outer: Span, inner: Span) -> bool {
     outer.start.offset <= inner.start.offset && outer.end.offset >= inner.end.offset
 }
 
 fn ancestor_scopes(scopes: &[Scope], scope: ScopeId) -> impl Iterator<Item = ScopeId> + '_ {
     std::iter::successors(Some(scope), move |scope| scopes[scope.index()].parent)
+}
+
+#[cfg(test)]
+fn linear_scope_at(scopes: &[Scope], offset: usize) -> ScopeId {
+    scopes
+        .iter()
+        .filter(|scope| contains_offset(scope.span, offset))
+        .min_by_key(|scope| scope_span_width(scope.span))
+        .map(|scope| scope.id)
+        .unwrap_or(ScopeId(0))
 }
 
 fn build_indirect_targets_by_binding(
@@ -1721,6 +1804,31 @@ done
             .filter(|scope| matches!(scope.kind, ScopeKind::Pipeline))
             .count();
         assert_eq!(pipeline_scopes, 3);
+    }
+
+    #[test]
+    fn indexed_scope_lookup_matches_linear_scan_for_all_offsets() {
+        let source = "\
+outer() {
+  local current=1
+  (
+    printf '%s\\n' \"$(
+      printf '%s\\n' \"$current\" | tr a b
+    )\"
+  )
+  inner() { echo \"$current\"; }
+}
+outer
+";
+        let model = model(source);
+
+        for offset in 0..=source.len() {
+            assert_eq!(
+                model.scope_at(offset),
+                linear_scope_at(model.scopes(), offset),
+                "offset {offset}"
+            );
+        }
     }
 
     #[test]
