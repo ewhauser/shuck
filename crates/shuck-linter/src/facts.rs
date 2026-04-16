@@ -12487,10 +12487,9 @@ fn next_char_boundary(text: &str, index: usize) -> Option<(char, usize)> {
 }
 
 fn hash_starts_comment(text: &str, index: usize) -> bool {
-    text[..index]
-        .chars()
-        .next_back()
-        .is_none_or(|prev| prev.is_whitespace() || matches!(prev, ';' | '|' | '&' | '<' | '>'))
+    text[..index].chars().next_back().is_none_or(|prev| {
+        prev.is_whitespace() || matches!(prev, ';' | '|' | '&' | '<' | '>' | '(')
+    })
 }
 
 fn flush_array_command_subst_keyword(
@@ -12866,8 +12865,8 @@ fn scan_array_parameter_expansion_len(text: &str) -> Option<usize> {
 
         match ch {
             '\\' if !in_single => escaped = true,
-            '\'' if !in_double => in_single = !in_single,
-            '"' if !in_single => in_double = !in_double,
+            '\'' if !in_double && !was_escaped => in_single = !in_single,
+            '"' if !in_single && !was_escaped => in_double = !in_double,
             '{' if !in_single && !in_double && !was_escaped => depth += 1,
             '}' if !in_single && !in_double && !was_escaped => {
                 depth -= 1;
@@ -13458,6 +13457,26 @@ complex[$((i+=1))]+=x
     fn ignores_commas_inside_separator_started_command_substitution_comments() {
         let source =
             "#!/bin/bash\na=(\"$(printf '%s' x;# comment with ) and ,\nprintf '%s' y\n)\")\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_grouped_command_substitution_comments() {
+        let source = "#!/bin/bash\na=(\"$( (# comment with )\nprintf %s 1,2\n) )\")\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);

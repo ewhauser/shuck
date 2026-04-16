@@ -3227,10 +3227,9 @@ fn next_char_boundary(input: &str, index: usize) -> Option<(char, usize)> {
 }
 
 fn hash_starts_comment(input: &str, index: usize) -> bool {
-    input[..index]
-        .chars()
-        .next_back()
-        .is_none_or(|prev| prev.is_whitespace() || matches!(prev, ';' | '|' | '&' | '<' | '>'))
+    input[..index].chars().next_back().is_none_or(|prev| {
+        prev.is_whitespace() || matches!(prev, ';' | '|' | '&' | '<' | '>' | '(')
+    })
 }
 
 fn heredoc_delimiter_is_terminator(
@@ -3655,6 +3654,17 @@ mod tests {
         let body = &source[..consumed];
 
         assert!(body.contains("printf '%s' y"));
+        assert!(body.ends_with(')'));
+    }
+
+    #[test]
+    fn test_scan_command_substitution_body_len_handles_grouping_comment_after_left_paren() {
+        let source = " (# comment with )\nprintf %s 1,2\n) )\"";
+
+        let consumed = scan_command_substitution_body_len(source).expect("expected match");
+        let body = &source[..consumed];
+
+        assert!(body.contains("printf %s 1,2"));
         assert!(body.ends_with(')'));
     }
 

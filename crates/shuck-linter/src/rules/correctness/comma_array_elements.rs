@@ -64,6 +64,7 @@ f=(${versions/,/ })
 g=(${token//,/ })
 h=(\"x\\\",y\")
 i=($((1,2)))
+j=(${x/\\\"/a,b})
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CommaArrayElements));
 
