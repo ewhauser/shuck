@@ -2042,7 +2042,7 @@ impl<'a> Parser<'a> {
                 expression_ast,
                 syntax,
             },
-            WordPart::Parameter(parameter) => HeredocBodyPart::Parameter(parameter),
+            WordPart::Parameter(parameter) => HeredocBodyPart::Parameter(Box::new(parameter)),
             other => panic!("unsupported heredoc body part: {other:?}"),
         };
 

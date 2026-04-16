@@ -1907,7 +1907,7 @@ pub enum HeredocBodyPart {
         expression_ast: Option<ArithmeticExprNode>,
         syntax: ArithmeticExpansionSyntax,
     },
-    Parameter(ParameterExpansion),
+    Parameter(Box<ParameterExpansion>),
 }
 
 /// A parsed heredoc body with its expansion mode.
@@ -4237,7 +4237,8 @@ mod tests {
             span: Span::new(),
             target: RedirectTarget::Heredoc(Heredoc {
                 delimiter,
-                body: Word::quoted_literal("body"),
+                body: HeredocBody::literal_with_span("body", Span::new())
+                    .with_mode(HeredocBodyMode::Literal),
             }),
         };
 

@@ -37,6 +37,13 @@ struct ParsedWordTarget {
     boundary: WordTargetBoundary,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct DecodeWordPartsOptions {
+    preserve_quote_fragments: bool,
+    parse_dollar_quotes: bool,
+    preserve_escaped_expansion_literals: bool,
+}
+
 impl<'a> PatternParser<'a> {
     fn new(input: &'a str, word: &'a Word) -> Self {
         Self::from_word_parts_with_mode(input, &word.parts, word.span, PatternParseMode::Standard)
@@ -529,9 +536,11 @@ impl<'a> Parser<'a> {
             text.slice(self.input),
             span.start,
             text.is_source_backed(),
-            true,
-            true,
-            false,
+            DecodeWordPartsOptions {
+                preserve_quote_fragments: true,
+                parse_dollar_quotes: true,
+                ..DecodeWordPartsOptions::default()
+            },
             &mut parts,
         );
         PatternParser::from_word_parts(self.input, &parts, span).parse()
@@ -2454,9 +2463,10 @@ impl<'a> Parser<'a> {
             s,
             base,
             source_backed,
-            false,
-            true,
-            false,
+            DecodeWordPartsOptions {
+                parse_dollar_quotes: true,
+                ..DecodeWordPartsOptions::default()
+            },
             parts,
         );
     }
@@ -2466,9 +2476,7 @@ impl<'a> Parser<'a> {
         s: &str,
         base: Position,
         source_backed: bool,
-        preserve_quote_fragments: bool,
-        parse_dollar_quotes: bool,
-        preserve_escaped_expansion_literals: bool,
+        options: DecodeWordPartsOptions,
         parts: &mut Vec<WordPartNode>,
     ) {
         let mut chars = s.chars().peekable();
@@ -2490,7 +2498,7 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            if preserve_quote_fragments
+            if options.preserve_quote_fragments
                 && ch == '\\'
                 && matches!(chars.peek().copied(), Some('\'' | '"'))
             {
@@ -2502,7 +2510,7 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            if preserve_escaped_expansion_literals
+            if options.preserve_escaped_expansion_literals
                 && ch == '\\'
                 && matches!(chars.peek().copied(), Some('$' | '`' | '\\'))
             {
@@ -2514,7 +2522,7 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            if preserve_quote_fragments && ch == '\'' {
+            if options.preserve_quote_fragments && ch == '\'' {
                 self.flush_literal_part(parts, &mut current, current_start, part_start);
 
                 let content_start = cursor;
@@ -2571,7 +2579,7 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            if preserve_quote_fragments && ch == '"' {
+            if options.preserve_quote_fragments && ch == '"' {
                 self.flush_literal_part(parts, &mut current, current_start, part_start);
 
                 let content_start = cursor;
@@ -2723,7 +2731,7 @@ impl<'a> Parser<'a> {
 
             self.flush_literal_part(parts, &mut current, current_start, part_start);
 
-            if parse_dollar_quotes && chars.peek() == Some(&'\'') {
+            if options.parse_dollar_quotes && chars.peek() == Some(&'\'') {
                 Self::next_word_char_unwrap(&mut chars, &mut cursor);
                 let mut ansi = String::new();
                 while let Some(c) = Self::next_word_char(&mut chars, &mut cursor) {
@@ -2764,7 +2772,7 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            if parse_dollar_quotes && chars.peek() == Some(&'"') {
+            if options.parse_dollar_quotes && chars.peek() == Some(&'"') {
                 Self::next_word_char_unwrap(&mut chars, &mut cursor);
                 let content_start = cursor;
                 let mut content = (!source_backed).then(String::new);
@@ -4265,9 +4273,11 @@ impl<'a> Parser<'a> {
             s,
             base,
             source_backed,
-            true,
-            true,
-            false,
+            DecodeWordPartsOptions {
+                preserve_quote_fragments: true,
+                parse_dollar_quotes: true,
+                ..DecodeWordPartsOptions::default()
+            },
             &mut parts,
         );
         self.word_with_parts(parts, span)
@@ -4284,9 +4294,10 @@ impl<'a> Parser<'a> {
             s,
             span.start,
             source_backed,
-            false,
-            false,
-            true,
+            DecodeWordPartsOptions {
+                preserve_escaped_expansion_literals: true,
+                ..DecodeWordPartsOptions::default()
+            },
             &mut parts,
         );
         let parts = parts

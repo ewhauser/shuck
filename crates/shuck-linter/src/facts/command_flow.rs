@@ -19,14 +19,17 @@ fn build_command_substitution_facts<'a>(
 ) -> Box<[SubstitutionFact]> {
     let mut substitutions = Vec::new();
     let mut substitution_index = FxHashMap::default();
+    let context = SubstitutionFactBuildContext {
+        commands,
+        command_ids_by_span,
+        source,
+    };
 
     visit_command_words_for_substitutions(fact.command(), fact.redirects(), source, &mut |word| {
         collect_or_update_word_substitution_facts(
             word,
             SubstitutionHostKind::Other,
-            commands,
-            command_ids_by_span,
-            source,
+            context,
             &mut substitutions,
             &mut substitution_index,
         );
@@ -36,9 +39,7 @@ fn build_command_substitution_facts<'a>(
         collect_or_update_heredoc_body_substitution_facts(
             body,
             SubstitutionHostKind::Other,
-            commands,
-            command_ids_by_span,
-            source,
+            context,
             &mut substitutions,
             &mut substitution_index,
         );
@@ -48,9 +49,7 @@ fn build_command_substitution_facts<'a>(
         collect_or_update_word_substitution_facts(
             word,
             SubstitutionHostKind::CommandArgument,
-            commands,
-            command_ids_by_span,
-            source,
+            context,
             &mut substitutions,
             &mut substitution_index,
         );
@@ -60,9 +59,7 @@ fn build_command_substitution_facts<'a>(
         collect_or_update_word_substitution_facts(
             word,
             SubstitutionHostKind::HereStringOperand,
-            commands,
-            command_ids_by_span,
-            source,
+            context,
             &mut substitutions,
             &mut substitution_index,
         );
@@ -72,9 +69,7 @@ fn build_command_substitution_facts<'a>(
         collect_or_update_word_substitution_facts(
             word,
             SubstitutionHostKind::DeclarationAssignmentValue,
-            commands,
-            command_ids_by_span,
-            source,
+            context,
             &mut substitutions,
             &mut substitution_index,
         );
@@ -84,9 +79,7 @@ fn build_command_substitution_facts<'a>(
         collect_or_update_word_substitution_facts(
             word,
             kind,
-            commands,
-            command_ids_by_span,
-            source,
+            context,
             &mut substitutions,
             &mut substitution_index,
         );
@@ -98,9 +91,7 @@ fn build_command_substitution_facts<'a>(
 fn collect_or_update_word_substitution_facts<'a>(
     word: &Word,
     host_kind: SubstitutionHostKind,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
-    source: &str,
+    context: SubstitutionFactBuildContext<'a, '_>,
     substitutions: &mut Vec<SubstitutionFact>,
     substitution_index: &mut FxHashMap<FactSpan, usize>,
 ) {
@@ -110,9 +101,7 @@ fn collect_or_update_word_substitution_facts<'a>(
         word.span,
         host_kind,
         occurrences,
-        commands,
-        command_ids_by_span,
-        source,
+        context,
         substitutions,
         substitution_index,
     );
@@ -121,9 +110,7 @@ fn collect_or_update_word_substitution_facts<'a>(
 fn collect_or_update_heredoc_body_substitution_facts<'a>(
     body: &shuck_ast::HeredocBody,
     host_kind: SubstitutionHostKind,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
-    source: &str,
+    context: SubstitutionFactBuildContext<'a, '_>,
     substitutions: &mut Vec<SubstitutionFact>,
     substitution_index: &mut FxHashMap<FactSpan, usize>,
 ) {
@@ -133,21 +120,24 @@ fn collect_or_update_heredoc_body_substitution_facts<'a>(
         body.span,
         host_kind,
         occurrences,
-        commands,
-        command_ids_by_span,
-        source,
+        context,
         substitutions,
         substitution_index,
     );
+}
+
+#[derive(Clone, Copy)]
+struct SubstitutionFactBuildContext<'a, 'b> {
+    commands: &'b [CommandFact<'a>],
+    command_ids_by_span: &'b CommandLookupIndex,
+    source: &'b str,
 }
 
 fn collect_or_update_substitution_facts_from_occurrences<'a>(
     host_span: Span,
     host_kind: SubstitutionHostKind,
     occurrences: Vec<SubstitutionOccurrence<'a>>,
-    commands: &[CommandFact<'a>],
-    command_ids_by_span: &CommandLookupIndex,
-    source: &str,
+    context: SubstitutionFactBuildContext<'a, '_>,
     substitutions: &mut Vec<SubstitutionFact>,
     substitution_index: &mut FxHashMap<FactSpan, usize>,
 ) {
@@ -160,8 +150,12 @@ fn collect_or_update_substitution_facts_from_occurrences<'a>(
             continue;
         }
 
-        let body_facts =
-            classify_substitution_body(occurrence.body, commands, command_ids_by_span, source);
+        let body_facts = classify_substitution_body(
+            occurrence.body,
+            context.commands,
+            context.command_ids_by_span,
+            context.source,
+        );
         substitution_index.insert(key, substitutions.len());
         substitutions.push(SubstitutionFact {
             span: occurrence.span,
