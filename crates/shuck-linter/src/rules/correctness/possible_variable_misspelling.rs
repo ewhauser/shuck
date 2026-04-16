@@ -161,6 +161,8 @@ fn is_known_runtime_name(name: &str) -> bool {
             | "OSTYPE"
             | "HISTCONTROL"
             | "HISTSIZE"
+            | "GEM_HOME"
+            | "GEM_PATH"
     ) || name.starts_with("LC_")
 }
 
@@ -242,6 +244,10 @@ echo \"$FOOBAR\"
 #!/bin/sh
 path=1
 echo \"$PATH\"
+gem_home=1
+gem_path=1
+echo \"$GEM_HOME\"
+echo \"$GEM_PATH\"
 ";
         let diagnostics = test_snippet(
             source,
