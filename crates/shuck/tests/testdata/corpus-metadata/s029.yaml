@@ -1,5 +1,19 @@
 reviewed_divergences:
   - side: shellcheck-only
+    path_suffix: "ohmyzsh__ohmyzsh__plugins__alias-finder__tests__test_run.sh"
+    line: 3
+    end_line: 3
+    column: 8
+    end_column: 8
+    reason: "This zunit test harness uses `@setup {` as a framework block opener, so the remaining SC1083 hit is fallout from non-shell harness syntax rather than a brace-expansion ambiguity Shuck should model as S029."
+  - side: shellcheck-only
+    path_suffix: "ohmyzsh__ohmyzsh__plugins__gitfast__git-completion.bash"
+    line: 1029
+    end_line: 1029
+    column: 4
+    end_column: 4
+    reason: "This completion helper uses `{)` as a literal case-pattern arm while the corpus has already collapsed the file away from its authored shell context, so the surviving SC1083 report is treated as an oracle-specific helper-library mismatch instead of an S029 bug."
+  - side: shellcheck-only
     path_suffix: "termux__termux-packages__scripts__build__setup__termux_setup_gir.sh"
     line: 105
     end_line: 105
