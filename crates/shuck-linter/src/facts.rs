@@ -12466,6 +12466,19 @@ fn word_has_unquoted_array_comma(word: &Word, source: &str) -> bool {
             }
         }
 
+        if !in_single
+            && !in_double
+            && !in_backtick
+            && !was_escaped
+            && matches!(ch, '<' | '>')
+            && text[next_index..].starts_with('(')
+            && let Some(consumed) =
+                scan_array_process_substitution_len(&text[next_index + '('.len_utf8()..])
+        {
+            index = next_index + '('.len_utf8() + consumed;
+            continue;
+        }
+
         match ch {
             '\'' if !in_double && !was_escaped => in_single = !in_single,
             '"' if !in_single && !was_escaped => in_double = !in_double,
@@ -12885,6 +12898,10 @@ fn scan_array_arithmetic_expansion_len(text: &str) -> Option<usize> {
     }
 
     None
+}
+
+fn scan_array_process_substitution_len(text: &str) -> Option<usize> {
+    scan_array_command_substitution_len(text)
 }
 
 fn scan_array_parameter_expansion_len(text: &str) -> Option<usize> {
@@ -13638,6 +13655,26 @@ complex[$((i+=1))]+=x
     #[test]
     fn ignores_commas_inside_case_pattern_comments_after_right_parens() {
         let source = "#!/bin/bash\na=($(case $kind in\na)# comment with esac )\nprintf %s 1,2 ;;\nesac\n))\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_process_substitution_array_elements() {
+        let source = "#!/bin/bash\na=(<(printf %s 1,2))\nb=(>(printf %s 3,4))\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
