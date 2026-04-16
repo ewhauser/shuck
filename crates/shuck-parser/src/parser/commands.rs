@@ -2628,7 +2628,10 @@ impl<'a> Parser<'a> {
         loop {
             self.skip_newlines()?;
 
-            if !allow_brace_body && !stmts.is_empty() && self.at(TokenKind::LeftBrace) {
+            if !allow_brace_body
+                && !stmts.is_empty()
+                && self.current_brace_starts_zsh_if_body_fact()
+            {
                 self.record_zsh_brace_if_span(self.current_span);
             }
 
@@ -2639,9 +2642,10 @@ impl<'a> Parser<'a> {
                     self.restore(checkpoint);
                     return Err(error);
                 }
-                let brace_if_span =
-                    (!allow_brace_body && !stmts.is_empty() && self.at(TokenKind::LeftBrace))
-                        .then_some(self.current_span);
+                let brace_if_span = (!allow_brace_body
+                    && !stmts.is_empty()
+                    && self.current_brace_starts_zsh_if_body_fact())
+                .then_some(self.current_span);
                 if self.is_keyword(Keyword::Then)
                     || (allow_brace_body && !stmts.is_empty() && self.at(TokenKind::LeftBrace))
                 {
@@ -2672,6 +2676,27 @@ impl<'a> Parser<'a> {
         }
 
         Ok(stmts)
+    }
+
+    fn current_brace_starts_zsh_if_body_fact(&mut self) -> bool {
+        if !self.at(TokenKind::LeftBrace) {
+            return false;
+        }
+
+        let checkpoint = self.checkpoint();
+        let followed_by_then = self
+            .parse_brace_group(BraceBodyContext::Ordinary)
+            .and_then(|_| {
+                if self.at(TokenKind::Semicolon) {
+                    self.advance();
+                }
+                self.skip_newlines()?;
+                Ok(self.is_keyword(Keyword::Then))
+            })
+            .unwrap_or(false);
+        self.restore(checkpoint);
+
+        !followed_by_then
     }
 
     fn peek_zsh_always_span(&mut self) -> Option<Span> {

@@ -1618,6 +1618,22 @@ fi
     }
 
     #[test]
+    fn ignores_condition_brace_groups_for_zsh_brace_if() {
+        let source = "#!/bin/sh\nif true\n{ echo ok; }\nthen\n  :\nfi\n";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::ZshBraceIf);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn ignores_zsh_brace_if_when_target_shell_is_zsh() {
         let source = "#!/bin/zsh\nif [[ -n \"$x\" ]] {\n  :\n}\n";
         let recovered = Parser::new(source).parse();

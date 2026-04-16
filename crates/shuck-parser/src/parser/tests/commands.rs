@@ -138,6 +138,14 @@ fn test_parse_collects_zsh_brace_if_fact_in_bash_mode() {
 }
 
 #[test]
+fn test_parse_does_not_collect_zsh_brace_if_fact_for_condition_brace_group() {
+    let input = "if true\n{ echo ok; }\nthen\n  :\nfi\n";
+    let parsed = Parser::new(input).parse().unwrap();
+
+    assert!(parsed.syntax_facts.zsh_brace_if_spans.is_empty());
+}
+
+#[test]
 fn test_parse_collects_zsh_always_fact_in_posix_mode() {
     let input = "{ :; } always { :; }\n";
     let parsed = Parser::with_dialect(input, ShellDialect::Posix).parse();
