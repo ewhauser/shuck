@@ -9,7 +9,11 @@ use crate::{
     Name,
     span::{Position, Span, TextRange},
 };
-use std::{borrow::Cow, fmt};
+use std::{
+    borrow::Cow,
+    fmt,
+    ops::{Deref, DerefMut},
+};
 
 /// Source-backed text for AST nodes that need stable spans but only occasionally
 /// need owned cooked text.
@@ -2353,21 +2357,85 @@ pub enum ArrayKind {
     Contextual,
 }
 
+/// A compound-array value word plus parser-owned surface metadata.
+#[derive(Debug, Clone)]
+pub struct ArrayValueWord {
+    pub word: Word,
+    pub has_top_level_unquoted_comma: bool,
+}
+
+impl ArrayValueWord {
+    pub fn new(word: Word, has_top_level_unquoted_comma: bool) -> Self {
+        Self {
+            word,
+            has_top_level_unquoted_comma,
+        }
+    }
+
+    pub fn has_top_level_unquoted_comma(&self) -> bool {
+        self.has_top_level_unquoted_comma
+    }
+
+    pub fn span(&self) -> Span {
+        self.word.span
+    }
+}
+
+impl From<Word> for ArrayValueWord {
+    fn from(word: Word) -> Self {
+        Self::new(word, false)
+    }
+}
+
+impl Deref for ArrayValueWord {
+    type Target = Word;
+
+    fn deref(&self) -> &Self::Target {
+        &self.word
+    }
+}
+
+impl DerefMut for ArrayValueWord {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.word
+    }
+}
+
 /// An element inside a compound array literal.
 #[derive(Debug, Clone)]
 pub enum ArrayElem {
-    Sequential(Word),
-    Keyed { key: Subscript, value: Word },
-    KeyedAppend { key: Subscript, value: Word },
+    Sequential(ArrayValueWord),
+    Keyed {
+        key: Subscript,
+        value: ArrayValueWord,
+    },
+    KeyedAppend {
+        key: Subscript,
+        value: ArrayValueWord,
+    },
 }
 
 impl ArrayElem {
     pub fn span(&self) -> Span {
         match self {
-            Self::Sequential(word) => word.span,
+            Self::Sequential(word) => word.span(),
             Self::Keyed { key, value } | Self::KeyedAppend { key, value } => {
-                key.span().merge(value.span)
+                key.span().merge(value.span())
             }
+        }
+    }
+
+    pub fn value(&self) -> &ArrayValueWord {
+        match self {
+            Self::Sequential(word) => word,
+            Self::Keyed { value, .. } | Self::KeyedAppend { value, .. } => value,
+        }
+    }
+
+    pub fn value_mut(&mut self) -> &mut ArrayValueWord {
+        match self {
+            Self::Sequential(word) => word,
+            Self::Keyed { value, .. } | Self::KeyedAppend { value, .. } => value,
         }
     }
 }
@@ -4265,9 +4333,9 @@ mod tests {
             AssignmentValue::Compound(ArrayExpr {
                 kind: ArrayKind::Indexed,
                 elements: vec![
-                    ArrayElem::Sequential(Word::literal("a")),
-                    ArrayElem::Sequential(Word::literal("b")),
-                    ArrayElem::Sequential(Word::literal("c")),
+                    ArrayElem::Sequential(Word::literal("a").into()),
+                    ArrayElem::Sequential(Word::literal("b").into()),
+                    ArrayElem::Sequential(Word::literal("c").into()),
                 ],
                 span: Span::new(),
             }),
