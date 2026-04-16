@@ -1963,6 +1963,7 @@ impl<'a> Parser<'a> {
         let fragment_span = Span::from_positions(start, start.advanced_by(text));
         let mut word = parser.parse_word_with_context(text, fragment_span, start, source_backed);
         Self::rebase_word(&mut word, span.start);
+        word.span = span;
         word
     }
 

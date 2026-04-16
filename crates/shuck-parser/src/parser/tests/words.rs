@@ -31,6 +31,17 @@ fn test_current_word_cache_tracks_token_changes() {
 }
 
 #[test]
+fn test_parse_word_fragment_preserves_original_span_for_cooked_text() {
+    let source = r#"foo\/bar"#;
+    let span = Span::from_positions(Position::new(), Position::new().advanced_by(source));
+
+    let word = Parser::parse_word_fragment(source, "foo/bar", span);
+
+    assert_eq!(word.span, span);
+    assert_eq!(word.span.slice(source), source);
+}
+
+#[test]
 fn test_parse_quoted_flow_control_name_stays_simple_command() {
     let input = "'break' 2";
     let parser = Parser::new(input);
