@@ -1,5 +1,5 @@
 use crate::SubstitutionHostKind;
-use crate::{Checker, CommandSubstitutionKind, Rule, Violation};
+use crate::{Checker, CommandSubstitutionKind, Rule, ShellDialect, Violation};
 
 pub struct UnquotedCommandSubstitution;
 
@@ -28,11 +28,12 @@ pub fn unquoted_command_substitution(checker: &mut Checker) {
                         substitution.host_kind(),
                         SubstitutionHostKind::CommandArgument
                             | SubstitutionHostKind::HereStringOperand
-                            | SubstitutionHostKind::DeclarationAssignmentValue
                             | SubstitutionHostKind::AssignmentTargetSubscript
                             | SubstitutionHostKind::DeclarationNameSubscript
                             | SubstitutionHostKind::ArrayKeySubscript
-                    )
+                    ) || (substitution.host_kind()
+                        == SubstitutionHostKind::DeclarationAssignmentValue
+                        && checker.shell() == ShellDialect::Sh)
                 })
                 .map(|substitution| substitution.span())
         })
@@ -44,7 +45,7 @@ pub fn unquoted_command_substitution(checker: &mut Checker) {
 #[cfg(test)]
 mod tests {
     use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
     fn anchors_on_inner_command_substitution_spans() {
@@ -125,14 +126,36 @@ declare -A map=([$(printf key)]=1)
     }
 
     #[test]
-    fn reports_declaration_assignment_value_substitutions() {
+    fn ignores_declaration_assignment_value_substitutions() {
+        let source = "\
+local name=$(printf local)
+declare other=$(printf declare)
+printf '%s\\n' $(printf arg)
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$(printf arg)"]
+        );
+    }
+
+    #[test]
+    fn reports_declaration_assignment_value_substitutions_in_sh() {
         let source = "\
 local name=$(printf local)
 declare other=$(printf declare)
 ";
         let diagnostics = test_snippet(
             source,
-            &LinterSettings::for_rule(Rule::UnquotedCommandSubstitution),
+            &LinterSettings::for_rule(Rule::UnquotedCommandSubstitution)
+                .with_shell(ShellDialect::Sh),
         );
 
         assert_eq!(
