@@ -877,6 +877,14 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
+            if ch == '$'
+                && !in_single
+                && let Some(end) = Self::scan_raw_dollar_paren_substitution_end(inner, index)
+            {
+                index = end;
+                continue;
+            }
+
             match ch {
                 '\\' if !in_single => escaped = true,
                 '\'' if !in_double => in_single = !in_single,
@@ -932,6 +940,17 @@ impl<'a> Parser<'a> {
         }
 
         ranges
+    }
+
+    fn scan_raw_dollar_paren_substitution_end(raw: &str, start: usize) -> Option<usize> {
+        let tail = raw.get(start..)?;
+        if !tail.starts_with("$(") || tail[2..].starts_with('(') {
+            return None;
+        }
+
+        let body_start = start + 2;
+        let consumed = lexer::scan_command_substitution_body_len(&raw[body_start..])?;
+        Some(body_start + consumed)
     }
 
     fn raw_source_hash_starts_comment(source: &str, index: usize) -> bool {
@@ -1094,6 +1113,15 @@ impl<'a> Parser<'a> {
 
             if escaped {
                 escaped = false;
+                continue;
+            }
+
+            if ch == '$'
+                && !in_single
+                && let Some(end) =
+                    Self::scan_raw_dollar_paren_substitution_end(self.input, ch_start.offset)
+            {
+                cursor = ch_start.advanced_by(&self.input[ch_start.offset..end]);
                 continue;
             }
 

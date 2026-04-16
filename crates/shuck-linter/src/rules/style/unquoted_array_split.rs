@@ -141,6 +141,33 @@ arr=(\"$(printf '%s\\n' \"$x\")\")
     }
 
     #[test]
+    fn ignores_expansions_inside_quoted_pipelined_heredoc_substitutions() {
+        let source = r#"# shellcheck shell=bash
+project=owner/repo
+graphql_request=(
+  -X POST
+  -d "$(
+    cat <<-EOF | tr '\n' ' '
+      {
+        "query": "query {
+          repository(owner: \"${project%/*}\", name: \"${project##*/}\") {
+            refs(refPrefix: \"refs/tags/\")
+          }
+        }"
+      }
+EOF
+  )"
+)
+"#;
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedArraySplit));
+        let slices = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.span.slice(source))
+            .collect::<Vec<_>>();
+        assert_eq!(slices, Vec::<&str>::new());
+    }
+
+    #[test]
     fn ignores_safe_special_parameters() {
         let source = "\
 #!/bin/bash
