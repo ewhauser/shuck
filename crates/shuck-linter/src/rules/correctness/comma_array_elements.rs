@@ -72,6 +72,7 @@ l=($(printf %s ${x//foo/)},1))
 m=(<(printf %s 1,2))
 n=(>(printf %s 3,4))
 o=(${x/a,b/{})
+p=($'a\\'b,c')
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CommaArrayElements));
 

@@ -12422,9 +12422,11 @@ fn word_has_unquoted_array_comma(word: &Word, source: &str) -> bool {
     let text = word.span.slice(source);
     let mut index = 0usize;
     let mut in_single = false;
+    let mut in_ansi_c_single = false;
     let mut in_double = false;
     let mut in_backtick = false;
     let mut escaped = false;
+    let mut ansi_c_quote_pending = false;
 
     while index < text.len() {
         let ch = text[index..]
@@ -12435,15 +12437,17 @@ fn word_has_unquoted_array_comma(word: &Word, source: &str) -> bool {
         let was_escaped = escaped;
         if ch == '\\' && !in_single {
             escaped = !escaped;
+            ansi_c_quote_pending = false;
             index = next_index;
             continue;
         }
         escaped = false;
 
-        if !in_single && !in_backtick && !was_escaped && ch == '$' {
+        if !in_single && !in_ansi_c_single && !in_backtick && !was_escaped && ch == '$' {
             if text[next_index..].starts_with("((")
                 && let Some(consumed) = scan_array_arithmetic_expansion_len(&text[next_index + 2..])
             {
+                ansi_c_quote_pending = false;
                 index = next_index + 2 + consumed;
                 continue;
             }
@@ -12453,6 +12457,7 @@ fn word_has_unquoted_array_comma(word: &Word, source: &str) -> bool {
                 && let Some(consumed) =
                     scan_array_command_substitution_len(&text[next_index + '('.len_utf8()..])
             {
+                ansi_c_quote_pending = false;
                 index = next_index + '('.len_utf8() + consumed;
                 continue;
             }
@@ -12461,12 +12466,14 @@ fn word_has_unquoted_array_comma(word: &Word, source: &str) -> bool {
                 && let Some(consumed) =
                     scan_array_parameter_expansion_len(&text[next_index + '{'.len_utf8()..])
             {
+                ansi_c_quote_pending = false;
                 index = next_index + '{'.len_utf8() + consumed;
                 continue;
             }
         }
 
         if !in_single
+            && !in_ansi_c_single
             && !in_double
             && !in_backtick
             && !was_escaped
@@ -12475,15 +12482,26 @@ fn word_has_unquoted_array_comma(word: &Word, source: &str) -> bool {
             && let Some(consumed) =
                 scan_array_process_substitution_len(&text[next_index + '('.len_utf8()..])
         {
+            ansi_c_quote_pending = false;
             index = next_index + '('.len_utf8() + consumed;
             continue;
         }
 
         match ch {
-            '\'' if !in_double && !was_escaped => in_single = !in_single,
-            '"' if !in_single && !was_escaped => in_double = !in_double,
-            '`' if !in_single && !in_double && !was_escaped => in_backtick = !in_backtick,
-            ',' if !in_single && !in_double && !in_backtick => {
+            '\'' if !in_double && !in_backtick && !was_escaped => {
+                if in_ansi_c_single {
+                    in_ansi_c_single = false;
+                } else if !in_single && ansi_c_quote_pending {
+                    in_ansi_c_single = true;
+                } else {
+                    in_single = !in_single;
+                }
+            }
+            '"' if !in_single && !in_ansi_c_single && !was_escaped => in_double = !in_double,
+            '`' if !in_single && !in_ansi_c_single && !in_double && !was_escaped => {
+                in_backtick = !in_backtick
+            }
+            ',' if !in_single && !in_ansi_c_single && !in_double && !in_backtick => {
                 let comma_offset = word.span.start.offset + index;
                 if !comma_is_brace_separator(word, source, comma_offset, was_escaped) {
                     return true;
@@ -12492,6 +12510,12 @@ fn word_has_unquoted_array_comma(word: &Word, source: &str) -> bool {
             _ => {}
         }
 
+        ansi_c_quote_pending = ch == '$'
+            && !in_single
+            && !in_ansi_c_single
+            && !in_double
+            && !in_backtick
+            && !was_escaped;
         index = next_index;
     }
 
@@ -13570,6 +13594,26 @@ complex[$((i+=1))]+=x
     #[test]
     fn ignores_commas_after_even_backslashes_before_quote_regions() {
         let source = "#!/bin/bash\na=(x\\\\\",y\")\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_ansi_c_quoted_array_elements() {
+        let source = "#!/bin/bash\na=($'a\\'b,c')\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
