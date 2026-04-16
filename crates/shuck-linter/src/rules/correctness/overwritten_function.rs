@@ -88,6 +88,14 @@ fn should_suppress_overwrite(
                     overwritten,
                     first.span.end.offset,
                     second.span.start.offset,
+                ))
+            || (file_context.has_tag(FileContextTag::DirectiveHandling)
+                && file_context.has_tag(FileContextTag::ProjectClosure)
+                && is_nested_project_closure_import_reimport(
+                    checker,
+                    overwritten,
+                    first.span.end.offset,
+                    second.span.start.offset,
                 )))
 }
 
@@ -159,6 +167,22 @@ fn is_project_closure_imported_override(
 
     matches!(first.kind, BindingKind::Imported)
         && matches!(second.kind, BindingKind::FunctionDefinition)
+        && !has_same_scope_call_site_between(checker, overwritten, start_offset, end_offset)
+}
+
+fn is_nested_project_closure_import_reimport(
+    checker: &Checker<'_>,
+    overwritten: &SemanticOverwrittenFunction,
+    start_offset: usize,
+    end_offset: usize,
+) -> bool {
+    let first = checker.semantic().binding(overwritten.first);
+    let second = checker.semantic().binding(overwritten.second);
+
+    first.scope == second.scope
+        && matches!(first.kind, BindingKind::Imported)
+        && matches!(second.kind, BindingKind::Imported)
+        && !matches!(checker.semantic().scope_kind(first.scope), ScopeKind::File)
         && !has_same_scope_call_site_between(checker, overwritten, start_offset, end_offset)
 }
 
@@ -463,6 +487,48 @@ runner() {
             source,
             &LinterSettings::for_rule(Rule::OverwrittenFunction)
                 .with_analyzed_paths([main.clone(), helper.clone()]),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn nested_helper_library_reimports_are_suppressed() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("libexec/bats-exec-file");
+        let tracing = temp.path().join("lib/bats-core/tracing.bash");
+        let test_functions = temp.path().join("lib/bats-core/test_functions.bash");
+        let warnings = temp.path().join("lib/bats-core/warnings.bash");
+        let source = "\
+#!/usr/bin/env bash
+runner() {
+  # shellcheck source=lib/bats-core/tracing.bash
+  source ../lib/bats-core/tracing.bash
+  # shellcheck source=lib/bats-core/test_functions.bash
+  source ../lib/bats-core/test_functions.bash
+}
+";
+
+        fs::create_dir_all(main.parent().unwrap()).unwrap();
+        fs::create_dir_all(tracing.parent().unwrap()).unwrap();
+        fs::write(&main, source).unwrap();
+        fs::write(&tracing, "bats_setup_tracing() { :; }\n").unwrap();
+        fs::write(
+            &test_functions,
+            "#!/usr/bin/env bash\nsource ./warnings.bash\n",
+        )
+        .unwrap();
+        fs::write(&warnings, "#!/usr/bin/env bash\nsource ./tracing.bash\n").unwrap();
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction).with_analyzed_paths([
+                main.clone(),
+                tracing.clone(),
+                test_functions.clone(),
+                warnings.clone(),
+            ]),
         );
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
