@@ -3414,8 +3414,7 @@ mod tests {
             labels: Vec::new(),
         };
 
-        let (classification, reason) =
-            classify_compatibility_record(&record, "wifi.sh", &metadata);
+        let (classification, reason) = classify_compatibility_record(&record, "wifi.sh", &metadata);
 
         assert_eq!(classification, CompatibilityClassification::MappingIssue);
         assert!(
