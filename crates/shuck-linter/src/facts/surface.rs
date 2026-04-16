@@ -92,6 +92,29 @@ impl<'a> SurfaceFragmentSink<'a> {
         self.facts
     }
 
+    fn opening_backtick_is_escaped(&self, span: Span) -> bool {
+        let source = self.source.as_bytes();
+        let start = span.start.offset;
+        let Some(fragment) = self.source.get(start..span.end.offset) else {
+            return false;
+        };
+        let Some(first_backtick) = fragment.find('`') else {
+            return true;
+        };
+        if !fragment[..first_backtick].bytes().all(|byte| byte == b'\\') {
+            return false;
+        }
+
+        let mut backslashes = first_backtick;
+        let mut cursor = start;
+        while cursor > 0 && source[cursor - 1] == b'\\' {
+            backslashes += 1;
+            cursor -= 1;
+        }
+
+        backslashes % 2 == 1
+    }
+
     fn record_array_reference(&mut self, span: Span) {
         let Some(span) = plain_array_reference_span(span, self.source) else {
             return;
@@ -332,6 +355,9 @@ impl<'a> SurfaceFragmentSink<'a> {
                     body: _,
                     ..
                 } => {
+                    if self.opening_backtick_is_escaped(part.span) {
+                        continue;
+                    }
                     self.facts
                         .backticks
                         .push(BacktickFragmentFact { span: part.span });
