@@ -12436,6 +12436,13 @@ fn word_has_unquoted_array_comma(word: &Word, source: &str) -> bool {
         escaped = false;
 
         if !in_single && !in_backtick && ch == '$' {
+            if text[next_index..].starts_with("((")
+                && let Some(consumed) = scan_array_arithmetic_expansion_len(&text[next_index + 2..])
+            {
+                index = next_index + 2 + consumed;
+                continue;
+            }
+
             if text[next_index..].starts_with('(')
                 && !text[next_index + '('.len_utf8()..].starts_with('(')
                 && let Some(consumed) =
@@ -12486,6 +12493,40 @@ fn hash_starts_comment(text: &str, index: usize) -> bool {
         .is_none_or(|prev| prev.is_whitespace() || matches!(prev, ';' | '|' | '&' | '<' | '>'))
 }
 
+fn flush_array_command_subst_keyword(
+    current_word: &mut String,
+    pending_case_headers: &mut usize,
+    case_clause_depth: &mut usize,
+) {
+    if current_word.is_empty() {
+        return;
+    }
+
+    match current_word.as_str() {
+        "case" => *pending_case_headers += 1,
+        "in" if *pending_case_headers > 0 => {
+            *pending_case_headers -= 1;
+            *case_clause_depth += 1;
+        }
+        "esac" if *case_clause_depth > 0 => *case_clause_depth -= 1,
+        _ => {}
+    }
+
+    current_word.clear();
+}
+
+fn heredoc_delimiter_is_terminator(
+    ch: char,
+    in_single: bool,
+    in_double: bool,
+    escaped: bool,
+) -> bool {
+    !in_single
+        && !in_double
+        && !escaped
+        && (ch.is_whitespace() || matches!(ch, '|' | '&' | ';' | '<' | '>' | '(' | ')'))
+}
+
 fn scan_array_double_quoted_command_substitution_segment(
     text: &str,
     mut index: usize,
@@ -12531,7 +12572,7 @@ fn scan_array_command_subst_heredoc_delimiter(
     let mut escaped = false;
 
     while let Some((ch, next_index)) = next_char_boundary(text, index) {
-        if !in_single && !in_double && !escaped && ch.is_whitespace() {
+        if heredoc_delimiter_is_terminator(ch, in_single, in_double, escaped) {
             break;
         }
 
@@ -12587,10 +12628,18 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
     let mut index = 0usize;
     let mut depth = 1;
     let mut pending_heredocs: Vec<(String, bool)> = Vec::new();
+    let mut pending_case_headers = 0usize;
+    let mut case_clause_depth = 0usize;
+    let mut current_word = String::with_capacity(16);
 
     while let Some((ch, next_index)) = next_char_boundary(text, index) {
         match ch {
             '#' if hash_starts_comment(text, index) => {
+                flush_array_command_subst_keyword(
+                    &mut current_word,
+                    &mut pending_case_headers,
+                    &mut case_clause_depth,
+                );
                 index = next_index;
                 while let Some((comment_ch, comment_next)) = next_char_boundary(text, index) {
                     index = comment_next;
@@ -12605,10 +12654,24 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
                 }
             }
             '(' => {
+                flush_array_command_subst_keyword(
+                    &mut current_word,
+                    &mut pending_case_headers,
+                    &mut case_clause_depth,
+                );
                 depth += 1;
                 index = next_index;
             }
             ')' => {
+                flush_array_command_subst_keyword(
+                    &mut current_word,
+                    &mut pending_case_headers,
+                    &mut case_clause_depth,
+                );
+                if depth == 1 && case_clause_depth > 0 {
+                    index = next_index;
+                    continue;
+                }
                 depth -= 1;
                 index = next_index;
                 if depth == 0 {
@@ -12616,9 +12679,19 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
                 }
             }
             '"' => {
+                flush_array_command_subst_keyword(
+                    &mut current_word,
+                    &mut pending_case_headers,
+                    &mut case_clause_depth,
+                );
                 index = scan_array_double_quoted_command_substitution_segment(text, next_index)?;
             }
             '\'' => {
+                flush_array_command_subst_keyword(
+                    &mut current_word,
+                    &mut pending_case_headers,
+                    &mut case_clause_depth,
+                );
                 index = next_index;
                 while let Some((quoted_ch, quoted_next)) = next_char_boundary(text, index) {
                     index = quoted_next;
@@ -12628,12 +12701,22 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
                 }
             }
             '\\' => {
+                flush_array_command_subst_keyword(
+                    &mut current_word,
+                    &mut pending_case_headers,
+                    &mut case_clause_depth,
+                );
                 index = next_index;
                 if let Some((_, escaped_next)) = next_char_boundary(text, index) {
                     index = escaped_next;
                 }
             }
             '<' if text[next_index..].starts_with('<') => {
+                flush_array_command_subst_keyword(
+                    &mut current_word,
+                    &mut pending_case_headers,
+                    &mut case_clause_depth,
+                );
                 if text[next_index + '('.len_utf8()..].starts_with('<') {
                     index = next_index + '<'.len_utf8() + '<'.len_utf8();
                     continue;
@@ -12651,6 +12734,11 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
                 }
             }
             '\n' => {
+                flush_array_command_subst_keyword(
+                    &mut current_word,
+                    &mut pending_case_headers,
+                    &mut case_clause_depth,
+                );
                 index = next_index;
                 for (delimiter, strip_tabs) in pending_heredocs.drain(..) {
                     index = skip_array_command_subst_pending_heredoc(
@@ -12661,12 +12749,87 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
             '$' if text[next_index..].starts_with('(')
                 && !text[next_index + '('.len_utf8()..].starts_with('(') =>
             {
+                flush_array_command_subst_keyword(
+                    &mut current_word,
+                    &mut pending_case_headers,
+                    &mut case_clause_depth,
+                );
                 let consumed =
                     scan_array_command_substitution_len(&text[next_index + '('.len_utf8()..])?;
                 index = next_index + '('.len_utf8() + consumed;
             }
-            _ => index = next_index,
+            _ => {
+                if ch.is_ascii_alphanumeric() || ch == '_' {
+                    current_word.push(ch);
+                } else {
+                    flush_array_command_subst_keyword(
+                        &mut current_word,
+                        &mut pending_case_headers,
+                        &mut case_clause_depth,
+                    );
+                }
+                index = next_index;
+            }
         }
+    }
+
+    None
+}
+
+fn scan_array_arithmetic_expansion_len(text: &str) -> Option<usize> {
+    let mut index = 0usize;
+    let mut depth = 2usize;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+
+    while let Some((ch, next_index)) = next_char_boundary(text, index) {
+        let was_escaped = escaped;
+        escaped = false;
+
+        if !in_single && ch == '$' {
+            if text[next_index..].starts_with("((")
+                && let Some(consumed) = scan_array_arithmetic_expansion_len(&text[next_index + 2..])
+            {
+                index = next_index + 2 + consumed;
+                continue;
+            }
+
+            if text[next_index..].starts_with('(')
+                && !text[next_index + '('.len_utf8()..].starts_with('(')
+                && let Some(consumed) =
+                    scan_array_command_substitution_len(&text[next_index + '('.len_utf8()..])
+            {
+                index = next_index + '('.len_utf8() + consumed;
+                continue;
+            }
+
+            if text[next_index..].starts_with('{')
+                && let Some(consumed) =
+                    scan_array_parameter_expansion_len(&text[next_index + '{'.len_utf8()..])
+            {
+                index = next_index + '{'.len_utf8() + consumed;
+                continue;
+            }
+        }
+
+        match ch {
+            '\\' if !in_single => escaped = true,
+            '\'' if !in_double && !was_escaped => in_single = !in_single,
+            '"' if !in_single && !was_escaped => in_double = !in_double,
+            '(' if !in_single && !in_double && !was_escaped => depth += 1,
+            ')' if !in_single && !in_double && !was_escaped => {
+                depth -= 1;
+                index = next_index;
+                if depth == 0 {
+                    return Some(index);
+                }
+                continue;
+            }
+            _ => {}
+        }
+
+        index = next_index;
     }
 
     None
@@ -12683,15 +12846,22 @@ fn scan_array_parameter_expansion_len(text: &str) -> Option<usize> {
         let was_escaped = escaped;
         escaped = false;
 
-        if !in_single
-            && ch == '$'
-            && text[next_index..].starts_with('(')
-            && !text[next_index + '('.len_utf8()..].starts_with('(')
-            && let Some(consumed) =
-                scan_array_command_substitution_len(&text[next_index + '('.len_utf8()..])
-        {
-            index = next_index + '('.len_utf8() + consumed;
-            continue;
+        if !in_single && ch == '$' {
+            if text[next_index..].starts_with("((")
+                && let Some(consumed) = scan_array_arithmetic_expansion_len(&text[next_index + 2..])
+            {
+                index = next_index + 2 + consumed;
+                continue;
+            }
+
+            if text[next_index..].starts_with('(')
+                && !text[next_index + '('.len_utf8()..].starts_with('(')
+                && let Some(consumed) =
+                    scan_array_command_substitution_len(&text[next_index + '('.len_utf8()..])
+            {
+                index = next_index + '('.len_utf8() + consumed;
+                continue;
+            }
         }
 
         match ch {
@@ -13288,6 +13458,46 @@ complex[$((i+=1))]+=x
     fn ignores_commas_inside_separator_started_command_substitution_comments() {
         let source =
             "#!/bin/bash\na=(\"$(printf '%s' x;# comment with ) and ,\nprintf '%s' y\n)\")\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_command_substitution_case_patterns() {
+        let source = "#!/bin/bash\na=(\"$(case $kind in\nalpha) printf %s 1,2 ;;\nesac)\")\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_piped_heredoc_command_substitution_array_elements() {
+        let source = "#!/bin/bash\na=(\"$(cat <<EOF|tr '\\n' ' '\n{\"query\":\"field, direction\"}\nEOF\n)\")\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);

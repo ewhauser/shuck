@@ -3233,6 +3233,18 @@ fn hash_starts_comment(input: &str, index: usize) -> bool {
         .is_none_or(|prev| prev.is_whitespace() || matches!(prev, ';' | '|' | '&' | '<' | '>'))
 }
 
+fn heredoc_delimiter_is_terminator(
+    ch: char,
+    in_single: bool,
+    in_double: bool,
+    escaped: bool,
+) -> bool {
+    !in_single
+        && !in_double
+        && !escaped
+        && (ch.is_whitespace() || matches!(ch, '|' | '&' | ';' | '<' | '>' | '(' | ')'))
+}
+
 fn scan_double_quoted_command_substitution_segment(
     input: &str,
     mut index: usize,
@@ -3278,7 +3290,7 @@ fn scan_command_subst_heredoc_delimiter(input: &str, mut index: usize) -> Option
     let mut escaped = false;
 
     while let Some((ch, next_index)) = next_char_boundary(input, index) {
-        if !in_single && !in_double && !escaped && ch.is_whitespace() {
+        if heredoc_delimiter_is_terminator(ch, in_single, in_double, escaped) {
             break;
         }
 
@@ -3643,6 +3655,17 @@ mod tests {
         let body = &source[..consumed];
 
         assert!(body.contains("printf '%s' y"));
+        assert!(body.ends_with(')'));
+    }
+
+    #[test]
+    fn test_scan_command_substitution_body_len_handles_piped_heredoc_delimiter_without_space() {
+        let source = "\ncat <<EOF|tr '\\n' ' '\n{\"query\":\"field, direction\"}\nEOF\n)\"";
+
+        let consumed = scan_command_substitution_body_len(source).expect("expected match");
+        let body = &source[..consumed];
+
+        assert!(body.contains("field, direction"));
         assert!(body.ends_with(')'));
     }
 
