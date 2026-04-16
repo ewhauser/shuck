@@ -65,4 +65,28 @@ mod tests {
             vec!["`pyenv-commands --sh`"]
         );
     }
+
+    #[test]
+    fn ignores_escaped_backticks_in_case_patterns() {
+        let source = "\
+case \"$ch\" in
+  \\`)
+    printf '%s\\n' literal
+    ;;
+esac
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LegacyBackticks));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_escaped_backticks_after_nested_expansions_in_double_quotes() {
+        let source = "\
+echo \"::error ::Failed to reuse PR #${PR:-} ${WORKFLOW_ID:+\"(workflow run ${WORKFLOW_ID})\"} build artifacts, see \\`Gathering build summary\\` step logs.\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LegacyBackticks));
+
+        assert!(diagnostics.is_empty());
+    }
 }
