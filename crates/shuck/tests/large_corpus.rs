@@ -1284,16 +1284,19 @@ fn reviewed_divergence_reason<'a>(
     record: &CompatibilityRecord,
     cache_rel_path: &str,
 ) -> Option<&'a str> {
+    let cache_rel_path_variants = cache_rel_path_match_variants(cache_rel_path);
     metadata.reviewed_divergences.iter().find_map(|entry| {
         (entry.side == record.side
-            && entry
-                .path_suffix
-                .as_ref()
-                .is_none_or(|suffix| cache_rel_path.ends_with(suffix))
-            && entry
-                .path_contains
-                .as_ref()
-                .is_none_or(|needle| cache_rel_path.contains(needle))
+            && entry.path_suffix.as_ref().is_none_or(|suffix| {
+                cache_rel_path_variants
+                    .iter()
+                    .any(|candidate| candidate.ends_with(suffix))
+            })
+            && entry.path_contains.as_ref().is_none_or(|needle| {
+                cache_rel_path_variants
+                    .iter()
+                    .any(|candidate| candidate.contains(needle))
+            })
             && entry.line.is_none_or(|line| line == record.range.line)
             && entry
                 .end_line
@@ -1312,6 +1315,14 @@ fn reviewed_divergence_reason<'a>(
             }))
         .then_some(entry.reason.as_str())
     })
+}
+
+fn cache_rel_path_match_variants(cache_rel_path: &str) -> [String; 3] {
+    [
+        cache_rel_path.to_owned(),
+        format!("scripts/{cache_rel_path}"),
+        format!("corpus/scripts/{cache_rel_path}"),
+    ]
 }
 
 fn comparison_target_note_reason<'a>(
@@ -3368,6 +3379,53 @@ mod tests {
             CompatibilityClassification::ReviewedDivergence
         );
         assert_eq!(reason.as_deref(), Some("exact-match reviewed divergence"));
+    }
+
+    #[test]
+    fn reviewed_divergence_classification_matches_scripts_prefixed_path_suffix_record() {
+        let metadata = HashMap::from([(
+            "C999".to_string(),
+            RuleCorpusMetadataDocument {
+                reviewed_divergences: vec![ReviewedDivergenceRecord {
+                    side: CompatibilitySide::ShuckOnly,
+                    path_suffix: Some("scripts/repo__script.sh".into()),
+                    path_contains: None,
+                    line: Some(19),
+                    end_line: Some(19),
+                    column: Some(1),
+                    end_column: Some(14),
+                    labels: Vec::new(),
+                    reason: "scripts-prefixed reviewed divergence".into(),
+                }],
+                comparison_target_notes: Vec::new(),
+            },
+        )]);
+        let record = CompatibilityRecord {
+            side: CompatibilitySide::ShuckOnly,
+            rule_code: Some("C999".into()),
+            rule_codes: Vec::new(),
+            shellcheck_code: "SC2034".into(),
+            range: DiagnosticRange {
+                line: 19,
+                end_line: 19,
+                column: 1,
+                end_column: 14,
+            },
+            message: "warning reviewed divergence".into(),
+            labels: Vec::new(),
+        };
+
+        let (classification, reason) =
+            classify_compatibility_record(&record, "repo__script.sh", &metadata);
+
+        assert_eq!(
+            classification,
+            CompatibilityClassification::ReviewedDivergence
+        );
+        assert_eq!(
+            reason.as_deref(),
+            Some("scripts-prefixed reviewed divergence")
+        );
     }
 
     #[test]
