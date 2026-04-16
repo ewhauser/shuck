@@ -532,7 +532,12 @@ fn test_unquoted_heredoc_body_preserves_multiple_quoted_fragments() {
     let input = "cat <<EOF\nbefore '$HOME' and \"$USER\"\nEOF\n";
     let script = Parser::new(input).parse().unwrap().file;
 
-    let body = &redirect_heredoc(&script.body[0].redirects[0]).body;
+    let body = &script.body[0]
+        .redirects
+        .iter()
+        .find_map(|redirect| redirect.heredoc())
+        .expect("expected heredoc redirect")
+        .body;
 
     assert!(!heredoc_body_is_literal(body));
     assert_eq!(
@@ -554,7 +559,12 @@ fn test_unquoted_heredoc_body_keeps_dollar_quoted_forms_literal() {
     let input = "cat <<EOF\n$'line\\n' $\"hello\" ${name}\nEOF\n";
     let script = Parser::new(input).parse().unwrap().file;
 
-    let body = &redirect_heredoc(&script.body[0].redirects[0]).body;
+    let body = &script.body[0]
+        .redirects
+        .iter()
+        .find_map(|redirect| redirect.heredoc())
+        .expect("expected heredoc redirect")
+        .body;
 
     assert_eq!(
         heredoc_top_level_part_slices(body, input),
@@ -590,7 +600,12 @@ EOF
 ";
     let script = Parser::new(input).parse().unwrap().file;
 
-    let body = &redirect_heredoc(&script.body[0].redirects[0]).body;
+    let body = &script.body[0]
+        .redirects
+        .iter()
+        .find_map(|redirect| redirect.heredoc())
+        .expect("expected heredoc redirect")
+        .body;
     let slices = heredoc_top_level_part_slices(body, input);
 
     assert!(
@@ -726,6 +741,25 @@ esac
             .span
             .slice(input),
         "echo \"newest-tag\"\n"
+    );
+}
+
+#[test]
+fn test_strip_tabs_heredoc_body_keeps_parameter_part_source_spans() {
+    let input = "cat <<-EOF\n\tExpected: ${TERMUX_PKG_VERSION//\\~/-}\nEOF\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let heredoc = redirect_heredoc(&script.body[0].redirects[0]);
+    let parameter = heredoc
+        .body
+        .parts
+        .iter()
+        .find(|part| matches!(part.kind, shuck_ast::HeredocBodyPart::Parameter(_)))
+        .expect("expected parameter part");
+
+    assert_eq!(
+        parameter.span.slice(input).trim_end_matches('\n'),
+        "${TERMUX_PKG_VERSION//\\~/-}"
     );
 }
 

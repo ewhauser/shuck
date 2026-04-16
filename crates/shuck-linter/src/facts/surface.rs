@@ -733,16 +733,16 @@ impl<'a> SurfaceFragmentSink<'a> {
             self.record_array_reference(span);
         }
         if parameter_has_substring_expansion(parameter) {
-            self.record_substring_expansion(parameter.span);
+            self.record_substring_expansion(span);
         }
         if parameter_has_case_modification(parameter) {
-            self.record_case_modification(parameter.span);
+            self.record_case_modification(span);
         }
         if parameter_has_replacement_expansion(parameter) {
-            self.record_replacement_expansion(parameter.span);
+            self.record_replacement_expansion(span);
         }
         if parameter_has_star_glob_removal(parameter) {
-            self.record_star_glob_removal(parameter.span);
+            self.record_star_glob_removal(span);
         }
         self.record_parameter_subscripts(parameter);
         if let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax {
@@ -1535,7 +1535,7 @@ fn is_unicode_smart_quote(char: char) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::SubscriptSpanIndex;
+    use super::{SubscriptSpanIndex, plain_replacement_expansion_span};
     use shuck_ast::{Position, Span};
 
     fn span(start: usize, end: usize) -> Span {
@@ -1562,5 +1562,23 @@ mod tests {
         assert!(index.contains(span(99, 100)));
         assert!(!index.contains(span(100, 101)));
         assert!(!index.contains(span(110, 115)));
+    }
+
+    #[test]
+    fn plain_replacement_expansion_span_handles_complex_replacements() {
+        for text in [
+            r#"${dest_dir//\'/\'\\\'\'}"#,
+            r#"${TERMUX_PKG_VERSION//-/.}"#,
+            r#"${TERMUX_PKG_VERSION_EDITED//${INCORRECT_SYMBOLS:0:1}${INCORRECT_SYMBOLS:1:1}/${INCORRECT_SYMBOLS:0:1}.${INCORRECT_SYMBOLS:1:1}}"#,
+            r#"${GITHUB_GRAPHQL_QUERIES[$BATCH * $BATCH_SIZE]//\\/}"#,
+            r#"${run_depends/${i}/${dep}}"#,
+        ] {
+            assert_eq!(
+                plain_replacement_expansion_span(span(0, text.len()), text)
+                    .expect("expected replacement expansion span")
+                    .slice(text),
+                text
+            );
+        }
     }
 }
