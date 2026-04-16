@@ -15246,6 +15246,90 @@ for version ($versions); do :; done
     }
 
     #[test]
+    fn tab_stripped_heredoc_substitutions_after_earlier_heredocs_keep_command_spans_intact() {
+        let source = "\
+#!/bin/bash
+case \"${tag_type}\" in
+  newest-tag)
+\t:
+\t;;
+  latest-release-tag)
+\t:
+\t;;
+  latest-regex)
+\t:
+\t;;
+  *)
+\ttermux_error_exit <<-EndOfError
+\t\tERROR: Invalid TERMUX_PKG_UPDATE_TAG_TYPE: '${tag_type}'.
+\t\tAllowed values: 'newest-tag', 'latest-release-tag', 'latest-regex'.
+\tEndOfError
+\t;;
+esac
+
+case \"${http_code}\" in
+  404)
+\ttermux_error_exit <<-EndOfError
+\t\tNo '${tag_type}' found. (${api_url})
+\t\tHTTP code: ${http_code}
+\t\tTry using '$(
+\t\t\tif [[ \"${tag_type}\" == \"newest-tag\" ]]; then
+\t\t\t\techo \"latest-release-tag\"
+\t\t\telse
+\t\t\t\techo \"newest-tag\"
+\t\t\tfi
+\t\t)'.
+\tEndOfError
+\t;;
+esac
+";
+
+        with_facts(source, None, |_, facts| {
+            let conditional = facts
+                .commands()
+                .iter()
+                .find(|fact| fact.span().slice(source) == "[[ \"${tag_type}\" == \"newest-tag\" ]]")
+                .expect("expected nested heredoc conditional command");
+
+            let conditional_fact = conditional
+                .conditional()
+                .expect("expected conditional fact for nested heredoc command");
+
+            match conditional_fact.root() {
+                ConditionalNodeFact::Binary(binary) => {
+                    assert_eq!(
+                        binary.operator_family(),
+                        ConditionalOperatorFamily::StringBinary
+                    );
+                    assert_eq!(
+                        binary.left().word().map(|word| word.span.slice(source)),
+                        Some("\"${tag_type}\"")
+                    );
+                    assert_eq!(
+                        binary.right().word().map(|word| word.span.slice(source)),
+                        Some("\"newest-tag\"")
+                    );
+                }
+                other => panic!("expected binary root, got {other:?}"),
+            }
+
+            let latest_release = facts
+                .commands()
+                .iter()
+                .find(|fact| fact.span().slice(source) == "echo \"latest-release-tag\"\n")
+                .expect("expected latest-release echo command");
+            assert!(latest_release.simple_test().is_none());
+
+            let newest_tag = facts
+                .commands()
+                .iter()
+                .find(|fact| fact.span().slice(source) == "echo \"newest-tag\"\n")
+                .expect("expected newest-tag echo command");
+            assert!(newest_tag.simple_test().is_none());
+        });
+    }
+
+    #[test]
     fn keeps_parenthesized_logical_groups_separate_for_mixed_operator_detection() {
         let source = "\
 #!/bin/bash

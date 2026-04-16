@@ -113,4 +113,57 @@ test foo
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "\"\"");
     }
+
+    #[test]
+    fn ignores_tab_stripped_heredoc_substitutions_after_earlier_heredocs() {
+        let source = "\
+#!/bin/bash
+case \"${tag_type}\" in
+  newest-tag)
+\t:
+\t;;
+  latest-release-tag)
+\t:
+\t;;
+  latest-regex)
+\t:
+\t;;
+  *)
+\ttermux_error_exit <<-EndOfError
+\t\tERROR: Invalid TERMUX_PKG_UPDATE_TAG_TYPE: '${tag_type}'.
+\t\tAllowed values: 'newest-tag', 'latest-release-tag', 'latest-regex'.
+\tEndOfError
+\t;;
+esac
+
+case \"${http_code}\" in
+  404)
+\ttermux_error_exit <<-EndOfError
+\t\tNo '${tag_type}' found. (${api_url})
+\t\tHTTP code: ${http_code}
+\t\tTry using '$(
+\t\t\tif [[ \"${tag_type}\" == \"newest-tag\" ]]; then
+\t\t\t\techo \"latest-release-tag\"
+\t\t\telse
+\t\t\t\techo \"newest-tag\"
+\t\t\tfi
+\t\t)'.
+\tEndOfError
+\t;;
+esac
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TruthyLiteralTest));
+
+        assert!(
+            diagnostics.is_empty(),
+            "unexpected diagnostics: {:?}",
+            diagnostics
+                .iter()
+                .map(|diagnostic| (
+                    diagnostic.span.start.line,
+                    diagnostic.span.slice(source).to_owned(),
+                ))
+                .collect::<Vec<_>>()
+        );
+    }
 }
