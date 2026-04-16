@@ -4070,6 +4070,16 @@ printf '%s\\n' \"\\$workdir\"
     }
 
     #[test]
+    fn escaped_parameter_expansion_with_nested_default_stays_inert() {
+        let source = "\
+#!/bin/sh
+printf '%s\\n' \\${workdir:-$fallback}
+";
+        let model = model(source);
+        assert!(model.analysis().uninitialized_references().is_empty());
+    }
+
+    #[test]
     fn unquoted_heredoc_body_reports_live_uninitialized_reads() {
         let source = "\
 archname=archive

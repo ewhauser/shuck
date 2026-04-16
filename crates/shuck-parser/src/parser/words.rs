@@ -2896,6 +2896,13 @@ impl<'a> Parser<'a> {
                 }
                 if let Some(literal_ch) = Self::next_word_char(&mut chars, &mut cursor) {
                     current.push(literal_ch);
+                    if literal_ch == '$' && chars.peek() == Some(&'{') {
+                        self.consume_escaped_braced_parameter_literal(
+                            &mut chars,
+                            &mut cursor,
+                            &mut current,
+                        );
+                    }
                 }
                 continue;
             }
@@ -2919,7 +2926,15 @@ impl<'a> Parser<'a> {
                 if current.is_empty() {
                     current_start = part_start;
                 }
-                current.push(Self::next_word_char_unwrap(&mut chars, &mut cursor));
+                let literal_ch = Self::next_word_char_unwrap(&mut chars, &mut cursor);
+                current.push(literal_ch);
+                if literal_ch == '$' && chars.peek() == Some(&'{') {
+                    self.consume_escaped_braced_parameter_literal(
+                        &mut chars,
+                        &mut cursor,
+                        &mut current,
+                    );
+                }
                 continue;
             }
 
@@ -4641,6 +4656,78 @@ impl<'a> Parser<'a> {
                 base,
                 cursor,
             );
+        }
+    }
+
+    fn consume_escaped_braced_parameter_literal(
+        &self,
+        chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+        cursor: &mut Position,
+        current: &mut String,
+    ) {
+        if chars.peek() != Some(&'{') {
+            return;
+        }
+
+        current.push(Self::next_word_char_unwrap(chars, cursor));
+
+        let mut depth = 1usize;
+        let mut literal_brace_depth = 0usize;
+        let mut in_single = false;
+        let mut in_double = false;
+
+        while let Some(&c) = chars.peek() {
+            match c {
+                '\\' if !in_single => {
+                    Self::next_word_char_unwrap(chars, cursor);
+                    if let Some(&escaped) = chars.peek() {
+                        if !in_double || matches!(escaped, '$' | '"' | '\\' | '`' | '\n') {
+                            current.push(Self::next_word_char_unwrap(chars, cursor));
+                        } else {
+                            current.push('\\');
+                        }
+                    } else {
+                        current.push('\\');
+                    }
+                }
+                '\'' if !in_double => {
+                    in_single = !in_single;
+                    current.push(Self::next_word_char_unwrap(chars, cursor));
+                }
+                '"' if !in_single => {
+                    in_double = !in_double;
+                    current.push(Self::next_word_char_unwrap(chars, cursor));
+                }
+                '$' if !in_single => {
+                    current.push(Self::next_word_char_unwrap(chars, cursor));
+                    if chars.peek() == Some(&'{') {
+                        depth += 1;
+                        current.push(Self::next_word_char_unwrap(chars, cursor));
+                    }
+                }
+                '{' if !in_single && !in_double => {
+                    literal_brace_depth += 1;
+                    current.push(Self::next_word_char_unwrap(chars, cursor));
+                }
+                '}' if !in_single && !in_double => {
+                    if depth == 1 && literal_brace_depth > 0 {
+                        let mut remaining = chars.clone();
+                        remaining.next();
+                        if Self::brace_operand_has_later_top_level_closer(remaining, depth) {
+                            literal_brace_depth -= 1;
+                            current.push(Self::next_word_char_unwrap(chars, cursor));
+                            continue;
+                        }
+                    }
+
+                    current.push(Self::next_word_char_unwrap(chars, cursor));
+                    if depth == 1 {
+                        break;
+                    }
+                    depth -= 1;
+                }
+                _ => current.push(Self::next_word_char_unwrap(chars, cursor)),
+            }
         }
     }
 

@@ -172,6 +172,27 @@ fn test_parse_escaped_dollar_expansions_stay_literal_in_script_words() {
 }
 
 #[test]
+fn test_parse_escaped_braced_parameter_with_nested_default_stays_literal() {
+    let input = r#"echo \${x:-$HOME}"#;
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let word = &command.args[0];
+
+    assert_eq!(word.render(input), "${x:-$HOME}");
+    assert_eq!(word.render_syntax(input), r#"\${x:-$HOME}"#);
+    assert!(matches!(
+        word.parts.as_slice(),
+        [WordPartNode {
+            kind: WordPart::Literal(text),
+            ..
+        }] if text.is_source_backed() && text.as_str(input, word.parts[0].span) == "${x:-$HOME}"
+    ));
+}
+
+#[test]
 fn test_parse_escaped_backslash_then_variable_keeps_variable_live() {
     let input = "echo \\\\$HOME\n";
     let script = Parser::new(input).parse().unwrap().file;
