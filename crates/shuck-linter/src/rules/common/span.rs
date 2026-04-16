@@ -748,7 +748,11 @@ fn collect_all_elements_array_expansion_spans(
                     spans.push(span);
                 }
             }
-            WordPart::Parameter(_parameter) => {
+            WordPart::Parameter(parameter)
+                if parameter_might_use_all_elements_array_expansion(
+                    parameter, part.span, source,
+                ) =>
+            {
                 if let Some(span) = normalize_all_elements_array_expansion_span(part.span, source) {
                     spans.push(span);
                 }
@@ -812,6 +816,12 @@ fn collect_quoted_unindexed_bash_source_spans(
 
 fn normalize_all_elements_array_expansion_span(span: Span, source: &str) -> Option<Span> {
     let text = span.slice(source);
+    if !span_is_escaped(span, source)
+        && (text == "$@" || candidate_is_all_elements_array_expansion(text))
+    {
+        return Some(span);
+    }
+
     let base_offset = span.start.offset;
     let mut search_from = 0usize;
 
@@ -1980,6 +1990,27 @@ fn parameter_is_array_like(parameter: &ParameterExpansion) -> bool {
             _ => false,
         },
         ParameterExpansionSyntax::Zsh(_) => false,
+    }
+}
+
+fn parameter_might_use_all_elements_array_expansion(
+    parameter: &ParameterExpansion,
+    span: Span,
+    source: &str,
+) -> bool {
+    if !span.slice(source).contains('@') {
+        return false;
+    }
+
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(syntax) => !matches!(
+            syntax,
+            BourneParameterExpansion::Length { .. }
+                | BourneParameterExpansion::Indices { .. }
+                | BourneParameterExpansion::Indirect { .. }
+                | BourneParameterExpansion::PrefixMatch { .. }
+        ),
+        ParameterExpansionSyntax::Zsh(_) => true,
     }
 }
 
