@@ -2044,10 +2044,12 @@ impl<'a> Parser<'a> {
             WordPart::ArithmeticExpansion {
                 expression,
                 expression_ast,
+                expression_word_ast,
                 syntax,
             } => HeredocBodyPart::ArithmeticExpansion {
                 expression,
                 expression_ast,
+                expression_word_ast,
                 syntax,
             },
             WordPart::Parameter(parameter) => HeredocBodyPart::Parameter(Box::new(parameter)),
@@ -3827,12 +3829,16 @@ impl<'a> Parser<'a> {
                 reference,
                 operator,
                 operand,
+                operand_word_ast,
                 ..
             } => {
                 Self::materialize_var_ref_source_backing(reference, source);
                 Self::materialize_parameter_operator_source_backing(operator, source);
                 if let Some(operand) = operand {
                     Self::materialize_source_text_source_backing(operand, source);
+                }
+                if let Some(word_ast) = operand_word_ast {
+                    Self::materialize_word_source_backing(word_ast, source);
                 }
             }
             WordPart::ArrayAccess(reference)
@@ -3846,25 +3852,33 @@ impl<'a> Parser<'a> {
                 reference,
                 offset,
                 offset_ast,
+                offset_word_ast,
                 length,
                 length_ast,
+                length_word_ast,
                 ..
             }
             | WordPart::ArraySlice {
                 reference,
                 offset,
                 offset_ast,
+                offset_word_ast,
                 length,
                 length_ast,
+                length_word_ast,
                 ..
             } => {
                 Self::materialize_var_ref_source_backing(reference, source);
                 Self::materialize_source_text_source_backing(offset, source);
+                Self::materialize_word_source_backing(offset_word_ast, source);
                 if let Some(expr) = offset_ast {
                     Self::materialize_arithmetic_expr_source_backing(expr, source);
                 }
                 if let Some(length) = length {
                     Self::materialize_source_text_source_backing(length, source);
+                }
+                if let Some(word_ast) = length_word_ast {
+                    Self::materialize_word_source_backing(word_ast, source);
                 }
                 if let Some(expr) = length_ast {
                     Self::materialize_arithmetic_expr_source_backing(expr, source);
@@ -3874,6 +3888,7 @@ impl<'a> Parser<'a> {
                 reference,
                 operator,
                 operand,
+                operand_word_ast,
                 ..
             } => {
                 Self::materialize_var_ref_source_backing(reference, source);
@@ -3883,13 +3898,18 @@ impl<'a> Parser<'a> {
                 if let Some(operand) = operand {
                     Self::materialize_source_text_source_backing(operand, source);
                 }
+                if let Some(word_ast) = operand_word_ast {
+                    Self::materialize_word_source_backing(word_ast, source);
+                }
             }
             WordPart::ArithmeticExpansion {
                 expression,
                 expression_ast,
+                expression_word_ast,
                 ..
             } => {
                 Self::materialize_source_text_source_backing(expression, source);
+                Self::materialize_word_source_backing(expression_word_ast, source);
                 if let Some(expr) = expression_ast {
                     Self::materialize_arithmetic_expr_source_backing(expr, source);
                 }
@@ -3982,16 +4002,22 @@ impl<'a> Parser<'a> {
                     reference,
                     offset,
                     offset_ast,
+                    offset_word_ast,
                     length,
                     length_ast,
+                    length_word_ast,
                 } => {
                     Self::materialize_var_ref_source_backing(reference, source);
                     Self::materialize_source_text_source_backing(offset, source);
+                    Self::materialize_word_source_backing(offset_word_ast, source);
                     if let Some(expr) = offset_ast {
                         Self::materialize_arithmetic_expr_source_backing(expr, source);
                     }
                     if let Some(length) = length {
                         Self::materialize_source_text_source_backing(length, source);
+                    }
+                    if let Some(word_ast) = length_word_ast {
+                        Self::materialize_word_source_backing(word_ast, source);
                     }
                     if let Some(expr) = length_ast {
                         Self::materialize_arithmetic_expr_source_backing(expr, source);
@@ -4229,9 +4255,11 @@ impl<'a> Parser<'a> {
             HeredocBodyPart::ArithmeticExpansion {
                 expression,
                 expression_ast,
+                expression_word_ast,
                 ..
             } => {
                 expression.rebased(base);
+                Self::rebase_word(expression_word_ast, base);
                 if let Some(expr) = expression_ast {
                     Self::rebase_arithmetic_expr(expr, base);
                 }
@@ -4259,6 +4287,7 @@ impl<'a> Parser<'a> {
                 reference,
                 operator,
                 operand,
+                operand_word_ast,
                 ..
             } => {
                 Self::rebase_var_ref(reference, base);
@@ -4294,6 +4323,9 @@ impl<'a> Parser<'a> {
                 if let Some(operand) = operand {
                     operand.rebased(base);
                 }
+                if let Some(word_ast) = operand_word_ast {
+                    Self::rebase_word(word_ast, base);
+                }
             }
             WordPart::ArrayAccess(reference)
             | WordPart::Length(reference)
@@ -4304,25 +4336,33 @@ impl<'a> Parser<'a> {
                 reference,
                 offset,
                 offset_ast,
+                offset_word_ast,
                 length,
                 length_ast,
+                length_word_ast,
                 ..
             }
             | WordPart::ArraySlice {
                 reference,
                 offset,
                 offset_ast,
+                offset_word_ast,
                 length,
                 length_ast,
+                length_word_ast,
                 ..
             } => {
                 Self::rebase_var_ref(reference, base);
                 offset.rebased(base);
+                Self::rebase_word(offset_word_ast, base);
                 if let Some(expr) = offset_ast {
                     Self::rebase_arithmetic_expr(expr, base);
                 }
                 if let Some(length) = length {
                     length.rebased(base);
+                }
+                if let Some(word_ast) = length_word_ast {
+                    Self::rebase_word(word_ast, base);
                 }
                 if let Some(expr) = length_ast {
                     Self::rebase_arithmetic_expr(expr, base);
@@ -4332,6 +4372,7 @@ impl<'a> Parser<'a> {
                 reference,
                 operator,
                 operand,
+                operand_word_ast,
                 ..
             } => {
                 Self::rebase_var_ref(reference, base);
@@ -4341,13 +4382,18 @@ impl<'a> Parser<'a> {
                 if let Some(operand) = operand {
                     operand.rebased(base);
                 }
+                if let Some(word_ast) = operand_word_ast {
+                    Self::rebase_word(word_ast, base);
+                }
             }
             WordPart::ArithmeticExpansion {
                 expression,
                 expression_ast,
+                expression_word_ast,
                 ..
             } => {
                 expression.rebased(base);
+                Self::rebase_word(expression_word_ast, base);
                 if let Some(expr) = expression_ast {
                     Self::rebase_arithmetic_expr(expr, base);
                 }
@@ -4442,16 +4488,22 @@ impl<'a> Parser<'a> {
                     reference,
                     offset,
                     offset_ast,
+                    offset_word_ast,
                     length,
                     length_ast,
+                    length_word_ast,
                 } => {
                     Self::rebase_var_ref(reference, base);
                     offset.rebased(base);
+                    Self::rebase_word(offset_word_ast, base);
                     if let Some(expr) = offset_ast {
                         Self::rebase_arithmetic_expr(expr, base);
                     }
                     if let Some(length) = length {
                         length.rebased(base);
+                    }
+                    if let Some(word_ast) = length_word_ast {
+                        Self::rebase_word(word_ast, base);
                     }
                     if let Some(expr) = length_ast {
                         Self::rebase_arithmetic_expr(expr, base);
@@ -4847,17 +4899,15 @@ impl<'a> Parser<'a> {
                 reference,
                 operator,
                 operand,
+                operand_word_ast,
                 colon_variant,
-            } => {
-                let operand_word_ast = self.parse_optional_source_text_as_word(operand.as_ref());
-                Some(BourneParameterExpansion::Operation {
-                    reference,
-                    operator: self.enrich_parameter_operator(operator),
-                    operand,
-                    operand_word_ast,
-                    colon_variant,
-                })
-            }
+            } => Some(BourneParameterExpansion::Operation {
+                reference,
+                operator: self.enrich_parameter_operator(operator),
+                operand,
+                operand_word_ast,
+                colon_variant,
+            }),
             WordPart::Length(reference) | WordPart::ArrayLength(reference) => {
                 Some(BourneParameterExpansion::Length { reference })
             }
@@ -4871,37 +4921,41 @@ impl<'a> Parser<'a> {
                 reference,
                 offset,
                 offset_ast,
+                offset_word_ast,
                 length,
                 length_ast,
+                length_word_ast,
             }
             | WordPart::ArraySlice {
                 reference,
                 offset,
                 offset_ast,
+                offset_word_ast,
                 length,
                 length_ast,
+                length_word_ast,
             } => Some(BourneParameterExpansion::Slice {
                 reference,
                 offset,
                 offset_ast,
+                offset_word_ast,
                 length,
                 length_ast,
+                length_word_ast,
             }),
             WordPart::IndirectExpansion {
                 reference,
                 operator,
                 operand,
+                operand_word_ast,
                 colon_variant,
-            } => {
-                let operand_word_ast = self.parse_optional_source_text_as_word(operand.as_ref());
-                Some(BourneParameterExpansion::Indirect {
-                    reference,
-                    operator: operator.map(|operator| self.enrich_parameter_operator(operator)),
-                    operand,
-                    operand_word_ast,
-                    colon_variant,
-                })
-            }
+            } => Some(BourneParameterExpansion::Indirect {
+                reference,
+                operator: operator.map(|operator| self.enrich_parameter_operator(operator)),
+                operand,
+                operand_word_ast,
+                colon_variant,
+            }),
             WordPart::PrefixMatch { prefix, kind } => {
                 Some(BourneParameterExpansion::PrefixMatch { prefix, kind })
             }

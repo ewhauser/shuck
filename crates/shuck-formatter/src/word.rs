@@ -219,6 +219,7 @@ fn render_heredoc_body_part(
             expression,
             expression_ast,
             syntax,
+            ..
         } => {
             if matches!(syntax, ArithmeticExpansionSyntax::LegacyBracket) {
                 push_trimmed_arithmetic_expansion_source(
@@ -361,6 +362,7 @@ fn render_word_part(
             expression,
             expression_ast,
             syntax,
+            ..
         } => {
             if matches!(syntax, ArithmeticExpansionSyntax::LegacyBracket) {
                 push_trimmed_arithmetic_expansion_source(
@@ -420,6 +422,7 @@ fn render_word_part(
             operator,
             operand,
             colon_variant,
+            ..
         } => render_parameter_expansion(
             rendered,
             reference,
@@ -455,6 +458,7 @@ fn render_word_part(
             offset_ast,
             length,
             length_ast,
+            ..
         }
         | WordPart::ArraySlice {
             reference,
@@ -462,6 +466,7 @@ fn render_word_part(
             offset_ast,
             length,
             length_ast,
+            ..
         } => {
             rendered.push_str("${");
             push_var_ref(rendered, reference, source, options);
@@ -478,6 +483,7 @@ fn render_word_part(
             operator,
             operand,
             colon_variant,
+            ..
         } => {
             rendered.push_str("${!");
             push_var_ref(rendered, reference, source, options);
@@ -1219,6 +1225,7 @@ fn push_parameter_word(
             offset_ast,
             length,
             length_ast,
+            ..
         } => {
             rendered.push_str("${");
             push_var_ref(rendered, reference, source, options);

@@ -420,6 +420,7 @@ fn expect_indirect_expansion_part(
             operator,
             operand,
             colon_variant,
+            ..
         } => (
             reference,
             operator.as_ref(),

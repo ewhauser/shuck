@@ -1338,8 +1338,10 @@ pub enum BourneParameterExpansion {
         reference: VarRef,
         offset: SourceText,
         offset_ast: Option<ArithmeticExprNode>,
+        offset_word_ast: Word,
         length: Option<SourceText>,
         length_ast: Option<ArithmeticExprNode>,
+        length_word_ast: Option<Word>,
     },
     Operation {
         reference: VarRef,
@@ -1368,6 +1370,36 @@ impl BourneParameterExpansion {
             | Self::Indices { .. }
             | Self::PrefixMatch { .. }
             | Self::Slice { .. }
+            | Self::Transformation { .. } => None,
+        }
+    }
+
+    pub fn offset_word_ast(&self) -> Option<&Word> {
+        match self {
+            Self::Slice {
+                offset_word_ast, ..
+            } => Some(offset_word_ast),
+            Self::Access { .. }
+            | Self::Length { .. }
+            | Self::Indices { .. }
+            | Self::Indirect { .. }
+            | Self::PrefixMatch { .. }
+            | Self::Operation { .. }
+            | Self::Transformation { .. } => None,
+        }
+    }
+
+    pub fn length_word_ast(&self) -> Option<&Word> {
+        match self {
+            Self::Slice {
+                length_word_ast, ..
+            } => length_word_ast.as_ref(),
+            Self::Access { .. }
+            | Self::Length { .. }
+            | Self::Indices { .. }
+            | Self::Indirect { .. }
+            | Self::PrefixMatch { .. }
+            | Self::Operation { .. }
             | Self::Transformation { .. } => None,
         }
     }
@@ -1909,6 +1941,7 @@ pub enum HeredocBodyPart {
     ArithmeticExpansion {
         expression: SourceText,
         expression_ast: Option<ArithmeticExprNode>,
+        expression_word_ast: Word,
         syntax: ArithmeticExpansionSyntax,
     },
     Parameter(Box<ParameterExpansion>),
@@ -2274,6 +2307,8 @@ pub enum WordPart {
         expression: SourceText,
         /// Typed arithmetic view of `expression`.
         expression_ast: Option<ArithmeticExprNode>,
+        /// Parsed shell-word view of `expression`.
+        expression_word_ast: Word,
         syntax: ArithmeticExpansionSyntax,
     },
     /// Unified parameter-expansion family for `${...}` forms.
@@ -2284,6 +2319,7 @@ pub enum WordPart {
         reference: VarRef,
         operator: ParameterOp,
         operand: Option<SourceText>,
+        operand_word_ast: Option<Word>,
         colon_variant: bool,
     },
     /// Length expansion ${#var}
@@ -2300,9 +2336,13 @@ pub enum WordPart {
         offset: SourceText,
         /// Typed arithmetic view of `offset` when it parses as arithmetic.
         offset_ast: Option<ArithmeticExprNode>,
+        /// Parsed shell-word view of `offset`.
+        offset_word_ast: Word,
         length: Option<SourceText>,
         /// Typed arithmetic view of `length` when it parses as arithmetic.
         length_ast: Option<ArithmeticExprNode>,
+        /// Parsed shell-word view of `length`.
+        length_word_ast: Option<Word>,
     },
     /// Array slice `${arr[@]:offset:length}`
     ArraySlice {
@@ -2310,9 +2350,13 @@ pub enum WordPart {
         offset: SourceText,
         /// Typed arithmetic view of `offset` when it parses as arithmetic.
         offset_ast: Option<ArithmeticExprNode>,
+        /// Parsed shell-word view of `offset`.
+        offset_word_ast: Word,
         length: Option<SourceText>,
         /// Typed arithmetic view of `length` when it parses as arithmetic.
         length_ast: Option<ArithmeticExprNode>,
+        /// Parsed shell-word view of `length`.
+        length_word_ast: Option<Word>,
     },
     /// Indirect expansion `${!var}` - expands to value of variable named by var's value
     /// Optionally composed with an operator: `${!var:-default}`, `${!var:=val}`, etc.
@@ -2320,6 +2364,7 @@ pub enum WordPart {
         reference: VarRef,
         operator: Option<ParameterOp>,
         operand: Option<SourceText>,
+        operand_word_ast: Option<Word>,
         colon_variant: bool,
     },
     /// Prefix matching `${!prefix*}` or `${!prefix@}` - names of variables with given prefix
@@ -2644,6 +2689,7 @@ fn fmt_word_part_with_source_mode(
             operator,
             operand,
             colon_variant,
+            ..
         } => match operator {
             ParameterOp::UseDefault => {
                 let c = if *colon_variant { ":" } else { "" };
@@ -2827,6 +2873,7 @@ fn fmt_word_part_with_source_mode(
             operator,
             operand,
             colon_variant,
+            ..
         } => {
             let mut reference_syntax = String::new();
             fmt_var_ref_with_source(&mut reference_syntax, reference, source)?;
@@ -3587,6 +3634,9 @@ mod tests {
                         reference: plain_ref("PREFIXED_VERSION"),
                         operator: ParameterOp::UseDefault,
                         operand: Some("$PROVIDED_VERSION".into()),
+                        operand_word_ast: Some(word(vec![WordPart::Variable(
+                            "PROVIDED_VERSION".into(),
+                        )])),
                         colon_variant: true,
                     },
                     Span::new(),
@@ -3728,6 +3778,7 @@ mod tests {
         let w = word(vec![WordPart::ArithmeticExpansion {
             expression: "1+2".into(),
             expression_ast: None,
+            expression_word_ast: Word::literal("1+2"),
             syntax: ArithmeticExpansionSyntax::DollarParenParen,
         }]);
         assert_eq!(format!("{w}"), "$((1+2))");
@@ -3769,8 +3820,10 @@ mod tests {
             reference: plain_ref("var"),
             offset: "2".into(),
             offset_ast: None,
+            offset_word_ast: Word::literal("2"),
             length: Some("3".into()),
             length_ast: None,
+            length_word_ast: Some(Word::literal("3")),
         }]);
         assert_eq!(format!("{w}"), "${var:2:3}");
     }
@@ -3781,8 +3834,10 @@ mod tests {
             reference: plain_ref("var"),
             offset: "2".into(),
             offset_ast: None,
+            offset_word_ast: Word::literal("2"),
             length: None,
             length_ast: None,
+            length_word_ast: None,
         }]);
         assert_eq!(format!("{w}"), "${var:2}");
     }
@@ -3793,8 +3848,10 @@ mod tests {
             reference: selector_ref("arr", SubscriptSelector::At),
             offset: "1".into(),
             offset_ast: None,
+            offset_word_ast: Word::literal("1"),
             length: Some("2".into()),
             length_ast: None,
+            length_word_ast: Some(Word::literal("2")),
         }]);
         assert_eq!(format!("{w}"), "${arr[@]:1:2}");
     }
@@ -3805,8 +3862,10 @@ mod tests {
             reference: selector_ref("arr", SubscriptSelector::At),
             offset: "1".into(),
             offset_ast: None,
+            offset_word_ast: Word::literal("1"),
             length: None,
             length_ast: None,
+            length_word_ast: None,
         }]);
         assert_eq!(format!("{w}"), "${arr[@]:1}");
     }
@@ -3817,6 +3876,7 @@ mod tests {
             reference: plain_ref("ref"),
             operator: None,
             operand: None,
+            operand_word_ast: None,
             colon_variant: false,
         }]);
         assert_eq!(format!("{w}"), "${!ref}");
@@ -3956,6 +4016,7 @@ mod tests {
             reference: plain_ref("var"),
             operator: ParameterOp::UseDefault,
             operand: Some("fallback".into()),
+            operand_word_ast: Some(Word::literal("fallback")),
             colon_variant: true,
         }]);
         assert_eq!(format!("{w}"), "${var:-fallback}");
@@ -3967,6 +4028,7 @@ mod tests {
             reference: plain_ref("var"),
             operator: ParameterOp::UseDefault,
             operand: Some("fallback".into()),
+            operand_word_ast: Some(Word::literal("fallback")),
             colon_variant: false,
         }]);
         assert_eq!(format!("{w}"), "${var-fallback}");
@@ -3978,6 +4040,7 @@ mod tests {
             reference: plain_ref("var"),
             operator: ParameterOp::AssignDefault,
             operand: Some("val".into()),
+            operand_word_ast: Some(Word::literal("val")),
             colon_variant: true,
         }]);
         assert_eq!(format!("{w}"), "${var:=val}");
@@ -3989,6 +4052,7 @@ mod tests {
             reference: plain_ref("var"),
             operator: ParameterOp::UseReplacement,
             operand: Some("alt".into()),
+            operand_word_ast: Some(Word::literal("alt")),
             colon_variant: true,
         }]);
         assert_eq!(format!("{w}"), "${var:+alt}");
@@ -4000,6 +4064,7 @@ mod tests {
             reference: plain_ref("var"),
             operator: ParameterOp::Error,
             operand: Some("msg".into()),
+            operand_word_ast: Some(Word::literal("msg")),
             colon_variant: true,
         }]);
         assert_eq!(format!("{w}"), "${var:?msg}");
@@ -4014,6 +4079,7 @@ mod tests {
                 pattern: pattern(vec![PatternPart::Literal("pat".into())]),
             },
             operand: None,
+            operand_word_ast: None,
             colon_variant: false,
         }]);
         assert_eq!(format!("{w}"), "${var#pat}");
@@ -4025,6 +4091,7 @@ mod tests {
                 pattern: pattern(vec![PatternPart::Literal("pat".into())]),
             },
             operand: None,
+            operand_word_ast: None,
             colon_variant: false,
         }]);
         assert_eq!(format!("{w}"), "${var##pat}");
@@ -4036,6 +4103,7 @@ mod tests {
                 pattern: pattern(vec![PatternPart::Literal("pat".into())]),
             },
             operand: None,
+            operand_word_ast: None,
             colon_variant: false,
         }]);
         assert_eq!(format!("{w}"), "${var%pat}");
@@ -4047,6 +4115,7 @@ mod tests {
                 pattern: pattern(vec![PatternPart::Literal("pat".into())]),
             },
             operand: None,
+            operand_word_ast: None,
             colon_variant: false,
         }]);
         assert_eq!(format!("{w}"), "${var%%pat}");
@@ -4062,6 +4131,7 @@ mod tests {
                 replacement_word_ast: Word::literal("new"),
             },
             operand: None,
+            operand_word_ast: None,
             colon_variant: false,
         }]);
         assert_eq!(format!("{w}"), "${var/old/new}");
@@ -4074,6 +4144,7 @@ mod tests {
                 replacement_word_ast: Word::literal("new"),
             },
             operand: None,
+            operand_word_ast: None,
             colon_variant: false,
         }]);
         assert_eq!(format!("{w}"), "${var//old/new}");
@@ -4086,6 +4157,7 @@ mod tests {
                 reference: plain_ref("var"),
                 operator: op,
                 operand: None,
+                operand_word_ast: None,
                 colon_variant: false,
             }]);
             assert_eq!(format!("{w}"), expected);

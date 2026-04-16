@@ -1925,6 +1925,7 @@ impl<'a> Parser<'a> {
                 operator,
                 operand,
                 colon_variant,
+                ..
             } => {
                 out.push_str("${");
                 self.push_var_ref_syntax(out, reference);
@@ -1983,6 +1984,7 @@ impl<'a> Parser<'a> {
                 operator,
                 operand,
                 colon_variant,
+                ..
             } => {
                 out.push_str("${!");
                 self.push_var_ref_syntax(out, reference);
@@ -3360,11 +3362,10 @@ impl<'a> Parser<'a> {
                     };
                     Self::push_word_part(
                         parts,
-                        WordPart::ArithmeticExpansion {
-                            expression_ast: self.parse_source_text_as_arithmetic(&expression).ok(),
+                        self.arithmetic_expansion_word_part(
                             expression,
-                            syntax: ArithmeticExpansionSyntax::DollarParenParen,
-                        },
+                            ArithmeticExpansionSyntax::DollarParenParen,
+                        ),
                         part_start,
                         cursor,
                     );
@@ -3484,11 +3485,10 @@ impl<'a> Parser<'a> {
                 };
                 Self::push_word_part(
                     parts,
-                    WordPart::ArithmeticExpansion {
-                        expression_ast: self.parse_source_text_as_arithmetic(&expression).ok(),
+                    self.arithmetic_expansion_word_part(
                         expression,
-                        syntax: ArithmeticExpansionSyntax::LegacyBracket,
-                    },
+                        ArithmeticExpansionSyntax::LegacyBracket,
+                    ),
                     part_start,
                     cursor,
                 );
@@ -3641,12 +3641,7 @@ impl<'a> Parser<'a> {
                             {
                                 WordPart::ArrayIndices(reference)
                             } else {
-                                WordPart::IndirectExpansion {
-                                    reference,
-                                    operator: None,
-                                    operand: None,
-                                    colon_variant: false,
-                                }
+                                self.indirect_expansion_word_part(reference, None, None, false)
                             },
                             part_start,
                             cursor,
@@ -3666,14 +3661,14 @@ impl<'a> Parser<'a> {
                             let operand =
                                 self.read_brace_operand(&mut chars, &mut cursor, source_backed);
                             let part = self.parameter_word_part_from_legacy(
-                                WordPart::IndirectExpansion {
-                                    reference: self.parameter_var_ref(
+                                self.indirect_expansion_word_part(
+                                    self.parameter_var_ref(
                                         part_start, "${!", &var_name, subscript, cursor,
                                     ),
-                                    operator: Some(operator),
-                                    operand: Some(operand),
-                                    colon_variant: true,
-                                },
+                                    Some(operator),
+                                    Some(operand),
+                                    true,
+                                ),
                                 part_start,
                                 cursor,
                                 source_backed,
@@ -3723,14 +3718,14 @@ impl<'a> Parser<'a> {
                             _ => unreachable!(),
                         };
                         let part = self.parameter_word_part_from_legacy(
-                            WordPart::IndirectExpansion {
-                                reference: self.parameter_var_ref(
+                            self.indirect_expansion_word_part(
+                                self.parameter_var_ref(
                                     part_start, "${!", &var_name, subscript, cursor,
                                 ),
-                                operator: Some(operator),
-                                operand: Some(operand),
-                                colon_variant: false,
-                            },
+                                Some(operator),
+                                Some(operand),
+                                false,
+                            ),
                             part_start,
                             cursor,
                             source_backed,
@@ -3751,12 +3746,12 @@ impl<'a> Parser<'a> {
                                 } else {
                                     ParameterOp::RemovePrefixShort { pattern }
                                 };
-                                WordPart::IndirectExpansion {
+                                self.indirect_expansion_word_part(
                                     reference,
-                                    operator: Some(operator),
-                                    operand: None,
-                                    colon_variant: false,
-                                }
+                                    Some(operator),
+                                    None,
+                                    false,
+                                )
                             }
                             '%' => {
                                 let longest =
@@ -3769,12 +3764,12 @@ impl<'a> Parser<'a> {
                                 } else {
                                     ParameterOp::RemoveSuffixShort { pattern }
                                 };
-                                WordPart::IndirectExpansion {
+                                self.indirect_expansion_word_part(
                                     reference,
-                                    operator: Some(operator),
-                                    operand: None,
-                                    colon_variant: false,
-                                }
+                                    Some(operator),
+                                    None,
+                                    false,
+                                )
                             }
                             '/' => {
                                 let replace_all =
@@ -3825,12 +3820,12 @@ impl<'a> Parser<'a> {
                                         replacement,
                                     }
                                 };
-                                WordPart::IndirectExpansion {
+                                self.indirect_expansion_word_part(
                                     reference,
-                                    operator: Some(operator),
-                                    operand: None,
-                                    colon_variant: false,
-                                }
+                                    Some(operator),
+                                    None,
+                                    false,
+                                )
                             }
                             _ => unreachable!(),
                         };
@@ -3930,8 +3925,8 @@ impl<'a> Parser<'a> {
                                     '?' => ParameterOp::Error,
                                     _ => unreachable!(),
                                 };
-                                WordPart::ParameterExpansion {
-                                    reference: self.parameter_var_ref(
+                                self.parameter_expansion_word_part(
+                                    self.parameter_var_ref(
                                         part_start,
                                         "${",
                                         &var_name,
@@ -3939,9 +3934,9 @@ impl<'a> Parser<'a> {
                                         cursor,
                                     ),
                                     operator,
-                                    operand: Some(operand),
-                                    colon_variant: true,
-                                }
+                                    Some(operand),
+                                    true,
+                                )
                             } else if self.zsh_parameter_suffix_looks_like_modifier(&mut chars) {
                                 let tail =
                                     self.read_brace_operand(&mut chars, &mut cursor, source_backed);
@@ -3976,13 +3971,8 @@ impl<'a> Parser<'a> {
                                         None
                                     };
                                 Self::consume_word_char_if(&mut chars, &mut cursor, '}');
-                                let offset_ast =
-                                    self.maybe_parse_source_text_as_arithmetic(&offset);
-                                let length_ast = length.as_ref().and_then(|length| {
-                                    self.maybe_parse_source_text_as_arithmetic(length)
-                                });
-                                WordPart::ArraySlice {
-                                    reference: self.parameter_var_ref(
+                                self.array_slice_word_part(
+                                    self.parameter_var_ref(
                                         part_start,
                                         "${",
                                         &var_name,
@@ -3990,10 +3980,8 @@ impl<'a> Parser<'a> {
                                         cursor,
                                     ),
                                     offset,
-                                    offset_ast,
                                     length,
-                                    length_ast,
-                                }
+                                )
                             }
                         } else if matches!(next_c, '-' | '+' | '=' | '?') {
                             let op_char = Self::next_word_char_unwrap(&mut chars, &mut cursor);
@@ -4006,8 +3994,8 @@ impl<'a> Parser<'a> {
                                 '?' => ParameterOp::Error,
                                 _ => unreachable!(),
                             };
-                            WordPart::ParameterExpansion {
-                                reference: self.parameter_var_ref(
+                            self.parameter_expansion_word_part(
+                                self.parameter_var_ref(
                                     part_start,
                                     "${",
                                     &var_name,
@@ -4015,9 +4003,9 @@ impl<'a> Parser<'a> {
                                     cursor,
                                 ),
                                 operator,
-                                operand: Some(operand),
-                                colon_variant: false,
-                            }
+                                Some(operand),
+                                false,
+                            )
                         } else if next_c == '#' {
                             Self::next_word_char_unwrap(&mut chars, &mut cursor);
                             let longest = Self::consume_word_char_if(&mut chars, &mut cursor, '#');
@@ -4029,8 +4017,8 @@ impl<'a> Parser<'a> {
                             } else {
                                 ParameterOp::RemovePrefixShort { pattern }
                             };
-                            WordPart::ParameterExpansion {
-                                reference: self.parameter_var_ref(
+                            self.parameter_expansion_word_part(
+                                self.parameter_var_ref(
                                     part_start,
                                     "${",
                                     &var_name,
@@ -4038,9 +4026,9 @@ impl<'a> Parser<'a> {
                                     cursor,
                                 ),
                                 operator,
-                                operand: None,
-                                colon_variant: false,
-                            }
+                                None,
+                                false,
+                            )
                         } else if next_c == '%' {
                             Self::next_word_char_unwrap(&mut chars, &mut cursor);
                             let longest = Self::consume_word_char_if(&mut chars, &mut cursor, '%');
@@ -4052,8 +4040,8 @@ impl<'a> Parser<'a> {
                             } else {
                                 ParameterOp::RemoveSuffixShort { pattern }
                             };
-                            WordPart::ParameterExpansion {
-                                reference: self.parameter_var_ref(
+                            self.parameter_expansion_word_part(
+                                self.parameter_var_ref(
                                     part_start,
                                     "${",
                                     &var_name,
@@ -4061,9 +4049,9 @@ impl<'a> Parser<'a> {
                                     cursor,
                                 ),
                                 operator,
-                                operand: None,
-                                colon_variant: false,
-                            }
+                                None,
+                                false,
+                            )
                         } else if next_c == '/' {
                             Self::next_word_char_unwrap(&mut chars, &mut cursor);
                             let replace_all =
@@ -4114,8 +4102,8 @@ impl<'a> Parser<'a> {
                                     replacement,
                                 }
                             };
-                            WordPart::ParameterExpansion {
-                                reference: self.parameter_var_ref(
+                            self.parameter_expansion_word_part(
+                                self.parameter_var_ref(
                                     part_start,
                                     "${",
                                     &var_name,
@@ -4123,9 +4111,9 @@ impl<'a> Parser<'a> {
                                     cursor,
                                 ),
                                 operator,
-                                operand: None,
-                                colon_variant: false,
-                            }
+                                None,
+                                false,
+                            )
                         } else if next_c == '^' {
                             Self::next_word_char_unwrap(&mut chars, &mut cursor);
                             let operator =
@@ -4144,8 +4132,8 @@ impl<'a> Parser<'a> {
                                         source_backed,
                                     ))
                                 };
-                            WordPart::ParameterExpansion {
-                                reference: self.parameter_var_ref(
+                            self.parameter_expansion_word_part(
+                                self.parameter_var_ref(
                                     part_start,
                                     "${",
                                     &var_name,
@@ -4154,8 +4142,8 @@ impl<'a> Parser<'a> {
                                 ),
                                 operator,
                                 operand,
-                                colon_variant: false,
-                            }
+                                false,
+                            )
                         } else if next_c == ',' {
                             Self::next_word_char_unwrap(&mut chars, &mut cursor);
                             let operator =
@@ -4174,8 +4162,8 @@ impl<'a> Parser<'a> {
                                         source_backed,
                                     ))
                                 };
-                            WordPart::ParameterExpansion {
-                                reference: self.parameter_var_ref(
+                            self.parameter_expansion_word_part(
+                                self.parameter_var_ref(
                                     part_start,
                                     "${",
                                     &var_name,
@@ -4184,8 +4172,8 @@ impl<'a> Parser<'a> {
                                 ),
                                 operator,
                                 operand,
-                                colon_variant: false,
-                            }
+                                false,
+                            )
                         } else if next_c == '@' {
                             Self::next_word_char_unwrap(&mut chars, &mut cursor);
                             if chars.peek().is_some() {
@@ -4278,14 +4266,14 @@ impl<'a> Parser<'a> {
                                         '?' => ParameterOp::Error,
                                         _ => unreachable!(),
                                     };
-                                    WordPart::ParameterExpansion {
-                                        reference: self.parameter_var_ref(
+                                    self.parameter_expansion_word_part(
+                                        self.parameter_var_ref(
                                             part_start, "${", &var_name, None, cursor,
                                         ),
                                         operator,
-                                        operand: Some(operand),
-                                        colon_variant: true,
-                                    }
+                                        Some(operand),
+                                        true,
+                                    )
                                 }
                                 _ => {
                                     let offset = self.read_source_text_while(
@@ -4307,20 +4295,13 @@ impl<'a> Parser<'a> {
                                             None
                                         };
                                     Self::consume_word_char_if(&mut chars, &mut cursor, '}');
-                                    let offset_ast =
-                                        self.maybe_parse_source_text_as_arithmetic(&offset);
-                                    let length_ast = length.as_ref().and_then(|length| {
-                                        self.maybe_parse_source_text_as_arithmetic(length)
-                                    });
-                                    WordPart::Substring {
-                                        reference: self.parameter_var_ref(
+                                    self.substring_word_part(
+                                        self.parameter_var_ref(
                                             part_start, "${", &var_name, None, cursor,
                                         ),
                                         offset,
-                                        offset_ast,
                                         length,
-                                        length_ast,
-                                    }
+                                    )
                                 }
                             }
                         }
@@ -4335,13 +4316,12 @@ impl<'a> Parser<'a> {
                                 '?' => ParameterOp::Error,
                                 _ => unreachable!(),
                             };
-                            WordPart::ParameterExpansion {
-                                reference: self
-                                    .parameter_var_ref(part_start, "${", &var_name, None, cursor),
+                            self.parameter_expansion_word_part(
+                                self.parameter_var_ref(part_start, "${", &var_name, None, cursor),
                                 operator,
-                                operand: Some(operand),
-                                colon_variant: false,
-                            }
+                                Some(operand),
+                                false,
+                            )
                         }
                         '#' => {
                             Self::next_word_char_unwrap(&mut chars, &mut cursor);
@@ -4354,13 +4334,12 @@ impl<'a> Parser<'a> {
                             } else {
                                 ParameterOp::RemovePrefixShort { pattern }
                             };
-                            WordPart::ParameterExpansion {
-                                reference: self
-                                    .parameter_var_ref(part_start, "${", &var_name, None, cursor),
+                            self.parameter_expansion_word_part(
+                                self.parameter_var_ref(part_start, "${", &var_name, None, cursor),
                                 operator,
-                                operand: None,
-                                colon_variant: false,
-                            }
+                                None,
+                                false,
+                            )
                         }
                         '%' => {
                             Self::next_word_char_unwrap(&mut chars, &mut cursor);
@@ -4373,13 +4352,12 @@ impl<'a> Parser<'a> {
                             } else {
                                 ParameterOp::RemoveSuffixShort { pattern }
                             };
-                            WordPart::ParameterExpansion {
-                                reference: self
-                                    .parameter_var_ref(part_start, "${", &var_name, None, cursor),
+                            self.parameter_expansion_word_part(
+                                self.parameter_var_ref(part_start, "${", &var_name, None, cursor),
                                 operator,
-                                operand: None,
-                                colon_variant: false,
-                            }
+                                None,
+                                false,
+                            )
                         }
                         '/' => {
                             Self::next_word_char_unwrap(&mut chars, &mut cursor);
@@ -4431,13 +4409,12 @@ impl<'a> Parser<'a> {
                                     replacement,
                                 }
                             };
-                            WordPart::ParameterExpansion {
-                                reference: self
-                                    .parameter_var_ref(part_start, "${", &var_name, None, cursor),
+                            self.parameter_expansion_word_part(
+                                self.parameter_var_ref(part_start, "${", &var_name, None, cursor),
                                 operator,
-                                operand: None,
-                                colon_variant: false,
-                            }
+                                None,
+                                false,
+                            )
                         }
                         '^' => {
                             Self::next_word_char_unwrap(&mut chars, &mut cursor);
@@ -4457,13 +4434,12 @@ impl<'a> Parser<'a> {
                                         source_backed,
                                     ))
                                 };
-                            WordPart::ParameterExpansion {
-                                reference: self
-                                    .parameter_var_ref(part_start, "${", &var_name, None, cursor),
+                            self.parameter_expansion_word_part(
+                                self.parameter_var_ref(part_start, "${", &var_name, None, cursor),
                                 operator,
                                 operand,
-                                colon_variant: false,
-                            }
+                                false,
+                            )
                         }
                         ',' => {
                             Self::next_word_char_unwrap(&mut chars, &mut cursor);
@@ -4483,13 +4459,12 @@ impl<'a> Parser<'a> {
                                         source_backed,
                                     ))
                                 };
-                            WordPart::ParameterExpansion {
-                                reference: self
-                                    .parameter_var_ref(part_start, "${", &var_name, None, cursor),
+                            self.parameter_expansion_word_part(
+                                self.parameter_var_ref(part_start, "${", &var_name, None, cursor),
                                 operator,
                                 operand,
-                                colon_variant: false,
-                            }
+                                false,
+                            )
                         }
                         '@' => {
                             Self::next_word_char_unwrap(&mut chars, &mut cursor);
@@ -4855,6 +4830,99 @@ impl<'a> Parser<'a> {
         source_backed: bool,
     ) -> Word {
         self.decode_word_text_preserving_quotes_if_needed(s, span, base, source_backed)
+    }
+
+    fn arithmetic_expansion_word_part(
+        &self,
+        expression: SourceText,
+        syntax: ArithmeticExpansionSyntax,
+    ) -> WordPart {
+        WordPart::ArithmeticExpansion {
+            expression_ast: self.parse_source_text_as_arithmetic(&expression).ok(),
+            expression_word_ast: self.parse_source_text_as_word(&expression),
+            expression,
+            syntax,
+        }
+    }
+
+    fn parameter_expansion_word_part(
+        &self,
+        reference: VarRef,
+        operator: ParameterOp,
+        operand: Option<SourceText>,
+        colon_variant: bool,
+    ) -> WordPart {
+        let operand_word_ast = self.parse_optional_source_text_as_word(operand.as_ref());
+        WordPart::ParameterExpansion {
+            reference,
+            operator,
+            operand,
+            operand_word_ast,
+            colon_variant,
+        }
+    }
+
+    fn indirect_expansion_word_part(
+        &self,
+        reference: VarRef,
+        operator: Option<ParameterOp>,
+        operand: Option<SourceText>,
+        colon_variant: bool,
+    ) -> WordPart {
+        let operand_word_ast = self.parse_optional_source_text_as_word(operand.as_ref());
+        WordPart::IndirectExpansion {
+            reference,
+            operator,
+            operand,
+            operand_word_ast,
+            colon_variant,
+        }
+    }
+
+    fn substring_word_part(
+        &self,
+        reference: VarRef,
+        offset: SourceText,
+        length: Option<SourceText>,
+    ) -> WordPart {
+        let offset_ast = self.maybe_parse_source_text_as_arithmetic(&offset);
+        let offset_word_ast = self.parse_source_text_as_word(&offset);
+        let length_ast = length
+            .as_ref()
+            .and_then(|length| self.maybe_parse_source_text_as_arithmetic(length));
+        let length_word_ast = self.parse_optional_source_text_as_word(length.as_ref());
+        WordPart::Substring {
+            reference,
+            offset,
+            offset_ast,
+            offset_word_ast,
+            length,
+            length_ast,
+            length_word_ast,
+        }
+    }
+
+    fn array_slice_word_part(
+        &self,
+        reference: VarRef,
+        offset: SourceText,
+        length: Option<SourceText>,
+    ) -> WordPart {
+        let offset_ast = self.maybe_parse_source_text_as_arithmetic(&offset);
+        let offset_word_ast = self.parse_source_text_as_word(&offset);
+        let length_ast = length
+            .as_ref()
+            .and_then(|length| self.maybe_parse_source_text_as_arithmetic(length));
+        let length_word_ast = self.parse_optional_source_text_as_word(length.as_ref());
+        WordPart::ArraySlice {
+            reference,
+            offset,
+            offset_ast,
+            offset_word_ast,
+            length,
+            length_ast,
+            length_word_ast,
+        }
     }
 
     /// Read operand for brace expansion (everything until closing brace)
