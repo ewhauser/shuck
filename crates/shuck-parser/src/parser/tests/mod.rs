@@ -4,13 +4,18 @@ use shuck_ast::{
     ArithmeticBinaryOp, ArithmeticPostfixOp, ArithmeticUnaryOp, BackgroundOperator, BinaryCommand,
     BourneParameterExpansion, BuiltinCommand as AstBuiltinCommand, Command as AstCommand,
     CompoundCommand as AstCompoundCommand, ForSyntax, ForeachSyntax, FunctionDef as AstFunctionDef,
-    IfSyntax, Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, PrefixMatchKind,
-    RepeatSyntax, SimpleCommand as AstSimpleCommand, SourceText, StmtTerminator, ZshDefaultingOp,
-    ZshExpansionOperation, ZshExpansionTarget, ZshPatternOp, ZshReplacementOp, ZshTrimOp,
+    HeredocBody, HeredocBodyMode, IfSyntax, Name, ParameterExpansion, ParameterExpansionSyntax,
+    ParameterOp, PrefixMatchKind, RepeatSyntax, SimpleCommand as AstSimpleCommand, SourceText,
+    StmtTerminator, ZshDefaultingOp, ZshExpansionOperation, ZshExpansionTarget, ZshPatternOp,
+    ZshReplacementOp, ZshTrimOp,
 };
 
 fn is_fully_quoted(word: &Word) -> bool {
     word.is_fully_quoted()
+}
+
+fn heredoc_body_is_literal(body: &HeredocBody) -> bool {
+    body.mode == HeredocBodyMode::Literal
 }
 
 fn pattern_part_slices<'a>(pattern: &'a Pattern, input: &'a str) -> Vec<&'a str> {
@@ -23,6 +28,13 @@ fn pattern_part_slices<'a>(pattern: &'a Pattern, input: &'a str) -> Vec<&'a str>
 
 fn top_level_part_slices<'a>(word: &'a Word, input: &'a str) -> Vec<&'a str> {
     word.parts
+        .iter()
+        .map(|part| part.span.slice(input))
+        .collect()
+}
+
+fn heredoc_top_level_part_slices<'a>(body: &'a HeredocBody, input: &'a str) -> Vec<&'a str> {
+    body.parts
         .iter()
         .map(|part| part.span.slice(input))
         .collect()

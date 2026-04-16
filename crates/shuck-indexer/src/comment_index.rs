@@ -2,8 +2,9 @@ use std::ops::Range;
 
 use shuck_ast::{
     ArrayElem, Assignment, AssignmentValue, BuiltinCommand, Command, Comment, CompoundCommand,
-    ConditionalExpr, DeclOperand, File, Pattern, PatternPart, Redirect, Stmt, StmtSeq, TextRange,
-    TextSize, Word, WordPart, WordPartNode, ZshGlobSegment,
+    ConditionalExpr, DeclOperand, File, HeredocBody, HeredocBodyPart, HeredocBodyPartNode, Pattern,
+    PatternPart, Redirect, Stmt, StmtSeq, TextRange, TextSize, Word, WordPart, WordPartNode,
+    ZshGlobSegment,
 };
 
 use crate::LineIndex;
@@ -352,7 +353,7 @@ fn collect_redirect_comments(redirects: &[Redirect], comments: &mut Vec<Comment>
             collect_word_comments(word, comments);
         }
         if let Some(heredoc) = redirect.heredoc() {
-            collect_word_comments(&heredoc.body, comments);
+            collect_heredoc_body_comments(&heredoc.body, comments);
         }
     }
 }
@@ -430,6 +431,10 @@ fn collect_word_comments(word: &Word, comments: &mut Vec<Comment>) {
     collect_word_part_comments(&word.parts, comments);
 }
 
+fn collect_heredoc_body_comments(body: &HeredocBody, comments: &mut Vec<Comment>) {
+    collect_heredoc_body_part_comments(&body.parts, comments);
+}
+
 fn collect_word_part_comments(parts: &[WordPartNode], comments: &mut Vec<Comment>) {
     for part in parts {
         match &part.kind {
@@ -464,6 +469,24 @@ fn collect_word_part_comments(parts: &[WordPartNode], comments: &mut Vec<Comment
             | WordPart::IndirectExpansion { .. }
             | WordPart::PrefixMatch { .. }
             | WordPart::Transformation { .. } => {}
+        }
+    }
+}
+
+fn collect_heredoc_body_part_comments(parts: &[HeredocBodyPartNode], comments: &mut Vec<Comment>) {
+    for part in parts {
+        match &part.kind {
+            HeredocBodyPart::CommandSubstitution { body, .. } => {
+                collect_stmt_seq_comments(body, comments)
+            }
+            HeredocBodyPart::ArithmeticExpansion { expression_ast, .. } => {
+                if let Some(expression) = expression_ast {
+                    collect_arithmetic_expr_comments(expression, comments);
+                }
+            }
+            HeredocBodyPart::Literal(_)
+            | HeredocBodyPart::Variable(_)
+            | HeredocBodyPart::Parameter(_) => {}
         }
     }
 }

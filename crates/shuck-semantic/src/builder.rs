@@ -3,10 +3,10 @@ use shuck_ast::{
     AnonymousFunctionCommand, ArithmeticAssignOp, ArithmeticExpr, ArithmeticExprNode,
     ArithmeticLvalue, ArithmeticUnaryOp, ArrayElem, ArrayExpr, ArrayKind, Assignment,
     AssignmentValue, BinaryCommand, BinaryOp, BourneParameterExpansion, BuiltinCommand, Command,
-    CompoundCommand, ConditionalExpr, DeclOperand, File, FunctionDef, Name, ParameterExpansion,
-    ParameterExpansionSyntax, ParameterOp, Pattern, PatternGroupKind, PatternPart, PatternPartNode,
-    Span, Stmt, StmtSeq, Subscript, VarRef, Word, WordPart, WordPartNode, ZshExpansionOperation,
-    ZshExpansionTarget, ZshGlobSegment,
+    CompoundCommand, ConditionalExpr, DeclOperand, File, FunctionDef, HeredocBody, HeredocBodyPart,
+    HeredocBodyPartNode, Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern,
+    PatternGroupKind, PatternPart, PatternPartNode, Span, Stmt, StmtSeq, Subscript, VarRef, Word,
+    WordPart, WordPartNode, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::{ShellProfile, ZshEmulationMode, parser::Parser};
@@ -1109,7 +1109,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 None => {
                     let heredoc = redirect.heredoc().expect("expected heredoc redirect");
                     if heredoc.delimiter.expands_body {
-                        self.visit_word_into(
+                        self.visit_heredoc_body_into(
                             &heredoc.body,
                             WordVisitKind::Expansion,
                             flow,
@@ -1143,6 +1143,19 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             return;
         }
         self.visit_word_part_nodes(&word.parts, kind, flow, nested_regions);
+    }
+
+    fn visit_heredoc_body_into(
+        &mut self,
+        body: &HeredocBody,
+        kind: WordVisitKind,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        if !body.mode.expands() || heredoc_body_is_semantically_inert(body) {
+            return;
+        }
+        self.visit_heredoc_body_part_nodes(&body.parts, kind, flow, nested_regions);
     }
 
     fn visit_pattern_into(
@@ -1179,6 +1192,18 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     ) {
         for part in parts {
             self.visit_pattern_part(&part.kind, kind, flow, nested_regions);
+        }
+    }
+
+    fn visit_heredoc_body_part_nodes(
+        &mut self,
+        parts: &[HeredocBodyPartNode],
+        kind: WordVisitKind,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        for part in parts {
+            self.visit_heredoc_body_part(&part.kind, part.span, kind, flow, nested_regions);
         }
     }
 
@@ -1472,6 +1497,59 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     nested_regions,
                     span,
                 );
+            }
+        }
+    }
+
+    fn visit_heredoc_body_part(
+        &mut self,
+        part: &HeredocBodyPart,
+        span: Span,
+        kind: WordVisitKind,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        match part {
+            HeredocBodyPart::Literal(_) => {}
+            HeredocBodyPart::Variable(name) => {
+                self.add_reference(
+                    name,
+                    if matches!(kind, WordVisitKind::Conditional) {
+                        ReferenceKind::ConditionalOperand
+                    } else {
+                        ReferenceKind::Expansion
+                    },
+                    span,
+                );
+            }
+            HeredocBodyPart::CommandSubstitution { body, .. } => {
+                let scope =
+                    self.push_scope(ScopeKind::CommandSubstitution, self.current_scope(), span);
+                let mut commands = Vec::with_capacity(body.len());
+                self.visit_stmt_seq_into(
+                    body,
+                    FlowState {
+                        in_subshell: true,
+                        ..flow
+                    },
+                    &mut commands,
+                );
+                self.pop_scope(scope);
+                self.mark_scope_completed(scope);
+                nested_regions.push(IsolatedRegion {
+                    scope,
+                    commands: self.recorded_program.push_command_ids(commands),
+                });
+            }
+            HeredocBodyPart::ArithmeticExpansion { expression_ast, .. } => {
+                self.visit_optional_arithmetic_expr_into(
+                    expression_ast.as_ref(),
+                    flow,
+                    nested_regions,
+                );
+            }
+            HeredocBodyPart::Parameter(parameter) => {
+                self.visit_parameter_expansion(parameter, kind, flow, nested_regions, span);
             }
         }
     }
@@ -3463,6 +3541,12 @@ fn word_is_semantically_inert(word: &Word) -> bool {
         .all(|part| word_part_is_semantically_inert(&part.kind))
 }
 
+fn heredoc_body_is_semantically_inert(body: &HeredocBody) -> bool {
+    body.parts
+        .iter()
+        .all(|part| heredoc_body_part_is_semantically_inert(&part.kind))
+}
+
 fn word_part_is_semantically_inert(part: &WordPart) -> bool {
     match part {
         WordPart::Literal(_) | WordPart::SingleQuoted { .. } => true,
@@ -3485,6 +3569,16 @@ fn word_part_is_semantically_inert(part: &WordPart) -> bool {
         | WordPart::PrefixMatch { .. }
         | WordPart::ProcessSubstitution { .. }
         | WordPart::Transformation { .. } => false,
+    }
+}
+
+fn heredoc_body_part_is_semantically_inert(part: &HeredocBodyPart) -> bool {
+    match part {
+        HeredocBodyPart::Literal(_) => true,
+        HeredocBodyPart::ArithmeticExpansion { expression_ast, .. } => expression_ast.is_none(),
+        HeredocBodyPart::Variable(_)
+        | HeredocBodyPart::CommandSubstitution { .. }
+        | HeredocBodyPart::Parameter(_) => false,
     }
 }
 

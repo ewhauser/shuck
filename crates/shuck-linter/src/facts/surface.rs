@@ -1,5 +1,5 @@
 use super::*;
-use shuck_ast::PatternGroupKind;
+use shuck_ast::{HeredocBody, HeredocBodyPart, HeredocBodyPartNode, PatternGroupKind};
 
 #[derive(Debug, Default)]
 pub(super) struct SurfaceFragmentFacts {
@@ -215,10 +215,21 @@ impl<'a> SurfaceFragmentSink<'a> {
         if context.collect_open_double_quotes && context.assignment_target.is_none() {
             self.collect_open_double_quote_fragments(word);
         }
-        self.collect_raw_word_substring_expansions_in_span(word.span);
-        self.collect_raw_word_replacement_expansions_in_span(word.span);
-        self.collect_raw_word_case_modifications_in_span(word.span);
         self.collect_word_parts(&word.parts, context);
+    }
+
+    pub(super) fn collect_heredoc_body(
+        &mut self,
+        body: &HeredocBody,
+        context: SurfaceScanContext<'_>,
+    ) {
+        self.collect_single_quoted_fragments_in_heredoc_body_parts(&body.parts, context);
+        collect_unicode_smart_quote_spans_in_heredoc_body_parts(
+            &body.parts,
+            self.source,
+            &mut self.facts.unicode_smart_quote_spans,
+        );
+        self.collect_heredoc_body_parts(&body.parts, context);
     }
 
     pub(super) fn record_unset_array_target_word(&mut self, word: &Word) {
@@ -263,6 +274,48 @@ impl<'a> SurfaceFragmentSink<'a> {
                 self.facts
                     .suspect_closing_quotes
                     .push(SuspectClosingQuoteFragmentFact { span });
+            }
+        }
+    }
+
+    fn collect_single_quoted_fragments_in_heredoc_body_parts(
+        &mut self,
+        parts: &[HeredocBodyPartNode],
+        context: SurfaceScanContext<'_>,
+    ) {
+        let mut open_quote = None;
+
+        for part in parts {
+            let HeredocBodyPart::Literal(text) = &part.kind else {
+                continue;
+            };
+            let text = text.as_str(self.source, part.span);
+            let mut quote_scan_offset = 0usize;
+
+            while let Some(relative_quote_offset) = text[quote_scan_offset..].find('\'') {
+                let quote_offset = quote_scan_offset + relative_quote_offset;
+                let quote_start = part.span.start.advanced_by(&text[..quote_offset]);
+                let quote_end = quote_start.advanced_by("'");
+
+                if let Some(open_start) = open_quote.take() {
+                    self.facts.single_quoted.push(SingleQuotedFragmentFact {
+                        span: Span::from_positions(open_start, quote_end),
+                        dollar_quoted: false,
+                        command_name: context
+                            .command_name
+                            .map(str::to_owned)
+                            .map(String::into_boxed_str),
+                        assignment_target: context
+                            .assignment_target
+                            .map(str::to_owned)
+                            .map(String::into_boxed_str),
+                        variable_set_operand: context.variable_set_operand,
+                    });
+                } else {
+                    open_quote = Some(quote_start);
+                }
+
+                quote_scan_offset = quote_offset + '\''.len_utf8();
             }
         }
     }
@@ -364,73 +417,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                 }
                 WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => {}
                 WordPart::Parameter(parameter) => {
-                    if is_nested_parameter_expansion(parameter, self.source) {
-                        self.facts
-                            .nested_parameter_expansions
-                            .push(NestedParameterExpansionFragmentFact { span: part.span });
-                    }
-                    if parameter_has_array_reference(parameter) {
-                        self.record_array_reference(part.span);
-                    }
-                    if parameter_has_substring_expansion(parameter) {
-                        self.record_substring_expansion(parameter.span);
-                    }
-                    if parameter_has_case_modification(parameter) {
-                        self.record_case_modification(parameter.span);
-                    }
-                    if parameter_has_replacement_expansion(parameter) {
-                        self.record_replacement_expansion(parameter.span);
-                    }
-                    if parameter_has_star_glob_removal(parameter) {
-                        self.record_star_glob_removal(parameter.span);
-                    }
-                    self.record_parameter_subscripts(parameter);
-                    if let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax {
-                        if matches!(
-                            syntax,
-                            BourneParameterExpansion::Indirect { .. }
-                                | BourneParameterExpansion::PrefixMatch { .. }
-                                | BourneParameterExpansion::Indices { .. }
-                        ) {
-                            self.facts
-                                .indirect_expansions
-                                .push(IndirectExpansionFragmentFact {
-                                    span: part.span,
-                                    array_keys: matches!(
-                                        syntax,
-                                        BourneParameterExpansion::Indices { .. }
-                                    ),
-                                });
-                        }
-                        match syntax {
-                            BourneParameterExpansion::Operation {
-                                operator,
-                                operand,
-                                operand_word_ast,
-                                ..
-                            }
-                            | BourneParameterExpansion::Indirect {
-                                operator: Some(operator),
-                                operand,
-                                operand_word_ast,
-                                ..
-                            } => {
-                                self.collect_parameter_operator_patterns(
-                                    operator,
-                                    operand.as_ref(),
-                                    operand_word_ast.as_ref(),
-                                    context,
-                                );
-                            }
-                            BourneParameterExpansion::Access { .. }
-                            | BourneParameterExpansion::Length { .. }
-                            | BourneParameterExpansion::Indices { .. }
-                            | BourneParameterExpansion::Indirect { operator: None, .. }
-                            | BourneParameterExpansion::PrefixMatch { .. }
-                            | BourneParameterExpansion::Slice { .. }
-                            | BourneParameterExpansion::Transformation { .. } => {}
-                        }
-                    }
+                    self.collect_parameter_expansion(parameter, part.span, context);
                 }
                 WordPart::Variable(name)
                     if name.as_str() == "$"
@@ -557,6 +544,89 @@ impl<'a> SurfaceFragmentSink<'a> {
         }
     }
 
+    fn collect_heredoc_body_parts(
+        &mut self,
+        parts: &[HeredocBodyPartNode],
+        context: SurfaceScanContext<'_>,
+    ) {
+        for (index, part) in parts.iter().enumerate() {
+            if let HeredocBodyPart::Variable(name) = &part.kind
+                && matches!(
+                    name.as_str(),
+                    "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
+                )
+                && let Some(next_part) = parts.get(index + 1)
+                && let HeredocBodyPart::Literal(text) = &next_part.kind
+                && text
+                    .as_str(self.source, next_part.span)
+                    .starts_with(|char: char| char.is_ascii_digit())
+            {
+                self.facts
+                    .positional_parameters
+                    .push(PositionalParameterFragmentFact {
+                        span: part.span.merge(next_part.span),
+                    });
+            }
+
+            match &part.kind {
+                HeredocBodyPart::Literal(_) | HeredocBodyPart::Variable(_) => {}
+                HeredocBodyPart::CommandSubstitution {
+                    syntax: CommandSubstitutionSyntax::Backtick,
+                    ..
+                } => {
+                    if self.opening_backtick_is_escaped(part.span) {
+                        continue;
+                    }
+                    self.facts
+                        .backticks
+                        .push(BacktickFragmentFact { span: part.span });
+                }
+                HeredocBodyPart::CommandSubstitution { .. } => {}
+                HeredocBodyPart::ArithmeticExpansion {
+                    expression,
+                    syntax: ArithmeticExpansionSyntax::LegacyBracket,
+                    expression_ast,
+                    ..
+                } => {
+                    self.facts
+                        .legacy_arithmetic
+                        .push(LegacyArithmeticFragmentFact { span: part.span });
+                    collect_positional_parameter_operator_spans_in_arithmetic(
+                        part.span,
+                        expression,
+                        self.source,
+                        &mut self.facts.positional_parameter_operator_spans,
+                    );
+                    if let Some(expression_ast) = expression_ast.as_ref() {
+                        query::visit_arithmetic_words(expression_ast, &mut |word| {
+                            self.collect_word(word, context);
+                        });
+                    }
+                }
+                HeredocBodyPart::ArithmeticExpansion {
+                    expression,
+                    expression_ast,
+                    ..
+                } => {
+                    collect_positional_parameter_operator_spans_in_arithmetic(
+                        part.span,
+                        expression,
+                        self.source,
+                        &mut self.facts.positional_parameter_operator_spans,
+                    );
+                    if let Some(expression_ast) = expression_ast.as_ref() {
+                        query::visit_arithmetic_words(expression_ast, &mut |word| {
+                            self.collect_word(word, context);
+                        });
+                    }
+                }
+                HeredocBodyPart::Parameter(parameter) => {
+                    self.collect_parameter_expansion(parameter, part.span, context);
+                }
+            }
+        }
+    }
+
     pub(super) fn collect_pattern(&mut self, pattern: &Pattern, context: SurfaceScanContext<'_>) {
         for (part, span) in pattern.parts_with_spans() {
             match part {
@@ -595,122 +665,11 @@ impl<'a> SurfaceFragmentSink<'a> {
             return;
         }
 
-        self.collect_raw_word_substring_expansions_in_span(text.span());
-        self.collect_raw_word_case_modifications_in_span(text.span());
-        self.collect_raw_word_replacement_expansions_in_span(text.span());
         if let Some(word) = word {
             self.collect_word(word, context.without_open_double_quote_scan());
         } else {
             let word = Parser::parse_word_fragment(self.source, snippet, text.span());
             self.collect_word(&word, context.without_open_double_quote_scan());
-        }
-    }
-
-    fn collect_raw_word_substring_expansions_in_span(&mut self, span: Span) {
-        let snippet = span.slice(self.source);
-        let mut search_start = 0;
-
-        while let Some((start, end)) =
-            next_word_parameter_expansion_candidate(snippet, search_start)
-        {
-            let candidate = &snippet[start..end];
-            if is_plain_substring_expansion_text(candidate) {
-                let span = Span::from_positions(
-                    span.start.advanced_by(&snippet[..start]),
-                    span.start.advanced_by(&snippet[..end]),
-                );
-                self.record_substring_expansion(span);
-            }
-            search_start = end;
-        }
-    }
-
-    fn collect_raw_substring_expansions_in_span(&mut self, span: Span) {
-        let snippet = span.slice(self.source);
-        let mut search_start = 0;
-
-        while let Some((start, end)) = next_parameter_expansion_candidate(snippet, search_start) {
-            let candidate = &snippet[start..end];
-            if is_plain_substring_expansion_text(candidate) {
-                let span = Span::from_positions(
-                    span.start.advanced_by(&snippet[..start]),
-                    span.start.advanced_by(&snippet[..end]),
-                );
-                self.record_substring_expansion(span);
-            }
-            search_start = end;
-        }
-    }
-
-    fn collect_raw_word_case_modifications_in_span(&mut self, span: Span) {
-        let snippet = span.slice(self.source);
-        let mut search_start = 0;
-
-        while let Some((start, end)) =
-            next_word_parameter_expansion_candidate(snippet, search_start)
-        {
-            let candidate = &snippet[start..end];
-            if is_plain_case_modification_text(candidate) {
-                let span = Span::from_positions(
-                    span.start.advanced_by(&snippet[..start]),
-                    span.start.advanced_by(&snippet[..end]),
-                );
-                self.record_case_modification(span);
-            }
-            search_start = end;
-        }
-    }
-
-    fn collect_raw_case_modifications_in_span(&mut self, span: Span) {
-        let snippet = span.slice(self.source);
-        let mut search_start = 0;
-
-        while let Some((start, end)) = next_parameter_expansion_candidate(snippet, search_start) {
-            let candidate = &snippet[start..end];
-            if is_plain_case_modification_text(candidate) {
-                let span = Span::from_positions(
-                    span.start.advanced_by(&snippet[..start]),
-                    span.start.advanced_by(&snippet[..end]),
-                );
-                self.record_case_modification(span);
-            }
-            search_start = end;
-        }
-    }
-
-    fn collect_raw_word_replacement_expansions_in_span(&mut self, span: Span) {
-        let snippet = span.slice(self.source);
-        let mut search_start = 0;
-
-        while let Some((start, end)) =
-            next_word_parameter_expansion_candidate(snippet, search_start)
-        {
-            let candidate = &snippet[start..end];
-            if is_plain_replacement_expansion_text(candidate) {
-                let span = Span::from_positions(
-                    span.start.advanced_by(&snippet[..start]),
-                    span.start.advanced_by(&snippet[..end]),
-                );
-                self.record_replacement_expansion(span);
-            }
-            search_start = end;
-        }
-    }
-
-    fn collect_raw_replacement_expansions_in_span(&mut self, span: Span) {
-        let snippet = span.slice(self.source);
-        let mut search_start = 0;
-
-        while let Some((start, end)) = next_parameter_expansion_candidate(snippet, search_start) {
-            let candidate = &snippet[start..end];
-            if is_plain_replacement_expansion_text(candidate) {
-                let span = Span::from_positions(
-                    span.start.advanced_by(&snippet[..start]),
-                    span.start.advanced_by(&snippet[..end]),
-                );
-                self.record_replacement_expansion(span);
-            }
-            search_start = end;
         }
     }
 
@@ -737,12 +696,84 @@ impl<'a> SurfaceFragmentSink<'a> {
                 None => {
                     let heredoc = redirect.heredoc().expect("expected heredoc redirect");
                     if heredoc.delimiter.expands_body {
-                        self.collect_raw_substring_expansions_in_span(heredoc.body.span);
-                        self.collect_raw_case_modifications_in_span(heredoc.body.span);
-                        self.collect_raw_replacement_expansions_in_span(heredoc.body.span);
-                        self.collect_word(&heredoc.body, context.without_open_double_quote_scan());
+                        self.collect_heredoc_body(
+                            &heredoc.body,
+                            context.without_open_double_quote_scan(),
+                        );
                     }
                 }
+            }
+        }
+    }
+
+    fn collect_parameter_expansion(
+        &mut self,
+        parameter: &shuck_ast::ParameterExpansion,
+        span: Span,
+        context: SurfaceScanContext<'_>,
+    ) {
+        if is_nested_parameter_expansion(parameter, self.source) {
+            self.facts
+                .nested_parameter_expansions
+                .push(NestedParameterExpansionFragmentFact { span });
+        }
+        if parameter_has_array_reference(parameter) {
+            self.record_array_reference(span);
+        }
+        if parameter_has_substring_expansion(parameter) {
+            self.record_substring_expansion(parameter.span);
+        }
+        if parameter_has_case_modification(parameter) {
+            self.record_case_modification(parameter.span);
+        }
+        if parameter_has_replacement_expansion(parameter) {
+            self.record_replacement_expansion(parameter.span);
+        }
+        if parameter_has_star_glob_removal(parameter) {
+            self.record_star_glob_removal(parameter.span);
+        }
+        self.record_parameter_subscripts(parameter);
+        if let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax {
+            if matches!(
+                syntax,
+                BourneParameterExpansion::Indirect { .. }
+                    | BourneParameterExpansion::PrefixMatch { .. }
+                    | BourneParameterExpansion::Indices { .. }
+            ) {
+                self.facts
+                    .indirect_expansions
+                    .push(IndirectExpansionFragmentFact {
+                        span,
+                        array_keys: matches!(syntax, BourneParameterExpansion::Indices { .. }),
+                    });
+            }
+            match syntax {
+                BourneParameterExpansion::Operation {
+                    operator,
+                    operand,
+                    operand_word_ast,
+                    ..
+                }
+                | BourneParameterExpansion::Indirect {
+                    operator: Some(operator),
+                    operand,
+                    operand_word_ast,
+                    ..
+                } => {
+                    self.collect_parameter_operator_patterns(
+                        operator,
+                        operand.as_ref(),
+                        operand_word_ast.as_ref(),
+                        context,
+                    );
+                }
+                BourneParameterExpansion::Access { .. }
+                | BourneParameterExpansion::Length { .. }
+                | BourneParameterExpansion::Indices { .. }
+                | BourneParameterExpansion::Indirect { operator: None, .. }
+                | BourneParameterExpansion::PrefixMatch { .. }
+                | BourneParameterExpansion::Slice { .. }
+                | BourneParameterExpansion::Transformation { .. } => {}
             }
         }
     }
@@ -1181,83 +1212,6 @@ fn next_parameter_expansion_candidate(text: &str, search_start: usize) -> Option
     None
 }
 
-fn next_word_parameter_expansion_candidate(
-    text: &str,
-    search_start: usize,
-) -> Option<(usize, usize)> {
-    let bytes = text.as_bytes();
-    let mut index = search_start;
-
-    while index + 1 < bytes.len() {
-        match bytes[index] {
-            b'\\' => {
-                index += 2;
-            }
-            b'$' if bytes[index + 1] == b'\'' => {
-                index += 2;
-                while index < bytes.len() {
-                    match bytes[index] {
-                        b'\\' => {
-                            index += 2;
-                        }
-                        b'\'' => {
-                            index += 1;
-                            break;
-                        }
-                        _ => {
-                            index += 1;
-                        }
-                    }
-                }
-            }
-            b'\'' => {
-                index += 1;
-                while index < bytes.len() {
-                    if bytes[index] == b'\'' {
-                        index += 1;
-                        break;
-                    }
-                    index += 1;
-                }
-            }
-            b'$' if bytes[index + 1] == b'{' => {
-                let start = index;
-                index += 2;
-                let mut depth = 1;
-
-                while index < bytes.len() {
-                    match bytes[index] {
-                        b'\\' => {
-                            index += 2;
-                        }
-                        b'$' if index + 1 < bytes.len() && bytes[index + 1] == b'{' => {
-                            depth += 1;
-                            index += 2;
-                        }
-                        b'}' => {
-                            depth -= 1;
-                            index += 1;
-                            if depth == 0 {
-                                return Some((start, index));
-                            }
-                        }
-                        _ => {
-                            index += 1;
-                        }
-                    }
-                }
-
-                return None;
-            }
-            _ => {
-                index += 1;
-            }
-        }
-    }
-
-    None
-}
-
 fn collect_positional_parameter_operator_spans_in_arithmetic(
     expansion_span: Span,
     expression: &SourceText,
@@ -1522,6 +1476,26 @@ fn collect_unicode_smart_quote_spans_in_word_parts(
                 collect_unicode_smart_quote_spans_in_word_parts(parts, source, true, spans)
             }
             _ => {}
+        }
+    }
+}
+
+fn collect_unicode_smart_quote_spans_in_heredoc_body_parts(
+    parts: &[HeredocBodyPartNode],
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for part in parts {
+        if let HeredocBodyPart::Literal(text) = &part.kind {
+            let literal = text.as_str(source, part.span);
+            for (offset, char) in literal.char_indices() {
+                if !is_unicode_smart_quote(char) {
+                    continue;
+                }
+                let start = part.span.start.advanced_by(&literal[..offset]);
+                let end = start.advanced_by(char.encode_utf8(&mut [0; 4]));
+                spans.push(Span::from_positions(start, end));
+            }
         }
     }
 }

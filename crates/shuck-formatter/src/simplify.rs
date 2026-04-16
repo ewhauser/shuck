@@ -2,9 +2,10 @@ use shuck_ast::{
     ArrayElem, Assignment, AssignmentValue, BourneParameterExpansion, BuiltinCommand, Command,
     CompoundCommand, ConditionalBinaryExpr, ConditionalBinaryOp, ConditionalCommand,
     ConditionalExpr, ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp, DeclClause,
-    DeclOperand, File, FunctionDef, ParameterExpansion, ParameterExpansionSyntax, ParameterOp,
-    Pattern, PatternPart, Redirect, RedirectTarget, SourceText, Stmt, StmtSeq, VarRef, Word,
-    WordPart, WordPartNode, ZshExpansionOperation, ZshExpansionTarget,
+    DeclOperand, File, FunctionDef, HeredocBody, HeredocBodyPart, HeredocBodyPartNode,
+    ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Redirect,
+    RedirectTarget, SourceText, Stmt, StmtSeq, VarRef, Word, WordPart, WordPartNode,
+    ZshExpansionOperation, ZshExpansionTarget,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -415,7 +416,7 @@ fn walk_redirect(
         RedirectTarget::Word(word) => walk_word(word, source, word_visitor),
         RedirectTarget::Heredoc(heredoc) => {
             walk_word(&mut heredoc.delimiter.raw, source, word_visitor)
-                + walk_word(&mut heredoc.body, source, word_visitor)
+                + walk_heredoc_body(&mut heredoc.body, source, word_visitor)
         }
     }
 }
@@ -675,7 +676,7 @@ fn rewrite_redirect_words(
         RedirectTarget::Heredoc(heredoc) => {
             walk_word(&mut heredoc.delimiter.raw, source, &mut |word| {
                 visitor(word, source)
-            }) + walk_word(&mut heredoc.body, source, &mut |word| visitor(word, source))
+            }) + walk_heredoc_body(&mut heredoc.body, source, &mut |word| visitor(word, source))
         }
     }
 }
@@ -730,6 +731,14 @@ fn walk_word(
         count += walk_word_part(part);
     }
     count
+}
+
+fn walk_heredoc_body(
+    _body: &mut HeredocBody,
+    _source: &str,
+    _visitor: &mut impl FnMut(&mut Word) -> usize,
+) -> usize {
+    0
 }
 
 fn walk_word_part(part: &mut WordPartNode) -> usize {
@@ -1118,7 +1127,7 @@ fn rewrite_redirect_source_texts(
         RedirectTarget::Word(word) => rewrite_word_source_texts(word, source, visitor),
         RedirectTarget::Heredoc(heredoc) => {
             rewrite_word_source_texts(&mut heredoc.delimiter.raw, source, visitor)
-                + rewrite_word_source_texts(&mut heredoc.body, source, visitor)
+                + rewrite_heredoc_body_source_texts(&mut heredoc.body, source, visitor)
         }
     }
 }
@@ -1139,6 +1148,17 @@ fn rewrite_word_source_texts(
         };
     }
     count
+}
+
+fn rewrite_heredoc_body_source_texts(
+    body: &mut HeredocBody,
+    source: &str,
+    visitor: &mut impl FnMut(&mut SourceText, &str) -> usize,
+) -> usize {
+    body.parts
+        .iter_mut()
+        .map(|part| rewrite_heredoc_body_part_source_texts(part, source, visitor))
+        .sum()
 }
 
 fn rewrite_word_part_source_texts(
@@ -1217,6 +1237,21 @@ fn rewrite_word_part_source_texts(
                 })
         }
         WordPart::PrefixMatch { .. } => 0,
+    }
+}
+
+fn rewrite_heredoc_body_part_source_texts(
+    part: &mut HeredocBodyPartNode,
+    source: &str,
+    visitor: &mut impl FnMut(&mut SourceText, &str) -> usize,
+) -> usize {
+    match &mut part.kind {
+        HeredocBodyPart::Literal(_) | HeredocBodyPart::Variable(_) => 0,
+        HeredocBodyPart::CommandSubstitution { .. } => 0,
+        HeredocBodyPart::ArithmeticExpansion { expression, .. } => visitor(expression, source),
+        HeredocBodyPart::Parameter(parameter) => {
+            rewrite_parameter_source_texts(parameter, source, visitor)
+        }
     }
 }
 

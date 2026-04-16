@@ -1,8 +1,8 @@
 use shuck_ast::{
     ArithmeticForCommand, Assignment, AssignmentValue, BuiltinCommand, Command, CompoundCommand,
-    ConditionalExpr, DeclClause, DeclOperand, File, FunctionDef, Pattern, PatternPart,
-    PatternPartNode, Redirect, RedirectKind, Stmt, StmtSeq, Subscript, TextRange, TextSize, VarRef,
-    Word, WordPart, WordPartNode, ZshGlobSegment,
+    ConditionalExpr, DeclClause, DeclOperand, File, FunctionDef, HeredocBody, HeredocBodyPart,
+    HeredocBodyPartNode, Pattern, PatternPart, PatternPartNode, Redirect, RedirectKind, Stmt,
+    StmtSeq, Subscript, TextRange, TextSize, VarRef, Word, WordPart, WordPartNode, ZshGlobSegment,
 };
 use shuck_parser::parser::Parser;
 
@@ -427,7 +427,7 @@ impl<'a> RegionCollector<'a> {
                 if heredoc.delimiter.quoted {
                     push_range(&mut self.quoted_heredocs, range);
                 }
-                self.visit_word_parts(&heredoc.body.parts);
+                self.visit_heredoc_body(&heredoc.body);
             }
             _ => self.visit_word(
                 redirect
@@ -458,6 +458,10 @@ impl<'a> RegionCollector<'a> {
 
     fn visit_word(&mut self, word: &Word) {
         self.visit_word_parts(&word.parts);
+    }
+
+    fn visit_heredoc_body(&mut self, body: &HeredocBody) {
+        self.visit_heredoc_body_parts(&body.parts);
     }
 
     fn visit_pattern(&mut self, pattern: &Pattern) {
@@ -520,6 +524,24 @@ impl<'a> RegionCollector<'a> {
                 | WordPart::IndirectExpansion { .. }
                 | WordPart::PrefixMatch { .. }
                 | WordPart::Transformation { .. } => {}
+            }
+        }
+    }
+
+    fn visit_heredoc_body_parts(&mut self, parts: &[HeredocBodyPartNode]) {
+        for part in parts {
+            let range = part.span.to_range();
+            match &part.kind {
+                HeredocBodyPart::CommandSubstitution { body, .. } => {
+                    push_range(&mut self.command_substitutions, range);
+                    self.visit_stmt_seq(body);
+                }
+                HeredocBodyPart::ArithmeticExpansion { .. } => {
+                    push_range(&mut self.arithmetic, range);
+                }
+                HeredocBodyPart::Literal(_)
+                | HeredocBodyPart::Variable(_)
+                | HeredocBodyPart::Parameter(_) => {}
             }
         }
     }

@@ -1,8 +1,8 @@
 use shuck_ast::{
     ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArrayElem, Assignment, AssignmentValue,
     BinaryCommand, BinaryOp, BuiltinCommand, Command, CompoundCommand, ConditionalExpr,
-    DeclOperand, FunctionDef, Pattern, PatternPart, Redirect, Stmt, StmtSeq, Subscript, VarRef,
-    Word, WordPart, WordPartNode, ZshGlobSegment,
+    DeclOperand, FunctionDef, HeredocBodyPartNode, Pattern, PatternPart, Redirect, Stmt, StmtSeq,
+    Subscript, VarRef, Word, WordPart, WordPartNode, ZshGlobSegment,
 };
 use shuck_parser::parser::Parser;
 
@@ -716,7 +716,13 @@ fn collect_redirect_visits<'a, F>(
     F: FnMut(CommandVisit<'a>, CommandTraversalContext),
 {
     for redirect in redirects {
-        collect_word_visits(redirect_walk_word(redirect), options, context, visitor);
+        if let Some(word) = redirect.word_target() {
+            collect_word_visits(word, options, context, visitor);
+        } else if let Some(heredoc) = redirect.heredoc()
+            && heredoc.delimiter.expands_body
+        {
+            collect_heredoc_body_part_visits(&heredoc.body.parts, options, context, visitor);
+        }
     }
 }
 
@@ -764,10 +770,36 @@ fn builtin_assignments(command: &BuiltinCommand) -> &[Assignment] {
     }
 }
 
-fn redirect_walk_word(redirect: &Redirect) -> &Word {
-    match redirect.word_target() {
-        Some(word) => word,
-        None => &redirect.heredoc().expect("expected heredoc redirect").body,
+fn collect_heredoc_body_part_visits<'a, F>(
+    parts: &'a [HeredocBodyPartNode],
+    options: CommandWalkOptions,
+    context: CommandTraversalContext,
+    visitor: &mut F,
+) where
+    F: FnMut(CommandVisit<'a>, CommandTraversalContext),
+{
+    if !options.descend_nested_word_commands {
+        return;
+    }
+
+    for part in parts {
+        match &part.kind {
+            shuck_ast::HeredocBodyPart::ArithmeticExpansion { expression_ast, .. } => {
+                if let Some(expression_ast) = expression_ast.as_ref() {
+                    let mut arithmetic_words = Vec::new();
+                    collect_optional_arithmetic_words(Some(expression_ast), &mut arithmetic_words);
+                    for word in arithmetic_words {
+                        collect_word_visits(word, options, context, visitor);
+                    }
+                }
+            }
+            shuck_ast::HeredocBodyPart::CommandSubstitution { body, .. } => {
+                collect_command_visits(body, options, context, visitor);
+            }
+            shuck_ast::HeredocBodyPart::Literal(_)
+            | shuck_ast::HeredocBodyPart::Variable(_)
+            | shuck_ast::HeredocBodyPart::Parameter(_) => {}
+        }
     }
 }
 

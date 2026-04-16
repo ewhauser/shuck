@@ -36,17 +36,17 @@ use shuck_ast::{
     ConditionalParenExpr, ConditionalUnaryExpr, ConditionalUnaryOp,
     ContinueCommand as AstContinueCommand, CoprocCommand, DeclClause as AstDeclClause, DeclOperand,
     ExitCommand as AstExitCommand, File, ForCommand, ForSyntax, ForTarget, ForeachCommand,
-    ForeachSyntax, FunctionDef, FunctionHeader, FunctionHeaderEntry, Heredoc, HeredocDelimiter,
-    IfCommand, IfSyntax, LiteralText, Name, ParameterExpansion, ParameterExpansionSyntax,
-    ParameterOp, Pattern, PatternGroupKind, PatternPart, PatternPartNode, Position,
-    PrefixMatchKind, Redirect, RedirectKind, RedirectTarget, RepeatCommand, RepeatSyntax,
-    ReturnCommand as AstReturnCommand, SelectCommand, SimpleCommand as AstSimpleCommand,
-    SourceText, Span, Stmt, StmtSeq, StmtTerminator, Subscript, SubscriptInterpretation,
-    SubscriptKind, SubscriptSelector, TextSize, TimeCommand, TokenKind, UntilCommand, VarRef,
-    WhileCommand, Word, WordPart, WordPartNode, ZshDefaultingOp, ZshExpansionOperation,
-    ZshExpansionTarget, ZshGlobQualifier, ZshGlobQualifierGroup, ZshGlobQualifierKind,
-    ZshGlobSegment, ZshInlineGlobControl, ZshModifier, ZshParameterExpansion, ZshPatternOp,
-    ZshQualifiedGlob, ZshReplacementOp, ZshTrimOp,
+    ForeachSyntax, FunctionDef, FunctionHeader, FunctionHeaderEntry, Heredoc, HeredocBody,
+    HeredocBodyMode, HeredocBodyPart, HeredocBodyPartNode, HeredocDelimiter, IfCommand, IfSyntax,
+    LiteralText, Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern,
+    PatternGroupKind, PatternPart, PatternPartNode, Position, PrefixMatchKind, Redirect,
+    RedirectKind, RedirectTarget, RepeatCommand, RepeatSyntax, ReturnCommand as AstReturnCommand,
+    SelectCommand, SimpleCommand as AstSimpleCommand, SourceText, Span, Stmt, StmtSeq,
+    StmtTerminator, Subscript, SubscriptInterpretation, SubscriptKind, SubscriptSelector, TextSize,
+    TimeCommand, TokenKind, UntilCommand, VarRef, WhileCommand, Word, WordPart, WordPartNode,
+    ZshDefaultingOp, ZshExpansionOperation, ZshExpansionTarget, ZshGlobQualifier,
+    ZshGlobQualifierGroup, ZshGlobQualifierKind, ZshGlobSegment, ZshInlineGlobControl, ZshModifier,
+    ZshParameterExpansion, ZshPatternOp, ZshQualifiedGlob, ZshReplacementOp, ZshTrimOp,
 };
 
 use crate::error::{Error, Result};
@@ -2011,6 +2011,44 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn heredoc_body_with_parts(
+        &self,
+        parts: Vec<HeredocBodyPartNode>,
+        span: Span,
+        mode: HeredocBodyMode,
+        source_backed: bool,
+    ) -> HeredocBody {
+        HeredocBody {
+            mode,
+            source_backed,
+            parts,
+            span,
+        }
+    }
+
+    fn heredoc_body_part_from_word_part_node(part: WordPartNode) -> HeredocBodyPartNode {
+        let kind = match part.kind {
+            WordPart::Literal(text) => HeredocBodyPart::Literal(text),
+            WordPart::Variable(name) => HeredocBodyPart::Variable(name),
+            WordPart::CommandSubstitution { body, syntax } => {
+                HeredocBodyPart::CommandSubstitution { body, syntax }
+            }
+            WordPart::ArithmeticExpansion {
+                expression,
+                expression_ast,
+                syntax,
+            } => HeredocBodyPart::ArithmeticExpansion {
+                expression,
+                expression_ast,
+                syntax,
+            },
+            WordPart::Parameter(parameter) => HeredocBodyPart::Parameter(parameter),
+            other => panic!("unsupported heredoc body part: {other:?}"),
+        };
+
+        HeredocBodyPartNode::new(kind, part.span)
+    }
+
     fn brace_syntax_from_parts(&self, parts: &[WordPartNode], offset: usize) -> Vec<BraceSyntax> {
         if !self.brace_syntax_enabled_at(offset) {
             return Vec::new();
@@ -3718,6 +3756,13 @@ impl<'a> Parser<'a> {
         Self::rebase_word_parts(&mut word.parts, base);
     }
 
+    fn rebase_heredoc_body(body: &mut HeredocBody, base: Position) {
+        body.span = body.span.rebased(base);
+        for part in &mut body.parts {
+            Self::rebase_heredoc_body_part(part, base);
+        }
+    }
+
     fn rebase_pattern(pattern: &mut Pattern, base: Position) {
         pattern.span = pattern.span.rebased(base);
         Self::rebase_pattern_parts(&mut pattern.parts, base);
@@ -3737,6 +3782,29 @@ impl<'a> Parser<'a> {
                 PatternPart::Group { patterns, .. } => Self::rebase_patterns(patterns, base),
                 PatternPart::Word(word) => Self::rebase_word(word, base),
                 PatternPart::Literal(_) | PatternPart::AnyString | PatternPart::AnyChar => {}
+            }
+        }
+    }
+
+    fn rebase_heredoc_body_part(part: &mut HeredocBodyPartNode, base: Position) {
+        part.span = part.span.rebased(base);
+        match &mut part.kind {
+            HeredocBodyPart::Literal(_) | HeredocBodyPart::Variable(_) => {}
+            HeredocBodyPart::CommandSubstitution { body, .. } => Self::rebase_stmt_seq(body, base),
+            HeredocBodyPart::ArithmeticExpansion {
+                expression,
+                expression_ast,
+                ..
+            } => {
+                expression.rebased(base);
+                if let Some(expr) = expression_ast {
+                    Self::rebase_arithmetic_expr(expr, base);
+                }
+            }
+            HeredocBodyPart::Parameter(parameter) => {
+                parameter.span = parameter.span.rebased(base);
+                parameter.raw_body.rebased(base);
+                Self::rebase_parameter_expansion_syntax(&mut parameter.syntax, base);
             }
         }
     }
@@ -5350,7 +5418,7 @@ impl<'a> Parser<'a> {
                 RedirectTarget::Heredoc(heredoc) => {
                     heredoc.delimiter.span = heredoc.delimiter.span.rebased(base);
                     Self::rebase_word(&mut heredoc.delimiter.raw, base);
-                    Self::rebase_word(&mut heredoc.body, base);
+                    Self::rebase_heredoc_body(&mut heredoc.body, base);
                 }
             }
         }
