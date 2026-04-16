@@ -3230,7 +3230,7 @@ fn hash_starts_comment(input: &str, index: usize) -> bool {
     input[..index]
         .chars()
         .next_back()
-        .is_none_or(char::is_whitespace)
+        .is_none_or(|prev| prev.is_whitespace() || matches!(prev, ';' | '|' | '&' | '<' | '>'))
 }
 
 fn scan_double_quoted_command_substitution_segment(
@@ -3247,9 +3247,8 @@ fn scan_double_quoted_command_substitution_segment(
                     index = escaped_next;
                 }
             }
-            '$'
-                if input[next_index..].starts_with('(')
-                    && !input[next_index + '('.len_utf8()..].starts_with('(') =>
+            '$' if input[next_index..].starts_with('(')
+                && !input[next_index + '('.len_utf8()..].starts_with('(') =>
             {
                 let consumed = scan_command_substitution_body_len_inner(
                     &input[next_index + '('.len_utf8()..],
@@ -3352,10 +3351,7 @@ fn scan_command_substitution_body_len_inner(input: &str, subst_depth: usize) -> 
                     if comment_ch == '\n' {
                         for (delimiter, strip_tabs) in pending_heredocs.drain(..) {
                             index = skip_command_subst_pending_heredoc(
-                                input,
-                                index,
-                                &delimiter,
-                                strip_tabs,
+                                input, index, &delimiter, strip_tabs,
                             );
                         }
                         break;
@@ -3393,8 +3389,11 @@ fn scan_command_substitution_body_len_inner(input: &str, subst_depth: usize) -> 
                     &mut pending_case_headers,
                     &mut case_clause_depth,
                 );
-                index =
-                    scan_double_quoted_command_substitution_segment(input, next_index, subst_depth)?;
+                index = scan_double_quoted_command_substitution_segment(
+                    input,
+                    next_index,
+                    subst_depth,
+                )?;
             }
             '\'' => {
                 Lexer::flush_command_subst_keyword(
@@ -3456,9 +3455,8 @@ fn scan_command_substitution_body_len_inner(input: &str, subst_depth: usize) -> 
                         skip_command_subst_pending_heredoc(input, index, &delimiter, strip_tabs);
                 }
             }
-            '$'
-                if input[next_index..].starts_with('(')
-                    && !input[next_index + '('.len_utf8()..].starts_with('(') =>
+            '$' if input[next_index..].starts_with('(')
+                && !input[next_index + '('.len_utf8()..].starts_with('(') =>
             {
                 Lexer::flush_command_subst_keyword(
                     &mut current_word,
@@ -3628,13 +3626,23 @@ mod tests {
 
     #[test]
     fn test_scan_command_substitution_body_len_handles_tabstripped_heredoc() {
-        let source =
-            "\n\t\t\tcat <<-EOF | tr '\\n' ' '\n\t\t\t\t{\"query\":\"field, direction\"}\n\t\t\tEOF\n\t\t)\"";
+        let source = "\n\t\t\tcat <<-EOF | tr '\\n' ' '\n\t\t\t\t{\"query\":\"field, direction\"}\n\t\t\tEOF\n\t\t)\"";
 
         let consumed = scan_command_substitution_body_len(source).expect("expected match");
         let body = &source[..consumed];
 
         assert!(body.contains("field, direction"));
+        assert!(body.ends_with(')'));
+    }
+
+    #[test]
+    fn test_scan_command_substitution_body_len_handles_separator_started_comment() {
+        let source = "printf '%s' x;# comment with ) and ,\nprintf '%s' y\n)\"";
+
+        let consumed = scan_command_substitution_body_len(source).expect("expected match");
+        let body = &source[..consumed];
+
+        assert!(body.contains("printf '%s' y"));
         assert!(body.ends_with(')'));
     }
 

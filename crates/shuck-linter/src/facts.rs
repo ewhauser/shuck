@@ -12435,15 +12435,11 @@ fn word_has_unquoted_array_comma(word: &Word, source: &str) -> bool {
         let was_escaped = escaped;
         escaped = false;
 
-        if !in_single
-            && !in_backtick
-            && ch == '$'
-        {
+        if !in_single && !in_backtick && ch == '$' {
             if text[next_index..].starts_with('(')
                 && !text[next_index + '('.len_utf8()..].starts_with('(')
-                && let Some(consumed) = scan_array_command_substitution_len(
-                    &text[next_index + '('.len_utf8()..],
-                )
+                && let Some(consumed) =
+                    scan_array_command_substitution_len(&text[next_index + '('.len_utf8()..])
             {
                 index = next_index + '('.len_utf8() + consumed;
                 continue;
@@ -12460,9 +12456,9 @@ fn word_has_unquoted_array_comma(word: &Word, source: &str) -> bool {
 
         match ch {
             '\\' if !in_single => escaped = true,
-            '\'' if !in_double => in_single = !in_single,
-            '"' if !in_single => in_double = !in_double,
-            '`' if !in_single && !in_double => in_backtick = !in_backtick,
+            '\'' if !in_double && !was_escaped => in_single = !in_single,
+            '"' if !in_single && !was_escaped => in_double = !in_double,
+            '`' if !in_single && !in_double && !was_escaped => in_backtick = !in_backtick,
             ',' if !in_single && !in_double && !in_backtick => {
                 let comma_offset = word.span.start.offset + index;
                 if !comma_is_brace_separator(word, source, comma_offset, was_escaped) {
@@ -12487,7 +12483,7 @@ fn hash_starts_comment(text: &str, index: usize) -> bool {
     text[..index]
         .chars()
         .next_back()
-        .is_none_or(char::is_whitespace)
+        .is_none_or(|prev| prev.is_whitespace() || matches!(prev, ';' | '|' | '&' | '<' | '>'))
 }
 
 fn scan_array_double_quoted_command_substitution_segment(
@@ -12503,9 +12499,8 @@ fn scan_array_double_quoted_command_substitution_segment(
                     index = escaped_next;
                 }
             }
-            '$'
-                if text[next_index..].starts_with('(')
-                    && !text[next_index + '('.len_utf8()..].starts_with('(') =>
+            '$' if text[next_index..].starts_with('(')
+                && !text[next_index + '('.len_utf8()..].starts_with('(') =>
             {
                 let consumed =
                     scan_array_command_substitution_len(&text[next_index + '('.len_utf8()..])?;
@@ -12602,10 +12597,7 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
                     if comment_ch == '\n' {
                         for (delimiter, strip_tabs) in pending_heredocs.drain(..) {
                             index = skip_array_command_subst_pending_heredoc(
-                                text,
-                                index,
-                                &delimiter,
-                                strip_tabs,
+                                text, index, &delimiter, strip_tabs,
                             );
                         }
                         break;
@@ -12662,16 +12654,12 @@ fn scan_array_command_substitution_len(text: &str) -> Option<usize> {
                 index = next_index;
                 for (delimiter, strip_tabs) in pending_heredocs.drain(..) {
                     index = skip_array_command_subst_pending_heredoc(
-                        text,
-                        index,
-                        &delimiter,
-                        strip_tabs,
+                        text, index, &delimiter, strip_tabs,
                     );
                 }
             }
-            '$'
-                if text[next_index..].starts_with('(')
-                    && !text[next_index + '('.len_utf8()..].starts_with('(') =>
+            '$' if text[next_index..].starts_with('(')
+                && !text[next_index + '('.len_utf8()..].starts_with('(') =>
             {
                 let consumed =
                     scan_array_command_substitution_len(&text[next_index + '('.len_utf8()..])?;
@@ -13279,6 +13267,27 @@ complex[$((i+=1))]+=x
     #[test]
     fn ignores_commas_inside_quoted_command_substitution_array_elements() {
         let source = "#!/bin/bash\nf() {\n\tlocal -a graphql_request=(\n\t\t-X POST\n\t\t-d \"$(\n\t\t\tcat <<-EOF | tr '\\n' ' '\n\t\t\t\t{\"query\":\"field, direction\"}\n\t\t\tEOF\n\t\t)\"\n\t)\n}\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(
+            facts.comma_array_assignment_spans().is_empty(),
+            "{:#?}",
+            facts
+                .comma_array_assignment_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn ignores_commas_inside_separator_started_command_substitution_comments() {
+        let source =
+            "#!/bin/bash\na=(\"$(printf '%s' x;# comment with ) and ,\nprintf '%s' y\n)\")\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);

@@ -62,6 +62,7 @@ d=($(printf 'x,y'))
 e=({$XDG_CONFIG_HOME,$HOME}/{alacritty,}/{.,}alacritty.ym?)
 f=(${versions/,/ })
 g=(${token//,/ })
+h=(\"x\\\",y\")
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CommaArrayElements));
 
