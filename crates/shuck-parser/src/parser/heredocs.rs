@@ -62,16 +62,19 @@ impl<'a> Parser<'a> {
 
         let heredoc = self.lexer.read_heredoc(&delimiter_text, strip_tabs);
         let content_span = heredoc.content_span;
-        let content = if strip_tabs {
-            Self::strip_heredoc_tabs(heredoc.content)
-        } else {
-            heredoc.content
-        };
+        let raw_content = heredoc.content;
+        let stripped_content = strip_tabs.then(|| Self::strip_heredoc_tabs(raw_content.clone()));
 
         let body = if quoted {
-            HeredocBody::literal_with_span(content, content_span).with_source_backed(!strip_tabs)
+            HeredocBody::literal_with_span(stripped_content.unwrap_or(raw_content), content_span)
+                .with_source_backed(!strip_tabs)
         } else {
-            self.decode_heredoc_body_text(&content, content_span, !strip_tabs)
+            let mut body = self.decode_heredoc_body_text(&raw_content, content_span, true);
+            if strip_tabs {
+                self.strip_tab_indentation_from_heredoc_body(&mut body);
+                body.source_backed = false;
+            }
+            body
         };
 
         redirects.push(Redirect {
@@ -97,6 +100,30 @@ impl<'a> Parser<'a> {
         Ok(true)
     }
 
+    fn strip_tab_indentation_from_heredoc_body(&self, body: &mut HeredocBody) {
+        let mut at_line_start = true;
+        let mut parts = Vec::with_capacity(body.parts.len());
+
+        for mut part in body.parts.drain(..) {
+            match &mut part.kind {
+                HeredocBodyPart::Literal(text) => {
+                    let original = text.as_str(self.input, part.span);
+                    let stripped = strip_heredoc_literal_indentation(original, &mut at_line_start);
+                    if stripped.is_empty() {
+                        continue;
+                    }
+                    *text = LiteralText::owned(stripped);
+                }
+                _ => {
+                    update_line_start_state(part.span.slice(self.input), &mut at_line_start);
+                }
+            }
+            parts.push(part);
+        }
+
+        body.parts = parts;
+    }
+
     /// Parse redirections that follow a compound command (>, >>, 2>, etc.)
     pub(super) fn parse_heredoc_redirect(
         &mut self,
@@ -116,5 +143,26 @@ impl<'a> Parser<'a> {
     ) -> Result<()> {
         while self.consume_non_heredoc_redirect(redirects, None, None, false)? {}
         Ok(())
+    }
+}
+
+fn strip_heredoc_literal_indentation(text: &str, at_line_start: &mut bool) -> String {
+    let mut stripped = String::with_capacity(text.len());
+
+    for ch in text.chars() {
+        if *at_line_start && ch == '\t' {
+            continue;
+        }
+
+        stripped.push(ch);
+        *at_line_start = ch == '\n';
+    }
+
+    stripped
+}
+
+fn update_line_start_state(text: &str, at_line_start: &mut bool) {
+    for ch in text.chars() {
+        *at_line_start = ch == '\n';
     }
 }

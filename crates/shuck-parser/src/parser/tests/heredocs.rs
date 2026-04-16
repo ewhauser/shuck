@@ -654,6 +654,82 @@ fn test_strip_tabs_heredoc_body_preserves_single_quoted_fragments() {
 }
 
 #[test]
+fn test_strip_tabs_heredoc_command_substitution_keeps_nested_command_spans() {
+    let input = "\
+case \"${tag_type}\" in
+\t*)
+\t\ttermux_error_exit <<-EndOfError
+\t\t\tERROR: Invalid TERMUX_PKG_UPDATE_TAG_TYPE: '${tag_type}'.
+\t\t\tAllowed values: 'newest-tag', 'latest-release-tag', 'latest-regex'.
+\t\tEndOfError
+\t;;
+esac
+
+case \"${http_code}\" in
+\t404)
+\t\ttermux_error_exit <<-EndOfError
+\t\t\tNo '${tag_type}' found. (${api_url})
+\t\t\tHTTP code: ${http_code}
+\t\t\tTry using '$(
+\t\t\t\tif [[ \"${tag_type}\" == \"newest-tag\" ]]; then
+\t\t\t\t\techo \"latest-release-tag\"
+\t\t\t\telse
+\t\t\t\t\techo \"newest-tag\"
+\t\t\t\tfi
+\t\t\t)'.
+\t\tEndOfError
+\t;;
+esac
+";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let (compound, _) = expect_compound(&script.body[1]);
+    let AstCompoundCommand::Case(case) = compound else {
+        panic!("expected case command");
+    };
+    let command = expect_simple(&case.cases[0].body[0]);
+    let heredoc = redirect_heredoc(&case.cases[0].body[0].redirects[0]);
+
+    assert_eq!(command.name.render(input), "termux_error_exit");
+
+    let command_substitution = heredoc
+        .body
+        .parts
+        .iter()
+        .find_map(|part| match &part.kind {
+            shuck_ast::HeredocBodyPart::CommandSubstitution { body, .. } => Some(body),
+            _ => None,
+        })
+        .expect("expected command substitution inside heredoc");
+
+    let (if_compound, _) = expect_compound(&command_substitution[0]);
+    let AstCompoundCommand::If(if_command) = if_compound else {
+        panic!("expected if command inside command substitution");
+    };
+
+    let AstCommand::Compound(AstCompoundCommand::Conditional(conditional)) =
+        &if_command.condition[0].command
+    else {
+        panic!("expected conditional command in if header");
+    };
+
+    assert_eq!(
+        conditional.span.slice(input),
+        "[[ \"${tag_type}\" == \"newest-tag\" ]]"
+    );
+    assert_eq!(
+        expect_simple(&if_command.then_branch[0]).span.slice(input),
+        "echo \"latest-release-tag\"\n"
+    );
+    assert_eq!(
+        expect_simple(&if_command.else_branch.as_ref().unwrap()[0])
+            .span
+            .slice(input),
+        "echo \"newest-tag\"\n"
+    );
+}
+
+#[test]
 fn test_comment_ranges_heredoc_no_false_comments() {
     // Lines with # inside a heredoc must NOT produce Comment entries
     let source = "cat <<EOF\n# not a comment\nline two\nEOF\n# real\n";
