@@ -5197,14 +5197,47 @@ fn brace_syntax_with_whitespace_is_literal(brace: shuck_ast::BraceSyntax, source
         return false;
     }
 
+    #[derive(Clone, Copy)]
+    enum QuoteState {
+        Single,
+        Double,
+    }
+
     let text = brace.span.slice(source);
     let mut index = 0usize;
+    let mut quote_state = None;
 
     while index < text.len() {
         let Some(ch) = text[index..].chars().next() else {
             break;
         };
         let ch_len = ch.len_utf8();
+
+        if let Some(state) = quote_state {
+            match state {
+                QuoteState::Single => {
+                    if ch == '\'' {
+                        quote_state = None;
+                    }
+                    index += ch_len;
+                    continue;
+                }
+                QuoteState::Double => {
+                    if ch == '\\' {
+                        index += ch_len;
+                        if let Some(escaped) = text[index..].chars().next() {
+                            index += escaped.len_utf8();
+                        }
+                        continue;
+                    }
+                    if ch == '"' {
+                        quote_state = None;
+                    }
+                    index += ch_len;
+                    continue;
+                }
+            }
+        }
 
         if ch == '\\' {
             index += ch_len;
@@ -5219,6 +5252,18 @@ fn brace_syntax_with_whitespace_is_literal(brace: shuck_ast::BraceSyntax, source
             if let Some(escaped) = text[index..].chars().next() {
                 index += escaped.len_utf8();
             }
+            continue;
+        }
+
+        if ch == '\'' {
+            quote_state = Some(QuoteState::Single);
+            index += ch_len;
+            continue;
+        }
+
+        if ch == '"' {
+            quote_state = Some(QuoteState::Double);
+            index += ch_len;
             continue;
         }
 

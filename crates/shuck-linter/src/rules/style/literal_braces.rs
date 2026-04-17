@@ -110,6 +110,17 @@ echo {alpha,\\ beta}
     }
 
     #[test]
+    fn ignores_brace_expansions_with_quoted_spaces() {
+        let source = "\
+#!/bin/bash
+echo {alpha,\"beta gamma\"}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LiteralBraces));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn ignores_literal_braces_inside_trailing_comments() {
         let source = "\
 #!/bin/bash
