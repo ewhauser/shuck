@@ -1,35 +1,77 @@
 use super::*;
 
+#[derive(Debug, Default)]
+pub(super) struct PresenceTestedNames {
+    pub(super) global_names: FxHashSet<Name>,
+    pub(super) nested_command_spans_by_name: FxHashMap<Name, Vec<Span>>,
+}
+
 pub(super) fn build_presence_tested_names(
     commands: &[CommandFact<'_>],
     source: &str,
-) -> FxHashSet<Name> {
-    let mut names = FxHashSet::default();
+) -> PresenceTestedNames {
+    let mut global_names = FxHashSet::default();
+    let mut nested_command_spans_by_name = FxHashMap::<Name, Vec<Span>>::default();
 
     for command in commands {
-        // Presence-test suppression is global today, so nested word commands
-        // must not contribute names that would silence unrelated plain uses.
-        if command.is_nested_word_command() {
-            continue;
-        }
+        let mut command_names = FxHashSet::default();
 
         if let Some(simple_test) = command.simple_test() {
             collect_presence_tested_names_from_simple_test_operands(
                 simple_test.operands(),
                 source,
-                &mut names,
+                &mut command_names,
             );
         }
 
         if let Some(conditional) = command.conditional() {
             collect_presence_tested_names_from_conditional_expr(
                 conditional.root().expression(),
-                &mut names,
+                &mut command_names,
             );
+        }
+
+        if command.is_nested_word_command() {
+            let span = outermost_nested_presence_scope_span(commands, command);
+            for name in command_names {
+                nested_command_spans_by_name
+                    .entry(name)
+                    .or_default()
+                    .push(span);
+            }
+        } else {
+            global_names.extend(command_names);
         }
     }
 
-    names
+    for spans in nested_command_spans_by_name.values_mut() {
+        spans.sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
+        spans.dedup();
+    }
+
+    PresenceTestedNames {
+        global_names,
+        nested_command_spans_by_name,
+    }
+}
+
+fn outermost_nested_presence_scope_span(
+    commands: &[CommandFact<'_>],
+    command: &CommandFact<'_>,
+) -> Span {
+    commands
+        .iter()
+        .filter(|candidate| {
+            candidate.is_nested_word_command() && contains_span(candidate.span(), command.span())
+        })
+        .map(CommandFact::span)
+        .min_by(|left, right| {
+            left.start
+                .offset
+                .cmp(&right.start.offset)
+                .then_with(|| right.end.offset.cmp(&left.end.offset))
+        })
+        .unwrap_or_else(|| command.span())
 }
 
 fn collect_presence_tested_names_from_simple_test_operands(

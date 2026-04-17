@@ -2353,6 +2353,17 @@ printf '%s\\n' \"$missing\"
     }
 
     #[test]
+    fn undefined_variable_keeps_nested_word_guard_suppression_inside_same_substitution() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' \"$([ -n \"$missing\" ] && printf '%s' \"$missing\")\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn unread_name_only_declarations_are_not_flagged() {
         let diagnostics = lint(
             "\
