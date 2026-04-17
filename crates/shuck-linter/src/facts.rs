@@ -2260,6 +2260,7 @@ pub struct LinterFacts<'a> {
     loop_bindings: FxHashMap<FactSpan, Box<[&'a Word]>>,
     broken_assoc_key_spans: Vec<Span>,
     comma_array_assignment_spans: Vec<Span>,
+    ifs_literal_backslash_assignment_value_spans: Vec<Span>,
     presence_tested_names: FxHashSet<Name>,
     subscript_index_reference_spans: FxHashSet<FactSpan>,
     compound_assignment_value_word_spans: FxHashSet<FactSpan>,
@@ -2439,6 +2440,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn comma_array_assignment_spans(&self) -> &[Span] {
         &self.comma_array_assignment_spans
+    }
+
+    pub fn ifs_literal_backslash_assignment_value_spans(&self) -> &[Span] {
+        &self.ifs_literal_backslash_assignment_value_spans
     }
 
     pub fn is_if_condition_command(&self, id: CommandId) -> bool {
@@ -2829,6 +2834,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut loop_bindings = FxHashMap::default();
         let mut broken_assoc_key_spans = Vec::new();
         let mut comma_array_assignment_spans = Vec::new();
+        let mut ifs_literal_backslash_assignment_value_spans = Vec::new();
         let mut words = Vec::new();
         let mut compound_assignment_value_word_spans = FxHashSet::default();
         let mut array_assignment_split_word_indices = Vec::new();
@@ -2876,6 +2882,11 @@ impl<'a> LinterFactsBuilder<'a> {
                 visit.command,
                 self.source,
                 &mut comma_array_assignment_spans,
+            );
+            collect_ifs_literal_backslash_assignment_value_spans(
+                visit.command,
+                self.source,
+                &mut ifs_literal_backslash_assignment_value_spans,
             );
             let normalized = command::normalize_command(visit.command, self.source);
             let command_zsh_options = effective_command_zsh_options(
@@ -3201,6 +3212,7 @@ impl<'a> LinterFactsBuilder<'a> {
             loop_bindings,
             broken_assoc_key_spans,
             comma_array_assignment_spans,
+            ifs_literal_backslash_assignment_value_spans,
             presence_tested_names,
             subscript_index_reference_spans,
             compound_assignment_value_word_spans,
@@ -12829,6 +12841,44 @@ fn collect_comma_array_assignment_spans(command: &Command, source: &str, spans: 
     }
 }
 
+fn collect_ifs_literal_backslash_assignment_value_spans(
+    command: &Command,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for assignment in query::command_assignments(command) {
+        if let Some(span) = ifs_literal_backslash_assignment_value_span(assignment, source) {
+            spans.push(span);
+        }
+    }
+
+    for operand in query::declaration_operands(command) {
+        let DeclOperand::Assignment(assignment) = operand else {
+            continue;
+        };
+        if let Some(span) = ifs_literal_backslash_assignment_value_span(assignment, source) {
+            spans.push(span);
+        }
+    }
+}
+
+fn ifs_literal_backslash_assignment_value_span(
+    assignment: &Assignment,
+    source: &str,
+) -> Option<Span> {
+    if assignment.target.name.as_str() != "IFS" {
+        return None;
+    }
+
+    let AssignmentValue::Scalar(word) = &assignment.value else {
+        return None;
+    };
+
+    static_word_text(word, source)
+        .is_some_and(|text| text.contains('\\'))
+        .then_some(word.span)
+}
+
 fn comma_array_assignment_span(assignment: &Assignment, source: &str) -> Option<Span> {
     let AssignmentValue::Compound(array) = &assignment.value else {
         return None;
@@ -13598,6 +13648,31 @@ complex[$((i+=1))]+=x
                 "(foo,{x,y},bar)"
             ]
         );
+    }
+
+    #[test]
+    fn collects_ifs_literal_backslash_assignment_value_spans() {
+        let source = "\
+#!/bin/bash
+IFS='\\n'
+export IFS=\"x\\n\"
+while IFS='\\ \\|\\ ' read -r serial board_serial; do
+  :
+done < /dev/null
+declare IFS='prefix\\nsuffix'
+IFS=$'\\n'
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .ifs_literal_backslash_assignment_value_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["'\\n'", "\"x\\n\"", "'\\ \\|\\ '", "'prefix\\nsuffix'"]
+            );
+        });
     }
 
     #[test]
