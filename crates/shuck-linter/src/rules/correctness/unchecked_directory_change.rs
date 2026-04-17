@@ -1,5 +1,4 @@
 use crate::{Checker, Rule, ShellDialect, Violation};
-use rustc_hash::FxHashMap;
 use shuck_ast::{Command, Span};
 use shuck_semantic::{ScopeId, ScopeKind};
 
@@ -46,7 +45,7 @@ fn unchecked_directory_change_impl(
 ) -> Vec<(&'static str, Span)> {
     let semantic = checker.semantic();
     let source = checker.source();
-    let mut errexit_by_scope = FxHashMap::<ScopeId, bool>::default();
+    let errexit_enabled_somewhere = checker.facts().errexit_enabled_anywhere();
     checker
         .facts()
         .commands()
@@ -59,20 +58,7 @@ fn unchecked_directory_change_impl(
                 return None;
             }
 
-            let errexit_enabled = semantic
-                .ancestor_scopes(scope)
-                .find_map(|ancestor| errexit_by_scope.get(&ancestor).copied())
-                .unwrap_or(false);
-
-            if let Some(change) = fact
-                .options()
-                .set()
-                .and_then(|options| options.errexit_change)
-            {
-                errexit_by_scope.insert(scope, change);
-            }
-
-            let command = tracked_directory_command(fact)?;
+            let directory_change = fact.options().directory_change()?;
             let inside_function = direct_function_scope(semantic, scope).is_some();
             if inside_function_only && !inside_function {
                 return None;
@@ -88,7 +74,10 @@ fn unchecked_directory_change_impl(
                 .map(|context| !context.exit_status_checked)
                 .unwrap_or(true);
 
-            (unchecked && !errexit_enabled).then_some((command, report_span(fact, source)))
+            (unchecked
+                && !errexit_enabled_somewhere
+                && !directory_change.is_plain_directory_stack_marker())
+            .then_some((directory_change.command_name(), report_span(fact, source)))
         })
         .collect::<Vec<_>>()
 }
@@ -112,15 +101,6 @@ fn report_span(fact: &crate::facts::CommandFact<'_>, source: &str) -> Span {
         }
         _ => fact.span(),
     }
-}
-
-fn tracked_directory_command(fact: &crate::facts::CommandFact<'_>) -> Option<&'static str> {
-    Some(match fact.effective_name() {
-        Some("cd") => "cd",
-        Some("pushd") => "pushd",
-        Some("popd") => "popd",
-        _ => return None,
-    })
 }
 
 fn direct_function_scope(
@@ -235,8 +215,9 @@ pushd /work >/dev/null
     }
 
     #[test]
-    fn ignores_directory_changes_when_errexit_is_enabled() {
+    fn ignores_directory_changes_when_errexit_is_enabled_anywhere() {
         let source = "\
+cd /start
 set -e
 cd /tmp
 set +e
@@ -251,13 +232,115 @@ popd
             &LinterSettings::for_rule(Rule::UncheckedDirectoryChange),
         );
 
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_directory_stack_markers() {
+        let source = "\
+cd .
+cd ..
+cd /
+cd ../..
+cd ./../..
+pushd .
+pushd ..
+pushd /
+pushd ../..
+popd
+cd ./child
+cd ../../child
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UncheckedDirectoryChange),
+        );
+
         assert_eq!(
             diagnostics
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["cd /var", "popd"]
+            vec!["popd", "cd ./child", "cd ../../child"]
         );
+    }
+
+    #[test]
+    fn wrapped_directory_stack_markers_still_report() {
+        let source = "\
+builtin cd ..
+command cd /
+\\cd ..
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UncheckedDirectoryChange),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["builtin cd ..", "command cd /"]
+        );
+    }
+
+    #[test]
+    fn ignores_directory_changes_when_shebang_enables_errexit() {
+        let source = "\
+#!/bin/bash -eux
+cd /tmp
+pushd /var
+popd
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UncheckedDirectoryChange),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn shebang_without_errexit_still_reports() {
+        let source = "\
+#!/bin/bash -u
+cd /tmp
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UncheckedDirectoryChange),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "cd /tmp");
+    }
+
+    #[test]
+    fn long_shebang_options_do_not_suppress_reports() {
+        let source = "\
+#!/bin/bash --noprofile
+cd /tmp
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UncheckedDirectoryChange),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "cd /tmp");
+    }
+
+    #[test]
+    fn ignores_errexit_shebang_after_leading_blank_lines() {
+        let source = "\n#!/bin/bash -eu\ncd /tmp\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UncheckedDirectoryChange),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
     #[test]

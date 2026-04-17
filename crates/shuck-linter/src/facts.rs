@@ -1795,6 +1795,43 @@ impl SetCommandFacts {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DirectoryChangeCommandKind {
+    Cd,
+    Pushd,
+    Popd,
+}
+
+impl DirectoryChangeCommandKind {
+    pub fn command_name(self) -> &'static str {
+        match self {
+            Self::Cd => "cd",
+            Self::Pushd => "pushd",
+            Self::Popd => "popd",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct DirectoryChangeCommandFacts {
+    kind: DirectoryChangeCommandKind,
+    plain_directory_stack_marker: bool,
+}
+
+impl DirectoryChangeCommandFacts {
+    pub fn kind(&self) -> DirectoryChangeCommandKind {
+        self.kind
+    }
+
+    pub fn command_name(&self) -> &'static str {
+        self.kind.command_name()
+    }
+
+    pub fn is_plain_directory_stack_marker(&self) -> bool {
+        self.plain_directory_stack_marker
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ConfigureCommandFacts {
     misspelled_option_spans: Box<[Span]>,
@@ -1883,6 +1920,7 @@ pub struct CommandOptionFacts<'a> {
     grep: Option<GrepCommandFacts<'a>>,
     ps: Option<PsCommandFacts>,
     set: Option<SetCommandFacts>,
+    directory_change: Option<DirectoryChangeCommandFacts>,
     configure: Option<ConfigureCommandFacts>,
     expr: Option<ExprCommandFacts>,
     exit: Option<ExitCommandFacts<'a>>,
@@ -1953,6 +1991,10 @@ impl<'a> CommandOptionFacts<'a> {
 
     pub fn set(&self) -> Option<&SetCommandFacts> {
         self.set.as_ref()
+    }
+
+    pub fn directory_change(&self) -> Option<&DirectoryChangeCommandFacts> {
+        self.directory_change.as_ref()
     }
 
     pub fn configure(&self) -> Option<&ConfigureCommandFacts> {
@@ -2043,6 +2085,7 @@ impl<'a> CommandOptionFacts<'a> {
             set: normalized
                 .effective_name_is("set")
                 .then(|| parse_set_command(normalized.body_args(), source)),
+            directory_change: parse_directory_change_command(normalized, source),
             configure: normalized
                 .effective_or_literal_name()
                 .is_some_and(is_configure_command_name)
@@ -2242,6 +2285,7 @@ pub struct LinterFacts<'a> {
     missing_shebang_line_span: Option<Span>,
     duplicate_shebang_flag_span: Option<Span>,
     non_absolute_shebang_span: Option<Span>,
+    errexit_enabled_anywhere: bool,
     commented_continuation_comment_spans: Vec<Span>,
     trailing_directive_comment_spans: Vec<Span>,
     condition_status_capture_spans: Vec<Span>,
@@ -2526,6 +2570,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn non_absolute_shebang_span(&self) -> Option<Span> {
         self.non_absolute_shebang_span
+    }
+
+    pub fn errexit_enabled_anywhere(&self) -> bool {
+        self.errexit_enabled_anywhere
     }
 
     pub fn commented_continuation_comment_spans(&self) -> &[Span] {
@@ -3059,6 +3107,11 @@ impl<'a> LinterFactsBuilder<'a> {
         let subshell_test_group_spans =
             build_subshell_test_group_spans(&commands, &command_ids_by_span, self.source);
         let shebang_header_facts = build_shebang_header_facts(self.source);
+        let errexit_enabled_anywhere = shebang_header_facts.enables_errexit
+            || commands
+                .iter()
+                .filter_map(|fact| fact.options().set())
+                .any(|set| set.errexit_change == Some(true));
         let commented_continuation_comment_spans =
             build_commented_continuation_comment_spans(self.source, self._indexer);
         let trailing_directive_comment_spans =
@@ -3174,6 +3227,7 @@ impl<'a> LinterFactsBuilder<'a> {
             missing_shebang_line_span: shebang_header_facts.missing_shebang_line_span,
             duplicate_shebang_flag_span: shebang_header_facts.duplicate_shebang_flag_span,
             non_absolute_shebang_span: shebang_header_facts.non_absolute_shebang_span,
+            errexit_enabled_anywhere,
             commented_continuation_comment_spans,
             trailing_directive_comment_spans,
             condition_status_capture_spans,
@@ -4613,6 +4667,7 @@ struct ShebangHeaderFacts {
     missing_shebang_line_span: Option<Span>,
     duplicate_shebang_flag_span: Option<Span>,
     non_absolute_shebang_span: Option<Span>,
+    enables_errexit: bool,
 }
 
 fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
@@ -4672,6 +4727,10 @@ fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
         }
         Some(line_span(1, first_line_offset, line))
     });
+    let enables_errexit = first_nonempty_source_line(source)
+        .and_then(|(_, line)| line.trim_end_matches('\r').strip_prefix("#!"))
+        .map(parse_shebang_words)
+        .is_some_and(|words| shebang_enables_errexit(&words));
 
     ShebangHeaderFacts {
         indented_shebang_span,
@@ -4680,11 +4739,30 @@ fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
         missing_shebang_line_span,
         duplicate_shebang_flag_span,
         non_absolute_shebang_span,
+        enables_errexit,
     }
 }
 
 fn parse_shebang_words(shebang: &str) -> Vec<&str> {
     shebang.split_whitespace().collect()
+}
+
+fn first_nonempty_source_line(source: &str) -> Option<(usize, &str)> {
+    let mut offset = 0usize;
+
+    for raw_line in source.split_inclusive('\n') {
+        let line = raw_line.strip_suffix('\n').unwrap_or(raw_line);
+        if !line.trim().is_empty() {
+            return Some((offset, line));
+        }
+        offset += raw_line.len();
+    }
+
+    if !source.is_empty() && !source.ends_with('\n') && !source.trim().is_empty() {
+        return Some((0, source));
+    }
+
+    None
 }
 
 fn shebang_duplicate_flag<'a>(shebang_words: &[&'a str]) -> Option<&'a str> {
@@ -4695,6 +4773,35 @@ fn shebang_duplicate_flag<'a>(shebang_words: &[&'a str]) -> Option<&'a str> {
         .copied()
         .skip(1)
         .find(|word| word.starts_with('-') && !seen.insert(*word))
+}
+
+fn shebang_enables_errexit(shebang_words: &[&str]) -> bool {
+    let mut words = shebang_words.iter().copied().peekable();
+    while let Some(word) = words.next() {
+        if shebang_short_option_cluster_enables_errexit(word) {
+            return true;
+        }
+        if word == "-o" && matches!(words.peek(), Some(&"errexit")) {
+            return true;
+        }
+        if word == "-oerrexit" {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn shebang_short_option_cluster_enables_errexit(word: &str) -> bool {
+    let Some(flags) = word.strip_prefix('-') else {
+        return false;
+    };
+
+    if word == "-" || word == "--" || word.starts_with("--") {
+        return false;
+    }
+
+    flags.chars().all(|char| char.is_ascii_alphabetic()) && flags.contains('e')
 }
 
 fn nth_source_line(source: &str, index: usize) -> Option<(usize, &str)> {
@@ -11890,6 +11997,49 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
     }
 }
 
+fn parse_directory_change_command(
+    normalized: &NormalizedCommand<'_>,
+    source: &str,
+) -> Option<DirectoryChangeCommandFacts> {
+    let kind = match normalized.effective_name.as_deref() {
+        Some("cd") => DirectoryChangeCommandKind::Cd,
+        Some("pushd") => DirectoryChangeCommandKind::Pushd,
+        Some("popd") => DirectoryChangeCommandKind::Popd,
+        _ => return None,
+    };
+
+    let plain_directory_stack_marker = matches!(
+        kind,
+        DirectoryChangeCommandKind::Cd | DirectoryChangeCommandKind::Pushd
+    ) && normalized.wrappers.is_empty()
+        && normalized
+            .body_args()
+            .first()
+            .and_then(|word| static_word_text(word, source))
+            .is_some_and(|target| is_directory_stack_marker(target.as_str()));
+
+    Some(DirectoryChangeCommandFacts {
+        kind,
+        plain_directory_stack_marker,
+    })
+}
+
+fn is_directory_stack_marker(target: &str) -> bool {
+    if !target.is_empty() && target.chars().all(|ch| ch == '/') {
+        return true;
+    }
+
+    let mut saw_segment = false;
+    for segment in target.split('/').filter(|segment| !segment.is_empty()) {
+        saw_segment = true;
+        if segment != "." && segment != ".." {
+            return false;
+        }
+    }
+
+    saw_segment
+}
+
 fn is_configure_command_name(name: &str) -> bool {
     name == "configure" || name.ends_with("/configure")
 }
@@ -14599,6 +14749,54 @@ find . -execdir sh -ec 'mv {} \"$target\"' \\;
             read.options().read().map(|read| read.uses_raw_input),
             Some(false)
         );
+    }
+
+    #[test]
+    fn summarizes_directory_change_commands_and_errexit_hints() {
+        let source = "\n#!/bin/bash -eu\ncd ../..\nbuiltin cd /\npushd ..\npopd\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(facts.errexit_enabled_anywhere());
+
+        let directory_changes = facts
+            .commands()
+            .iter()
+            .filter_map(|fact| {
+                fact.options().directory_change().map(|directory_change| {
+                    (
+                        directory_change.command_name(),
+                        directory_change.is_plain_directory_stack_marker(),
+                        fact.wrappers().to_vec(),
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            directory_changes,
+            vec![
+                ("cd", true, vec![]),
+                ("cd", false, vec![WrapperKind::Builtin]),
+                ("pushd", true, vec![]),
+                ("popd", false, vec![])
+            ]
+        );
+    }
+
+    #[test]
+    fn does_not_treat_long_shebang_options_as_errexit() {
+        let source = "#!/bin/bash --noprofile\ncd /tmp\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(!facts.errexit_enabled_anywhere());
     }
 
     #[test]
