@@ -2215,7 +2215,7 @@ fn resolve_shell(path: &Path, src: &[u8]) -> String {
         return "zsh".into();
     }
 
-    match shuck_linter::ShellDialect::infer(source.as_ref(), Some(path)) {
+    match shuck_linter::ShellDialect::infer(source, Some(path)) {
         shuck_linter::ShellDialect::Bash => "bash".into(),
         shuck_linter::ShellDialect::Ksh | shuck_linter::ShellDialect::Mksh => "ksh".into(),
         shuck_linter::ShellDialect::Zsh => "zsh".into(),
