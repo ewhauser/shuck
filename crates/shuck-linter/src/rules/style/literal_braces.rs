@@ -99,6 +99,17 @@ OFL.txt,README.md,documentation} \\
     }
 
     #[test]
+    fn ignores_brace_expansions_with_escaped_spaces() {
+        let source = "\
+#!/bin/bash
+echo {alpha,\\ beta}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LiteralBraces));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn ignores_literal_braces_inside_trailing_comments() {
         let source = "\
 #!/bin/bash
@@ -313,6 +324,21 @@ exec {IPC_FIFO_FD}>&-
             .collect::<Vec<_>>();
 
         assert_eq!(positions, vec![(2, 24), (2, 36)]);
+    }
+
+    #[test]
+    fn reports_simple_escaped_parameter_braces_even_after_nested_escape() {
+        let source = "\
+#!/bin/bash
+echo \\${${name}}/\\${fallback}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LiteralBraces));
+        let positions = diagnostics
+            .iter()
+            .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.start.column))
+            .collect::<Vec<_>>();
+
+        assert_eq!(positions, vec![(2, 20), (2, 29)]);
     }
 
     #[test]

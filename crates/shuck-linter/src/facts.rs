@@ -4920,9 +4920,6 @@ fn build_literal_brace_spans(
 
         let is_find_exec_placeholder_word = is_find_exec_placeholder_word(commands, fact, source);
         let is_xargs_replacement_word = is_xargs_replacement_word(commands, fact, source);
-        let has_nested_escaped_parameter_word =
-            word_has_nested_escaped_parameter_expansion(fact.word(), source);
-
         spans.extend(
             fact.word()
                 .brace_syntax()
@@ -4938,7 +4935,6 @@ fn build_literal_brace_spans(
                 .filter(|brace| {
                     brace.span.slice(source) != "{}"
                         && !brace_span_has_escaped_dollar_prefix(brace.span, source)
-                        && !has_nested_escaped_parameter_word
                         && !is_find_exec_placeholder_word
                         && !is_xargs_replacement_word
                 })
@@ -4947,12 +4943,10 @@ fn build_literal_brace_spans(
 
         if !is_find_exec_placeholder_word && !is_xargs_replacement_word {
             spans.extend(unclassified_literal_brace_spans(fact.word(), source));
-            if !has_nested_escaped_parameter_word {
-                spans.extend(escaped_parameter_expansion_brace_edge_spans(
-                    fact.word(),
-                    source,
-                ));
-            }
+            spans.extend(escaped_parameter_expansion_brace_edge_spans(
+                fact.word(),
+                source,
+            ));
         }
     }
 
@@ -5183,8 +5177,8 @@ fn brace_character_spans(span: Span, source: &str) -> Vec<Span> {
     text.char_indices()
         .filter(|&(_, ch)| matches!(ch, '{' | '}'))
         .map(|(offset, _)| {
-                let position = span.start.advanced_by(&text[..offset]);
-                Span::from_positions(position, position)
+            let position = span.start.advanced_by(&text[..offset]);
+            Span::from_positions(position, position)
         })
         .collect()
 }
@@ -5198,18 +5192,6 @@ fn brace_span_has_escaped_dollar_prefix(span: Span, source: &str) -> bool {
 
     span.start.offset >= "\\$".len()
         && source[span.start.offset - "\\$".len()..span.start.offset] == *"\\$"
-}
-
-fn word_has_nested_escaped_parameter_expansion(word: &Word, source: &str) -> bool {
-    let text = word.span.slice(source);
-    let Some(escaped_start) = text.find("\\${") else {
-        return false;
-    };
-    let outer_start = escaped_start + '\\'.len_utf8();
-    let Some(outer_end) = find_runtime_parameter_closing_brace(text, outer_start) else {
-        return false;
-    };
-    text[outer_start + "${".len()..outer_end - '}'.len_utf8()].contains("${")
 }
 
 fn brace_syntax_with_whitespace_is_literal(brace: shuck_ast::BraceSyntax, source: &str) -> bool {
@@ -5228,13 +5210,16 @@ fn brace_syntax_with_whitespace_is_literal(brace: shuck_ast::BraceSyntax, source
 
         if ch == '\\' {
             index += ch_len;
+            if text[index..].starts_with("\r\n") {
+                index += "\r\n".len();
+                continue;
+            }
             if text[index..].starts_with('\n') {
                 index += '\n'.len_utf8();
                 continue;
             }
-            if text[index..].starts_with("\r\n") {
-                index += "\r\n".len();
-                continue;
+            if let Some(escaped) = text[index..].chars().next() {
+                index += escaped.len_utf8();
             }
             continue;
         }
@@ -5789,7 +5774,7 @@ fn raw_escaped_parameter_brace_edge_spans(word: &Word, source: &str) -> Vec<Span
     let mut index = 0usize;
     let mut previous_char = None;
     let mut previous_char_escaped = false;
-    let mut escaped_parameter_stack = Vec::new();
+    let mut escaped_parameter_stack: Vec<(usize, bool)> = Vec::new();
     let mut parameter_depth = 0usize;
 
     while index < text.len() {
@@ -5832,14 +5817,19 @@ fn raw_escaped_parameter_brace_edge_spans(word: &Word, source: &str) -> Vec<Span
 
         if ch == '{' {
             if previous_char == Some('$') && previous_char_escaped {
-                escaped_parameter_stack.push(index);
+                escaped_parameter_stack.push((index, false));
             } else if previous_char == Some('$') && !previous_char_escaped {
+                if let Some((_, has_nested_parameter_inside)) = escaped_parameter_stack.last_mut() {
+                    *has_nested_parameter_inside = true;
+                }
                 parameter_depth += 1;
             }
         } else if ch == '}' {
             if parameter_depth > 0 {
                 parameter_depth -= 1;
-            } else if let Some(open_offset) = escaped_parameter_stack.pop()
+            } else if let Some((open_offset, has_nested_parameter_inside)) =
+                escaped_parameter_stack.pop()
+                && !has_nested_parameter_inside
                 && !brace_pair_matches_nonliteral_syntax(word, open_offset, index)
             {
                 let open = span.start.advanced_by(&text[..open_offset]);
