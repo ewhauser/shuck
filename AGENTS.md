@@ -74,6 +74,9 @@ make test-large-corpus SHUCK_LARGE_CORPUS_RULES=C001,C006
 
 # Run a smaller sample while iterating
 make test-large-corpus SHUCK_LARGE_CORPUS_SAMPLE_PERCENT=10
+
+# Print only the 25 slowest Shuck fixtures and always exit successfully
+make test-large-corpus SHUCK_LARGE_CORPUS_TIMING=1
 ```
 
 Relevant environment variables for the large-corpus harness:
@@ -87,6 +90,7 @@ Relevant environment variables for the large-corpus harness:
 - `SHUCK_LARGE_CORPUS_SAMPLE_PERCENT=100` — deterministic fixture sampling percentage in `[1,100]`.
 - `SHUCK_LARGE_CORPUS_MAPPED_ONLY=1` — limits ShellCheck diagnostics to codes that Shuck maps today.
 - `SHUCK_LARGE_CORPUS_KEEP_GOING=1` — collects all fixture failures instead of stopping at the first one.
+- `SHUCK_LARGE_CORPUS_TIMING=1` — runs a Shuck-only timing pass, prints the 25 slowest fixtures, and always exits successfully. This mode does not produce a compatibility log, so `make large-corpus-report` rejects it.
 
 If you need to call `shellcheck` directly while debugging a large-corpus issue, do it through nix so the version matches the test harness. For example:
 

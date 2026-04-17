@@ -20,6 +20,7 @@ SHUCK_LARGE_CORPUS_SHUCK_TIMEOUT_SECS ?= 30
 SHUCK_LARGE_CORPUS_SAMPLE_PERCENT ?= 100
 SHUCK_LARGE_CORPUS_MAPPED_ONLY ?= 1
 SHUCK_LARGE_CORPUS_KEEP_GOING ?= 1
+SHUCK_LARGE_CORPUS_TIMING ?= 0
 SHUCK_LARGE_CORPUS_RULES ?=
 LARGE_CORPUS_REPORT_DIR ?= target/large-corpus-report
 LARGE_CORPUS_REPORT_LOG ?= $(LARGE_CORPUS_REPORT_DIR)/latest.log
@@ -80,6 +81,7 @@ test-large-corpus: ensure-cache
 	SHUCK_LARGE_CORPUS_SAMPLE_PERCENT=$(SHUCK_LARGE_CORPUS_SAMPLE_PERCENT) \
 	SHUCK_LARGE_CORPUS_MAPPED_ONLY=$(SHUCK_LARGE_CORPUS_MAPPED_ONLY) \
 	SHUCK_LARGE_CORPUS_KEEP_GOING=$(SHUCK_LARGE_CORPUS_KEEP_GOING) \
+	SHUCK_LARGE_CORPUS_TIMING=$(SHUCK_LARGE_CORPUS_TIMING) \
 	$(NIX_DEVELOP) cargo test -p shuck --test large_corpus -- --ignored --nocapture
 
 test-large-corpus-zsh: ensure-cache
@@ -95,7 +97,13 @@ large-corpus-report-from-log:
 	$(UV_PYTHON) ./scripts/large_corpus_report.py --log "$(LARGE_CORPUS_REPORT_LOG)" --output "$(LARGE_CORPUS_REPORT_HTML)"
 	@echo "large corpus HTML report: $$(cd . && pwd)/$(LARGE_CORPUS_REPORT_HTML)"
 
-large-corpus-report: ensure-cache
+large-corpus-report:
+	@case "$(SHUCK_LARGE_CORPUS_TIMING)" in \
+		1|true|TRUE|yes|YES|on|ON) \
+			echo "large-corpus-report does not support SHUCK_LARGE_CORPUS_TIMING=1; run 'make test-large-corpus SHUCK_LARGE_CORPUS_TIMING=1' directly."; \
+			exit 1 ;; \
+	esac
+	@$(MAKE) --no-print-directory ensure-cache
 	@mkdir -p "$(LARGE_CORPUS_REPORT_DIR)"
 	@status=0; \
 	$(MAKE) --no-print-directory test-large-corpus >"$(LARGE_CORPUS_REPORT_LOG)" 2>&1 || status=$$?; \

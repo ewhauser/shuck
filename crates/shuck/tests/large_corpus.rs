@@ -12,7 +12,7 @@ use std::sync::{
     mpsc,
 };
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -32,6 +32,7 @@ const LARGE_CORPUS_RULES_ENV: &str = "SHUCK_LARGE_CORPUS_RULES";
 const LARGE_CORPUS_SAMPLE_PERCENT_ENV: &str = "SHUCK_LARGE_CORPUS_SAMPLE_PERCENT";
 const LARGE_CORPUS_MAPPED_ONLY_ENV: &str = "SHUCK_LARGE_CORPUS_MAPPED_ONLY";
 const LARGE_CORPUS_KEEP_GOING_ENV: &str = "SHUCK_LARGE_CORPUS_KEEP_GOING";
+const LARGE_CORPUS_TIMING_ENV: &str = "SHUCK_LARGE_CORPUS_TIMING";
 
 const LARGE_CORPUS_DEFAULT_SHELLCHECK_TIMEOUT: Duration = Duration::from_secs(300);
 const LARGE_CORPUS_DEFAULT_SHUCK_TIMEOUT: Duration = Duration::from_secs(30);
@@ -43,6 +44,7 @@ const LARGE_CORPUS_WORKER_COUNT: usize = 4;
 const LARGE_CORPUS_TIMEOUT_FAILURE_CAP: usize = 5;
 const LARGE_CORPUS_PROGRESS_PERCENT_STEP: usize = 5;
 const LARGE_CORPUS_PROGRESS_BUCKET_COUNT: usize = 100 / LARGE_CORPUS_PROGRESS_PERCENT_STEP;
+const LARGE_CORPUS_TIMING_LIMIT: usize = 25;
 const RULE_CORPUS_METADATA_DIR: &str = "tests/testdata/corpus-metadata";
 
 const SHELLCHECK_CACHE_SCHEMA: u32 = 2;
@@ -64,6 +66,7 @@ struct LargeCorpusConfig {
     sample_percent: usize,
     mapped_only: bool,
     keep_going: bool,
+    timing_mode: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -734,6 +737,139 @@ enum LargeCorpusReportMode {
     BlockingOnly,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LargeCorpusTimingOutcome {
+    Ok,
+    ParseError,
+    Timeout,
+    Error,
+}
+
+impl LargeCorpusTimingOutcome {
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::ParseError => "parse-error",
+            Self::Timeout => "timeout",
+            Self::Error => "error",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LargeCorpusTimingRecord {
+    fixture_label: String,
+    elapsed: Duration,
+    outcome: LargeCorpusTimingOutcome,
+}
+
+fn collect_fixture_timings(
+    fixtures: &[&LargeCorpusFixture],
+    shuck_timeout: Duration,
+    linter_settings: &shuck_linter::LinterSettings,
+    shuck_path_resolver: Arc<LargeCorpusPathResolver>,
+) -> Vec<LargeCorpusTimingRecord> {
+    fixtures
+        .iter()
+        .map(|fixture| {
+            measure_fixture_timing(
+                fixture,
+                shuck_timeout,
+                linter_settings,
+                Arc::clone(&shuck_path_resolver),
+            )
+        })
+        .collect()
+}
+
+fn measure_fixture_timing(
+    fixture: &LargeCorpusFixture,
+    base_shuck_timeout: Duration,
+    linter_settings: &shuck_linter::LinterSettings,
+    shuck_path_resolver: Arc<LargeCorpusPathResolver>,
+) -> LargeCorpusTimingRecord {
+    let start = Instant::now();
+    let outcome = match panic::catch_unwind(AssertUnwindSafe(|| {
+        let source = fs::read(&fixture.path).unwrap_or_default();
+        let shuck_timeout = effective_shuck_timeout(&source, base_shuck_timeout);
+        run_shuck_with_timeout(
+            fixture,
+            linter_settings,
+            shuck_timeout,
+            Arc::clone(&shuck_path_resolver),
+        )
+    })) {
+        Ok(Ok(run)) => {
+            if run.parse_error.is_some() {
+                LargeCorpusTimingOutcome::ParseError
+            } else {
+                LargeCorpusTimingOutcome::Ok
+            }
+        }
+        Ok(Err(err)) => {
+            if is_timeout_message(&err, "shuck") {
+                LargeCorpusTimingOutcome::Timeout
+            } else {
+                LargeCorpusTimingOutcome::Error
+            }
+        }
+        Err(_) => LargeCorpusTimingOutcome::Error,
+    };
+
+    LargeCorpusTimingRecord {
+        fixture_label: fixture_progress_label(fixture),
+        elapsed: start.elapsed(),
+        outcome,
+    }
+}
+
+fn ranked_large_corpus_timings(
+    records: &[LargeCorpusTimingRecord],
+) -> Vec<LargeCorpusTimingRecord> {
+    let mut ranked = records.to_vec();
+    ranked.sort_by(|left, right| {
+        right
+            .elapsed
+            .cmp(&left.elapsed)
+            .then_with(|| left.fixture_label.cmp(&right.fixture_label))
+    });
+    ranked.truncate(LARGE_CORPUS_TIMING_LIMIT);
+    ranked
+}
+
+fn format_large_corpus_timing_report(records: &[LargeCorpusTimingRecord]) -> String {
+    let ranked = ranked_large_corpus_timings(records);
+    if ranked.is_empty() {
+        return "large corpus timing: no supported fixtures selected".into();
+    }
+
+    let mut lines = vec![format!(
+        "large corpus timing: showing {} slowest shuck fixture(s) out of {}",
+        ranked.len(),
+        records.len()
+    )];
+    lines.extend(ranked.iter().enumerate().map(|(index, record)| {
+        format!(
+            "{:>2}. {} [{}] {}",
+            index + 1,
+            format_fixture_elapsed(record.elapsed),
+            record.outcome.as_str(),
+            record.fixture_label
+        )
+    }));
+    lines.join("\n")
+}
+
+fn select_supported_large_corpus_fixtures<'a>(
+    fixtures: &'a [LargeCorpusFixture],
+    shellcheck_supported_shells: Option<&HashMap<&'static str, ()>>,
+) -> Vec<&'a LargeCorpusFixture> {
+    fixtures
+        .iter()
+        .filter(|fixture| fixture_supported_for_large_corpus(fixture, shellcheck_supported_shells))
+        .collect()
+}
+
 // ---------------------------------------------------------------------------
 // Main test
 // ---------------------------------------------------------------------------
@@ -757,6 +893,21 @@ fn large_corpus_conforms_with_shellcheck() {
         );
     }
 
+    if cfg.timing_mode {
+        let supported_fixtures = select_supported_large_corpus_fixtures(&fixtures, None);
+        let linter_settings =
+            build_large_corpus_linter_settings(cfg.selected_rules.clone(), cfg.mapped_only);
+        let shuck_path_resolver = Arc::new(LargeCorpusPathResolver::new(&supported_fixtures));
+        let timings = collect_fixture_timings(
+            &supported_fixtures,
+            cfg.shuck_timeout,
+            &linter_settings,
+            shuck_path_resolver,
+        );
+        eprintln!("{}", format_large_corpus_timing_report(&timings));
+        return;
+    }
+
     let shellcheck = probe_shellcheck()
         .expect("shellcheck not found on PATH; install it to run the large corpus test");
 
@@ -768,11 +919,10 @@ fn large_corpus_conforms_with_shellcheck() {
         build_shellcheck_filter_codes(cfg.selected_rules, cfg.mapped_only);
     let shellcheck_cache = ShellCheckCache::new(&cfg.cache_dir, &shellcheck);
     shellcheck_cache.prepare(&fixtures, &discover_worktree_roots());
-    let linter_settings = build_large_corpus_linter_settings(cfg.selected_rules, cfg.mapped_only);
-    let supported_fixtures: Vec<_> = fixtures
-        .iter()
-        .filter(|fixture| fixture_supported_for_large_corpus(fixture, Some(&supported_shells)))
-        .collect();
+    let linter_settings =
+        build_large_corpus_linter_settings(cfg.selected_rules.clone(), cfg.mapped_only);
+    let supported_fixtures =
+        select_supported_large_corpus_fixtures(&fixtures, Some(&supported_shells));
     let skipped_unsupported_shells = fixtures.len().saturating_sub(supported_fixtures.len());
     let shuck_path_resolver = Arc::new(LargeCorpusPathResolver::new(&supported_fixtures));
 
@@ -1975,6 +2125,7 @@ fn resolve_large_corpus_config() -> Option<LargeCorpusConfig> {
                 sample_percent,
                 mapped_only: env_truthy(LARGE_CORPUS_MAPPED_ONLY_ENV, false),
                 keep_going: env_truthy(LARGE_CORPUS_KEEP_GOING_ENV, false),
+                timing_mode: env_truthy(LARGE_CORPUS_TIMING_ENV, false),
             });
         }
     }
@@ -3099,6 +3250,99 @@ mod tests {
         assert_eq!(
             format_fixture_elapsed(Duration::from_millis(1_234)),
             "1.234s"
+        );
+    }
+
+    #[test]
+    fn ranked_large_corpus_timings_sorts_descending_and_truncates_to_limit() {
+        let records = (0..30)
+            .map(|i| {
+                timing_record(
+                    &format!("script-{i:02}.sh"),
+                    (i + 1) as u64,
+                    LargeCorpusTimingOutcome::Ok,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let ranked = ranked_large_corpus_timings(&records);
+
+        assert_eq!(ranked.len(), LARGE_CORPUS_TIMING_LIMIT);
+        assert_eq!(ranked[0].fixture_label, "script-29.sh");
+        assert_eq!(ranked[0].elapsed, Duration::from_millis(30));
+        assert_eq!(ranked.last().unwrap().fixture_label, "script-05.sh");
+    }
+
+    #[test]
+    fn ranked_large_corpus_timings_break_ties_by_fixture_label() {
+        let ranked = ranked_large_corpus_timings(&[
+            timing_record("zeta.sh", 50, LargeCorpusTimingOutcome::Ok),
+            timing_record("alpha.sh", 50, LargeCorpusTimingOutcome::Timeout),
+            timing_record("mid.sh", 50, LargeCorpusTimingOutcome::Error),
+        ]);
+
+        assert_eq!(
+            ranked
+                .iter()
+                .map(|record| record.fixture_label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["alpha.sh", "mid.sh", "zeta.sh"]
+        );
+    }
+
+    #[test]
+    fn ranked_large_corpus_timings_keep_non_ok_statuses() {
+        let ranked = ranked_large_corpus_timings(&[
+            timing_record("timeout.sh", 90, LargeCorpusTimingOutcome::Timeout),
+            timing_record("error.sh", 80, LargeCorpusTimingOutcome::Error),
+            timing_record("ok.sh", 70, LargeCorpusTimingOutcome::Ok),
+        ]);
+
+        assert_eq!(
+            ranked
+                .iter()
+                .map(|record| record.outcome)
+                .collect::<Vec<_>>(),
+            vec![
+                LargeCorpusTimingOutcome::Timeout,
+                LargeCorpusTimingOutcome::Error,
+                LargeCorpusTimingOutcome::Ok,
+            ]
+        );
+    }
+
+    #[test]
+    fn format_large_corpus_timing_report_handles_fewer_than_limit() {
+        let report = format_large_corpus_timing_report(&[
+            timing_record("slow.sh", 900, LargeCorpusTimingOutcome::Ok),
+            timing_record("faster.sh", 300, LargeCorpusTimingOutcome::Ok),
+        ]);
+
+        assert!(report.contains("showing 2 slowest shuck fixture(s) out of 2"));
+        assert!(report.contains("1. 900ms [ok] slow.sh"));
+        assert!(report.contains("2. 300ms [ok] faster.sh"));
+    }
+
+    #[test]
+    fn format_large_corpus_timing_report_includes_status_labels() {
+        let report = format_large_corpus_timing_report(&[
+            timing_record("ok.sh", 40, LargeCorpusTimingOutcome::Ok),
+            timing_record("parse.sh", 30, LargeCorpusTimingOutcome::ParseError),
+            timing_record("timeout.sh", 20, LargeCorpusTimingOutcome::Timeout),
+            timing_record("error.sh", 10, LargeCorpusTimingOutcome::Error),
+        ]);
+
+        assert!(report.contains("[ok] ok.sh"));
+        assert!(report.contains("[parse-error] parse.sh"));
+        assert!(report.contains("[timeout] timeout.sh"));
+        assert!(report.contains("[error] error.sh"));
+    }
+
+    #[test]
+    fn format_large_corpus_timing_report_handles_empty_input() {
+        assert_eq!(
+            format_large_corpus_timing_report(&[]),
+            "large corpus timing: no supported fixtures selected"
         );
     }
 
@@ -4297,6 +4541,18 @@ mod tests {
             cache_rel_path: PathBuf::from(path),
             shell: "sh".into(),
             source_hash: String::new(),
+        }
+    }
+
+    fn timing_record(
+        fixture_label: &str,
+        millis: u64,
+        outcome: LargeCorpusTimingOutcome,
+    ) -> LargeCorpusTimingRecord {
+        LargeCorpusTimingRecord {
+            fixture_label: fixture_label.into(),
+            elapsed: Duration::from_millis(millis),
+            outcome,
         }
     }
 
