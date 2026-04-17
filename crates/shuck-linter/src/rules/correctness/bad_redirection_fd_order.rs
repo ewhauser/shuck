@@ -37,15 +37,17 @@ fn malformed_numeric_target_span(redirect: &RedirectFact<'_>, source: &str) -> O
     }
 
     let redirect_data = redirect.redirect();
-    let redirect_text = redirect_data.span.slice(source);
-    let malformed_output_both =
-        redirect_data.kind == RedirectKind::OutputBoth && redirect_text.starts_with("&>");
-    let malformed_append_both =
-        redirect_data.kind == RedirectKind::Append && redirect_text.starts_with("&>>");
-    if !malformed_output_both && !malformed_append_both {
+    if !matches!(
+        redirect_data.kind,
+        RedirectKind::Output
+            | RedirectKind::Clobber
+            | RedirectKind::Append
+            | RedirectKind::OutputBoth
+    ) {
         return None;
     }
 
+    let redirect_text = redirect_data.span.slice(source);
     let operator_offset = redirect_text.find('>')?;
     let start = redirect_data
         .span
@@ -63,6 +65,10 @@ mod tests {
     fn reports_malformed_numeric_redirect_targets() {
         let source = "\
 #!/bin/sh
+echo ok >2
+echo ok 2>1
+echo ok >>2
+echo ok 2>>1
 echo ok 2&>1
 echo ok 2&>>1
 echo ok &>1
@@ -80,7 +86,7 @@ echo ok &>01
                 .iter()
                 .map(|diagnostic| diagnostic.span.start.line)
                 .collect::<Vec<_>>(),
-            vec![2, 3, 4, 5, 6, 7]
+            vec![2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
         );
     }
 
