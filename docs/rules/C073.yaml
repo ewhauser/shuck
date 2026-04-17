@@ -3,7 +3,7 @@ legacy_name: indented-shebang
 new_category: Correctness
 new_code: C073
 runtime_kind: ast
-shellcheck_code: SC2286
+shellcheck_code: SC1114
 shells:
   - sh
   - bash

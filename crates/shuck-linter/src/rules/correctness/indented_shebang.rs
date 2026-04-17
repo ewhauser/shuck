@@ -30,7 +30,19 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.start.line, 1);
-        assert_eq!(diagnostics[0].span.slice(source), " #!/bin/sh");
+        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.end.column, 1);
+    }
+
+    #[test]
+    fn reports_indented_shebang_after_header_prelude() {
+        let source = "\n #!/bin/sh\n:\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::IndentedShebang));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.end.column, 1);
     }
 
     #[test]
@@ -39,7 +51,6 @@ mod tests {
             "#!/bin/sh\n:\n",
             "#! /bin/sh\n:\n",
             "\n#!/bin/sh\n:\n",
-            "# comment\n #!/bin/sh\n:\n",
             "\t# not a shebang\n:\n",
         ] {
             let diagnostics =
