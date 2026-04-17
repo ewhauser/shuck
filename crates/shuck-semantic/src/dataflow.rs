@@ -1221,14 +1221,25 @@ fn compute_initialized_name_states_dense(
             }
 
             let predecessors = cfg.predecessors(block.id);
-            let mut incoming_definite = if let Some(first_predecessor) = predecessors.first() {
-                definite_out[first_predecessor.index()].clone()
-            } else if entry_blocks.contains(&block.id) {
+            let uses_virtual_entry_boundary = entry_blocks.contains(&block.id)
+                && predecessors.iter().all(|predecessor| {
+                    cfg.successors(*predecessor)
+                        .iter()
+                        .any(|(successor, kind)| {
+                            *successor == block.id && *kind == EdgeKind::LoopBack
+                        })
+                });
+            let mut incoming_definite = if uses_virtual_entry_boundary {
                 entry_definite.clone()
+            } else if let Some(first_predecessor) = predecessors.first() {
+                definite_out[first_predecessor.index()].clone()
             } else {
                 DenseBitSet::new(name_count)
             };
-            for predecessor in predecessors.iter().skip(1) {
+            for (predecessor_index, predecessor) in predecessors.iter().enumerate() {
+                if !uses_virtual_entry_boundary && predecessor_index == 0 {
+                    continue;
+                }
                 incoming_definite.intersect_with(&definite_out[predecessor.index()]);
             }
 

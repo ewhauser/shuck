@@ -4230,6 +4230,22 @@ f
     }
 
     #[test]
+    fn scope_entry_loops_preserve_possible_uninitialized_names() {
+        let source = "\
+while command; do
+  flag=1
+done
+printf '%s\\n' \"$flag\"
+";
+        let model = model(source);
+
+        assert_eq!(
+            uninitialized_details(&model),
+            vec![("flag".to_owned(), UninitializedCertainty::Possible)]
+        );
+    }
+
+    #[test]
     fn sourced_helper_function_reads_do_not_keep_assignments_live_until_called() {
         let temp = tempdir().unwrap();
         let main = temp.path().join("main.sh");
