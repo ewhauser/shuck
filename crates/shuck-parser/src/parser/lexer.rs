@@ -3051,6 +3051,7 @@ impl<'a> Lexer<'a> {
         let mut literal_brace_depth = 0usize;
         let mut in_single = false;
         let mut in_double = false;
+        let mut double_quote_depth = 0usize;
         while let Some(c) = self.peek_char() {
             if in_single {
                 match c {
@@ -3081,7 +3082,7 @@ impl<'a> Lexer<'a> {
             }
 
             match c {
-                '}' if !in_single && (!in_double || depth > 1) => {
+                '}' if !in_single && (!in_double || depth > double_quote_depth) => {
                     self.advance();
                     Self::push_capture_char(content, '}');
                     if literal_brace_depth > 0
@@ -3105,6 +3106,7 @@ impl<'a> Lexer<'a> {
                     Self::push_capture_char(content, '"');
                     self.advance();
                     in_double = !in_double;
+                    double_quote_depth = if in_double { depth } else { 0 };
                 }
                 '\'' => {
                     Self::push_capture_char(content, '\'');
@@ -3191,6 +3193,7 @@ impl<'a> Lexer<'a> {
         let mut depth = target_depth;
         let mut in_single = false;
         let mut in_double = false;
+        let mut double_quote_depth = 0usize;
 
         while let Some(ch) = chars.next() {
             if in_single {
@@ -3208,13 +3211,19 @@ impl<'a> Lexer<'a> {
 
             if in_double {
                 match ch {
-                    '"' => in_double = false,
+                    '"' => {
+                        in_double = false;
+                        double_quote_depth = 0;
+                    }
                     '\\' => {
                         chars.next();
                     }
                     '$' if chars.peek() == Some(&'{') => {
                         chars.next();
                         depth += 1;
+                    }
+                    '}' if depth > double_quote_depth => {
+                        depth -= 1;
                     }
                     _ => {}
                 }
@@ -3224,7 +3233,10 @@ impl<'a> Lexer<'a> {
             match ch {
                 '\n' if depth == target_depth => return false,
                 '\'' => in_single = true,
-                '"' => in_double = true,
+                '"' => {
+                    in_double = true;
+                    double_quote_depth = depth;
+                }
                 '\\' => {
                     chars.next();
                 }
@@ -3232,7 +3244,7 @@ impl<'a> Lexer<'a> {
                     chars.next();
                     depth += 1;
                 }
-                '}' if !in_single && (!in_double || depth > target_depth) => {
+                '}' => {
                     if depth == target_depth {
                         return true;
                     }

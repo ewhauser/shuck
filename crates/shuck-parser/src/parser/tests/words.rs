@@ -2065,6 +2065,83 @@ fn test_parameter_default_operand_does_not_absorb_later_double_quoted_expansion(
 }
 
 #[test]
+fn test_nested_default_operand_keeps_quoted_right_brace_literal() {
+    let input = "echo \"${outer:-${inner:-\"}\"}}\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let word = &command.args[0];
+
+    let [
+        WordPartNode {
+            kind: WordPart::DoubleQuoted { parts, .. },
+            ..
+        },
+    ] = word.parts.as_slice()
+    else {
+        panic!("expected one double-quoted argument");
+    };
+
+    let [
+        WordPartNode {
+            kind: WordPart::Parameter(parameter),
+            ..
+        },
+    ] = parts.as_slice()
+    else {
+        panic!("expected one parameter expansion in outer quotes");
+    };
+    let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
+        operand: Some(operand),
+        operand_word_ast: Some(operand_word_ast),
+        ..
+    }) = &parameter.syntax
+    else {
+        panic!("expected outer parameter operation with parsed operand");
+    };
+    assert_eq!(operand.slice(input), "${inner:-\"}\"}");
+
+    let [
+        WordPartNode {
+            kind: WordPart::Parameter(parameter),
+            ..
+        },
+    ] = operand_word_ast.parts.as_slice()
+    else {
+        panic!("expected nested parameter expansion in outer operand");
+    };
+    let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
+        operand: Some(operand),
+        operand_word_ast: Some(operand_word_ast),
+        ..
+    }) = &parameter.syntax
+    else {
+        panic!("expected inner parameter operation with parsed operand");
+    };
+    assert_eq!(operand.slice(input), "\"}\"");
+
+    let [
+        WordPartNode {
+            kind:
+                WordPart::DoubleQuoted {
+                    parts: quoted_parts,
+                    ..
+                },
+            ..
+        },
+    ] = operand_word_ast.parts.as_slice()
+    else {
+        panic!("expected quoted inner operand word");
+    };
+    let [literal] = quoted_parts.as_slice() else {
+        panic!("expected quoted operand to contain a single literal brace");
+    };
+    assert_eq!(literal.span.slice(input), "}");
+}
+
+#[test]
 fn test_array_target_parameter_operations_normalize_to_bourne_operations() {
     let input = "echo ${arr[0]//x/y} ${arr[@],,} ${arr[1]^^pattern}\n";
     let script = Parser::new(input).parse().unwrap().file;
