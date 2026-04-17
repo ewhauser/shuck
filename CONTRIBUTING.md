@@ -75,6 +75,7 @@ You can target specific rules or sample a subset:
 ```bash
 make test-large-corpus SHUCK_LARGE_CORPUS_RULES=C001
 make test-large-corpus SHUCK_LARGE_CORPUS_SAMPLE_PERCENT=10
+make test-large-corpus SHUCK_LARGE_CORPUS_TIMING=1
 ```
 
 ## Fuzzing
