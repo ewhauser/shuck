@@ -152,13 +152,14 @@ def extract_main_report_body(text: str) -> str | None:
     if not anchor_match:
         return None
 
-    start = find_first_section_start(text, anchor_match.end())
+    end = text.find("\ntest large_corpus_conforms_with_shellcheck ...", anchor_match.end())
+    if end == -1:
+        end = len(text)
+
+    start = find_first_section_start(text[:end], anchor_match.end())
     if start == -1:
         return None
 
-    end = text.find("\ntest large_corpus_conforms_with_shellcheck ...", start)
-    if end == -1:
-        end = len(text)
     return text[start:end].rstrip("\n")
 
 

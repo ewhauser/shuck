@@ -788,7 +788,7 @@ fn large_corpus_conforms_with_shellcheck() {
     failure_collection.unsupported_shells = skipped_unsupported_shells;
     let timeout_cap_note = if failure_collection.timeout_cap_reached {
         format!(
-            "; stopped after reaching timeout cap of {} fixture timeouts",
+            "; reported the first {} fixture timeouts as warnings",
             LARGE_CORPUS_TIMEOUT_FAILURE_CAP
         )
     } else {
@@ -856,7 +856,7 @@ fn large_corpus_zsh_fixtures_parse() {
     });
     let timeout_cap_note = if failure_collection.timeout_cap_reached {
         format!(
-            "; stopped after reaching timeout cap of {} fixture timeouts",
+            "; reported the first {} fixture timeouts as warnings",
             LARGE_CORPUS_TIMEOUT_FAILURE_CAP
         )
     } else {
@@ -959,10 +959,6 @@ where
             scope.spawn(move || {
                 let mut local_evaluations = Vec::new();
                 loop {
-                    if timeout_cap_reached.load(Ordering::Relaxed) {
-                        break;
-                    }
-
                     let index = next_index.fetch_add(1, Ordering::Relaxed);
                     if index >= fixtures.len() {
                         break;
@@ -3719,29 +3715,45 @@ mod tests {
     }
 
     #[test]
-    fn keep_going_stops_after_five_timeouts() {
+    fn keep_going_keeps_evaluating_after_timeout_warning_cap() {
         let fixtures: Vec<_> = (0..10)
             .map(|i| fixture(&format!("timeout-{i}.sh")))
             .collect();
         let fixture_refs: Vec<_> = fixtures.iter().collect();
         let seen = AtomicUsize::new(0);
+        let progress = LargeCorpusProgress::new(fixture_refs.len());
 
-        let failures = collect_fixture_failures(&fixture_refs, true, |fixture| {
-            seen.fetch_add(1, Ordering::Relaxed);
-            FixtureEvaluation {
-                harness_failure: Some(FixtureFailure {
-                    kind: FixtureFailureKind::Timeout,
-                    message: format_fixture_failure(
-                        &fixture.path,
-                        &[format!(
-                            "shuck error: {}",
-                            format_timeout_message("shuck", Duration::from_secs(30))
+        let failures = collect_fixture_failures_in_parallel(
+            &fixture_refs,
+            1,
+            &|fixture| {
+                seen.fetch_add(1, Ordering::Relaxed);
+                if fixture.path.ends_with("timeout-9.sh") {
+                    return FixtureEvaluation {
+                        implementation_diffs: vec![format_fixture_failure(
+                            &fixture.path,
+                            &[format!("{} failed", fixture.path.display())],
                         )],
-                    ),
-                }),
-                ..FixtureEvaluation::default()
-            }
-        });
+                        ..FixtureEvaluation::default()
+                    };
+                }
+
+                FixtureEvaluation {
+                    harness_failure: Some(FixtureFailure {
+                        kind: FixtureFailureKind::Timeout,
+                        message: format_fixture_failure(
+                            &fixture.path,
+                            &[format!(
+                                "shuck error: {}",
+                                format_timeout_message("shuck", Duration::from_secs(30))
+                            )],
+                        ),
+                    }),
+                    ..FixtureEvaluation::default()
+                }
+            },
+            &progress,
+        );
 
         assert!(failures.timeout_cap_reached);
         assert_eq!(
@@ -3749,7 +3761,9 @@ mod tests {
             LARGE_CORPUS_TIMEOUT_FAILURE_CAP
         );
         assert!(failures.harness_failures.is_empty());
-        assert!(seen.load(Ordering::Relaxed) <= fixture_refs.len());
+        assert_eq!(seen.load(Ordering::Relaxed), fixture_refs.len());
+        assert_eq!(failures.implementation_diffs.len(), 1);
+        assert!(failures.implementation_diffs[0].contains("timeout-9.sh"));
         assert!(
             failures
                 .harness_warnings
