@@ -3,7 +3,7 @@ legacy_name: ls-in-substitution
 new_category: Style
 new_code: S047
 runtime_kind: ast
-shellcheck_code: SC2294
+shellcheck_code: SC2012
 shells:
   - sh
   - bash

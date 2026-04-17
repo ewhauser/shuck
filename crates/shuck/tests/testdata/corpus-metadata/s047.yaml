@@ -1,94 +1,77 @@
 reviewed_divergences:
   - side: shellcheck-only
-    path_suffix: "megastep__makeself__test__appendtest"
-    reason: "ShellCheck 0.11.0 also uses SC2294 for the unrelated eval-on-array family on this shared code path, while Shuck intentionally keeps S047 focused on raw `ls` command substitutions."
+    path_suffix: "SlackBuildsOrg__slackbuilds__desktop__luna-wallpapers__luna-wallpapers.SlackBuild"
+    reason: "These remaining SC2012 sites are plain `ls` pipelines outside command substitution, while S047 is intentionally scoped to processed `ls` inside command substitutions."
   - side: shellcheck-only
-    path_suffix: "pyenv__pyenv__pyenv.d__rehash__conda.bash"
-    reason: "ShellCheck 0.11.0 also uses SC2294 for the unrelated eval-on-array family on this shared code path, while Shuck intentionally keeps S047 focused on raw `ls` command substitutions."
+    path_suffix: "SlackBuildsOrg__slackbuilds__network__netqmail__tests__makechroot"
+    reason: "These remaining SC2012 sites are plain `ls` pipelines outside command substitution, while S047 is intentionally scoped to processed `ls` inside command substitutions."
   - side: shellcheck-only
-    path_suffix: "pyenv__pyenv__pyenv.d__rehash__source.bash"
-    reason: "ShellCheck 0.11.0 also uses SC2294 for the unrelated eval-on-array family on this shared code path, while Shuck intentionally keeps S047 focused on raw `ls` command substitutions."
+    path_suffix: "alexanderepstein__Bash-Snippets__gist__gist"
+    reason: "These remaining SC2012 sites are process-substitution `ls` pipelines outside command substitution, while S047 is intentionally scoped to processed `ls` inside command substitutions."
   - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__extras__rails"
-    reason: "ShellCheck 0.11.0 also uses SC2294 for the unrelated eval-on-array family on this shared code path, while Shuck intentionally keeps S047 focused on raw `ls` command substitutions."
-  - side: shuck-only
-    path_suffix: "acmesh-official__acme.sh__deploy__unifi.sh"
-    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
-  - side: shuck-only
-    path_suffix: "asdf-vm__asdf__lib__utils.bash"
-    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
-  - side: shuck-only
-    path_suffix: "bats-core__bats-core__bin__bats"
-    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
-  - side: shuck-only
-    path_suffix: "nvm-sh__nvm__install.sh"
-    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
-  - side: shuck-only
-    path_suffix: "pi-hole__pi-hole__advanced__Scripts__piholeDebug.sh"
-    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
-  - side: shuck-only
-    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
-    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
-  - side: shuck-only
-    path_suffix: "rbenv__rbenv__libexec__rbenv-init"
-    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__manage__base_install"
-    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__packages__emscripten__build.sh"
-    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__packages__glib__build.sh"
-    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__packages__libsoldout__build.sh"
-    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__packages__opencl-vendor-driver__postinst.sh"
-    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__packages__parallel__build.sh"
-    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__packages__pypy3__build.sh"
-    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__packages__pypy__build.sh"
-    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
-  - side: shuck-only
+    path_suffix: "bittorf__kalua__openwrt-build__mybuild.sh"
+    reason: "These remaining SC2012 sites are plain `ls` pipelines outside command substitution, while S047 is intentionally scoped to processed `ls` inside command substitutions."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__backup_this_server.sh"
+    reason: "These remaining SC2012 sites are plain `ls` pipelines outside command substitution, while S047 is intentionally scoped to processed `ls` inside command substitutions."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__compress_vds_files.sh"
+    reason: "These remaining SC2012 sites are plain `ls` pipelines outside command substitution, while S047 is intentionally scoped to processed `ls` inside command substitutions."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__crashlog_build_html.sh"
+    reason: "These remaining SC2012 sites are plain `ls` pipelines outside command substitution, while S047 is intentionally scoped to processed `ls` inside command substitutions."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_table.sh"
+    reason: "These remaining SC2012 sites are plain `ls` pipelines outside command substitution, while S047 is intentionally scoped to processed `ls` inside command substitutions."
+  - side: shellcheck-only
+    path_suffix: "community-scripts__ProxmoxVE__ct__zigbee2mqtt.sh"
+    reason: "These remaining SC2012 sites are plain `ls` pipelines outside command substitution, while S047 is intentionally scoped to processed `ls` inside command substitutions."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__infra__base-images__base-builder__compile_afl"
+    reason: "These remaining SC2012 sites are plain `ls` pipelines outside command substitution, while S047 is intentionally scoped to processed `ls` inside command substitutions."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__docker-client__build.sh"
+    reason: "These remaining SC2012 sites are plain `ls` pipelines outside command substitution, while S047 is intentionally scoped to processed `ls` inside command substitutions."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__freeradius__build.sh"
+    reason: "These remaining SC2012 sites are plain `ls` pipelines outside command substitution, while S047 is intentionally scoped to processed `ls` inside command substitutions."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__go-coredns__build.sh"
+    reason: "These remaining SC2012 sites are plain `ls` pipelines outside command substitution, while S047 is intentionally scoped to processed `ls` inside command substitutions."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__keystone__build.sh"
+    reason: "These remaining SC2012 sites are plain `ls` pipelines outside command substitution, while S047 is intentionally scoped to processed `ls` inside command substitutions."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__libpcap__build.sh"
+    reason: "These remaining SC2012 sites are plain `ls` pipelines outside command substitution, while S047 is intentionally scoped to processed `ls` inside command substitutions."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__mysql-server__build.sh"
+    reason: "These remaining SC2012 sites are plain `ls` pipelines outside command substitution, while S047 is intentionally scoped to processed `ls` inside command substitutions."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__ngolo-fuzzing-x__build.sh"
+    reason: "These remaining SC2012 sites are plain `ls` pipelines outside command substitution, while S047 is intentionally scoped to processed `ls` inside command substitutions."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__openweave__build.sh"
+    reason: "These remaining SC2012 sites are plain `ls` pipelines outside command substitution, while S047 is intentionally scoped to processed `ls` inside command substitutions."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__suricata__build.sh"
+    reason: "These remaining SC2012 sites are plain `ls` pipelines outside command substitution, while S047 is intentionally scoped to processed `ls` inside command substitutions."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__unicorn__build.sh"
+    reason: "These remaining SC2012 sites are plain `ls` pipelines outside command substitution, while S047 is intentionally scoped to processed `ls` inside command substitutions."
+  - side: shellcheck-only
+    path_suffix: "leebaird__discover__newModules.sh"
+    reason: "These remaining SC2012 sites are plain `ls` pipelines outside command substitution, while S047 is intentionally scoped to processed `ls` inside command substitutions."
+  - side: shellcheck-only
+    path_suffix: "moovweb__gvm__examples__native__ltmain.sh"
+    reason: "These remaining SC2012 sites are plain `ls` pipelines outside command substitution, while S047 is intentionally scoped to processed `ls` inside command substitutions."
+  - side: shellcheck-only
     path_suffix: "termux__termux-packages__packages__rust__build.sh"
-    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__root-packages__docker__build.sh"
-    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__scripts__build-bootstraps.sh"
-    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__scripts__build__termux_step_setup_cgct_environment.sh"
-    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__x11-packages__carbonyl-host-tools__build.sh"
-    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__x11-packages__carbonyl__build.sh"
-    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__x11-packages__chromium-host-tools__build.sh"
-    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__x11-packages__chromium__build.sh"
-    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__x11-packages__electron-for-code-oss__build.sh"
-    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__x11-packages__electron-host-tools-for-code-oss__build.sh"
-    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__x11-packages__qt5-qmake__termux-build-qmake.sh"
-    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
-  - side: shuck-only
-    path_suffix: "void-linux__void-packages__srcpkgs__u-boot-menu__files__kernel.d__extlinux"
-    reason: "ShellCheck 0.11.0 does not report SC2294 for this repo-authored S047 shape in this helper, but Shuck intentionally flags the raw `ls` captured in command substitution."
+    reason: "These remaining SC2012 sites are plain `ls` pipelines outside command substitution, while S047 is intentionally scoped to processed `ls` inside command substitutions."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__scripts__build__termux_step_massage.sh"
+    line: 170
+    reason: "This SC2012 site appears in an array-subscript command substitution, which the current S047 corpus comparison keeps out of scope while the rule stays focused on direct processed-output substitutions."
+  - side: shellcheck-only
+    path_suffix: "void-linux__void-packages__srcpkgs__sbsigntool__files__kernel.d__sbsigntool.post-install"
+    reason: "These remaining SC2012 sites are plain `ls` pipelines outside command substitution, while S047 is intentionally scoped to processed `ls` inside command substitutions."

@@ -121,9 +121,6 @@ impl ShellCheckCodeMap {
         if number == 2293 {
             return vec![Rule::LsPipedToXargs];
         }
-        if number == 2294 {
-            return vec![Rule::LsInSubstitution, Rule::EvalOnArray];
-        }
         if number == 2281 {
             return vec![Rule::BackslashBeforeClosingBacktick];
         }
@@ -195,7 +192,8 @@ impl Default for ShellCheckCodeMap {
             (2009, Rule::PsGrepPipeline),
             (2010, Rule::LsGrepPipeline),
             (2293, Rule::LsPipedToXargs),
-            (2294, Rule::LsInSubstitution),
+            // ShellCheck 0.11.0 reports processed `ls` command substitutions as SC2012.
+            (2012, Rule::LsInSubstitution),
             (2263, Rule::RedundantSpacesInEcho),
             // ShellCheck 0.11.0 reports stderr-before-stdout redirect ordering as SC2069.
             // Keep SC2306 as the authored suppression code and compare against the live code.
@@ -698,7 +696,7 @@ impl Default for ShellCheckCodeMap {
                     (2199, Rule::ArraySliceInComparison),
                     (2124, Rule::QuotedArraySlice),
                     (2128, Rule::QuotedBashSource),
-                    (2294, Rule::LsInSubstitution),
+                    (2012, Rule::LsInSubstitution),
                     (2291, Rule::UnquotedVariableInSed),
                     (2026, Rule::UnquotedWordBetweenQuotes),
                     (2027, Rule::DoubleQuoteNesting),
@@ -936,8 +934,6 @@ impl Default for ShellCheckCodeMap {
                 (3072, Rule::CaretNegationInBracket),
                 (3033, Rule::HyphenatedFunctionName),
                 (2009, Rule::DoubleParenGrouping),
-                (2294, Rule::LsInSubstitution),
-                (2294, Rule::EvalOnArray),
                 (2069, Rule::StderrBeforeStdoutRedirect),
                 (2373, Rule::CaseGlobReachability),
                 (2374, Rule::CaseDefaultBeforeGlob),
@@ -1058,7 +1054,8 @@ mod tests {
         );
         assert_eq!(map.resolve("SC2094"), Some(Rule::RedirectClobbersInput));
         assert_eq!(map.resolve("SC2293"), Some(Rule::LsPipedToXargs));
-        assert_eq!(map.resolve("SC2294"), Some(Rule::LsInSubstitution));
+        assert_eq!(map.resolve("SC2012"), Some(Rule::LsInSubstitution));
+        assert_eq!(map.resolve("SC2294"), Some(Rule::EvalOnArray));
         assert_eq!(map.resolve("SC2048"), Some(Rule::UnquotedDollarStar));
         assert_eq!(map.resolve("2048"), Some(Rule::UnquotedDollarStar));
         assert_eq!(map.resolve("SC2198"), Some(Rule::AtSignInStringCompare));
@@ -1180,7 +1177,8 @@ mod tests {
         assert_eq!(map.resolve_all("SC2128"), vec![Rule::QuotedBashSource]);
         assert_eq!(map.resolve_all("SC2327"), vec![Rule::QuotedBashSource]);
         assert_eq!(map.resolve("SC2293"), Some(Rule::LsPipedToXargs));
-        assert_eq!(map.resolve("SC2294"), Some(Rule::LsInSubstitution));
+        assert_eq!(map.resolve("SC2012"), Some(Rule::LsInSubstitution));
+        assert_eq!(map.resolve("SC2294"), Some(Rule::EvalOnArray));
         assert_eq!(map.resolve("SC2144"), Some(Rule::GlobInTestDirectory));
         assert_eq!(map.resolve("SC2166"), Some(Rule::CompoundTestOperator));
         assert_eq!(map.resolve("SC2331"), Some(Rule::AFlagInDoubleBracket));
@@ -1269,10 +1267,8 @@ mod tests {
             vec![Rule::BacktickOutputToCommand]
         );
         assert_eq!(map.resolve_all("SC2293"), vec![Rule::LsPipedToXargs]);
-        assert_eq!(
-            map.resolve_all("SC2294"),
-            vec![Rule::LsInSubstitution, Rule::EvalOnArray]
-        );
+        assert_eq!(map.resolve_all("SC2012"), vec![Rule::LsInSubstitution]);
+        assert_eq!(map.resolve_all("SC2294"), vec![Rule::EvalOnArray]);
         assert_eq!(map.resolve_all("SC2048"), vec![Rule::UnquotedDollarStar]);
         assert_eq!(map.resolve_all("2048"), vec![Rule::UnquotedDollarStar]);
         assert_eq!(map.resolve_all("SC2263"), vec![Rule::RedundantSpacesInEcho]);
@@ -1805,7 +1801,7 @@ mod tests {
             (2306, Rule::StderrBeforeStdoutRedirect),
             (2358, Rule::RedirectBeforePipe),
             (2293, Rule::LsPipedToXargs),
-            (2294, Rule::LsInSubstitution),
+            (2012, Rule::LsInSubstitution),
             (2263, Rule::RedundantSpacesInEcho),
             (2069, Rule::StderrBeforeStdoutRedirect),
             (2317, Rule::RedirectClobbersInput),
@@ -2224,7 +2220,7 @@ mod tests {
         assert!(comparison.contains(&(2341, Rule::ConstantInTestAssignment)));
         assert!(comparison.contains(&(2360, Rule::ExprSubstrInTest)));
         assert!(comparison.contains(&(2293, Rule::LsPipedToXargs)));
-        assert!(comparison.contains(&(2294, Rule::LsInSubstitution)));
+        assert!(comparison.contains(&(2012, Rule::LsInSubstitution)));
         assert!(comparison.contains(&(2265, Rule::RedundantReturnStatus)));
         assert!(comparison.contains(&(2276, Rule::FunctionBodyWithoutBraces)));
         assert!(comparison.contains(&(2362, Rule::LocalDeclareCombined)));
