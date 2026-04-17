@@ -69,3 +69,45 @@ reviewed_divergences:
     column: 108
     end_column: 108
     reason: "This U-Boot loader script uses escaped brace variables in command strings that ShellCheck still reports at this closing-brace location."
+  - side: shellcheck-only
+    path_suffix: "moovweb__gvm__examples__native__configure"
+    line: 1296
+    end_line: 1296
+    column: 31
+    end_column: 31
+    reason: "This generated configure helper carries an escaped parameter template through `eval` in project-closure context, so the remaining opening-brace anchor is reviewed as standalone corpus drift rather than a live S029 bug."
+  - side: shellcheck-only
+    path_suffix: "moovweb__gvm__examples__native__configure"
+    line: 1296
+    end_line: 1296
+    column: 45
+    end_column: 45
+    reason: "This generated configure helper carries an escaped parameter template through `eval` in project-closure context, so the remaining closing-brace anchor is reviewed as standalone corpus drift rather than a live S029 bug."
+  - side: shellcheck-only
+    path_suffix: "moovweb__gvm__examples__native__configure"
+    line: 1298
+    end_line: 1298
+    column: 34
+    end_column: 34
+    reason: "This generated configure helper repeats the same escaped-parameter template pattern in project-closure context, so the opening-brace anchor is reviewed as corpus-only divergence."
+  - side: shellcheck-only
+    path_suffix: "moovweb__gvm__examples__native__configure"
+    line: 1298
+    end_line: 1298
+    column: 48
+    end_column: 48
+    reason: "This generated configure helper repeats the same escaped-parameter template pattern in project-closure context, so the closing-brace anchor is reviewed as corpus-only divergence."
+  - side: shellcheck-only
+    path_suffix: "moovweb__gvm__examples__native__configure"
+    line: 2528
+    end_line: 2528
+    column: 11
+    end_column: 11
+    reason: "This later configure probe keeps an escaped parameter template inside an `eval` cache check, and the remaining opening-brace hit is treated as project-closure corpus drift."
+  - side: shellcheck-only
+    path_suffix: "moovweb__gvm__examples__native__configure"
+    line: 2528
+    end_line: 2528
+    column: 44
+    end_column: 44
+    reason: "This later configure probe keeps an escaped parameter template inside an `eval` cache check, and the remaining closing-brace hit is treated as project-closure corpus drift."
