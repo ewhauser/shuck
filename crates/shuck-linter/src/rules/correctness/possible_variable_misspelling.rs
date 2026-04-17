@@ -27,6 +27,18 @@ impl Violation for PossibleVariableMisspelling {
 }
 
 pub fn possible_variable_misspelling(checker: &mut Checker) {
+    let guarded_names = checker
+        .semantic()
+        .references()
+        .iter()
+        .filter(|reference| {
+            checker
+                .semantic()
+                .is_guarded_parameter_reference(reference.id)
+        })
+        .map(|reference| reference.name.clone())
+        .collect::<FxHashSet<_>>();
+
     let mut findings = checker
         .semantic()
         .unresolved_references()
@@ -47,6 +59,9 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
                 return None;
             }
             if is_known_runtime_name(reference.name.as_str()) {
+                return None;
+            }
+            if guarded_names.contains(&reference.name) {
                 return None;
             }
             if has_same_name_defining_bindings(checker, &reference.name) {
@@ -149,11 +164,14 @@ fn is_known_runtime_name(name: &str) -> bool {
             | "SUDO_USER"
             | "DOAS_USER"
             | "PPID"
+            | "HOSTNAME"
+            | "SECONDS"
             | "LINENO"
             | "FUNCNAME"
             | "BASH_SOURCE"
             | "BASH_LINENO"
             | "RANDOM"
+            | "PIPESTATUS"
             | "BASH_REMATCH"
             | "READLINE_LINE"
             | "BASH_VERSION"
@@ -318,5 +336,30 @@ f() { package_name=demo; }
                 .collect::<Vec<_>>(),
             vec!["$PACKAGE_NAME"]
         );
+    }
+
+    #[test]
+    fn ignores_guarded_environment_knobs_and_runtime_names() {
+        let source = "\
+#!/bin/bash
+hostname=demo
+seconds=1
+pipestatus=1
+start_delay=1
+WITH_cyrus=1
+: \"${START_DELAY:-1}\"
+: \"${WITH_CYRUS:-yes}\"
+echo \"$HOSTNAME\"
+echo \"$SECONDS\"
+echo \"$PIPESTATUS\"
+echo \"$START_DELAY\"
+echo \"$WITH_CYRUS\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert!(diagnostics.is_empty());
     }
 }
