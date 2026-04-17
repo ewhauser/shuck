@@ -175,6 +175,10 @@ jobs:
       - name: "Install Rust toolchain"
         working-directory: head
         run: rustup show
+      - name: "Prepare benchmark report directories"
+        run: |
+          mkdir -p "$RUNNER_TEMP/benchmark-report"
+          mkdir -p "$RUNNER_TEMP/benchmark-baseline-artifact"
       - name: "Resolve latest main baseline artifact"
         id: resolve-main-baseline
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
@@ -239,24 +243,23 @@ jobs:
           path: ${{ runner.temp }}/benchmark-baseline-artifact
       - name: "Extract main benchmark baseline artifact"
         id: extract-main-baseline
-        if: ${{ steps.download-main-baseline.outcome == 'success' }}
+        if: ${{ always() && steps.download-main-baseline.outcome == 'success' }}
         run: |
           mkdir -p "$RUNNER_TEMP/criterion-target"
           tar -xf "$RUNNER_TEMP/benchmark-baseline-artifact/criterion-main-baseline.tar" -C "$RUNNER_TEMP/criterion-target"
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        if: ${{ steps.extract-main-baseline.outcome != 'success' }}
+        if: ${{ always() && steps.extract-main-baseline.outcome != 'success' }}
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.base.sha }}
           path: base
       - name: "Run fallback baseline benchmarks"
         id: benchmark-baseline-fallback
-        if: ${{ steps.extract-main-baseline.outcome != 'success' }}
+        if: ${{ always() && steps.extract-main-baseline.outcome != 'success' }}
         continue-on-error: true
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/criterion-target
         run: |
-          mkdir -p "$RUNNER_TEMP/benchmark-report"
           python3 "$GITHUB_WORKSPACE/head/scripts/benchmarks/run_criterion.py" \
             --repo-root "$GITHUB_WORKSPACE/base" \
             --save-baseline main \
@@ -286,12 +289,11 @@ jobs:
           echo "outcome=$baseline_outcome" >> "$GITHUB_OUTPUT"
       - name: "Run PR benchmark comparison"
         id: benchmark-compare
-        if: ${{ steps.extract-main-baseline.outcome == 'success' || steps.benchmark-baseline-fallback.outcome == 'success' }}
+        if: ${{ always() && (steps.extract-main-baseline.outcome == 'success' || steps.benchmark-baseline-fallback.outcome == 'success') }}
         continue-on-error: true
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/criterion-target
         run: |
-          mkdir -p "$RUNNER_TEMP/benchmark-report"
           python3 "$GITHUB_WORKSPACE/head/scripts/benchmarks/run_criterion.py" \
             --repo-root "$GITHUB_WORKSPACE/head" \
             --baseline main \
