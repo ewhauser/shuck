@@ -18,6 +18,35 @@ judgment call on every delta is: **is ShellCheck right or is shuck right?** When
 shuck is wrong, the fix belongs at whatever layer actually caused the problem —
 not hacked into the rule just to satisfy the oracle.
 
+## The hard architectural constraint
+
+Before you change anything, internalize this: **rule files in
+`crates/shuck-linter/src/rules/` must not parse, scan, or walk anything.**
+They are cheap filters over precomputed facts and semantic data. All
+structural discovery lives in lower layers:
+
+- Tokenizing/parsing source → `crates/shuck-parser`
+- Bindings, references, scopes, CFG, dataflow → `crates/shuck-semantic`
+- Normalized commands, words, redirects, tests, pipelines, loops, surface
+  fragments, etc. → `crates/shuck-linter/src/facts.rs` and `src/facts/`
+
+Rule files **must not**:
+
+- Walk or recurse through AST nodes (no `walk_commands`, `iter_commands`,
+  manual child recursion).
+- Re-parse or re-scan `checker.source()` to discover shell structure.
+- Normalize commands, classify words/tests/redirects, parse command options,
+  or otherwise recompute what the fact builder is responsible for.
+- Import from `crate::rules::common::*` (rule-facing types come from the
+  crate root or a rule-local helper module).
+- Reference AST traversal types blocked by the architecture test in
+  `src/rules/mod.rs` (`WordPart`, `ConditionalExpr`, `iter_commands`,
+  `query::`, etc.).
+
+If a fix tempts you to do any of those things in the rule file, **stop and
+push the work down a layer.** See `crates/shuck-linter/AGENTS.md` for the full
+contract.
+
 ## Before you start
 
 Read these files to understand the rule and its current state:
@@ -27,6 +56,7 @@ Read these files to understand the rule and its current state:
 3. The rule's facts (if any): `crates/shuck-linter/src/facts.rs` — search for the rule name
 4. The bug document (if one exists): `docs/bugs/CXXX.md`
 5. Existing corpus-metadata (if any): `crates/shuck/tests/testdata/corpus-metadata/cXXX.yaml`
+6. The linter architecture contract: `crates/shuck-linter/AGENTS.md`
 
 ## Step 1: Set up the worktree
 
@@ -121,7 +151,9 @@ nix --extra-experimental-features 'nix-command flakes' develop --command \
 
 This is the most important part. Fixing at the wrong layer creates tech debt
 that compounds — a hack in the rule to work around a parser bug means every
-future rule hitting the same construct will need the same hack.
+future rule hitting the same construct will need the same hack. **And rules
+are not allowed to compensate for missing structural data by walking or
+parsing themselves** (see "The hard architectural constraint" above).
 
 ### Identify the layer
 
@@ -142,31 +174,54 @@ Symptoms: bindings/references are wrong, scope assignment is off, def-use
 chains miss a connection. The AST is correct but the semantic analysis
 misinterprets it. Check by querying the semantic model directly.
 
-**Layer 4 — Fact generation** (`crates/shuck-linter/src/facts.rs`)
+**Layer 4 — Fact generation** (`crates/shuck-linter/src/facts.rs` and
+`src/facts/`)
 Symptoms: the semantic model is correct but the linter-level facts derived
 from it are wrong. A test fact misclassifies an operand, a command fact
-normalizes incorrectly. Check by inspecting the facts for the failing fixture.
+normalizes incorrectly, a needed structural summary doesn't exist yet. Check
+by inspecting the facts for the failing fixture. **If a rule needs structural
+data that no fact exposes, the fix is to add the fact here — not to walk the
+AST in the rule.**
 
 **Layer 5 — Rule implementation** (`crates/shuck-linter/src/rules/`)
-Symptoms: the facts are correct but the rule's filtering logic has a gap. It
-reports a violation where it shouldn't (missing filter) or misses one it
-should catch (incomplete matching). This is the only layer where the fix
-belongs in the rule file itself.
+Symptoms: the facts are correct but the rule's filtering predicate has a gap.
+It reports a violation where it shouldn't (missing filter) or misses one it
+should catch (incomplete matching over correct facts). This is the only layer
+where the fix belongs in the rule file itself, and the fix should still be a
+filter over existing facts — not new traversal or parsing.
+
+### The "where does this fix go?" decision
+
+Ask, in order:
+
+1. Is the AST wrong for this snippet? → fix the parser (Layer 1/2).
+2. Is the AST right but the semantic model misinterprets it? → fix the
+   semantic layer (Layer 3).
+3. Is the semantic model right but the rule has no fact that exposes the
+   distinction it needs? → add or extend a fact in `facts.rs` (Layer 4).
+4. Are the facts right and the rule is just filtering wrong? → fix the
+   predicate in the rule file (Layer 5).
+
+If you ever find yourself wanting to add `walk_commands`, `iter_commands`,
+substring/regex scanning of `checker.source()`, `WordPart`/`ConditionalExpr`
+matching, command-name normalization, option parsing, or test-operand
+reconstruction inside a rule file — the answer is Layer 4 (add or extend a
+fact), not Layer 5. The architecture test in
+`crates/shuck-linter/src/rules/mod.rs` will fail the build if you try.
 
 ### Making the fix
 
 Once you've identified the layer:
 
 1. Write a **minimal reproducer** — the smallest shell snippet that triggers the wrong behavior
-2. Add it as a unit test at the appropriate layer (parser test, semantic test, or linter fixture)
+2. Add it as a unit test at the appropriate layer (parser test, semantic test, fact test, or linter fixture)
 3. Fix the issue at that layer
-4. Run the layer's own tests to confirm the fix: `cargo test -p shuck-parser`, `cargo test -p shuck-linter`, etc.
-5. Run the full workspace tests to check for regressions: `cargo test --workspace`
-6. Accept any updated snapshots: `cargo insta accept --workspace`
-
-For fact generation changes, remember the CLAUDE.md rule: new structural
-data goes in `LinterFacts` in `facts.rs`, and rule files consume it from
-there. Rule files should not add direct AST walks.
+4. If the fix is a new/extended fact, surface it via `LinterFacts` and update
+   the rule to consume it. Do not bypass the fact and add traversal in the
+   rule.
+5. Run the layer's own tests to confirm the fix: `cargo test -p shuck-parser`, `cargo test -p shuck-semantic`, `cargo test -p shuck-linter`, etc.
+6. Run the full workspace tests to check for regressions: `cargo test --workspace`
+7. Accept any updated snapshots: `cargo insta accept --workspace`
 
 ## Step 5: Record oracle divergences in corpus-metadata
 
