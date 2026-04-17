@@ -9,8 +9,8 @@ shells:
   - bash
   - dash
   - ksh
-description: IFS is set to the literal string \n instead of a newline.
-rationale: Use IFS=$'\n' in bash or a literal newline in POSIX sh.
+description: IFS contains literal backslashes instead of separator characters.
+rationale: Backslashes stay literal in IFS. Use real separator characters, `$'...'` in bash, or `printf` when you need escapes.
 source:
   shell_checks_rule: rules/SH-234.yaml
   shell_checks_example: examples/234.sh

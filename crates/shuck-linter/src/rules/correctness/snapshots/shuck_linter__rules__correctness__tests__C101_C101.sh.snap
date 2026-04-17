@@ -1,7 +1,7 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
 ---
-C101 IFS contains a literal \n sequence
+C101 backslashes in IFS stay literal
  --> <source>:3:11
   |
 3 | while IFS='\n' read -r comp; do
