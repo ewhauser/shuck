@@ -3,7 +3,7 @@ legacy_name: bad-var-name
 new_category: Correctness
 new_code: C140
 runtime_kind: ast
-shellcheck_code: SC2388
+shellcheck_code: SC2282
 shells:
   - sh
   - bash

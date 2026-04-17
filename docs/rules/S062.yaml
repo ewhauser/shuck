@@ -3,7 +3,7 @@ legacy_name: default-value-in-colon-assign
 new_category: Style
 new_code: S062
 runtime_kind: ast
-shellcheck_code: SC2346
+shellcheck_code: SC2223
 shells:
   - sh
   - bash

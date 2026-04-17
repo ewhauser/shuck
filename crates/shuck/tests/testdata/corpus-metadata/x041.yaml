@@ -1,3 +1,0 @@
-comparison_target_notes:
-  - current_shellcheck_code: "SC2203"
-    reason: "The pinned ShellCheck oracle currently reuses SC2203 for some `[[ ... ]]` operand shapes, but that warning is about wildcard-style matching behavior and does not cover X041's array-subscript portability check. X041 should run without an active comparison target until the oracle exposes a directly comparable warning."

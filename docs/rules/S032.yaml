@@ -3,7 +3,7 @@ legacy_name: conditional-assignment-shortcut
 new_category: Style
 new_code: S032
 runtime_kind: ast
-shellcheck_code: SC2114
+shellcheck_code: SC2209
 shells:
   - sh
   - bash

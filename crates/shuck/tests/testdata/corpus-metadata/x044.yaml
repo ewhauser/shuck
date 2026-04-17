@@ -13,7 +13,3 @@ reviewed_divergences:
     line: 326
     end_line: 326
     reason: "This completion helper only evaluates the nested zsh substitution after an explicit `ZSH_VERSION` guard, so the construct is intentional for that fixture."
-
-comparison_target_notes:
-  - current_shellcheck_code: "SC2252"
-    reason: "The corpus uses SC2252 for an unrelated `||`/`&&` logic warning, not for nested zsh substitution syntax."

@@ -3,7 +3,7 @@ legacy_name: template-brace-in-command
 new_category: Correctness
 new_code: C061
 runtime_kind: ast
-shellcheck_code: SC2262
+shellcheck_code: SC2288
 shells:
   - sh
   - bash

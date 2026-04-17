@@ -1,3 +1,0 @@
-comparison_target_notes:
-  - current_shellcheck_code: "SC3062"
-    reason: "The nix-provided ShellCheck oracle in this workspace reports `$\"...\"` portability findings as SC3004. SC3062 is used by a different portability family in this oracle build, so X055 corpus comparison should target SC3004."

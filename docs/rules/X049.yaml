@@ -3,7 +3,7 @@ legacy_name: zsh-prompt-bracket
 new_category: Portability
 new_code: X049
 runtime_kind: ast
-shellcheck_code: SC2278
+shellcheck_code: SC1087
 shells:
   - sh
   - bash

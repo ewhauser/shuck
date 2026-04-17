@@ -3,7 +3,6 @@ legacy_name: tilde-in-string-comparison
 new_category: Correctness
 new_code: C091
 runtime_kind: ast
-shellcheck_code: SC2314
 shells:
   - sh
   - bash

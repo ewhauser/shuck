@@ -3,7 +3,7 @@ legacy_name: greater-than-in-double-bracket
 new_category: Portability
 new_code: X058
 runtime_kind: ast
-shellcheck_code: SC3065
+shellcheck_code: SC3012
 shells:
   - sh
 description: "The `>` operator is used inside `[[ ]]` in a POSIX sh script."

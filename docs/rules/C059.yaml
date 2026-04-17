@@ -3,7 +3,7 @@ legacy_name: redirect-to-command-name
 new_category: Correctness
 new_code: C059
 runtime_kind: ast
-shellcheck_code: SC2260
+shellcheck_code: SC2238
 shells:
   - sh
   - bash

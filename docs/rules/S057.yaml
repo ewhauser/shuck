@@ -3,7 +3,7 @@ legacy_name: function-in-alias
 new_category: Style
 new_code: S057
 runtime_kind: ast
-shellcheck_code: SC2330
+shellcheck_code: SC2142
 shells:
   - sh
   - bash

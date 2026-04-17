@@ -3,7 +3,7 @@ legacy_name: unicode-quote-in-string
 new_category: Correctness
 new_code: C072
 runtime_kind: ast
-shellcheck_code: SC2284
+shellcheck_code: SC1110
 shells:
   - sh
   - bash

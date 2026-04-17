@@ -3,7 +3,7 @@ legacy_name: extglob-in-test
 new_category: Portability
 new_code: X046
 runtime_kind: ast
-shellcheck_code: SC2269
+shellcheck_code: SC1036
 shells:
   - sh
   - bash

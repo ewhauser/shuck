@@ -3,7 +3,6 @@ legacy_name: stray-closing-keyword
 new_category: Correctness
 new_code: C016
 runtime_kind: ast
-shellcheck_code: SC1072
 shells:
   - sh
   - bash

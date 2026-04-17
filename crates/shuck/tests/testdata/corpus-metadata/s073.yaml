@@ -1,3 +1,0 @@
-comparison_target_notes:
-  - current_shellcheck_code: "SC1040"
-    reason: "The ShellCheck 0.11.0 build in this workspace reports space-indented `<<-` close candidates as SC1040, so S073 comparisons target that code while SC2393 stays as a compatibility alias."

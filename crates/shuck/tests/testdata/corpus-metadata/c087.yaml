@@ -1,3 +1,0 @@
-comparison_target_notes:
-  - current_shellcheck_code: "SC2309"
-    reason: "The pinned ShellCheck oracle uses SC2309 for an unrelated string-versus-operator warning family, so C087 compares against the active decimal-version lexical-compare code SC2072 instead."

@@ -3,7 +3,7 @@ legacy_name: glob-with-expansion-in-loop
 new_category: Correctness
 new_code: C114
 runtime_kind: ast
-shellcheck_code: SC2349
+shellcheck_code: SC2231
 shells:
   - sh
   - bash

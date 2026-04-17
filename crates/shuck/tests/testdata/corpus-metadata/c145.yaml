@@ -1,3 +1,0 @@
-comparison_target_notes:
-  - current_shellcheck_code: "SC1042"
-    reason: "The nix-provided ShellCheck 0.11.0 in this workspace reports near-match heredoc closers as SC1042, so C145 corpus comparisons target that code while preserving SC2395 as a compatibility alias."

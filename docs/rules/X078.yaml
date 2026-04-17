@@ -3,7 +3,7 @@ legacy_name: zsh-array-subscript-in-case
 new_category: Portability
 new_code: X078
 runtime_kind: ast
-shellcheck_code: SC2371
+shellcheck_code: SC2195
 shells:
   - sh
   - bash

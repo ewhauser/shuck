@@ -3,7 +3,7 @@ legacy_name: keyword-function-name
 new_category: Correctness
 new_code: C147
 runtime_kind: ast
-shellcheck_code: SC2398
+shellcheck_code: SC2113
 shells:
   - sh
   - bash

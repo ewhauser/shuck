@@ -3,7 +3,7 @@ legacy_name: unquoted-tr-range
 new_category: Style
 new_code: S049
 runtime_kind: ast
-shellcheck_code: SC2298
+shellcheck_code: SC2021
 shells:
   - sh
   - bash

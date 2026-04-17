@@ -1,3 +1,0 @@
-comparison_target_notes:
-  - current_shellcheck_code: "SC3063"
-    reason: "The nix-provided ShellCheck in this workspace reports C-style `for ((...))` loop portability findings as SC3005, while SC3063 is not the loop-form warning used by this oracle build."

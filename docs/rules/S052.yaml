@@ -3,7 +3,7 @@ legacy_name: unquoted-variable-in-test
 new_category: Style
 new_code: S052
 runtime_kind: ast
-shellcheck_code: SC2307
+shellcheck_code: SC2070
 shells:
   - sh
   - bash

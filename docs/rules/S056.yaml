@@ -3,7 +3,7 @@ legacy_name: command-substitution-in-alias
 new_category: Style
 new_code: S056
 runtime_kind: ast
-shellcheck_code: SC2328
+shellcheck_code: SC2139
 shells:
   - sh
   - bash

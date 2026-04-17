@@ -3,7 +3,7 @@ legacy_name: array-subscript-test
 new_category: Portability
 new_code: X040
 runtime_kind: ast
-shellcheck_code: SC2102
+shellcheck_code: SC2202
 shells:
   - sh
   - bash

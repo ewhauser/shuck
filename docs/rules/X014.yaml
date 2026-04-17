@@ -3,7 +3,7 @@ legacy_name: coproc
 new_category: Portability
 new_code: X014
 runtime_kind: ast
-shellcheck_code: SC3007
+shellcheck_code: SC3032
 shells:
   - sh
   - dash

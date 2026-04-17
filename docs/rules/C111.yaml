@@ -3,7 +3,7 @@ legacy_name: at-sign-in-string-compare
 new_category: Correctness
 new_code: C111
 runtime_kind: ast
-shellcheck_code: SC2344
+shellcheck_code: SC2198
 shells:
   - sh
   - bash

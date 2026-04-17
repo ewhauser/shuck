@@ -3,7 +3,7 @@ legacy_name: heredoc-end-space
 new_category: Style
 new_code: S030
 runtime_kind: ast
-shellcheck_code: SC1040
+shellcheck_code: SC1118
 shells:
   - sh
   - bash

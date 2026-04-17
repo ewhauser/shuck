@@ -3,7 +3,7 @@ legacy_name: double-quote-nesting
 new_category: Style
 new_code: S070
 runtime_kind: ast
-shellcheck_code: SC2376
+shellcheck_code: SC2027
 shells:
   - sh
   - bash

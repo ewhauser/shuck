@@ -3,7 +3,7 @@ legacy_name: quoted-array-slice
 new_category: Correctness
 new_code: C099
 runtime_kind: ast
-shellcheck_code: SC2325
+shellcheck_code: SC2124
 shells:
   - sh
   - bash

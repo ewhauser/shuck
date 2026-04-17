@@ -1,3 +1,0 @@
-comparison_target_notes:
-  - current_shellcheck_code: "SC2349"
-    reason: "In the current oracle environment, loop-list glob-plus-expansion findings for this behavior surface as SC2231 instead of the authored SC2349 code."

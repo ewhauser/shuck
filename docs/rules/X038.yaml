@@ -3,7 +3,7 @@ legacy_name: zsh-brace-if
 new_category: Portability
 new_code: X038
 runtime_kind: ast
-shellcheck_code: SC1129
+shellcheck_code: SC1140
 shells:
   - sh
   - bash

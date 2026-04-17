@@ -3,7 +3,6 @@ legacy_name: cd-without-error-check-in-func
 new_category: Correctness
 new_code: C125
 runtime_kind: ast
-shellcheck_code: SC2367
 shells:
   - sh
   - bash

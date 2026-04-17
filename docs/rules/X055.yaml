@@ -3,7 +3,7 @@ legacy_name: dollar-string-in-sh
 new_category: Portability
 new_code: X055
 runtime_kind: ast
-shellcheck_code: SC3062
+shellcheck_code: SC3004
 shells:
   - sh
   - dash

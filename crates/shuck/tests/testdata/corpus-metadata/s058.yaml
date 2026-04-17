@@ -1,6 +1,3 @@
-comparison_target_notes:
-  - current_shellcheck_code: "SC2086"
-    reason: "Current ShellCheck releases fold mkdir-path quoting cases into the generic SC2086 expansion warning, while S058 keeps a dedicated mkdir-path rule code."
 reviewed_divergences:
   - side: shuck-only
     reason: "S058 intentionally keeps a dedicated mkdir-path quoting diagnostic, while the current ShellCheck comparison target reports overlapping cases through SC2086 instead of SC2335."

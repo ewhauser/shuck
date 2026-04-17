@@ -3,7 +3,7 @@ legacy_name: c-style-for-arithmetic-in-sh
 new_category: Portability
 new_code: X062
 runtime_kind: ast
-shellcheck_code: SC3069
+shellcheck_code: SC3018
 shells:
   - sh
   - dash

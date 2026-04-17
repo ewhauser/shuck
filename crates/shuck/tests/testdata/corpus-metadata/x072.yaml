@@ -1,3 +1,0 @@
-comparison_target_notes:
-  - current_shellcheck_code: "SC3079"
-    reason: "The nix-provided ShellCheck in this workspace currently reports prefix-matching `unset` operands as SC3056, so large-corpus validation should compare X072 against that oracle code instead of the authored SC3079 mapping."

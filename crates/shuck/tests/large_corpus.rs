@@ -389,8 +389,6 @@ struct ShellCheckProbe {
 struct RuleCorpusMetadataDocument {
     #[serde(default)]
     reviewed_divergences: Vec<ReviewedDivergenceRecord>,
-    #[serde(default)]
-    comparison_target_notes: Vec<ComparisonTargetNote>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -427,13 +425,6 @@ struct ReviewedDivergenceRecord {
     end_column: Option<usize>,
     #[serde(default)]
     labels: Vec<String>,
-    reason: String,
-}
-
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-struct ComparisonTargetNote {
-    current_shellcheck_code: String,
     reason: String,
 }
 
@@ -1513,9 +1504,7 @@ fn load_all_rule_corpus_metadata() -> HashMap<String, RuleCorpusMetadataDocument
         {
             let rule_code = stem.to_ascii_uppercase();
             let metadata = load_rule_corpus_metadata(&rule_code);
-            if !metadata.reviewed_divergences.is_empty()
-                || !metadata.comparison_target_notes.is_empty()
-            {
+            if !metadata.reviewed_divergences.is_empty() {
                 map.insert(rule_code, metadata);
             }
         }
@@ -1569,15 +1558,6 @@ fn cache_rel_path_match_variants(cache_rel_path: &str) -> [String; 3] {
     ]
 }
 
-fn comparison_target_note_reason<'a>(
-    metadata: &'a RuleCorpusMetadataDocument,
-    shellcheck_code: &str,
-) -> Option<&'a str> {
-    metadata.comparison_target_notes.iter().find_map(|note| {
-        (note.current_shellcheck_code == shellcheck_code).then_some(note.reason.as_str())
-    })
-}
-
 fn classify_compatibility_record(
     record: &CompatibilityRecord,
     cache_rel_path: &str,
@@ -1591,7 +1571,6 @@ fn classify_compatibility_record(
         );
     }
     let mut reviewed_reason = None;
-    let mut mapping_reason = None;
 
     for rule_code in rule_codes {
         let Some(metadata) = corpus_metadata.get(rule_code) else {
@@ -1603,19 +1582,9 @@ fn classify_compatibility_record(
             continue;
         }
 
-        if let Some(reason) =
-            comparison_target_note_reason(metadata, record.shellcheck_code.as_str())
-        {
-            mapping_reason.get_or_insert_with(|| reason.to_owned());
-            continue;
-        }
-
         return (CompatibilityClassification::Implementation, None);
     }
 
-    if let Some(reason) = mapping_reason {
-        return (CompatibilityClassification::MappingIssue, Some(reason));
-    }
     if let Some(reason) = reviewed_reason {
         return (
             CompatibilityClassification::ReviewedDivergence,
@@ -2604,36 +2573,34 @@ fn extract_large_corpus_zsh_option_state(
 fn build_rule_to_shellcheck_index(
     selected_rules: Option<&shuck_linter::RuleSet>,
 ) -> HashMap<String, String> {
+    let shellcheck_map = shuck_linter::ShellCheckCodeMap::default();
+
     if let Some(selected_rules) = selected_rules {
         return selected_rules
             .iter()
             .filter_map(|rule| {
-                selected_rule_comparison_label(rule, Some(selected_rules))
-                    .map(|label| (rule.code().to_owned(), label))
+                shellcheck_map
+                    .code_for_rule(rule)
+                    .map(|sc_code| (rule.code().to_owned(), format!("SC{sc_code}")))
             })
             .collect();
     }
 
-    let mut index = HashMap::<String, u32>::new();
-    for (sc_code, rule) in large_corpus_comparison_mappings(selected_rules) {
-        index
-            .entry(rule.code().to_owned())
-            .and_modify(|current| *current = (*current).min(sc_code))
-            .or_insert(sc_code);
-    }
-    index
-        .into_iter()
-        .map(|(rule_code, sc_code)| (rule_code, format!("SC{sc_code}")))
+    shellcheck_map
+        .mappings()
+        .map(|(sc_code, rule)| (rule.code().to_owned(), format!("SC{sc_code}")))
         .collect::<HashMap<_, _>>()
 }
 
 fn build_shellcheck_to_rule_index(
     selected_rules: Option<&shuck_linter::RuleSet>,
 ) -> HashMap<u32, Vec<String>> {
+    let shellcheck_map = shuck_linter::ShellCheckCodeMap::default();
+
     if let Some(selected_rules) = selected_rules {
         let mut index = HashMap::<u32, Vec<String>>::new();
         for rule in selected_rules.iter() {
-            for sc_code in selected_rule_shellcheck_codes(rule, Some(selected_rules)) {
+            if let Some(sc_code) = shellcheck_map.code_for_rule(rule) {
                 index
                     .entry(sc_code)
                     .or_default()
@@ -2648,7 +2615,7 @@ fn build_shellcheck_to_rule_index(
     }
 
     let mut index = HashMap::<u32, Vec<String>>::new();
-    for (sc_code, rule) in large_corpus_comparison_mappings(selected_rules) {
+    for (sc_code, rule) in shellcheck_map.mappings() {
         index
             .entry(sc_code)
             .or_default()
@@ -2669,7 +2636,8 @@ fn build_large_corpus_linter_settings(
         return shuck_linter::LinterSettings::for_rules(rules.iter());
     }
     if mapped_only {
-        let mapped_rules: Vec<_> = large_corpus_comparison_mappings(None)
+        let mapped_rules: HashSet<_> = shuck_linter::ShellCheckCodeMap::default()
+            .mappings()
             .map(|(_, rule)| rule)
             .collect();
         return shuck_linter::LinterSettings::for_rules(mapped_rules);
@@ -2691,15 +2659,18 @@ fn build_shellcheck_filter_codes(
 }
 
 fn build_mapped_shellcheck_codes() -> HashSet<u32> {
-    large_corpus_comparison_mappings(None)
+    shuck_linter::ShellCheckCodeMap::default()
+        .mappings()
         .map(|(sc_code, _)| sc_code)
         .collect()
 }
 
 fn build_selected_shellcheck_codes(selected_rules: &shuck_linter::RuleSet) -> HashSet<u32> {
+    let shellcheck_map = shuck_linter::ShellCheckCodeMap::default();
+
     selected_rules
         .iter()
-        .flat_map(|rule| selected_rule_shellcheck_codes(rule, Some(selected_rules)))
+        .filter_map(|rule| shellcheck_map.code_for_rule(rule))
         .collect()
 }
 
@@ -2710,74 +2681,6 @@ fn validate_selected_rules_for_large_corpus(
     // Selected large-corpus runs may target rules without an active ShellCheck comparison code.
     // Those runs simply execute with an empty ShellCheck filter and compare no records.
     Ok(())
-}
-
-fn selected_rule_shellcheck_code(
-    rule: shuck_linter::Rule,
-    selected_rules: Option<&shuck_linter::RuleSet>,
-) -> Option<u32> {
-    selected_rule_shellcheck_codes(rule, selected_rules)
-        .into_iter()
-        .next()
-}
-
-fn selected_rule_comparison_label(
-    rule: shuck_linter::Rule,
-    selected_rules: Option<&shuck_linter::RuleSet>,
-) -> Option<String> {
-    selected_rule_shellcheck_code(rule, selected_rules).map(|sc_code| format!("SC{sc_code}"))
-}
-
-fn selected_rule_shellcheck_codes(
-    rule: shuck_linter::Rule,
-    selected_rules: Option<&shuck_linter::RuleSet>,
-) -> Vec<u32> {
-    let metadata = load_rule_corpus_metadata(rule.code());
-    let has_comparison_target_notes = !metadata.comparison_target_notes.is_empty();
-    let excluded_codes = metadata
-        .comparison_target_notes
-        .into_iter()
-        .filter_map(|note| {
-            note.current_shellcheck_code
-                .strip_prefix("SC")
-                .and_then(|code| code.parse().ok())
-        })
-        .collect::<HashSet<u32>>();
-
-    let comparison_candidates = large_corpus_comparison_mappings(selected_rules)
-        .filter_map(|(sc_code, mapped_rule)| {
-            (mapped_rule == rule && !excluded_codes.contains(&sc_code)).then_some(sc_code)
-        })
-        .collect::<HashSet<_>>();
-
-    if !comparison_candidates.is_empty() {
-        let mut comparison_candidates = comparison_candidates.into_iter().collect::<Vec<_>>();
-        comparison_candidates.sort_unstable();
-        return comparison_candidates;
-    }
-
-    if has_comparison_target_notes {
-        let mut fallback_candidates = shuck_linter::ShellCheckCodeMap::default()
-            .mappings()
-            .filter_map(|(sc_code, mapped_rule)| {
-                (mapped_rule == rule && !excluded_codes.contains(&sc_code)).then_some(sc_code)
-            })
-            .collect::<Vec<_>>();
-        fallback_candidates.sort_unstable();
-        fallback_candidates.dedup();
-        fallback_candidates
-    } else {
-        Vec::new()
-    }
-}
-
-fn large_corpus_comparison_mappings(
-    selected_rules: Option<&shuck_linter::RuleSet>,
-) -> impl Iterator<Item = (u32, shuck_linter::Rule)> {
-    shuck_linter::ShellCheckCodeMap::default()
-        .comparison_mappings_for_rules(selected_rules)
-        .collect::<Vec<_>>()
-        .into_iter()
 }
 
 // ---------------------------------------------------------------------------
@@ -3781,28 +3684,21 @@ mod tests {
     }
 
     #[test]
-    fn large_corpus_comparison_mappings_use_shared_live_aliases() {
-        let mappings = large_corpus_comparison_mappings(None).collect::<HashSet<_>>();
+    fn large_corpus_uses_the_shared_shellcheck_map() {
+        let index = build_shellcheck_to_rule_index(None);
 
-        assert!(mappings.contains(&(3044, shuck_linter::Rule::DeclareCommand)));
-        assert!(mappings.contains(&(2096, shuck_linter::Rule::DuplicateShebangFlag)));
-        assert!(mappings.contains(&(2086, shuck_linter::Rule::VariableAsCommandName)));
+        assert_eq!(index.get(&3034), Some(&vec!["X026".to_string()]));
+        assert_eq!(index.get(&2096), Some(&vec!["S053".to_string()]));
+        assert_eq!(index.get(&2086), Some(&vec!["S001".to_string()]));
     }
 
     #[test]
-    fn large_corpus_comparison_mappings_include_selected_rule_only_aliases() {
-        let selected_rules = shuck_linter::RuleSet::from_iter([
-            shuck_linter::Rule::FunctionKeywordInSh,
-            shuck_linter::Rule::AppendWithEscapedQuotes,
-        ]);
-        let mappings =
-            large_corpus_comparison_mappings(Some(&selected_rules)).collect::<HashSet<_>>();
+    fn selected_rule_shellcheck_filters_do_not_add_extra_aliases() {
+        let selected_rules =
+            shuck_linter::RuleSet::from_iter([shuck_linter::Rule::FunctionKeywordInSh]);
+        let codes = build_selected_shellcheck_codes(&selected_rules);
 
-        assert!(mappings.contains(&(2112, shuck_linter::Rule::FunctionKeywordInSh)));
-        assert!(mappings.contains(&(2089, shuck_linter::Rule::AppendWithEscapedQuotes)));
-
-        let shared_mappings = large_corpus_comparison_mappings(None).collect::<HashSet<_>>();
-        assert!(!shared_mappings.contains(&(2089, shuck_linter::Rule::AppendWithEscapedQuotes)));
+        assert!(codes.is_empty());
     }
 
     #[test]
@@ -3831,7 +3727,6 @@ mod tests {
                     labels: Vec::new(),
                     reason: "exact-match reviewed divergence".into(),
                 }],
-                comparison_target_notes: Vec::new(),
             },
         )]);
         let record = CompatibilityRecord {
@@ -3875,7 +3770,6 @@ mod tests {
                     labels: Vec::new(),
                     reason: "scripts-prefixed reviewed divergence".into(),
                 }],
-                comparison_target_notes: Vec::new(),
             },
         )]);
         let record = CompatibilityRecord {
@@ -3922,7 +3816,6 @@ mod tests {
                     labels: vec!["project-closure".into()],
                     reason: "label-qualified reviewed divergence".into(),
                 }],
-                comparison_target_notes: Vec::new(),
             },
         )]);
         let matching = CompatibilityRecord {
@@ -3960,43 +3853,6 @@ mod tests {
     }
 
     #[test]
-    fn comparison_target_note_classification_stays_blocking() {
-        let metadata = HashMap::from([(
-            "C999".to_string(),
-            RuleCorpusMetadataDocument {
-                reviewed_divergences: Vec::new(),
-                comparison_target_notes: vec![ComparisonTargetNote {
-                    current_shellcheck_code: "SC2124".into(),
-                    reason: "comparison target note".into(),
-                }],
-            },
-        )]);
-        let record = CompatibilityRecord {
-            side: CompatibilitySide::ShellcheckOnly,
-            rule_code: Some("C999".into()),
-            rule_codes: Vec::new(),
-            shellcheck_code: "SC2124".into(),
-            range: DiagnosticRange {
-                line: 287,
-                end_line: 287,
-                column: 1,
-                end_column: 10,
-            },
-            message: "warning array-to-scalar assignment".into(),
-            labels: Vec::new(),
-        };
-
-        let (classification, reason) = classify_compatibility_record(&record, "wifi.sh", &metadata);
-
-        assert_eq!(classification, CompatibilityClassification::MappingIssue);
-        assert!(
-            reason
-                .as_deref()
-                .is_some_and(|reason| reason.contains("comparison target note"))
-        );
-    }
-
-    #[test]
     fn reviewed_divergence_classification_matches_path_contains_record() {
         let metadata = HashMap::from([(
             "C999".to_string(),
@@ -4012,7 +3868,6 @@ mod tests {
                     labels: Vec::new(),
                     reason: "path-contains reviewed divergence".into(),
                 }],
-                comparison_target_notes: Vec::new(),
             },
         )]);
         let record = CompatibilityRecord {
@@ -4059,7 +3914,6 @@ mod tests {
                     labels: Vec::new(),
                     reason: "path-contains reviewed divergence".into(),
                 }],
-                comparison_target_notes: Vec::new(),
             },
         )]);
         let record = CompatibilityRecord {

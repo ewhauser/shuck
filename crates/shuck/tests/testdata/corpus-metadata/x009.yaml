@@ -1,3 +1,0 @@
-comparison_target_notes:
-  - current_shellcheck_code: "SC3033"
-    reason: "The nix-provided ShellCheck in this workspace reports `select` loop portability findings as SC3008, while SC3033 does not represent the same warning family for this oracle build."

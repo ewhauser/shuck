@@ -3,7 +3,7 @@ legacy_name: ifs-set-to-literal-backslash-n
 new_category: Correctness
 new_code: C101
 runtime_kind: ast
-shellcheck_code: SC2329
+shellcheck_code: SC2141
 shells:
   - sh
   - bash

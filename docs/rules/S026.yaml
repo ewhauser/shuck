@@ -3,7 +3,6 @@ legacy_name: needless-backslash-underscore
 new_category: Style
 new_code: S026
 runtime_kind: ast
-shellcheck_code: SC1012
 shells:
   - sh
   - bash

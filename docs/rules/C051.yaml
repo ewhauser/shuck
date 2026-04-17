@@ -3,7 +3,6 @@ legacy_name: duplicate-redirect
 new_category: Correctness
 new_code: C051
 runtime_kind: ast
-shellcheck_code: SC2245
 shells:
   - sh
   - bash

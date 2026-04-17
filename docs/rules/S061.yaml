@@ -3,7 +3,7 @@ legacy_name: fgrep-deprecated
 new_category: Style
 new_code: S061
 runtime_kind: ast
-shellcheck_code: SC2343
+shellcheck_code: SC2197
 shells:
   - sh
   - bash

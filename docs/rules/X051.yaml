@@ -3,7 +3,7 @@ legacy_name: zsh-nested-expansion
 new_category: Portability
 new_code: X051
 runtime_kind: ast
-shellcheck_code: SC2313
+shellcheck_code: SC2082
 shells:
   - sh
   - bash

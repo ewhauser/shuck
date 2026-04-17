@@ -3,7 +3,7 @@ legacy_name: positional-param-as-operator
 new_category: Correctness
 new_code: C070
 runtime_kind: ast
-shellcheck_code: SC2282
+shellcheck_code: SC1102
 shells:
   - sh
   - bash

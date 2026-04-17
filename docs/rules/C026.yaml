@@ -3,7 +3,6 @@ legacy_name: space-after-equals
 new_category: Correctness
 new_code: C026
 runtime_kind: ast
-shellcheck_code: SC1068
 shells:
   - sh
   - bash

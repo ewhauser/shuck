@@ -3,7 +3,6 @@ legacy_name: assignment-spacing
 new_category: Correctness
 new_code: C024
 runtime_kind: ast
-shellcheck_code: SC1007
 shells:
   - sh
   - bash

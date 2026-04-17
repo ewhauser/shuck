@@ -3,7 +3,7 @@ legacy_name: if-dollar-command
 new_category: Correctness
 new_code: C092
 runtime_kind: ast
-shellcheck_code: SC2315
+shellcheck_code: SC2091
 shells:
   - sh
   - bash

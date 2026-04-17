@@ -3,7 +3,7 @@ legacy_name: array-index-arithmetic
 new_category: Style
 new_code: S034
 runtime_kind: ast
-shellcheck_code: SC2254
+shellcheck_code: SC2321
 shells:
   - sh
   - bash

@@ -3,7 +3,7 @@ legacy_name: local-cross-reference
 new_category: Correctness
 new_code: C136
 runtime_kind: ast
-shellcheck_code: SC2384
+shellcheck_code: SC2318
 shells:
   - sh
   - bash

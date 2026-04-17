@@ -3,7 +3,7 @@ legacy_name: stderr-before-stdout-redirect
 new_category: Correctness
 new_code: C085
 runtime_kind: ast
-shellcheck_code: SC2306
+shellcheck_code: SC2069
 shells:
   - sh
   - bash

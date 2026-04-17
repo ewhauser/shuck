@@ -1,3 +1,0 @@
-comparison_target_notes:
-  - current_shellcheck_code: "SC2285"
-    reason: "The nix-pinned ShellCheck oracle reports comment-first scripts without a shebang under SC2148, while SC2285 remains the authored legacy code for this rule."

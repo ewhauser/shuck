@@ -3,7 +3,7 @@ legacy_name: spaced-tabstrip-close
 new_category: Style
 new_code: S073
 runtime_kind: ast
-shellcheck_code: SC2393
+shellcheck_code: SC1040
 shells:
   - sh
   - bash
