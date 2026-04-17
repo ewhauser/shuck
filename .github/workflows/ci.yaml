@@ -186,7 +186,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p target/large-corpus-report
-          nix develop --command make NIX_DEVELOP= test-large-corpus 2>&1 | tee target/large-corpus-report/latest.log
+          nix develop --command make NIX_DEVELOP= test-large-corpus 2>&1 | tee target/large-corpus-report/latest.log | python3 scripts/compact_large_corpus_log.py
       - name: "Generate HTML report"
         id: report
         if: always() && steps.large-corpus.outcome != 'cancelled'

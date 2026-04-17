@@ -99,7 +99,7 @@ large-corpus-report: ensure-cache
 	@mkdir -p "$(LARGE_CORPUS_REPORT_DIR)"
 	@status=0; \
 	$(MAKE) --no-print-directory test-large-corpus >"$(LARGE_CORPUS_REPORT_LOG)" 2>&1 || status=$$?; \
-	cat "$(LARGE_CORPUS_REPORT_LOG)"; \
+	$(UV_PYTHON) ./scripts/compact_large_corpus_log.py <"$(LARGE_CORPUS_REPORT_LOG)"; \
 	$(UV_PYTHON) ./scripts/large_corpus_report.py --log "$(LARGE_CORPUS_REPORT_LOG)" --output "$(LARGE_CORPUS_REPORT_HTML)"; \
 	echo "large corpus HTML report: $$(cd . && pwd)/$(LARGE_CORPUS_REPORT_HTML)"; \
 	if [ $$status -ne 0 ]; then \
