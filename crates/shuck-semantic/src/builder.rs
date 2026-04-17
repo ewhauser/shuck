@@ -34,6 +34,7 @@ pub(crate) struct BuildOutput {
     pub(crate) scopes: Vec<Scope>,
     pub(crate) bindings: Vec<Binding>,
     pub(crate) references: Vec<Reference>,
+    pub(crate) reference_index: FxHashMap<Name, Vec<ReferenceId>>,
     pub(crate) predefined_runtime_refs: FxHashSet<ReferenceId>,
     pub(crate) guarded_parameter_refs: FxHashSet<ReferenceId>,
     pub(crate) binding_index: FxHashMap<Name, Vec<BindingId>>,
@@ -60,6 +61,7 @@ pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     scopes: Vec<Scope>,
     bindings: Vec<Binding>,
     references: Vec<Reference>,
+    reference_index: FxHashMap<Name, Vec<ReferenceId>>,
     predefined_runtime_refs: FxHashSet<ReferenceId>,
     guarded_parameter_refs: FxHashSet<ReferenceId>,
     binding_index: FxHashMap<Name, Vec<BindingId>>,
@@ -129,6 +131,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             scopes: vec![file_scope],
             bindings: Vec::new(),
             references: Vec::new(),
+            reference_index: FxHashMap::default(),
             predefined_runtime_refs: FxHashSet::default(),
             guarded_parameter_refs: FxHashSet::default(),
             binding_index: FxHashMap::default(),
@@ -165,6 +168,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             scopes: builder.scopes,
             bindings: builder.bindings,
             references: builder.references,
+            reference_index: builder.reference_index,
             predefined_runtime_refs: builder.predefined_runtime_refs,
             guarded_parameter_refs: builder.guarded_parameter_refs,
             binding_index: builder.binding_index,
@@ -2381,6 +2385,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             scope,
             span,
         });
+        self.reference_index
+            .entry(name.clone())
+            .or_default()
+            .push(id);
         if self.guarded_parameter_operand_depth > 0 {
             self.guarded_parameter_refs.insert(id);
         }

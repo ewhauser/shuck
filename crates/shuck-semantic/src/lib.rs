@@ -277,6 +277,7 @@ pub struct SemanticModel {
     scope_lookup: ScopeLookup,
     bindings: Vec<Binding>,
     references: Vec<Reference>,
+    reference_index: FxHashMap<Name, Vec<ReferenceId>>,
     predefined_runtime_refs: FxHashSet<ReferenceId>,
     guarded_parameter_refs: FxHashSet<ReferenceId>,
     binding_index: FxHashMap<Name, Vec<BindingId>>,
@@ -329,6 +330,12 @@ impl SemanticModel {
     }
 
     fn from_build_output(built: builder::BuildOutput) -> Self {
+        let mut reference_index = built.reference_index;
+        for reference_ids in reference_index.values_mut() {
+            reference_ids.sort_by_key(|reference_id| {
+                built.references[reference_id.index()].span.start.offset
+            });
+        }
         let indirect_targets_by_binding =
             build_indirect_targets_by_binding(&built.bindings, &built.indirect_target_hints);
         let indirect_targets_by_reference = build_indirect_targets_by_reference(
@@ -350,6 +357,7 @@ impl SemanticModel {
             scope_lookup,
             bindings: built.bindings,
             references: built.references,
+            reference_index,
             predefined_runtime_refs: built.predefined_runtime_refs,
             guarded_parameter_refs: built.guarded_parameter_refs,
             binding_index: built.binding_index,
@@ -897,15 +905,27 @@ impl<'model> SemanticAnalysis<'model> {
     }
 
     fn reference_for_name_at(&self, name: &Name, at: Span) -> Option<&Reference> {
-        self.model.references.iter().find(|reference| {
-            reference.name == *name
-                && reference.span.start.offset >= at.start.offset
-                && reference.span.end.offset <= at.end.offset
-                && !matches!(
-                    reference.kind,
-                    ReferenceKind::DeclarationName | ReferenceKind::ImplicitRead
-                )
-        })
+        let references = self.model.reference_index.get(name)?;
+        let first_candidate = references.partition_point(|reference_id| {
+            self.model.references[reference_id.index()]
+                .span
+                .start
+                .offset
+                < at.start.offset
+        });
+
+        references[first_candidate..]
+            .iter()
+            .find_map(|reference_id| {
+                let reference = &self.model.references[reference_id.index()];
+                (reference.span.start.offset >= at.start.offset
+                    && reference.span.end.offset <= at.end.offset
+                    && !matches!(
+                        reference.kind,
+                        ReferenceKind::DeclarationName | ReferenceKind::ImplicitRead
+                    ))
+                .then_some(reference)
+            })
     }
 
     pub fn reaching_bindings_for_name(&self, name: &Name, at: Span) -> Vec<BindingId> {
@@ -3164,6 +3184,39 @@ f
             .collect::<Vec<_>>();
         assert!(!unused.contains(&"IFS"));
         assert!(unused.contains(&"unused"));
+    }
+
+    #[test]
+    fn reaching_bindings_lookup_picks_later_same_name_reference() {
+        let source = "\
+#!/bin/bash
+foo=1
+printf '%s\\n' \"$foo\"
+foo=2
+printf '%s\\n' \"$foo\"
+";
+        let model = model(source);
+        let foo_bindings = model
+            .bindings()
+            .iter()
+            .filter(|binding| {
+                binding.name == "foo" && matches!(binding.kind, BindingKind::Assignment)
+            })
+            .map(|binding| binding.id)
+            .collect::<Vec<_>>();
+        assert_eq!(foo_bindings.len(), 2);
+
+        let target_reference = model
+            .references()
+            .iter()
+            .rev()
+            .find(|reference| reference.name == "foo")
+            .expect("expected foo reference");
+        let reaching = model
+            .analysis()
+            .reaching_bindings_for_name(&target_reference.name, target_reference.span);
+
+        assert_eq!(reaching, vec![foo_bindings[1]]);
     }
 
     #[test]
