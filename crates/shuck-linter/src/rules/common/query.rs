@@ -1,8 +1,9 @@
 use shuck_ast::{
     ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArrayElem, Assignment, AssignmentValue,
-    BinaryCommand, BinaryOp, BuiltinCommand, Command, CompoundCommand, ConditionalExpr,
-    DeclOperand, FunctionDef, HeredocBodyPartNode, Pattern, PatternPart, Redirect, Stmt, StmtSeq,
-    Subscript, VarRef, Word, WordPart, WordPartNode, ZshGlobSegment,
+    BinaryCommand, BinaryOp, BourneParameterExpansion, BuiltinCommand, Command, CompoundCommand,
+    ConditionalExpr, DeclOperand, FunctionDef, HeredocBodyPartNode, ParameterExpansion,
+    ParameterExpansionSyntax, Pattern, PatternPart, Redirect, Stmt, StmtSeq, Subscript, VarRef,
+    Word, WordPart, WordPartNode, ZshExpansionTarget, ZshGlobSegment,
 };
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct WalkContext {
@@ -659,6 +660,67 @@ fn collect_word_part_visits<'a, F>(
                     }
                 }
             }
+            WordPart::Parameter(parameter) => {
+                collect_parameter_expansion_visits(parameter, options, context, visitor);
+            }
+            WordPart::ParameterExpansion {
+                reference,
+                operand_word_ast,
+                ..
+            }
+            | WordPart::IndirectExpansion {
+                reference,
+                operand_word_ast,
+                ..
+            } => {
+                collect_var_ref_word_visits(reference, options, context, visitor);
+                if let Some(word) = operand_word_ast.as_ref() {
+                    collect_word_visits(word, options, context, visitor);
+                }
+            }
+            WordPart::Length(reference)
+            | WordPart::ArrayAccess(reference)
+            | WordPart::ArrayLength(reference)
+            | WordPart::ArrayIndices(reference)
+            | WordPart::Transformation { reference, .. } => {
+                collect_var_ref_word_visits(reference, options, context, visitor);
+            }
+            WordPart::Substring {
+                reference,
+                offset_ast,
+                offset_word_ast,
+                length_ast,
+                length_word_ast,
+                ..
+            }
+            | WordPart::ArraySlice {
+                reference,
+                offset_ast,
+                offset_word_ast,
+                length_ast,
+                length_word_ast,
+                ..
+            } => {
+                collect_var_ref_word_visits(reference, options, context, visitor);
+                if let Some(expression) = offset_ast.as_ref() {
+                    let mut arithmetic_words = Vec::new();
+                    collect_optional_arithmetic_words(Some(expression), &mut arithmetic_words);
+                    for word in arithmetic_words {
+                        collect_word_visits(word, options, context, visitor);
+                    }
+                } else {
+                    collect_word_visits(offset_word_ast, options, context, visitor);
+                }
+                if let Some(expression) = length_ast.as_ref() {
+                    let mut arithmetic_words = Vec::new();
+                    collect_optional_arithmetic_words(Some(expression), &mut arithmetic_words);
+                    for word in arithmetic_words {
+                        collect_word_visits(word, options, context, visitor);
+                    }
+                } else if let Some(word) = length_word_ast.as_ref() {
+                    collect_word_visits(word, options, context, visitor);
+                }
+            }
             WordPart::CommandSubstitution { body, .. }
             | WordPart::ProcessSubstitution { body, .. } => {
                 collect_command_visits(body, options, context, visitor);
@@ -666,18 +728,148 @@ fn collect_word_part_visits<'a, F>(
             WordPart::Literal(_)
             | WordPart::SingleQuoted { .. }
             | WordPart::Variable(_)
-            | WordPart::Parameter(_)
-            | WordPart::ParameterExpansion { .. }
-            | WordPart::Length(_)
-            | WordPart::ArrayAccess(_)
-            | WordPart::ArrayLength(_)
-            | WordPart::ArrayIndices(_)
-            | WordPart::Substring { .. }
-            | WordPart::ArraySlice { .. }
-            | WordPart::IndirectExpansion { .. }
             | WordPart::PrefixMatch { .. }
-            | WordPart::Transformation { .. } => {}
+            => {}
         }
+    }
+}
+
+fn collect_var_ref_word_visits<'a, F>(
+    reference: &'a VarRef,
+    options: CommandWalkOptions,
+    context: CommandTraversalContext,
+    visitor: &mut F,
+) where
+    F: FnMut(CommandVisit<'a>, CommandTraversalContext),
+{
+    let mut words = Vec::new();
+    collect_var_ref_subscript_words(reference, &mut words);
+    for word in words {
+        collect_word_visits(word, options, context, visitor);
+    }
+}
+
+fn collect_parameter_expansion_visits<'a, F>(
+    parameter: &'a ParameterExpansion,
+    options: CommandWalkOptions,
+    context: CommandTraversalContext,
+    visitor: &mut F,
+) where
+    F: FnMut(CommandVisit<'a>, CommandTraversalContext),
+{
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+            BourneParameterExpansion::Access { reference }
+            | BourneParameterExpansion::Length { reference }
+            | BourneParameterExpansion::Indices { reference }
+            | BourneParameterExpansion::Transformation { reference, .. } => {
+                collect_var_ref_word_visits(reference, options, context, visitor);
+            }
+            BourneParameterExpansion::Indirect {
+                reference,
+                operand_word_ast,
+                ..
+            }
+            | BourneParameterExpansion::Operation {
+                reference,
+                operand_word_ast,
+                ..
+            } => {
+                collect_var_ref_word_visits(reference, options, context, visitor);
+                if let Some(word) = operand_word_ast.as_ref() {
+                    collect_word_visits(word, options, context, visitor);
+                }
+            }
+            BourneParameterExpansion::Slice {
+                reference,
+                offset_ast,
+                offset_word_ast,
+                length_ast,
+                length_word_ast,
+                ..
+            } => {
+                collect_var_ref_word_visits(reference, options, context, visitor);
+                if let Some(expression) = offset_ast.as_ref() {
+                    let mut arithmetic_words = Vec::new();
+                    collect_optional_arithmetic_words(Some(expression), &mut arithmetic_words);
+                    for word in arithmetic_words {
+                        collect_word_visits(word, options, context, visitor);
+                    }
+                } else {
+                    collect_word_visits(offset_word_ast, options, context, visitor);
+                }
+                if let Some(expression) = length_ast.as_ref() {
+                    let mut arithmetic_words = Vec::new();
+                    collect_optional_arithmetic_words(Some(expression), &mut arithmetic_words);
+                    for word in arithmetic_words {
+                        collect_word_visits(word, options, context, visitor);
+                    }
+                } else if let Some(word) = length_word_ast.as_ref() {
+                    collect_word_visits(word, options, context, visitor);
+                }
+            }
+            BourneParameterExpansion::PrefixMatch { .. } => {}
+        },
+        ParameterExpansionSyntax::Zsh(syntax) => {
+            collect_zsh_target_visits(&syntax.target, options, context, visitor);
+
+            for modifier in &syntax.modifiers {
+                if let Some(word) = modifier.argument_word_ast() {
+                    collect_word_visits(word, options, context, visitor);
+                }
+            }
+
+            if let Some(operation) = &syntax.operation {
+                match operation {
+                    shuck_ast::ZshExpansionOperation::PatternOperation { .. }
+                    | shuck_ast::ZshExpansionOperation::Defaulting { .. }
+                    | shuck_ast::ZshExpansionOperation::TrimOperation { .. }
+                    | shuck_ast::ZshExpansionOperation::Unknown { .. } => {
+                        if let Some(word) = operation.operand_word_ast() {
+                            collect_word_visits(word, options, context, visitor);
+                        }
+                    }
+                    shuck_ast::ZshExpansionOperation::ReplacementOperation { .. } => {
+                        if let Some(word) = operation.pattern_word_ast() {
+                            collect_word_visits(word, options, context, visitor);
+                        }
+                        if let Some(word) = operation.replacement_word_ast() {
+                            collect_word_visits(word, options, context, visitor);
+                        }
+                    }
+                    shuck_ast::ZshExpansionOperation::Slice { .. } => {
+                        if let Some(word) = operation.offset_word_ast() {
+                            collect_word_visits(word, options, context, visitor);
+                        }
+                        if let Some(word) = operation.length_word_ast() {
+                            collect_word_visits(word, options, context, visitor);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn collect_zsh_target_visits<'a, F>(
+    target: &'a ZshExpansionTarget,
+    options: CommandWalkOptions,
+    context: CommandTraversalContext,
+    visitor: &mut F,
+) where
+    F: FnMut(CommandVisit<'a>, CommandTraversalContext),
+{
+    match target {
+        ZshExpansionTarget::Reference(reference) => {
+            collect_var_ref_word_visits(reference, options, context, visitor);
+        }
+        ZshExpansionTarget::Nested(parameter) => {
+            collect_parameter_expansion_visits(parameter, options, context, visitor);
+        }
+        ZshExpansionTarget::Word(word) => {
+            collect_word_visits(word, options, context, visitor);
+        }
+        ZshExpansionTarget::Empty => {}
     }
 }
 
@@ -989,6 +1181,40 @@ done
                 ("bar".to_owned(), Some(ConditionKind::While), false, false),
                 ("baz".to_owned(), Some(ConditionKind::Elif), true, true),
                 ("qux".to_owned(), Some(ConditionKind::While), false, false),
+            ]
+        );
+    }
+
+    #[test]
+    fn walk_commands_descends_into_parameter_expansion_operands() {
+        let source = "\
+printf '%s\\n' ${value:-$(expr $(nproc) + 1)}
+";
+        let commands = parse_commands(source);
+        let mut visits = Vec::new();
+
+        walk_commands(
+            &commands,
+            CommandWalkOptions {
+                descend_nested_word_commands: true,
+            },
+            &mut |visit, context| {
+                let Command::Simple(command) = visit.command else {
+                    return;
+                };
+                let Some(name) = static_word_text(&command.name, source) else {
+                    return;
+                };
+                visits.push((name, context.nested_word_command));
+            },
+        );
+
+        assert_eq!(
+            visits,
+            vec![
+                ("printf".to_owned(), false),
+                ("expr".to_owned(), true),
+                ("nproc".to_owned(), true),
             ]
         );
     }

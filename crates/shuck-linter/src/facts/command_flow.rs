@@ -167,6 +167,9 @@ fn collect_or_update_substitution_facts_from_occurrences<'a>(
             body_contains_echo: body_facts.body_contains_echo,
             body_contains_grep: body_facts.body_contains_grep,
             body_has_multiple_statements: body_facts.body_has_multiple_statements,
+            body_is_pgrep_lookup: body_facts.body_is_pgrep_lookup,
+            body_is_seq_utility: body_facts.body_is_seq_utility,
+            body_has_commands: body_facts.body_has_commands,
             bash_file_slurp: body_facts.bash_file_slurp,
             host_word_span: host_span,
             host_kind,
@@ -335,6 +338,9 @@ struct SubstitutionBodyFacts {
     body_contains_echo: bool,
     body_contains_grep: bool,
     body_has_multiple_statements: bool,
+    body_is_pgrep_lookup: bool,
+    body_is_seq_utility: bool,
+    body_has_commands: bool,
     bash_file_slurp: bool,
 }
 
@@ -377,6 +383,17 @@ fn classify_substitution_body<'a>(
         body_contains_echo: substitution_body_contains_echo(body, source),
         body_contains_grep: substitution_body_contains_grep(body, source),
         body_has_multiple_statements: body.stmts.len() > 1,
+        body_is_pgrep_lookup: substitution_body_is_pgrep_lookup(
+            body,
+            commands,
+            command_ids_by_span,
+        ),
+        body_is_seq_utility: substitution_body_is_seq_utility(
+            body,
+            commands,
+            command_ids_by_span,
+        ),
+        body_has_commands: !visits.is_empty(),
         bash_file_slurp: matches!(visits.as_slice(), [visit] if is_bash_file_slurp_command(visit.command, visit.redirects, source)),
     }
 }
@@ -2062,6 +2079,29 @@ fn substitution_body_is_find<'a>(
     matches!(body.as_slice(), [stmt] if stmt_effective_name_is(stmt, "find", commands, command_ids_by_span))
 }
 
+fn substitution_body_is_pgrep_lookup<'a>(
+    body: &'a StmtSeq,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+) -> bool {
+    matches!(
+        body.as_slice(),
+        [stmt]
+            if stmt_effective_or_literal_basename_is(stmt, "pgrep", commands, command_ids_by_span)
+    )
+}
+
+fn substitution_body_is_seq_utility<'a>(
+    body: &'a StmtSeq,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+) -> bool {
+    matches!(
+        body.as_slice(),
+        [stmt] if stmt_effective_or_literal_basename_is(stmt, "seq", commands, command_ids_by_span)
+    )
+}
+
 fn substitution_body_is_simple_command_named<'a>(
     body: &'a StmtSeq,
     name: &str,
@@ -2090,4 +2130,17 @@ fn stmt_literal_name_is<'a>(
 ) -> bool {
     command_fact_for_stmt(stmt, commands, command_ids_by_span).and_then(CommandFact::literal_name)
         == Some(name)
+}
+
+fn stmt_effective_or_literal_basename_is<'a>(
+    stmt: &'a Stmt,
+    name: &str,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+) -> bool {
+    command_fact_for_stmt(stmt, commands, command_ids_by_span)
+        .and_then(CommandFact::effective_or_literal_name)
+        .is_some_and(|command_name| {
+            command_name == name || command_name.rsplit('/').next() == Some(name)
+        })
 }

@@ -1589,10 +1589,10 @@ impl<'a> Lexer<'a> {
                         self.advance();
                     } else {
                         // Escaped character: backslash quotes the next char
-                        // (quote removal — only the literal char survives)
-                        if matches!(next, '$' | '`' | '"' | '\'') {
-                            Self::push_capture_char(&mut word, '\x00');
-                        }
+                        // (quote removal — only the literal char survives).
+                        // Preserve source/decoded alignment with a sentinel so
+                        // downstream word decoding keeps later spans anchored.
+                        Self::push_capture_char(&mut word, '\x00');
                         Self::push_capture_char(&mut word, next);
                         self.advance();
                         if next == '{'

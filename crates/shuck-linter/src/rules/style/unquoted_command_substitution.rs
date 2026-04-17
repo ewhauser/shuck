@@ -1,5 +1,4 @@
-use crate::SubstitutionHostKind;
-use crate::{Checker, CommandSubstitutionKind, Rule, ShellDialect, Violation};
+use crate::{Checker, ExpansionContext, Rule, ShellDialect, Violation, WordFact, WordFactHostKind};
 
 pub struct UnquotedCommandSubstitution;
 
@@ -14,32 +13,95 @@ impl Violation for UnquotedCommandSubstitution {
 }
 
 pub fn unquoted_command_substitution(checker: &mut Checker) {
-    let spans = checker
+    let arithmetic_spans = checker.facts().arithmetic_command_substitution_spans();
+    let pgrep_spans = checker
         .facts()
         .commands()
         .iter()
+        .flat_map(|fact| fact.substitution_facts().iter())
+        .filter(|fact| fact.body_is_pgrep_lookup())
+        .map(|fact| fact.span())
+        .collect::<Vec<_>>();
+    let seq_spans = checker
+        .facts()
+        .commands()
+        .iter()
+        .flat_map(|fact| fact.substitution_facts().iter())
+        .filter(|fact| fact.body_is_seq_utility())
+        .map(|fact| fact.span())
+        .collect::<Vec<_>>();
+    let inert_spans = checker
+        .facts()
+        .commands()
+        .iter()
+        .flat_map(|fact| fact.substitution_facts().iter())
+        .filter(|fact| !fact.body_has_commands())
+        .map(|fact| fact.span())
+        .collect::<Vec<_>>();
+    let spans = checker
+        .facts()
+        .word_facts()
+        .iter()
         .flat_map(|fact| {
-            fact.substitution_facts()
+            fact.unquoted_command_substitution_spans()
                 .iter()
-                .filter(|substitution| substitution.kind() == CommandSubstitutionKind::Command)
-                .filter(|substitution| substitution.unquoted_in_host())
-                .filter(|substitution| {
-                    matches!(
-                        substitution.host_kind(),
-                        SubstitutionHostKind::CommandArgument
-                            | SubstitutionHostKind::HereStringOperand
-                            | SubstitutionHostKind::AssignmentTargetSubscript
-                            | SubstitutionHostKind::DeclarationNameSubscript
-                            | SubstitutionHostKind::ArrayKeySubscript
-                    ) || (substitution.host_kind()
-                        == SubstitutionHostKind::DeclarationAssignmentValue
-                        && checker.shell() == ShellDialect::Sh)
+                .copied()
+                .filter(|span| {
+                    should_report_unquoted_command_substitution(
+                        checker,
+                        fact,
+                        *span,
+                        arithmetic_spans,
+                        &pgrep_spans,
+                        &seq_spans,
+                        &inert_spans,
+                    )
                 })
-                .map(|substitution| substitution.span())
+                .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || UnquotedCommandSubstitution);
+}
+
+fn should_report_unquoted_command_substitution(
+    checker: &Checker,
+    fact: &WordFact<'_>,
+    span: shuck_ast::Span,
+    arithmetic_spans: &[shuck_ast::Span],
+    pgrep_spans: &[shuck_ast::Span],
+    seq_spans: &[shuck_ast::Span],
+    inert_spans: &[shuck_ast::Span],
+) -> bool {
+    if arithmetic_spans.contains(&span) || inert_spans.contains(&span) {
+        return false;
+    }
+
+    let Some(context) = fact.expansion_context() else {
+        return false;
+    };
+
+    match (context, fact.host_kind()) {
+        (ExpansionContext::CommandName, WordFactHostKind::Direct) => fact.has_literal_affixes(),
+        (ExpansionContext::HereString, WordFactHostKind::Direct)
+        | (ExpansionContext::RedirectTarget(_), WordFactHostKind::Direct)
+        | (ExpansionContext::DescriptorDupTarget(_), WordFactHostKind::Direct)
+        | (ExpansionContext::AssignmentValue, WordFactHostKind::AssignmentTargetSubscript)
+        | (ExpansionContext::AssignmentValue, WordFactHostKind::ArrayKeySubscript)
+        | (
+            ExpansionContext::DeclarationAssignmentValue,
+            WordFactHostKind::AssignmentTargetSubscript
+                | WordFactHostKind::DeclarationNameSubscript
+                | WordFactHostKind::ArrayKeySubscript,
+        ) => true,
+        (ExpansionContext::DeclarationAssignmentValue, WordFactHostKind::Direct) => {
+            checker.shell() == ShellDialect::Sh
+        }
+        (ExpansionContext::CommandArgument, WordFactHostKind::Direct) => {
+            !(pgrep_spans.contains(&span) || seq_spans.contains(&span))
+        }
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -65,10 +127,11 @@ mod tests {
     }
 
     #[test]
-    fn reports_here_strings_but_ignores_other_redirect_contexts() {
+    fn reports_command_names_and_redirect_targets() {
         let source = "\
 #!/bin/bash
-cat <<< $(printf here) <<< \"$(printf quoted-here)\" >$(printf out)
+$(pwd)/tool --flag
+cat <<< $(printf here) <<< \"$(printf quoted-here)\" >$(printf out) >&$(printf fd)
 printf '%s\\n' $(printf arg)
 ";
         let diagnostics = test_snippet(
@@ -81,7 +144,13 @@ printf '%s\\n' $(printf arg)
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$(printf here)", "$(printf arg)"]
+            vec![
+                "$(pwd)",
+                "$(printf here)",
+                "$(printf out)",
+                "$(printf fd)",
+                "$(printf arg)",
+            ]
         );
     }
 
@@ -164,6 +233,146 @@ declare other=$(printf declare)
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$(printf local)", "$(printf declare)"]
+        );
+    }
+
+    #[test]
+    fn ignores_bare_command_names_and_arithmetic() {
+        let source = "\
+#!/bin/sh
+$(printf helper) --flag
+printf '%s\\n' $(($(date +%s) - $(date +%s)))
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedCommandSubstitution),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_pgrep_seq_and_comment_only_backticks_in_command_arguments() {
+        let source = "\
+#!/bin/bash
+if [ $(pgrep -f service) ]; then
+  :
+fi
+echo $(pgrep service)
+readlink /proc/$(pgrep -x service)/exe >/dev/null
+printf '%0.s-' $(seq 1 3)
+cmake \\
+  `# comment` \\
+  -DFOO=1
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedCommandSubstitution),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_pidof_in_truthy_tests_and_kill() {
+        let source = "\
+#!/bin/sh
+if [ $(pidof service) ]; then
+  :
+fi
+kill $(pidof service)
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$(pidof service)", "$(pidof service)"]
+        );
+    }
+
+    #[test]
+    fn reports_non_truthy_test_operands_and_nested_parameter_expansion_commands() {
+        let source = "\
+#!/bin/sh
+if [ $(printf one) = one ]; then
+  :
+fi
+if [ $(command -v pigz) ]; then
+  :
+fi
+NUMJOBS=${NUMJOBS:-\" -j $(expr $(nproc) + 1) \"}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$(printf one)", "$(command -v pigz)", "$(nproc)"]
+        );
+    }
+
+    #[test]
+    fn reports_filename_builder_command_substitutions() {
+        let source = "\
+#!/bin/bash
+/sbin/makepkg -l y -c n $OUTPUT/$PRGNAM-$VERSION\\_$(echo ${KERNEL} | tr '-' '_')-$ARCH-$BUILD$TAG.$PKGTYPE
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$(echo ${KERNEL} | tr '-' '_')"]
+        );
+    }
+
+    #[test]
+    fn ignores_kill_pid_lists() {
+        let source = "\
+#!/bin/sh
+kill $(pgrep service)
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedCommandSubstitution),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_kill_pidfile_command_substitutions() {
+        let source = "\
+#!/bin/sh
+kill $(cat \"$pidfile\")
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$(cat \"$pidfile\")"]
         );
     }
 }

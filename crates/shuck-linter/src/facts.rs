@@ -899,6 +899,9 @@ pub struct SubstitutionFact {
     body_contains_echo: bool,
     body_contains_grep: bool,
     body_has_multiple_statements: bool,
+    body_is_pgrep_lookup: bool,
+    body_is_seq_utility: bool,
+    body_has_commands: bool,
     bash_file_slurp: bool,
     host_word_span: Span,
     host_kind: SubstitutionHostKind,
@@ -945,7 +948,17 @@ impl SubstitutionFact {
     pub fn body_has_multiple_statements(&self) -> bool {
         self.body_has_multiple_statements
     }
+    pub fn body_is_pgrep_lookup(&self) -> bool {
+        self.body_is_pgrep_lookup
+    }
 
+    pub fn body_is_seq_utility(&self) -> bool {
+        self.body_is_seq_utility
+    }
+
+    pub fn body_has_commands(&self) -> bool {
+        self.body_has_commands
+    }
     pub fn is_bash_file_slurp(&self) -> bool {
         self.bash_file_slurp
     }
@@ -17021,6 +17034,31 @@ printf '%s\\n' $0 $1 $* $@
             assert!(argument_words.contains(&"$1".to_owned()));
             assert!(argument_words.contains(&"$*".to_owned()));
             assert!(argument_words.contains(&"$@".to_owned()));
+        });
+    }
+
+    #[test]
+    fn builds_word_facts_for_filename_builder_command_substitutions() {
+        let source = "\
+#!/bin/bash
+/sbin/makepkg -l y -c n $OUTPUT/$PRGNAM-$VERSION\\_$(echo ${KERNEL} | tr '-' '_')-$ARCH-$BUILD$TAG.$PKGTYPE
+";
+
+        with_facts(source, None, |_, facts| {
+            let fact = facts
+                .expansion_word_facts(ExpansionContext::CommandArgument)
+                .find(|fact| fact.span().slice(source).contains("$(echo ${KERNEL} | tr '-' '_')"))
+                .expect("expected makepkg output argument fact");
+
+            assert_eq!(
+                fact.unquoted_command_substitution_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["$(echo ${KERNEL} | tr '-' '_')"],
+                "parts: {:?}",
+                fact.word().parts
+            );
         });
     }
 
