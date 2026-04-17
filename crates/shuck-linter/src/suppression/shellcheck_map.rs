@@ -37,11 +37,19 @@ impl ShellCheckCodeMap {
         &self,
         selected_rules: Option<&RuleSet>,
     ) -> impl Iterator<Item = (u32, Rule)> + '_ {
-        self.comparison_mappings().chain(
+        let selected_only = [
             selected_rules
                 .filter(|rules| rules.contains(Rule::FunctionKeywordInSh))
                 .map(|_| (2112, Rule::FunctionKeywordInSh)),
-        )
+            // SC2089 is broader than C130's `+=`-only scope, so keep it out of mapped-only
+            // whole-corpus runs and only compare it when C130 is selected explicitly.
+            selected_rules
+                .filter(|rules| rules.contains(Rule::AppendWithEscapedQuotes))
+                .map(|_| (2089, Rule::AppendWithEscapedQuotes)),
+        ];
+
+        self.comparison_mappings()
+            .chain(selected_only.into_iter().flatten())
     }
 
     /// Look up a shellcheck code like `SC2086`.
@@ -202,7 +210,7 @@ impl Default for ShellCheckCodeMap {
             // Keep SC2358 as the authored compatibility code and compare directly.
             (2358, Rule::RedirectBeforePipe),
             // ShellCheck 0.11.0 reports read/write redirect collisions as SC2094.
-            // Keep SC2317 as the authored suppression code and compare against the live code.
+            // Keep SC2317 available as a legacy suppression alias.
             (2094, Rule::RedirectClobbersInput),
             // ShellCheck 0.11.0 reports single-quoted split-word cases as SC2026.
             // Keep SC2300 as a suppression alias for the authored S050 rule code.
@@ -308,7 +316,7 @@ impl Default for ShellCheckCodeMap {
             (2013, Rule::LineOrientedInput),
             (2015, Rule::ChainedTestBranches),
             // ShellCheck 0.11.0 reports `find -exec` pre-expansion warnings as SC2014.
-            // Keep SC2295 as a suppression alias for authored C078 metadata.
+            // Keep SC2295 available as a legacy suppression alias.
             (2014, Rule::UnquotedGlobsInFind),
             // ShellCheck 0.11.0 reports loop-list glob+expansion mixes as SC2231.
             // Keep SC2349 as a suppression alias for authored C114 metadata.
@@ -510,7 +518,6 @@ impl Default for ShellCheckCodeMap {
             (2255, Rule::SubstWithRedirect),
             (2256, Rule::SubstWithRedirectErr),
             (2265, Rule::RedundantReturnStatus),
-            (2089, Rule::AppendWithEscapedQuotes),
             // ShellCheck 0.11.0 reports declaration cross-reference warnings as SC2318.
             // Keep SC2384 as a suppression alias, but prefer the current code for comparisons.
             (2318, Rule::LocalCrossReference),
@@ -921,7 +928,7 @@ impl Default for ShellCheckCodeMap {
                 // warning, but authored S040 metadata and SC2268 suppressions should still map here.
                 (2268, Rule::BackslashBeforeCommand),
                 // ShellCheck 0.11.0 reports redirect collisions as SC2094.
-                // Keep SC2094 available as the live comparison alias for SC2317.
+                // Keep SC2317 available as a legacy suppression alias while SC2094 stays live.
                 (2094, Rule::RedirectClobbersInput),
                 (2351, Rule::XPrefixInTest),
                 (3062, Rule::DollarStringInSh),
@@ -974,6 +981,7 @@ impl Default for ShellCheckCodeMap {
                 (2329, Rule::IfsSetToLiteralBackslashN),
                 (2353, Rule::AssignmentToNumericVariable),
                 (2354, Rule::PlusPrefixInAssignment),
+                // Keep SC2377 available as a historical suppression alias for older C130 metadata.
                 (2377, Rule::AppendWithEscapedQuotes),
                 (2367, Rule::UncheckedDirectoryChangeInFunction),
                 (2368, Rule::ContinueOutsideLoopInFunction),
@@ -2332,7 +2340,7 @@ mod tests {
         assert!(!comparison.contains(&(2009, Rule::DoubleParenGrouping)));
         assert!(comparison.contains(&(2141, Rule::IfsSetToLiteralBackslashN)));
         assert!(comparison.contains(&(1097, Rule::IfsEqualsAmbiguity)));
-        assert!(comparison.contains(&(2089, Rule::AppendWithEscapedQuotes)));
+        assert!(!comparison.contains(&(2089, Rule::AppendWithEscapedQuotes)));
         assert!(comparison.contains(&(2318, Rule::LocalCrossReference)));
         assert!(comparison.contains(&(2290, Rule::SubshellInArithmetic)));
         assert!(comparison.contains(&(2282, Rule::BadVarName)));
@@ -2426,16 +2434,19 @@ mod tests {
     fn comparison_mappings_for_rules_include_selected_only_live_aliases() {
         let mut selected_rules = RuleSet::default();
         selected_rules.insert(Rule::FunctionKeywordInSh);
+        selected_rules.insert(Rule::AppendWithEscapedQuotes);
 
         let comparison = ShellCheckCodeMap::default()
             .comparison_mappings_for_rules(Some(&selected_rules))
             .collect::<std::collections::HashSet<_>>();
 
         assert!(comparison.contains(&(2112, Rule::FunctionKeywordInSh)));
+        assert!(comparison.contains(&(2089, Rule::AppendWithEscapedQuotes)));
 
         let unselected = ShellCheckCodeMap::default()
             .comparison_mappings()
             .collect::<std::collections::HashSet<_>>();
         assert!(!unselected.contains(&(2112, Rule::FunctionKeywordInSh)));
+        assert!(!unselected.contains(&(2089, Rule::AppendWithEscapedQuotes)));
     }
 }

@@ -3464,12 +3464,18 @@ mod tests {
 
     #[test]
     fn large_corpus_comparison_mappings_include_selected_rule_only_aliases() {
-        let selected_rules =
-            shuck_linter::RuleSet::from_iter([shuck_linter::Rule::FunctionKeywordInSh]);
+        let selected_rules = shuck_linter::RuleSet::from_iter([
+            shuck_linter::Rule::FunctionKeywordInSh,
+            shuck_linter::Rule::AppendWithEscapedQuotes,
+        ]);
         let mappings =
             large_corpus_comparison_mappings(Some(&selected_rules)).collect::<HashSet<_>>();
 
         assert!(mappings.contains(&(2112, shuck_linter::Rule::FunctionKeywordInSh)));
+        assert!(mappings.contains(&(2089, shuck_linter::Rule::AppendWithEscapedQuotes)));
+
+        let shared_mappings = large_corpus_comparison_mappings(None).collect::<HashSet<_>>();
+        assert!(!shared_mappings.contains(&(2089, shuck_linter::Rule::AppendWithEscapedQuotes)));
     }
 
     #[test]
