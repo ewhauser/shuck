@@ -64,6 +64,12 @@ reviewed_divergences:
   - side: shuck-only
     path_contains: "tj__n__"
     reason: "These `n` installer helpers and tests pass transient state through helper functions and outer test harness calls. The remaining C001 hits in this repo family are reviewed harness-state handoffs rather than dead assignments."
+  - side: shuck-only
+    path_contains: "scop__bash-completion__"
+    reason: "The bash-completion project is a sourced helper library and compatibility layer that threads parser state, completion globals, and zsh bridge state through later completion callbacks and wrapper entrypoints. The remaining C001 hits in this repo family are reviewed helper-runtime handoffs rather than dead assignments in a standalone script."
+  - side: shuck-only
+    path_contains: "community-scripts__ProxmoxVE__"
+    reason: "These Proxmox helper scripts publish `var_*` template metadata and related provisioning state for the shared build/update framework sourced at startup. The remaining C001 hits in this repo family are reviewed framework handoffs that depend on project closure rather than dead local assignments."
   - side: shellcheck-only
     path_suffix: "SlackBuildsOrg__slackbuilds__libraries__bluez-alsa__bluez-alsa.conf"
     line: 19

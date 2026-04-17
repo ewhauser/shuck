@@ -4063,23 +4063,11 @@ impl<'a> Parser<'a> {
                                 continue;
                             } else {
                                 Self::next_word_char_unwrap(&mut chars, &mut cursor);
-                                let offset = self.read_source_text_while(
+                                let (offset, length) = self.read_parameter_slice_parts(
                                     &mut chars,
                                     &mut cursor,
-                                    |c| c != ':' && c != '}',
                                     source_backed,
                                 );
-                                let length =
-                                    if Self::consume_word_char_if(&mut chars, &mut cursor, ':') {
-                                        Some(self.read_source_text_while(
-                                            &mut chars,
-                                            &mut cursor,
-                                            |c| c != '}',
-                                            source_backed,
-                                        ))
-                                    } else {
-                                        None
-                                    };
                                 Self::consume_word_char_if(&mut chars, &mut cursor, '}');
                                 self.array_slice_word_part(
                                     self.parameter_var_ref(
@@ -4386,24 +4374,11 @@ impl<'a> Parser<'a> {
                                     )
                                 }
                                 _ => {
-                                    let offset = self.read_source_text_while(
+                                    let (offset, length) = self.read_parameter_slice_parts(
                                         &mut chars,
                                         &mut cursor,
-                                        |ch| ch != ':' && ch != '}',
                                         source_backed,
                                     );
-                                    let length =
-                                        if Self::consume_word_char_if(&mut chars, &mut cursor, ':')
-                                        {
-                                            Some(self.read_source_text_while(
-                                                &mut chars,
-                                                &mut cursor,
-                                                |ch| ch != '}',
-                                                source_backed,
-                                            ))
-                                        } else {
-                                            None
-                                        };
                                     Self::consume_word_char_if(&mut chars, &mut cursor, '}');
                                     self.substring_word_part(
                                         self.parameter_var_ref(
@@ -5135,6 +5110,139 @@ impl<'a> Parser<'a> {
             length,
             length_ast,
             length_word_ast,
+        }
+    }
+
+    fn read_parameter_slice_parts(
+        &self,
+        chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+        cursor: &mut Position,
+        source_backed: bool,
+    ) -> (SourceText, Option<SourceText>) {
+        let start = *cursor;
+        let mut offset_end = None;
+        let mut length_start = None;
+        let mut parameter_brace_depth = 0usize;
+        let mut literal_brace_depth = 0usize;
+        let mut in_single = false;
+        let mut in_double = false;
+        let mut escaped = false;
+        let mut offset_text = (!source_backed).then(String::new);
+        let mut length_text = (!source_backed).then(String::new);
+
+        while let Some(&ch) = chars.peek() {
+            if escaped {
+                let consumed = Self::next_word_char_unwrap(chars, cursor);
+                if let Some(text) = length_text.as_mut().or(offset_text.as_mut()) {
+                    text.push(consumed);
+                }
+                escaped = false;
+                continue;
+            }
+
+            match ch {
+                '\\' if !in_single => {
+                    escaped = true;
+                    let consumed = Self::next_word_char_unwrap(chars, cursor);
+                    if let Some(text) = length_text.as_mut().or(offset_text.as_mut()) {
+                        text.push(consumed);
+                    }
+                }
+                '\'' if !in_double => {
+                    in_single = !in_single;
+                    let consumed = Self::next_word_char_unwrap(chars, cursor);
+                    if let Some(text) = length_text.as_mut().or(offset_text.as_mut()) {
+                        text.push(consumed);
+                    }
+                }
+                '"' if !in_single => {
+                    in_double = !in_double;
+                    let consumed = Self::next_word_char_unwrap(chars, cursor);
+                    if let Some(text) = length_text.as_mut().or(offset_text.as_mut()) {
+                        text.push(consumed);
+                    }
+                }
+                '$' if !in_single => {
+                    let consumed = Self::next_word_char_unwrap(chars, cursor);
+                    if let Some(text) = length_text.as_mut().or(offset_text.as_mut()) {
+                        text.push(consumed);
+                    }
+                    if chars.peek() == Some(&'{') {
+                        parameter_brace_depth += 1;
+                        let brace = Self::next_word_char_unwrap(chars, cursor);
+                        if let Some(text) = length_text.as_mut().or(offset_text.as_mut()) {
+                            text.push(brace);
+                        }
+                    }
+                }
+                '{' if !in_single && !in_double => {
+                    literal_brace_depth += 1;
+                    let consumed = Self::next_word_char_unwrap(chars, cursor);
+                    if let Some(text) = length_text.as_mut().or(offset_text.as_mut()) {
+                        text.push(consumed);
+                    }
+                }
+                ':' if !in_single
+                    && !in_double
+                    && parameter_brace_depth == 0
+                    && literal_brace_depth == 0
+                    && length_start.is_none() =>
+                {
+                    offset_end = Some(*cursor);
+                    Self::next_word_char_unwrap(chars, cursor);
+                    length_start = Some(*cursor);
+                }
+                '}' if !in_single && !in_double => {
+                    if parameter_brace_depth > 0 {
+                        parameter_brace_depth -= 1;
+                        let consumed = Self::next_word_char_unwrap(chars, cursor);
+                        if let Some(text) = length_text.as_mut().or(offset_text.as_mut()) {
+                            text.push(consumed);
+                        }
+                    } else if literal_brace_depth > 0 {
+                        literal_brace_depth -= 1;
+                        let consumed = Self::next_word_char_unwrap(chars, cursor);
+                        if let Some(text) = length_text.as_mut().or(offset_text.as_mut()) {
+                            text.push(consumed);
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                _ => {
+                    let consumed = Self::next_word_char_unwrap(chars, cursor);
+                    if let Some(text) = length_text.as_mut().or(offset_text.as_mut()) {
+                        text.push(consumed);
+                    }
+                }
+            }
+        }
+
+        if source_backed {
+            match (offset_end, length_start) {
+                (Some(offset_end), Some(length_start)) => (
+                    SourceText::source(Span::from_positions(start, offset_end)),
+                    Some(SourceText::source(Span::from_positions(
+                        length_start,
+                        *cursor,
+                    ))),
+                ),
+                _ => (
+                    SourceText::source(Span::from_positions(start, *cursor)),
+                    None,
+                ),
+            }
+        } else {
+            match (offset_end, length_start) {
+                (Some(offset_end), Some(length_start)) => (
+                    self.source_text(offset_text.unwrap_or_default(), start, offset_end),
+                    Some(self.source_text(length_text.unwrap_or_default(), length_start, *cursor)),
+                ),
+                _ => (
+                    self.source_text(offset_text.unwrap_or_default(), start, *cursor),
+                    None,
+                ),
+            }
         }
     }
 

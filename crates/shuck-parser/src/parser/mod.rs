@@ -5923,31 +5923,6 @@ impl<'a> Parser<'a> {
         text
     }
 
-    fn read_source_text_while<F>(
-        &self,
-        chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
-        cursor: &mut Position,
-        mut predicate: F,
-        source_backed: bool,
-    ) -> SourceText
-    where
-        F: FnMut(char) -> bool,
-    {
-        let start = *cursor;
-        if source_backed {
-            while let Some(&ch) = chars.peek() {
-                if !predicate(ch) {
-                    break;
-                }
-                Self::next_word_char_unwrap(chars, cursor);
-            }
-            SourceText::source(Span::from_positions(start, *cursor))
-        } else {
-            let text = Self::read_word_while(chars, cursor, predicate);
-            self.source_text(text, start, *cursor)
-        }
-    }
-
     fn rebase_redirects(redirects: &mut [Redirect], base: Position) {
         for redirect in redirects {
             redirect.span = redirect.span.rebased(base);

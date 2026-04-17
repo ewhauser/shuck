@@ -698,6 +698,41 @@ fn test_substring_and_array_slice_attach_arithmetic_companion_asts() {
 }
 
 #[test]
+fn test_substring_offset_preserves_postfix_and_nested_length_arithmetic() {
+    let input = "echo \"${chars:spin_i++%${#chars}:1}\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+
+    let WordPart::DoubleQuoted { parts, .. } = &command.args[0].parts[0].kind else {
+        panic!("expected double-quoted word");
+    };
+
+    let (_, offset_ast, length_ast) = expect_substring_part(&parts[0].kind);
+    let ArithmeticExpr::Binary { left, op, right } = &offset_ast
+        .as_ref()
+        .expect("expected offset arithmetic AST")
+        .kind
+    else {
+        panic!("expected modulo offset expression");
+    };
+    assert_eq!(*op, ArithmeticBinaryOp::Modulo);
+    let ArithmeticExpr::Postfix { expr, op } = &left.kind else {
+        panic!("expected postfix increment on the left side");
+    };
+    assert_eq!(*op, ArithmeticPostfixOp::Increment);
+    expect_variable(expr, "spin_i");
+    expect_shell_word(right, input, "${#chars}");
+    expect_number(
+        length_ast.as_ref().expect("expected substring length AST"),
+        input,
+        "1",
+    );
+}
+
+#[test]
 fn test_non_arithmetic_subscripts_leave_companion_ast_empty() {
     let input = "echo ${arr[@]} ${arr[*]} ${map[\"key\"]}\n";
     let script = Parser::new(input).parse().unwrap().file;

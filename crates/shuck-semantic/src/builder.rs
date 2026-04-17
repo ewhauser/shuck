@@ -977,6 +977,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             (kind, self.current_scope())
         });
         attributes |= assignment_binding_attributes(assignment);
+        if assignment_has_empty_initializer(assignment, self.source) {
+            attributes |= BindingAttributes::EMPTY_INITIALIZER;
+        }
         if assignment.target.subscript.is_some()
             && !attributes.contains(BindingAttributes::ASSOC)
             && self
@@ -2775,6 +2778,13 @@ fn assignment_value_span(assignment: &Assignment) -> Span {
     match &assignment.value {
         AssignmentValue::Scalar(word) => word.span,
         AssignmentValue::Compound(array) => array.span,
+    }
+}
+
+fn assignment_has_empty_initializer(assignment: &Assignment, source: &str) -> bool {
+    match &assignment.value {
+        AssignmentValue::Scalar(word) => static_word_text(word, source).as_deref() == Some(""),
+        AssignmentValue::Compound(array) => array.elements.is_empty(),
     }
 }
 

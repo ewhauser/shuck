@@ -471,6 +471,17 @@ fn analyze_unused_assignments_exact(
         let reason = exact.binding_data.next_overwrite[binding.id.index()]
             .map(|by| UnusedReason::Overwritten { by })
             .unwrap_or(UnusedReason::ScopeEnd);
+        if binding
+            .attributes
+            .contains(BindingAttributes::EMPTY_INITIALIZER)
+            && let UnusedReason::Overwritten { by } = reason
+            && (binding.attributes.contains(BindingAttributes::LOCAL)
+                || exact.binding_blocks[by.index()].is_some_and(|overwrite_block| {
+                    is_straight_line_overwrite(context.cfg, block_id, overwrite_block)
+                }))
+        {
+            continue;
+        }
         unused_assignments.push(UnusedAssignment {
             binding: binding.id,
             reason,
@@ -675,6 +686,38 @@ fn block_can_reach(
     let can_reach = reachable.contains(to.index());
     reachability_cache[from.index()] = Some(reachable);
     can_reach
+}
+
+fn is_straight_line_overwrite(cfg: &ControlFlowGraph, from: BlockId, to: BlockId) -> bool {
+    if from == to {
+        return true;
+    }
+
+    let mut current = from;
+    let mut visited = DenseBitSet::new(cfg.blocks().len());
+    visited.insert(current.index());
+    loop {
+        let successors = cfg.successors(current);
+        if successors.len() != 1 {
+            return false;
+        }
+
+        let (next, edge) = successors[0];
+        if !matches!(edge, EdgeKind::Sequential) {
+            return false;
+        }
+        if cfg.predecessors(next).len() != 1 {
+            return false;
+        }
+        if next == to {
+            return true;
+        }
+        if visited.contains(next.index()) {
+            return false;
+        }
+        visited.insert(next.index());
+        current = next;
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

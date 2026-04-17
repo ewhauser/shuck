@@ -1249,6 +1249,68 @@ printf '%s\\n' \"${arr[@]}\"
     }
 
     #[test]
+    fn assignments_used_in_process_substitution_are_not_flagged() {
+        let diagnostics = lint(
+            "\
+#!/bin/bash
+f() {
+  local opts
+  case \"$1\" in
+    a) opts=alpha ;;
+    *) opts=beta ;;
+  esac
+  while IFS= read -r line; do :; done < <(printf '%s\\n' \"$opts\")
+}
+f a
+",
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 8);
+        assert_eq!(diagnostics[0].span.slice(
+            "#!/bin/bash\nf() {\n  local opts\n  case \"$1\" in\n    a) opts=alpha ;;\n    *) opts=beta ;;\n  esac\n  while IFS= read -r line; do :; done < <(printf '%s\\n' \"$opts\")\n}\nf a\n"
+        ), "line");
+    }
+
+    #[test]
+    fn overwritten_empty_initializers_only_report_the_later_dead_assignment() {
+        let source = "\
+#!/bin/bash
+f() {
+  local foo=
+  foo=bar
+}
+f
+";
+        let diagnostics = lint_for_rule(source, Rule::UnusedAssignment);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 4);
+        assert_eq!(diagnostics[0].span.slice(source), "foo");
+    }
+
+    #[test]
+    fn substring_offset_arithmetic_reads_do_not_trigger_unused_assignment() {
+        let diagnostics = lint(
+            "\
+#!/bin/bash
+spinner() {
+  local chars=\"/-\\\\|\"
+  local spin_i=0
+  while true; do
+    printf '%s\\n' \"${chars:spin_i++%${#chars}:1}\"
+  done
+}
+spinner
+",
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn unused_append_assignment_is_not_flagged() {
         let diagnostics = lint_for_rule("#!/bin/bash\nfoo+=bar\n", Rule::UnusedAssignment);
 
@@ -1316,6 +1378,22 @@ f
     }
 
     #[test]
+    fn getopts_runtime_state_assignments_are_not_flagged() {
+        let source = "\
+#!/bin/sh
+f() {
+  local flag OPTIND=1 OPTARG='' OPTERR=0
+  while getopts 'a:' flag; do :; done
+}
+f
+";
+        let diagnostics = lint_for_rule(source, Rule::UnusedAssignment);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnusedAssignment);
+        assert_eq!(diagnostics[0].span.slice(source), "flag");
+    }
+
+    #[test]
     fn global_ifs_assignment_is_not_flagged_but_unrelated_assignment_is() {
         let source = "\
 #!/bin/bash
@@ -1340,6 +1418,36 @@ LC_ALL=C
 LC_TIME=C
 unused=1
 echo ok
+";
+        let diagnostics = lint_for_rule(source, Rule::UnusedAssignment);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnusedAssignment);
+        assert_eq!(diagnostics[0].span.slice(source), "unused");
+    }
+
+    #[test]
+    fn special_runtime_assignments_are_not_flagged_but_unrelated_assignment_is() {
+        let source = "\
+#!/bin/bash
+HOME=/tmp/home
+SHELL=/bin/bash
+TERM=xterm-256color
+USER=builder
+PWD=/tmp/work
+HISTFILE=/tmp/history
+HISTFILESIZE=unlimited
+HISTIGNORE='ls:bg:fg:history'
+HISTSIZE=-1
+HISTTIMEFORMAT='%F %T '
+COMP_WORDBREAKS=\"${COMP_WORDBREAKS//:/}\"
+PROMPT_COMMAND='history -a'
+PS1='prompt> '
+PS2='continuation> '
+PS3=''
+PS4='+ '
+COLUMNS=1
+READLINE_POINT=0
+unused=1
 ";
         let diagnostics = lint_for_rule(source, Rule::UnusedAssignment);
         assert_eq!(diagnostics.len(), 1);
