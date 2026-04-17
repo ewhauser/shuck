@@ -2461,6 +2461,20 @@ fi
     }
 
     #[test]
+    fn linear_duplicate_assignments_with_unrelated_reads_keep_all_reported_ids() {
+        let source = "\
+emoji[grinning]=1
+printf '%s\n' \"$OTHER\"
+emoji[smile]=2
+";
+        let model = model(source);
+        let all_bindings = model.bindings_for(&Name::from("emoji")).to_vec();
+        let binding_ids = model.analysis().dataflow().unused_assignment_ids().to_vec();
+
+        assert_eq!(binding_ids, all_bindings);
+    }
+
+    #[test]
     fn branch_join_defs_used_in_later_function_body_are_all_live() {
         let source = "\
 if command -v code >/dev/null 2>&1; then
