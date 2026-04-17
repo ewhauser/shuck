@@ -1704,8 +1704,7 @@ fn format_large_corpus_report(collection: &FixtureFailureCollection) -> String {
         sections.push(section);
     }
 
-    if let Some(section) = format_report_section("Harness Warnings", &collection.harness_warnings)
-    {
+    if let Some(section) = format_report_section("Harness Warnings", &collection.harness_warnings) {
         sections.push(section);
     }
 
