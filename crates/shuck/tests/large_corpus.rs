@@ -2205,11 +2205,8 @@ fn fixture_selected_for_sample(fixture: &LargeCorpusFixture, sample_percent: usi
 fn resolve_shell(path: &Path, src: &[u8]) -> String {
     let source = String::from_utf8_lossy(src);
     let source = source.strip_prefix('\u{feff}').unwrap_or(source.as_ref());
-    let trimmed_first_line = source
-        .lines()
-        .next()
-        .map(|line| line.trim_start().to_ascii_lowercase())
-        .unwrap_or_default();
+    let first_line = source.lines().next().unwrap_or_default();
+    let trimmed_first_line = first_line.trim_start().to_ascii_lowercase();
 
     if trimmed_first_line.starts_with("#compdef") || trimmed_first_line.starts_with("#autoload") {
         return "zsh".into();
@@ -2221,7 +2218,38 @@ fn resolve_shell(path: &Path, src: &[u8]) -> String {
         shuck_linter::ShellDialect::Zsh => "zsh".into(),
         shuck_linter::ShellDialect::Unknown
         | shuck_linter::ShellDialect::Sh
-        | shuck_linter::ShellDialect::Dash => "sh".into(),
+        | shuck_linter::ShellDialect::Dash => shebang_shell_hint(first_line).unwrap_or("sh").into(),
+    }
+}
+
+fn shebang_shell_hint(first_line: &str) -> Option<&'static str> {
+    let trimmed = first_line.trim_start();
+    if !trimmed.starts_with("#!") && !trimmed.starts_with("# !") {
+        return None;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    let mut saw_sh = false;
+    let mut saw_dash = false;
+    let mut saw_ksh = false;
+
+    for token in lower.split(|c: char| !c.is_ascii_alphanumeric()) {
+        match token {
+            "bash" => return Some("bash"),
+            "zsh" => return Some("zsh"),
+            "mksh" | "ksh" => saw_ksh = true,
+            "dash" => saw_dash = true,
+            "sh" => saw_sh = true,
+            _ => {}
+        }
+    }
+
+    if saw_ksh {
+        Some("ksh")
+    } else if saw_dash || saw_sh {
+        Some("sh")
+    } else {
+        None
     }
 }
 
@@ -3035,6 +3063,17 @@ mod tests {
             resolve_shell(
                 Path::new("example"),
                 b"\xEF\xBB\xBF#!/usr/bin/env bash\necho hi\n",
+            ),
+            "bash"
+        );
+    }
+
+    #[test]
+    fn resolve_shell_env_splitstring_bash_shebang_without_extension() {
+        assert_eq!(
+            resolve_shell(
+                Path::new("example"),
+                b"#!/usr/bin/env -S bash -e\necho hi\n",
             ),
             "bash"
         );
