@@ -52,6 +52,30 @@ class CompactLargeCorpusLogTests(unittest.TestCase):
         self.assertIn("... omitted 2 additional entries from Implementation Diffs", compacted)
         self.assertIn("test large_corpus_conforms_with_shellcheck ... FAILED", compacted)
 
+    def test_blank_lines_inside_one_fixture_do_not_hide_later_fixtures(self) -> None:
+        lines = ["Implementation Diffs:\n", "/tmp/noisy.sh\n"]
+        for i in range(8):
+            lines.extend(
+                [
+                    f"  shellcheck-only C001/SC2000 {i + 1}:1-{i + 1}:5 error example {i}\n",
+                    "\n",
+                ]
+            )
+        lines.extend(
+            [
+                "/tmp/second.sh\n",
+                "  shellcheck-only C001/SC2000 9:1-9:5 error second\n",
+                "\n",
+                "test large_corpus_conforms_with_shellcheck ... FAILED\n",
+            ]
+        )
+
+        compacted = "".join(MODULE.iter_compacted_lines(lines))
+
+        self.assertIn("/tmp/noisy.sh", compacted)
+        self.assertIn("/tmp/second.sh", compacted)
+        self.assertNotIn("additional entries from Implementation Diffs", compacted)
+
 
 if __name__ == "__main__":
     unittest.main()

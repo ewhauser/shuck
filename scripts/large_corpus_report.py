@@ -39,6 +39,7 @@ MAIN_SUMMARY_RE = re.compile(
     r"harness_warnings=(?P<harness_warnings>\d+) "
     r"harness_failures=(?P<harness_failures>\d+)"
 )
+MAIN_TIMEOUT_NOTE_RE = re.compile(r"large corpus compatibility note: (?P<note>.+)")
 ZSH_FAILURE_RE = re.compile(
     r"large corpus zsh parse had (?P<blocking>\d+) blocking issue\(s\) "
     r"across (?P<fixtures>\d+) fixture\(s\)"
@@ -447,6 +448,7 @@ def render_html(
     corpus_noise: int,
     main_harness_warnings: int,
     main_harness_failures: int,
+    main_timeout_note: str | None,
     zsh_blocking: int,
     zsh_fixture_entries: int,
     zsh_harness_failures: int,
@@ -465,6 +467,11 @@ def render_html(
         )
     else:
         panic_text = "no worker-thread panic was detected in the parsed log"
+    timeout_note_html = (
+        f'\n      <p class="note">{html.escape(main_timeout_note)}</p>'
+        if main_timeout_note
+        else ""
+    )
 
     rule_rows = "\n".join(
         """
@@ -1073,6 +1080,7 @@ def render_html(
         and harness failures even when some of those buckets are intentionally excluded from the
         rule-mismatch table above or no longer counted as blocking.
       </p>
+      {timeout_note_html}
       <div class="table-wrap">
         <table>
           <thead>
@@ -1123,6 +1131,7 @@ def main() -> int:
 
     main_summary_match = MAIN_SUMMARY_RE.search(text)
     main_failure_match = MAIN_FAILURE_RE.search(text)
+    main_timeout_note_match = MAIN_TIMEOUT_NOTE_RE.search(text)
     if not main_summary_match and not main_failure_match:
         raise SystemExit("could not find the main compatibility summary in the log")
     zsh_failure_match = ZSH_FAILURE_RE.search(text)
@@ -1191,6 +1200,9 @@ def main() -> int:
         corpus_noise=corpus_noise_count,
         main_harness_warnings=main_harness_warning_count,
         main_harness_failures=main_harness_failure_count,
+        main_timeout_note=main_timeout_note_match.group("note")
+        if main_timeout_note_match
+        else None,
         zsh_blocking=int(zsh_failure_match.group("blocking")) if zsh_failure_match else 0,
         zsh_fixture_entries=int(zsh_failure_match.group("fixtures")) if zsh_failure_match else 0,
         zsh_harness_failures=count_fixture_entries(zsh_harness_section),

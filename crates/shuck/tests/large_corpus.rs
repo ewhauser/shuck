@@ -792,14 +792,7 @@ fn large_corpus_conforms_with_shellcheck() {
         });
     let mut failure_collection = failure_collection;
     failure_collection.unsupported_shells = skipped_unsupported_shells;
-    let timeout_cap_note = if failure_collection.timeout_cap_reached {
-        format!(
-            "; reported the first {} fixture timeouts as warnings",
-            LARGE_CORPUS_TIMEOUT_FAILURE_CAP
-        )
-    } else {
-        String::new()
-    };
+    let timeout_cap_note = timeout_cap_note_suffix(failure_collection.timeout_cap_reached);
 
     eprintln!(
         "large corpus compatibility summary: blocking={} warnings={} fixtures={} unsupported_shells={} implementation_diffs={} mapping_issues={} reviewed_divergences={} corpus_noise={} harness_warnings={} harness_failures={}",
@@ -813,6 +806,10 @@ fn large_corpus_conforms_with_shellcheck() {
         failure_collection.corpus_noise.len(),
         failure_collection.harness_warnings.len(),
         failure_collection.harness_failures.len(),
+    );
+    emit_timeout_cap_note(
+        "large corpus compatibility",
+        failure_collection.timeout_cap_reached,
     );
     if failure_collection.blocking_failures() == 0 && failure_collection.has_nonblocking_items() {
         eprintln!("{}", format_large_corpus_report(&failure_collection));
@@ -860,14 +857,11 @@ fn large_corpus_zsh_fixtures_parse() {
     let failure_collection = collect_fixture_failures(&zsh_fixtures, cfg.keep_going, |fixture| {
         evaluate_fixture_zsh_parse(fixture, cfg.shuck_timeout)
     });
-    let timeout_cap_note = if failure_collection.timeout_cap_reached {
-        format!(
-            "; reported the first {} fixture timeouts as warnings",
-            LARGE_CORPUS_TIMEOUT_FAILURE_CAP
-        )
-    } else {
-        String::new()
-    };
+    let timeout_cap_note = timeout_cap_note_suffix(failure_collection.timeout_cap_reached);
+    emit_timeout_cap_note(
+        "large corpus zsh parse",
+        failure_collection.timeout_cap_reached,
+    );
 
     assert!(
         failure_collection.blocking_failures() == 0,
@@ -1692,6 +1686,31 @@ fn format_large_corpus_failure_report(collection: &FixtureFailureCollection) -> 
 
 fn format_large_corpus_report(collection: &FixtureFailureCollection) -> String {
     format_large_corpus_report_with_mode(collection, LargeCorpusReportMode::Full)
+}
+
+fn timeout_cap_note_message() -> String {
+    format!(
+        "only the first {} fixture timeouts were recorded as harness warnings; additional timeout fixtures were omitted",
+        LARGE_CORPUS_TIMEOUT_FAILURE_CAP
+    )
+}
+
+fn timeout_cap_note_suffix(timeout_cap_reached: bool) -> String {
+    if timeout_cap_reached {
+        format!("; {}", timeout_cap_note_message())
+    } else {
+        String::new()
+    }
+}
+
+fn timeout_cap_note_line(scope: &str, timeout_cap_reached: bool) -> Option<String> {
+    timeout_cap_reached.then(|| format!("{scope} note: {}.", timeout_cap_note_message()))
+}
+
+fn emit_timeout_cap_note(scope: &str, timeout_cap_reached: bool) {
+    if let Some(note) = timeout_cap_note_line(scope, timeout_cap_reached) {
+        eprintln!("{note}");
+    }
 }
 
 fn format_large_corpus_report_with_mode(
@@ -3786,6 +3805,21 @@ mod tests {
         assert!(!report.contains("Corpus Noise:"));
         assert!(!report.contains("Harness Warnings:"));
         assert!(report.contains("Nonblocking issue buckets were omitted"));
+    }
+
+    #[test]
+    fn timeout_cap_note_line_is_structured() {
+        assert_eq!(
+            timeout_cap_note_line("large corpus compatibility", true),
+            Some(format!(
+                "large corpus compatibility note: only the first {} fixture timeouts were recorded as harness warnings; additional timeout fixtures were omitted.",
+                LARGE_CORPUS_TIMEOUT_FAILURE_CAP
+            ))
+        );
+        assert_eq!(
+            timeout_cap_note_line("large corpus compatibility", false),
+            None
+        );
     }
 
     #[test]

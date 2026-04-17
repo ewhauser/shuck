@@ -17,10 +17,12 @@ SECTION_HEADERS = {
     "Harness Failures:",
 }
 MAX_BLOCKS_PER_SECTION = 8
+FIXTURE_HEADER_RE = re.compile(r"^/.*$")
 IMPORTANT_LINE_RES = [
     re.compile(r"^running \d+ tests$"),
     re.compile(r"^large corpus: processed \d+/\d+ fixtures"),
     re.compile(r"^large corpus compatibility summary: "),
+    re.compile(r"^large corpus (compatibility|zsh parse) note: "),
     re.compile(r"^large corpus .* had \d+ blocking issue\(s\) "),
     re.compile(r"^large corpus test skipped "),
     re.compile(r"^large corpus zsh parse skipped "),
@@ -93,9 +95,13 @@ def iter_compacted_lines(lines: list[str]) -> list[str]:
                 section = None
                 continue
 
-            if stripped == "":
+            if FIXTURE_HEADER_RE.match(stripped):
                 output.extend(flush_block(section))
+                section.current_block = [line]
             else:
+                if stripped == "" and not section.current_block:
+                    index += 1
+                    continue
                 section.current_block.append(line)
             index += 1
             continue

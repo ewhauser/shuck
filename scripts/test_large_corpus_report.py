@@ -111,6 +111,36 @@ test large_corpus_conforms_with_shellcheck ... FAILED
         self.assertIn("5 corpus-noise parse failures,", html)
         self.assertIn("6 main harness warnings,", html)
 
+    def test_main_timeout_cap_note_is_rendered(self) -> None:
+        log = """large corpus compatibility summary: blocking=0 warnings=5 fixtures=1 unsupported_shells=0 implementation_diffs=0 mapping_issues=0 reviewed_divergences=0 corpus_noise=0 harness_warnings=5 harness_failures=0
+large corpus compatibility note: only the first 5 fixture timeouts were recorded as harness warnings; additional timeout fixtures were omitted.
+Harness Warnings:
+/tmp/main-fixture.sh
+  shuck error: timed out after 30.000s
+test large_corpus_conforms_with_shellcheck ... ok
+"""
+
+        with tempfile.TemporaryDirectory() as tempdir:
+            log_path = Path(tempdir) / "large-corpus.log"
+            output_path = Path(tempdir) / "report.html"
+            log_path.write_text(log, encoding="utf-8")
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT_PATH),
+                    "--log",
+                    str(log_path),
+                    "--output",
+                    str(output_path),
+                ],
+                check=True,
+            )
+
+            html = output_path.read_text(encoding="utf-8")
+
+        self.assertIn("only the first 5 fixture timeouts were recorded as harness warnings", html)
+
 
 if __name__ == "__main__":
     unittest.main()
