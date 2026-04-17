@@ -763,23 +763,52 @@ struct LargeCorpusTimingRecord {
     outcome: LargeCorpusTimingOutcome,
 }
 
+#[derive(Debug, Default)]
+struct LargeCorpusTimingCollection {
+    records: Vec<LargeCorpusTimingRecord>,
+    timeout_cap_reached: bool,
+}
+
 fn collect_fixture_timings(
     fixtures: &[&LargeCorpusFixture],
     shuck_timeout: Duration,
     linter_settings: &shuck_linter::LinterSettings,
     shuck_path_resolver: Arc<LargeCorpusPathResolver>,
-) -> Vec<LargeCorpusTimingRecord> {
-    fixtures
-        .iter()
-        .map(|fixture| {
-            measure_fixture_timing(
-                fixture,
-                shuck_timeout,
-                linter_settings,
-                Arc::clone(&shuck_path_resolver),
-            )
-        })
-        .collect()
+) -> LargeCorpusTimingCollection {
+    collect_fixture_timing_records(fixtures, |fixture| {
+        measure_fixture_timing(
+            fixture,
+            shuck_timeout,
+            linter_settings,
+            Arc::clone(&shuck_path_resolver),
+        )
+    })
+}
+
+fn collect_fixture_timing_records<F>(
+    fixtures: &[&LargeCorpusFixture],
+    evaluate: F,
+) -> LargeCorpusTimingCollection
+where
+    F: Fn(&LargeCorpusFixture) -> LargeCorpusTimingRecord,
+{
+    let mut collection = LargeCorpusTimingCollection::default();
+    let mut timeout_count = 0;
+
+    for fixture in fixtures {
+        let record = evaluate(fixture);
+        if record.outcome == LargeCorpusTimingOutcome::Timeout {
+            timeout_count += 1;
+        }
+        collection.records.push(record);
+
+        if timeout_count >= LARGE_CORPUS_TIMEOUT_FAILURE_CAP {
+            collection.timeout_cap_reached = true;
+            break;
+        }
+    }
+
+    collection
 }
 
 fn measure_fixture_timing(
@@ -837,16 +866,23 @@ fn ranked_large_corpus_timings(
     ranked
 }
 
-fn format_large_corpus_timing_report(records: &[LargeCorpusTimingRecord]) -> String {
-    let ranked = ranked_large_corpus_timings(records);
+fn timing_timeout_cap_note() -> String {
+    format!(
+        "large corpus timing note: stopped after {} timed-out fixture(s) to avoid leaving additional timed-out workers running.",
+        LARGE_CORPUS_TIMEOUT_FAILURE_CAP
+    )
+}
+
+fn format_large_corpus_timing_report(collection: &LargeCorpusTimingCollection) -> String {
+    let ranked = ranked_large_corpus_timings(&collection.records);
     if ranked.is_empty() {
         return "large corpus timing: no supported fixtures selected".into();
     }
 
     let mut lines = vec![format!(
-        "large corpus timing: showing {} slowest shuck fixture(s) out of {}",
+        "large corpus timing: showing {} slowest shuck fixture(s) out of {} measured fixture(s)",
         ranked.len(),
-        records.len()
+        collection.records.len()
     )];
     lines.extend(ranked.iter().enumerate().map(|(index, record)| {
         format!(
@@ -857,6 +893,9 @@ fn format_large_corpus_timing_report(records: &[LargeCorpusTimingRecord]) -> Str
             record.fixture_label
         )
     }));
+    if collection.timeout_cap_reached {
+        lines.push(timing_timeout_cap_note());
+    }
     lines.join("\n")
 }
 
@@ -3312,24 +3351,30 @@ mod tests {
 
     #[test]
     fn format_large_corpus_timing_report_handles_fewer_than_limit() {
-        let report = format_large_corpus_timing_report(&[
-            timing_record("slow.sh", 900, LargeCorpusTimingOutcome::Ok),
-            timing_record("faster.sh", 300, LargeCorpusTimingOutcome::Ok),
-        ]);
+        let report = format_large_corpus_timing_report(&LargeCorpusTimingCollection {
+            records: vec![
+                timing_record("slow.sh", 900, LargeCorpusTimingOutcome::Ok),
+                timing_record("faster.sh", 300, LargeCorpusTimingOutcome::Ok),
+            ],
+            timeout_cap_reached: false,
+        });
 
-        assert!(report.contains("showing 2 slowest shuck fixture(s) out of 2"));
+        assert!(report.contains("showing 2 slowest shuck fixture(s) out of 2 measured fixture(s)"));
         assert!(report.contains("1. 900ms [ok] slow.sh"));
         assert!(report.contains("2. 300ms [ok] faster.sh"));
     }
 
     #[test]
     fn format_large_corpus_timing_report_includes_status_labels() {
-        let report = format_large_corpus_timing_report(&[
-            timing_record("ok.sh", 40, LargeCorpusTimingOutcome::Ok),
-            timing_record("parse.sh", 30, LargeCorpusTimingOutcome::ParseError),
-            timing_record("timeout.sh", 20, LargeCorpusTimingOutcome::Timeout),
-            timing_record("error.sh", 10, LargeCorpusTimingOutcome::Error),
-        ]);
+        let report = format_large_corpus_timing_report(&LargeCorpusTimingCollection {
+            records: vec![
+                timing_record("ok.sh", 40, LargeCorpusTimingOutcome::Ok),
+                timing_record("parse.sh", 30, LargeCorpusTimingOutcome::ParseError),
+                timing_record("timeout.sh", 20, LargeCorpusTimingOutcome::Timeout),
+                timing_record("error.sh", 10, LargeCorpusTimingOutcome::Error),
+            ],
+            timeout_cap_reached: false,
+        });
 
         assert!(report.contains("[ok] ok.sh"));
         assert!(report.contains("[parse-error] parse.sh"));
@@ -3340,9 +3385,48 @@ mod tests {
     #[test]
     fn format_large_corpus_timing_report_handles_empty_input() {
         assert_eq!(
-            format_large_corpus_timing_report(&[]),
+            format_large_corpus_timing_report(&LargeCorpusTimingCollection::default()),
             "large corpus timing: no supported fixtures selected"
         );
+    }
+
+    #[test]
+    fn collect_fixture_timing_records_stops_after_timeout_cap() {
+        let fixtures = (0..10)
+            .map(|i| fixture(&format!("timeout-{i}.sh")))
+            .collect::<Vec<_>>();
+        let fixture_refs = fixtures.iter().collect::<Vec<_>>();
+        let seen = AtomicUsize::new(0);
+
+        let collection = collect_fixture_timing_records(&fixture_refs, |fixture| {
+            seen.fetch_add(1, Ordering::Relaxed);
+            timing_record(
+                fixture.path.to_string_lossy().as_ref(),
+                100,
+                LargeCorpusTimingOutcome::Timeout,
+            )
+        });
+
+        assert!(collection.timeout_cap_reached);
+        assert_eq!(collection.records.len(), LARGE_CORPUS_TIMEOUT_FAILURE_CAP);
+        assert_eq!(
+            seen.load(Ordering::Relaxed),
+            LARGE_CORPUS_TIMEOUT_FAILURE_CAP
+        );
+    }
+
+    #[test]
+    fn format_large_corpus_timing_report_includes_timeout_cap_note() {
+        let report = format_large_corpus_timing_report(&LargeCorpusTimingCollection {
+            records: vec![timing_record(
+                "timeout.sh",
+                100,
+                LargeCorpusTimingOutcome::Timeout,
+            )],
+            timeout_cap_reached: true,
+        });
+
+        assert!(report.contains("large corpus timing note: stopped after"));
     }
 
     #[test]
