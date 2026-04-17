@@ -3,8 +3,10 @@ use shuck_ast::{
     BourneParameterExpansion, Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp,
     RedirectKind, SourceText, Span, VarRef, Word, WordPart, WordPartNode,
 };
-use shuck_semantic::BindingId;
-use shuck_semantic::{BindingAttributes, BindingKind, SemanticAnalysis, SemanticModel};
+use shuck_semantic::{
+    BindingAttributes, BindingKind, SemanticAnalysis, SemanticModel, UninitializedCertainty,
+};
+use shuck_semantic::{BindingId, BlockId, ReferenceId, ReferenceKind};
 
 use crate::{FactSpan, LinterFacts};
 
@@ -80,6 +82,7 @@ impl<'a> SafeValueIndex<'a> {
         let maybe_uninitialized_refs = analysis
             .uninitialized_references()
             .iter()
+            .filter(|uninitialized| uninitialized.certainty == UninitializedCertainty::Possible)
             .map(|uninitialized| FactSpan::new(semantic.reference(uninitialized.reference).span))
             .collect();
 
@@ -193,6 +196,14 @@ impl<'a> SafeValueIndex<'a> {
         if bindings.is_empty() {
             return false;
         }
+        if self.maybe_uninitialized_refs.contains(&FactSpan::new(at))
+            && !bindings
+                .iter()
+                .copied()
+                .any(|binding_id| self.binding_dominates_reference(binding_id, name, at))
+        {
+            return false;
+        }
 
         bindings
             .into_iter()
@@ -281,6 +292,75 @@ impl<'a> SafeValueIndex<'a> {
         }
 
         bindings
+    }
+
+    fn binding_dominates_reference(&self, binding_id: BindingId, name: &Name, at: Span) -> bool {
+        let Some(reference_id) = self.reference_id_for_name_at(name, at) else {
+            return false;
+        };
+        let Some(reference_block) = self.block_for_reference(reference_id) else {
+            return false;
+        };
+        let Some(binding_block) = self.block_for_binding(binding_id) else {
+            return false;
+        };
+        if binding_block == reference_block {
+            return true;
+        }
+
+        let cfg = self.analysis.cfg();
+        let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
+        let mut stack = vec![cfg.entry()];
+        let mut seen = FxHashSet::default();
+        while let Some(block_id) = stack.pop() {
+            if block_id == binding_block
+                || unreachable.contains(&block_id)
+                || !seen.insert(block_id)
+            {
+                continue;
+            }
+            if block_id == reference_block {
+                return false;
+            }
+            for (successor, _) in cfg.successors(block_id) {
+                stack.push(*successor);
+            }
+        }
+
+        true
+    }
+
+    fn reference_id_for_name_at(&self, name: &Name, at: Span) -> Option<ReferenceId> {
+        self.semantic
+            .references()
+            .iter()
+            .find(|reference| {
+                reference.span == at
+                    && &reference.name == name
+                    && !matches!(
+                        reference.kind,
+                        ReferenceKind::DeclarationName | ReferenceKind::ImplicitRead
+                    )
+            })
+            .map(|reference| reference.id)
+    }
+
+    fn block_for_binding(&self, binding_id: BindingId) -> Option<BlockId> {
+        self.analysis
+            .cfg()
+            .blocks()
+            .iter()
+            .find(|block| block.bindings.contains(&binding_id))
+            .map(|block| block.id)
+    }
+
+    fn block_for_reference(&self, reference_id: ReferenceId) -> Option<BlockId> {
+        self.analysis
+            .cfg()
+            .blocks()
+            .iter()
+            .find(|block| block.references.contains(&reference_id))
+            .map(|block| block.id)
     }
 
     fn transformation_is_safe(
@@ -605,6 +685,30 @@ if [ \"$foo\" = \"\" ]; then foo=0; fi
         let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
 
         let Command::Simple(command) = &output.file.body[2].command else {
+            panic!("expected simple test command");
+        };
+
+        assert!(!safe_values.word_is_safe(&command.args[0], SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn conditionally_initialized_names_stay_unsafe() {
+        let source = "\
+#!/bin/bash
+if [ \"$1\" = yes ]; then
+  foo=0
+fi
+[ $foo -eq 1 ]
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let Command::Simple(command) = &output.file.body[1].command else {
             panic!("expected simple test command");
         };
 

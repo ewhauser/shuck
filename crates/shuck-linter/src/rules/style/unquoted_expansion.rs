@@ -74,7 +74,7 @@ fn report_word_expansions(
     safe_values: &mut SafeValueIndex<'_>,
     fact: &WordFact<'_>,
     context: ExpansionContext,
-    colon_command_argument: bool,
+    in_colon_command: bool,
 ) {
     if !fact.analysis().hazards.field_splitting && !fact.analysis().hazards.pathname_matching {
         return;
@@ -82,7 +82,7 @@ fn report_word_expansions(
 
     let scalar_spans = fact.scalar_expansion_spans();
     let array_spans = fact.unquoted_array_expansion_spans();
-    let assign_default_spans = if colon_command_argument {
+    let assign_default_spans = if in_colon_command && context == ExpansionContext::CommandArgument {
         word_unquoted_assign_default_spans(fact.word())
     } else {
         Default::default()
@@ -281,6 +281,23 @@ printf '%s\\n' ${z:=fallback}
                 .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.slice(source)))
                 .collect::<Vec<_>>(),
             vec![(2, "$other"), (3, "${z:=fallback}")]
+        );
+    }
+
+    #[test]
+    fn keeps_colon_assign_default_reports_for_here_strings_and_redirect_targets() {
+        let source = "\
+#!/bin/bash
+: <<< ${x:=fallback} >${y:=out}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${x:=fallback}", "${y:=out}"]
         );
     }
 
@@ -542,6 +559,26 @@ if [ \"$foo\" = \"\" ]; then
   foo=0
 fi
 if [ $foo -eq 1 ]; then :; fi
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$foo"]
+        );
+    }
+
+    #[test]
+    fn reports_conditionally_initialized_bindings_with_unknown_fallbacks() {
+        let source = "\
+#!/bin/bash
+if [ \"$1\" = yes ]; then
+  foo=0
+fi
+printf '%s\\n' $foo
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 
