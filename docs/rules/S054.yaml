@@ -3,7 +3,7 @@ legacy_name: su-without-flag
 new_category: Style
 new_code: S054
 runtime_kind: ast
-shellcheck_code: SC2322
+shellcheck_code: SC2117
 shells:
   - sh
   - bash

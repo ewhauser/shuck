@@ -3,7 +3,7 @@ legacy_name: unquoted-globs-in-find
 new_category: Correctness
 new_code: C078
 runtime_kind: ast
-shellcheck_code: SC2295
+shellcheck_code: SC2014
 shells:
   - sh
   - bash

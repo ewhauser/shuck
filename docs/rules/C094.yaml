@@ -3,7 +3,7 @@ legacy_name: redirect-clobbers-input
 new_category: Correctness
 new_code: C094
 runtime_kind: ast
-shellcheck_code: SC2317
+shellcheck_code: SC2094
 shells:
   - sh
   - bash
