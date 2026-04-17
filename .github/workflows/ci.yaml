@@ -183,9 +183,11 @@ jobs:
       - name: "Run large corpus tests"
         id: large-corpus
         continue-on-error: true
+        shell: bash
         run: |
+          set -o pipefail
           mkdir -p target/large-corpus-report
-          nix develop --command make NIX_DEVELOP= test-large-corpus 2>&1 | tee target/large-corpus-report/latest.log
+          nix develop --command make NIX_DEVELOP= test-large-corpus 2>&1 | tee target/large-corpus-report/latest.log | python3 scripts/compact_large_corpus_log.py
       - name: "Generate HTML report"
         id: report
         if: always() && steps.large-corpus.outcome != 'cancelled'
@@ -204,5 +206,5 @@ jobs:
           echo "Large corpus test outcome: ${{ steps.large-corpus.outcome }}" >> "$GITHUB_STEP_SUMMARY"
           if [ "${{ steps.large-corpus.outcome }}" = "failure" ]; then
             echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "This job is non-blocking for now, so corpus mismatches do not fail CI." >> "$GITHUB_STEP_SUMMARY"
+            echo "This job is non-blocking, so large corpus failures are reported without failing CI." >> "$GITHUB_STEP_SUMMARY"
           fi

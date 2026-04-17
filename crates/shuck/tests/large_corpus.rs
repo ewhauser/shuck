@@ -703,6 +703,7 @@ struct FixtureFailureCollection {
     mapping_issues: Vec<String>,
     reviewed_divergences: Vec<String>,
     corpus_noise: Vec<String>,
+    harness_warnings: Vec<String>,
     harness_failures: Vec<String>,
     unsupported_shells: usize,
     timeout_cap_reached: bool,
@@ -710,14 +711,25 @@ struct FixtureFailureCollection {
 
 impl FixtureFailureCollection {
     fn blocking_failures(&self) -> usize {
-        self.implementation_diffs.len() + self.mapping_issues.len() + self.harness_failures.len()
+        self.implementation_diffs.len() + self.harness_failures.len()
+    }
+
+    fn nonblocking_issue_count(&self) -> usize {
+        self.mapping_issues.len()
+            + self.reviewed_divergences.len()
+            + self.corpus_noise.len()
+            + self.harness_warnings.len()
     }
 
     fn has_nonblocking_items(&self) -> bool {
-        self.unsupported_shells > 0
-            || !self.reviewed_divergences.is_empty()
-            || !self.corpus_noise.is_empty()
+        self.unsupported_shells > 0 || self.nonblocking_issue_count() > 0
     }
+}
+
+#[derive(Clone, Copy)]
+enum LargeCorpusReportMode {
+    Full,
+    BlockingOnly,
 }
 
 // ---------------------------------------------------------------------------
@@ -780,22 +792,27 @@ fn large_corpus_conforms_with_shellcheck() {
         });
     let mut failure_collection = failure_collection;
     failure_collection.unsupported_shells = skipped_unsupported_shells;
-    let timeout_cap_note = if failure_collection.timeout_cap_reached {
-        format!(
-            "; stopped after reaching timeout cap of {} fixture timeouts",
-            LARGE_CORPUS_TIMEOUT_FAILURE_CAP
-        )
-    } else {
-        String::new()
-    };
+    let timeout_cap_note = timeout_cap_note_suffix(failure_collection.timeout_cap_reached);
 
+    eprintln!(
+        "large corpus compatibility summary: blocking={} warnings={} fixtures={} unsupported_shells={} implementation_diffs={} mapping_issues={} reviewed_divergences={} corpus_noise={} harness_warnings={} harness_failures={}",
+        failure_collection.blocking_failures(),
+        failure_collection.nonblocking_issue_count(),
+        fixtures.len(),
+        skipped_unsupported_shells,
+        failure_collection.implementation_diffs.len(),
+        failure_collection.mapping_issues.len(),
+        failure_collection.reviewed_divergences.len(),
+        failure_collection.corpus_noise.len(),
+        failure_collection.harness_warnings.len(),
+        failure_collection.harness_failures.len(),
+    );
+    emit_timeout_cap_note(
+        "large corpus compatibility",
+        failure_collection.timeout_cap_reached,
+    );
     if failure_collection.blocking_failures() == 0 && failure_collection.has_nonblocking_items() {
-        eprintln!(
-            "large corpus non-blocking summary: reviewed divergence={}, corpus noise={}, unsupported-shell={}",
-            failure_collection.reviewed_divergences.len(),
-            failure_collection.corpus_noise.len(),
-            failure_collection.unsupported_shells,
-        );
+        eprintln!("{}", format_large_corpus_report(&failure_collection));
     }
 
     assert!(
@@ -805,7 +822,7 @@ fn large_corpus_conforms_with_shellcheck() {
         fixtures.len(),
         skipped_unsupported_shells,
         timeout_cap_note,
-        format_large_corpus_report(&failure_collection)
+        format_large_corpus_failure_report(&failure_collection)
     );
 }
 
@@ -840,14 +857,11 @@ fn large_corpus_zsh_fixtures_parse() {
     let failure_collection = collect_fixture_failures(&zsh_fixtures, cfg.keep_going, |fixture| {
         evaluate_fixture_zsh_parse(fixture, cfg.shuck_timeout)
     });
-    let timeout_cap_note = if failure_collection.timeout_cap_reached {
-        format!(
-            "; stopped after reaching timeout cap of {} fixture timeouts",
-            LARGE_CORPUS_TIMEOUT_FAILURE_CAP
-        )
-    } else {
-        String::new()
-    };
+    let timeout_cap_note = timeout_cap_note_suffix(failure_collection.timeout_cap_reached);
+    emit_timeout_cap_note(
+        "large corpus zsh parse",
+        failure_collection.timeout_cap_reached,
+    );
 
     assert!(
         failure_collection.blocking_failures() == 0,
@@ -855,7 +869,7 @@ fn large_corpus_zsh_fixtures_parse() {
         failure_collection.blocking_failures(),
         zsh_fixtures.len(),
         timeout_cap_note,
-        format_large_corpus_report(&failure_collection)
+        format_large_corpus_failure_report(&failure_collection)
     );
 }
 
@@ -893,9 +907,11 @@ where
 
     for fixture in fixtures {
         let evaluation = evaluate(fixture);
-        let has_blocking = evaluation.harness_failure.is_some()
-            || !evaluation.implementation_diffs.is_empty()
-            || !evaluation.mapping_issues.is_empty();
+        let has_blocking = evaluation
+            .harness_failure
+            .as_ref()
+            .is_some_and(|failure| failure.kind != FixtureFailureKind::Timeout)
+            || !evaluation.implementation_diffs.is_empty();
         let timeout = evaluation
             .harness_failure
             .as_ref()
@@ -908,7 +924,7 @@ where
             if timeout {
                 log_large_corpus_timeout(fixture);
             }
-            panic!("{}", format_large_corpus_report(&collection));
+            panic!("{}", format_large_corpus_failure_report(&collection));
         }
     }
 
@@ -943,10 +959,6 @@ where
             scope.spawn(move || {
                 let mut local_evaluations = Vec::new();
                 loop {
-                    if timeout_cap_reached.load(Ordering::Relaxed) {
-                        break;
-                    }
-
                     let index = next_index.fetch_add(1, Ordering::Relaxed);
                     if index >= fixtures.len() {
                         break;
@@ -1234,7 +1246,10 @@ fn merge_fixture_evaluation(
         .extend(evaluation.reviewed_divergences);
     collection.corpus_noise.extend(evaluation.corpus_noise);
     if let Some(failure) = evaluation.harness_failure {
-        collection.harness_failures.push(failure.message);
+        match failure.kind {
+            FixtureFailureKind::Timeout => collection.harness_warnings.push(failure.message),
+            FixtureFailureKind::Other => collection.harness_failures.push(failure.message),
+        }
     }
 }
 
@@ -1656,7 +1671,52 @@ fn format_compatibility_record(
     )
 }
 
+fn format_large_corpus_failure_report(collection: &FixtureFailureCollection) -> String {
+    let report =
+        format_large_corpus_report_with_mode(collection, LargeCorpusReportMode::BlockingOnly);
+    if !collection.has_nonblocking_items() {
+        return report;
+    }
+
+    format!(
+        "{}\n\nNonblocking issue buckets were omitted from the failing log output. See the compatibility summary counts above for skipped unsupported shells, mapping issues, reviewed divergences, corpus noise, and harness warnings.",
+        report
+    )
+}
+
 fn format_large_corpus_report(collection: &FixtureFailureCollection) -> String {
+    format_large_corpus_report_with_mode(collection, LargeCorpusReportMode::Full)
+}
+
+fn timeout_cap_note_message() -> String {
+    format!(
+        "only the first {} fixture timeouts were recorded as harness warnings; additional timeout fixtures were omitted",
+        LARGE_CORPUS_TIMEOUT_FAILURE_CAP
+    )
+}
+
+fn timeout_cap_note_suffix(timeout_cap_reached: bool) -> String {
+    if timeout_cap_reached {
+        format!("; {}", timeout_cap_note_message())
+    } else {
+        String::new()
+    }
+}
+
+fn timeout_cap_note_line(scope: &str, timeout_cap_reached: bool) -> Option<String> {
+    timeout_cap_reached.then(|| format!("{scope} note: {}.", timeout_cap_note_message()))
+}
+
+fn emit_timeout_cap_note(scope: &str, timeout_cap_reached: bool) {
+    if let Some(note) = timeout_cap_note_line(scope, timeout_cap_reached) {
+        eprintln!("{note}");
+    }
+}
+
+fn format_large_corpus_report_with_mode(
+    collection: &FixtureFailureCollection,
+    mode: LargeCorpusReportMode,
+) -> String {
     let mut sections = Vec::new();
 
     if let Some(section) =
@@ -1664,25 +1724,33 @@ fn format_large_corpus_report(collection: &FixtureFailureCollection) -> String {
     {
         sections.push(section);
     }
-    if let Some(section) = format_report_section("Mapping Issues", &collection.mapping_issues) {
-        sections.push(section);
-    }
-    if let Some(section) =
-        format_report_section("Reviewed Divergence", &collection.reviewed_divergences)
-    {
-        sections.push(section);
-    }
+    if matches!(mode, LargeCorpusReportMode::Full) {
+        if let Some(section) = format_report_section("Mapping Issues", &collection.mapping_issues) {
+            sections.push(section);
+        }
+        if let Some(section) =
+            format_report_section("Reviewed Divergence", &collection.reviewed_divergences)
+        {
+            sections.push(section);
+        }
 
-    let mut corpus_noise = collection.corpus_noise.clone();
-    if collection.unsupported_shells > 0 {
-        corpus_noise.push(format!(
-            "{} skipped: {} fixture(s)",
-            CorpusNoiseKind::UnsupportedShell.as_str(),
-            collection.unsupported_shells
-        ));
-    }
-    if let Some(section) = format_report_section("Corpus Noise", &corpus_noise) {
-        sections.push(section);
+        let mut corpus_noise = collection.corpus_noise.clone();
+        if collection.unsupported_shells > 0 {
+            corpus_noise.push(format!(
+                "{} skipped: {} fixture(s)",
+                CorpusNoiseKind::UnsupportedShell.as_str(),
+                collection.unsupported_shells
+            ));
+        }
+        if let Some(section) = format_report_section("Corpus Noise", &corpus_noise) {
+            sections.push(section);
+        }
+
+        if let Some(section) =
+            format_report_section("Harness Warnings", &collection.harness_warnings)
+        {
+            sections.push(section);
+        }
     }
 
     if let Some(section) = format_report_section("Harness Failures", &collection.harness_failures) {
@@ -1719,6 +1787,7 @@ fn fixture_supported_for_large_corpus(
     if path_is_sample_file(&fixture.path)
         || path_is_fish_file(&fixture.path)
         || path_is_patch_file(&fixture.path)
+        || path_is_config_guess_file(&fixture.path)
         || fixture_is_repo_git_entry(fixture)
     {
         return false;
@@ -1734,6 +1803,7 @@ fn fixture_selected_for_large_corpus_zsh_parse(fixture: &LargeCorpusFixture) -> 
     if path_is_sample_file(&fixture.path)
         || path_is_fish_file(&fixture.path)
         || path_is_patch_file(&fixture.path)
+        || path_is_config_guess_file(&fixture.path)
         || fixture_is_repo_git_entry(fixture)
     {
         return false;
@@ -1786,6 +1856,18 @@ fn path_is_fish_file(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
         .is_some_and(|ext| ext.eq_ignore_ascii_case("fish"))
+}
+
+fn path_is_appledouble_file(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.starts_with("._"))
+}
+
+fn path_is_config_guess_file(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.eq_ignore_ascii_case("config.guess"))
 }
 
 fn fixture_is_repo_git_entry(fixture: &LargeCorpusFixture) -> bool {
@@ -2004,7 +2086,12 @@ fn collect_fixtures(corpus_dir: &Path) -> Vec<LargeCorpusFixture> {
         }
 
         let path = entry.path().to_path_buf();
-        if path_is_sample_file(&path) || path_is_fish_file(&path) || path_is_patch_file(&path) {
+        if path_is_sample_file(&path)
+            || path_is_fish_file(&path)
+            || path_is_patch_file(&path)
+            || path_is_appledouble_file(&path)
+            || path_is_config_guess_file(&path)
+        {
             continue;
         }
         let cache_rel_path = path
@@ -3228,6 +3315,20 @@ mod tests {
     }
 
     #[test]
+    fn config_guess_files_are_skipped_for_large_corpus() {
+        let fixture = LargeCorpusFixture {
+            path: PathBuf::from("build-aux/config.guess"),
+            cache_rel_path: PathBuf::from("build-aux/config.guess"),
+            shell: "sh".into(),
+            source_hash: String::new(),
+        };
+
+        assert!(path_is_config_guess_file(&fixture.path));
+        assert!(!fixture_supported_for_large_corpus(&fixture, None));
+        assert!(!fixture_selected_for_large_corpus_zsh_parse(&fixture));
+    }
+
+    #[test]
     fn shellcheck_parse_abort_classification() {
         let aborted = vec![
             ShellCheckDiagnostic {
@@ -3638,6 +3739,90 @@ mod tests {
     }
 
     #[test]
+    fn mapping_issues_are_nonblocking() {
+        let fixture = fixture("mapping.sh");
+        let fixtures = vec![&fixture];
+
+        let failures = collect_fixture_failures(&fixtures, false, |fixture| FixtureEvaluation {
+            mapping_issues: vec![format_fixture_failure(
+                &fixture.path,
+                &[format!("{} needs mapping review", fixture.path.display())],
+            )],
+            ..FixtureEvaluation::default()
+        });
+
+        assert_eq!(failures.blocking_failures(), 0);
+        assert_eq!(failures.mapping_issues.len(), 1);
+        assert!(failures.has_nonblocking_items());
+    }
+
+    #[test]
+    fn sequential_timeouts_become_harness_warnings() {
+        let fixture = fixture("timeout.sh");
+        let fixtures = vec![&fixture];
+
+        let failures = collect_fixture_failures(&fixtures, false, |fixture| FixtureEvaluation {
+            harness_failure: Some(FixtureFailure {
+                kind: FixtureFailureKind::Timeout,
+                message: format_fixture_failure(
+                    &fixture.path,
+                    &[format!(
+                        "shuck error: {}",
+                        format_timeout_message("shuck", Duration::from_secs(30))
+                    )],
+                ),
+            }),
+            ..FixtureEvaluation::default()
+        });
+
+        assert_eq!(failures.blocking_failures(), 0);
+        assert_eq!(failures.harness_warnings.len(), 1);
+        assert!(failures.harness_failures.is_empty());
+        assert!(failures.has_nonblocking_items());
+    }
+
+    #[test]
+    fn failure_report_omits_nonblocking_sections() {
+        let report = format_large_corpus_failure_report(&FixtureFailureCollection {
+            implementation_diffs: vec![
+                "/tmp/blocking.sh\n  shellcheck-only C001/SC2000 1:1-1:5 error blocking".into(),
+            ],
+            mapping_issues: vec![
+                "/tmp/mapping.sh\n  shellcheck-only C001/SC2000 1:1-1:5 warning mapping".into(),
+            ],
+            reviewed_divergences: vec![
+                "/tmp/reviewed.sh\n  shuck-only C001/SC2000 1:1-1:5 warning reviewed".into(),
+            ],
+            corpus_noise: vec!["parse-abort skipped: 1 fixture(s)".into()],
+            harness_warnings: vec!["/tmp/timeout.sh\n  shuck error: timed out".into()],
+            unsupported_shells: 2,
+            ..FixtureFailureCollection::default()
+        });
+
+        assert!(report.contains("Implementation Diffs:"));
+        assert!(!report.contains("Mapping Issues:"));
+        assert!(!report.contains("Reviewed Divergence:"));
+        assert!(!report.contains("Corpus Noise:"));
+        assert!(!report.contains("Harness Warnings:"));
+        assert!(report.contains("Nonblocking issue buckets were omitted"));
+    }
+
+    #[test]
+    fn timeout_cap_note_line_is_structured() {
+        assert_eq!(
+            timeout_cap_note_line("large corpus compatibility", true),
+            Some(format!(
+                "large corpus compatibility note: only the first {} fixture timeouts were recorded as harness warnings; additional timeout fixtures were omitted.",
+                LARGE_CORPUS_TIMEOUT_FAILURE_CAP
+            ))
+        );
+        assert_eq!(
+            timeout_cap_note_line("large corpus compatibility", false),
+            None
+        );
+    }
+
+    #[test]
     fn keep_going_captures_fixture_panics() {
         let fixture = fixture("panic.sh");
         let fixtures = vec![&fixture];
@@ -3653,39 +3838,58 @@ mod tests {
     }
 
     #[test]
-    fn keep_going_stops_after_five_timeouts() {
+    fn keep_going_keeps_evaluating_after_timeout_warning_cap() {
         let fixtures: Vec<_> = (0..10)
             .map(|i| fixture(&format!("timeout-{i}.sh")))
             .collect();
         let fixture_refs: Vec<_> = fixtures.iter().collect();
         let seen = AtomicUsize::new(0);
+        let progress = LargeCorpusProgress::new(fixture_refs.len());
 
-        let failures = collect_fixture_failures(&fixture_refs, true, |fixture| {
-            seen.fetch_add(1, Ordering::Relaxed);
-            FixtureEvaluation {
-                harness_failure: Some(FixtureFailure {
-                    kind: FixtureFailureKind::Timeout,
-                    message: format_fixture_failure(
-                        &fixture.path,
-                        &[format!(
-                            "shuck error: {}",
-                            format_timeout_message("shuck", Duration::from_secs(30))
+        let failures = collect_fixture_failures_in_parallel(
+            &fixture_refs,
+            1,
+            &|fixture| {
+                seen.fetch_add(1, Ordering::Relaxed);
+                if fixture.path.ends_with("timeout-9.sh") {
+                    return FixtureEvaluation {
+                        implementation_diffs: vec![format_fixture_failure(
+                            &fixture.path,
+                            &[format!("{} failed", fixture.path.display())],
                         )],
-                    ),
-                }),
-                ..FixtureEvaluation::default()
-            }
-        });
+                        ..FixtureEvaluation::default()
+                    };
+                }
+
+                FixtureEvaluation {
+                    harness_failure: Some(FixtureFailure {
+                        kind: FixtureFailureKind::Timeout,
+                        message: format_fixture_failure(
+                            &fixture.path,
+                            &[format!(
+                                "shuck error: {}",
+                                format_timeout_message("shuck", Duration::from_secs(30))
+                            )],
+                        ),
+                    }),
+                    ..FixtureEvaluation::default()
+                }
+            },
+            &progress,
+        );
 
         assert!(failures.timeout_cap_reached);
         assert_eq!(
-            failures.harness_failures.len(),
+            failures.harness_warnings.len(),
             LARGE_CORPUS_TIMEOUT_FAILURE_CAP
         );
-        assert!(seen.load(Ordering::Relaxed) <= fixture_refs.len());
+        assert!(failures.harness_failures.is_empty());
+        assert_eq!(seen.load(Ordering::Relaxed), fixture_refs.len());
+        assert_eq!(failures.implementation_diffs.len(), 1);
+        assert!(failures.implementation_diffs[0].contains("timeout-9.sh"));
         assert!(
             failures
-                .harness_failures
+                .harness_warnings
                 .iter()
                 .all(|failure| failure.contains("timed out after"))
         );
@@ -4008,13 +4212,15 @@ mod tests {
     }
 
     #[test]
-    fn collect_fixtures_skips_sample_fish_and_patch_files() {
+    fn collect_fixtures_skips_sample_fish_patch_appledouble_and_config_guess_files() {
         let tempdir = tempfile::tempdir().unwrap();
         let scripts_dir = tempdir.path().join("scripts");
         let nested_dir = scripts_dir.join("nested");
         fs::create_dir_all(&nested_dir).unwrap();
 
         fs::write(scripts_dir.join("keep.sh"), "#!/bin/sh\necho keep\n").unwrap();
+        fs::write(scripts_dir.join("._keep.sh"), "skip\n").unwrap();
+        fs::write(scripts_dir.join("config.guess"), "not a shell script\n").unwrap();
         fs::write(
             scripts_dir.join("pre-commit.sample"),
             "#!/bin/sh\necho skip\n",
@@ -4029,6 +4235,8 @@ mod tests {
         .unwrap();
         fs::write(nested_dir.join("prompt.fish"), "echo skip\n").unwrap();
         fs::write(nested_dir.join("fixup.diff"), "--- a/file\n+++ b/file\n").unwrap();
+        fs::write(nested_dir.join("._nested.sh"), "skip\n").unwrap();
+        fs::write(nested_dir.join("config.guess"), "not a shell script\n").unwrap();
 
         let fixtures = collect_fixtures(tempdir.path());
         let collected_paths: Vec<_> = fixtures

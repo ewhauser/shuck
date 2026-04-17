@@ -26,6 +26,20 @@ MAIN_FAILURE_RE = re.compile(
     r"across (?P<fixtures>\d+) fixture\(s\)"
     r"(?: \((?P<skipped>\d+) skipped unsupported shells\))?"
 )
+MAIN_SUMMARY_RE = re.compile(
+    r"large corpus compatibility summary: "
+    r"blocking=(?P<blocking>\d+) "
+    r"warnings=(?P<warnings>\d+) "
+    r"fixtures=(?P<fixtures>\d+) "
+    r"unsupported_shells=(?P<skipped>\d+) "
+    r"implementation_diffs=(?P<implementation>\d+) "
+    r"mapping_issues=(?P<mapping>\d+) "
+    r"reviewed_divergences=(?P<reviewed>\d+) "
+    r"corpus_noise=(?P<noise>\d+) "
+    r"harness_warnings=(?P<harness_warnings>\d+) "
+    r"harness_failures=(?P<harness_failures>\d+)"
+)
+MAIN_TIMEOUT_NOTE_RE = re.compile(r"large corpus compatibility note: (?P<note>.+)")
 ZSH_FAILURE_RE = re.compile(
     r"large corpus zsh parse had (?P<blocking>\d+) blocking issue\(s\) "
     r"across (?P<fixtures>\d+) fixture\(s\)"
@@ -79,8 +93,10 @@ _SECTION_ORDER = [
     "Mapping Issues",
     "Reviewed Divergence",
     "Corpus Noise",
+    "Harness Warnings",
     "Harness Failures",
 ]
+_OMITTED_NOTE_MARKER = "\n\nNonblocking issue buckets were omitted from the failing log output."
 
 
 def extract_sections(text: str) -> dict[str, str]:
@@ -106,8 +122,12 @@ def extract_sections(text: str) -> dict[str, str]:
                 body_end = found[idx + 1][0]
         else:
             # Last section — end at the next blank-line-separated block or EOF.
-            end_match = text.find("\n\ntest ", body_start)
-            body_end = end_match if end_match != -1 else len(text)
+            end_candidates = [len(text)]
+            if (omitted_note_match := text.find(_OMITTED_NOTE_MARKER, body_start)) != -1:
+                end_candidates.append(omitted_note_match)
+            if (end_match := text.find("\n\ntest ", body_start)) != -1:
+                end_candidates.append(end_match)
+            body_end = min(end_candidates)
         result[title] = text[body_start:body_end].rstrip("\n")
     return result
 
@@ -122,6 +142,31 @@ def require_main_harness_section(text: str, start_at: int = 0) -> str | None:
     if end == -1:
         return None
     return text[start:end]
+
+
+def find_first_section_start(text: str, start_at: int = 0) -> int:
+    positions = [
+        pos
+        for title in _SECTION_ORDER
+        if (pos := text.find(f"{title}:\n", start_at)) != -1
+    ]
+    return min(positions, default=-1)
+
+
+def extract_main_report_body(text: str) -> str | None:
+    anchor_match = MAIN_SUMMARY_RE.search(text) or MAIN_FAILURE_RE.search(text)
+    if not anchor_match:
+        return None
+
+    end = text.find("\ntest large_corpus_conforms_with_shellcheck ...", anchor_match.end())
+    if end == -1:
+        end = len(text)
+
+    start = find_first_section_start(text[:end], anchor_match.end())
+    if start == -1:
+        return None
+
+    return text[start:end].rstrip("\n")
 
 
 def optional_zsh_harness_section(text: str) -> str | None:
@@ -240,6 +285,8 @@ def parse_fixture_entries(section: str | None) -> list[tuple[str, list[str]]]:
 def default_blocker_reason(bucket: str) -> str:
     if bucket == "Implementation Diff":
         return "Direct implementation mismatch with no comparison-target override."
+    if bucket == "Harness Warning":
+        return "Harness execution hit a non-blocking timeout or warning for this fixture."
     if bucket == "Harness Failure":
         return "Harness execution failed while evaluating this fixture."
     return "Comparison target or rule mapping could not be resolved cleanly."
@@ -399,7 +446,9 @@ def render_html(
     mapping_issues: int,
     reviewed_divergences: int,
     corpus_noise: int,
+    main_harness_warnings: int,
     main_harness_failures: int,
+    main_timeout_note: str | None,
     zsh_blocking: int,
     zsh_fixture_entries: int,
     zsh_harness_failures: int,
@@ -418,6 +467,11 @@ def render_html(
         )
     else:
         panic_text = "no worker-thread panic was detected in the parsed log"
+    timeout_note_html = (
+        f'\n      <p class="note">{html.escape(main_timeout_note)}</p>'
+        if main_timeout_note
+        else ""
+    )
 
     rule_rows = "\n".join(
         """
@@ -495,7 +549,7 @@ def render_html(
         blocker_rows = """
             <tr>
               <td colspan="5">
-                <p class="metric-label">No blocking fixture entries were parsed from the main run.</p>
+                <p class="metric-label">No issue entries were parsed from the main run.</p>
               </td>
             </tr>
         """.strip()
@@ -970,12 +1024,12 @@ def render_html(
         <article class="card warn">
           <p class="kicker">Main run blockers</p>
           <p class="value">{format_number(main_blocking)}</p>
-          <p class="note">Across {format_number(main_fixture_entries)} fixture entries, with {format_number(unsupported_shells)} unsupported shells skipped.</p>
+          <p class="note">Across {format_number(main_fixture_entries)} sampled fixtures, with {format_number(unsupported_shells)} unsupported shells skipped.</p>
         </article>
         <article class="card warn">
           <p class="kicker">Zsh parse blockers</p>
           <p class="value">{format_number(zsh_blocking)}</p>
-          <p class="note">Across {format_number(zsh_fixture_entries)} fixture entries and {format_number(zsh_harness_failures)} zsh harness failures.</p>
+          <p class="note">Across {format_number(zsh_fixture_entries)} sampled fixtures and {format_number(zsh_harness_failures)} zsh harness failures.</p>
         </article>
       </div>
     </section>
@@ -1012,18 +1066,21 @@ def render_html(
     </section>
 
     <section class="section">
-      <h2>Other Failure Buckets</h2>
+      <h2>Other Issue Buckets</h2>
       <p>
         Outside the implementation-diff table, this log also reported {format_number(mapping_issues)}
         mapping issues, {format_number(reviewed_divergences)} reviewed divergences,
-        {format_number(corpus_noise)} corpus-noise parse failures, {format_number(main_harness_failures)}
-        main harness failures, and {panic_text}.
+        {format_number(corpus_noise)} corpus-noise parse failures,
+        {format_number(main_harness_warnings)} main harness warnings,
+        {format_number(main_harness_failures)} main harness failures, and {panic_text}.
       </p>
       <p class="note">
-        The table below stays fixture-focused on blocking entries from the main run. It includes
-        implementation diffs, mapping issues, and harness failures even when they are intentionally
-        excluded from the rule-mismatch table above.
+        The table below stays fixture-focused on main-run issue entries. When the log includes
+        fixture-level detail, it includes implementation diffs, mapping issues, harness warnings,
+        and harness failures even when some of those buckets are intentionally excluded from the
+        rule-mismatch table above or no longer counted as blocking.
       </p>
+      {timeout_note_html}
       <div class="table-wrap">
         <table>
           <thead>
@@ -1032,7 +1089,7 @@ def render_html(
               <th>Fixture</th>
               <th>Records</th>
               <th>Codes</th>
-              <th>Why It Blocks</th>
+              <th>Why It Matters</th>
             </tr>
           </thead>
           <tbody>
@@ -1062,25 +1119,31 @@ def main() -> int:
         raise SystemExit(f"log file not found: {log_path}")
 
     text = log_path.read_text(encoding="utf-8")
-    sections = extract_sections(text)
+    main_report_body = extract_main_report_body(text) or ""
+    sections = extract_sections(main_report_body)
     implementation_section = sections.get("Implementation Diffs")
     mapping_section = sections.get("Mapping Issues")
     reviewed_section = sections.get("Reviewed Divergence")
     corpus_noise_section = sections.get("Corpus Noise")
-    main_harness_section = require_main_harness_section(
-        text, start_at=text.find("Implementation Diffs:\n")
-    )
+    harness_warning_section = sections.get("Harness Warnings")
+    main_harness_section = sections.get("Harness Failures")
     zsh_harness_section = optional_zsh_harness_section(text)
 
+    main_summary_match = MAIN_SUMMARY_RE.search(text)
     main_failure_match = MAIN_FAILURE_RE.search(text)
-    if not main_failure_match:
+    main_timeout_note_match = MAIN_TIMEOUT_NOTE_RE.search(text)
+    if not main_summary_match and not main_failure_match:
         raise SystemExit("could not find the main compatibility summary in the log")
     zsh_failure_match = ZSH_FAILURE_RE.search(text)
+    main_counts_match = main_summary_match or main_failure_match
+    if main_counts_match is None:
+        raise SystemExit("could not determine the main compatibility counts from the log")
 
     rule_summaries = parse_rule_summaries(implementation_section, repo_root)
     blocker_entries = (
         parse_blocker_entries("Implementation Diff", implementation_section)
         + parse_blocker_entries("Mapping Issue", mapping_section)
+        + parse_blocker_entries("Harness Warning", harness_warning_section)
         + parse_blocker_entries("Harness Failure", main_harness_section)
     )
     implementation_mismatches = sum(summary.mismatches for summary in rule_summaries)
@@ -1091,23 +1154,55 @@ def main() -> int:
         if side == "shellcheck-only"
     )
     shuck_only = implementation_mismatches - shellcheck_only
+    main_blocking = int(main_counts_match.group("blocking"))
+    main_fixture_entries = int(main_counts_match.group("fixtures"))
+    unsupported_shells = int(main_counts_match.group("skipped") or "0")
+    mapping_issue_count = count_diagnostic_records(mapping_section)
+    if mapping_issue_count == 0 and mapping_section is None and main_summary_match:
+        mapping_issue_count = int(main_summary_match.group("mapping"))
+    reviewed_divergence_count = count_diagnostic_records(reviewed_section)
+    if (
+        reviewed_divergence_count == 0
+        and reviewed_section is None
+        and main_summary_match
+    ):
+        reviewed_divergence_count = int(main_summary_match.group("reviewed"))
+    corpus_noise_count = (
+        int(main_summary_match.group("noise"))
+        if main_summary_match
+        else count_fixture_entries(corpus_noise_section)
+    )
+    main_harness_warning_count = (
+        int(main_summary_match.group("harness_warnings"))
+        if main_summary_match
+        else count_fixture_entries(harness_warning_section)
+    )
+    main_harness_failure_count = (
+        int(main_summary_match.group("harness_failures"))
+        if main_summary_match
+        else count_fixture_entries(main_harness_section)
+    )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     html_text = render_html(
         log_path=log_path,
         output_path=output_path,
         generated_at=datetime.now().astimezone(),
-        main_blocking=int(main_failure_match.group("blocking")),
-        main_fixture_entries=int(main_failure_match.group("fixtures")),
-        unsupported_shells=int(main_failure_match.group("skipped") or "0"),
+        main_blocking=main_blocking,
+        main_fixture_entries=main_fixture_entries,
+        unsupported_shells=unsupported_shells,
         main_processed_fixtures=main_fixture_total(text),
         implementation_mismatches=implementation_mismatches,
         shellcheck_only=shellcheck_only,
         shuck_only=shuck_only,
-        mapping_issues=count_diagnostic_records(mapping_section),
-        reviewed_divergences=count_diagnostic_records(reviewed_section),
-        corpus_noise=count_fixture_entries(corpus_noise_section),
-        main_harness_failures=count_fixture_entries(main_harness_section),
+        mapping_issues=mapping_issue_count,
+        reviewed_divergences=reviewed_divergence_count,
+        corpus_noise=corpus_noise_count,
+        main_harness_warnings=main_harness_warning_count,
+        main_harness_failures=main_harness_failure_count,
+        main_timeout_note=main_timeout_note_match.group("note")
+        if main_timeout_note_match
+        else None,
         zsh_blocking=int(zsh_failure_match.group("blocking")) if zsh_failure_match else 0,
         zsh_fixture_entries=int(zsh_failure_match.group("fixtures")) if zsh_failure_match else 0,
         zsh_harness_failures=count_fixture_entries(zsh_harness_section),
