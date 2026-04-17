@@ -485,8 +485,6 @@ impl Default for ShellCheckCodeMap {
             // ShellCheck 0.11.0 reuses SC2290 for declaration spacing warnings.
             // Keep SC2290 assigned to C077 in comparisons so large-corpus attribution stays stable.
             (2290, Rule::SubshellInArithmetic),
-            (2292, Rule::DollarInArithmetic),
-            (2297, Rule::DollarInArithmeticContext),
             (2302, Rule::EscapedNegationInTest),
             (2308, Rule::GreaterThanInTest),
             (2333, Rule::NonShellSyntaxInScript),
@@ -672,7 +670,6 @@ impl Default for ShellCheckCodeMap {
                     (1130, Rule::ZshAlwaysBlock),
                     (1132, Rule::CPrototypeFragment),
                     (2254, Rule::ArrayIndexArithmetic),
-                    (2297, Rule::DollarInArithmeticContext),
                     (2240, Rule::SourcedWithArgs),
                     (2251, Rule::ZshFlagExpansion),
                     (2252, Rule::NestedZshSubstitution),
@@ -839,7 +836,7 @@ impl Default for ShellCheckCodeMap {
                     (2289, Rule::CommentedContinuationLine),
                     (1133, Rule::LinebreakBeforeAnd),
                     (2290, Rule::SubshellInArithmetic),
-                    (2292, Rule::DollarInArithmetic),
+                    (2004, Rule::DollarInArithmetic),
                     (2302, Rule::EscapedNegationInTest),
                     (2308, Rule::GreaterThanInTest),
                     (2309, Rule::StringComparisonForVersion),
@@ -1612,8 +1609,7 @@ mod tests {
             map.resolve("SC2257"),
             Some(Rule::ArithmeticRedirectionTarget)
         );
-        assert_eq!(map.resolve("SC2292"), Some(Rule::DollarInArithmetic));
-        assert_eq!(map.resolve("SC2297"), Some(Rule::DollarInArithmeticContext));
+        assert_eq!(map.resolve("SC2004"), Some(Rule::DollarInArithmetic));
         assert_eq!(map.resolve("SC2250"), Some(Rule::PatternWithVariable));
         assert_eq!(map.resolve("SC2255"), Some(Rule::SubstWithRedirect));
         assert_eq!(map.resolve("SC2256"), Some(Rule::SubstWithRedirectErr));
@@ -1957,8 +1953,6 @@ mod tests {
             (2304, Rule::GlobInFindSubstitution),
             (2305, Rule::UnquotedGrepRegex),
             (2349, Rule::GlobWithExpansionInLoop),
-            (2292, Rule::DollarInArithmetic),
-            (2297, Rule::DollarInArithmeticContext),
             (2259, Rule::SubshellTestGroup),
             (2264, Rule::NestedParameterExpansion),
             (2265, Rule::RedundantReturnStatus),
@@ -2123,6 +2117,7 @@ mod tests {
             (2357, Rule::MalformedArithmeticInCondition),
             (2361, Rule::StringComparedWithEq),
             (2363, Rule::AFlagInDoubleBracket),
+            (2004, Rule::DollarInArithmetic),
             (3057, Rule::SubstringExpansion),
             (3058, Rule::BashCaseFallthrough),
             (3085, Rule::StarGlobRemovalInSh),
@@ -2339,7 +2334,6 @@ mod tests {
         assert!(comparison.contains(&(1040, Rule::SpacedTabstripClose)));
         assert!(comparison.contains(&(2372, Rule::SingleLetterCaseLabel)));
         assert!(!comparison.contains(&(2009, Rule::DoubleParenGrouping)));
-        assert!(!comparison.contains(&(2004, Rule::DollarInArithmeticContext)));
         assert!(comparison.contains(&(2141, Rule::IfsSetToLiteralBackslashN)));
         assert!(comparison.contains(&(1097, Rule::IfsEqualsAmbiguity)));
         assert!(comparison.contains(&(2089, Rule::AppendWithEscapedQuotes)));

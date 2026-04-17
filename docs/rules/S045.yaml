@@ -3,14 +3,14 @@ legacy_name: dollar-in-arithmetic
 new_category: Style
 new_code: S045
 runtime_kind: ast
-shellcheck_code: SC2292
+shellcheck_code: SC2004
 shells:
   - sh
   - bash
   - dash
   - ksh
-description: "A dollar sign is used before a variable name inside `$(( ))`."
-rationale: "Omit the `$` prefix; variables expand implicitly in arithmetic."
+description: "A dollar sign is used before a variable name inside shell arithmetic."
+rationale: "Omit the `$` prefix; variables expand implicitly in arithmetic contexts."
 source:
   shell_checks_rule: rules/SH-197.yaml
   shell_checks_example: examples/197.sh

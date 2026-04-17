@@ -8,7 +8,7 @@ impl Violation for DollarInArithmetic {
     }
 
     fn message(&self) -> String {
-        "omit the `$` prefix inside arithmetic expansion".to_owned()
+        "omit the `$` prefix inside arithmetic".to_owned()
     }
 }
 
@@ -51,6 +51,33 @@ mod tests {
     }
 
     #[test]
+    fn reports_dollar_prefixed_arithmetic_variables_in_command_context() {
+        let source = "#!/bin/bash\nx=1\n(( $x + 1 ))\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "$x");
+    }
+
+    #[test]
+    fn reports_braced_arithmetic_variables_in_command_context() {
+        let source = "#!/bin/bash\nx=1\n(( ${x} + 1 ))\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "${x}");
+    }
+
+    #[test]
+    fn reports_dollar_prefixed_variables_in_arithmetic_for_clauses() {
+        let source = "#!/bin/bash\nlimit=3\nfor (( i=$limit; i > 0; i-- )); do :; done\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "$limit");
+    }
+
+    #[test]
     fn reports_dollar_prefixed_variables_in_substring_offset_arithmetic() {
         let source =
             "#!/bin/bash\nrest=abcdef\nlen=2\nprintf '%s\\n' \"${rest:$((${#rest}-$len))}\"\n";
@@ -58,6 +85,25 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "$len");
+    }
+
+    #[test]
+    fn reports_dollar_prefixed_variables_in_substring_length_arithmetic() {
+        let source = "#!/bin/bash\nstring=abcdef\nwidth=10\nprintf '%s\\n' \"${string:0:$(( $width - 4 ))}\"\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "$width");
+    }
+
+    #[test]
+    fn reports_dollar_prefixed_variables_in_parameter_replacement_arithmetic() {
+        let source = "#!/bin/bash\noffset=1\nindex=2\nline=x\necho \"${line/ $index / $(($offset + $index)) }\"\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.slice(source), "$offset");
+        assert_eq!(diagnostics[1].span.slice(source), "$index");
     }
 
     #[test]

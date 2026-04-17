@@ -254,9 +254,6 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::DollarInArithmetic) {
             rules::style::dollar_in_arithmetic::dollar_in_arithmetic(self);
         }
-        if self.is_rule_enabled(Rule::DollarInArithmeticContext) {
-            rules::style::dollar_in_arithmetic_context::dollar_in_arithmetic_context(self);
-        }
         if self.is_rule_enabled(Rule::ExprArithmetic) {
             rules::performance::expr_arithmetic::expr_arithmetic(self);
         }

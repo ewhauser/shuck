@@ -2305,7 +2305,6 @@ pub struct LinterFacts<'a> {
     array_index_arithmetic_spans: Vec<Span>,
     arithmetic_score_line_spans: Vec<Span>,
     dollar_in_arithmetic_spans: Vec<Span>,
-    dollar_in_arithmetic_context_spans: Vec<Span>,
     arithmetic_command_substitution_spans: Vec<Span>,
     function_positional_parameter_facts: FxHashMap<ScopeId, FunctionPositionalParameterFacts>,
     single_quoted_fragments: Vec<SingleQuotedFragmentFact>,
@@ -2652,10 +2651,6 @@ impl<'a> LinterFacts<'a> {
         &self.dollar_in_arithmetic_spans
     }
 
-    pub fn dollar_in_arithmetic_context_spans(&self) -> &[Span] {
-        &self.dollar_in_arithmetic_context_spans
-    }
-
     pub fn single_quoted_fragments(&self) -> &[SingleQuotedFragmentFact] {
         &self.single_quoted_fragments
     }
@@ -2782,7 +2777,6 @@ struct ArithmeticFactSummary {
     array_index_arithmetic_spans: Vec<Span>,
     arithmetic_score_line_spans: Vec<Span>,
     dollar_in_arithmetic_spans: Vec<Span>,
-    dollar_in_arithmetic_context_spans: Vec<Span>,
     arithmetic_command_substitution_spans: Vec<Span>,
 }
 
@@ -2910,13 +2904,6 @@ impl<'a> LinterFactsBuilder<'a> {
             arithmetic_summary
                 .dollar_in_arithmetic_spans
                 .extend(collected_words.arithmetic.dollar_in_arithmetic_spans);
-            arithmetic_summary
-                .dollar_in_arithmetic_context_spans
-                .extend(
-                    collected_words
-                        .arithmetic
-                        .dollar_in_arithmetic_context_spans,
-                );
             arithmetic_summary
                 .arithmetic_command_substitution_spans
                 .extend(
@@ -3248,8 +3235,6 @@ impl<'a> LinterFactsBuilder<'a> {
             array_index_arithmetic_spans: arithmetic_summary.array_index_arithmetic_spans,
             arithmetic_score_line_spans: arithmetic_summary.arithmetic_score_line_spans,
             dollar_in_arithmetic_spans: arithmetic_summary.dollar_in_arithmetic_spans,
-            dollar_in_arithmetic_context_spans: arithmetic_summary
-                .dollar_in_arithmetic_context_spans,
             arithmetic_command_substitution_spans: arithmetic_summary
                 .arithmetic_command_substitution_spans,
             function_positional_parameter_facts,
@@ -7498,7 +7483,7 @@ impl<'a> WordFactCollector<'a> {
                         collect_arithmetic_command_spans(
                             expression,
                             self.source,
-                            &mut self.arithmetic.dollar_in_arithmetic_context_spans,
+                            &mut self.arithmetic.dollar_in_arithmetic_spans,
                             &mut self.arithmetic.arithmetic_command_substitution_spans,
                         );
                     }
@@ -7515,7 +7500,7 @@ impl<'a> WordFactCollector<'a> {
                         collect_arithmetic_command_spans(
                             expression,
                             self.source,
-                            &mut self.arithmetic.dollar_in_arithmetic_context_spans,
+                            &mut self.arithmetic.dollar_in_arithmetic_spans,
                             &mut self.arithmetic.arithmetic_command_substitution_spans,
                         );
                     }
@@ -8829,16 +8814,46 @@ fn collect_arithmetic_command_spans(
     dollar_spans: &mut Vec<Span>,
     command_substitution_spans: &mut Vec<Span>,
 ) {
-    collect_dollar_prefixed_arithmetic_variable_spans(expression.span, source, dollar_spans);
-
     query::visit_arithmetic_words(expression, &mut |word| {
         collect_arithmetic_context_spans_in_word(
             word,
+            source,
             true,
             dollar_spans,
             command_substitution_spans,
         );
     });
+}
+
+fn collect_arithmetic_spans_in_fragment(
+    word: Option<&Word>,
+    text: Option<&SourceText>,
+    source: &str,
+    collect_dollar_spans: bool,
+    dollar_spans: &mut Vec<Span>,
+    command_substitution_spans: &mut Vec<Span>,
+) {
+    let Some(text) = text else {
+        return;
+    };
+    if !text.slice(source).contains('$') {
+        return;
+    }
+
+    debug_assert!(
+        word.is_some(),
+        "parser-backed fragment text should always carry a word AST"
+    );
+    let Some(word) = word else {
+        return;
+    };
+    collect_arithmetic_expansion_spans_from_parts(
+        &word.parts,
+        source,
+        collect_dollar_spans,
+        dollar_spans,
+        command_substitution_spans,
+    );
 }
 
 fn collect_dollar_prefixed_arithmetic_variable_spans(
@@ -9232,6 +9247,7 @@ fn parameter_needs_wrapped_arithmetic_fallback(
 
 fn collect_arithmetic_context_spans_in_word(
     word: &Word,
+    source: &str,
     collect_dollar_spans: bool,
     dollar_spans: &mut Vec<Span>,
     command_substitution_spans: &mut Vec<Span>,
@@ -9244,6 +9260,51 @@ fn collect_arithmetic_context_spans_in_word(
         if let WordPart::CommandSubstitution { .. } = &part.kind {
             command_substitution_spans.push(part.span);
         }
+    }
+
+    collect_arithmetic_expansion_spans_from_parts(
+        &word.parts,
+        source,
+        collect_dollar_spans,
+        dollar_spans,
+        command_substitution_spans,
+    );
+}
+
+fn collect_arithmetic_spans_in_parameter_operator(
+    operator: &ParameterOp,
+    source: &str,
+    collect_dollar_spans: bool,
+    dollar_spans: &mut Vec<Span>,
+    command_substitution_spans: &mut Vec<Span>,
+) {
+    match operator {
+        ParameterOp::ReplaceFirst {
+            replacement_word_ast,
+            ..
+        }
+        | ParameterOp::ReplaceAll {
+            replacement_word_ast,
+            ..
+        } => collect_arithmetic_expansion_spans_from_parts(
+            &replacement_word_ast.parts,
+            source,
+            collect_dollar_spans,
+            dollar_spans,
+            command_substitution_spans,
+        ),
+        ParameterOp::UseDefault
+        | ParameterOp::AssignDefault
+        | ParameterOp::UseReplacement
+        | ParameterOp::Error
+        | ParameterOp::RemovePrefixShort { .. }
+        | ParameterOp::RemovePrefixLong { .. }
+        | ParameterOp::RemoveSuffixShort { .. }
+        | ParameterOp::RemoveSuffixLong { .. }
+        | ParameterOp::UpperFirst
+        | ParameterOp::UpperAll
+        | ParameterOp::LowerFirst
+        | ParameterOp::LowerAll => {}
     }
 }
 
@@ -9272,6 +9333,7 @@ fn collect_arithmetic_expansion_spans_from_parts(
                     query::visit_arithmetic_words(expression, &mut |word| {
                         collect_arithmetic_context_spans_in_word(
                             word,
+                            source,
                             collect_dollar_spans,
                             dollar_spans,
                             command_substitution_spans,
@@ -9294,8 +9356,27 @@ fn collect_arithmetic_expansion_spans_from_parts(
                 dollar_spans,
                 command_substitution_spans,
             ),
-            WordPart::ParameterExpansion { reference, .. }
-            | WordPart::Length(reference)
+            WordPart::ParameterExpansion {
+                reference,
+                operator,
+                ..
+            } => {
+                collect_arithmetic_spans_in_var_ref(
+                    reference,
+                    source,
+                    collect_dollar_spans,
+                    dollar_spans,
+                    command_substitution_spans,
+                );
+                collect_arithmetic_spans_in_parameter_operator(
+                    operator,
+                    source,
+                    collect_dollar_spans,
+                    dollar_spans,
+                    command_substitution_spans,
+                );
+            }
+            WordPart::Length(reference)
             | WordPart::ArrayAccess(reference)
             | WordPart::ArrayLength(reference)
             | WordPart::ArrayIndices(reference)
@@ -9384,6 +9465,7 @@ fn collect_arithmetic_spans_in_var_ref(
     query::visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
         collect_arithmetic_context_spans_in_word(
             word,
+            source,
             false,
             dollar_spans,
             command_substitution_spans,
@@ -9412,10 +9494,52 @@ fn collect_arithmetic_spans_in_parameter_expansion(
                     command_substitution_spans,
                 );
             }
-            BourneParameterExpansion::Indirect { reference, .. }
-            | BourneParameterExpansion::Operation { reference, .. } => {
+            BourneParameterExpansion::Indirect {
+                reference,
+                operand,
+                operand_word_ast,
+                ..
+            } => {
                 collect_arithmetic_spans_in_var_ref(
                     reference,
+                    source,
+                    collect_dollar_spans,
+                    dollar_spans,
+                    command_substitution_spans,
+                );
+                collect_arithmetic_spans_in_fragment(
+                    operand_word_ast.as_ref(),
+                    operand.as_ref(),
+                    source,
+                    collect_dollar_spans,
+                    dollar_spans,
+                    command_substitution_spans,
+                );
+            }
+            BourneParameterExpansion::Operation {
+                reference,
+                operator,
+                operand,
+                operand_word_ast,
+                ..
+            } => {
+                collect_arithmetic_spans_in_var_ref(
+                    reference,
+                    source,
+                    collect_dollar_spans,
+                    dollar_spans,
+                    command_substitution_spans,
+                );
+                collect_arithmetic_spans_in_fragment(
+                    operand_word_ast.as_ref(),
+                    operand.as_ref(),
+                    source,
+                    collect_dollar_spans,
+                    dollar_spans,
+                    command_substitution_spans,
+                );
+                collect_arithmetic_spans_in_parameter_operator(
+                    operator,
                     source,
                     collect_dollar_spans,
                     dollar_spans,
@@ -16586,6 +16710,58 @@ printf '%s\\n' prefix${name}suffix ${items[@]}
     }
 
     #[test]
+    fn collects_dollar_spans_for_wrapped_substring_length_arithmetic() {
+        let source = "#!/bin/bash\nstring=abcdef\nwidth=10\nprintf '%s\\n' \"${string:0:$(( $width - 4 ))}\"\n";
+
+        with_facts(source, None, |_, facts| {
+            let spans = facts
+                .dollar_in_arithmetic_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>();
+            let words = facts
+                .expansion_word_facts(ExpansionContext::CommandArgument)
+                .map(|fact| {
+                    format!(
+                        "{} {:?} {:?}",
+                        fact.span().slice(source),
+                        fact.host_kind(),
+                        fact.word().parts
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(spans, vec!["$width"], "command words: {words:?}");
+        });
+    }
+
+    #[test]
+    fn collects_dollar_spans_for_parameter_replacement_arithmetic() {
+        let source = "#!/bin/bash\noffset=1\nindex=2\nline=x\necho \"${line/ $index / $(($offset + $index)) }\"\n";
+
+        with_facts(source, None, |_, facts| {
+            let spans = facts
+                .dollar_in_arithmetic_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>();
+            let words = facts
+                .expansion_word_facts(ExpansionContext::CommandArgument)
+                .map(|fact| {
+                    format!(
+                        "{} {:?} {:?}",
+                        fact.span().slice(source),
+                        fact.host_kind(),
+                        fact.word().parts
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(spans, vec!["$offset", "$index"], "command words: {words:?}");
+        });
+    }
+
+    #[test]
     fn collects_command_substitution_spans_for_wrapped_substring_offset_arithmetic() {
         let source =
             "#!/bin/bash\nrest=abcdef\nprintf '%s\\n' \"${rest:$((${#rest}-$(printf 1)))}\"\n";
@@ -16598,6 +16774,21 @@ printf '%s\\n' prefix${name}suffix ${items[@]}
                 .collect::<Vec<_>>();
 
             assert_eq!(spans, vec!["$(printf 1)"]);
+        });
+    }
+
+    #[test]
+    fn ignores_quoted_dollar_words_in_arithmetic_command_contexts() {
+        let source = "#!/bin/bash\n(( \"$x\" + 1 ))\nfor (( i=\"$y\"; i < 3; i++ )); do :; done\n";
+
+        with_facts(source, None, |_, facts| {
+            let spans = facts
+                .dollar_in_arithmetic_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>();
+
+            assert!(spans.is_empty(), "unexpected spans: {spans:?}");
         });
     }
 
