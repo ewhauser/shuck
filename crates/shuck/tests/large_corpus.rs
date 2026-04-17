@@ -2203,44 +2203,24 @@ fn fixture_selected_for_sample(fixture: &LargeCorpusFixture, sample_percent: usi
 }
 
 fn resolve_shell(path: &Path, src: &[u8]) -> String {
-    let first_line = src
-        .split(|&b| b == b'\n')
+    let source = String::from_utf8_lossy(src);
+    let trimmed_first_line = source
+        .lines()
         .next()
-        .map(|line| String::from_utf8_lossy(line).to_lowercase())
+        .map(|line| line.trim_start().to_ascii_lowercase())
         .unwrap_or_default();
-    let trimmed_first_line = first_line.trim_start();
 
     if trimmed_first_line.starts_with("#compdef") || trimmed_first_line.starts_with("#autoload") {
         return "zsh".into();
     }
 
-    if first_line.contains("bash") {
-        return "bash".into();
-    }
-    if first_line.contains("ksh") {
-        return "ksh".into();
-    }
-    if first_line.contains("zsh") {
-        return "zsh".into();
-    }
-    if first_line.contains("dash") {
-        return "sh".into();
-    }
-    if first_line.contains("sh") {
-        return "sh".into();
-    }
-
-    match path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_lowercase())
-        .as_deref()
-    {
-        Some("bash") => "bash".into(),
-        Some("ksh") => "ksh".into(),
-        Some("zsh") => "zsh".into(),
-        Some("sh" | "dash") => "sh".into(),
-        _ => "sh".into(),
+    match shuck_linter::ShellDialect::infer(source.as_ref(), Some(path)) {
+        shuck_linter::ShellDialect::Bash => "bash".into(),
+        shuck_linter::ShellDialect::Ksh | shuck_linter::ShellDialect::Mksh => "ksh".into(),
+        shuck_linter::ShellDialect::Zsh => "zsh".into(),
+        shuck_linter::ShellDialect::Unknown
+        | shuck_linter::ShellDialect::Sh
+        | shuck_linter::ShellDialect::Dash => "sh".into(),
     }
 }
 
@@ -3044,6 +3024,17 @@ mod tests {
     fn resolve_shell_bash_extension_fallback() {
         assert_eq!(
             resolve_shell(Path::new("example.bash"), b"echo hi\n"),
+            "bash"
+        );
+    }
+
+    #[test]
+    fn resolve_shell_ignores_generic_shell_script_comments_for_bash_files() {
+        assert_eq!(
+            resolve_shell(
+                Path::new("example.bash"),
+                b"# -*- shell-script -*-\nfor ((i = 0; i < 5; i++)); do :; done\n",
+            ),
             "bash"
         );
     }
