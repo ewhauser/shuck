@@ -74,8 +74,8 @@ ensure-cache:
 	fi
 
 test-large-corpus: ensure-cache
-	@case "$(SHUCK_LARGE_CORPUS_TIMING)" in \
-		1|true|TRUE|yes|YES|on|ON) \
+	@case "$$(printf '%s' "$(SHUCK_LARGE_CORPUS_TIMING)" | tr '[:upper:]' '[:lower:]')" in \
+		1|true|yes|on) \
 			SHUCK_TEST_LARGE_CORPUS=1 \
 			SHUCK_LARGE_CORPUS_TIMEOUT_SECS=$(SHUCK_LARGE_CORPUS_TIMEOUT_SECS) \
 			SHUCK_LARGE_CORPUS_SHUCK_TIMEOUT_SECS=$(SHUCK_LARGE_CORPUS_SHUCK_TIMEOUT_SECS) \
