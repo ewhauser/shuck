@@ -100,7 +100,6 @@ pub mod redirect_to_command_name;
 pub mod script_scope_local;
 pub mod set_flags_without_dashes;
 pub mod shebang_not_on_first_line;
-pub mod short_circuit_fallthrough;
 pub mod single_quoted_literal;
 pub mod space_after_hash_bang;
 pub mod spaced_assignment;
@@ -210,7 +209,6 @@ mod tests {
     #[test_case(Rule::CommentedContinuationLine, Path::new("C076.sh"))]
     #[test_case(Rule::SubshellInArithmetic, Path::new("C077.sh"))]
     #[test_case(Rule::UnquotedGlobsInFind, Path::new("C078.sh"))]
-    #[test_case(Rule::ShortCircuitFallthrough, Path::new("C079.sh"))]
     #[test_case(Rule::GlobInGrepPattern, Path::new("C080.sh"))]
     #[test_case(Rule::GlobInStringComparison, Path::new("C081.sh"))]
     #[test_case(Rule::EscapedNegationInTest, Path::new("C082.sh"))]

@@ -1,6 +1,0 @@
-comparison_target_notes:
-  - current_shellcheck_code: "SC2296"
-    reason: "The nix-pinned ShellCheck used by the large-corpus harness reports ordinary `A && B || C` fallthrough chains under SC2015 instead of SC2296, so SC2296 does not represent the behavior this rule needs to compare in this oracle build."
-reviewed_divergences:
-  - side: shuck-only
-    reason: "After excluding explicit status-propagation and formatter-style shortcut idioms, the remaining C079 corpus deltas are still mixed `&&` and `||` fallthrough chains that Shuck intentionally keeps as control-flow hazards. The pinned ShellCheck build remains silent on this narrower set in helper libraries, project-closure code, directives, and test fixtures, so these survivors are treated as a reviewed policy divergence rather than an implementation bug."

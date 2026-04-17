@@ -1,6 +1,5 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
-assertion_line: 74
 ---
 C010 chaining `&&` and `||` makes the fallback depend on the middle command status
  --> <source>:6:16
@@ -13,3 +12,15 @@ C010 chaining `&&` and `||` makes the fallback depend on the middle command stat
   |
 9 | false || true && [ "$x" = baz ]
   |
+
+C010 chaining `&&` and `||` makes the fallback depend on the middle command status
+  --> <source>:19:16
+   |
+19 | [ "$x" = foo ] && printf '%s\n' yes || rm -f no
+   |
+
+C010 chaining `&&` and `||` makes the fallback depend on the middle command status
+  --> <source>:20:6
+   |
+20 | true && false || printf '%s\n' fallback
+   |

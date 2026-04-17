@@ -1,7 +1,0 @@
-comparison_target_notes:
-  - current_shellcheck_code: "SC2015"
-    reason: "The nix-pinned ShellCheck build used by the large-corpus harness currently folds both all-condition shortcut chains and broader `A && B || C` fallthrough chains into SC2015. C010 is intentionally limited to the all-condition shape, while the broader live-oracle fallthrough behavior is compared through C079, so SC2015 is not a stable standalone corpus target for C010 in this oracle build."
-
-reviewed_divergences:
-  - side: shuck-only
-    reason: "C010 intentionally treats mixed `&&` / `||` fallback chains as a control-flow hazard even when they appear in helper scripts, project-closure code, directives, or test harnesses. ShellCheck does not emit SC2015 for the remaining corpus cases, and the survivors are all the same policy shape, so one broad reviewed divergence captures that stricter Shuck behavior without masking a separate implementation bug."
