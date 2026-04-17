@@ -1605,7 +1605,7 @@ impl<'a> Lexer<'a> {
                     } else {
                         // Escaped character: backslash quotes the next char
                         // (quote removal — only the literal char survives)
-                        if matches!(next, '$' | '`') {
+                        if matches!(next, '$' | '`' | '"' | '\'') {
                             Self::push_capture_char(&mut word, '\x00');
                         }
                         Self::push_capture_char(&mut word, next);

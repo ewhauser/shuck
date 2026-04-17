@@ -1979,6 +1979,20 @@ foo=\"$foo\"
     }
 
     #[test]
+    fn undefined_variable_ignores_bound_name_between_escaped_quote_literals() {
+        let diagnostics = lint_for_rule(
+            "\
+#!/bin/sh
+archname=archive
+echo Self-extractable archive \\\"$archname\\\" successfully created.
+",
+            Rule::UndefinedVariable,
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn unquoted_heredoc_generated_shell_text_reports_c006() {
         let diagnostics = lint_for_rule(
             "\

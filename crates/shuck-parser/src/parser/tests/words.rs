@@ -1132,6 +1132,21 @@ fn test_mixed_segment_word_preserves_expansion_boundaries() {
 }
 
 #[test]
+fn test_escaped_quote_literal_does_not_truncate_following_variable_name() {
+    let input = "echo \\\"$archname\\\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let word = &command.args[0];
+
+    assert_eq!(top_level_part_slices(word, input), vec!["\\\"", "$archname", "\\\""]);
+    assert!(word_part_tree_contains_variable(&word.parts, "archname"));
+    assert!(!word_part_tree_contains_variable(&word.parts, "archnam"));
+}
+
+#[test]
 fn test_assignment_value_preserves_mixed_quoted_boundaries() {
     let input = "foo=\"$bar\"baz echo\n";
     let script = Parser::new(input).parse().unwrap().file;
