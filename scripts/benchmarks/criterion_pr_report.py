@@ -49,6 +49,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-sha", required=True)
     parser.add_argument("--head-sha", required=True)
     parser.add_argument("--baseline-name", default="pr-base")
+    parser.add_argument("--baseline-source", default="prepared in this workflow")
     parser.add_argument("--baseline-outcome", default="success")
     parser.add_argument("--compare-outcome", default="success")
     parser.add_argument("--run-url", default="")
@@ -169,7 +170,8 @@ def render_report(args: argparse.Namespace, rows: list[BenchmarkRow]) -> str:
         "",
         "Positive deltas mean slower benchmark runs.",
         "",
-        f"- Baseline run: `{args.baseline_outcome}`",
+        f"- Baseline source: {args.baseline_source}",
+        f"- Baseline preparation: `{args.baseline_outcome}`",
         f"- Comparison run: `{args.compare_outcome}`",
     ]
 

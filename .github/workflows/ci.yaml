@@ -124,6 +124,37 @@ jobs:
       - name: "Run tests"
         run: cargo test --workspace --all-features
 
+  benchmark-main-baseline:
+    name: "benchmark main baseline"
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          save-if: true
+      - name: "Install Rust toolchain"
+        run: rustup show
+      - name: "Build benchmark baseline artifact"
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/criterion-target
+        run: |
+          python3 scripts/benchmarks/run_criterion.py --repo-root "$GITHUB_WORKSPACE" --save-baseline main --noplot
+      - name: "Pack benchmark baseline artifact"
+        run: |
+          mkdir -p "$RUNNER_TEMP/benchmark-baseline-artifact"
+          tar -C "$RUNNER_TEMP/criterion-target" -cf "$RUNNER_TEMP/benchmark-baseline-artifact/criterion-main-baseline.tar" criterion
+      - name: "Upload benchmark baseline artifact"
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: criterion-main-baseline
+          if-no-files-found: error
+          path: ${{ runner.temp }}/benchmark-baseline-artifact/criterion-main-baseline.tar
+          retention-days: 14
+
   benchmark-report:
     name: "benchmark report"
     if: ${{ github.event_name == 'pull_request' }}
@@ -131,14 +162,10 @@ jobs:
     continue-on-error: true
     timeout-minutes: 45
     permissions:
+      actions: read
       contents: read
       issues: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-          ref: ${{ github.event.pull_request.base.sha }}
-          path: base
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
@@ -148,8 +175,83 @@ jobs:
       - name: "Install Rust toolchain"
         working-directory: head
         run: rustup show
-      - name: "Run baseline benchmarks"
-        id: benchmark-baseline
+      - name: "Resolve latest main baseline artifact"
+        id: resolve-main-baseline
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const artifactName = "criterion-main-baseline";
+            const { owner, repo } = context.repo;
+            const runsResponse = await github.request(
+              "GET /repos/{owner}/{repo}/actions/workflows/{workflow_id}/runs",
+              {
+                owner,
+                repo,
+                workflow_id: "ci.yaml",
+                branch: "main",
+                event: "push",
+                status: "success",
+                per_page: 20,
+              },
+            );
+
+            for (const run of runsResponse.data.workflow_runs) {
+              const artifactsResponse = await github.request(
+                "GET /repos/{owner}/{repo}/actions/runs/{run_id}/artifacts",
+                {
+                  owner,
+                  repo,
+                  run_id: run.id,
+                  name: artifactName,
+                  per_page: 100,
+                },
+              );
+
+              const artifact = artifactsResponse.data.artifacts.find((candidate) => {
+                return candidate.name === artifactName && candidate.expired === false;
+              });
+
+              if (artifact) {
+                core.setOutput("run-id", String(run.id));
+                core.setOutput("baseline-sha", run.head_sha);
+                core.notice(
+                  `Using ${artifactName} from run ${run.id} (${run.head_sha.slice(0, 7)}).`,
+                );
+                return;
+              }
+            }
+
+            core.notice(
+              "No uploaded benchmark baseline artifact was found on successful main runs. Falling back to rebuilding the PR base baseline.",
+            );
+            core.setOutput("run-id", "");
+            core.setOutput("baseline-sha", "");
+      - name: "Download main benchmark baseline artifact"
+        id: download-main-baseline
+        if: ${{ steps.resolve-main-baseline.outputs.run-id != '' }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: criterion-main-baseline
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.resolve-main-baseline.outputs.run-id }}
+          path: ${{ runner.temp }}/benchmark-baseline-artifact
+      - name: "Extract main benchmark baseline artifact"
+        id: extract-main-baseline
+        if: ${{ steps.download-main-baseline.outcome == 'success' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/criterion-target"
+          tar -xf "$RUNNER_TEMP/benchmark-baseline-artifact/criterion-main-baseline.tar" -C "$RUNNER_TEMP/criterion-target"
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        if: ${{ steps.extract-main-baseline.outcome != 'success' }}
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+      - name: "Run fallback baseline benchmarks"
+        id: benchmark-baseline-fallback
+        if: ${{ steps.extract-main-baseline.outcome != 'success' }}
         continue-on-error: true
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/criterion-target
@@ -157,19 +259,41 @@ jobs:
           mkdir -p "$RUNNER_TEMP/benchmark-report"
           python3 "$GITHUB_WORKSPACE/head/scripts/benchmarks/run_criterion.py" \
             --repo-root "$GITHUB_WORKSPACE/base" \
-            --save-baseline pr-base \
+            --save-baseline main \
             --noplot \
             2>&1 | tee "$RUNNER_TEMP/benchmark-report/base.log"
+      - name: "Determine baseline metadata"
+        id: baseline-metadata
+        if: always()
+        env:
+          DOWNLOADED_BASELINE_OUTCOME: ${{ steps.extract-main-baseline.outcome }}
+          DOWNLOADED_BASELINE_SHA: ${{ steps.resolve-main-baseline.outputs.baseline-sha }}
+          FALLBACK_BASELINE_OUTCOME: ${{ steps.benchmark-baseline-fallback.outcome }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          baseline_source="rebuilt from PR base checkout"
+          baseline_sha="$PR_BASE_SHA"
+          baseline_outcome="${FALLBACK_BASELINE_OUTCOME:-skipped}"
+
+          if [ "${DOWNLOADED_BASELINE_OUTCOME:-skipped}" = "success" ]; then
+            baseline_source="downloaded from the latest successful main CI artifact"
+            baseline_sha="${DOWNLOADED_BASELINE_SHA}"
+            baseline_outcome="success"
+          fi
+
+          echo "source=$baseline_source" >> "$GITHUB_OUTPUT"
+          echo "sha=$baseline_sha" >> "$GITHUB_OUTPUT"
+          echo "outcome=$baseline_outcome" >> "$GITHUB_OUTPUT"
       - name: "Run PR benchmark comparison"
         id: benchmark-compare
-        if: ${{ steps.benchmark-baseline.outcome == 'success' }}
+        if: ${{ steps.extract-main-baseline.outcome == 'success' || steps.benchmark-baseline-fallback.outcome == 'success' }}
         continue-on-error: true
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/criterion-target
         run: |
           python3 "$GITHUB_WORKSPACE/head/scripts/benchmarks/run_criterion.py" \
             --repo-root "$GITHUB_WORKSPACE/head" \
-            --baseline pr-base \
+            --baseline main \
             --noplot \
             2>&1 | tee "$RUNNER_TEMP/benchmark-report/head.log"
       - name: "Build benchmark report"
@@ -177,8 +301,9 @@ jobs:
         if: always()
         working-directory: head
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          BENCHMARK_BASELINE_OUTCOME: ${{ steps.benchmark-baseline.outcome }}
+          BASELINE_SHA: ${{ steps.baseline-metadata.outputs.sha }}
+          BENCHMARK_BASELINE_OUTCOME: ${{ steps.baseline-metadata.outputs.outcome }}
+          BENCHMARK_BASELINE_SOURCE: ${{ steps.baseline-metadata.outputs.source }}
           BENCHMARK_COMPARE_OUTCOME: ${{ steps.benchmark-compare.outcome }}
           BENCHMARK_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
           CARGO_TARGET_DIR: ${{ runner.temp }}/criterion-target
@@ -187,9 +312,10 @@ jobs:
           python3 scripts/benchmarks/criterion_pr_report.py \
             --criterion-root "$CARGO_TARGET_DIR/criterion" \
             --output "$RUNNER_TEMP/benchmark-report/comment.md" \
-            --base-sha "$BASE_SHA" \
+            --base-sha "$BASELINE_SHA" \
             --head-sha "$HEAD_SHA" \
-            --baseline-name pr-base \
+            --baseline-name main \
+            --baseline-source "$BENCHMARK_BASELINE_SOURCE" \
             --baseline-outcome "${BENCHMARK_BASELINE_OUTCOME:-skipped}" \
             --compare-outcome "${BENCHMARK_COMPARE_OUTCOME:-skipped}" \
             --run-url "$BENCHMARK_RUN_URL"
