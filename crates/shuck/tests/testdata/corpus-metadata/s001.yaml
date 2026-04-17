@@ -1401,6 +1401,13 @@ reviewed_divergences:
     path_suffix: "termux__termux-packages__packages__mop__build.sh"
     reason: "This file is part of the current S001 baseline tail and is treated as a reviewed divergence for this file."
   - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__mosh__build.sh"
+    line: 27
+    end_line: 27
+    column: 23
+    end_column: 42
+    reason: "The backslashes turn the surrounding double quotes into literal bytes instead of shell quoting, so a spaced package version still splits here and Shuck's S001 matches runtime behavior."
+  - side: shuck-only
     path_suffix: "termux__termux-packages__packages__myman__build.sh"
     reason: "This file is part of the current S001 baseline tail and is treated as a reviewed divergence for this file."
   - side: shuck-only
