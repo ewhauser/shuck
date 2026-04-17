@@ -4694,7 +4694,7 @@ impl<'a> Parser<'a> {
                     literal_brace_depth += 1;
                     current.push(Self::next_word_char_unwrap(chars, cursor));
                 }
-                '}' if !in_single && !in_double => {
+                '}' if !in_single && (!in_double || depth > 1) => {
                     if depth == 1 && literal_brace_depth > 0 {
                         let mut remaining = chars.clone();
                         remaining.next();
@@ -5192,7 +5192,7 @@ impl<'a> Parser<'a> {
                     Self::next_word_char_unwrap(chars, cursor);
                     length_start = Some(*cursor);
                 }
-                '}' if !in_single && !in_double => {
+                '}' if !in_single && (!in_double || parameter_brace_depth > 0) => {
                     if parameter_brace_depth > 0 {
                         parameter_brace_depth -= 1;
                         let consumed = Self::next_word_char_unwrap(chars, cursor);
@@ -5313,7 +5313,7 @@ impl<'a> Parser<'a> {
                         operand.push(ch);
                     }
                 }
-                '}' if !in_single && !in_double => {
+                '}' if !in_single && (!in_double || depth > 1) => {
                     if depth == 1 && literal_brace_depth > 0 {
                         let mut remaining = chars.clone();
                         remaining.next();
@@ -5380,7 +5380,7 @@ impl<'a> Parser<'a> {
                     chars.next();
                     depth += 1;
                 }
-                '}' if !in_single && !in_double => {
+                '}' if !in_single && (!in_double || depth > target_depth) => {
                     if depth == target_depth {
                         return true;
                     }

@@ -1311,6 +1311,22 @@ spinner
     }
 
     #[test]
+    fn nested_default_operand_followed_by_later_expansion_keeps_assignment_live() {
+        let diagnostics = lint_for_rule(
+            "\
+#!/bin/sh
+foo=bar
+default=/tmp
+cmd=\"${home:-\"${default}\"}'${foo}'\"
+printf '%s\\n' \"$cmd\"
+",
+            Rule::UnusedAssignment,
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn unused_append_assignment_is_not_flagged() {
         let diagnostics = lint_for_rule("#!/bin/bash\nfoo+=bar\n", Rule::UnusedAssignment);
 

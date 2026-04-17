@@ -3081,7 +3081,7 @@ impl<'a> Lexer<'a> {
             }
 
             match c {
-                '}' if !in_single && !in_double => {
+                '}' if !in_single && (!in_double || depth > 1) => {
                     self.advance();
                     Self::push_capture_char(content, '}');
                     if literal_brace_depth > 0
@@ -3232,7 +3232,7 @@ impl<'a> Lexer<'a> {
                     chars.next();
                     depth += 1;
                 }
-                '}' => {
+                '}' if !in_single && (!in_double || depth > target_depth) => {
                     if depth == target_depth {
                         return true;
                     }
