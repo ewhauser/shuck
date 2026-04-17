@@ -43,9 +43,10 @@ pub fn quoted_bash_regex(checker: &mut Checker) {
 }
 
 fn literal_uses_regex_significance(text: &str) -> bool {
+    let chars = text.chars().collect::<Vec<_>>();
     let mut escaped = false;
 
-    for char in text.chars() {
+    for (index, char) in chars.iter().copied().enumerate() {
         if escaped {
             return true;
         }
@@ -61,9 +62,54 @@ fn literal_uses_regex_significance(text: &str) -> bool {
         ) {
             return true;
         }
+
+        if char == '{' && starts_interval_quantifier(&chars, index) {
+            return true;
+        }
     }
 
     escaped
+}
+
+fn starts_interval_quantifier(chars: &[char], brace_index: usize) -> bool {
+    if !has_interval_target(chars, brace_index) {
+        return false;
+    }
+
+    let mut index = brace_index + 1;
+    let lower_bound_start = index;
+
+    while chars.get(index).is_some_and(|char| char.is_ascii_digit()) {
+        index += 1;
+    }
+
+    if index == lower_bound_start {
+        return false;
+    }
+
+    match chars.get(index) {
+        Some('}') => return true,
+        Some(',') => index += 1,
+        _ => return false,
+    }
+
+    while chars.get(index).is_some_and(|char| char.is_ascii_digit()) {
+        index += 1;
+    }
+
+    matches!(chars.get(index), Some('}'))
+}
+
+fn has_interval_target(chars: &[char], brace_index: usize) -> bool {
+    brace_index
+        .checked_sub(1)
+        .and_then(|index| chars.get(index))
+        .is_some_and(|char| {
+            !matches!(
+                char,
+                '[' | '(' | '{' | '}' | '|' | '^' | '$' | '*' | '+' | '?'
+            )
+        })
 }
 
 #[cfg(test)]
@@ -78,11 +124,30 @@ mod tests {
 [[ \"$output\" =~ \"Error: No available formula\" ]]
 [[ \"$output\" =~ \"~user\" ]]
 [[ \"$output\" =~ \"{\" ]]
-[[ \"$output\" =~ \"a{1,3}\" ]]
+[[ \"$output\" =~ \"a{,3}\" ]]
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashRegex));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_quoted_interval_quantifiers() {
+        let source = "\
+#!/bin/bash
+[[ $value =~ \"a{1}\" ]]
+[[ $value =~ \"a{1,3}\" ]]
+[[ $value =~ \"a{1,}\" ]]
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashRegex));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.start.line)
+                .collect::<Vec<_>>(),
+            vec![2, 3, 4]
+        );
     }
 
     #[test]
