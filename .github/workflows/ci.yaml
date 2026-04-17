@@ -141,13 +141,14 @@ jobs:
       - name: "Install macro benchmark dependencies"
         run: |
           sudo apt-get update
-          sudo apt-get install -y hyperfine shellcheck
+          sudo apt-get install -y hyperfine
       - name: "Build benchmark baseline artifact"
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/macro-benchmark/target
+          SHUCK_BENCHMARK_MODE: shuck-only
           SHUCK_BENCHMARK_OUTPUT_DIR: ${{ runner.temp }}/macro-benchmark/baseline
         run: |
-          ./scripts/benchmarks/setup.sh hyperfine shellcheck
+          ./scripts/benchmarks/setup.sh hyperfine
           ./scripts/benchmarks/run.sh
       - name: "Pack benchmark baseline artifact"
         run: |
@@ -184,7 +185,7 @@ jobs:
       - name: "Install macro benchmark dependencies"
         run: |
           sudo apt-get update
-          sudo apt-get install -y hyperfine shellcheck
+          sudo apt-get install -y hyperfine
       - name: "Prepare benchmark report directories"
         run: |
           mkdir -p "$RUNNER_TEMP/benchmark-report"
@@ -273,9 +274,10 @@ jobs:
           rm -rf "$benchmark_root/baseline"
           mkdir -p "$benchmark_root/baseline" "$benchmark_report_dir"
           export CARGO_TARGET_DIR="$benchmark_root/target"
+          export SHUCK_BENCHMARK_MODE=shuck-only
           export SHUCK_BENCHMARK_OUTPUT_DIR="$benchmark_root/baseline"
           export SHUCK_BENCHMARK_REPO_ROOT="$GITHUB_WORKSPACE/base"
-          "$GITHUB_WORKSPACE/head/scripts/benchmarks/setup.sh" hyperfine shellcheck
+          "$GITHUB_WORKSPACE/head/scripts/benchmarks/setup.sh" hyperfine
           "$GITHUB_WORKSPACE/head/scripts/benchmarks/run.sh" \
             2>&1 | tee "$benchmark_report_dir/base.log"
       - name: "Determine baseline metadata"
@@ -310,9 +312,10 @@ jobs:
           rm -rf "$benchmark_root/head"
           mkdir -p "$benchmark_root/head" "$benchmark_report_dir"
           export CARGO_TARGET_DIR="$benchmark_root/target"
+          export SHUCK_BENCHMARK_MODE=shuck-only
           export SHUCK_BENCHMARK_OUTPUT_DIR="$benchmark_root/head"
           export SHUCK_BENCHMARK_REPO_ROOT="$GITHUB_WORKSPACE/head"
-          "$GITHUB_WORKSPACE/head/scripts/benchmarks/setup.sh" hyperfine shellcheck
+          "$GITHUB_WORKSPACE/head/scripts/benchmarks/setup.sh" hyperfine
           "$GITHUB_WORKSPACE/head/scripts/benchmarks/run.sh" \
             2>&1 | tee "$benchmark_report_dir/head.log"
       - name: "Build benchmark report"
