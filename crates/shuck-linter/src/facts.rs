@@ -17047,7 +17047,11 @@ printf '%s\\n' $0 $1 $* $@
         with_facts(source, None, |_, facts| {
             let fact = facts
                 .expansion_word_facts(ExpansionContext::CommandArgument)
-                .find(|fact| fact.span().slice(source).contains("$(echo ${KERNEL} | tr '-' '_')"))
+                .find(|fact| {
+                    fact.span()
+                        .slice(source)
+                        .contains("$(echo ${KERNEL} | tr '-' '_')")
+                })
                 .expect("expected makepkg output argument fact");
 
             assert_eq!(

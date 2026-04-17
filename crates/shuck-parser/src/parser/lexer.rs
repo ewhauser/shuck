@@ -2,7 +2,7 @@
 //!
 //! Tokenizes input into a stream of tokens with source position tracking.
 
-use std::{collections::VecDeque, ops::Range, sync::Arc};
+use std::{borrow::Cow, collections::VecDeque, ops::Range, sync::Arc};
 
 use memchr::{memchr, memchr_iter, memrchr};
 use shuck_ast::{Position, Span, TokenKind};
@@ -976,6 +976,19 @@ impl<'a> Lexer<'a> {
             .unwrap_or(&self.input[start.offset..self.offset])
     }
 
+    fn current_word_surface_text<'b>(
+        &'b self,
+        start: Position,
+        capture: &'b Option<String>,
+    ) -> Cow<'b, str> {
+        let text = self.current_word_text(start, capture);
+        if text.contains('\x00') {
+            Cow::Owned(text.chars().filter(|&ch| ch != '\x00').collect())
+        } else {
+            Cow::Borrowed(text)
+        }
+    }
+
     /// Get the next source-backed token from the input, skipping line comments.
     pub fn next_lexed_token(&mut self) -> Option<LexedToken<'a>> {
         self.skip_whitespace();
@@ -1596,7 +1609,7 @@ impl<'a> Lexer<'a> {
                         Self::push_capture_char(&mut word, next);
                         self.advance();
                         if next == '{'
-                            && self.current_word_text(start, &word) == "{"
+                            && self.current_word_surface_text(start, &word) == "{"
                             && self.escaped_brace_sequence_looks_like_brace_expansion()
                         {
                             let mut depth = 1;
@@ -1620,7 +1633,7 @@ impl<'a> Lexer<'a> {
                     Self::push_capture_char(&mut word, '\\');
                 }
             } else if ch == '('
-                && self.current_word_text(start, &word).ends_with('=')
+                && self.current_word_surface_text(start, &word).ends_with('=')
                 && self.looks_like_assoc_assign()
             {
                 // Associative compound assignment: var=([k]="v" ...) — keep entire
@@ -1674,7 +1687,7 @@ impl<'a> Lexer<'a> {
                 }
             } else if ch == '('
                 && self
-                    .current_word_text(start, &word)
+                    .current_word_surface_text(start, &word)
                     .ends_with(['@', '?', '*', '+', '!'])
             {
                 // Extglob: @(...), ?(...), *(...), +(...), !(...)

@@ -728,8 +728,7 @@ fn collect_word_part_visits<'a, F>(
             WordPart::Literal(_)
             | WordPart::SingleQuoted { .. }
             | WordPart::Variable(_)
-            | WordPart::PrefixMatch { .. }
-            => {}
+            | WordPart::PrefixMatch { .. } => {}
         }
     }
 }

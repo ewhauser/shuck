@@ -91,8 +91,8 @@ fn should_report_unquoted_command_substitution(
         | (
             ExpansionContext::DeclarationAssignmentValue,
             WordFactHostKind::AssignmentTargetSubscript
-                | WordFactHostKind::DeclarationNameSubscript
-                | WordFactHostKind::ArrayKeySubscript,
+            | WordFactHostKind::DeclarationNameSubscript
+            | WordFactHostKind::ArrayKeySubscript,
         ) => true,
         (ExpansionContext::DeclarationAssignmentValue, WordFactHostKind::Direct) => {
             checker.shell() == ShellDialect::Sh

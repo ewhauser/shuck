@@ -388,11 +388,7 @@ fn classify_substitution_body<'a>(
             commands,
             command_ids_by_span,
         ),
-        body_is_seq_utility: substitution_body_is_seq_utility(
-            body,
-            commands,
-            command_ids_by_span,
-        ),
+        body_is_seq_utility: substitution_body_is_seq_utility(body, commands, command_ids_by_span),
         body_has_commands: !visits.is_empty(),
         bash_file_slurp: matches!(visits.as_slice(), [visit] if is_bash_file_slurp_command(visit.command, visit.redirects, source)),
     }
