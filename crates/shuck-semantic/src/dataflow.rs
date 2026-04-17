@@ -116,6 +116,38 @@ impl ExactVariableDataflow {
             )
         })
     }
+
+    pub(crate) fn reaching_bindings_for_reference(
+        &self,
+        context: &DataflowContext<'_>,
+        reference: &Reference,
+    ) -> Vec<BindingId> {
+        let Some(block_id) = self.reference_blocks[reference.id.index()] else {
+            return Vec::new();
+        };
+        if self.unreachable_blocks.contains(block_id.index()) {
+            return Vec::new();
+        }
+
+        let Some(name_id) = self.names.get(&reference.name) else {
+            return Vec::new();
+        };
+        let incoming = &self.reaching_definitions(context).reaching_in[block_id.index()];
+
+        self.binding_data.bindings_for_name[name_id.index()]
+            .iter_ones()
+            .filter(|binding_index| incoming.contains(*binding_index))
+            .map(|binding_index| BindingId(binding_index as u32))
+            .collect()
+    }
+
+    pub(crate) fn binding_block(&self, binding_id: BindingId) -> Option<BlockId> {
+        self.binding_blocks[binding_id.index()]
+    }
+
+    pub(crate) fn reference_block(&self, reference: &Reference) -> Option<BlockId> {
+        self.reference_blocks[reference.id.index()]
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

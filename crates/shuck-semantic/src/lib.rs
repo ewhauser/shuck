@@ -277,6 +277,7 @@ pub struct SemanticModel {
     scope_lookup: ScopeLookup,
     bindings: Vec<Binding>,
     references: Vec<Reference>,
+    reference_index: FxHashMap<Name, Vec<ReferenceId>>,
     predefined_runtime_refs: FxHashSet<ReferenceId>,
     guarded_parameter_refs: FxHashSet<ReferenceId>,
     binding_index: FxHashMap<Name, Vec<BindingId>>,
@@ -329,6 +330,12 @@ impl SemanticModel {
     }
 
     fn from_build_output(built: builder::BuildOutput) -> Self {
+        let mut reference_index = built.reference_index;
+        for reference_ids in reference_index.values_mut() {
+            reference_ids.sort_by_key(|reference_id| {
+                built.references[reference_id.index()].span.start.offset
+            });
+        }
         let indirect_targets_by_binding =
             build_indirect_targets_by_binding(&built.bindings, &built.indirect_target_hints);
         let indirect_targets_by_reference = build_indirect_targets_by_reference(
@@ -350,6 +357,7 @@ impl SemanticModel {
             scope_lookup,
             bindings: built.bindings,
             references: built.references,
+            reference_index,
             predefined_runtime_refs: built.predefined_runtime_refs,
             guarded_parameter_refs: built.guarded_parameter_refs,
             binding_index: built.binding_index,
@@ -453,6 +461,15 @@ impl SemanticModel {
             }
         }
         None
+    }
+
+    #[doc(hidden)]
+    pub fn binding_visible_at(&self, binding_id: BindingId, at: Span) -> bool {
+        let binding = self.binding(binding_id);
+        binding.span.start.offset <= at.start.offset
+            && self
+                .ancestor_scopes(self.scope_at(at.start.offset))
+                .any(|scope| scope == binding.scope)
     }
 
     pub fn defined_anywhere(&self, name: &Name) -> bool {
@@ -887,6 +904,93 @@ impl<'model> SemanticAnalysis<'model> {
             .as_slice()
     }
 
+    fn reference_for_name_at(&self, name: &Name, at: Span) -> Option<&Reference> {
+        let references = self.model.reference_index.get(name)?;
+        let first_candidate = references.partition_point(|reference_id| {
+            self.model.references[reference_id.index()]
+                .span
+                .start
+                .offset
+                < at.start.offset
+        });
+
+        references[first_candidate..]
+            .iter()
+            .find_map(|reference_id| {
+                let reference = &self.model.references[reference_id.index()];
+                (reference.span.start.offset >= at.start.offset
+                    && reference.span.end.offset <= at.end.offset
+                    && !matches!(
+                        reference.kind,
+                        ReferenceKind::DeclarationName | ReferenceKind::ImplicitRead
+                    ))
+                .then_some(reference)
+            })
+    }
+
+    pub fn reaching_bindings_for_name(&self, name: &Name, at: Span) -> Vec<BindingId> {
+        let cfg = self.cfg();
+        let context = self.model.dataflow_context(cfg);
+        let exact = self.exact_variable_dataflow();
+
+        if let Some(reference) = self.reference_for_name_at(name, at) {
+            let reaching = exact.reaching_bindings_for_reference(&context, reference);
+            if !reaching.is_empty() {
+                return reaching;
+            }
+        }
+
+        self.model
+            .visible_binding(name, at)
+            .map(|binding| vec![binding.id])
+            .unwrap_or_default()
+    }
+
+    #[doc(hidden)]
+    pub fn visible_bindings_bypassing(
+        &self,
+        name: &Name,
+        binding_id: BindingId,
+        at: Span,
+    ) -> Vec<BindingId> {
+        let cfg = self.cfg();
+        let exact = self.exact_variable_dataflow();
+        let Some(reference) = self.reference_for_name_at(name, at) else {
+            return Vec::new();
+        };
+        let Some(reference_block) = exact.reference_block(reference) else {
+            return Vec::new();
+        };
+        let Some(binding_block) = exact.binding_block(binding_id) else {
+            return Vec::new();
+        };
+        if reference_block == binding_block {
+            return Vec::new();
+        }
+
+        let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
+        if unreachable.contains(&reference_block) || unreachable.contains(&binding_block) {
+            return Vec::new();
+        }
+
+        self.model
+            .bindings_for(name)
+            .iter()
+            .copied()
+            .filter(|other_binding| *other_binding != binding_id)
+            .filter(|other_binding| self.model.binding_visible_at(*other_binding, at))
+            .filter_map(|other_binding| {
+                exact
+                    .binding_block(other_binding)
+                    .filter(|other_block| !unreachable.contains(other_block))
+                    .filter(|other_block| {
+                        block_reaches_without(cfg, *other_block, reference_block, binding_block)
+                    })
+                    .map(|_| other_binding)
+            })
+            .collect()
+    }
+
     pub fn dead_code(&self) -> &[DeadCode] {
         self.dead_code
             .get_or_init(|| dataflow::analyze_dead_code(self.cfg()))
@@ -1302,6 +1406,34 @@ fn blocks_have_path(
             .copied()
             .any(|end| reachability.reaches(start, end))
     })
+}
+
+fn block_reaches_without(
+    cfg: &ControlFlowGraph,
+    start: BlockId,
+    end: BlockId,
+    avoided: BlockId,
+) -> bool {
+    if start == avoided {
+        return false;
+    }
+
+    let mut visited = FxHashSet::default();
+    let mut stack = vec![start];
+
+    while let Some(block) = stack.pop() {
+        if block == avoided || !visited.insert(block) {
+            continue;
+        }
+        if block == end {
+            return true;
+        }
+        for (successor, _) in cfg.successors(block) {
+            stack.push(*successor);
+        }
+    }
+
+    false
 }
 
 struct ReachabilityCache<'a> {
@@ -3066,6 +3198,39 @@ f
             .collect::<Vec<_>>();
         assert!(!unused.contains(&"IFS"));
         assert!(unused.contains(&"unused"));
+    }
+
+    #[test]
+    fn reaching_bindings_lookup_picks_later_same_name_reference() {
+        let source = "\
+#!/bin/bash
+foo=1
+printf '%s\\n' \"$foo\"
+foo=2
+printf '%s\\n' \"$foo\"
+";
+        let model = model(source);
+        let foo_bindings = model
+            .bindings()
+            .iter()
+            .filter(|binding| {
+                binding.name == "foo" && matches!(binding.kind, BindingKind::Assignment)
+            })
+            .map(|binding| binding.id)
+            .collect::<Vec<_>>();
+        assert_eq!(foo_bindings.len(), 2);
+
+        let target_reference = model
+            .references()
+            .iter()
+            .rev()
+            .find(|reference| reference.name == "foo")
+            .expect("expected foo reference");
+        let reaching = model
+            .analysis()
+            .reaching_bindings_for_name(&target_reference.name, target_reference.span);
+
+        assert_eq!(reaching, vec![foo_bindings[1]]);
     }
 
     #[test]

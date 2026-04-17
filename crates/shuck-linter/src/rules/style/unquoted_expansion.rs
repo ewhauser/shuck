@@ -421,6 +421,80 @@ if [ $x -eq 0 ]; then :; fi
     }
 
     #[test]
+    fn reports_conditionally_sanitized_test_operands() {
+        let source = "\
+#!/bin/bash
+foo=$BAR
+if [ \"$foo\" = \"\" ]; then
+  foo=0
+fi
+if [ $foo -eq 1 ]; then :; fi
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$foo"]
+        );
+    }
+
+    #[test]
+    fn skips_straight_line_safe_overwrites_in_test_operands() {
+        let source = "\
+#!/bin/bash
+foo=$BAR
+foo=0
+if [ $foo -eq 1 ]; then :; fi
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_case_arm_safe_overwrites_in_test_operands() {
+        let source = "\
+#!/bin/bash
+foo=$BAR
+case $1 in
+  settings)
+    foo=0
+    if [ $foo -eq 1 ]; then :; fi
+    ;;
+esac
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_case_arm_safe_overwrites_even_with_nested_conditional_updates() {
+        let source = "\
+#!/bin/bash
+foo=$BAR
+case $1 in
+  settings)
+    foo=1
+    while [ $# -gt 1 ]; do
+      shift
+      case $1 in
+        --no) foo=0 ;;
+      esac
+    done
+    if [ $foo -eq 1 ]; then :; fi
+    ;;
+esac
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn skips_safe_indirect_and_transformed_bindings() {
         let source = "\
 #!/bin/bash
