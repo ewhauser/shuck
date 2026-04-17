@@ -52,7 +52,7 @@ mod tests {
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$'line\\n'", "$'inner'", "$'tab\\t'"]
+            vec!["$'line\\n'", "$'tab\\t'"]
         );
     }
 
@@ -86,6 +86,21 @@ mod tests {
 _socat_cert_cmd=\"echo '${_cmdpfx}show ssl cert' | socat '${_statssock}' - | grep -q '^${_pem}$'\"
 _socat_crtlist_show_cmd=\"echo '${_cmdpfx}show ssl crt-list' | socat '${_statssock}' - | grep -q '^${Le_Deploy_haproxy_pem_path}$'\"
 _socat_cert_commit_cmd=\"echo '${_cmdpfx}commit ssl cert ${_pem}' | socat '${_statssock}' - | grep -q '^Success!$'\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::AnsiCQuoting).with_shell(ShellDialect::Sh),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_dollar_quote_like_text_inside_double_quotes() {
+        let source = "\
+#!/bin/sh
+eval \"$1=$'${!1}'\"
+printf '%s\\n' \"$'inner'\"
 ";
         let diagnostics = test_snippet(
             source,

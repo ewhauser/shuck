@@ -3097,7 +3097,10 @@ impl<'a> Parser<'a> {
                         content_start,
                         true,
                         DecodeWordPartsOptions {
-                            parse_dollar_quotes: true,
+                            // `$'...'` and `$"..."` are literal inside ordinary
+                            // double quotes, so nested decoding must not
+                            // reactivate dollar-quote parsing here.
+                            parse_dollar_quotes: false,
                             parse_process_substitutions: false,
                             ..DecodeWordPartsOptions::default()
                         },
@@ -3110,7 +3113,10 @@ impl<'a> Parser<'a> {
                         content_start,
                         false,
                         DecodeWordPartsOptions {
-                            parse_dollar_quotes: true,
+                            // `$'...'` and `$"..."` are literal inside ordinary
+                            // double quotes, so nested decoding must not
+                            // reactivate dollar-quote parsing here.
+                            parse_dollar_quotes: false,
                             parse_process_substitutions: false,
                             ..DecodeWordPartsOptions::default()
                         },
@@ -3373,7 +3379,10 @@ impl<'a> Parser<'a> {
                         content_start,
                         true,
                         DecodeWordPartsOptions {
-                            parse_dollar_quotes: true,
+                            // Localized `$"..."` content uses double-quote
+                            // semantics, so nested `$'...'` and `$"..."` stay
+                            // literal here as well.
+                            parse_dollar_quotes: false,
                             parse_process_substitutions: false,
                             ..DecodeWordPartsOptions::default()
                         },
@@ -3386,7 +3395,10 @@ impl<'a> Parser<'a> {
                         content_start,
                         false,
                         DecodeWordPartsOptions {
-                            parse_dollar_quotes: true,
+                            // Localized `$"..."` content uses double-quote
+                            // semantics, so nested `$'...'` and `$"..."` stay
+                            // literal here as well.
+                            parse_dollar_quotes: false,
                             parse_process_substitutions: false,
                             ..DecodeWordPartsOptions::default()
                         },
@@ -4989,7 +5001,9 @@ impl<'a> Parser<'a> {
             base,
             source_backed,
             DecodeWordPartsOptions {
-                parse_dollar_quotes: true,
+                // Double-quoted segment contents treat `$'...'` and `$"..."`
+                // as literal text, not nested quote forms.
+                parse_dollar_quotes: false,
                 parse_process_substitutions: false,
                 ..DecodeWordPartsOptions::default()
             },
