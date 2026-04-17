@@ -16,11 +16,10 @@ source:
   shell_checks_example: examples/045.sh
 examples:
   - kind: invalid
-    source: shell-checks/examples/045.sh
     code: |
       #!/bin/sh
       x=foo
-      [ "$x" = foo ] && [ "$x" = bar ] || [ "$x" = baz ]
+      [ "$x" = foo ] && printf '%s\n' yes || rm -f no
   - kind: invalid
     code: |
       #!/bin/bash

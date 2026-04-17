@@ -1,0 +1,12 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
+    labels:
+      - helper-library
+      - project-closure
+    reason: "ShellCheck stops at an unrelated parse failure earlier in this helper, so it never reaches the later fallback-download chains that shuck still analyzes and reports."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__rvmrc"
+    labels:
+      - project-closure
+    reason: "ShellCheck fails on the nonstandard function header near the top of this file, so the later trust-reset helper chains never get an oracle-side SC2015 comparison."
