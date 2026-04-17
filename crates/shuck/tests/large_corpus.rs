@@ -726,6 +726,12 @@ impl FixtureFailureCollection {
     }
 }
 
+#[derive(Clone, Copy)]
+enum LargeCorpusReportMode {
+    Full,
+    BlockingOnly,
+}
+
 // ---------------------------------------------------------------------------
 // Main test
 // ---------------------------------------------------------------------------
@@ -819,7 +825,7 @@ fn large_corpus_conforms_with_shellcheck() {
         fixtures.len(),
         skipped_unsupported_shells,
         timeout_cap_note,
-        format_large_corpus_report(&failure_collection)
+        format_large_corpus_failure_report(&failure_collection)
     );
 }
 
@@ -869,7 +875,7 @@ fn large_corpus_zsh_fixtures_parse() {
         failure_collection.blocking_failures(),
         zsh_fixtures.len(),
         timeout_cap_note,
-        format_large_corpus_report(&failure_collection)
+        format_large_corpus_failure_report(&failure_collection)
     );
 }
 
@@ -924,7 +930,7 @@ where
             if timeout {
                 log_large_corpus_timeout(fixture);
             }
-            panic!("{}", format_large_corpus_report(&collection));
+            panic!("{}", format_large_corpus_failure_report(&collection));
         }
     }
 
@@ -1671,7 +1677,27 @@ fn format_compatibility_record(
     )
 }
 
+fn format_large_corpus_failure_report(collection: &FixtureFailureCollection) -> String {
+    let report =
+        format_large_corpus_report_with_mode(collection, LargeCorpusReportMode::BlockingOnly);
+    if !collection.has_nonblocking_items() {
+        return report;
+    }
+
+    format!(
+        "{}\n\nNonblocking issue buckets were omitted from the failing log output. See the compatibility summary counts above for skipped unsupported shells, mapping issues, reviewed divergences, corpus noise, and harness warnings.",
+        report
+    )
+}
+
 fn format_large_corpus_report(collection: &FixtureFailureCollection) -> String {
+    format_large_corpus_report_with_mode(collection, LargeCorpusReportMode::Full)
+}
+
+fn format_large_corpus_report_with_mode(
+    collection: &FixtureFailureCollection,
+    mode: LargeCorpusReportMode,
+) -> String {
     let mut sections = Vec::new();
 
     if let Some(section) =
@@ -1679,29 +1705,33 @@ fn format_large_corpus_report(collection: &FixtureFailureCollection) -> String {
     {
         sections.push(section);
     }
-    if let Some(section) = format_report_section("Mapping Issues", &collection.mapping_issues) {
-        sections.push(section);
-    }
-    if let Some(section) =
-        format_report_section("Reviewed Divergence", &collection.reviewed_divergences)
-    {
-        sections.push(section);
-    }
+    if matches!(mode, LargeCorpusReportMode::Full) {
+        if let Some(section) = format_report_section("Mapping Issues", &collection.mapping_issues) {
+            sections.push(section);
+        }
+        if let Some(section) =
+            format_report_section("Reviewed Divergence", &collection.reviewed_divergences)
+        {
+            sections.push(section);
+        }
 
-    let mut corpus_noise = collection.corpus_noise.clone();
-    if collection.unsupported_shells > 0 {
-        corpus_noise.push(format!(
-            "{} skipped: {} fixture(s)",
-            CorpusNoiseKind::UnsupportedShell.as_str(),
-            collection.unsupported_shells
-        ));
-    }
-    if let Some(section) = format_report_section("Corpus Noise", &corpus_noise) {
-        sections.push(section);
-    }
+        let mut corpus_noise = collection.corpus_noise.clone();
+        if collection.unsupported_shells > 0 {
+            corpus_noise.push(format!(
+                "{} skipped: {} fixture(s)",
+                CorpusNoiseKind::UnsupportedShell.as_str(),
+                collection.unsupported_shells
+            ));
+        }
+        if let Some(section) = format_report_section("Corpus Noise", &corpus_noise) {
+            sections.push(section);
+        }
 
-    if let Some(section) = format_report_section("Harness Warnings", &collection.harness_warnings) {
-        sections.push(section);
+        if let Some(section) =
+            format_report_section("Harness Warnings", &collection.harness_warnings)
+        {
+            sections.push(section);
+        }
     }
 
     if let Some(section) = format_report_section("Harness Failures", &collection.harness_failures) {
@@ -1738,6 +1768,7 @@ fn fixture_supported_for_large_corpus(
     if path_is_sample_file(&fixture.path)
         || path_is_fish_file(&fixture.path)
         || path_is_patch_file(&fixture.path)
+        || path_is_config_guess_file(&fixture.path)
         || fixture_is_repo_git_entry(fixture)
     {
         return false;
@@ -1753,6 +1784,7 @@ fn fixture_selected_for_large_corpus_zsh_parse(fixture: &LargeCorpusFixture) -> 
     if path_is_sample_file(&fixture.path)
         || path_is_fish_file(&fixture.path)
         || path_is_patch_file(&fixture.path)
+        || path_is_config_guess_file(&fixture.path)
         || fixture_is_repo_git_entry(fixture)
     {
         return false;
@@ -1811,6 +1843,12 @@ fn path_is_appledouble_file(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
         .is_some_and(|name| name.starts_with("._"))
+}
+
+fn path_is_config_guess_file(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.eq_ignore_ascii_case("config.guess"))
 }
 
 fn fixture_is_repo_git_entry(fixture: &LargeCorpusFixture) -> bool {
@@ -2033,6 +2071,7 @@ fn collect_fixtures(corpus_dir: &Path) -> Vec<LargeCorpusFixture> {
             || path_is_fish_file(&path)
             || path_is_patch_file(&path)
             || path_is_appledouble_file(&path)
+            || path_is_config_guess_file(&path)
         {
             continue;
         }
@@ -3257,6 +3296,20 @@ mod tests {
     }
 
     #[test]
+    fn config_guess_files_are_skipped_for_large_corpus() {
+        let fixture = LargeCorpusFixture {
+            path: PathBuf::from("build-aux/config.guess"),
+            cache_rel_path: PathBuf::from("build-aux/config.guess"),
+            shell: "sh".into(),
+            source_hash: String::new(),
+        };
+
+        assert!(path_is_config_guess_file(&fixture.path));
+        assert!(!fixture_supported_for_large_corpus(&fixture, None));
+        assert!(!fixture_selected_for_large_corpus_zsh_parse(&fixture));
+    }
+
+    #[test]
     fn shellcheck_parse_abort_classification() {
         let aborted = vec![
             ShellCheckDiagnostic {
@@ -3710,6 +3763,32 @@ mod tests {
     }
 
     #[test]
+    fn failure_report_omits_nonblocking_sections() {
+        let report = format_large_corpus_failure_report(&FixtureFailureCollection {
+            implementation_diffs: vec![
+                "/tmp/blocking.sh\n  shellcheck-only C001/SC2000 1:1-1:5 error blocking".into(),
+            ],
+            mapping_issues: vec![
+                "/tmp/mapping.sh\n  shellcheck-only C001/SC2000 1:1-1:5 warning mapping".into(),
+            ],
+            reviewed_divergences: vec![
+                "/tmp/reviewed.sh\n  shuck-only C001/SC2000 1:1-1:5 warning reviewed".into(),
+            ],
+            corpus_noise: vec!["parse-abort skipped: 1 fixture(s)".into()],
+            harness_warnings: vec!["/tmp/timeout.sh\n  shuck error: timed out".into()],
+            unsupported_shells: 2,
+            ..FixtureFailureCollection::default()
+        });
+
+        assert!(report.contains("Implementation Diffs:"));
+        assert!(!report.contains("Mapping Issues:"));
+        assert!(!report.contains("Reviewed Divergence:"));
+        assert!(!report.contains("Corpus Noise:"));
+        assert!(!report.contains("Harness Warnings:"));
+        assert!(report.contains("Nonblocking issue buckets were omitted"));
+    }
+
+    #[test]
     fn keep_going_captures_fixture_panics() {
         let fixture = fixture("panic.sh");
         let fixtures = vec![&fixture];
@@ -4099,7 +4178,7 @@ mod tests {
     }
 
     #[test]
-    fn collect_fixtures_skips_sample_fish_patch_and_appledouble_files() {
+    fn collect_fixtures_skips_sample_fish_patch_appledouble_and_config_guess_files() {
         let tempdir = tempfile::tempdir().unwrap();
         let scripts_dir = tempdir.path().join("scripts");
         let nested_dir = scripts_dir.join("nested");
@@ -4107,6 +4186,7 @@ mod tests {
 
         fs::write(scripts_dir.join("keep.sh"), "#!/bin/sh\necho keep\n").unwrap();
         fs::write(scripts_dir.join("._keep.sh"), "skip\n").unwrap();
+        fs::write(scripts_dir.join("config.guess"), "not a shell script\n").unwrap();
         fs::write(
             scripts_dir.join("pre-commit.sample"),
             "#!/bin/sh\necho skip\n",
@@ -4122,6 +4202,7 @@ mod tests {
         fs::write(nested_dir.join("prompt.fish"), "echo skip\n").unwrap();
         fs::write(nested_dir.join("fixup.diff"), "--- a/file\n+++ b/file\n").unwrap();
         fs::write(nested_dir.join("._nested.sh"), "skip\n").unwrap();
+        fs::write(nested_dir.join("config.guess"), "not a shell script\n").unwrap();
 
         let fixtures = collect_fixtures(tempdir.path());
         let collected_paths: Vec<_> = fixtures

@@ -95,6 +95,7 @@ _SECTION_ORDER = [
     "Harness Warnings",
     "Harness Failures",
 ]
+_OMITTED_NOTE_MARKER = "\n\nNonblocking issue buckets were omitted from the failing log output."
 
 
 def extract_sections(text: str) -> dict[str, str]:
@@ -120,8 +121,12 @@ def extract_sections(text: str) -> dict[str, str]:
                 body_end = found[idx + 1][0]
         else:
             # Last section — end at the next blank-line-separated block or EOF.
-            end_match = text.find("\n\ntest ", body_start)
-            body_end = end_match if end_match != -1 else len(text)
+            end_candidates = [len(text)]
+            if (omitted_note_match := text.find(_OMITTED_NOTE_MARKER, body_start)) != -1:
+                end_candidates.append(omitted_note_match)
+            if (end_match := text.find("\n\ntest ", body_start)) != -1:
+                end_candidates.append(end_match)
+            body_end = min(end_candidates)
         result[title] = text[body_start:body_end].rstrip("\n")
     return result
 
@@ -1063,9 +1068,10 @@ def render_html(
         {format_number(main_harness_failures)} main harness failures, and {panic_text}.
       </p>
       <p class="note">
-        The table below stays fixture-focused on main-run issue entries. It includes implementation
-        diffs, mapping issues, harness warnings, and harness failures even when they are intentionally
-        excluded from the rule-mismatch table above or no longer counted as blocking.
+        The table below stays fixture-focused on main-run issue entries. When the log includes
+        fixture-level detail, it includes implementation diffs, mapping issues, harness warnings,
+        and harness failures even when some of those buckets are intentionally excluded from the
+        rule-mismatch table above or no longer counted as blocking.
       </p>
       <div class="table-wrap">
         <table>
@@ -1143,7 +1149,15 @@ def main() -> int:
     main_fixture_entries = int(main_counts_match.group("fixtures"))
     unsupported_shells = int(main_counts_match.group("skipped") or "0")
     mapping_issue_count = count_diagnostic_records(mapping_section)
+    if mapping_issue_count == 0 and mapping_section is None and main_summary_match:
+        mapping_issue_count = int(main_summary_match.group("mapping"))
     reviewed_divergence_count = count_diagnostic_records(reviewed_section)
+    if (
+        reviewed_divergence_count == 0
+        and reviewed_section is None
+        and main_summary_match
+    ):
+        reviewed_divergence_count = int(main_summary_match.group("reviewed"))
     corpus_noise_count = (
         int(main_summary_match.group("noise"))
         if main_summary_match
