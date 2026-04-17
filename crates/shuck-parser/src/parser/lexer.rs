@@ -3085,7 +3085,8 @@ impl<'a> Lexer<'a> {
                 '}' if !in_single && (!in_double || depth > double_quote_depth) => {
                     self.advance();
                     Self::push_capture_char(content, '}');
-                    if literal_brace_depth > 0
+                    if depth == 1
+                        && literal_brace_depth > 0
                         && self.has_later_top_level_param_expansion_closer(depth)
                     {
                         literal_brace_depth -= 1;
