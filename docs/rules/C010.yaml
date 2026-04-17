@@ -1,5 +1,5 @@
 legacy_code: SH-045
-legacy_name: chained-test-branches
+legacy_name: mixed-short-circuit-chain
 new_category: Correctness
 new_code: C010
 runtime_kind: ast
@@ -9,8 +9,8 @@ shells:
   - bash
   - dash
   - ksh
-description: "Chaining conditions with `&&` and `||` can make the fallback depend on the middle command's exit status."
-rationale: "Use an explicit `if` when you need clear branch selection instead of a command chain."
+description: "Mixing `&&` and `||` can make the fallback depend on the middle command's exit status."
+rationale: "Use an explicit `if` when you need clear branch selection instead of a short-circuit chain."
 source:
   shell_checks_rule: rules/SH-045.yaml
   shell_checks_example: examples/045.sh
@@ -21,3 +21,8 @@ examples:
       #!/bin/sh
       x=foo
       [ "$x" = foo ] && [ "$x" = bar ] || [ "$x" = baz ]
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      # shellcheck disable=2086
+      [ $DIR = vendor ] && mv go-* $DIR || mv pkg-* $DIR

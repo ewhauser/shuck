@@ -169,7 +169,6 @@ The boolean/short-circuit batch from `Implement boolean logic and short-circuit 
 
 | Rule | Facts-only / no walks | Duplication | Coverage status | Outcome |
 |---|---|---|---|---|
-| C079 `short-circuit-fallthrough` | ✅ filters preclassified mixed short-circuit list facts | ✅ shared ternary/list ownership stays in facts | ✅ fallthrough positives plus exemption, assignment-shape, and other-chain negatives | vetted |
 | C115 `default-else-in-short-circuit` | ✅ filters preclassified assignment-ternary list facts | ✅ shared ternary/list ownership stays in facts | ✅ fallback-anchor positive plus reversed-chain and non-ternary negatives | vetted |
 | S020 `single-iteration-loop` | ✅ filters loop-header facts and expansion analysis | ✅ | ✅ single-item positives plus glob, splat, dynamic, and multi-field negatives | vetted |
 | S032 `conditional-assignment-shortcut` | ✅ filters list facts and assignment-only segment facts | ✅ ownership stays separated from C115 via list kind/segment shape checks | ✅ shortcut positives plus assignment-ternary, generic-command, and assignment-only negatives | vetted |
@@ -267,7 +266,7 @@ The remaining implemented test/conditional and redirection rows that were not ye
 - [x] Validate the command-specific style rules that already clear the review bar (`S061`, `S064`, `S068`) for facts-only rule logic, overlap ownership, and regression coverage.
 - [x] Validate the shebang/script-structure batch (`C073`, `C074`, `C075`, `S043`, `S053`) for facts-only rule logic, overlap ownership, and regression coverage.
 - [x] Validate the remaining implemented redirection/pipe rules that already clear the review bar (`C085`, `C094`, `C119`, `S075`) for facts-only rule logic, overlap ownership, and regression coverage.
-- [x] Validate the boolean/short-circuit batch (`C079`, `C115`, `S020`, `S032`) for facts-only rule logic, overlap ownership, and regression coverage.
+- [x] Validate the boolean/short-circuit batch (`C010`, `C115`, `S020`, `S032`) for facts-only rule logic, overlap ownership, and regression coverage.
 - [x] Validate the function/scope rules that already clear the review bar (`C125`, `C126`, `C131`, `C147`, `S038`, `S041`, `S066`) for facts-only rule logic, overlap ownership, and regression coverage.
 - [x] Validate the case/getopts batch (`C128`, `C129`, `C134`, `C135`, `S069`) for facts-only rule logic, overlap ownership, and regression coverage.
 - [x] Validate the subshell/pipeline side-effect batch (`C107`, `C150`, `C155`, `C156`) for facts-only rule logic, overlap ownership, and regression coverage.
@@ -586,7 +585,6 @@ Rules about redirection ordering, clobbering, and pipe interactions.
 
 Rules about `&&`/`||` chain semantics and boolean shortcut patterns.
 
-- [x] [x] **M** C079 (SC2296) `short-circuit-fallthrough` — `&&`/`||` chain may not branch as intended
 - [x] [x] **M** C115 (SC2352) `default-else-in-short-circuit` — `||` catches all failures in ternary
 - [x] [x] **M** S020 (SC2165) `single-iteration-loop` — loop that exits immediately
 - [x] [x] **M** S032 (SC2114) `conditional-assignment-shortcut` — boolean-style assignment shortcut
