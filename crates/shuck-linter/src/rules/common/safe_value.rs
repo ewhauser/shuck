@@ -188,13 +188,13 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn name_is_safe(&mut self, name: &Name, at: Span, query: SafeValueQuery) -> bool {
-        if safe_special_parameter(name) || safe_numeric_shell_variable(name) {
+        if safe_special_parameter(name) {
             return true;
         }
 
         let bindings = self.safe_bindings_for_name(name, at);
         if bindings.is_empty() {
-            return false;
+            return safe_numeric_shell_variable(name);
         }
         if self.maybe_uninitialized_refs.contains(&FactSpan::new(at))
             && !bindings
@@ -713,6 +713,28 @@ fi
         };
 
         assert!(!safe_values.word_is_safe(&command.args[0], SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn reassigned_ppid_stops_being_treated_as_runtime_safe() {
+        let source = "\
+#!/bin/sh
+PPID='a b'
+printf '%s\\n' $PPID
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let Command::Simple(command) = &output.file.body[1].command else {
+            panic!("expected simple command");
+        };
+
+        assert!(!safe_values.word_is_safe(&command.args[1], SafeValueQuery::Argv));
     }
 
     #[test]

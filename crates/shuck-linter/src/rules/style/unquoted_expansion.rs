@@ -499,6 +499,28 @@ printf '%s\\n' $(ps -o comm= -p $PPID)
     }
 
     #[test]
+    fn reports_reassigned_ppid_in_sh_mode() {
+        let source = "\
+#!/bin/sh
+PPID='a b'
+printf '%s\\n' $PPID
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/pkg.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedExpansion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$PPID"]
+        );
+    }
+
+    #[test]
     fn skips_safe_here_string_operands() {
         let source = "\
 #!/bin/bash
