@@ -2173,6 +2173,34 @@ fn test_parameter_replacement_pattern_cooks_escaped_slash() {
 }
 
 #[test]
+fn test_parameter_replacement_pattern_keeps_escaped_dollar_literal() {
+    let input = r#"echo "${d//\$ORIGIN/$origin}""#;
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let word = &command.args[0];
+
+    let WordPart::DoubleQuoted { parts, .. } = &word.parts[0].kind else {
+        panic!("expected double-quoted argument");
+    };
+    let (_, operator, _) = expect_parameter_operation_part(&parts[0].kind);
+    let ParameterOp::ReplaceAll { pattern, .. } = operator else {
+        panic!("expected replace-all operator");
+    };
+
+    assert_eq!(pattern.render(input), "$ORIGIN");
+    assert!(matches!(
+        &pattern.parts[..],
+        [PatternPartNode {
+            kind: PatternPart::Literal(text),
+            ..
+        }] if text == "$ORIGIN"
+    ));
+}
+
+#[test]
 fn test_parameter_replacement_word_keeps_escaped_single_quotes_literal() {
     let input = r#"echo ${dest_dir//\'/\'\\\'\'}"#;
     let script = Parser::new(input).parse().unwrap().file;
