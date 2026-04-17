@@ -896,7 +896,7 @@ fn large_corpus_conforms_with_shellcheck() {
     if cfg.timing_mode {
         let supported_fixtures = select_supported_large_corpus_fixtures(&fixtures, None);
         let linter_settings =
-            build_large_corpus_linter_settings(cfg.selected_rules.clone(), cfg.mapped_only);
+            build_large_corpus_linter_settings(cfg.selected_rules, cfg.mapped_only);
         let shuck_path_resolver = Arc::new(LargeCorpusPathResolver::new(&supported_fixtures));
         let timings = collect_fixture_timings(
             &supported_fixtures,
@@ -919,8 +919,7 @@ fn large_corpus_conforms_with_shellcheck() {
         build_shellcheck_filter_codes(cfg.selected_rules, cfg.mapped_only);
     let shellcheck_cache = ShellCheckCache::new(&cfg.cache_dir, &shellcheck);
     shellcheck_cache.prepare(&fixtures, &discover_worktree_roots());
-    let linter_settings =
-        build_large_corpus_linter_settings(cfg.selected_rules.clone(), cfg.mapped_only);
+    let linter_settings = build_large_corpus_linter_settings(cfg.selected_rules, cfg.mapped_only);
     let supported_fixtures =
         select_supported_large_corpus_fixtures(&fixtures, Some(&supported_shells));
     let skipped_unsupported_shells = fixtures.len().saturating_sub(supported_fixtures.len());
