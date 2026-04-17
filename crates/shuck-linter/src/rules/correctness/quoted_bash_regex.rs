@@ -57,7 +57,7 @@ fn literal_uses_regex_significance(text: &str) -> bool {
 
         if matches!(
             char,
-            '.' | '[' | ']' | '(' | ')' | '{' | '}' | '*' | '+' | '?' | '|' | '^' | '$'
+            '.' | '[' | ']' | '(' | ')' | '*' | '+' | '?' | '|' | '^' | '$'
         ) {
             return true;
         }
@@ -77,6 +77,8 @@ mod tests {
 #!/bin/bash
 [[ \"$output\" =~ \"Error: No available formula\" ]]
 [[ \"$output\" =~ \"~user\" ]]
+[[ \"$output\" =~ \"{\" ]]
+[[ \"$output\" =~ \"a{1,3}\" ]]
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashRegex));
 
