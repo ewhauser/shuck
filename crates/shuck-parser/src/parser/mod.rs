@@ -1880,12 +1880,15 @@ impl<'a> Parser<'a> {
                 .is_some_and(|options| options.short_repeat.is_definitely_off())
     }
 
-    fn zsh_brace_if_enabled(&self) -> bool {
+    fn zsh_brace_bodies_enabled(&self) -> bool {
         self.dialect.features().zsh_brace_if
-            && self.zsh_short_loops_enabled()
             && !self
                 .current_zsh_options()
                 .is_some_and(|options| options.ignore_braces.is_definitely_on())
+    }
+
+    fn zsh_brace_if_enabled(&self) -> bool {
+        self.zsh_brace_bodies_enabled()
     }
 
     fn zsh_glob_qualifiers_enabled_at(&self, offset: usize) -> bool {
@@ -3591,6 +3594,9 @@ impl<'a> Parser<'a> {
                         do_span: do_span.rebased(base),
                         done_span: done_span.rebased(base),
                     },
+                    ForSyntax::InDirect { in_span } => ForSyntax::InDirect {
+                        in_span: in_span.map(|span| span.rebased(base)),
+                    },
                     ForSyntax::InBrace {
                         in_span,
                         left_brace_span,
@@ -3610,6 +3616,13 @@ impl<'a> Parser<'a> {
                         right_paren_span: right_paren_span.rebased(base),
                         do_span: do_span.rebased(base),
                         done_span: done_span.rebased(base),
+                    },
+                    ForSyntax::ParenDirect {
+                        left_paren_span,
+                        right_paren_span,
+                    } => ForSyntax::ParenDirect {
+                        left_paren_span: left_paren_span.rebased(base),
+                        right_paren_span: right_paren_span.rebased(base),
                     },
                     ForSyntax::ParenBrace {
                         left_paren_span,

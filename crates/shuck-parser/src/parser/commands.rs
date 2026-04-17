@@ -840,51 +840,66 @@ impl<'a> Parser<'a> {
         let condition_span = Span::from_positions(condition_start, self.current_span.start);
         let condition = Self::stmt_seq_with_span(condition_span, condition);
 
-        let (mut syntax, then_branch, brace_style) =
-            if allow_brace_syntax && self.at(TokenKind::LeftBrace) {
-                let (then_branch, left_brace_span, right_brace_span) = self
-                    .parse_brace_enclosed_stmt_seq(
-                        "syntax error: empty then clause",
-                        BraceBodyContext::IfClause,
-                    )?;
-                self.record_zsh_brace_if_span(left_brace_span);
-                (
-                    IfSyntax::Brace {
-                        left_brace_span,
-                        right_brace_span,
-                    },
-                    then_branch,
-                    true,
-                )
-            } else {
-                let then_span = self.current_span;
-                self.expect_keyword(Keyword::Then)?;
-                self.skip_newlines()?;
+        let (mut syntax, then_branch, brace_style) = if allow_brace_syntax
+            && self.at(TokenKind::LeftBrace)
+        {
+            let (then_branch, left_brace_span, right_brace_span) = self
+                .parse_brace_enclosed_stmt_seq(
+                    "syntax error: empty then clause",
+                    BraceBodyContext::IfClause,
+                )?;
+            self.record_zsh_brace_if_span(left_brace_span);
+            (
+                IfSyntax::Brace {
+                    left_brace_span,
+                    right_brace_span,
+                },
+                then_branch,
+                true,
+            )
+        } else if let Some((then_branch, left_brace_span, right_brace_span)) = allow_brace_syntax
+            .then(|| self.try_parse_compact_zsh_brace_body(BraceBodyContext::IfClause))
+            .transpose()?
+            .flatten()
+        {
+            self.record_zsh_brace_if_span(left_brace_span);
+            (
+                IfSyntax::Brace {
+                    left_brace_span,
+                    right_brace_span,
+                },
+                then_branch,
+                true,
+            )
+        } else {
+            let then_span = self.current_span;
+            self.expect_keyword(Keyword::Then)?;
+            self.skip_newlines()?;
 
-                let then_start = self.current_span.start;
-                let then_branch = self.parse_compound_list_until(IF_BODY_TERMINATORS)?;
-                let then_branch_span = Span::from_positions(then_start, self.current_span.start);
+            let then_start = self.current_span.start;
+            let then_branch = self.parse_compound_list_until(IF_BODY_TERMINATORS)?;
+            let then_branch_span = Span::from_positions(then_start, self.current_span.start);
 
-                let then_branch = if then_branch.is_empty() {
-                    if self.dialect == ShellDialect::Zsh && self.is_keyword(Keyword::Elif) {
-                        Self::stmt_seq_with_span(then_branch_span, Vec::new())
-                    } else {
-                        self.pop_depth();
-                        return Err(self.error("syntax error: empty then clause"));
-                    }
+            let then_branch = if then_branch.is_empty() {
+                if self.dialect == ShellDialect::Zsh && self.is_keyword(Keyword::Elif) {
+                    Self::stmt_seq_with_span(then_branch_span, Vec::new())
                 } else {
-                    Self::stmt_seq_with_span(then_branch_span, then_branch)
-                };
-
-                (
-                    IfSyntax::ThenFi {
-                        then_span,
-                        fi_span: Span::new(),
-                    },
-                    then_branch,
-                    false,
-                )
+                    self.pop_depth();
+                    return Err(self.error("syntax error: empty then clause"));
+                }
+            } else {
+                Self::stmt_seq_with_span(then_branch_span, then_branch)
             };
+
+            (
+                IfSyntax::ThenFi {
+                    then_span,
+                    fi_span: Span::new(),
+                },
+                then_branch,
+                false,
+            )
+        };
 
         // Parse elif branches
         let mut elif_branches = Vec::new();
@@ -899,15 +914,20 @@ impl<'a> Parser<'a> {
             let elif_condition = Self::stmt_seq_with_span(elif_condition_span, elif_condition);
 
             let elif_body = if brace_style {
-                if !self.at(TokenKind::LeftBrace) {
+                if self.at(TokenKind::LeftBrace) {
+                    self.parse_brace_enclosed_stmt_seq(
+                        "syntax error: empty elif clause",
+                        BraceBodyContext::IfClause,
+                    )?
+                    .0
+                } else if let Some((body, _, _)) =
+                    self.try_parse_compact_zsh_brace_body(BraceBodyContext::IfClause)?
+                {
+                    body
+                } else {
                     self.pop_depth();
                     return Err(self.error("expected '{' to start elif clause"));
                 }
-                self.parse_brace_enclosed_stmt_seq(
-                    "syntax error: empty elif clause",
-                    BraceBodyContext::IfClause,
-                )?
-                .0
             } else {
                 self.expect_keyword(Keyword::Then)?;
                 let elif_body_region_start = self.current_span.start;
@@ -946,17 +966,22 @@ impl<'a> Parser<'a> {
             let else_region_start = self.current_span.start;
             self.skip_newlines()?;
             if brace_style {
-                if !self.at(TokenKind::LeftBrace) {
+                if self.at(TokenKind::LeftBrace) {
+                    Some(
+                        self.parse_brace_enclosed_stmt_seq(
+                            "syntax error: empty else clause",
+                            BraceBodyContext::IfClause,
+                        )?
+                        .0,
+                    )
+                } else if let Some((body, _, _)) =
+                    self.try_parse_compact_zsh_brace_body(BraceBodyContext::IfClause)?
+                {
+                    Some(body)
+                } else {
                     self.pop_depth();
                     return Err(self.error("expected '{' to start else clause"));
                 }
-                Some(
-                    self.parse_brace_enclosed_stmt_seq(
-                        "syntax error: empty else clause",
-                        BraceBodyContext::IfClause,
-                    )?
-                    .0,
-                )
             } else {
                 let else_start = self.current_span.start;
                 let branch = self.parse_compound_list(Keyword::Fi)?;
@@ -1044,7 +1069,27 @@ impl<'a> Parser<'a> {
                     continue;
                 }
                 match self.current_token_kind {
-                    Some(kind) if kind.is_word_like() => {
+                    Some(kind)
+                        if kind.is_word_like()
+                            || (self.dialect == ShellDialect::Zsh
+                                && matches!(kind, TokenKind::LeftParen)) =>
+                    {
+                        if self.dialect == ShellDialect::Zsh
+                            && self
+                                .current_token
+                                .as_ref()
+                                .is_some_and(|token| !token.flags.is_synthetic())
+                        {
+                            let start = self.current_span.start;
+                            if let Some((text, end)) = self.scan_source_word(start) {
+                                let span = Span::from_positions(start, end);
+                                let word = self.parse_word_with_context(&text, span, start, true);
+                                self.advance_past_word(&word);
+                                words.push(word);
+                                continue;
+                            }
+                        }
+
                         let word = self
                             .take_current_word_and_advance()
                             .ok_or_else(|| self.error("expected for word"))?;
@@ -1133,6 +1178,17 @@ impl<'a> Parser<'a> {
                     right_brace_span,
                 )
             }
+            ForHeaderSurface::In { in_span }
+                if allow_zsh_targets && !self.is_keyword(Keyword::Do) =>
+            {
+                let stmt = self.parse_single_stmt_command()?;
+                let span = stmt.span;
+                (
+                    Self::stmt_seq_with_span(span, vec![stmt]),
+                    ForSyntax::InDirect { in_span },
+                    span,
+                )
+            }
             ForHeaderSurface::In { in_span } => {
                 let do_span = if self.is_keyword(Keyword::Do) {
                     self.current_span
@@ -1169,6 +1225,21 @@ impl<'a> Parser<'a> {
                         done_span,
                     },
                     done_span,
+                )
+            }
+            ForHeaderSurface::Paren {
+                left_paren_span,
+                right_paren_span,
+            } if allow_zsh_targets && !self.is_keyword(Keyword::Do) => {
+                let stmt = self.parse_single_stmt_command()?;
+                let span = stmt.span;
+                (
+                    Self::stmt_seq_with_span(span, vec![stmt]),
+                    ForSyntax::ParenDirect {
+                        left_paren_span,
+                        right_paren_span,
+                    },
+                    span,
                 )
             }
             ForHeaderSurface::Paren {
@@ -1842,34 +1913,64 @@ impl<'a> Parser<'a> {
 
         // Parse condition
         let condition_start = self.current_span.start;
-        let condition = self.parse_compound_list(Keyword::Do)?;
+        let allow_brace_body = self.dialect == ShellDialect::Zsh && self.zsh_brace_bodies_enabled();
+        let condition = self.parse_loop_condition_until_body_start(allow_brace_body)?;
         let condition_span = Span::from_positions(condition_start, self.current_span.start);
         let condition = Self::stmt_seq_with_span(condition_span, condition);
 
-        // Expect 'do'
-        self.expect_keyword(Keyword::Do)?;
-        self.skip_newlines()?;
+        let (body, end_span) = if allow_brace_body && self.at(TokenKind::LeftBrace) {
+            let body = self.parse_brace_group(BraceBodyContext::Ordinary)?;
+            let span = Self::compound_span(&body);
+            (
+                Self::stmt_seq_with_span(
+                    span,
+                    vec![Self::lower_non_sequence_command_to_stmt(Command::Compound(
+                        Box::new(body),
+                        Vec::new(),
+                    ))],
+                ),
+                self.current_span,
+            )
+        } else if let Some((body, left_brace_span, right_brace_span)) = allow_brace_body
+            .then(|| self.try_parse_compact_zsh_brace_body(BraceBodyContext::Ordinary))
+            .transpose()?
+            .flatten()
+        {
+            let brace_group = CompoundCommand::BraceGroup(body);
+            let span = left_brace_span.merge(right_brace_span);
+            (
+                Self::stmt_seq_with_span(
+                    span,
+                    vec![Self::lower_non_sequence_command_to_stmt(Command::Compound(
+                        Box::new(brace_group),
+                        Vec::new(),
+                    ))],
+                ),
+                right_brace_span,
+            )
+        } else {
+            self.expect_keyword(Keyword::Do)?;
+            self.skip_newlines()?;
 
-        // Parse body
-        let body_start = self.current_span.start;
-        let body = self.parse_compound_list(Keyword::Done)?;
-        let body_span = Span::from_positions(body_start, self.current_span.start);
+            let body_start = self.current_span.start;
+            let body = self.parse_compound_list(Keyword::Done)?;
+            let body_span = Span::from_positions(body_start, self.current_span.start);
 
-        // Bash requires at least one command in loop body
-        if body.is_empty() && self.dialect != ShellDialect::Zsh {
-            self.pop_depth();
-            return Err(self.error("syntax error: empty while loop body"));
-        }
-        let body = Self::stmt_seq_with_span(body_span, body);
+            if body.is_empty() && self.dialect != ShellDialect::Zsh {
+                self.pop_depth();
+                return Err(self.error("syntax error: empty while loop body"));
+            }
+            let body = Self::stmt_seq_with_span(body_span, body);
 
-        // Expect 'done'
-        self.expect_keyword(Keyword::Done)?;
+            self.expect_keyword(Keyword::Done)?;
+            (body, self.current_span)
+        };
 
         self.pop_depth();
         Ok(CompoundCommand::While(WhileCommand {
             condition,
             body,
-            span: start_span.merge(self.current_span),
+            span: start_span.merge(end_span),
         }))
     }
 
@@ -1882,34 +1983,64 @@ impl<'a> Parser<'a> {
 
         // Parse condition
         let condition_start = self.current_span.start;
-        let condition = self.parse_compound_list(Keyword::Do)?;
+        let allow_brace_body = self.dialect == ShellDialect::Zsh && self.zsh_brace_bodies_enabled();
+        let condition = self.parse_loop_condition_until_body_start(allow_brace_body)?;
         let condition_span = Span::from_positions(condition_start, self.current_span.start);
         let condition = Self::stmt_seq_with_span(condition_span, condition);
 
-        // Expect 'do'
-        self.expect_keyword(Keyword::Do)?;
-        self.skip_newlines()?;
+        let (body, end_span) = if allow_brace_body && self.at(TokenKind::LeftBrace) {
+            let body = self.parse_brace_group(BraceBodyContext::Ordinary)?;
+            let span = Self::compound_span(&body);
+            (
+                Self::stmt_seq_with_span(
+                    span,
+                    vec![Self::lower_non_sequence_command_to_stmt(Command::Compound(
+                        Box::new(body),
+                        Vec::new(),
+                    ))],
+                ),
+                self.current_span,
+            )
+        } else if let Some((body, left_brace_span, right_brace_span)) = allow_brace_body
+            .then(|| self.try_parse_compact_zsh_brace_body(BraceBodyContext::Ordinary))
+            .transpose()?
+            .flatten()
+        {
+            let brace_group = CompoundCommand::BraceGroup(body);
+            let span = left_brace_span.merge(right_brace_span);
+            (
+                Self::stmt_seq_with_span(
+                    span,
+                    vec![Self::lower_non_sequence_command_to_stmt(Command::Compound(
+                        Box::new(brace_group),
+                        Vec::new(),
+                    ))],
+                ),
+                right_brace_span,
+            )
+        } else {
+            self.expect_keyword(Keyword::Do)?;
+            self.skip_newlines()?;
 
-        // Parse body
-        let body_start = self.current_span.start;
-        let body = self.parse_compound_list(Keyword::Done)?;
-        let body_span = Span::from_positions(body_start, self.current_span.start);
+            let body_start = self.current_span.start;
+            let body = self.parse_compound_list(Keyword::Done)?;
+            let body_span = Span::from_positions(body_start, self.current_span.start);
 
-        // Bash requires at least one command in loop body
-        if body.is_empty() && self.dialect != ShellDialect::Zsh {
-            self.pop_depth();
-            return Err(self.error("syntax error: empty until loop body"));
-        }
-        let body = Self::stmt_seq_with_span(body_span, body);
+            if body.is_empty() && self.dialect != ShellDialect::Zsh {
+                self.pop_depth();
+                return Err(self.error("syntax error: empty until loop body"));
+            }
+            let body = Self::stmt_seq_with_span(body_span, body);
 
-        // Expect 'done'
-        self.expect_keyword(Keyword::Done)?;
+            self.expect_keyword(Keyword::Done)?;
+            (body, self.current_span)
+        };
 
         self.pop_depth();
         Ok(CompoundCommand::Until(UntilCommand {
             condition,
             body,
-            span: start_span.merge(self.current_span),
+            span: start_span.merge(end_span),
         }))
     }
 
@@ -2199,9 +2330,6 @@ impl<'a> Parser<'a> {
         let text = span.slice(self.input);
         let trimmed_start = text.len() - text.trim_start_matches(char::is_whitespace).len();
         let trimmed_end = text.trim_end_matches(char::is_whitespace).len();
-        if trimmed_end <= trimmed_start {
-            return None;
-        }
         let start = span.start.advanced_by(&text[..trimmed_start]);
         let end = span.start.advanced_by(&text[..trimmed_end]);
         Some(Span::from_positions(start, end))
@@ -2661,7 +2789,10 @@ impl<'a> Parser<'a> {
             }
 
             if self.is_keyword(Keyword::Then)
-                || (allow_brace_body && !stmts.is_empty() && self.at(TokenKind::LeftBrace))
+                || (allow_brace_body
+                    && !stmts.is_empty()
+                    && (self.at(TokenKind::LeftBrace)
+                        || self.current_token_is_compact_zsh_brace_body()))
             {
                 break;
             }
@@ -2701,6 +2832,63 @@ impl<'a> Parser<'a> {
         self.restore(checkpoint);
 
         !reaches_then
+    }
+
+    fn parse_loop_condition_until_body_start(
+        &mut self,
+        allow_brace_body: bool,
+    ) -> Result<Vec<Stmt>> {
+        let mut stmts = Vec::with_capacity(2);
+
+        loop {
+            self.skip_newlines()?;
+
+            if self.is_keyword(Keyword::Do)
+                || (allow_brace_body
+                    && !stmts.is_empty()
+                    && (self.at(TokenKind::LeftBrace)
+                        || self.current_token_is_compact_zsh_brace_body())
+                    && self.current_brace_starts_zsh_loop_body_fact())
+            {
+                break;
+            }
+
+            if self.current_token.is_none() {
+                break;
+            }
+
+            let command_stmts = self.parse_command_list_required()?;
+            self.apply_stmt_list_effects(&command_stmts);
+            stmts.extend(command_stmts);
+        }
+
+        Ok(stmts)
+    }
+
+    fn current_brace_starts_zsh_loop_body_fact(&mut self) -> bool {
+        let checkpoint = self.checkpoint();
+        let reaches_do = loop {
+            if self.skip_newlines().is_err() {
+                break false;
+            }
+            if self.is_keyword(Keyword::Do) {
+                break true;
+            }
+            if self.current_token.is_none() {
+                break false;
+            }
+            if self.parse_command_list_required().is_err() {
+                break false;
+            }
+        };
+        self.restore(checkpoint);
+
+        !reaches_do
+    }
+
+    fn current_token_is_compact_zsh_brace_body(&mut self) -> bool {
+        self.current_source_like_word_text()
+            .is_some_and(|text| text.starts_with('{') && text.ends_with('}'))
     }
 
     fn peek_zsh_always_span(&mut self) -> Option<Span> {
@@ -2797,6 +2985,83 @@ impl<'a> Parser<'a> {
         Self::rebase_stmt_seq(&mut output.file.body, inner_start);
         self.advance();
         Ok(Some(CompoundCommand::BraceGroup(output.file.body)))
+    }
+
+    fn try_parse_compact_zsh_brace_body(
+        &mut self,
+        context: BraceBodyContext,
+    ) -> Result<Option<(StmtSeq, Span, Span)>> {
+        if self.dialect != ShellDialect::Zsh
+            || !self.zsh_brace_bodies_enabled()
+            || !self.at_word_like()
+        {
+            return Ok(None);
+        }
+
+        let Some(body_text) = self.current_source_like_word_text() else {
+            return Ok(None);
+        };
+        let body_text = body_text.into_owned();
+        let Some(inner) = body_text
+            .strip_prefix('{')
+            .and_then(|body| body.strip_suffix('}'))
+        else {
+            return Ok(None);
+        };
+
+        if !inner.is_empty()
+            && !inner.chars().any(|ch| {
+                matches!(
+                    ch,
+                    ' ' | '\t' | '\n' | ';' | '&' | '|' | '<' | '>' | '$' | '"' | '\'' | '(' | ')'
+                )
+            })
+        {
+            return Ok(None);
+        }
+
+        let nested_profile = self
+            .current_zsh_options()
+            .cloned()
+            .map(|options| ShellProfile::with_zsh_options(self.dialect, options))
+            .unwrap_or_else(|| self.shell_profile.clone());
+        let mut nested =
+            Parser::with_limits_and_profile(inner, self.max_depth, self.max_fuel, nested_profile);
+        nested.aliases = self.aliases.clone();
+        nested.expand_aliases = self.expand_aliases;
+        nested.expand_next_word = self.expand_next_word;
+
+        let word_span = self.current_span;
+        let inner_start = word_span.start.advanced_by("{");
+        let mut output = nested.parse();
+        if output.is_err() {
+            return Err(self.rebase_nested_parse_error(output.strict_error(), inner_start));
+        }
+        Self::rebase_stmt_seq(&mut output.file.body, inner_start);
+
+        let left_brace_span = Span::from_positions(word_span.start, inner_start);
+        let right_brace_start = word_span
+            .start
+            .advanced_by(&body_text[..body_text.len() - 1]);
+        let right_brace_span = Span::from_positions(right_brace_start, word_span.end);
+        let body = Self::stmt_seq_with_span(
+            Span::from_positions(inner_start, right_brace_start),
+            output.file.body.stmts,
+        );
+
+        if body.is_empty()
+            && !(self.dialect == ShellDialect::Zsh && matches!(context, BraceBodyContext::Function))
+        {
+            let message = match context {
+                BraceBodyContext::Function => "syntax error: empty brace group",
+                BraceBodyContext::IfClause => "syntax error: empty then clause",
+                BraceBodyContext::Ordinary => "syntax error: empty brace group",
+            };
+            return Err(self.error(message));
+        }
+
+        self.advance();
+        Ok(Some((body, left_brace_span, right_brace_span)))
     }
 
     fn should_consume_right_brace_as_literal_argument(

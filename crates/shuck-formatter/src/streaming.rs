@@ -1064,6 +1064,17 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     self.finish_block("done");
                 }
             }
+            ForSyntax::InDirect { .. } => {
+                if let Some(words) = &command.words {
+                    self.write_text(" in");
+                    for word in words {
+                        self.write_space();
+                        self.write_word(word);
+                    }
+                }
+                self.write_space();
+                self.format_inline_stmts(&command.body)?;
+            }
             ForSyntax::ParenDoDone { .. } => {
                 self.write_text(" (");
                 for (index, word) in command
@@ -1089,6 +1100,22 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     )?;
                     self.finish_block("done");
                 }
+            }
+            ForSyntax::ParenDirect { .. } => {
+                self.write_text(" (");
+                for (index, word) in command
+                    .words
+                    .iter()
+                    .flat_map(|words| words.iter())
+                    .enumerate()
+                {
+                    if index > 0 {
+                        self.write_space();
+                    }
+                    self.write_word(word);
+                }
+                self.write_text(") ");
+                self.format_inline_stmts(&command.body)?;
             }
             ForSyntax::InBrace { .. } => {
                 if let Some(words) = &command.words {

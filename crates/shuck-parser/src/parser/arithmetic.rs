@@ -835,6 +835,27 @@ impl<'a> ArithmeticParser<'a> {
                 }
                 Ok(index)
             }
+            '#' if self.dialect == ShellDialect::Zsh => {
+                let Some(next) = self.char_at(start + 2) else {
+                    return Ok(start + 2);
+                };
+                let mut index = start + 2;
+
+                if is_ident_start(next) {
+                    index += next.len_utf8();
+                    while let Some(ch) = self.char_at(index) {
+                        if is_ident_continue(ch) {
+                            index += ch.len_utf8();
+                        } else {
+                            break;
+                        }
+                    }
+                } else if next.is_ascii_digit() || is_special_parameter(next) {
+                    index += next.len_utf8();
+                }
+
+                Ok(index)
+            }
             ch if is_special_parameter(ch) => Ok(start + 1 + ch.len_utf8()),
             ch if is_ident_start(ch) => {
                 let mut index = start + 1 + ch.len_utf8();
