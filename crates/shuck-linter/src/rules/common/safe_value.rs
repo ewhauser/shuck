@@ -265,10 +265,13 @@ impl<'a> SafeValueIndex<'a> {
     fn safe_bindings_for_name(&self, name: &Name, at: Span) -> Vec<BindingId> {
         let mut bindings = self.analysis.reaching_bindings_for_name(name, at);
         if bindings.len() == 1 {
-            let mut expanded = self.analysis.visible_bindings_bypassing(name, bindings[0], at);
+            let mut expanded = self
+                .analysis
+                .visible_bindings_bypassing(name, bindings[0], at);
             if !expanded.is_empty() {
                 expanded.push(bindings[0]);
-                expanded.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+                expanded
+                    .sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
                 expanded.dedup();
                 bindings = expanded;
             }
