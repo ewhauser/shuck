@@ -1720,6 +1720,31 @@ fn test_dollar_quoted_words_preserve_quote_variants() {
 }
 
 #[test]
+fn test_dollar_quotes_stay_literal_inside_double_quotes() {
+    let input = "printf \"%s\" \"$'inner'\" \"$\\\"inner\\\"\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    assert_eq!(command.args.len(), 3);
+
+    for arg in &command.args[1..] {
+        let WordPart::DoubleQuoted { parts, .. } = &arg.parts[0].kind else {
+            panic!("expected double-quoted word");
+        };
+        assert_eq!(arg.render_syntax(input), arg.span.slice(input));
+        assert!(
+            !parts.iter().any(|part| matches!(
+                part.kind,
+                WordPart::SingleQuoted { .. } | WordPart::DoubleQuoted { dollar: true, .. }
+            )),
+            "double-quoted contents should keep nested dollar-quote syntax literal: {parts:#?}"
+        );
+    }
+}
+
+#[test]
 fn test_word_part_spans_track_nested_array_expansions() {
     let input = "echo ${arr[$RANDOM % ${#arr[@]}]}\n";
     let script = Parser::new(input).parse().unwrap().file;
