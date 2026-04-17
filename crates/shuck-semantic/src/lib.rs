@@ -5053,6 +5053,20 @@ printf '%s\\n' \"${map[swift-cmark]}\" \"${map[$dynamic_key]}\"
     }
 
     #[test]
+    fn escaped_parameter_replacement_patterns_do_not_register_variable_reads() {
+        let source = "\
+#!/bin/bash
+d=lib
+origin=/tmp
+echo \"${d//\\$ORIGIN/$origin}\"
+";
+        let model = model(source);
+        let unresolved = unresolved_names(&model);
+
+        assert!(unresolved.is_empty(), "unexpected unresolved refs: {unresolved:?}");
+    }
+
+    #[test]
     fn recorded_program_and_cfg_capture_non_arithmetic_var_ref_nested_regions() {
         let source = "\
 [[ -v assoc[\"$(printf inner)\"] ]]

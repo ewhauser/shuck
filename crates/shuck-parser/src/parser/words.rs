@@ -552,6 +552,7 @@ impl<'a> Parser<'a> {
             DecodeWordPartsOptions {
                 preserve_quote_fragments: true,
                 parse_dollar_quotes: true,
+                preserve_escaped_expansion_literals: text.is_source_backed(),
                 ..DecodeWordPartsOptions::default()
             },
             &mut parts,
