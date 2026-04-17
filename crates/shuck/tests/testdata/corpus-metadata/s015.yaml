@@ -1,0 +1,8 @@
+reviewed_divergences:
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__games__mame__mame.SlackBuild"
+    line: 166
+    end_line: 166
+    column: 12
+    end_column: 22
+    reason: "This loop uses a quoted scalar expansion, which ShellCheck reports as SC2066, but S015 is intentionally scoped to quoted star-splat loop items."
