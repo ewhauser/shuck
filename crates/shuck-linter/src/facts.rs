@@ -4714,18 +4714,18 @@ struct ShebangHeaderFacts {
 }
 
 fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
-    let Some((first_line_offset, first_line_text)) = nth_source_line(source, 0) else {
+    let mut source_lines = source_lines_with_offsets(source).enumerate();
+    let Some((_, (first_line_offset, first_line_text))) = source_lines.next() else {
         return ShebangHeaderFacts::default();
     };
-    let line = first_line_text.trim_end_matches('\r');
+    let first_line = first_line_text.trim_end_matches('\r');
     let mut indented_shebang_span = None;
     let mut space_after_hash_bang_span = None;
     let mut shebang_not_on_first_line_span = None;
 
-    for line_index in 0.. {
-        let Some((offset, raw_line)) = nth_source_line(source, line_index) else {
-            break;
-        };
+    for (line_index, (offset, raw_line)) in
+        std::iter::once((0, (first_line_offset, first_line_text))).chain(source_lines)
+    {
         let line = raw_line.trim_end_matches('\r');
         let header_like = source_line_is_header_like(line);
         let shebang_candidate = source_line_has_shebang_candidate(line);
@@ -4749,19 +4749,12 @@ fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
             shebang_not_on_first_line_span = Some(point_span(line_number, 1, offset));
         }
 
-        if line_index == 0 {
-            if shebang_candidate || !header_like {
-                break;
-            }
-            continue;
-        }
-
         if shebang_candidate || !header_like {
             break;
         }
     }
 
-    let first_line_shellcheck_shell_directive = line
+    let first_line_shellcheck_shell_directive = first_line
         .strip_prefix('#')
         .map(str::trim_start)
         .is_some_and(|comment| {
@@ -4769,20 +4762,20 @@ fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
                 .to_ascii_lowercase()
                 .starts_with("shellcheck shell=")
         });
-    let missing_shebang_line_span = (!line.trim_start().starts_with("#!")
+    let missing_shebang_line_span = (!first_line.trim_start().starts_with("#!")
         && space_after_hash_bang_span.is_none()
         && shebang_not_on_first_line_span.is_none()
         && !first_line_shellcheck_shell_directive
-        && line.trim_start().starts_with('#'))
-    .then(|| line_span(1, first_line_offset, line));
+        && first_line.trim_start().starts_with('#'))
+    .then(|| line_span(1, first_line_offset, first_line));
 
-    let shebang_words = line
+    let shebang_words = first_line
         .strip_prefix("#!")
         .map(parse_shebang_words)
         .unwrap_or_default();
 
     let duplicate_shebang_flag_span =
-        shebang_duplicate_flag(&shebang_words).map(|_| line_span(1, first_line_offset, line));
+        shebang_duplicate_flag(&shebang_words).map(|_| line_span(1, first_line_offset, first_line));
 
     let non_absolute_shebang_span = shebang_words.first().and_then(|interpreter| {
         if interpreter.starts_with('/') || *interpreter == "/usr/bin/env" {
@@ -4791,7 +4784,7 @@ fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
         if has_header_shellcheck_shell_directive(source) {
             return None;
         }
-        Some(line_span(1, first_line_offset, line))
+        Some(line_span(1, first_line_offset, first_line))
     });
     let enables_errexit = first_nonempty_source_line(source)
         .and_then(|(_, line)| line.trim_end_matches('\r').strip_prefix("#!"))
@@ -4847,22 +4840,19 @@ fn parse_shebang_words(shebang: &str) -> Vec<&str> {
     shebang.split_whitespace().collect()
 }
 
+fn source_lines_with_offsets(source: &str) -> impl Iterator<Item = (usize, &str)> + '_ {
+    source
+        .split_inclusive('\n')
+        .scan(0usize, |offset, raw_line| {
+            let line = raw_line.strip_suffix('\n').unwrap_or(raw_line);
+            let line_offset = *offset;
+            *offset += raw_line.len();
+            Some((line_offset, line))
+        })
+}
+
 fn first_nonempty_source_line(source: &str) -> Option<(usize, &str)> {
-    let mut offset = 0usize;
-
-    for raw_line in source.split_inclusive('\n') {
-        let line = raw_line.strip_suffix('\n').unwrap_or(raw_line);
-        if !line.trim().is_empty() {
-            return Some((offset, line));
-        }
-        offset += raw_line.len();
-    }
-
-    if !source.is_empty() && !source.ends_with('\n') && !source.trim().is_empty() {
-        return Some((0, source));
-    }
-
-    None
+    source_lines_with_offsets(source).find(|(_, line)| !line.trim().is_empty())
 }
 
 fn shebang_duplicate_flag<'a>(shebang_words: &[&'a str]) -> Option<&'a str> {
@@ -4902,25 +4892,6 @@ fn shebang_short_option_cluster_enables_errexit(word: &str) -> bool {
     }
 
     flags.chars().all(|char| char.is_ascii_alphabetic()) && flags.contains('e')
-}
-
-fn nth_source_line(source: &str, index: usize) -> Option<(usize, &str)> {
-    let mut offset = 0;
-
-    for (line_index, raw_line) in source.split_inclusive('\n').enumerate() {
-        let line = raw_line.strip_suffix('\n').unwrap_or(raw_line);
-        if line_index == index {
-            return Some((offset, line));
-        }
-        offset += raw_line.len();
-    }
-
-    if source.is_empty() {
-        return None;
-    }
-
-    let total_lines = source.split_inclusive('\n').count();
-    (total_lines == index + 1 && !source.ends_with('\n')).then_some((offset, &source[offset..]))
 }
 
 fn line_span(line_number: usize, offset: usize, line: &str) -> Span {
