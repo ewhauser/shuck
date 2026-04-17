@@ -3,13 +3,13 @@ legacy_name: shebang-not-on-first-line
 new_category: Correctness
 new_code: C075
 runtime_kind: ast
-shellcheck_code: SC2288
+shellcheck_code: SC1128
 shells:
   - sh
   - bash
   - dash
   - ksh
-description: The shebang appears on the second line instead of the first.
+description: The shebang does not appear on the first line of the file.
 rationale: Move the shebang to the very first line of the file.
 source:
   shell_checks_rule: rules/SH-193.yaml

@@ -484,8 +484,9 @@ impl Default for ShellCheckCodeMap {
             // Keep SC2285 as a suppression alias for the authored S043 rule code.
             (2148, Rule::MissingShebangLine),
             (2239, Rule::NonAbsoluteShebang),
-            (2286, Rule::IndentedShebang),
-            (2287, Rule::SpaceAfterHashBang),
+            (1114, Rule::IndentedShebang),
+            (1115, Rule::SpaceAfterHashBang),
+            (1128, Rule::ShebangNotOnFirstLine),
             (2288, Rule::TemplateBraceInCommand),
             (2289, Rule::CommentedContinuationLine),
             (1133, Rule::LinebreakBeforeAnd),
@@ -575,7 +576,6 @@ impl Default for ShellCheckCodeMap {
             (1070, Rule::ZshRedirPipe),
             (1087, Rule::ZshPromptBracket),
             (1088, Rule::CshSyntaxInSh),
-            (1128, Rule::ShebangNotOnFirstLine),
             (1140, Rule::ZshBraceIf),
             (1141, Rule::ZshAlwaysBlock),
             (2091, Rule::IfDollarCommand),
@@ -835,8 +835,9 @@ impl Default for ShellCheckCodeMap {
                     (2154, Rule::UndefinedVariable),
                     (2148, Rule::MissingShebangLine),
                     (2239, Rule::NonAbsoluteShebang),
-                    (2286, Rule::IndentedShebang),
-                    (2287, Rule::SpaceAfterHashBang),
+                    (1114, Rule::IndentedShebang),
+                    (1115, Rule::SpaceAfterHashBang),
+                    (1128, Rule::ShebangNotOnFirstLine),
                     (2288, Rule::TemplateBraceInCommand),
                     (2289, Rule::CommentedContinuationLine),
                     (1133, Rule::LinebreakBeforeAnd),
@@ -1674,12 +1675,13 @@ mod tests {
         assert_eq!(map.resolve("SC2284"), Some(Rule::UnicodeQuoteInString));
         assert_eq!(map.resolve("SC2148"), Some(Rule::MissingShebangLine));
         assert_eq!(map.resolve("SC2285"), Some(Rule::MissingShebangLine));
+        assert_eq!(map.resolve("SC1114"), Some(Rule::IndentedShebang));
+        assert_eq!(map.resolve("SC1115"), Some(Rule::SpaceAfterHashBang));
+        assert_eq!(map.resolve("SC1128"), Some(Rule::ShebangNotOnFirstLine));
         assert_eq!(
             map.resolve_all("SC2318"),
             vec![Rule::LocalCrossReference, Rule::DuplicateShebangFlag]
         );
-        assert_eq!(map.resolve("SC2286"), Some(Rule::IndentedShebang));
-        assert_eq!(map.resolve("SC2287"), Some(Rule::SpaceAfterHashBang));
         assert_eq!(map.resolve("SC2288"), Some(Rule::TemplateBraceInCommand));
         assert_eq!(map.resolve("SC2289"), Some(Rule::CommentedContinuationLine));
         assert_eq!(map.resolve("SC2333"), Some(Rule::NonShellSyntaxInScript));
@@ -1983,8 +1985,9 @@ mod tests {
             (2283, Rule::DoubleParenGrouping),
             (2148, Rule::MissingShebangLine),
             (2285, Rule::MissingShebangLine),
-            (2286, Rule::IndentedShebang),
-            (2287, Rule::SpaceAfterHashBang),
+            (1114, Rule::IndentedShebang),
+            (1115, Rule::SpaceAfterHashBang),
+            (1128, Rule::ShebangNotOnFirstLine),
             (2288, Rule::TemplateBraceInCommand),
             (2289, Rule::CommentedContinuationLine),
             (2294, Rule::EvalOnArray),
@@ -2146,8 +2149,9 @@ mod tests {
             (2100, Rule::AssignmentLooksLikeComparison),
             (2319, Rule::AssignmentLooksLikeComparison),
             (2148, Rule::MissingShebangLine),
-            (2286, Rule::IndentedShebang),
-            (2287, Rule::SpaceAfterHashBang),
+            (1114, Rule::IndentedShebang),
+            (1115, Rule::SpaceAfterHashBang),
+            (1128, Rule::ShebangNotOnFirstLine),
             (2277, Rule::ExtglobInCasePattern),
         ]
         .into_iter()
@@ -2174,7 +2178,6 @@ mod tests {
             Rule::ArraySubscriptTest,
             Rule::ArraySubscriptCondition,
             Rule::ExtglobInTest,
-            Rule::ShebangNotOnFirstLine,
         ]);
 
         let unmapped: Vec<&str> = Rule::iter()
@@ -2399,6 +2402,8 @@ mod tests {
             (1070, Rule::ZshRedirPipe),
             (1087, Rule::ZshPromptBracket),
             (1088, Rule::CshSyntaxInSh),
+            (1114, Rule::IndentedShebang),
+            (1115, Rule::SpaceAfterHashBang),
             (1128, Rule::ShebangNotOnFirstLine),
             (1140, Rule::ZshBraceIf),
             (1141, Rule::ZshAlwaysBlock),

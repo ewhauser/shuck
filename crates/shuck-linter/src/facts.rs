@@ -4718,20 +4718,48 @@ fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
         return ShebangHeaderFacts::default();
     };
     let line = first_line_text.trim_end_matches('\r');
+    let mut indented_shebang_span = None;
+    let mut space_after_hash_bang_span = None;
+    let mut shebang_not_on_first_line_span = None;
 
-    let trimmed = line.trim_start_matches(char::is_whitespace);
-    let indented_shebang_span = (trimmed.len() != line.len() && trimmed.starts_with("#!"))
-        .then(|| line_span(1, first_line_offset, line));
+    for line_index in 0.. {
+        let Some((offset, raw_line)) = nth_source_line(source, line_index) else {
+            break;
+        };
+        let line = raw_line.trim_end_matches('\r');
+        let header_like = source_line_is_header_like(line);
+        let shebang_candidate = source_line_has_shebang_candidate(line);
+        let indented_candidate = source_line_has_leading_whitespace_before_shebang_candidate(line);
+        let space_after_hash_offset = shebang_space_after_hash_offset_in_line(line);
+        let line_number = line_index + 1;
 
-    let space_after_hash_bang_span = line
-        .strip_prefix('#')
-        .and_then(|rest| rest.starts_with(char::is_whitespace).then_some(rest))
-        .and_then(|rest| {
-            rest.trim_start_matches(char::is_whitespace)
-                .starts_with('!')
-                .then_some(())
-        })
-        .map(|()| line_span(1, first_line_offset, line));
+        if indented_shebang_span.is_none() && indented_candidate {
+            indented_shebang_span = Some(point_span(line_number, 1, offset));
+        }
+        if space_after_hash_bang_span.is_none()
+            && let Some(space_offset) = space_after_hash_offset
+        {
+            space_after_hash_bang_span = Some(point_span(
+                line_number,
+                space_offset + 1,
+                offset + space_offset,
+            ));
+        }
+        if line_index > 0 && shebang_candidate {
+            shebang_not_on_first_line_span = Some(point_span(line_number, 1, offset));
+        }
+
+        if line_index == 0 {
+            if shebang_candidate || !header_like {
+                break;
+            }
+            continue;
+        }
+
+        if shebang_candidate || !header_like {
+            break;
+        }
+    }
 
     let first_line_shellcheck_shell_directive = line
         .strip_prefix('#')
@@ -4741,11 +4769,6 @@ fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
                 .to_ascii_lowercase()
                 .starts_with("shellcheck shell=")
         });
-    let first_line_header_like = line.trim_start().is_empty() || line.trim_start().starts_with('#');
-    let shebang_not_on_first_line_span = nth_source_line(source, 1).and_then(|(offset, line)| {
-        let line = line.trim_end_matches('\r');
-        (first_line_header_like && line.starts_with("#!")).then(|| line_span(2, offset, line))
-    });
     let missing_shebang_line_span = (!line.trim_start().starts_with("#!")
         && space_after_hash_bang_span.is_none()
         && shebang_not_on_first_line_span.is_none()
@@ -4784,6 +4807,40 @@ fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
         non_absolute_shebang_span,
         enables_errexit,
     }
+}
+
+fn source_line_is_header_like(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    trimmed.is_empty() || trimmed.starts_with('#')
+}
+
+fn source_line_has_shebang_candidate(line: &str) -> bool {
+    let trimmed = line.trim_start_matches(char::is_whitespace);
+    trimmed.starts_with("#!") || shebang_space_after_hash_offset_in_line(trimmed).is_some()
+}
+
+fn source_line_has_leading_whitespace_before_shebang_candidate(line: &str) -> bool {
+    let trimmed = line.trim_start_matches(char::is_whitespace);
+    trimmed.len() != line.len() && source_line_has_shebang_candidate(line)
+}
+
+fn shebang_space_after_hash_offset_in_line(line: &str) -> Option<usize> {
+    let trimmed = line.trim_start_matches(char::is_whitespace);
+    let leading_whitespace_len = line.len().saturating_sub(trimmed.len());
+    let rest = trimmed.strip_prefix('#')?;
+    let whitespace_len = rest
+        .len()
+        .saturating_sub(rest.trim_start_matches(char::is_whitespace).len());
+    (whitespace_len > 0 && rest[whitespace_len..].starts_with('!'))
+        .then_some(leading_whitespace_len + 1)
+}
+
+fn point_span(line_number: usize, column: usize, offset: usize) -> Span {
+    Span::at(Position {
+        line: line_number,
+        column,
+        offset,
+    })
 }
 
 fn parse_shebang_words(shebang: &str) -> Vec<&str> {

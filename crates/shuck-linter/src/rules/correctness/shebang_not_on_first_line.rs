@@ -33,7 +33,8 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.slice(source), "#!/bin/sh");
+        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.end.column, 1);
     }
 
     #[test]
@@ -49,6 +50,20 @@ mod tests {
     }
 
     #[test]
+    fn reports_shebang_after_multiple_header_lines() {
+        let source = "# comment\n\n#!/bin/sh\n:\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ShebangNotOnFirstLine),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.end.column, 1);
+    }
+
+    #[test]
     fn ignores_non_header_second_line_shebangs() {
         for source in ["echo hi\n#!/bin/sh\n:\n", "cat <<EOF\n#!/bin/sh\nEOF\n"] {
             let diagnostics = test_snippet(
@@ -60,12 +75,11 @@ mod tests {
     }
 
     #[test]
-    fn ignores_first_line_or_malformed_second_line_shebangs() {
+    fn ignores_first_line_or_non_header_later_shebangs() {
         for source in [
             "#!/bin/sh\n:\n",
-            "\n# !/bin/sh\n:\n",
-            "\n #!/bin/sh\n:\n",
-            "\n\n#!/bin/sh\n:\n",
+            "echo hi\n#!/bin/sh\n:\n",
+            "cat <<EOF\n#!/bin/sh\nEOF\n",
         ] {
             let diagnostics = test_snippet(
                 source,

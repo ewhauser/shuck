@@ -30,7 +30,8 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.start.line, 1);
-        assert_eq!(diagnostics[0].span.slice(source), "# !/bin/sh");
+        assert_eq!(diagnostics[0].span.start.column, 2);
+        assert_eq!(diagnostics[0].span.end.column, 2);
     }
 
     #[test]
@@ -38,8 +39,8 @@ mod tests {
         for source in [
             "#!/bin/sh\n:\n",
             " #!/bin/sh\n:\n",
-            "# comment\n# !/bin/sh\n",
-            "\n# !/bin/sh\n",
+            "# comment\n echo ok\n# !/bin/sh\n",
+            "echo ok\n# !/bin/sh\n",
         ] {
             let diagnostics =
                 test_snippet(source, &LinterSettings::for_rule(Rule::SpaceAfterHashBang));
@@ -53,6 +54,18 @@ mod tests {
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SpaceAfterHashBang));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.slice(source), "#\t!/bin/sh");
+        assert_eq!(diagnostics[0].span.start.column, 2);
+        assert_eq!(diagnostics[0].span.end.column, 2);
+    }
+
+    #[test]
+    fn reports_space_after_hash_bang_after_header_prelude() {
+        let source = "\n# !/bin/sh\n:\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SpaceAfterHashBang));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 2);
+        assert_eq!(diagnostics[0].span.end.column, 2);
     }
 }

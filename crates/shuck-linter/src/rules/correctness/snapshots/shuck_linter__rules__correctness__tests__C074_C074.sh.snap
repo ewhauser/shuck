@@ -1,9 +1,9 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
-assertion_line: 268
+assertion_line: 284
 ---
 C074 remove the space so the shebang starts with `#!`
- --> <source>:1:1
+ --> <source>:1:2
   |
 1 | # !/bin/sh
   |
