@@ -2,7 +2,7 @@
 set -eu
 
 repo_root=${SHUCK_BENCHMARK_REPO_ROOT:-$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)}
-fixtures_dir="$repo_root/crates/shuck-benchmark/resources/files"
+fixtures_dir=${SHUCK_BENCHMARK_FIXTURES_DIR:-"$repo_root/crates/shuck-benchmark/resources/files"}
 target_dir=${CARGO_TARGET_DIR:-"$repo_root/target"}
 shuck=${SHUCK_BENCHMARK_SHUCK_BIN:-"$target_dir/release/shuck"}
 cache_dir=${SHUCK_BENCHMARK_OUTPUT_DIR:-"$repo_root/.cache"}
