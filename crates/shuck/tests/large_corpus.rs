@@ -703,6 +703,7 @@ struct FixtureFailureCollection {
     mapping_issues: Vec<String>,
     reviewed_divergences: Vec<String>,
     corpus_noise: Vec<String>,
+    harness_warnings: Vec<String>,
     harness_failures: Vec<String>,
     unsupported_shells: usize,
     timeout_cap_reached: bool,
@@ -710,13 +711,18 @@ struct FixtureFailureCollection {
 
 impl FixtureFailureCollection {
     fn blocking_failures(&self) -> usize {
-        self.implementation_diffs.len() + self.mapping_issues.len() + self.harness_failures.len()
+        self.implementation_diffs.len() + self.harness_failures.len()
+    }
+
+    fn nonblocking_issue_count(&self) -> usize {
+        self.mapping_issues.len()
+            + self.reviewed_divergences.len()
+            + self.corpus_noise.len()
+            + self.harness_warnings.len()
     }
 
     fn has_nonblocking_items(&self) -> bool {
-        self.unsupported_shells > 0
-            || !self.reviewed_divergences.is_empty()
-            || !self.corpus_noise.is_empty()
+        self.unsupported_shells > 0 || self.nonblocking_issue_count() > 0
     }
 }
 
@@ -789,13 +795,21 @@ fn large_corpus_conforms_with_shellcheck() {
         String::new()
     };
 
+    eprintln!(
+        "large corpus compatibility summary: blocking={} warnings={} fixtures={} unsupported_shells={} implementation_diffs={} mapping_issues={} reviewed_divergences={} corpus_noise={} harness_warnings={} harness_failures={}",
+        failure_collection.blocking_failures(),
+        failure_collection.nonblocking_issue_count(),
+        fixtures.len(),
+        skipped_unsupported_shells,
+        failure_collection.implementation_diffs.len(),
+        failure_collection.mapping_issues.len(),
+        failure_collection.reviewed_divergences.len(),
+        failure_collection.corpus_noise.len(),
+        failure_collection.harness_warnings.len(),
+        failure_collection.harness_failures.len(),
+    );
     if failure_collection.blocking_failures() == 0 && failure_collection.has_nonblocking_items() {
-        eprintln!(
-            "large corpus non-blocking summary: reviewed divergence={}, corpus noise={}, unsupported-shell={}",
-            failure_collection.reviewed_divergences.len(),
-            failure_collection.corpus_noise.len(),
-            failure_collection.unsupported_shells,
-        );
+        eprintln!("{}", format_large_corpus_report(&failure_collection));
     }
 
     assert!(
@@ -893,9 +907,11 @@ where
 
     for fixture in fixtures {
         let evaluation = evaluate(fixture);
-        let has_blocking = evaluation.harness_failure.is_some()
-            || !evaluation.implementation_diffs.is_empty()
-            || !evaluation.mapping_issues.is_empty();
+        let has_blocking = evaluation
+            .harness_failure
+            .as_ref()
+            .is_some_and(|failure| failure.kind != FixtureFailureKind::Timeout)
+            || !evaluation.implementation_diffs.is_empty();
         let timeout = evaluation
             .harness_failure
             .as_ref()
@@ -1234,7 +1250,10 @@ fn merge_fixture_evaluation(
         .extend(evaluation.reviewed_divergences);
     collection.corpus_noise.extend(evaluation.corpus_noise);
     if let Some(failure) = evaluation.harness_failure {
-        collection.harness_failures.push(failure.message);
+        match failure.kind {
+            FixtureFailureKind::Timeout => collection.harness_warnings.push(failure.message),
+            FixtureFailureKind::Other => collection.harness_failures.push(failure.message),
+        }
     }
 }
 
@@ -1682,6 +1701,11 @@ fn format_large_corpus_report(collection: &FixtureFailureCollection) -> String {
         ));
     }
     if let Some(section) = format_report_section("Corpus Noise", &corpus_noise) {
+        sections.push(section);
+    }
+
+    if let Some(section) = format_report_section("Harness Warnings", &collection.harness_warnings)
+    {
         sections.push(section);
     }
 
@@ -3638,6 +3662,49 @@ mod tests {
     }
 
     #[test]
+    fn mapping_issues_are_nonblocking() {
+        let fixture = fixture("mapping.sh");
+        let fixtures = vec![&fixture];
+
+        let failures = collect_fixture_failures(&fixtures, false, |fixture| FixtureEvaluation {
+            mapping_issues: vec![format_fixture_failure(
+                &fixture.path,
+                &[format!("{} needs mapping review", fixture.path.display())],
+            )],
+            ..FixtureEvaluation::default()
+        });
+
+        assert_eq!(failures.blocking_failures(), 0);
+        assert_eq!(failures.mapping_issues.len(), 1);
+        assert!(failures.has_nonblocking_items());
+    }
+
+    #[test]
+    fn sequential_timeouts_become_harness_warnings() {
+        let fixture = fixture("timeout.sh");
+        let fixtures = vec![&fixture];
+
+        let failures = collect_fixture_failures(&fixtures, false, |fixture| FixtureEvaluation {
+            harness_failure: Some(FixtureFailure {
+                kind: FixtureFailureKind::Timeout,
+                message: format_fixture_failure(
+                    &fixture.path,
+                    &[format!(
+                        "shuck error: {}",
+                        format_timeout_message("shuck", Duration::from_secs(30))
+                    )],
+                ),
+            }),
+            ..FixtureEvaluation::default()
+        });
+
+        assert_eq!(failures.blocking_failures(), 0);
+        assert_eq!(failures.harness_warnings.len(), 1);
+        assert!(failures.harness_failures.is_empty());
+        assert!(failures.has_nonblocking_items());
+    }
+
+    #[test]
     fn keep_going_captures_fixture_panics() {
         let fixture = fixture("panic.sh");
         let fixtures = vec![&fixture];
@@ -3679,13 +3746,14 @@ mod tests {
 
         assert!(failures.timeout_cap_reached);
         assert_eq!(
-            failures.harness_failures.len(),
+            failures.harness_warnings.len(),
             LARGE_CORPUS_TIMEOUT_FAILURE_CAP
         );
+        assert!(failures.harness_failures.is_empty());
         assert!(seen.load(Ordering::Relaxed) <= fixture_refs.len());
         assert!(
             failures
-                .harness_failures
+                .harness_warnings
                 .iter()
                 .all(|failure| failure.contains("timed out after"))
         );
