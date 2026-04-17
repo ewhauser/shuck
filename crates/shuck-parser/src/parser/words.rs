@@ -4660,6 +4660,7 @@ impl<'a> Parser<'a> {
         let mut literal_brace_depth = 0usize;
         let mut in_single = false;
         let mut in_double = false;
+        let mut double_quote_depth = 0usize;
 
         while let Some(&c) = chars.peek() {
             match c {
@@ -4681,6 +4682,7 @@ impl<'a> Parser<'a> {
                 }
                 '"' if !in_single => {
                     in_double = !in_double;
+                    double_quote_depth = if in_double { depth } else { 0 };
                     current.push(Self::next_word_char_unwrap(chars, cursor));
                 }
                 '$' if !in_single => {
@@ -4694,7 +4696,7 @@ impl<'a> Parser<'a> {
                     literal_brace_depth += 1;
                     current.push(Self::next_word_char_unwrap(chars, cursor));
                 }
-                '}' if !in_single && !in_double => {
+                '}' if !in_single && (!in_double || depth > double_quote_depth) => {
                     if depth == 1 && literal_brace_depth > 0 {
                         let mut remaining = chars.clone();
                         remaining.next();
@@ -5126,6 +5128,7 @@ impl<'a> Parser<'a> {
         let mut literal_brace_depth = 0usize;
         let mut in_single = false;
         let mut in_double = false;
+        let mut double_quote_parameter_depth = 0usize;
         let mut escaped = false;
         let mut offset_text = (!source_backed).then(String::new);
         let mut length_text = (!source_backed).then(String::new);
@@ -5157,6 +5160,8 @@ impl<'a> Parser<'a> {
                 }
                 '"' if !in_single => {
                     in_double = !in_double;
+                    double_quote_parameter_depth =
+                        if in_double { parameter_brace_depth } else { 0 };
                     let consumed = Self::next_word_char_unwrap(chars, cursor);
                     if let Some(text) = length_text.as_mut().or(offset_text.as_mut()) {
                         text.push(consumed);
@@ -5192,7 +5197,9 @@ impl<'a> Parser<'a> {
                     Self::next_word_char_unwrap(chars, cursor);
                     length_start = Some(*cursor);
                 }
-                '}' if !in_single && !in_double => {
+                '}' if !in_single
+                    && (!in_double || parameter_brace_depth > double_quote_parameter_depth) =>
+                {
                     if parameter_brace_depth > 0 {
                         parameter_brace_depth -= 1;
                         let consumed = Self::next_word_char_unwrap(chars, cursor);
@@ -5258,6 +5265,7 @@ impl<'a> Parser<'a> {
         let mut literal_brace_depth = 0usize;
         let mut in_single = false;
         let mut in_double = false;
+        let mut double_quote_depth = 0usize;
         let mut escaped = false;
         let mut operand = (!source_backed).then(String::new);
 
@@ -5288,6 +5296,7 @@ impl<'a> Parser<'a> {
                 }
                 '"' if !in_single => {
                     in_double = !in_double;
+                    double_quote_depth = if in_double { depth } else { 0 };
                     let ch = Self::next_word_char_unwrap(chars, cursor);
                     if let Some(operand) = operand.as_mut() {
                         operand.push(ch);
@@ -5313,7 +5322,7 @@ impl<'a> Parser<'a> {
                         operand.push(ch);
                     }
                 }
-                '}' if !in_single && !in_double => {
+                '}' if !in_single && (!in_double || depth > double_quote_depth) => {
                     if depth == 1 && literal_brace_depth > 0 {
                         let mut remaining = chars.clone();
                         remaining.next();
@@ -5364,6 +5373,7 @@ impl<'a> Parser<'a> {
         let mut depth = target_depth;
         let mut in_single = false;
         let mut in_double = false;
+        let mut double_quote_depth = 0usize;
         let mut escaped = false;
 
         while let Some(ch) = chars.next() {
@@ -5375,12 +5385,15 @@ impl<'a> Parser<'a> {
             match ch {
                 '\\' if !in_single => escaped = true,
                 '\'' if !in_double => in_single = !in_single,
-                '"' if !in_single => in_double = !in_double,
+                '"' if !in_single => {
+                    in_double = !in_double;
+                    double_quote_depth = if in_double { depth } else { 0 };
+                }
                 '$' if !in_single && chars.peek() == Some(&'{') => {
                     chars.next();
                     depth += 1;
                 }
-                '}' if !in_single && !in_double => {
+                '}' if !in_single && (!in_double || depth > double_quote_depth) => {
                     if depth == target_depth {
                         return true;
                     }

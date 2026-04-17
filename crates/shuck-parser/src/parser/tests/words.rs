@@ -1986,6 +1986,239 @@ fn test_parameter_expansion_operand_stays_source_backed() {
 }
 
 #[test]
+fn test_parameter_default_operand_does_not_absorb_later_double_quoted_expansion() {
+    let input = "echo \"${home:-\"${default}\"}'${foo}'\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let word = &command.args[0];
+
+    let [
+        WordPartNode {
+            kind: WordPart::DoubleQuoted { parts, .. },
+            ..
+        },
+    ] = word.parts.as_slice()
+    else {
+        panic!("expected one double-quoted argument");
+    };
+
+    let [first, second, third, fourth] = parts.as_slice() else {
+        panic!("expected parameter, quote, parameter, quote parts: {parts:#?}");
+    };
+
+    let WordPart::Parameter(parameter) = &first.kind else {
+        panic!("expected leading parameter expansion, got {:?}", first.kind);
+    };
+    let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
+        operand: Some(operand),
+        operand_word_ast: Some(operand_word_ast),
+        ..
+    }) = &parameter.syntax
+    else {
+        panic!("expected parameter operation with parsed operand");
+    };
+    assert_eq!(operand.slice(input), "\"${default}\"");
+    assert_eq!(operand_word_ast.render(input), "${default}");
+    let [
+        WordPartNode {
+            kind:
+                WordPart::DoubleQuoted {
+                    parts: operand_parts,
+                    ..
+                },
+            ..
+        },
+    ] = operand_word_ast.parts.as_slice()
+    else {
+        panic!("expected quoted operand word");
+    };
+    let [
+        WordPartNode {
+            kind: WordPart::Parameter(parameter),
+            ..
+        },
+    ] = operand_parts.as_slice()
+    else {
+        panic!("expected nested parameter expansion inside operand");
+    };
+    let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference }) =
+        &parameter.syntax
+    else {
+        panic!("expected operand to preserve the nested default expansion");
+    };
+    assert_eq!(reference.name.as_str(), "default");
+
+    assert_eq!(second.span.slice(input), "'");
+    let WordPart::Parameter(parameter) = &third.kind else {
+        panic!("expected later parameter expansion, got {:?}", third.kind);
+    };
+    let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference }) =
+        &parameter.syntax
+    else {
+        panic!("expected simple access expansion");
+    };
+    assert_eq!(reference.name.as_str(), "foo");
+    assert_eq!(fourth.span.slice(input), "'");
+}
+
+#[test]
+fn test_nested_default_operand_keeps_quoted_right_brace_literal() {
+    let input = "echo \"${outer:-${inner:-\"}\"}}\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let word = &command.args[0];
+
+    let [
+        WordPartNode {
+            kind: WordPart::DoubleQuoted { parts, .. },
+            ..
+        },
+    ] = word.parts.as_slice()
+    else {
+        panic!("expected one double-quoted argument");
+    };
+
+    let [
+        WordPartNode {
+            kind: WordPart::Parameter(parameter),
+            ..
+        },
+    ] = parts.as_slice()
+    else {
+        panic!("expected one parameter expansion in outer quotes");
+    };
+    let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
+        operand: Some(operand),
+        operand_word_ast: Some(operand_word_ast),
+        ..
+    }) = &parameter.syntax
+    else {
+        panic!("expected outer parameter operation with parsed operand");
+    };
+    assert_eq!(operand.slice(input), "${inner:-\"}\"}");
+
+    let [
+        WordPartNode {
+            kind: WordPart::Parameter(parameter),
+            ..
+        },
+    ] = operand_word_ast.parts.as_slice()
+    else {
+        panic!("expected nested parameter expansion in outer operand");
+    };
+    let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
+        operand: Some(operand),
+        operand_word_ast: Some(operand_word_ast),
+        ..
+    }) = &parameter.syntax
+    else {
+        panic!("expected inner parameter operation with parsed operand");
+    };
+    assert_eq!(operand.slice(input), "\"}\"");
+
+    let [
+        WordPartNode {
+            kind:
+                WordPart::DoubleQuoted {
+                    parts: quoted_parts,
+                    ..
+                },
+            ..
+        },
+    ] = operand_word_ast.parts.as_slice()
+    else {
+        panic!("expected quoted inner operand word");
+    };
+    let [literal] = quoted_parts.as_slice() else {
+        panic!("expected quoted operand to contain a single literal brace");
+    };
+    assert_eq!(literal.span.slice(input), "}");
+}
+
+#[test]
+fn test_literal_brace_before_quoted_nested_default_does_not_absorb_later_expansion() {
+    let input = "echo \"${outer:-{{\"${inner}}\"}}${after}\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let word = &command.args[0];
+
+    let [
+        WordPartNode {
+            kind: WordPart::DoubleQuoted { parts, .. },
+            ..
+        },
+    ] = word.parts.as_slice()
+    else {
+        panic!("expected one double-quoted argument");
+    };
+
+    let [first, second] = parts.as_slice() else {
+        panic!("expected outer and later parameter expansions: {parts:#?}");
+    };
+
+    let WordPart::Parameter(parameter) = &first.kind else {
+        panic!("expected leading parameter expansion, got {:?}", first.kind);
+    };
+    let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
+        operand: Some(operand),
+        operand_word_ast: Some(operand_word_ast),
+        ..
+    }) = &parameter.syntax
+    else {
+        panic!("expected outer parameter operation with parsed operand");
+    };
+    assert_eq!(operand.slice(input), "{{\"${inner}}\"}");
+
+    let [literal_prefix, quoted_suffix, literal_suffix] = operand_word_ast.parts.as_slice() else {
+        panic!("expected literal, quoted, literal operand structure: {operand_word_ast:#?}");
+    };
+    assert_eq!(literal_prefix.span.slice(input), "{{");
+    let WordPart::DoubleQuoted {
+        parts: quoted_parts,
+        ..
+    } = &quoted_suffix.kind
+    else {
+        panic!(
+            "expected quoted middle segment in outer operand, got {:?}",
+            quoted_suffix.kind
+        );
+    };
+    let [nested, quoted_literal_suffix] = quoted_parts.as_slice() else {
+        panic!("expected nested parameter and literal brace in quoted suffix");
+    };
+    let WordPart::Parameter(parameter) = &nested.kind else {
+        panic!("expected nested parameter expansion, got {:?}", nested.kind);
+    };
+    let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference }) =
+        &parameter.syntax
+    else {
+        panic!("expected inner access expansion");
+    };
+    assert_eq!(reference.name.as_str(), "inner");
+    assert_eq!(quoted_literal_suffix.span.slice(input), "}");
+    assert_eq!(literal_suffix.span.slice(input), "}");
+
+    let WordPart::Parameter(parameter) = &second.kind else {
+        panic!("expected later parameter expansion, got {:?}", second.kind);
+    };
+    let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference }) =
+        &parameter.syntax
+    else {
+        panic!("expected later access expansion");
+    };
+    assert_eq!(reference.name.as_str(), "after");
+}
+
+#[test]
 fn test_array_target_parameter_operations_normalize_to_bourne_operations() {
     let input = "echo ${arr[0]//x/y} ${arr[@],,} ${arr[1]^^pattern}\n";
     let script = Parser::new(input).parse().unwrap().file;
