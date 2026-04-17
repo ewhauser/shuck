@@ -3592,6 +3592,22 @@ printf '%s\\n' \
     }
 
     #[test]
+    fn branch_initialized_names_stay_initialized_inside_command_substitutions() {
+        let source = "\
+if [ \"$1\" = h ]; then
+  humanreadable=-h
+else
+  humanreadable=-m
+fi
+value=\"$(free ${humanreadable} | awk '{print $2}')\"
+";
+        let model = model(source);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_absent(&["humanreadable"], &uninitialized);
+    }
+
+    #[test]
     fn assign_default_parameter_expansion_initializes_later_reads() {
         let source = "\
 printf '%s\\n' \"${config_path:=/tmp/default}\"
@@ -4319,6 +4335,50 @@ fi
         assert!(imported_is_possible, "uninitialized: {:?}", details);
         assert_eq!(
             details,
+            vec![("flag".to_owned(), UninitializedCertainty::Possible)]
+        );
+    }
+
+    #[test]
+    fn local_shadowing_can_clear_imported_initialization_before_nested_command_substitutions() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/bash
+. ./helper.sh
+f() {
+  local flag
+  printf '%s\\n' \"$(
+    printf '%s\\n' \"$flag\"
+  )\"
+}
+f
+",
+        )
+        .unwrap();
+        fs::write(&helper, "flag=1\n").unwrap();
+
+        let model = model_at_path(&main);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_present(&["flag"], &uninitialized);
+    }
+
+    #[test]
+    fn scope_entry_loops_preserve_possible_uninitialized_names() {
+        let source = "\
+while command; do
+  flag=1
+done
+printf '%s\\n' \"$flag\"
+";
+        let model = model(source);
+
+        assert_eq!(
+            uninitialized_details(&model),
             vec![("flag".to_owned(), UninitializedCertainty::Possible)]
         );
     }

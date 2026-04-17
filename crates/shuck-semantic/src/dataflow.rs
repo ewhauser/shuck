@@ -1263,15 +1263,26 @@ fn compute_initialized_name_states_dense(
                 incoming_maybe.union_with(&entry_maybe);
             }
 
-            let mut incoming_definite = if entry_blocks.contains(&block.id) {
+            let predecessors = cfg.predecessors(block.id);
+            let uses_virtual_entry_boundary = entry_blocks.contains(&block.id)
+                && predecessors.iter().all(|predecessor| {
+                    cfg.successors(*predecessor)
+                        .iter()
+                        .any(|(successor, kind)| {
+                            *successor == block.id && *kind == EdgeKind::LoopBack
+                        })
+                });
+            let mut incoming_definite = if uses_virtual_entry_boundary {
                 entry_definite.clone()
-            } else if cfg.predecessors(block.id).is_empty() {
-                DenseBitSet::new(name_count)
+            } else if let Some(first_predecessor) = predecessors.first() {
+                definite_out[first_predecessor.index()].clone()
             } else {
-                definite_out[cfg.predecessors(block.id)[0].index()].clone()
+                DenseBitSet::new(name_count)
             };
-            let predecessor_offset = usize::from(!entry_blocks.contains(&block.id));
-            for predecessor in cfg.predecessors(block.id).iter().skip(predecessor_offset) {
+            for (predecessor_index, predecessor) in predecessors.iter().enumerate() {
+                if !uses_virtual_entry_boundary && predecessor_index == 0 {
+                    continue;
+                }
                 incoming_definite.intersect_with(&definite_out[predecessor.index()]);
             }
 
