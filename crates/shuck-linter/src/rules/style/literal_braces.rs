@@ -196,6 +196,17 @@ echo [0-9a-f]{$HASHLEN}
     }
 
     #[test]
+    fn ignores_even_backslash_runs_before_parameter_expansions() {
+        let source = "\
+#!/bin/bash
+echo \\\\${name}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LiteralBraces));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn reports_template_placeholder_braces() {
         let source = "\
 #!/bin/bash

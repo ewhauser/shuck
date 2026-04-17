@@ -5186,12 +5186,10 @@ fn brace_character_spans(span: Span, source: &str) -> Vec<Span> {
 fn brace_span_has_escaped_dollar_prefix(span: Span, source: &str) -> bool {
     let span_text = span.slice(source);
     if span_text.starts_with("${") {
-        return span.start.offset >= '\\'.len_utf8()
-            && source[span.start.offset - '\\'.len_utf8()..span.start.offset] == *"\\";
+        return has_odd_backslash_run_before(source, span.start.offset);
     }
 
-    span.start.offset >= "\\$".len()
-        && source[span.start.offset - "\\$".len()..span.start.offset] == *"\\$"
+    has_escaped_dollar_before(source, span.start.offset)
 }
 
 fn brace_syntax_with_whitespace_is_literal(brace: shuck_ast::BraceSyntax, source: &str) -> bool {
@@ -5638,12 +5636,33 @@ fn excluded_runtime_syntax_has_escaped_dollar_prefix(
 
     let excluded_text = &text[start_offset..end_offset];
     if excluded_text.starts_with("${") {
-        return text[..start_offset].ends_with('\\');
+        return has_odd_backslash_run_before(text, start_offset);
     }
     if excluded_text.starts_with('{') {
-        return text[..start_offset].ends_with("\\$");
+        return has_escaped_dollar_before(text, start_offset);
     }
     false
+}
+
+fn has_odd_backslash_run_before(text: &str, offset: usize) -> bool {
+    let offset = offset.min(text.len());
+    text[..offset]
+        .chars()
+        .rev()
+        .take_while(|&ch| ch == '\\')
+        .count()
+        % 2
+        == 1
+}
+
+fn has_escaped_dollar_before(text: &str, offset: usize) -> bool {
+    let offset = offset.min(text.len());
+    let prefix = &text[..offset];
+    let Some((dollar_offset, '$')) = prefix.char_indices().next_back() else {
+        return false;
+    };
+
+    has_odd_backslash_run_before(text, dollar_offset)
 }
 
 fn collect_dynamic_brace_exclusions(
