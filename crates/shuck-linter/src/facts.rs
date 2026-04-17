@@ -2280,6 +2280,7 @@ pub struct LinterFacts<'a> {
     comma_array_assignment_spans: Vec<Span>,
     ifs_literal_backslash_assignment_value_spans: Vec<Span>,
     presence_tested_names: FxHashSet<Name>,
+    nested_presence_test_spans: FxHashMap<Name, Vec<Span>>,
     subscript_index_reference_spans: FxHashSet<FactSpan>,
     compound_assignment_value_word_spans: FxHashSet<FactSpan>,
     words: Vec<WordFact<'a>>,
@@ -2474,6 +2475,19 @@ impl<'a> LinterFacts<'a> {
 
     pub fn presence_tested_names(&self) -> &FxHashSet<Name> {
         &self.presence_tested_names
+    }
+
+    pub fn is_presence_tested_name(&self, name: &Name, span: Span) -> bool {
+        self.presence_tested_names.contains(name)
+            || self
+                .nested_presence_test_spans
+                .get(name)
+                .is_some_and(|spans| {
+                    spans
+                        .iter()
+                        .copied()
+                        .any(|outer| contains_span(outer, span))
+                })
     }
 
     pub fn is_subscript_index_reference(&self, span: Span) -> bool {
@@ -3231,7 +3245,8 @@ impl<'a> LinterFactsBuilder<'a> {
             broken_assoc_key_spans,
             comma_array_assignment_spans,
             ifs_literal_backslash_assignment_value_spans,
-            presence_tested_names,
+            presence_tested_names: presence_tested_names.global_names,
+            nested_presence_test_spans: presence_tested_names.nested_command_spans_by_name,
             subscript_index_reference_spans,
             compound_assignment_value_word_spans,
             words,
