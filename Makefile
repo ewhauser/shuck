@@ -126,10 +126,10 @@ bench:
 	cargo bench -p shuck-benchmark
 
 bench-save:
-	cargo bench -p shuck-benchmark -- --save-baseline=main
+	python3 scripts/benchmarks/run_criterion.py --repo-root . --save-baseline main
 
 bench-compare:
-	cargo bench -p shuck-benchmark -- --baseline=main
+	python3 scripts/benchmarks/run_criterion.py --repo-root . --baseline main
 
 bench-parser:
 	cargo bench -p shuck-benchmark --bench parser

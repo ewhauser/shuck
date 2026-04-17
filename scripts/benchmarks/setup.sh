@@ -1,7 +1,9 @@
 #!/bin/sh
 set -eu
 
-repo_root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+repo_root=${SHUCK_BENCHMARK_REPO_ROOT:-$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)}
+target_dir=${CARGO_TARGET_DIR:-"$repo_root/target"}
+shuck=${SHUCK_BENCHMARK_SHUCK_BIN:-"$target_dir/release/shuck"}
 
 if [ "$#" -eq 0 ]; then
     set -- hyperfine shellcheck
@@ -19,7 +21,7 @@ for binary in "$@"; do
 done
 
 echo "Setup complete."
-echo "  shuck:      $("$repo_root/target/release/shuck" --version 2>/dev/null || echo 'built')"
+echo "  shuck:      $("${shuck}" --version 2>/dev/null || echo 'built')"
 for binary in "$@"; do
     case "$binary" in
         hyperfine)
