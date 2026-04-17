@@ -613,7 +613,10 @@ impl<'a> GraphBuilder<'a> {
                 self.build_loop_command(command_id, *body, loops)
             }
             RecordedCommandKind::Case { arms } => self.build_case(command_id, *arms, loops),
-            RecordedCommandKind::BraceGroup { body } => self.build_sequence(*body, loops),
+            RecordedCommandKind::BraceGroup { body } => {
+                let sequence = self.build_sequence(*body, loops);
+                self.wrap_sequence_with_command_header(command_id, sequence, loops)
+            }
             RecordedCommandKind::Subshell { body, .. } => {
                 let block = self.command_block(command.span);
                 self.attach_nested_regions(block, command.nested_regions, loops);
@@ -644,6 +647,28 @@ impl<'a> GraphBuilder<'a> {
                 }
             }
         }
+    }
+
+    fn wrap_sequence_with_command_header(
+        &mut self,
+        command_id: RecordedCommandId,
+        mut sequence: SequenceResult,
+        loops: &[LoopTarget],
+    ) -> SequenceResult {
+        let command = self.program.command(command_id);
+        if command.nested_regions.is_empty() {
+            return sequence;
+        }
+
+        let header = self.command_block(command.span);
+        self.attach_nested_regions(header, command.nested_regions, loops);
+        if let Some(entry) = sequence.entry {
+            self.add_edge(header, entry, EdgeKind::Sequential);
+        } else {
+            sequence.exits = vec![header];
+        }
+        sequence.entry = Some(header);
+        sequence
     }
 
     fn build_list(
@@ -678,8 +703,7 @@ impl<'a> GraphBuilder<'a> {
 
         let mut exits = current.exits;
         exits.extend(shortcut_exits);
-        self.attach_nested_regions_from_command(command);
-        SequenceResult { entry, exits }
+        self.wrap_sequence_with_command_header(command, SequenceResult { entry, exits }, loops)
     }
 
     fn build_if(
@@ -736,11 +760,14 @@ impl<'a> GraphBuilder<'a> {
             branch_exits.extend(false_exits);
         }
 
-        self.attach_nested_regions_from_command(command);
-        SequenceResult {
-            entry,
-            exits: branch_exits,
-        }
+        self.wrap_sequence_with_command_header(
+            command,
+            SequenceResult {
+                entry,
+                exits: branch_exits,
+            },
+            loops,
+        )
     }
 
     fn build_while_like(
@@ -792,11 +819,14 @@ impl<'a> GraphBuilder<'a> {
             }
         }
 
-        self.attach_nested_regions_from_command(command);
-        SequenceResult {
-            entry,
-            exits: vec![exit_block],
-        }
+        self.wrap_sequence_with_command_header(
+            command,
+            SequenceResult {
+                entry,
+                exits: vec![exit_block],
+            },
+            loops,
+        )
     }
 
     fn build_loop_command(
@@ -936,22 +966,6 @@ impl<'a> GraphBuilder<'a> {
             if let Some(entry) = sequence.entry {
                 self.scope_entries.entry(region.scope).or_insert(entry);
                 self.add_edge(block, entry, EdgeKind::Sequential);
-            }
-        }
-    }
-
-    fn attach_nested_regions_from_command(&mut self, command: RecordedCommandId) {
-        let command = self.program.command(command);
-        if command.nested_regions.is_empty() {
-            return;
-        }
-        if let Some(blocks) = self
-            .command_blocks
-            .get(&SpanKey::new(command.span))
-            .cloned()
-        {
-            for block in blocks {
-                self.attach_nested_regions(block, command.nested_regions, &[]);
             }
         }
     }

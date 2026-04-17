@@ -2138,6 +2138,30 @@ outer
     }
 
     #[test]
+    fn substring_offset_arithmetic_tracks_postfix_updates() {
+        let source = "\
+#!/bin/bash
+spinner() {
+  local chars=\"/-\\\\|\"
+  local spin_i=0
+  while true; do
+    printf '%s\\n' \"${chars:spin_i++%${#chars}:1}\"
+  done
+}
+";
+        let model = model(source);
+        assert_arithmetic_usage(&model, "spin_i", 1, 1);
+
+        let unused = model
+            .analysis()
+            .unused_assignments()
+            .iter()
+            .map(|binding| model.binding(*binding).name.as_str())
+            .collect::<Vec<_>>();
+        assert!(!unused.contains(&"spin_i"), "unused bindings: {:?}", unused);
+    }
+
+    #[test]
     fn classifies_nameref_and_source_directives() {
         let source = "\
 declare -n ref=target
@@ -3159,6 +3183,59 @@ printf '%s\\n' \"${arr[@]}\"
     }
 
     #[test]
+    fn process_substitution_reads_keep_outer_assignments_live() {
+        let source = "\
+#!/bin/bash
+f() {
+  local opts
+  case \"$1\" in
+    a) opts=alpha ;;
+    *) opts=beta ;;
+  esac
+  while IFS= read -r line; do :; done < <(printf '%s\\n' \"$opts\")
+}
+f a
+";
+        let model = model(source);
+        let unused = reportable_unused_names(&model);
+
+        assert!(
+            !unused.contains(&Name::from("opts")),
+            "unused: {:?}",
+            unused
+        );
+        assert!(unused.contains(&Name::from("line")), "unused: {:?}", unused);
+    }
+
+    #[test]
+    fn overwritten_empty_initializers_do_not_report_the_placeholder_assignment() {
+        let plain = model(
+            "\
+#!/bin/bash
+foo=
+foo=bar
+",
+        );
+        let plain_unused = plain.analysis().unused_assignments().to_vec();
+        assert_eq!(plain_unused.len(), 1);
+        assert_eq!(plain.binding(plain_unused[0]).span.start.line, 3);
+
+        let local = model(
+            "\
+#!/bin/bash
+f() {
+  local foo=
+  foo=bar
+}
+f
+",
+        );
+        let local_unused = local.analysis().unused_assignments().to_vec();
+        assert_eq!(local_unused.len(), 1);
+        assert_eq!(local.binding(local_unused[0]).span.start.line, 4);
+    }
+
+    #[test]
     fn associative_compound_declaration_marks_binding_assoc_and_array() {
         let model = model("#!/bin/bash\ndeclare -A assoc=(one [foo]=bar [bar]+=baz)\n");
 
@@ -3276,6 +3353,67 @@ echo ok
             .map(|binding| model.binding(*binding).name.as_str())
             .collect::<Vec<_>>();
         for name in ["PATH", "CDPATH", "LANG", "LC_ALL", "LC_TIME"] {
+            assert!(!unused.contains(&name), "unused bindings: {:?}", unused);
+        }
+        assert!(unused.contains(&"unused"));
+    }
+
+    #[test]
+    fn special_runtime_assignments_are_treated_as_implicitly_used() {
+        let source = "\
+#!/bin/bash
+HOME=/tmp/home
+SHELL=/bin/bash
+TERM=xterm-256color
+USER=builder
+PWD=/tmp/work
+HISTFILE=/tmp/history
+HISTFILESIZE=unlimited
+HISTIGNORE='ls:bg:fg:history'
+HISTSIZE=-1
+HISTTIMEFORMAT='%F %T '
+COMP_WORDBREAKS=\"${COMP_WORDBREAKS//:/}\"
+PROMPT_COMMAND='history -a'
+PS1='prompt> '
+PS2='continuation> '
+PS3=''
+PS4='+ '
+COLUMNS=1
+READLINE_POINT=0
+unused=1
+";
+        let model = model(source);
+        model.analysis().dataflow();
+
+        let unused = model
+            .analysis()
+            .unused_assignments()
+            .iter()
+            .map(|binding| model.binding(*binding).name.as_str())
+            .collect::<Vec<_>>();
+        for name in [
+            "HOME",
+            "SHELL",
+            "TERM",
+            "USER",
+            "PWD",
+            "OPTIND",
+            "OPTARG",
+            "OPTERR",
+            "HISTFILE",
+            "HISTFILESIZE",
+            "HISTIGNORE",
+            "HISTSIZE",
+            "HISTTIMEFORMAT",
+            "COMP_WORDBREAKS",
+            "PROMPT_COMMAND",
+            "PS1",
+            "PS2",
+            "PS3",
+            "PS4",
+            "COLUMNS",
+            "READLINE_POINT",
+        ] {
             assert!(!unused.contains(&name), "unused bindings: {:?}", unused);
         }
         assert!(unused.contains(&"unused"));

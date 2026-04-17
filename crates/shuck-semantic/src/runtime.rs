@@ -2,6 +2,9 @@ use shuck_ast::{Name, Word};
 
 const COMMON_PREINITIALIZED: &[&str] = &[
     "IFS",
+    "OPTIND",
+    "OPTARG",
+    "OPTERR",
     "USER",
     "HOME",
     "SHELL",
@@ -26,7 +29,19 @@ const BASH_PREINITIALIZED: &[&str] = &[
     "BASH_VERSINFO",
     "OSTYPE",
     "HISTCONTROL",
+    "HISTFILE",
+    "HISTFILESIZE",
+    "HISTIGNORE",
     "HISTSIZE",
+    "HISTTIMEFORMAT",
+    "COLUMNS",
+    "PROMPT_COMMAND",
+    "PS1",
+    "PS2",
+    "PS3",
+    "PS4",
+    "READLINE_POINT",
+    "COMP_WORDBREAKS",
     "COMP_WORDS",
     "COMP_CWORD",
 ];
@@ -67,7 +82,8 @@ impl RuntimePrelude {
     }
 
     pub(crate) fn is_always_used_binding(&self, name: &Name) -> bool {
-        contains_name(self.always_used_bindings, name)
+        self.is_preinitialized(name)
+            || contains_name(self.always_used_bindings, name)
             || is_locale_binding(name)
             || (self.bash_enabled && contains_name(self.bash_always_used_bindings, name))
     }
