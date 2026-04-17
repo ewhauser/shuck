@@ -1,3 +1,3 @@
 comparison_target_notes:
-  - current_shellcheck_code: "SC2057"
-    reason: "The pinned ShellCheck oracle currently classifies leading \\! test syntax under its generic unknown-operator warning instead of the older SC2302 mapping carried by this authored rule."
+  - current_shellcheck_code: "SC2302"
+    reason: "The pinned ShellCheck oracle now reports leading \\! test syntax as SC2057, so the older SC2302 target should be skipped when comparing this rule."

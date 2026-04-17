@@ -34,7 +34,18 @@ fn report_span(fact: &SimpleTestFact<'_>, source: &str) -> Option<Span> {
         return None;
     }
 
-    escaped_negation_is_operator(fact, source).then_some(leading.span)
+    if !escaped_negation_is_operator(fact, source) {
+        return None;
+    }
+
+    match fact.shape() {
+        SimpleTestShape::Unary | SimpleTestShape::Binary => fact
+            .effective_operator_word()
+            .map(|word| word.span)
+            .or(Some(leading.span)),
+        SimpleTestShape::Other => Some(leading.span),
+        SimpleTestShape::Empty | SimpleTestShape::Truthy => None,
+    }
 }
 
 fn escaped_negation_is_operator(fact: &SimpleTestFact<'_>, source: &str) -> bool {
@@ -100,7 +111,7 @@ test \\! -n \"$value\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["\\!", "\\!", "\\!"]
+            vec!["-f", "-n", "\\!"]
         );
     }
 
