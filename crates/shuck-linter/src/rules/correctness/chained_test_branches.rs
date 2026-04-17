@@ -27,11 +27,37 @@ pub fn chained_test_branches(checker: &mut Checker) {
 }
 
 fn matches_mixed_short_circuit(checker: &Checker<'_>, list: &ListFact<'_>) -> bool {
+    if !matches_and_then_or_chain(list) || list_runs_as_if_or_elif_condition(checker, list) {
+        return false;
+    }
+
     match list.mixed_short_circuit_kind() {
-        Some(MixedShortCircuitKind::TestChain) => true,
+        Some(MixedShortCircuitKind::TestChain) => false,
         Some(MixedShortCircuitKind::Fallthrough) => !list_exempts_warning(checker, list),
         _ => false,
     }
+}
+
+fn matches_and_then_or_chain(list: &ListFact<'_>) -> bool {
+    let mut saw_and = false;
+    let mut saw_or = false;
+
+    for operator in list.operators() {
+        match operator.op() {
+            BinaryOp::And if !saw_or => saw_and = true,
+            BinaryOp::Or if saw_and => saw_or = true,
+            _ => return false,
+        }
+    }
+
+    saw_and && saw_or
+}
+
+fn list_runs_as_if_or_elif_condition(checker: &Checker<'_>, list: &ListFact<'_>) -> bool {
+    list.segments().iter().all(|segment| {
+        checker.facts().is_if_condition_command(segment.command_id())
+            || checker.facts().is_elif_condition_command(segment.command_id())
+    })
 }
 
 fn list_exempts_warning(checker: &Checker<'_>, list: &ListFact<'_>) -> bool {
@@ -39,25 +65,15 @@ fn list_exempts_warning(checker: &Checker<'_>, list: &ListFact<'_>) -> bool {
         return true;
     }
 
+    if matches_condition_guard_fallback(list) {
+        return true;
+    }
+
     if matches_exempt_fallback_branch(checker, list) {
         return true;
     }
 
-    let Some(branch_names) = ternary_branch_names(checker, list) else {
-        return false;
-    };
-
-    if branch_names
-        .iter()
-        .all(|name| matches!(name, Some("return" | "exit")))
-    {
-        return true;
-    }
-
-    matches!(
-        &branch_names,
-        [Some("echo"), Some("echo")] | [Some("printf"), Some("printf")]
-    )
+    false
 }
 
 fn matches_status_propagation_assignment(list: &ListFact<'_>) -> bool {
@@ -96,45 +112,38 @@ fn matches_exempt_fallback_branch(checker: &Checker<'_>, list: &ListFact<'_>) ->
         checker
             .facts()
             .command(last_segment.command_id())
-            .effective_or_literal_name(),
-        Some("return" | "exit" | "true" | ":")
+            .effective_or_literal_name()
+            .map(command_basename),
+        Some("return" | "exit" | "true" | ":" | "echo" | "printf")
     )
 }
 
-fn ternary_branch_names<'a>(
-    checker: &'a Checker<'a>,
-    list: &ListFact<'a>,
-) -> Option<[Option<&'a str>; 2]> {
-    if !matches_and_or_ternary(list) {
-        return None;
-    }
-
-    let [_, then_branch, else_branch] = list.segments() else {
-        return None;
+fn matches_condition_guard_fallback(list: &ListFact<'_>) -> bool {
+    let Some(first_or_index) = list
+        .operators()
+        .iter()
+        .position(|operator| operator.op() == BinaryOp::Or)
+    else {
+        return false;
     };
 
-    Some([
-        checker
-            .facts()
-            .command(then_branch.command_id())
-            .effective_or_literal_name(),
-        checker
-            .facts()
-            .command(else_branch.command_id())
-            .effective_or_literal_name(),
-    ])
+    let Some(then_branch) = list.segments().get(first_or_index) else {
+        return false;
+    };
+    let Some(else_branch) = list.segments().last() else {
+        return false;
+    };
+
+    then_branch.kind() == ListSegmentKind::Condition
+        && else_branch.kind() != ListSegmentKind::Condition
+}
+
+fn command_basename(name: &str) -> &str {
+    name.rsplit('/').next().unwrap_or(name)
 }
 
 fn matches_and_or_ternary(list: &ListFact<'_>) -> bool {
-    list.segments().len() == 3
-        && matches!(
-            list.operators()
-                .iter()
-                .map(|operator| operator.op())
-                .collect::<Vec<_>>()
-                .as_slice(),
-            [BinaryOp::And, BinaryOp::Or]
-        )
+    list.segments().len() == 3 && matches_and_then_or_chain(list)
 }
 
 #[cfg(test)]
@@ -150,6 +159,7 @@ false || true && [ \"$x\" = baz ]
 true && false; false || printf '%s\\n' ok
 [ \"$dir\" = vendor ] && mv go-* \"$dir\" || mv pkg-* \"$dir\"
 [ -n \"$x\" ] && out=foo || out=bar
+check_one && check_two && check_three || cleanup
 ";
         let diagnostics =
             test_snippet(source, &LinterSettings::for_rule(Rule::ChainedTestBranches));
@@ -159,17 +169,20 @@ true && false; false || printf '%s\\n' ok
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["&&", "||", "&&"]
+            vec!["&&", "&&"]
         );
     }
 
     #[test]
-    fn ignores_status_propagation_and_formatter_idioms() {
+    fn ignores_status_propagation_formatter_and_guard_idioms() {
         let source = "\
 cond && return 0 || return 1
 return_code=0 && cmd >out 2>err || return_code=$?
 is_tty && printf '%s\\n' a || printf '%s\\n' b
 flag && echo enabled || echo disabled
+test -n \"$x\" && [ -f out ] || die
+[ -n \"$x\" ] && [ -f out ] || rm -f out
+[ -n \"$x\" ] && [ -n \"$y\" ] && [ -f out ] || die
 ";
         let diagnostics =
             test_snippet(source, &LinterSettings::for_rule(Rule::ChainedTestBranches));
@@ -178,7 +191,7 @@ flag && echo enabled || echo disabled
     }
 
     #[test]
-    fn only_ignores_three_segment_status_propagation_shapes() {
+    fn ignores_non_sc2015_longer_or_reversed_mixed_chains() {
         let source = "\
 rc=0 || run && rc=$?
 rc=0 && run || fallback && rc=$?
@@ -186,13 +199,7 @@ rc=0 && run || fallback && rc=$?
         let diagnostics =
             test_snippet(source, &LinterSettings::for_rule(Rule::ChainedTestBranches));
 
-        assert_eq!(
-            diagnostics
-                .iter()
-                .map(|diagnostic| diagnostic.span.slice(source))
-                .collect::<Vec<_>>(),
-            vec!["||", "&&"]
-        );
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
@@ -202,6 +209,8 @@ check_download_exists \"$path\" && download_status=0 || download_status=$?
 __rvm_select_set_variable_defaults && __rvm_select_after_parse || return $?
 test -d x && mv x y || :
 test -d x && mv x y || true
+test -d x && mv x y || /bin/true
+test -d x && chmod 755 y || echo fail
 ";
         let diagnostics =
             test_snippet(source, &LinterSettings::for_rule(Rule::ChainedTestBranches));
@@ -210,9 +219,12 @@ test -d x && mv x y || true
     }
 
     #[test]
-    fn ignores_when_only_the_fallback_is_an_assignment() {
+    fn ignores_when_only_the_fallback_is_an_assignment_or_list_runs_in_condition_position() {
         let source = "\
 [ -n \"$x\" ] && run_task || fallback=1
+if [ ! -d \"$cache_dir\" ] && ! mkdir -p -- \"$cache_dir\" || [ ! -w \"$cache_dir\" ]; then
+  :
+fi
 ";
         let diagnostics =
             test_snippet(source, &LinterSettings::for_rule(Rule::ChainedTestBranches));
@@ -224,11 +236,13 @@ test -d x && mv x y || true
     fn still_reports_when_the_fallback_is_not_an_exempt_control_flow_or_assignment() {
         let source = "\
 [ -n \"$x\" ] && run_task || fallback
+check && log_ok || log_fail
 ";
         let diagnostics =
             test_snippet(source, &LinterSettings::for_rule(Rule::ChainedTestBranches));
 
-        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics.len(), 2);
         assert_eq!(diagnostics[0].span.slice(source), "&&");
+        assert_eq!(diagnostics[1].span.slice(source), "&&");
     }
 }

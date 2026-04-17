@@ -2,10 +2,10 @@
 
 x=foo
 
-# Invalid: every branch is a condition, so the mixed chain obscures the logic.
+# Valid: this contradictory all-test chain belongs to a different warning family.
 [ "$x" = foo ] && [ "$x" = bar ] || [ "$x" = baz ]
 
-# Invalid: the same problem appears when the chain starts with `||`.
+# Valid: `A || B && C` is not part of this warning family.
 false || true && [ "$x" = baz ]
 
 # Valid: an explicit branch keeps the control flow clear.
@@ -17,11 +17,12 @@ fi
 
 # Invalid: general fallthrough chains are part of the same warning family.
 [ "$x" = foo ] && printf '%s\n' yes || rm -f no
-true && false || printf '%s\n' fallback
+check_ready && log_ok || log_fail
 
 # Valid: common status-propagation and formatter idioms stay exempt.
 cond && return 0 || return 1
 ready && printf '%s\n' on || printf '%s\n' off
+test -d x && chmod 755 x || echo "chmod failed"
 
 # Valid: assignment ternaries belong to other rules.
 [ -n "$x" ] && out=foo || out=bar

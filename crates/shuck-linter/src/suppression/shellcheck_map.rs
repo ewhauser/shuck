@@ -312,7 +312,6 @@ impl Default for ShellCheckCodeMap {
             // ShellCheck 0.11.0 reports `find -exec` pre-expansion warnings as SC2014.
             // Keep SC2295 as a suppression alias for authored C078 metadata.
             (2014, Rule::UnquotedGlobsInFind),
-            (2296, Rule::ChainedTestBranches),
             // ShellCheck 0.11.0 reports loop-list glob+expansion mixes as SC2231.
             // Keep SC2349 as a suppression alias for authored C114 metadata.
             (2231, Rule::GlobWithExpansionInLoop),
@@ -732,7 +731,6 @@ impl Default for ShellCheckCodeMap {
                     (2013, Rule::LineOrientedInput),
                     (2015, Rule::ChainedTestBranches),
                     (2014, Rule::UnquotedGlobsInFind),
-                    (2296, Rule::ChainedTestBranches),
                     (2231, Rule::GlobWithExpansionInLoop),
                     (2022, Rule::GlobInGrepPattern),
                     (2062, Rule::UnquotedGrepRegex),
@@ -1371,7 +1369,6 @@ mod tests {
         assert_eq!(map.resolve_all("SC2014"), vec![Rule::UnquotedGlobsInFind]);
         assert_eq!(map.resolve_all("SC2295"), vec![Rule::UnquotedGlobsInFind]);
         assert_eq!(map.resolve_all("SC2015"), vec![Rule::ChainedTestBranches]);
-        assert_eq!(map.resolve("SC2296"), Some(Rule::ChainedTestBranches));
         assert_eq!(
             map.resolve_all("SC2231"),
             vec![Rule::GlobWithExpansionInLoop]
@@ -1866,7 +1863,6 @@ mod tests {
             (2258, Rule::BareRead),
             (2013, Rule::LineOrientedInput),
             (2015, Rule::ChainedTestBranches),
-            (2296, Rule::ChainedTestBranches),
             (2016, Rule::SingleQuotedLiteral),
             (2014, Rule::UnquotedGlobsInFind),
             (2231, Rule::GlobWithExpansionInLoop),
