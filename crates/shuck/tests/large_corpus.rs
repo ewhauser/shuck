@@ -1229,11 +1229,11 @@ fn probe_invalid_zsh_fixture(path: &Path, timeout: Duration) -> Result<Option<St
     }
 
     let stderr = String::from_utf8_lossy(&status.stderr).trim().to_owned();
-    Ok(Some(
-        (!stderr.is_empty())
-            .then_some(stderr)
-            .unwrap_or_else(|| "non-zero exit status".to_owned()),
-    ))
+    Ok(Some(if !stderr.is_empty() {
+        stderr
+    } else {
+        "non-zero exit status".to_owned()
+    }))
 }
 
 fn fixture_failure_kind_for_message(message: &str, label: &str) -> FixtureFailureKind {

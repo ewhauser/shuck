@@ -2847,7 +2847,8 @@ impl<'a> Parser<'a> {
                 || (allow_brace_body
                     && !stmts.is_empty()
                     && (self.at(TokenKind::LeftBrace)
-                        || self.current_token_is_compact_zsh_brace_body()))
+                        || self.current_token_is_compact_zsh_brace_body())
+                    && self.current_brace_starts_zsh_loop_body_fact())
             {
                 break;
             }
@@ -2862,6 +2863,27 @@ impl<'a> Parser<'a> {
         }
 
         Ok(stmts)
+    }
+
+    fn current_brace_starts_zsh_loop_body_fact(&mut self) -> bool {
+        let checkpoint = self.checkpoint();
+        let reaches_do = loop {
+            if self.skip_newlines().is_err() {
+                break false;
+            }
+            if self.is_keyword(Keyword::Do) {
+                break true;
+            }
+            if self.current_token.is_none() {
+                break false;
+            }
+            if self.parse_command_list_required().is_err() {
+                break false;
+            }
+        };
+        self.restore(checkpoint);
+
+        !reaches_do
     }
 
     fn current_token_is_compact_zsh_brace_body(&mut self) -> bool {

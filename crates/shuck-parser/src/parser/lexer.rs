@@ -2388,14 +2388,78 @@ impl<'a> Lexer<'a> {
 
         let mut depth = 2;
         while let Some(c) = self.peek_char() {
-            Self::push_capture_char(content, c);
-            self.advance();
-            if c == '(' {
-                depth += 1;
-            } else if c == ')' {
-                depth -= 1;
-                if depth == 0 {
-                    return true;
+            match c {
+                '\\' => {
+                    Self::push_capture_char(content, c);
+                    self.advance();
+                    if let Some(next) = self.peek_char() {
+                        Self::push_capture_char(content, next);
+                        self.advance();
+                    }
+                }
+                '\'' => {
+                    Self::push_capture_char(content, c);
+                    self.advance();
+                    while let Some(quoted) = self.peek_char() {
+                        Self::push_capture_char(content, quoted);
+                        self.advance();
+                        if quoted == '\'' {
+                            break;
+                        }
+                    }
+                }
+                '"' => {
+                    let mut escaped = false;
+                    Self::push_capture_char(content, c);
+                    self.advance();
+                    while let Some(quoted) = self.peek_char() {
+                        Self::push_capture_char(content, quoted);
+                        self.advance();
+                        if escaped {
+                            escaped = false;
+                            continue;
+                        }
+                        match quoted {
+                            '\\' => escaped = true,
+                            '"' => break,
+                            _ => {}
+                        }
+                    }
+                }
+                '`' => {
+                    let mut escaped = false;
+                    Self::push_capture_char(content, c);
+                    self.advance();
+                    while let Some(quoted) = self.peek_char() {
+                        Self::push_capture_char(content, quoted);
+                        self.advance();
+                        if escaped {
+                            escaped = false;
+                            continue;
+                        }
+                        match quoted {
+                            '\\' => escaped = true,
+                            '`' => break,
+                            _ => {}
+                        }
+                    }
+                }
+                '(' => {
+                    Self::push_capture_char(content, c);
+                    self.advance();
+                    depth += 1;
+                }
+                ')' => {
+                    Self::push_capture_char(content, c);
+                    self.advance();
+                    depth -= 1;
+                    if depth == 0 {
+                        return true;
+                    }
+                }
+                _ => {
+                    Self::push_capture_char(content, c);
+                    self.advance();
                 }
             }
         }
@@ -4674,6 +4738,23 @@ mod tests {
         let body = &source[..consumed];
 
         assert_eq!(body, source);
+    }
+
+    #[test]
+    fn test_lexer_handles_quoted_right_paren_inside_command_substitution_nested_in_arithmetic() {
+        let source = "echo \"$(echo \"$(( $(printf ')') + 1 ))\")\"";
+        let mut lexer = Lexer::new(source);
+
+        let first = lexer.next_lexed_token().expect("expected first token");
+        assert!(first.kind.is_word_like(), "{:?}", first.kind);
+        assert_eq!(first.word_string().as_deref(), Some("echo"));
+
+        let second = lexer.next_lexed_token().expect("expected second token");
+        assert!(second.kind.is_word_like(), "{:?}", second.kind);
+        assert_eq!(
+            second.word_string().as_deref(),
+            Some("$(echo \"$(( $(printf ')') + 1 ))\")")
+        );
     }
 
     #[test]

@@ -2283,6 +2283,38 @@ fn test_parse_zsh_while_with_char_literal_arithmetic_and_following_command() {
 }
 
 #[test]
+fn test_parse_zsh_while_condition_keeps_brace_group_before_do_boundary() {
+    let input = "while cmd1; { cmd2; }; do cmd3; done\n";
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, redirects) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::While(command) = compound else {
+        panic!("expected while loop");
+    };
+    assert!(redirects.is_empty());
+    assert_eq!(command.condition.len(), 2);
+    assert_eq!(command.body.len(), 1);
+
+    assert_eq!(
+        expect_simple(&command.condition[0]).name.render(input),
+        "cmd1"
+    );
+
+    let (group, group_redirects) = expect_compound(&command.condition[1]);
+    let AstCompoundCommand::BraceGroup(condition_body) = group else {
+        panic!("expected brace group in while condition");
+    };
+    assert!(group_redirects.is_empty());
+    assert_eq!(condition_body.len(), 1);
+    assert_eq!(expect_simple(&condition_body[0]).name.render(input), "cmd2");
+
+    assert_eq!(expect_simple(&command.body[0]).name.render(input), "cmd3");
+}
+
+#[test]
 fn test_parse_zsh_repeat_body_with_bitwise_or_char_literal() {
     let input = "repeat 4; do\n  sysread -s1 c || return\n  (( rnd = (~(1 << 23) & rnd) << 8 | #c ))\n done\n";
     Parser::with_dialect(input, ShellDialect::Zsh)

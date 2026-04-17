@@ -1289,6 +1289,33 @@ fn test_dollar_paren_command_substitution_inside_double_quotes_preserves_nested_
 }
 
 #[test]
+fn test_dollar_paren_command_substitution_inside_double_quotes_handles_nested_arithmetic_with_quoted_right_paren()
+ {
+    let input = "echo \"$(echo \"$(( $(printf ')') + 1 ))\")\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let word = &command.args[0];
+
+    let WordPart::DoubleQuoted { parts, .. } = &word.parts[0].kind else {
+        panic!("expected double-quoted word");
+    };
+    let WordPart::CommandSubstitution { body, syntax } = &parts[0].kind else {
+        panic!("expected command substitution");
+    };
+    assert_eq!(*syntax, CommandSubstitutionSyntax::DollarParen);
+
+    let inner = expect_simple(&body[0]);
+    assert_eq!(inner.name.render(input), "echo");
+    assert_eq!(
+        inner.args[0].render_syntax(input),
+        "\"$(( $(printf ')') + 1 ))\""
+    );
+}
+
+#[test]
 fn test_escaped_backticks_inside_double_quotes_stay_literal() {
     let input = "echo \"pre \\`pwd\\` post\"\n";
     let script = Parser::new(input).parse().unwrap().file;
