@@ -74,7 +74,7 @@ ensure-cache:
 	fi
 
 test-large-corpus: ensure-cache
-	SHUCK_TEST_LARGE_CORPUS=1 \
+	@SHUCK_TEST_LARGE_CORPUS=1 \
 	SHUCK_LARGE_CORPUS_TIMEOUT_SECS=$(SHUCK_LARGE_CORPUS_TIMEOUT_SECS) \
 	SHUCK_LARGE_CORPUS_SHUCK_TIMEOUT_SECS=$(SHUCK_LARGE_CORPUS_SHUCK_TIMEOUT_SECS) \
 	SHUCK_LARGE_CORPUS_RULES=$(SHUCK_LARGE_CORPUS_RULES) \
@@ -82,7 +82,12 @@ test-large-corpus: ensure-cache
 	SHUCK_LARGE_CORPUS_MAPPED_ONLY=$(SHUCK_LARGE_CORPUS_MAPPED_ONLY) \
 	SHUCK_LARGE_CORPUS_KEEP_GOING=$(SHUCK_LARGE_CORPUS_KEEP_GOING) \
 	SHUCK_LARGE_CORPUS_TIMING=$(SHUCK_LARGE_CORPUS_TIMING) \
-	$(NIX_DEVELOP) cargo test -p shuck --test large_corpus -- --ignored --nocapture
+	case "$(SHUCK_LARGE_CORPUS_TIMING)" in \
+		1|true|TRUE|yes|YES|on|ON) \
+			$(NIX_DEVELOP) cargo test -p shuck --test large_corpus large_corpus_conforms_with_shellcheck -- --ignored --exact --nocapture ;; \
+		*) \
+			$(NIX_DEVELOP) cargo test -p shuck --test large_corpus -- --ignored --nocapture ;; \
+	esac
 
 test-large-corpus-zsh: ensure-cache
 	SHUCK_TEST_LARGE_CORPUS=1 \
