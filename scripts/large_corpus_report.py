@@ -1142,16 +1142,8 @@ def main() -> int:
     main_blocking = int(main_counts_match.group("blocking"))
     main_fixture_entries = int(main_counts_match.group("fixtures"))
     unsupported_shells = int(main_counts_match.group("skipped") or "0")
-    mapping_issue_count = (
-        int(main_summary_match.group("mapping"))
-        if main_summary_match
-        else count_diagnostic_records(mapping_section)
-    )
-    reviewed_divergence_count = (
-        int(main_summary_match.group("reviewed"))
-        if main_summary_match
-        else count_diagnostic_records(reviewed_section)
-    )
+    mapping_issue_count = count_diagnostic_records(mapping_section)
+    reviewed_divergence_count = count_diagnostic_records(reviewed_section)
     corpus_noise_count = (
         int(main_summary_match.group("noise"))
         if main_summary_match

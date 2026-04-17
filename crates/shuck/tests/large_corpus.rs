@@ -1807,6 +1807,12 @@ fn path_is_fish_file(path: &Path) -> bool {
         .is_some_and(|ext| ext.eq_ignore_ascii_case("fish"))
 }
 
+fn path_is_appledouble_file(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.starts_with("._"))
+}
+
 fn fixture_is_repo_git_entry(fixture: &LargeCorpusFixture) -> bool {
     let Some(name) = fixture.path.file_name().and_then(|name| name.to_str()) else {
         return false;
@@ -2023,7 +2029,11 @@ fn collect_fixtures(corpus_dir: &Path) -> Vec<LargeCorpusFixture> {
         }
 
         let path = entry.path().to_path_buf();
-        if path_is_sample_file(&path) || path_is_fish_file(&path) || path_is_patch_file(&path) {
+        if path_is_sample_file(&path)
+            || path_is_fish_file(&path)
+            || path_is_patch_file(&path)
+            || path_is_appledouble_file(&path)
+        {
             continue;
         }
         let cache_rel_path = path
@@ -4089,13 +4099,14 @@ mod tests {
     }
 
     #[test]
-    fn collect_fixtures_skips_sample_fish_and_patch_files() {
+    fn collect_fixtures_skips_sample_fish_patch_and_appledouble_files() {
         let tempdir = tempfile::tempdir().unwrap();
         let scripts_dir = tempdir.path().join("scripts");
         let nested_dir = scripts_dir.join("nested");
         fs::create_dir_all(&nested_dir).unwrap();
 
         fs::write(scripts_dir.join("keep.sh"), "#!/bin/sh\necho keep\n").unwrap();
+        fs::write(scripts_dir.join("._keep.sh"), "skip\n").unwrap();
         fs::write(
             scripts_dir.join("pre-commit.sample"),
             "#!/bin/sh\necho skip\n",
@@ -4110,6 +4121,7 @@ mod tests {
         .unwrap();
         fs::write(nested_dir.join("prompt.fish"), "echo skip\n").unwrap();
         fs::write(nested_dir.join("fixup.diff"), "--- a/file\n+++ b/file\n").unwrap();
+        fs::write(nested_dir.join("._nested.sh"), "skip\n").unwrap();
 
         let fixtures = collect_fixtures(tempdir.path());
         let collected_paths: Vec<_> = fixtures

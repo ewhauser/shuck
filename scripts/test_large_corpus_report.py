@@ -1,5 +1,7 @@
 import importlib.util
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -40,6 +42,41 @@ Harness Warnings:
         self.assertIsNotNone(body)
         self.assertIn("Mapping Issues:", body)
         self.assertNotIn("/tmp/zsh-fixture.sh", body)
+
+    def test_main_summary_keeps_mapping_and_reviewed_totals_record_based(self) -> None:
+        log = """large corpus compatibility summary: blocking=0 warnings=2 fixtures=1 unsupported_shells=0 implementation_diffs=0 mapping_issues=1 reviewed_divergences=1 corpus_noise=0 harness_warnings=0 harness_failures=0
+Mapping Issues:
+/tmp/main-fixture.sh
+  shellcheck-only S032/SC2209 1:1-1:5 warning reason=first mapping
+  shellcheck-only S032/SC2209 2:1-2:5 warning reason=second mapping
+
+Reviewed Divergence:
+/tmp/main-fixture.sh
+  shuck-only C001/SC2034 3:1-3:5 warning reason=first reviewed
+  shuck-only C001/SC2034 4:1-4:5 warning reason=second reviewed
+test large_corpus_conforms_with_shellcheck ... ok
+"""
+
+        with tempfile.TemporaryDirectory() as tempdir:
+            log_path = Path(tempdir) / "large-corpus.log"
+            output_path = Path(tempdir) / "report.html"
+            log_path.write_text(log, encoding="utf-8")
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT_PATH),
+                    "--log",
+                    str(log_path),
+                    "--output",
+                    str(output_path),
+                ],
+                check=True,
+            )
+
+            html = output_path.read_text(encoding="utf-8")
+
+        self.assertIn("mapping issues, 2 reviewed divergences", html)
 
 
 if __name__ == "__main__":
