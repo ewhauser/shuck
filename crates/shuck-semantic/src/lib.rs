@@ -5063,7 +5063,10 @@ echo \"${d//\\$ORIGIN/$origin}\"
         let model = model(source);
         let unresolved = unresolved_names(&model);
 
-        assert!(unresolved.is_empty(), "unexpected unresolved refs: {unresolved:?}");
+        assert!(
+            unresolved.is_empty(),
+            "unexpected unresolved refs: {unresolved:?}"
+        );
     }
 
     #[test]
