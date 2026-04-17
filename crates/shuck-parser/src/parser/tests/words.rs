@@ -298,6 +298,38 @@ fn test_parse_escaped_command_substitution_stays_literal_in_double_quotes() {
 }
 
 #[test]
+fn test_parse_escaped_literal_before_command_substitution_keeps_following_substitution_live() {
+    let input = "echo $VERSION\\_$(echo hi)\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let word = &command.args[0];
+
+    assert!(matches!(
+        word.parts.as_slice(),
+        [
+            WordPartNode {
+                kind: WordPart::Variable(name),
+                ..
+            },
+            WordPartNode {
+                kind: WordPart::Literal(text),
+                ..
+            },
+            WordPartNode {
+                kind: WordPart::CommandSubstitution { body, .. },
+                span,
+            }
+        ] if name.as_str() == "VERSION"
+            && text.as_str(input, word.parts[1].span) == "_"
+            && span.slice(input) == "$(echo hi)"
+            && matches!(&body[0].command, AstCommand::Simple(inner) if inner.name.render(input) == "echo")
+    ));
+}
+
+#[test]
 fn test_parse_positional_parameters() {
     let parser = Parser::new("echo $@ $*");
     let script = parser.parse().unwrap().file;

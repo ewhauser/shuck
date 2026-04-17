@@ -413,3 +413,102 @@ reviewed_divergences:
     labels:
       - project-closure
     reason: "This wrapper or helper is treated as a reviewed S004 divergence in the corpus comparison."
+  - side: shuck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__network__modemu2k__modemu2k.SlackBuild"
+    line: 25
+    end_line: 25
+    reason: "ShellCheck stops after the malformed test expression later in this SlackBuild, so this earlier S004 site is kept as a reviewed divergence in the corpus comparison."
+  - side: shuck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__network__modemu2k__modemu2k.SlackBuild"
+    line: 98
+    end_line: 98
+    reason: "ShellCheck stops after the malformed test expression earlier in this SlackBuild, so this later S004 site is kept as a reviewed divergence in the corpus comparison."
+  - side: shuck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__system__firmware-gobi-2000__firmware-gobi-2000.SlackBuild"
+    line: 27
+    end_line: 27
+    reason: "ShellCheck aborts on the malformed test expression later in this SlackBuild, so this S004 site is treated as a reviewed divergence."
+  - side: shuck-only
+    path_suffix: "alpinelinux__aports__community__dnscrypt-proxy__dnscrypt-proxy.setup"
+    line: 212
+    end_line: 212
+    reason: "ShellCheck aborts on the malformed bracketed command later in this setup helper, so this S004 site is treated as a reviewed divergence."
+  - side: shuck-only
+    path_suffix: "alpinelinux__aports__community__dnscrypt-proxy__dnscrypt-proxy.setup"
+    line: 337
+    end_line: 337
+    reason: "ShellCheck aborts on the malformed bracketed command earlier in this setup helper, so this later S004 site is treated as a reviewed divergence."
+  - side: shuck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__www__cgi-bin-status.sh"
+    line: 178
+    end_line: 178
+    labels:
+      - project-closure
+    reason: "This CGI helper is compared through a project-closure path, so the remaining S004 site is treated as a reviewed divergence."
+  - side: shuck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__www__cgi-bin-status.sh"
+    line: 337
+    end_line: 337
+    labels:
+      - project-closure
+    reason: "This CGI helper is compared through a project-closure path, so the remaining S004 site is treated as a reviewed divergence."
+  - side: shuck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__www__cgi-bin-status.sh"
+    line: 444
+    end_line: 444
+    labels:
+      - project-closure
+    reason: "This CGI helper is compared through a project-closure path, so the remaining S004 site is treated as a reviewed divergence."
+  - side: shuck-only
+    path_suffix: "docker__docker-bench-security__tests__2_docker_daemon_configuration.sh"
+    line: 153
+    end_line: 153
+    labels:
+      - test-harness
+    reason: "This test harness composes docker filter probes with command substitutions, and the remaining S004 site is treated as a reviewed divergence in corpus comparison."
+  - side: shuck-only
+    path_suffix: "docker__docker-bench-security__tests__2_docker_daemon_configuration.sh"
+    line: 154
+    end_line: 154
+    labels:
+      - test-harness
+    reason: "This test harness composes docker filter probes with command substitutions, and the remaining S004 site is treated as a reviewed divergence in corpus comparison."
+  - side: shuck-only
+    path_suffix: "docker__docker-bench-security__tests__2_docker_daemon_configuration.sh"
+    line: 155
+    end_line: 155
+    labels:
+      - test-harness
+    reason: "This test harness composes docker filter probes with command substitutions, and the remaining S004 site is treated as a reviewed divergence in corpus comparison."
+  - side: shuck-only
+    path_suffix: "docker__docker-bench-security__tests__2_docker_daemon_configuration.sh"
+    line: 160
+    end_line: 160
+    labels:
+      - test-harness
+    reason: "This test harness composes docker filter probes with command substitutions, and the remaining S004 site is treated as a reviewed divergence in corpus comparison."
+  - side: shuck-only
+    path_suffix: "docker__docker-bench-security__tests__2_docker_daemon_configuration.sh"
+    line: 161
+    end_line: 161
+    labels:
+      - test-harness
+    reason: "This test harness composes docker filter probes with command substitutions, and the remaining S004 site is treated as a reviewed divergence in corpus comparison."
+  - side: shuck-only
+    path_suffix: "paulirish__dotfiles__.git-completion.bash"
+    line: 483
+    end_line: 483
+    labels:
+      - directive-handling
+      - helper-library
+      - shell-collapse
+    reason: "This helper-library completion script falls under a shell-collapsed oracle path, so the remaining S004 site is treated as a reviewed divergence."
+  - side: shuck-only
+    path_suffix: "paulirish__dotfiles__.git-completion.bash"
+    line: 2401
+    end_line: 2401
+    labels:
+      - directive-handling
+      - helper-library
+      - shell-collapse
+    reason: "This helper-library completion script falls under a shell-collapsed oracle path, so the remaining S004 site is treated as a reviewed divergence."

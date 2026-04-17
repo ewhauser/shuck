@@ -976,6 +976,51 @@ impl<'a> Lexer<'a> {
             .unwrap_or(&self.input[start.offset..self.offset])
     }
 
+    fn current_word_surface_is_single_char(
+        &self,
+        start: Position,
+        capture: &Option<String>,
+        target: char,
+    ) -> bool {
+        let text = self.current_word_text(start, capture);
+        if !text.contains('\x00') {
+            let mut encoded = [0; 4];
+            return text == target.encode_utf8(&mut encoded);
+        }
+
+        let mut chars = text.chars().filter(|&ch| ch != '\x00');
+        matches!((chars.next(), chars.next()), (Some(ch), None) if ch == target)
+    }
+
+    fn current_word_surface_last_char<'b>(
+        &'b self,
+        start: Position,
+        capture: &'b Option<String>,
+    ) -> Option<char> {
+        self.current_word_text(start, capture)
+            .chars()
+            .rev()
+            .find(|&ch| ch != '\x00')
+    }
+
+    fn current_word_surface_ends_with_char(
+        &self,
+        start: Position,
+        capture: &Option<String>,
+        target: char,
+    ) -> bool {
+        self.current_word_surface_last_char(start, capture) == Some(target)
+    }
+
+    fn current_word_surface_ends_with_extglob_prefix(
+        &self,
+        start: Position,
+        capture: &Option<String>,
+    ) -> bool {
+        self.current_word_surface_last_char(start, capture)
+            .is_some_and(|ch| matches!(ch, '@' | '?' | '*' | '+' | '!'))
+    }
+
     /// Get the next source-backed token from the input, skipping line comments.
     pub fn next_lexed_token(&mut self) -> Option<LexedToken<'a>> {
         self.skip_whitespace();
@@ -1589,14 +1634,14 @@ impl<'a> Lexer<'a> {
                         self.advance();
                     } else {
                         // Escaped character: backslash quotes the next char
-                        // (quote removal — only the literal char survives)
-                        if matches!(next, '$' | '`' | '"' | '\'') {
-                            Self::push_capture_char(&mut word, '\x00');
-                        }
+                        // (quote removal — only the literal char survives).
+                        // Preserve source/decoded alignment with a sentinel so
+                        // downstream word decoding keeps later spans anchored.
+                        Self::push_capture_char(&mut word, '\x00');
                         Self::push_capture_char(&mut word, next);
                         self.advance();
                         if next == '{'
-                            && self.current_word_text(start, &word) == "{"
+                            && self.current_word_surface_is_single_char(start, &word, '{')
                             && self.escaped_brace_sequence_looks_like_brace_expansion()
                         {
                             let mut depth = 1;
@@ -1620,7 +1665,7 @@ impl<'a> Lexer<'a> {
                     Self::push_capture_char(&mut word, '\\');
                 }
             } else if ch == '('
-                && self.current_word_text(start, &word).ends_with('=')
+                && self.current_word_surface_ends_with_char(start, &word, '=')
                 && self.looks_like_assoc_assign()
             {
                 // Associative compound assignment: var=([k]="v" ...) — keep entire
@@ -1672,10 +1717,7 @@ impl<'a> Lexer<'a> {
                         _ => {}
                     }
                 }
-            } else if ch == '('
-                && self
-                    .current_word_text(start, &word)
-                    .ends_with(['@', '?', '*', '+', '!'])
+            } else if ch == '(' && self.current_word_surface_ends_with_extglob_prefix(start, &word)
             {
                 // Extglob: @(...), ?(...), *(...), +(...), !(...)
                 // Consume through matching ) including nested parens
@@ -5374,6 +5416,28 @@ EOF
             TokenKind::Word,
             Some(r#"m=([foo]="bar" [baz]="qux")"#),
         );
+        assert!(lexer.next_lexed_token().is_none());
+    }
+
+    #[test]
+    fn test_assoc_compound_assignment_after_escaped_literal_keeps_compound_word() {
+        let source = r#"foo\_bar=([foo]="bar" [baz]="qux")"#;
+        let mut lexer = Lexer::new(source);
+
+        let token = lexer.next_lexed_token().unwrap();
+        assert_eq!(token.kind, TokenKind::Word);
+        assert_eq!(token.span.slice(source), source);
+        assert!(lexer.next_lexed_token().is_none());
+    }
+
+    #[test]
+    fn test_extglob_after_escaped_literal_keeps_suffix_group() {
+        let source = r#"foo\_bar@(baz|qux)"#;
+        let mut lexer = Lexer::new(source);
+
+        let token = lexer.next_lexed_token().unwrap();
+        assert_eq!(token.kind, TokenKind::Word);
+        assert_eq!(token.span.slice(source), source);
         assert!(lexer.next_lexed_token().is_none());
     }
 
