@@ -5181,11 +5181,10 @@ fn shellish_words(text: &str) -> Vec<&str> {
 fn brace_character_spans(span: Span, source: &str) -> Vec<Span> {
     let text = span.slice(source);
     text.char_indices()
-        .filter_map(|(offset, ch)| {
-            matches!(ch, '{' | '}').then(|| {
+        .filter(|&(_, ch)| matches!(ch, '{' | '}'))
+        .map(|(offset, _)| {
                 let position = span.start.advanced_by(&text[..offset]);
                 Span::from_positions(position, position)
-            })
         })
         .collect()
 }
@@ -5322,11 +5321,9 @@ fn unclassified_literal_brace_spans(word: &Word, source: &str) -> Vec<Span> {
 
         if ch == '{' {
             unmatched_opens.push(index);
-        } else if ch == '}' {
-            if unmatched_opens.pop().is_none() {
-                let position = span.start.advanced_by(&text[..index]);
-                spans.push(Span::from_positions(position, position));
-            }
+        } else if ch == '}' && unmatched_opens.pop().is_none() {
+            let position = span.start.advanced_by(&text[..index]);
+            spans.push(Span::from_positions(position, position));
         }
 
         index += ch_len;
