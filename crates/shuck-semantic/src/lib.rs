@@ -4202,6 +4202,34 @@ fi
     }
 
     #[test]
+    fn local_shadowing_can_clear_imported_initialization_before_nested_command_substitutions() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/bash
+. ./helper.sh
+f() {
+  local flag
+  printf '%s\\n' \"$(
+    printf '%s\\n' \"$flag\"
+  )\"
+}
+f
+",
+        )
+        .unwrap();
+        fs::write(&helper, "flag=1\n").unwrap();
+
+        let model = model_at_path(&main);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_present(&["flag"], &uninitialized);
+    }
+
+    #[test]
     fn sourced_helper_function_reads_do_not_keep_assignments_live_until_called() {
         let temp = tempdir().unwrap();
         let main = temp.path().join("main.sh");
