@@ -17,3 +17,83 @@ reviewed_divergences:
   - side: shuck-only
     path_suffix: "scripts/termux__termux-packages__x11-packages__kitty__build.sh"
     reason: "S070 intentionally flags split quoting in assignment entries built from sourced command substitutions; current ShellCheck releases do not emit matching SC2027 diagnostics for these rows."
+  - side: shuck-only
+    path_suffix: "scripts/SlackBuildsOrg__slackbuilds__network__nessus__doinst.sh"
+    line: 42
+    reason: "This line rejoins double-quoted text around a legacy backtick substitution. Shuck keeps warning because the substitution result is still unquoted at the join point, while the current oracle classifies legacy backticks under other codes instead of SC2027."
+  - side: shuck-only
+    path_suffix: "scripts/alpinelinux__aports__community__dnscrypt-proxy__dnscrypt-proxy.setup"
+    line: 128
+    reason: "This grep argument is assembled by reopening double quotes around `$SCRIPT`. Shuck keeps the split-quote warning here, while the current oracle misses SC2027 for this grep pattern."
+  - side: shuck-only
+    path_suffix: "scripts/alpinelinux__aports__community__gnunet__setup-gnunet-user"
+    line: 7
+    reason: "This usage string rejoins double-quoted text around a legacy backtick substitution. Shuck keeps warning because the substitution result is still unquoted at the join point, while the current oracle classifies legacy backticks under other codes instead of SC2027."
+  - side: shuck-only
+    path_suffix: "scripts/alpinelinux__aports__community__gnunet__setup-gnunet-user"
+    line: 11
+    reason: "This usage string rejoins double-quoted text around a legacy backtick substitution. Shuck keeps warning because the substitution result is still unquoted at the join point, while the current oracle classifies legacy backticks under other codes instead of SC2027."
+  - side: shuck-only
+    path_suffix: "scripts/bitnami__containers__bitnami__jenkins__2__debian-12__rootfs__opt__bitnami__scripts__jenkins__run.sh"
+    line: 29
+    reason: "This launcher argument embeds a quoted default value inside `${var:-...}`. Shuck keeps warning on the reopened quote shape inside the parameter-expansion default, while the current oracle does not surface SC2027 for that form."
+  - side: shuck-only
+    path_suffix: "scripts/bitnami__containers__bitnami__jenkins__2__debian-12__rootfs__opt__bitnami__scripts__jenkins__run.sh"
+    line: 30
+    reason: "This launcher argument embeds a quoted default value inside `${var:-...}`. Shuck keeps warning on the reopened quote shape inside the parameter-expansion default, while the current oracle does not surface SC2027 for that form."
+  - side: shuck-only
+    path_suffix: "scripts/bitnami__containers__bitnami__jenkins__2__debian-12__rootfs__opt__bitnami__scripts__jenkins__run.sh"
+    line: 36
+    reason: "This launcher argument embeds a quoted default value inside `${var:-...}`. Shuck keeps warning on the reopened quote shape inside the parameter-expansion default, while the current oracle does not surface SC2027 for that form."
+  - side: shuck-only
+    path_suffix: "scripts/bitnami__containers__bitnami__jenkins__2__debian-12__rootfs__opt__bitnami__scripts__jenkins__run.sh"
+    line: 37
+    reason: "This launcher argument embeds a quoted default value inside `${var:-...}`. Shuck keeps warning on the reopened quote shape inside the parameter-expansion default, while the current oracle does not surface SC2027 for that form."
+  - side: shuck-only
+    path_suffix: "scripts/bitnami__containers__bitnami__jenkins__2__debian-12__rootfs__opt__bitnami__scripts__jenkins__run.sh"
+    line: 38
+    reason: "This launcher argument embeds a quoted default value inside `${var:-...}`. Shuck keeps warning on the reopened quote shape inside the parameter-expansion default, while the current oracle does not surface SC2027 for that form."
+  - side: shuck-only
+    path_suffix: "scripts/bitnami__containers__bitnami__jenkins__2__debian-12__rootfs__opt__bitnami__scripts__jenkins__run.sh"
+    line: 39
+    reason: "This launcher argument embeds a quoted default value inside `${var:-...}`. Shuck keeps warning on the reopened quote shape inside the parameter-expansion default, while the current oracle does not surface SC2027 for that form."
+  - side: shellcheck-only
+    path_suffix: "scripts/moovweb__gvm__examples__native__ltmain.sh"
+    line: 3910
+    reason: "This generated `ltmain.sh` comment documents literal `$0` and `\"$@\"` text. The current shell-collapse oracle surfaces SC2027 here, while S070 is intentionally scoped to executable shell words rather than comment text."
+  - side: shuck-only
+    path_suffix: "scripts/moovweb__gvm__examples__native__ltmain.sh"
+    line: 8651
+    reason: "This generated `ltmain.sh` line rejoins double-quoted text around a legacy backtick substitution. Shuck keeps warning because the substitution result is still unquoted at the join point, while the current oracle classifies legacy backticks under other codes instead of SC2027."
+  - side: shuck-only
+    path_suffix: "scripts/scop__bash-completion__completions-core__cvs.bash"
+    line: 338
+    reason: "This completion helper trims a prefix with a quoted parameter-expansion removal pattern. Shuck keeps warning on the reopened quote inside that operator form, while the current oracle omits SC2027 for it."
+  - side: shuck-only
+    path_suffix: "scripts/scop__bash-completion__completions-core__mutt.bash"
+    line: 130
+    reason: "This completion helper trims a prefix with a quoted parameter-expansion removal pattern. Shuck keeps warning on the reopened quote inside that operator form, while the current oracle omits SC2027 for it."
+  - side: shuck-only
+    path_suffix: "scripts/scop__bash-completion__completions-core__pkg_delete.bash"
+    line: 13
+    reason: "This completion helper trims a prefix with a quoted parameter-expansion removal pattern. Shuck keeps warning on the reopened quote inside that operator form, while the current oracle omits SC2027 for it."
+  - side: shuck-only
+    path_suffix: "scripts/scop__bash-completion__completions-core__portupgrade.bash"
+    line: 13
+    reason: "This completion helper trims a prefix with a quoted parameter-expansion removal pattern. Shuck keeps warning on the reopened quote inside that operator form, while the current oracle omits SC2027 for it."
+  - side: shuck-only
+    path_suffix: "scripts/scop__bash-completion__completions-fallback__mount.linux.bash"
+    line: 201
+    reason: "This completion helper trims a prefix with a quoted parameter-expansion removal pattern. Shuck keeps warning on the reopened quote inside that operator form, while the current oracle omits SC2027 for it."
+  - side: shuck-only
+    path_suffix: "scripts/v1s1t0r1sh3r3__airgeddon__airgeddon.sh"
+    line: 1219
+    reason: "This associative-array lookup quotes the dynamic key inside the expansion subscript. Shuck keeps warning on the reopened quote shape in that key expression, while the current oracle omits SC2027 for this array-subscript form."
+  - side: shuck-only
+    path_suffix: "scripts/v1s1t0r1sh3r3__airgeddon__airgeddon.sh"
+    line: 1229
+    reason: "This associative-array lookup quotes the dynamic key inside the expansion subscript. Shuck keeps warning on the reopened quote shape in that key expression, while the current oracle omits SC2027 for this array-subscript form."
+  - side: shuck-only
+    path_suffix: "scripts/v1s1t0r1sh3r3__airgeddon__airgeddon.sh"
+    line: 1284
+    reason: "This associative-array lookup quotes the dynamic key inside the expansion subscript. Shuck keeps warning on the reopened quote shape in that key expression, while the current oracle omits SC2027 for this array-subscript form."
