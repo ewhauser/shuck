@@ -64,8 +64,20 @@ def load_macro_result(path: Path) -> MacroResult | None:
     if not results:
         return None
 
-    shuck = results[0]
     case = path.stem.removeprefix("bench-")
+    shuck = next(
+        (
+            candidate
+            for candidate in results
+            if str(candidate.get("command", "")).startswith("shuck/")
+        ),
+        None,
+    )
+    if shuck is None and len(results) == 1:
+        shuck = results[0]
+    if shuck is None:
+        return None
+
     return MacroResult(
         case=case,
         mean=float(shuck["mean"]),
