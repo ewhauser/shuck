@@ -1141,7 +1141,10 @@ fn test_escaped_quote_literal_does_not_truncate_following_variable_name() {
     };
     let word = &command.args[0];
 
-    assert_eq!(top_level_part_slices(word, input), vec!["\\\"", "$archname", "\\\""]);
+    assert_eq!(
+        top_level_part_slices(word, input),
+        vec!["\\\"", "$archname", "\\\""]
+    );
     assert!(word_part_tree_contains_variable(&word.parts, "archname"));
     assert!(!word_part_tree_contains_variable(&word.parts, "archnam"));
 }
