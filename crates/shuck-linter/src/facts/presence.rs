@@ -7,6 +7,12 @@ pub(super) fn build_presence_tested_names(
     let mut names = FxHashSet::default();
 
     for command in commands {
+        // Presence-test suppression is global today, so nested word commands
+        // must not contribute names that would silence unrelated plain uses.
+        if command.is_nested_word_command() {
+            continue;
+        }
+
         if let Some(simple_test) = command.simple_test() {
             collect_presence_tested_names_from_simple_test_operands(
                 simple_test.operands(),

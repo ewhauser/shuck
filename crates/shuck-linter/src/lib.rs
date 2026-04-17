@@ -2336,6 +2336,23 @@ echo \"$guarded\" \"$truthy\" \"$chain_left\" \"$chain_right\" \"$or_left\" \"$o
     }
 
     #[test]
+    fn undefined_variable_nested_word_guards_do_not_suppress_plain_uses() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' \"${fallback:-$([ \"$missing\" ])}\"
+printf '%s\\n' \"$missing\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert!(
+            diagnostics.iter().any(|diagnostic| {
+                diagnostic.message.contains("missing") && diagnostic.span.start.line == 3
+            }),
+            "diagnostics: {diagnostics:?}"
+        );
+    }
+
+    #[test]
     fn unread_name_only_declarations_are_not_flagged() {
         let diagnostics = lint(
             "\
