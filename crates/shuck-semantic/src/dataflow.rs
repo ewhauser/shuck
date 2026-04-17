@@ -5,7 +5,7 @@ use shuck_ast::Span;
 use crate::runtime::RuntimePrelude;
 use crate::{
     Binding, BindingAttributes, BindingId, BindingKind, BlockId, CallSite, ContractCertainty,
-    ControlFlowGraph, FunctionScopeKind, ProvidedBinding, ProvidedBindingKind, Reference,
+    ControlFlowGraph, EdgeKind, FunctionScopeKind, ProvidedBinding, ProvidedBindingKind, Reference,
     ReferenceId, ReferenceKind, Scope, ScopeId, ScopeKind, SpanKey, SyntheticRead,
 };
 use std::sync::OnceLock;
@@ -472,6 +472,13 @@ fn collapse_redundant_branch_unused_assignment_ids(
             .collect();
     }
 
+    if cfg_has_no_branching_edges(cfg) {
+        return unused_assignments
+            .iter()
+            .map(|unused| unused.binding)
+            .collect();
+    }
+
     let bindings_by_name = build_bindings_by_name(bindings);
     let unused_binding_ids = unused_assignments
         .iter()
@@ -498,6 +505,17 @@ fn collapse_redundant_branch_unused_assignment_ids(
             .then_some(unused.binding)
         })
         .collect()
+}
+
+fn cfg_has_no_branching_edges(cfg: &ControlFlowGraph) -> bool {
+    cfg.blocks().iter().all(|block| {
+        cfg.predecessors(block.id).len() <= 1
+            && cfg.successors(block.id).len() <= 1
+            && cfg
+                .successors(block.id)
+                .iter()
+                .all(|(_, edge)| matches!(edge, EdgeKind::Sequential))
+    })
 }
 
 struct RedundantBranchUnusedAssignmentContext<'a> {
@@ -545,6 +563,15 @@ fn should_suppress_redundant_branch_unused_assignment(
         return false;
     };
 
+    if block_can_reach(
+        context.cfg,
+        binding_block,
+        next_binding_block,
+        context.reachability_cache,
+    ) {
+        return false;
+    }
+
     if !context.unused_binding_ids.contains(&next_binding_id) {
         return false;
     }
@@ -554,12 +581,7 @@ fn should_suppress_redundant_branch_unused_assignment(
         return false;
     }
 
-    !block_can_reach(
-        context.cfg,
-        binding_block,
-        next_binding_block,
-        context.reachability_cache,
-    )
+    true
 }
 
 fn participates_in_unused_assignment_reporting(
@@ -591,6 +613,14 @@ fn block_can_reach(
     reachability_cache: &mut [Option<DenseBitSet>],
 ) -> bool {
     if from == to {
+        return true;
+    }
+
+    if cfg
+        .successors(from)
+        .iter()
+        .any(|(successor, _)| *successor == to)
+    {
         return true;
     }
 
