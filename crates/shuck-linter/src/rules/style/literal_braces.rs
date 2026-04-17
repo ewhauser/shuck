@@ -131,4 +131,15 @@ echo [0-9a-f]{$HASHLEN}
 
         assert_eq!(diagnostics.len(), 4);
     }
+
+    #[test]
+    fn ignores_plain_parameter_expansion_braces_next_to_brace_expansion() {
+        let source = "\
+#!/bin/bash
+echo TERMUX_SUBPKG_INCLUDE=\\\"$(find ${_ADD_PREFIX}lib{,32} -name '*.a' -o -name '*.la' 2> /dev/null) $TERMUX_PKG_STATICSPLIT_EXTRA_PATTERNS\\\" > \"$_STATIC_SUBPACKAGE_FILE\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LiteralBraces));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
 }

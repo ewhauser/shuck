@@ -609,7 +609,10 @@ impl<'a> Parser<'a> {
             return word;
         }
 
-        if Self::source_text_needs_quote_preserving_decode(s) {
+        let preserve_quote_fragments = Self::source_text_needs_quote_preserving_decode(s)
+            && (!source_backed || self.source_matches(span, s));
+
+        if preserve_quote_fragments {
             self.decode_fragment_word_text_with_escape_mode(
                 s,
                 span,

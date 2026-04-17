@@ -254,6 +254,26 @@ fn test_parse_mixed_quoted_and_cooked_plain_continuation_keeps_variable_live() {
 }
 
 #[test]
+fn test_parse_escaped_quote_before_command_substitution_keeps_substitution_live() {
+    let input = "echo TERMUX_SUBPKG_INCLUDE=\\\"$(find ${_ADD_PREFIX}lib{,32})\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let word = &command.args[0];
+
+    assert!(
+        word.parts
+            .iter()
+            .any(|part| !matches!(part.kind, WordPart::Literal(_))),
+        "parts: {:?}",
+        word.parts
+    );
+    assert_eq!(word.brace_syntax().len(), 0);
+}
+
+#[test]
 fn test_parse_escaped_command_substitution_stays_literal_in_double_quotes() {
     let input = r#"echo "\$(pwd)""#;
     let script = Parser::new(input).parse().unwrap().file;
