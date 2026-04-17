@@ -275,6 +275,23 @@ No NODE_VERSION provided; no .nvmrc file found\"
     }
 
     #[test]
+    fn reports_expansions_wrapped_in_escaped_literal_quotes() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' -DPACKAGE_VERSION=\\\"$TERMUX_PKG_VERSION\\\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$TERMUX_PKG_VERSION"]
+        );
+    }
+
+    #[test]
     fn reports_decl_assignment_values_in_sh_mode() {
         let source = "\
 local _patch=$TERMUX_PKG_BUILDER_DIR/file.diff
