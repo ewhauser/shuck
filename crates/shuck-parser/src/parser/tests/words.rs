@@ -1995,10 +1995,12 @@ fn test_parameter_default_operand_does_not_absorb_later_double_quoted_expansion(
     };
     let word = &command.args[0];
 
-    let [WordPartNode {
-        kind: WordPart::DoubleQuoted { parts, .. },
-        ..
-    }] = word.parts.as_slice()
+    let [
+        WordPartNode {
+            kind: WordPart::DoubleQuoted { parts, .. },
+            ..
+        },
+    ] = word.parts.as_slice()
     else {
         panic!("expected one double-quoted argument");
     };
@@ -2020,17 +2022,25 @@ fn test_parameter_default_operand_does_not_absorb_later_double_quoted_expansion(
     };
     assert_eq!(operand.slice(input), "\"${default}\"");
     assert_eq!(operand_word_ast.render(input), "${default}");
-    let [WordPartNode {
-        kind: WordPart::DoubleQuoted { parts: operand_parts, .. },
-        ..
-    }] = operand_word_ast.parts.as_slice()
+    let [
+        WordPartNode {
+            kind:
+                WordPart::DoubleQuoted {
+                    parts: operand_parts,
+                    ..
+                },
+            ..
+        },
+    ] = operand_word_ast.parts.as_slice()
     else {
         panic!("expected quoted operand word");
     };
-    let [WordPartNode {
-        kind: WordPart::Parameter(parameter),
-        ..
-    }] = operand_parts.as_slice()
+    let [
+        WordPartNode {
+            kind: WordPart::Parameter(parameter),
+            ..
+        },
+    ] = operand_parts.as_slice()
     else {
         panic!("expected nested parameter expansion inside operand");
     };
