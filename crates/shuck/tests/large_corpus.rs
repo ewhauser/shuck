@@ -479,6 +479,7 @@ enum CorpusNoiseKind {
     Fish,
     ParseAbort,
     ShellCollapse,
+    InvalidZshFixture,
 }
 
 impl CorpusNoiseKind {
@@ -489,6 +490,7 @@ impl CorpusNoiseKind {
             Self::Fish => "fish",
             Self::ParseAbort => "parse-abort",
             Self::ShellCollapse => "shell-collapse",
+            Self::InvalidZshFixture => "invalid-zsh-fixture",
         }
     }
 }
@@ -1183,16 +1185,55 @@ fn evaluate_fixture_zsh_parse(
         };
 
     if let Err(err) = parse_result {
-        evaluation.harness_failure = Some(FixtureFailure {
-            kind: FixtureFailureKind::Other,
-            message: format_fixture_failure(
-                &fixture.path,
-                &[format!("shuck zsh parse/option extraction error: {err}")],
-            ),
-        });
+        match probe_invalid_zsh_fixture(&fixture.path, shuck_timeout) {
+            Ok(Some(zsh_err)) => {
+                evaluation.corpus_noise.push(format_fixture_failure(
+                    &fixture.path,
+                    &[
+                        format!(
+                            "corpus noise [{}]",
+                            CorpusNoiseKind::InvalidZshFixture.as_str()
+                        ),
+                        format!("shuck zsh parse/option extraction error: {err}"),
+                        format!("zsh -n rejected fixture: {zsh_err}"),
+                    ],
+                ));
+            }
+            Ok(None) | Err(_) => {
+                evaluation.harness_failure = Some(FixtureFailure {
+                    kind: FixtureFailureKind::Other,
+                    message: format_fixture_failure(
+                        &fixture.path,
+                        &[format!("shuck zsh parse/option extraction error: {err}")],
+                    ),
+                });
+            }
+        }
     }
 
     evaluation
+}
+
+fn probe_invalid_zsh_fixture(path: &Path, timeout: Duration) -> Result<Option<String>, String> {
+    let path = path.to_path_buf();
+    let status = run_with_timeout("zsh", timeout, move || {
+        Command::new("zsh")
+            .arg("-n")
+            .arg(&path)
+            .output()
+            .map_err(|err| format!("failed to run `zsh -n`: {err}"))
+    })??;
+
+    if status.status.success() {
+        return Ok(None);
+    }
+
+    let stderr = String::from_utf8_lossy(&status.stderr).trim().to_owned();
+    Ok(Some(
+        (!stderr.is_empty())
+            .then_some(stderr)
+            .unwrap_or_else(|| "non-zero exit status".to_owned()),
+    ))
 }
 
 fn fixture_failure_kind_for_message(message: &str, label: &str) -> FixtureFailureKind {

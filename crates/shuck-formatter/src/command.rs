@@ -845,6 +845,17 @@ fn format_for(command: &ForCommand, formatter: &mut ShellFormatter<'_, '_>) -> F
                 finish_block("done", formatter)
             }
         }
+        ForSyntax::InDirect { .. } => {
+            if let Some(words) = &command.words {
+                write!(formatter, [token(" in")])?;
+                for word in words {
+                    write!(formatter, [space()])?;
+                    word.format().fmt(formatter)?;
+                }
+            }
+            write!(formatter, [space()])?;
+            format_inline_stmts(&command.body, formatter)
+        }
         ForSyntax::ParenDoDone { .. } => {
             write!(formatter, [token(" (")])?;
             for (index, word) in command
@@ -871,6 +882,22 @@ fn format_for(command: &ForCommand, formatter: &mut ShellFormatter<'_, '_>) -> F
                 )?;
                 finish_block("done", formatter)
             }
+        }
+        ForSyntax::ParenDirect { .. } => {
+            write!(formatter, [token(" (")])?;
+            for (index, word) in command
+                .words
+                .iter()
+                .flat_map(|words| words.iter())
+                .enumerate()
+            {
+                if index > 0 {
+                    write!(formatter, [space()])?;
+                }
+                word.format().fmt(formatter)?;
+            }
+            write!(formatter, [token(") ")])?;
+            format_inline_stmts(&command.body, formatter)
         }
         ForSyntax::InBrace { .. } => {
             if let Some(words) = &command.words {

@@ -834,6 +834,9 @@ pub enum ForSyntax {
         do_span: Span,
         done_span: Span,
     },
+    InDirect {
+        in_span: Option<Span>,
+    },
     InBrace {
         in_span: Option<Span>,
         left_brace_span: Span,
@@ -844,6 +847,10 @@ pub enum ForSyntax {
         right_paren_span: Span,
         do_span: Span,
         done_span: Span,
+    },
+    ParenDirect {
+        left_paren_span: Span,
+        right_paren_span: Span,
     },
     ParenBrace {
         left_paren_span: Span,

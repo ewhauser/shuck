@@ -4032,6 +4032,55 @@ fn test_zsh_for_loop_preserves_paren_brace_syntax() {
 }
 
 #[test]
+fn test_zsh_for_loop_preserves_paren_direct_syntax() {
+    let source = "for topic_folder ($ZSH/*) if [ -d $topic_folder ]; then fpath=($topic_folder $fpath); fi\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let (compound, redirects) = expect_compound(&output.file.body[0]);
+    let AstCompoundCommand::For(command) = compound else {
+        panic!("expected for loop");
+    };
+
+    assert!(redirects.is_empty());
+    assert!(matches!(
+        command.syntax,
+        ForSyntax::ParenDirect {
+            left_paren_span,
+            right_paren_span,
+        } if left_paren_span.slice(source) == "(" && right_paren_span.slice(source) == ")"
+    ));
+    assert_eq!(command.body.len(), 1);
+    assert!(matches!(command.body[0].command, AstCommand::Compound(_)));
+}
+
+#[test]
+fn test_zsh_for_loop_preserves_paren_glob_qualifier_word_list() {
+    let source =
+        "for ind_file ( ${^${(von)PUAssocArray}}.ind(DN.) ) {\n  command cat ${ind_file:r}\n}\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let (compound, redirects) = expect_compound(&output.file.body[0]);
+    let AstCompoundCommand::For(command) = compound else {
+        panic!("expected for loop");
+    };
+
+    assert!(redirects.is_empty());
+    assert_eq!(
+        command
+            .words
+            .as_ref()
+            .expect("expected parenthesized word list")
+            .iter()
+            .map(|word| word.span.slice(source))
+            .collect::<Vec<_>>(),
+        vec!["${^${(von)PUAssocArray}}.ind(DN.)"]
+    );
+    assert!(matches!(command.syntax, ForSyntax::ParenBrace { .. }));
+}
+
+#[test]
 fn test_zsh_for_loop_preserves_in_brace_syntax() {
     let source = "for part in a b; { echo $part; }\n";
     let output = Parser::with_dialect(source, ShellDialect::Zsh)
@@ -4055,6 +4104,31 @@ fn test_zsh_for_loop_preserves_in_brace_syntax() {
         }
         other => panic!("expected in/brace syntax, got {other:?}"),
     }
+}
+
+#[test]
+fn test_zsh_for_loop_preserves_in_direct_syntax() {
+    let source = "for key in \"$key_info[Escape]\"{B,b} \"$key_info[Left]\"\n  bindkey -M emacs \"$key\" emacs-backward-word\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let (compound, redirects) = expect_compound(&output.file.body[0]);
+    let AstCompoundCommand::For(command) = compound else {
+        panic!("expected for loop");
+    };
+
+    assert!(redirects.is_empty());
+    assert!(matches!(
+        command.syntax,
+        ForSyntax::InDirect {
+            in_span: Some(in_span),
+        } if in_span.slice(source) == "in"
+    ));
+    assert_eq!(command.body.len(), 1);
+    assert_eq!(
+        expect_simple(&command.body[0]).name.render(source),
+        "bindkey"
+    );
 }
 
 #[test]
@@ -5354,6 +5428,14 @@ fn test_parse_zsh_arithmetic_shell_word_lookup_with_nested_modifier() {
 }
 
 #[test]
+fn test_parse_zsh_arithmetic_shell_word_with_short_length_subscript_pattern() {
+    let source = "if (( ! $#functions[(i)n(odenv|vm)] )); then\n  return 1\nfi\n";
+    Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
 fn test_parse_zsh_arithmetic_shell_word_preserves_nested_length_target() {
     let source = "(( q_chars = ${#${cd//${~q}/}} ))\n";
     let output = Parser::with_dialect(source, ShellDialect::Zsh)
@@ -5847,6 +5929,25 @@ fn test_zsh_brace_if_records_brace_syntax() {
     ));
     assert_eq!(command.elif_branches.len(), 1);
     assert!(command.else_branch.is_some());
+}
+
+#[test]
+fn test_zsh_brace_if_allows_brace_group_elif_conditions() {
+    let source = "if [[ $profile == ./* || $profile == /* ]] {\n  local localpkg=1\n} elif { ! .zinit-download-file-stdout $URL 0 1 2>/dev/null > $tmpfile } {\n  command rm -f $tmpfile\n}\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let (compound, _) = expect_compound(&output.file.body[0]);
+    let AstCompoundCommand::If(command) = compound else {
+        panic!("expected if command");
+    };
+
+    assert_eq!(command.elif_branches.len(), 1);
+    assert_eq!(command.elif_branches[0].0.len(), 1);
+    assert!(matches!(
+        command.elif_branches[0].0[0].command,
+        AstCommand::Compound(_)
+    ));
 }
 
 #[test]

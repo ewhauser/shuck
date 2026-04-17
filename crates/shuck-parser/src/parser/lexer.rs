@@ -1499,28 +1499,13 @@ impl<'a> Lexer<'a> {
 
                 // Check for $( - command substitution or arithmetic
                 if self.peek_char() == Some('(') {
-                    Self::push_capture_char(&mut word, '(');
-                    self.advance();
-
-                    // Check for $(( - arithmetic expansion
-                    if self.peek_char() == Some('(') {
-                        Self::push_capture_char(&mut word, '(');
-                        self.advance();
-                        // Read until ))
-                        let mut depth = 2;
-                        while let Some(c) = self.peek_char() {
-                            Self::push_capture_char(&mut word, c);
-                            self.advance();
-                            if c == '(' {
-                                depth += 1;
-                            } else if c == ')' {
-                                depth -= 1;
-                                if depth == 0 {
-                                    break;
-                                }
-                            }
+                    if self.second_char() == Some('(') {
+                        if !self.read_arithmetic_expansion_into(&mut word) {
+                            return Err(LexerErrorKind::CommandSubstitution);
                         }
                     } else {
+                        Self::push_capture_char(&mut word, '(');
+                        self.advance();
                         if !self.read_command_subst_into(&mut word) {
                             return Err(LexerErrorKind::CommandSubstitution);
                         }
@@ -2317,9 +2302,13 @@ impl<'a> Lexer<'a> {
                     Self::push_capture_char(&mut content, '$');
                     self.advance();
                     if self.peek_char() == Some('(') {
-                        Self::push_capture_char(&mut content, '(');
-                        self.advance();
-                        self.read_command_subst_into(&mut content);
+                        if self.second_char() == Some('(') {
+                            self.read_arithmetic_expansion_into(&mut content);
+                        } else {
+                            Self::push_capture_char(&mut content, '(');
+                            self.advance();
+                            self.read_command_subst_into(&mut content);
+                        }
                     } else if self.peek_char() == Some('{') {
                         Self::push_capture_char(&mut content, '{');
                         self.advance();
@@ -2386,6 +2375,32 @@ impl<'a> Lexer<'a> {
                 wrapper_span,
             ))
         }
+    }
+
+    fn read_arithmetic_expansion_into(&mut self, content: &mut Option<String>) -> bool {
+        debug_assert_eq!(self.peek_char(), Some('('));
+        debug_assert_eq!(self.second_char(), Some('('));
+
+        Self::push_capture_char(content, '(');
+        self.advance();
+        Self::push_capture_char(content, '(');
+        self.advance();
+
+        let mut depth = 2;
+        while let Some(c) = self.peek_char() {
+            Self::push_capture_char(content, c);
+            self.advance();
+            if c == '(' {
+                depth += 1;
+            } else if c == ')' {
+                depth -= 1;
+                if depth == 0 {
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 
     /// Read command substitution content after `$(`, handling nested parens and quotes.
@@ -2658,11 +2673,18 @@ impl<'a> Lexer<'a> {
                                 Self::push_capture_char(content, '$');
                                 self.advance();
                                 if self.peek_char() == Some('(') {
-                                    Self::push_capture_char(content, '(');
-                                    self.advance();
-                                    if !self.read_command_subst_into_depth(content, subst_depth + 1)
-                                    {
-                                        return false;
+                                    if self.second_char() == Some('(') {
+                                        if !self.read_arithmetic_expansion_into(content) {
+                                            return false;
+                                        }
+                                    } else {
+                                        Self::push_capture_char(content, '(');
+                                        self.advance();
+                                        if !self
+                                            .read_command_subst_into_depth(content, subst_depth + 1)
+                                        {
+                                            return false;
+                                        }
                                     }
                                 }
                             }
@@ -3034,9 +3056,15 @@ impl<'a> Lexer<'a> {
                     Self::push_capture_char(content, '$');
                     self.advance();
                     if self.peek_char() == Some('(') {
-                        Self::push_capture_char(content, '(');
-                        self.advance();
-                        self.read_command_subst_into(content);
+                        if self.second_char() == Some('(') {
+                            if !self.read_arithmetic_expansion_into(content) {
+                                borrowable = false;
+                            }
+                        } else {
+                            Self::push_capture_char(content, '(');
+                            self.advance();
+                            self.read_command_subst_into(content);
+                        }
                     } else if self.peek_char() == Some('{') {
                         Self::push_capture_char(content, '{');
                         self.advance();

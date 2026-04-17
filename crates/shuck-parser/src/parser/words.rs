@@ -1531,13 +1531,32 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            if ch == '$'
-                && !in_single
-                && let Some(end) =
+            if ch == '$' && !in_single {
+                let next_offset = ch_start.offset + ch.len_utf8();
+                if self.input[next_offset..].starts_with("((")
+                    && let Some(consumed) =
+                        Self::scan_array_arithmetic_expansion_len(&self.input[next_offset + 2..])
+                {
+                    let end = next_offset + 2 + consumed;
+                    cursor = ch_start.advanced_by(&self.input[ch_start.offset..end]);
+                    continue;
+                }
+
+                if self.input[next_offset..].starts_with('{')
+                    && let Some(consumed) =
+                        Self::scan_array_parameter_expansion_len(&self.input[next_offset + 1..])
+                {
+                    let end = next_offset + 1 + consumed;
+                    cursor = ch_start.advanced_by(&self.input[ch_start.offset..end]);
+                    continue;
+                }
+
+                if let Some(end) =
                     Self::scan_raw_dollar_paren_substitution_end(self.input, ch_start.offset)
-            {
-                cursor = ch_start.advanced_by(&self.input[ch_start.offset..end]);
-                continue;
+                {
+                    cursor = ch_start.advanced_by(&self.input[ch_start.offset..end]);
+                    continue;
+                }
             }
 
             match ch {

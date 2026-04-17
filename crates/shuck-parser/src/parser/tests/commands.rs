@@ -1735,6 +1735,39 @@ fn test_zsh_case_accepts_optional_suffix_group_after_literal_url() {
 }
 
 #[test]
+fn test_zsh_case_accepts_wrapper_alternatives_with_empty_first_pattern() {
+    let input = concat!(
+        "case ${ICE[proto]} in\n",
+        "  (|ftp(|s)|git|http(|s)|rsync|ssh) print ok ;;\n",
+        "esac\n",
+    );
+    let script = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap()
+        .file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Case(command) = compound else {
+        panic!("expected case command");
+    };
+
+    let rendered = command.cases[0]
+        .patterns
+        .iter()
+        .map(|pattern| pattern.render_syntax(input))
+        .collect::<Vec<_>>();
+    assert_eq!(rendered.len(), 6);
+    assert_eq!(rendered[0], "");
+    assert!(rendered[1].starts_with("ftp"));
+    assert!(rendered[1].ends_with("(|s)"));
+    assert_eq!(rendered[2], "git");
+    assert!(rendered[3].starts_with("http"));
+    assert!(rendered[3].ends_with("(|s)"));
+    assert_eq!(rendered[4], "rsync");
+    assert_eq!(rendered[5], "ssh");
+}
+
+#[test]
 fn test_zsh_case_accepts_infix_group_with_trailing_wildcard() {
     let input = concat!(
         "case $widgets[$widget] in\n",
@@ -2794,6 +2827,51 @@ fn test_parse_zsh_anonymous_eval_callback_inside_worker_loop_with_always_followt
 }
 
 #[test]
+fn test_parse_zsh_while_loop_with_brace_body() {
+    let input = "while (( -- count + 1 )) {\n  echo hi\n}\n";
+    let output = Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+    let (compound, redirects) = expect_compound(&output.file.body[0]);
+    let AstCompoundCommand::While(command) = compound else {
+        panic!("expected while loop");
+    };
+
+    assert!(redirects.is_empty());
+    assert_eq!(command.body.len(), 1);
+    let (body_compound, body_redirects) = expect_compound(&command.body[0]);
+    let AstCompoundCommand::BraceGroup(body) = body_compound else {
+        panic!("expected brace-group loop body");
+    };
+    assert!(body_redirects.is_empty());
+    assert_eq!(body.len(), 1);
+}
+
+#[test]
+fn test_parse_zsh_while_loop_with_brace_body_after_setopt_noshortloops() {
+    let input = "f() {\n  setopt noshortloops\n  while (( count )) {\n    break\n  }\n}\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_function_compound_array_assignment_with_nested_parameter_length_in_arithmetic() {
+    let input = "f() {\n  [[ -n $foo ]] && region_highlight+=(\"$((buflen+7)) $((buflen+7+${#${(MS)POSTDISPLAY##<->##}})) fg=39,bold\")\n  return 0\n}\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_zsh_if_compact_brace_bodies_without_space_after_left_brace() {
+    let input = "f() { if (($4==0)){c=1;} elif (($4==1)){c=2;} else {c=3;}; echo ok; }\n";
+    Parser::with_dialect(input, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+}
+
+#[test]
 fn test_parse_zsh_function_with_multiline_and_list_after_alias_lookup() {
     let input = "zsh-z_plugin_unload() {\n  emulate -L zsh\n\n  add-zsh-hook -D precmd _zshz_precmd\n  add-zsh-hook -d chpwd _zshz_chpwd\n\n  local x\n  for x in ${=ZSHZ[FUNCTIONS]}; do\n    (( ${+functions[$x]} )) && unfunction $x\n  done\n\n  unset ZSHZ\n\n  fpath=( \"${(@)fpath:#${0:A:h}}\" )\n\n  (( ${+aliases[${ZSHZ_CMD:-${_Z_CMD:-z}}]} )) &&\n    unalias ${ZSHZ_CMD:-${_Z_CMD:-z}}\n\n  unfunction $0\n}\n";
     Parser::with_dialect(input, ShellDialect::Zsh)
@@ -3356,6 +3434,21 @@ fn test_parse_zsh_midfile_unsetopt_short_loops_rejects_foreach_loop() {
         error,
         Error::Parse { message, .. } if message.contains("foreach loops")
     ));
+}
+
+#[test]
+fn test_parse_zsh_midfile_setopt_noshortloops_keeps_brace_if_enabled() {
+    let source = "setopt noshortloops\nif [[ $profile == ./* || $profile == /* ]] {\n  local localpkg=1\n} elif { ! .zinit-download-file-stdout $URL 0 1 2>/dev/null > $tmpfile } {\n  command rm -f $tmpfile\n}\n";
+    let output = Parser::with_dialect(source, ShellDialect::Zsh)
+        .parse()
+        .unwrap();
+
+    let (compound, _) = expect_compound(&output.file.body[1]);
+    let AstCompoundCommand::If(command) = compound else {
+        panic!("expected if command");
+    };
+    assert!(matches!(command.syntax, IfSyntax::Brace { .. }));
+    assert_eq!(command.elif_branches.len(), 1);
 }
 
 #[test]
