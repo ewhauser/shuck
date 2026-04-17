@@ -260,11 +260,13 @@ jobs:
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/criterion-target
         run: |
+          benchmark_report_dir="$RUNNER_TEMP/benchmark-report"
+          mkdir -p "$benchmark_report_dir"
           python3 "$GITHUB_WORKSPACE/head/scripts/benchmarks/run_criterion.py" \
             --repo-root "$GITHUB_WORKSPACE/base" \
             --save-baseline main \
             --noplot \
-            2>&1 | tee "$RUNNER_TEMP/benchmark-report/base.log"
+            2>&1 | tee "$benchmark_report_dir/base.log"
       - name: "Determine baseline metadata"
         id: baseline-metadata
         if: always()
@@ -294,11 +296,13 @@ jobs:
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/criterion-target
         run: |
+          benchmark_report_dir="$RUNNER_TEMP/benchmark-report"
+          mkdir -p "$benchmark_report_dir"
           python3 "$GITHUB_WORKSPACE/head/scripts/benchmarks/run_criterion.py" \
             --repo-root "$GITHUB_WORKSPACE/head" \
             --baseline main \
             --noplot \
-            2>&1 | tee "$RUNNER_TEMP/benchmark-report/head.log"
+            2>&1 | tee "$benchmark_report_dir/head.log"
       - name: "Build benchmark report"
         id: render-benchmark-report
         if: always()
