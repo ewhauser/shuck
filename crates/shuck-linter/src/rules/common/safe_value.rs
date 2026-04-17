@@ -27,6 +27,7 @@ impl SafeValueQuery {
         match context {
             ExpansionContext::CommandName
             | ExpansionContext::CommandArgument
+            | ExpansionContext::HereString
             | ExpansionContext::DeclarationAssignmentValue => Some(Self::Argv),
             ExpansionContext::RedirectTarget(_) => Some(Self::RedirectTarget),
             ExpansionContext::CasePattern
@@ -63,6 +64,7 @@ pub struct SafeValueIndex<'a> {
     facts: &'a LinterFacts<'a>,
     source: &'a str,
     scalar_bindings: FxHashMap<FactSpan, &'a Word>,
+    loop_bindings: FxHashMap<FactSpan, Box<[&'a Word]>>,
     maybe_uninitialized_refs: FxHashSet<FactSpan>,
     memo: FxHashMap<(FactSpan, SafeValueQuery), bool>,
     visiting: FxHashSet<(FactSpan, SafeValueQuery)>,
@@ -87,6 +89,7 @@ impl<'a> SafeValueIndex<'a> {
             facts,
             source,
             scalar_bindings: facts.scalar_binding_values().clone(),
+            loop_bindings: facts.loop_binding_value_sets().clone(),
             maybe_uninitialized_refs,
             memo: FxHashMap::default(),
             visiting: FxHashSet::default(),
@@ -182,11 +185,8 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn name_is_safe(&mut self, name: &Name, at: Span, query: SafeValueQuery) -> bool {
-        if safe_special_parameter(name) {
+        if safe_special_parameter(name) || safe_numeric_shell_variable(name) {
             return true;
-        }
-        if self.maybe_uninitialized_refs.contains(&FactSpan::new(at)) {
-            return false;
         }
 
         let bindings = self.safe_bindings_for_name(name, at);
@@ -218,6 +218,9 @@ impl<'a> SafeValueIndex<'a> {
 
         let result = if let Some(word) = self.scalar_bindings.get(&binding_key).copied() {
             self.word_is_safe(word, query)
+        } else if let Some(words) = self.loop_bindings.get(&binding_key) {
+            let words = words.iter().copied().collect::<Vec<_>>();
+            !words.is_empty() && words.into_iter().all(|word| self.word_is_safe(word, query))
         } else {
             false
         };
@@ -456,6 +459,10 @@ fn safe_special_parameter(name: &Name) -> bool {
     matches!(name.as_str(), "@" | "#" | "?" | "$" | "!" | "-")
 }
 
+fn safe_numeric_shell_variable(name: &Name) -> bool {
+    matches!(name.as_str(), "PPID")
+}
+
 #[cfg(test)]
 mod tests {
     use shuck_ast::Command;
@@ -474,6 +481,10 @@ mod tests {
 
         assert_eq!(
             SafeValueQuery::from_context(ExpansionContext::CommandArgument),
+            Some(SafeValueQuery::Argv)
+        );
+        assert_eq!(
+            SafeValueQuery::from_context(ExpansionContext::HereString),
             Some(SafeValueQuery::Argv)
         );
         assert_eq!(
