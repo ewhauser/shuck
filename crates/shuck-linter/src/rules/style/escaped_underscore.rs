@@ -45,6 +45,7 @@ fn is_regular_plain_word_escape_target(byte: u8) -> bool {
         byte,
         b' ' | b'\t'
             | b'\n'
+            | b'@'
             | b'#'
             | b'$'
             | b'`'
@@ -160,5 +161,18 @@ ${bindir}/foo\\_bar
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::EscapedUnderscore));
 
         assert_eq!(diagnostics.len(), 1);
+    }
+
+    #[test]
+    fn ignores_escaped_at_signs() {
+        let source = "\
+#!/bin/bash
+echo foo\\@bar
+echo \"$rvm_path\"/gems/*\\@
+cp --no-preserve=mode,ownership -rf \"${GOPATH}\"/pkg/mod/\"${go_module}\"\\@* ./\"${go_module##*/}\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::EscapedUnderscore));
+
+        assert!(diagnostics.is_empty());
     }
 }
