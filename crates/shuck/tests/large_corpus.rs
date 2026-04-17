@@ -2204,6 +2204,7 @@ fn fixture_selected_for_sample(fixture: &LargeCorpusFixture, sample_percent: usi
 
 fn resolve_shell(path: &Path, src: &[u8]) -> String {
     let source = String::from_utf8_lossy(src);
+    let source = source.strip_prefix('\u{feff}').unwrap_or(source.as_ref());
     let trimmed_first_line = source
         .lines()
         .next()
@@ -3024,6 +3025,17 @@ mod tests {
     fn resolve_shell_bash_extension_fallback() {
         assert_eq!(
             resolve_shell(Path::new("example.bash"), b"echo hi\n"),
+            "bash"
+        );
+    }
+
+    #[test]
+    fn resolve_shell_bom_prefixed_bash_shebang_without_extension() {
+        assert_eq!(
+            resolve_shell(
+                Path::new("example"),
+                b"\xEF\xBB\xBF#!/usr/bin/env bash\necho hi\n",
+            ),
             "bash"
         );
     }
