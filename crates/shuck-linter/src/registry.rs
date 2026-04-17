@@ -645,12 +645,6 @@ declare_rules! {
     ("S034", Category::Style, Severity::Warning, ArrayIndexArithmetic),
     ("S035", Category::Style, Severity::Warning, ArithmeticScoreLine),
     ("S045", Category::Style, Severity::Warning, DollarInArithmetic),
-    (
-        "S048",
-        Category::Style,
-        Severity::Warning,
-        DollarInArithmeticContext
-    ),
     ("S023", Category::Style, Severity::Warning, EscapedUnderscore),
     ("S024", Category::Style, Severity::Warning, SingleQuoteBackslash),
     ("S025", Category::Style, Severity::Warning, LiteralBackslash),
@@ -752,7 +746,6 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-161" => Some(Rule::ArithmeticScoreLine),
         "SH-197" => Some(Rule::DollarInArithmetic),
         "SH-198" => Some(Rule::LsPipedToXargs),
-        "SH-202" => Some(Rule::DollarInArithmeticContext),
         "SH-203" => Some(Rule::UnquotedTrRange),
         "SH-082" => Some(Rule::EscapedUnderscore),
         "SH-095" => Some(Rule::EscapedUnderscoreLiteral),
@@ -1090,11 +1083,6 @@ mod tests {
         assert_eq!(code_to_rule("SH-198"), Some(Rule::LsPipedToXargs));
         assert_eq!(code_to_rule("S047"), Some(Rule::LsInSubstitution));
         assert_eq!(code_to_rule("SH-199"), Some(Rule::LsInSubstitution));
-        assert_eq!(code_to_rule("S048"), Some(Rule::DollarInArithmeticContext));
-        assert_eq!(
-            code_to_rule("SH-202"),
-            Some(Rule::DollarInArithmeticContext)
-        );
         assert_eq!(code_to_rule("S055"), Some(Rule::GlobAssignedToVariable));
         assert_eq!(code_to_rule("SH-231"), Some(Rule::GlobAssignedToVariable));
         assert_eq!(code_to_rule("SH-203"), Some(Rule::UnquotedTrRange));

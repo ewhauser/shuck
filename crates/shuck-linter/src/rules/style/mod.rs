@@ -13,7 +13,7 @@ pub mod conditional_assignment_shortcut;
 pub mod default_value_in_colon_assign;
 pub mod deprecated_tempfile_command;
 pub mod dollar_in_arithmetic;
-pub mod dollar_in_arithmetic_context;
+// S048 was collapsed into S045.
 pub mod double_quote_nesting;
 pub mod duplicate_shebang_flag;
 pub mod echo_here_doc;
@@ -142,7 +142,7 @@ mod tests {
     #[test_case(Rule::ArrayIndexArithmetic, Path::new("S034.sh"))]
     #[test_case(Rule::ArithmeticScoreLine, Path::new("S035.sh"))]
     #[test_case(Rule::DollarInArithmetic, Path::new("S045.sh"))]
-    #[test_case(Rule::DollarInArithmeticContext, Path::new("S048.sh"))]
+    // S048 was collapsed into S045.
     #[test_case(Rule::EscapedUnderscore, Path::new("S023.sh"))]
     #[test_case(Rule::EscapedUnderscoreLiteral, Path::new("S027.sh"))]
     #[test_case(Rule::SingleQuoteBackslash, Path::new("S024.sh"))]
