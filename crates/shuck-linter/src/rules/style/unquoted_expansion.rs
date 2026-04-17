@@ -667,6 +667,38 @@ esac
     }
 
     #[test]
+    fn skips_if_else_safe_literal_bindings() {
+        let source = "\
+#!/bin/bash
+if [ \"$1\" = h ]; then
+  humanreadable=-h
+else
+  humanreadable=-m
+fi
+free ${humanreadable}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_if_else_safe_literal_bindings_inside_command_substitutions() {
+        let source = "\
+#!/bin/bash
+if [ \"$1\" = h ]; then
+  humanreadable=-h
+else
+  humanreadable=-m
+fi
+value=\"$(free ${humanreadable} | awk '{print $2}')\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn skips_safe_indirect_and_transformed_bindings() {
         let source = "\
 #!/bin/bash

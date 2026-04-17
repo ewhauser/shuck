@@ -3454,6 +3454,22 @@ printf '%s\\n' \
     }
 
     #[test]
+    fn branch_initialized_names_stay_initialized_inside_command_substitutions() {
+        let source = "\
+if [ \"$1\" = h ]; then
+  humanreadable=-h
+else
+  humanreadable=-m
+fi
+value=\"$(free ${humanreadable} | awk '{print $2}')\"
+";
+        let model = model(source);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_absent(&["humanreadable"], &uninitialized);
+    }
+
+    #[test]
     fn assign_default_parameter_expansion_initializes_later_reads() {
         let source = "\
 printf '%s\\n' \"${config_path:=/tmp/default}\"

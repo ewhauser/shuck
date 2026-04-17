@@ -791,4 +791,60 @@ esac
 
         assert!(safe_values.word_is_safe(&command.args[0], SafeValueQuery::Argv));
     }
+
+    #[test]
+    fn if_else_safe_literal_bindings_stay_safe() {
+        let source = "\
+#!/bin/bash
+if [ \"$1\" = h ]; then
+  humanreadable=-h
+else
+  humanreadable=-m
+fi
+free ${humanreadable}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let Command::Simple(command) = &output.file.body[1].command else {
+            panic!("expected simple command");
+        };
+
+        assert!(safe_values.word_is_safe(&command.args[0], SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn if_else_safe_literal_bindings_stay_safe_inside_command_substitutions() {
+        let source = "\
+#!/bin/bash
+if [ \"$1\" = h ]; then
+  humanreadable=-h
+else
+  humanreadable=-m
+fi
+value=\"$(free ${humanreadable} | awk '{print $2}')\"
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.is_nested_word_command() && fact.span().slice(source) == "${humanreadable}"
+            })
+            .expect("expected nested command argument fact");
+
+        assert!(safe_values.word_is_safe(word_fact.word(), SafeValueQuery::Argv));
+    }
 }

@@ -1220,16 +1220,24 @@ fn compute_initialized_name_states_dense(
                 incoming_maybe.union_with(&entry_maybe);
             }
 
-            let mut incoming_definite = if entry_blocks.contains(&block.id) {
+            let predecessors = cfg.predecessors(block.id);
+            let mut incoming_definite = if let Some(first_predecessor) = predecessors.first() {
+                let mut state = definite_out[first_predecessor.index()].clone();
+                if entry_blocks.contains(&block.id) {
+                    state.union_with(&entry_definite);
+                }
+                state
+            } else if entry_blocks.contains(&block.id) {
                 entry_definite.clone()
-            } else if cfg.predecessors(block.id).is_empty() {
-                DenseBitSet::new(name_count)
             } else {
-                definite_out[cfg.predecessors(block.id)[0].index()].clone()
+                DenseBitSet::new(name_count)
             };
-            let predecessor_offset = usize::from(!entry_blocks.contains(&block.id));
-            for predecessor in cfg.predecessors(block.id).iter().skip(predecessor_offset) {
-                incoming_definite.intersect_with(&definite_out[predecessor.index()]);
+            for predecessor in predecessors.iter().skip(1) {
+                let mut predecessor_state = definite_out[predecessor.index()].clone();
+                if entry_blocks.contains(&block.id) {
+                    predecessor_state.union_with(&entry_definite);
+                }
+                incoming_definite.intersect_with(&predecessor_state);
             }
 
             let mut outgoing_maybe = incoming_maybe.clone();
