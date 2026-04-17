@@ -51,11 +51,11 @@ fn processed_ls_pipeline_spans(checker: &Checker, substitution_span: Span) -> Ve
                 .segments()
                 .windows(2)
                 .enumerate()
-                .filter_map(|(index, pair)| {
-                    (left_segment_is_s047_ls_candidate(checker, pair[0].command_id())
-                        && !matches!(pair[1].static_utility_name(), Some("grep" | "xargs")))
-                    .then(|| pipeline_ls_command_span(checker, pipeline, index))
+                .filter(|(_, pair)| {
+                    left_segment_is_s047_ls_candidate(checker, pair[0].command_id())
+                        && !matches!(pair[1].static_utility_name(), Some("grep" | "xargs"))
                 })
+                .map(|(index, _)| pipeline_ls_command_span(checker, pipeline, index))
         })
         .collect()
 }
