@@ -59,6 +59,7 @@ impl SafeValueQuery {
 
 pub struct SafeValueIndex<'a> {
     semantic: &'a SemanticModel,
+    analysis: &'a SemanticAnalysis<'a>,
     facts: &'a LinterFacts<'a>,
     source: &'a str,
     scalar_bindings: FxHashMap<FactSpan, &'a Word>,
@@ -82,6 +83,7 @@ impl<'a> SafeValueIndex<'a> {
 
         Self {
             semantic,
+            analysis,
             facts,
             source,
             scalar_bindings: facts.scalar_binding_values().clone(),
@@ -187,10 +189,14 @@ impl<'a> SafeValueIndex<'a> {
             return false;
         }
 
-        let Some(binding) = self.semantic.visible_binding(name, at) else {
+        let bindings = self.safe_bindings_for_name(name, at);
+        if bindings.is_empty() {
             return false;
-        };
-        self.binding_is_safe(binding.id, query)
+        }
+
+        bindings
+            .into_iter()
+            .all(|binding_id| self.binding_is_safe(binding_id, query))
     }
 
     fn binding_is_safe(&mut self, binding_id: BindingId, query: SafeValueQuery) -> bool {
@@ -241,15 +247,34 @@ impl<'a> SafeValueIndex<'a> {
             return false;
         }
 
-        let Some(binding) = self.semantic.visible_binding(&reference.name, at) else {
+        let bindings = self.safe_bindings_for_name(&reference.name, at);
+        if bindings.is_empty() {
             return false;
-        };
-        let targets = self.semantic.indirect_targets_for_binding(binding.id);
-        !targets.is_empty()
-            && targets
-                .iter()
-                .copied()
-                .all(|target| self.binding_is_safe(target, query))
+        }
+
+        bindings.into_iter().all(|binding_id| {
+            let targets = self.semantic.indirect_targets_for_binding(binding_id);
+            !targets.is_empty()
+                && targets
+                    .iter()
+                    .copied()
+                    .all(|target| self.binding_is_safe(target, query))
+        })
+    }
+
+    fn safe_bindings_for_name(&self, name: &Name, at: Span) -> Vec<BindingId> {
+        let mut bindings = self.analysis.reaching_bindings_for_name(name, at);
+        if bindings.len() == 1 {
+            let mut expanded = self.analysis.visible_bindings_bypassing(name, bindings[0], at);
+            if !expanded.is_empty() {
+                expanded.push(bindings[0]);
+                expanded.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+                expanded.dedup();
+                bindings = expanded;
+            }
+        }
+
+        bindings
     }
 
     fn transformation_is_safe(
@@ -547,5 +572,83 @@ mod tests {
                 .iter()
                 .all(|word| !safe_values.word_is_safe(word, SafeValueQuery::Quoted))
         );
+    }
+
+    #[test]
+    fn conditional_safe_fallbacks_do_not_hide_unsafe_bindings() {
+        let source = "\
+#!/bin/bash
+foo=$(printf '%s' \"$1\")
+if [ \"$foo\" = \"\" ]; then foo=0; fi
+[ $foo -eq 1 ]
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let Command::Simple(command) = &output.file.body[2].command else {
+            panic!("expected simple test command");
+        };
+
+        assert!(!safe_values.word_is_safe(&command.args[0], SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn unconditional_safe_overwrites_stay_safe() {
+        let source = "\
+#!/bin/bash
+foo=$(printf '%s' \"$1\")
+foo=0
+[ $foo -eq 1 ]
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let Command::Simple(command) = &output.file.body[2].command else {
+            panic!("expected simple test command");
+        };
+
+        assert!(safe_values.word_is_safe(&command.args[0], SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn case_arm_safe_overwrites_stay_safe() {
+        let source = "\
+#!/bin/bash
+foo=$BAR
+case $1 in
+    settings)
+        foo=0
+        [ $foo -eq 1 ]
+        ;;
+esac
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let Command::Compound(shuck_ast::CompoundCommand::Case(case_command)) =
+            &output.file.body[1].command
+        else {
+            panic!("expected case command");
+        };
+        let Command::Simple(command) = &case_command.cases[0].body[1].command else {
+            panic!("expected simple test command");
+        };
+
+        assert!(safe_values.word_is_safe(&command.args[0], SafeValueQuery::Argv));
     }
 }

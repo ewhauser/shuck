@@ -455,6 +455,15 @@ impl SemanticModel {
         None
     }
 
+    #[doc(hidden)]
+    pub fn binding_visible_at(&self, binding_id: BindingId, at: Span) -> bool {
+        let binding = self.binding(binding_id);
+        binding.span.start.offset <= at.start.offset
+            && self
+                .ancestor_scopes(self.scope_at(at.start.offset))
+                .any(|scope| scope == binding.scope)
+    }
+
     pub fn defined_anywhere(&self, name: &Name) -> bool {
         self.binding_index.contains_key(name)
     }
@@ -887,6 +896,81 @@ impl<'model> SemanticAnalysis<'model> {
             .as_slice()
     }
 
+    fn reference_for_name_at(&self, name: &Name, at: Span) -> Option<&Reference> {
+        self.model.references.iter().find(|reference| {
+            reference.name == *name
+                && reference.span.start.offset >= at.start.offset
+                && reference.span.end.offset <= at.end.offset
+                && !matches!(
+                    reference.kind,
+                    ReferenceKind::DeclarationName | ReferenceKind::ImplicitRead
+                )
+        })
+    }
+
+    pub fn reaching_bindings_for_name(&self, name: &Name, at: Span) -> Vec<BindingId> {
+        let cfg = self.cfg();
+        let context = self.model.dataflow_context(cfg);
+        let exact = self.exact_variable_dataflow();
+
+        if let Some(reference) = self.reference_for_name_at(name, at) {
+            let reaching = exact.reaching_bindings_for_reference(&context, reference);
+            if !reaching.is_empty() {
+                return reaching;
+            }
+        }
+
+        self.model
+            .visible_binding(name, at)
+            .map(|binding| vec![binding.id])
+            .unwrap_or_default()
+    }
+
+    #[doc(hidden)]
+    pub fn visible_bindings_bypassing(
+        &self,
+        name: &Name,
+        binding_id: BindingId,
+        at: Span,
+    ) -> Vec<BindingId> {
+        let cfg = self.cfg();
+        let exact = self.exact_variable_dataflow();
+        let Some(reference) = self.reference_for_name_at(name, at) else {
+            return Vec::new();
+        };
+        let Some(reference_block) = exact.reference_block(reference) else {
+            return Vec::new();
+        };
+        let Some(binding_block) = exact.binding_block(binding_id) else {
+            return Vec::new();
+        };
+        if reference_block == binding_block {
+            return Vec::new();
+        }
+
+        let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
+        if unreachable.contains(&reference_block) || unreachable.contains(&binding_block) {
+            return Vec::new();
+        }
+
+        self.model
+            .bindings_for(name)
+            .iter()
+            .copied()
+            .filter(|other_binding| *other_binding != binding_id)
+            .filter(|other_binding| self.model.binding_visible_at(*other_binding, at))
+            .filter_map(|other_binding| {
+                exact
+                    .binding_block(other_binding)
+                    .filter(|other_block| !unreachable.contains(other_block))
+                    .filter(|other_block| {
+                        block_reaches_without(cfg, *other_block, reference_block, binding_block)
+                    })
+                    .map(|_| other_binding)
+            })
+            .collect()
+    }
+
     pub fn dead_code(&self) -> &[DeadCode] {
         self.dead_code
             .get_or_init(|| dataflow::analyze_dead_code(self.cfg()))
@@ -1302,6 +1386,34 @@ fn blocks_have_path(
             .copied()
             .any(|end| reachability.reaches(start, end))
     })
+}
+
+fn block_reaches_without(
+    cfg: &ControlFlowGraph,
+    start: BlockId,
+    end: BlockId,
+    avoided: BlockId,
+) -> bool {
+    if start == avoided {
+        return false;
+    }
+
+    let mut visited = FxHashSet::default();
+    let mut stack = vec![start];
+
+    while let Some(block) = stack.pop() {
+        if block == avoided || !visited.insert(block) {
+            continue;
+        }
+        if block == end {
+            return true;
+        }
+        for (successor, _) in cfg.successors(block) {
+            stack.push(*successor);
+        }
+    }
+
+    false
 }
 
 struct ReachabilityCache<'a> {
