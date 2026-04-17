@@ -4778,7 +4778,7 @@ fn shebang_duplicate_flag<'a>(shebang_words: &[&'a str]) -> Option<&'a str> {
 fn shebang_enables_errexit(shebang_words: &[&str]) -> bool {
     let mut words = shebang_words.iter().copied().peekable();
     while let Some(word) = words.next() {
-        if word.starts_with('-') && word != "-" && word != "--" && word.contains('e') {
+        if shebang_short_option_cluster_enables_errexit(word) {
             return true;
         }
         if word == "-o" && matches!(words.peek(), Some(&"errexit")) {
@@ -4790,6 +4790,18 @@ fn shebang_enables_errexit(shebang_words: &[&str]) -> bool {
     }
 
     false
+}
+
+fn shebang_short_option_cluster_enables_errexit(word: &str) -> bool {
+    let Some(flags) = word.strip_prefix('-') else {
+        return false;
+    };
+
+    if word == "-" || word == "--" || word.starts_with("--") {
+        return false;
+    }
+
+    flags.chars().all(|char| char.is_ascii_alphabetic()) && flags.contains('e')
 }
 
 fn nth_source_line(source: &str, index: usize) -> Option<(usize, &str)> {
@@ -14773,6 +14785,18 @@ find . -execdir sh -ec 'mv {} \"$target\"' \\;
                 ("popd", false, vec![])
             ]
         );
+    }
+
+    #[test]
+    fn does_not_treat_long_shebang_options_as_errexit() {
+        let source = "#!/bin/bash --noprofile\ncd /tmp\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(!facts.errexit_enabled_anywhere());
     }
 
     #[test]

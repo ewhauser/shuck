@@ -318,6 +318,21 @@ cd /tmp
     }
 
     #[test]
+    fn long_shebang_options_do_not_suppress_reports() {
+        let source = "\
+#!/bin/bash --noprofile
+cd /tmp
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UncheckedDirectoryChange),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "cd /tmp");
+    }
+
+    #[test]
     fn ignores_errexit_shebang_after_leading_blank_lines() {
         let source = "\n#!/bin/bash -eu\ncd /tmp\n";
         let diagnostics = test_snippet(
