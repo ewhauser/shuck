@@ -12,6 +12,7 @@ pub(super) fn build_presence_tested_names(
 ) -> PresenceTestedNames {
     let mut global_names = FxHashSet::default();
     let mut nested_command_spans_by_name = FxHashMap::<Name, Vec<Span>>::default();
+    let outermost_nested_scopes = build_outermost_nested_presence_scopes(commands);
 
     for command in commands {
         let mut command_names = FxHashSet::default();
@@ -32,7 +33,8 @@ pub(super) fn build_presence_tested_names(
         }
 
         if command.is_nested_word_command() {
-            let span = outermost_nested_presence_scope_span(commands, command);
+            let span =
+                outermost_nested_scopes[command.id().index()].unwrap_or_else(|| command.span());
             for name in command_names {
                 nested_command_spans_by_name
                     .entry(name)
@@ -55,23 +57,44 @@ pub(super) fn build_presence_tested_names(
     }
 }
 
-fn outermost_nested_presence_scope_span(
-    commands: &[CommandFact<'_>],
-    command: &CommandFact<'_>,
-) -> Span {
-    commands
+fn build_outermost_nested_presence_scopes(commands: &[CommandFact<'_>]) -> Vec<Option<Span>> {
+    let mut ordered_commands = commands
         .iter()
-        .filter(|candidate| {
-            candidate.is_nested_word_command() && contains_span(candidate.span(), command.span())
+        .map(|command| {
+            (
+                command.span(),
+                command.id(),
+                command.is_nested_word_command(),
+            )
         })
-        .map(CommandFact::span)
-        .min_by(|left, right| {
-            left.start
-                .offset
-                .cmp(&right.start.offset)
-                .then_with(|| right.end.offset.cmp(&left.end.offset))
-        })
-        .unwrap_or_else(|| command.span())
+        .collect::<Vec<_>>();
+    ordered_commands.sort_unstable_by(|left, right| {
+        compare_command_offset_entries((left.0, left.1), (right.0, right.1))
+    });
+
+    let mut outermost_scopes = vec![None; commands.len()];
+    let mut active_nested_scopes = Vec::<Span>::new();
+    for (span, id, is_nested) in ordered_commands {
+        pop_finished_nested_presence_scopes(&mut active_nested_scopes, span.start.offset);
+        outermost_scopes[id.index()] = active_nested_scopes
+            .first()
+            .copied()
+            .or_else(|| is_nested.then_some(span));
+        if is_nested {
+            active_nested_scopes.push(span);
+        }
+    }
+
+    outermost_scopes
+}
+
+fn pop_finished_nested_presence_scopes(active_nested_scopes: &mut Vec<Span>, offset: usize) {
+    while active_nested_scopes
+        .last()
+        .is_some_and(|span| span.end.offset <= offset)
+    {
+        active_nested_scopes.pop();
+    }
 }
 
 fn collect_presence_tested_names_from_simple_test_operands(
