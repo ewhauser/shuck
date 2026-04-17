@@ -82,9 +82,11 @@ fn report_word_expansions(
 
     let scalar_spans = fact.scalar_expansion_spans();
     let array_spans = fact.unquoted_array_expansion_spans();
-    let assign_default_spans = colon_command_argument
-        .then(|| word_unquoted_assign_default_spans(fact.word()))
-        .unwrap_or_default();
+    let assign_default_spans = if colon_command_argument {
+        word_unquoted_assign_default_spans(fact.word())
+    } else {
+        Default::default()
+    };
     let star_spans = word_unquoted_star_parameter_spans(fact.word(), array_spans);
     if scalar_spans.is_empty() && star_spans.is_empty() {
         return;

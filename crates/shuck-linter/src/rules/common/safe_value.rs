@@ -219,7 +219,7 @@ impl<'a> SafeValueIndex<'a> {
         let result = if let Some(word) = self.scalar_bindings.get(&binding_key).copied() {
             self.word_is_safe(word, query)
         } else if let Some(words) = self.loop_bindings.get(&binding_key) {
-            let words = words.iter().copied().collect::<Vec<_>>();
+            let words = words.to_vec();
             !words.is_empty() && words.into_iter().all(|word| self.word_is_safe(word, query))
         } else {
             false
