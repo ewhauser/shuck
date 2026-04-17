@@ -291,6 +291,7 @@ jobs:
         env:
           CARGO_TARGET_DIR: ${{ runner.temp }}/criterion-target
         run: |
+          mkdir -p "$RUNNER_TEMP/benchmark-report"
           python3 "$GITHUB_WORKSPACE/head/scripts/benchmarks/run_criterion.py" \
             --repo-root "$GITHUB_WORKSPACE/head" \
             --baseline main \

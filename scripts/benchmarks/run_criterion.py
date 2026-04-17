@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
-import tomllib
 from pathlib import Path
 
 
@@ -46,15 +46,36 @@ def parse_args() -> argparse.Namespace:
 
 
 def load_bench_names(repo_root: Path) -> list[str]:
-    manifest_path = repo_root / "crates" / "shuck-benchmark" / "Cargo.toml"
-    data = tomllib.loads(manifest_path.read_text())
-    benches = [
-        bench["name"]
-        for bench in data.get("bench", [])
-        if isinstance(bench, dict) and isinstance(bench.get("name"), str)
-    ]
+    metadata = subprocess.run(
+        [
+            "cargo",
+            "metadata",
+            "--manifest-path",
+            str(repo_root / "Cargo.toml"),
+            "--format-version",
+            "1",
+            "--no-deps",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=repo_root,
+    )
+    payload = json.loads(metadata.stdout)
+    benches: list[str] = []
+
+    for package in payload.get("packages", []):
+        if package.get("name") != "shuck-benchmark":
+            continue
+        benches = [
+            target["name"]
+            for target in package.get("targets", [])
+            if "bench" in target.get("kind", []) and isinstance(target.get("name"), str)
+        ]
+        break
+
     if not benches:
-        raise SystemExit(f"no Criterion benches found in {manifest_path}")
+        raise SystemExit("no Criterion benches found in cargo metadata for shuck-benchmark")
     return benches
 
 
