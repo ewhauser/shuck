@@ -15,6 +15,13 @@ impl Violation for DoubleQuoteNesting {
     }
 }
 
+fn span_is_strictly_inside(span: &shuck_ast::Span, host: &shuck_ast::Span) -> bool {
+    host.start.offset <= span.start.offset
+        && span.end.offset <= host.end.offset
+        && span.start.offset != host.start.offset
+        && span.end.offset != host.end.offset
+}
+
 pub fn double_quote_nesting(checker: &mut Checker) {
     let source = checker.source();
     let spans = checker
@@ -35,7 +42,6 @@ pub fn double_quote_nesting(checker: &mut Checker) {
                 .facts()
                 .expansion_word_facts(ExpansionContext::DeclarationAssignmentValue),
         )
-        .filter(|fact| !fact.is_nested_word_command())
         .flat_map(|fact| {
             let mut candidate_spans = fact
                 .unquoted_scalar_expansion_spans()
@@ -45,9 +51,16 @@ pub fn double_quote_nesting(checker: &mut Checker) {
                 .collect::<Vec<_>>();
             candidate_spans.extend(fact.unquoted_command_substitution_spans().iter().copied());
 
+            let host_substitution_spans = fact.command_substitution_spans();
+
             word_unquoted_scalar_between_double_quoted_segments_spans(fact.word(), &candidate_spans)
                 .into_iter()
                 .chain(word_nested_dynamic_double_quote_spans(fact.word()))
+                .filter(|span| {
+                    !host_substitution_spans
+                        .iter()
+                        .any(|host| span_is_strictly_inside(span, host))
+                })
         })
         .collect::<Vec<_>>();
 
@@ -105,5 +118,41 @@ case \"$line\" in \"status-filtered \"$status\"*) : ;; esac
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DoubleQuoteNesting));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_reopened_quotes_inside_unquoted_command_substitution_bodies() {
+        let source = "\
+#!/bin/bash
+now=$(grep -aE '^5' \"$LISTFILE\" | sed -n \"\"$rule_link\"p\" | awk '{print $2}')
+server=$(grep -aE '^3|^4' \"$LISTFILE\" | sed -n \"\"$server_link\"p\" | awk '{print $3}')
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DoubleQuoteNesting));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$rule_link", "$server_link"]
+        );
+    }
+
+    #[test]
+    fn ignores_nested_command_arguments_that_are_fully_quoted_inside_quoted_substitutions() {
+        let source = "\
+#!/bin/bash
+files+=(\"$(basename \"${file%.desktop}\")\")
+candidates+=(\"$(echo \"$line\" | cut -d' ' -f2-)\")
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DoubleQuoteNesting));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            Vec::<&str>::new()
+        );
     }
 }
