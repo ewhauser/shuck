@@ -55,8 +55,12 @@ fn matches_and_then_or_chain(list: &ListFact<'_>) -> bool {
 
 fn list_runs_as_if_or_elif_condition(checker: &Checker<'_>, list: &ListFact<'_>) -> bool {
     list.segments().iter().all(|segment| {
-        checker.facts().is_if_condition_command(segment.command_id())
-            || checker.facts().is_elif_condition_command(segment.command_id())
+        checker
+            .facts()
+            .is_if_condition_command(segment.command_id())
+            || checker
+                .facts()
+                .is_elif_condition_command(segment.command_id())
     })
 }
 
