@@ -128,7 +128,7 @@ jobs:
     name: "benchmark main baseline"
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -138,21 +138,27 @@ jobs:
           save-if: true
       - name: "Install Rust toolchain"
         run: rustup show
+      - name: "Install macro benchmark dependencies"
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y hyperfine shellcheck
       - name: "Build benchmark baseline artifact"
         env:
-          CARGO_TARGET_DIR: ${{ runner.temp }}/criterion-target
+          CARGO_TARGET_DIR: ${{ runner.temp }}/macro-benchmark/target
+          SHUCK_BENCHMARK_OUTPUT_DIR: ${{ runner.temp }}/macro-benchmark/baseline
         run: |
-          python3 scripts/benchmarks/run_criterion.py --repo-root "$GITHUB_WORKSPACE" --save-baseline main --noplot
+          ./scripts/benchmarks/setup.sh hyperfine shellcheck
+          ./scripts/benchmarks/run.sh
       - name: "Pack benchmark baseline artifact"
         run: |
           mkdir -p "$RUNNER_TEMP/benchmark-baseline-artifact"
-          tar -C "$RUNNER_TEMP/criterion-target" -cf "$RUNNER_TEMP/benchmark-baseline-artifact/criterion-main-baseline.tar" criterion
+          tar -C "$RUNNER_TEMP/macro-benchmark" -cf "$RUNNER_TEMP/benchmark-baseline-artifact/macro-cli-main-baseline.tar" baseline
       - name: "Upload benchmark baseline artifact"
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: criterion-main-baseline
+          name: macro-cli-main-baseline
           if-no-files-found: error
-          path: ${{ runner.temp }}/benchmark-baseline-artifact/criterion-main-baseline.tar
+          path: ${{ runner.temp }}/benchmark-baseline-artifact/macro-cli-main-baseline.tar
           retention-days: 14
 
   benchmark-report:
@@ -160,7 +166,7 @@ jobs:
     if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     continue-on-error: true
-    timeout-minutes: 45
+    timeout-minutes: 25
     permissions:
       actions: read
       contents: read
@@ -175,17 +181,22 @@ jobs:
       - name: "Install Rust toolchain"
         working-directory: head
         run: rustup show
+      - name: "Install macro benchmark dependencies"
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y hyperfine shellcheck
       - name: "Prepare benchmark report directories"
         run: |
           mkdir -p "$RUNNER_TEMP/benchmark-report"
           mkdir -p "$RUNNER_TEMP/benchmark-baseline-artifact"
+          mkdir -p "$RUNNER_TEMP/macro-benchmark"
       - name: "Resolve latest main baseline artifact"
         id: resolve-main-baseline
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const artifactName = "criterion-main-baseline";
+            const artifactName = "macro-cli-main-baseline";
             const { owner, repo } = context.repo;
             const runsResponse = await github.request(
               "GET /repos/{owner}/{repo}/actions/workflows/{workflow_id}/runs",
@@ -236,7 +247,7 @@ jobs:
         if: ${{ steps.resolve-main-baseline.outputs.run-id != '' }}
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: criterion-main-baseline
+          name: macro-cli-main-baseline
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: ${{ github.repository }}
           run-id: ${{ steps.resolve-main-baseline.outputs.run-id }}
@@ -245,8 +256,7 @@ jobs:
         id: extract-main-baseline
         if: ${{ always() && steps.download-main-baseline.outcome == 'success' }}
         run: |
-          mkdir -p "$RUNNER_TEMP/criterion-target"
-          tar -xf "$RUNNER_TEMP/benchmark-baseline-artifact/criterion-main-baseline.tar" -C "$RUNNER_TEMP/criterion-target"
+          tar -xf "$RUNNER_TEMP/benchmark-baseline-artifact/macro-cli-main-baseline.tar" -C "$RUNNER_TEMP/macro-benchmark"
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         if: ${{ always() && steps.extract-main-baseline.outcome != 'success' }}
         with:
@@ -257,15 +267,16 @@ jobs:
         id: benchmark-baseline-fallback
         if: ${{ always() && steps.extract-main-baseline.outcome != 'success' }}
         continue-on-error: true
-        env:
-          CARGO_TARGET_DIR: ${{ runner.temp }}/criterion-target
         run: |
+          benchmark_root="$RUNNER_TEMP/macro-benchmark"
           benchmark_report_dir="$RUNNER_TEMP/benchmark-report"
-          mkdir -p "$benchmark_report_dir"
-          python3 "$GITHUB_WORKSPACE/head/scripts/benchmarks/run_criterion.py" \
-            --repo-root "$GITHUB_WORKSPACE/base" \
-            --save-baseline main \
-            --noplot \
+          rm -rf "$benchmark_root/baseline"
+          mkdir -p "$benchmark_root/baseline" "$benchmark_report_dir"
+          export CARGO_TARGET_DIR="$benchmark_root/target"
+          export SHUCK_BENCHMARK_OUTPUT_DIR="$benchmark_root/baseline"
+          export SHUCK_BENCHMARK_REPO_ROOT="$GITHUB_WORKSPACE/base"
+          "$GITHUB_WORKSPACE/head/scripts/benchmarks/setup.sh" hyperfine shellcheck
+          "$GITHUB_WORKSPACE/head/scripts/benchmarks/run.sh" \
             2>&1 | tee "$benchmark_report_dir/base.log"
       - name: "Determine baseline metadata"
         id: baseline-metadata
@@ -293,15 +304,16 @@ jobs:
         id: benchmark-compare
         if: ${{ always() && (steps.extract-main-baseline.outcome == 'success' || steps.benchmark-baseline-fallback.outcome == 'success') }}
         continue-on-error: true
-        env:
-          CARGO_TARGET_DIR: ${{ runner.temp }}/criterion-target
         run: |
+          benchmark_root="$RUNNER_TEMP/macro-benchmark"
           benchmark_report_dir="$RUNNER_TEMP/benchmark-report"
-          mkdir -p "$benchmark_report_dir"
-          python3 "$GITHUB_WORKSPACE/head/scripts/benchmarks/run_criterion.py" \
-            --repo-root "$GITHUB_WORKSPACE/head" \
-            --baseline main \
-            --noplot \
+          rm -rf "$benchmark_root/head"
+          mkdir -p "$benchmark_root/head" "$benchmark_report_dir"
+          export CARGO_TARGET_DIR="$benchmark_root/target"
+          export SHUCK_BENCHMARK_OUTPUT_DIR="$benchmark_root/head"
+          export SHUCK_BENCHMARK_REPO_ROOT="$GITHUB_WORKSPACE/head"
+          "$GITHUB_WORKSPACE/head/scripts/benchmarks/setup.sh" hyperfine shellcheck
+          "$GITHUB_WORKSPACE/head/scripts/benchmarks/run.sh" \
             2>&1 | tee "$benchmark_report_dir/head.log"
       - name: "Build benchmark report"
         id: render-benchmark-report
@@ -313,15 +325,14 @@ jobs:
           BENCHMARK_BASELINE_SOURCE: ${{ steps.baseline-metadata.outputs.source }}
           BENCHMARK_COMPARE_OUTCOME: ${{ steps.benchmark-compare.outcome }}
           BENCHMARK_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          CARGO_TARGET_DIR: ${{ runner.temp }}/criterion-target
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          python3 scripts/benchmarks/criterion_pr_report.py \
-            --criterion-root "$CARGO_TARGET_DIR/criterion" \
+          python3 scripts/benchmarks/macro_pr_report.py \
+            --baseline-dir "$RUNNER_TEMP/macro-benchmark/baseline" \
+            --head-dir "$RUNNER_TEMP/macro-benchmark/head" \
             --output "$RUNNER_TEMP/benchmark-report/comment.md" \
             --base-sha "$BASELINE_SHA" \
             --head-sha "$HEAD_SHA" \
-            --baseline-name main \
             --baseline-source "$BENCHMARK_BASELINE_SOURCE" \
             --baseline-outcome "${BENCHMARK_BASELINE_OUTCOME:-skipped}" \
             --compare-outcome "${BENCHMARK_COMPARE_OUTCOME:-skipped}" \
@@ -335,7 +346,8 @@ jobs:
           if-no-files-found: ignore
           path: |
             ${{ runner.temp }}/benchmark-report
-            ${{ runner.temp }}/criterion-target/criterion
+            ${{ runner.temp }}/macro-benchmark/baseline
+            ${{ runner.temp }}/macro-benchmark/head
       - name: "Post PR benchmark comment"
         if: ${{ always() && steps.render-benchmark-report.outcome == 'success' && github.event.pull_request.head.repo.full_name == github.repository }}
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
