@@ -1,6 +1,8 @@
+use rustc_hash::FxHashSet;
+
 use crate::{
     Checker, ExpansionContext, Rule, SafeValueIndex, SafeValueQuery, ShellDialect, Violation,
-    WordFact, word_unquoted_star_parameter_spans,
+    WordFact, word_unquoted_assign_default_spans, word_unquoted_star_parameter_spans,
 };
 
 pub struct UnquotedExpansion;
@@ -17,6 +19,13 @@ impl Violation for UnquotedExpansion {
 
 pub fn unquoted_expansion(checker: &mut Checker) {
     let source = checker.source();
+    let colon_command_ids = checker
+        .facts()
+        .commands()
+        .iter()
+        .filter(|fact| fact.effective_name_is(":"))
+        .map(|fact| fact.id())
+        .collect::<FxHashSet<_>>();
     let mut safe_values = SafeValueIndex::build(
         checker.semantic(),
         checker.semantic_analysis(),
@@ -33,7 +42,13 @@ pub fn unquoted_expansion(checker: &mut Checker) {
             continue;
         }
 
-        report_word_expansions(&mut spans, &mut safe_values, fact, context);
+        report_word_expansions(
+            &mut spans,
+            &mut safe_values,
+            fact,
+            context,
+            colon_command_ids.contains(&fact.command_id()),
+        );
     }
 
     drop(safe_values);
@@ -47,6 +62,7 @@ fn should_check_context(context: ExpansionContext, shell: ShellDialect) -> bool 
     match context {
         ExpansionContext::CommandName
         | ExpansionContext::CommandArgument
+        | ExpansionContext::HereString
         | ExpansionContext::RedirectTarget(_) => true,
         ExpansionContext::DeclarationAssignmentValue => shell != ShellDialect::Bash,
         _ => false,
@@ -58,6 +74,7 @@ fn report_word_expansions(
     safe_values: &mut SafeValueIndex<'_>,
     fact: &WordFact<'_>,
     context: ExpansionContext,
+    in_colon_command: bool,
 ) {
     if !fact.analysis().hazards.field_splitting && !fact.analysis().hazards.pathname_matching {
         return;
@@ -65,11 +82,19 @@ fn report_word_expansions(
 
     let scalar_spans = fact.scalar_expansion_spans();
     let array_spans = fact.unquoted_array_expansion_spans();
+    let assign_default_spans = if in_colon_command && context == ExpansionContext::CommandArgument {
+        word_unquoted_assign_default_spans(fact.word())
+    } else {
+        Default::default()
+    };
     let star_spans = word_unquoted_star_parameter_spans(fact.word(), array_spans);
     if scalar_spans.is_empty() && star_spans.is_empty() {
         return;
     }
-    if context == ExpansionContext::CommandName && !fact.has_literal_affixes() {
+    if context == ExpansionContext::CommandName
+        && !fact.has_literal_affixes()
+        && fact.word().parts.len() == 1
+    {
         return;
     }
     let query = SafeValueQuery::from_context(context)
@@ -78,6 +103,9 @@ fn report_word_expansions(
     for (part, part_span) in fact.word().parts_with_spans() {
         let report_unquoted_star = star_spans.contains(&part_span);
         if !scalar_spans.contains(&part_span) && !report_unquoted_star {
+            continue;
+        }
+        if assign_default_spans.contains(&part_span) {
             continue;
         }
         if safe_values.part_is_safe(part, part_span, query) {
@@ -158,7 +186,7 @@ printf '%s\\n' prefix\"$HOME\"/$suffix
     }
 
     #[test]
-    fn skips_for_lists_but_still_reports_redirect_targets() {
+    fn skips_for_lists_but_reports_here_strings_and_redirect_targets() {
         let source = "\
 #!/bin/bash
 for item in $first \"$second\"; do :; done
@@ -171,7 +199,7 @@ cat <<< $here >$out
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$out"]
+            vec!["$here", "$out"]
         );
     }
 
@@ -239,17 +267,59 @@ printf '%s\\n' ${name@U}
     }
 
     #[test]
-    fn skips_plain_expansion_command_names() {
+    fn skips_colon_assign_default_expansions_but_keeps_regular_argument_cases() {
+        let source = "\
+#!/bin/bash
+: ${x:=fallback} $other
+printf '%s\\n' ${z:=fallback}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.slice(source)))
+                .collect::<Vec<_>>(),
+            vec![(2, "$other"), (3, "${z:=fallback}")]
+        );
+    }
+
+    #[test]
+    fn keeps_colon_assign_default_reports_for_here_strings_and_redirect_targets() {
+        let source = "\
+#!/bin/bash
+: <<< ${x:=fallback} >${y:=out}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${x:=fallback}", "${y:=out}"]
+        );
+    }
+
+    #[test]
+    fn skips_plain_expansion_command_names_but_reports_composite_command_words() {
         let source = "\
 #!/bin/bash
 $CC -c file.c
 if $TERMUX_ON_DEVICE_BUILD; then
   :
 fi
+${CC}${FLAGS} file.c
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 
-        assert!(diagnostics.is_empty());
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${CC}", "${FLAGS}"]
+        );
     }
 
     #[test]
@@ -406,6 +476,88 @@ printf '%s\\n' $n $s $glob $split $copy $alias
     }
 
     #[test]
+    fn skips_safe_literal_bindings_inside_nested_command_substitutions() {
+        let source = "\
+#!/bin/bash
+URL=https://example.com/file.tgz
+FILE=$(basename $URL)
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn skips_safe_numeric_shell_variables() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' $(ps -o comm= -p $PPID)
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_reassigned_ppid_in_sh_mode() {
+        let source = "\
+#!/bin/sh
+PPID='a b'
+printf '%s\\n' $PPID
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/pkg.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedExpansion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$PPID"]
+        );
+    }
+
+    #[test]
+    fn skips_safe_here_string_operands() {
+        let source = "\
+#!/bin/bash
+URL=https://example.com/file.tgz
+cat <<< $URL
+cat <<< $PPID
+v='a b'
+cat <<< $v
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$v"]
+        );
+    }
+
+    #[test]
+    fn skips_safe_literal_loop_variables() {
+        let source = "\
+#!/bin/bash
+for v in one two; do
+  unset $v
+done
+for i in 16 32 64; do
+  cmd ${i}x${i}! \"$i\"
+done
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn skips_bindings_derived_from_arithmetic_values() {
         let source = "\
 #!/bin/bash
@@ -429,6 +581,26 @@ if [ \"$foo\" = \"\" ]; then
   foo=0
 fi
 if [ $foo -eq 1 ]; then :; fi
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$foo"]
+        );
+    }
+
+    #[test]
+    fn reports_conditionally_initialized_bindings_with_unknown_fallbacks() {
+        let source = "\
+#!/bin/bash
+if [ \"$1\" = yes ]; then
+  foo=0
+fi
+printf '%s\\n' $foo
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 

@@ -2257,6 +2257,7 @@ pub struct LinterFacts<'a> {
     if_condition_command_ids: FxHashSet<CommandId>,
     elif_condition_command_ids: FxHashSet<CommandId>,
     scalar_bindings: FxHashMap<FactSpan, &'a Word>,
+    loop_bindings: FxHashMap<FactSpan, Box<[&'a Word]>>,
     broken_assoc_key_spans: Vec<Span>,
     comma_array_assignment_spans: Vec<Span>,
     presence_tested_names: FxHashSet<Name>,
@@ -2420,6 +2421,16 @@ impl<'a> LinterFacts<'a> {
 
     pub(crate) fn scalar_binding_values(&self) -> &FxHashMap<FactSpan, &'a Word> {
         &self.scalar_bindings
+    }
+
+    pub fn loop_binding_values(&self, span: Span) -> Option<&[&'a Word]> {
+        self.loop_bindings
+            .get(&FactSpan::new(span))
+            .map(Box::as_ref)
+    }
+
+    pub(crate) fn loop_binding_value_sets(&self) -> &FxHashMap<FactSpan, Box<[&'a Word]>> {
+        &self.loop_bindings
     }
 
     pub fn broken_assoc_key_spans(&self) -> &[Span] {
@@ -2815,6 +2826,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut if_condition_command_ids = FxHashSet::default();
         let mut elif_condition_command_ids = FxHashSet::default();
         let mut scalar_bindings = FxHashMap::default();
+        let mut loop_bindings = FxHashMap::default();
         let mut broken_assoc_key_spans = Vec::new();
         let mut comma_array_assignment_spans = Vec::new();
         let mut words = Vec::new();
@@ -2858,7 +2870,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 elif_condition_command_ids.insert(id);
             }
 
-            collect_scalar_bindings(visit.command, &mut scalar_bindings);
+            collect_scalar_bindings(visit.command, &mut scalar_bindings, &mut loop_bindings);
             collect_broken_assoc_key_spans(visit.command, self.source, &mut broken_assoc_key_spans);
             collect_comma_array_assignment_spans(
                 visit.command,
@@ -3186,6 +3198,7 @@ impl<'a> LinterFactsBuilder<'a> {
             if_condition_command_ids,
             elif_condition_command_ids,
             scalar_bindings,
+            loop_bindings,
             broken_assoc_key_spans,
             comma_array_assignment_spans,
             presence_tested_names,
@@ -12651,6 +12664,7 @@ fn trap_action_word<'a>(command: &'a Command, source: &str) -> Option<&'a Word> 
 fn collect_scalar_bindings<'a>(
     command: &'a Command,
     scalar_bindings: &mut FxHashMap<FactSpan, &'a Word>,
+    loop_bindings: &mut FxHashMap<FactSpan, Box<[&'a Word]>>,
 ) {
     for assignment in query::command_assignments(command) {
         let AssignmentValue::Scalar(word) = &assignment.value else {
@@ -12667,6 +12681,27 @@ fn collect_scalar_bindings<'a>(
             continue;
         };
         scalar_bindings.insert(FactSpan::new(assignment.target.name_span), word);
+    }
+
+    match command {
+        Command::Compound(CompoundCommand::For(command)) => {
+            let Some(words) = &command.words else {
+                return;
+            };
+            let values = words.iter().collect::<Vec<_>>().into_boxed_slice();
+            for target in &command.targets {
+                if target.name.is_some() {
+                    loop_bindings.insert(FactSpan::new(target.span), values.clone());
+                }
+            }
+        }
+        Command::Compound(CompoundCommand::Foreach(command)) => {
+            loop_bindings.insert(
+                FactSpan::new(command.variable_span),
+                command.words.iter().collect::<Vec<_>>().into_boxed_slice(),
+            );
+        }
+        _ => {}
     }
 }
 
@@ -13467,6 +13502,33 @@ done
                 .scalar_binding_value(second_binding_span)
                 .map(|word| word.span.slice(source)),
             Some("2")
+        );
+    }
+
+    #[test]
+    fn indexes_loop_bindings_from_for_words() {
+        let source = "#!/bin/bash\nfor i in 16 32 64; do printf '%s\\n' \"$i\"; done\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let loop_binding_span = match &output.file.body[0].command {
+            shuck_ast::Command::Compound(shuck_ast::CompoundCommand::For(command)) => {
+                command.targets[0].span
+            }
+            _ => panic!("expected for command"),
+        };
+
+        assert_eq!(
+            facts
+                .loop_binding_values(loop_binding_span)
+                .expect("expected loop binding values")
+                .iter()
+                .map(|word| word.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["16", "32", "64"]
         );
     }
 
