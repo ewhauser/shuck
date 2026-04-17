@@ -166,6 +166,7 @@ fn collect_or_update_substitution_facts_from_occurrences<'a>(
             body_contains_ls: body_facts.body_contains_ls,
             body_contains_echo: body_facts.body_contains_echo,
             body_contains_grep: body_facts.body_contains_grep,
+            body_has_multiple_statements: body_facts.body_has_multiple_statements,
             bash_file_slurp: body_facts.bash_file_slurp,
             host_word_span: host_span,
             host_kind,
@@ -333,6 +334,7 @@ struct SubstitutionBodyFacts {
     body_contains_ls: bool,
     body_contains_echo: bool,
     body_contains_grep: bool,
+    body_has_multiple_statements: bool,
     bash_file_slurp: bool,
 }
 
@@ -374,6 +376,7 @@ fn classify_substitution_body<'a>(
         body_contains_ls: substitution_body_contains_ls(body, commands, command_ids_by_span),
         body_contains_echo: substitution_body_contains_echo(body, source),
         body_contains_grep: substitution_body_contains_grep(body, source),
+        body_has_multiple_statements: body.stmts.len() > 1,
         bash_file_slurp: matches!(visits.as_slice(), [visit] if is_bash_file_slurp_command(visit.command, visit.redirects, source)),
     }
 }

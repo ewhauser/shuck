@@ -898,6 +898,7 @@ pub struct SubstitutionFact {
     body_contains_ls: bool,
     body_contains_echo: bool,
     body_contains_grep: bool,
+    body_has_multiple_statements: bool,
     bash_file_slurp: bool,
     host_word_span: Span,
     host_kind: SubstitutionHostKind,
@@ -939,6 +940,10 @@ impl SubstitutionFact {
 
     pub fn body_contains_grep(&self) -> bool {
         self.body_contains_grep
+    }
+
+    pub fn body_has_multiple_statements(&self) -> bool {
+        self.body_has_multiple_statements
     }
 
     pub fn is_bash_file_slurp(&self) -> bool {
@@ -15409,6 +15414,40 @@ printf '%s\\n' `date` $(uname) <(cat /etc/hosts)
                 false,
             )));
             assert!(substitutions.contains(&("<(cat /etc/hosts)".to_owned(), None, false,)));
+        });
+    }
+
+    #[test]
+    fn tracks_multi_statement_substitution_bodies() {
+        let source = "\
+#!/bin/sh
+single=$(printf '%s\\n' ok)
+multiple=$(printf '%s\\n' one; printf '%s\\n' two)
+conditional=$( [[ -n $value ]] && printf '%s\\n' ok )
+";
+
+        with_facts(source, None, |_, facts| {
+            let substitutions = facts
+                .commands()
+                .iter()
+                .flat_map(|fact| fact.substitution_facts().iter().copied())
+                .map(|fact| {
+                    (
+                        fact.span().slice(source).to_owned(),
+                        fact.body_has_multiple_statements(),
+                    )
+                })
+                .collect::<std::collections::HashMap<_, _>>();
+
+            assert_eq!(substitutions.get("$(printf '%s\\n' ok)"), Some(&false));
+            assert_eq!(
+                substitutions.get("$(printf '%s\\n' one; printf '%s\\n' two)"),
+                Some(&true)
+            );
+            assert_eq!(
+                substitutions.get("$( [[ -n $value ]] && printf '%s\\n' ok )"),
+                Some(&false)
+            );
         });
     }
 

@@ -2,6 +2,7 @@ use crate::{
     Checker, CommandSubstitutionKind, ExpansionContext, Rule, SubstitutionHostKind, Violation,
     WordFactContext,
 };
+
 pub struct EchoedCommandSubstitution;
 
 impl Violation for EchoedCommandSubstitution {
@@ -20,26 +21,33 @@ pub fn echoed_command_substitution(checker: &mut Checker) {
         .commands()
         .iter()
         .filter(|fact| fact.effective_name_is("echo"))
-        .flat_map(|fact| {
-            fact.substitution_facts()
-                .iter()
-                .filter(|substitution| {
-                    substitution.kind() == CommandSubstitutionKind::Command
-                        && matches!(
-                            substitution.host_kind(),
-                            SubstitutionHostKind::CommandArgument
-                        )
+        .filter_map(|fact| {
+            let [word] = fact.body_args() else {
+                return None;
+            };
+
+            checker
+                .facts()
+                .word_fact(
+                    word.span,
+                    WordFactContext::Expansion(ExpansionContext::CommandArgument),
+                )
+                .filter(|fact| fact.classification().has_plain_command_substitution())
+                .filter(|_| {
+                    !fact.substitution_facts().iter().any(|substitution| {
+                        substitution.kind() == CommandSubstitutionKind::Command
+                            && matches!(
+                                substitution.host_kind(),
+                                SubstitutionHostKind::CommandArgument
+                            )
+                            && substitution.host_word_span() == word.span
+                            && (substitution.is_bash_file_slurp()
+                                || substitution.body_has_multiple_statements()
+                                || (substitution.uses_backtick_syntax()
+                                    && !substitution.unquoted_in_host()))
+                    })
                 })
-                .filter_map(|substitution| {
-                    checker
-                        .facts()
-                        .word_fact(
-                            substitution.host_word_span(),
-                            WordFactContext::Expansion(ExpansionContext::CommandArgument),
-                        )
-                        .filter(|fact| fact.classification().has_plain_command_substitution())
-                        .map(|_| substitution.host_word_span())
-                })
+                .map(|_| word.span)
         })
         .collect::<Vec<_>>();
 
@@ -70,8 +78,30 @@ mod tests {
     }
 
     #[test]
-    fn reports_plain_substitutions_in_any_echo_argument() {
-        let source = "echo prefix $(date)\necho \"$(date)\"\n";
+    fn ignores_echoes_with_extra_arguments() {
+        let source = "echo prefix $(date)\necho \"$(date)\" suffix\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::EchoedCommandSubstitution),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_echo_flag_forms_and_bash_file_slurps() {
+        let source = "echo -n \"$(date)\"\necho -e \"$(date)\"\necho \"$(< file.txt)\"\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::EchoedCommandSubstitution),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_single_argument_echoes_inside_binary_command_lists() {
+        let source = "value=\"$(true && echo \"$(date)\")\"\n";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::EchoedCommandSubstitution),
@@ -82,7 +112,20 @@ mod tests {
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$(date)", "\"$(date)\""]
+            vec!["\"$(date)\""]
         );
+    }
+
+    #[test]
+    fn ignores_quoted_backticks_and_multi_statement_substitutions() {
+        let source = r#"SCRIPT=$(echo "`basename "$0"`")
+value=$(echo $(printf '%s\n' one; printf '%s\n' two) | tr -d ' ')
+"#;
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::EchoedCommandSubstitution),
+        );
+
+        assert!(diagnostics.is_empty());
     }
 }
