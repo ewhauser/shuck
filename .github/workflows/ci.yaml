@@ -124,6 +124,124 @@ jobs:
       - name: "Run tests"
         run: cargo test --workspace --all-features
 
+  benchmark-report:
+    name: "benchmark report"
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: head
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - name: "Install Rust toolchain"
+        working-directory: head
+        run: rustup show
+      - name: "Run baseline benchmarks"
+        id: benchmark-baseline
+        continue-on-error: true
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/criterion-target
+        run: |
+          mkdir -p "$RUNNER_TEMP/benchmark-report"
+          python3 "$GITHUB_WORKSPACE/head/scripts/benchmarks/run_criterion.py" \
+            --repo-root "$GITHUB_WORKSPACE/base" \
+            --save-baseline pr-base \
+            --noplot \
+            2>&1 | tee "$RUNNER_TEMP/benchmark-report/base.log"
+      - name: "Run PR benchmark comparison"
+        id: benchmark-compare
+        if: ${{ steps.benchmark-baseline.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/criterion-target
+        run: |
+          python3 "$GITHUB_WORKSPACE/head/scripts/benchmarks/run_criterion.py" \
+            --repo-root "$GITHUB_WORKSPACE/head" \
+            --baseline pr-base \
+            --noplot \
+            2>&1 | tee "$RUNNER_TEMP/benchmark-report/head.log"
+      - name: "Build benchmark report"
+        id: render-benchmark-report
+        if: always()
+        working-directory: head
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BENCHMARK_BASELINE_OUTCOME: ${{ steps.benchmark-baseline.outcome }}
+          BENCHMARK_COMPARE_OUTCOME: ${{ steps.benchmark-compare.outcome }}
+          BENCHMARK_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          CARGO_TARGET_DIR: ${{ runner.temp }}/criterion-target
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 scripts/benchmarks/criterion_pr_report.py \
+            --criterion-root "$CARGO_TARGET_DIR/criterion" \
+            --output "$RUNNER_TEMP/benchmark-report/comment.md" \
+            --base-sha "$BASE_SHA" \
+            --head-sha "$HEAD_SHA" \
+            --baseline-name pr-base \
+            --baseline-outcome "${BENCHMARK_BASELINE_OUTCOME:-skipped}" \
+            --compare-outcome "${BENCHMARK_COMPARE_OUTCOME:-skipped}" \
+            --run-url "$BENCHMARK_RUN_URL"
+          cat "$RUNNER_TEMP/benchmark-report/comment.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: "Upload benchmark artifacts"
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: benchmark-report
+          if-no-files-found: ignore
+          path: |
+            ${{ runner.temp }}/benchmark-report
+            ${{ runner.temp }}/criterion-target/criterion
+      - name: "Post PR benchmark comment"
+        if: ${{ always() && steps.render-benchmark-report.outcome == 'success' && github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        env:
+          COMMENT_PATH: ${{ runner.temp }}/benchmark-report/comment.md
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require("fs");
+            const marker = "<!-- shuck-benchmark-report -->";
+            const body = fs.readFileSync(process.env.COMMENT_PATH, "utf8");
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number,
+              per_page: 100,
+            });
+
+            const existing = comments.find((comment) => {
+              return comment.user.type === "Bot" && comment.body && comment.body.includes(marker);
+            });
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number,
+                body,
+              });
+            }
+
   fuzz-smoke:
     name: "fuzz smoke"
     runs-on: ubuntu-latest
