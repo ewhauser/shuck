@@ -7,8 +7,8 @@ shellcheck_code: SC3045
 shells:
   - sh
   - dash
-description: The script uses a wait option that portable sh does not provide.
-rationale: Avoid that wait flag in portable scripts, or require bash for the workflow.
+description: The script uses a shell builtin option that portable sh does not provide.
+rationale: Avoid shell builtin option forms that POSIX sh does not define, or require a shell that guarantees them.
 source:
   shell_checks_rule: rules/SH-030.yaml
   shell_checks_example: examples/030.sh
@@ -17,4 +17,8 @@ examples:
     source: shell-checks/examples/030.sh
     code: |
       #!/bin/sh
+      read -p "Name? " name
+      printf -v out '%s' "$name"
+      export -fn greet
+      trap -p EXIT
       wait -n
