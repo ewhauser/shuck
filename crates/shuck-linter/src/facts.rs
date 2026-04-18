@@ -305,6 +305,28 @@ impl<'a> SimpleTestFact<'a> {
             .collect()
     }
 
+    pub fn truthy_expression_words(&'a self, source: &str) -> Vec<&'a Word> {
+        simple_test_expressions(self, source)
+            .into_iter()
+            .filter_map(|expression| match expression {
+                SimpleTestExpression::Truthy(word) => Some(word),
+                SimpleTestExpression::StringUnary { .. } => None,
+            })
+            .collect()
+    }
+
+    pub fn string_unary_expression_words(&'a self, source: &str) -> Vec<(&'a Word, &'a Word)> {
+        simple_test_expressions(self, source)
+            .into_iter()
+            .filter_map(|expression| match expression {
+                SimpleTestExpression::StringUnary { operator, operand } => {
+                    Some((operator, operand))
+                }
+                SimpleTestExpression::Truthy(_) => None,
+            })
+            .collect()
+    }
+
     pub fn is_abort_like_bracket_test(&self, source: &str) -> bool {
         if self.syntax != SimpleTestSyntax::Bracket
             || self.effective_shape != SimpleTestShape::Other
@@ -330,6 +352,93 @@ impl<'a> SimpleTestFact<'a> {
             .then(|| Some((self.operand_class(0)?, self.operand_class(2)?)))
             .flatten()
     }
+}
+
+enum SimpleTestExpression<'a> {
+    Truthy(&'a Word),
+    StringUnary {
+        operator: &'a Word,
+        operand: &'a Word,
+    },
+}
+
+fn simple_test_expressions<'a>(
+    simple_test: &'a SimpleTestFact<'a>,
+    source: &str,
+) -> Vec<SimpleTestExpression<'a>> {
+    let operands = simple_test.effective_operands();
+    let mut expressions = Vec::new();
+    let mut index = 0;
+
+    while index < operands.len() {
+        if simple_test_effective_operand_text(simple_test, index, source).as_deref() == Some("!") {
+            index += 1;
+            if index >= operands.len() {
+                break;
+            }
+        }
+
+        if simple_test_effective_operand_text(simple_test, index, source)
+            .as_deref()
+            .is_some_and(simple_test_is_string_unary_operator)
+        {
+            if let Some(operand) = operands.get(index + 1).copied() {
+                expressions.push(SimpleTestExpression::StringUnary {
+                    operator: operands[index],
+                    operand,
+                });
+            }
+            index += 2;
+        } else if index + 1 == operands.len()
+            || simple_test_effective_operand_text(simple_test, index + 1, source)
+                .as_deref()
+                .is_some_and(simple_test_is_logical_connector)
+        {
+            expressions.push(SimpleTestExpression::Truthy(operands[index]));
+            index += 1;
+        } else {
+            index += 1;
+            while index < operands.len()
+                && !simple_test_effective_operand_text(simple_test, index, source)
+                    .as_deref()
+                    .is_some_and(simple_test_is_logical_connector)
+            {
+                index += 1;
+            }
+        }
+
+        if index < operands.len()
+            && simple_test_effective_operand_text(simple_test, index, source)
+                .as_deref()
+                .is_some_and(simple_test_is_logical_connector)
+        {
+            index += 1;
+        }
+    }
+
+    expressions
+}
+
+fn simple_test_effective_operand_text(
+    simple_test: &SimpleTestFact<'_>,
+    index: usize,
+    source: &str,
+) -> Option<String> {
+    let word = simple_test.effective_operands().get(index).copied()?;
+    let class = simple_test.effective_operand_class(index)?;
+    if !class.is_fixed_literal() || classify_word(word, source).quote != WordQuote::Unquoted {
+        return None;
+    }
+
+    static_word_text(word, source)
+}
+
+fn simple_test_is_logical_connector(text: &str) -> bool {
+    matches!(text, "-a" | "-o")
+}
+
+fn simple_test_is_string_unary_operator(text: &str) -> bool {
+    matches!(text, "-n" | "-z")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -17238,6 +17347,147 @@ test
                 .find(|(text, _)| text == "[ missing")
                 .map(|(_, fact)| fact.simple_test());
             assert!(matches!(missing_closer, Some(None)));
+        });
+    }
+
+    #[test]
+    fn simple_test_fact_tracks_truthy_and_string_unary_subexpressions() {
+        let source = "\
+#!/bin/sh
+[ foo ]
+[ ! bar ]
+[ -z baz ]
+[ ! -n qux ]
+[ foo -o -z baz ]
+[ -f file -a ! -z baz ]
+[ lhs = rhs ]
+";
+
+        with_facts(source, None, |_, facts| {
+            let commands = facts
+                .structural_commands()
+                .map(|fact| (fact.span().slice(source).trim_end().to_owned(), fact))
+                .collect::<Vec<_>>();
+
+            let truthy = commands
+                .iter()
+                .find(|(text, _)| text == "[ foo ]")
+                .and_then(|(_, fact)| fact.simple_test())
+                .expect("expected truthy test fact");
+            assert_eq!(
+                truthy
+                    .truthy_expression_words(source)
+                    .into_iter()
+                    .map(|word| word.span.slice(source).to_owned())
+                    .collect::<Vec<_>>(),
+                vec!["foo"]
+            );
+
+            let negated_truthy = commands
+                .iter()
+                .find(|(text, _)| text == "[ ! bar ]")
+                .and_then(|(_, fact)| fact.simple_test())
+                .expect("expected negated truthy test fact");
+            assert_eq!(
+                negated_truthy
+                    .truthy_expression_words(source)
+                    .into_iter()
+                    .map(|word| word.span.slice(source).to_owned())
+                    .collect::<Vec<_>>(),
+                vec!["bar"]
+            );
+
+            let unary = commands
+                .iter()
+                .find(|(text, _)| text == "[ -z baz ]")
+                .and_then(|(_, fact)| fact.simple_test())
+                .expect("expected unary test fact");
+            assert_eq!(
+                unary
+                    .string_unary_expression_words(source)
+                    .into_iter()
+                    .map(|(operator, operand)| {
+                        (
+                            operator.span.slice(source).to_owned(),
+                            operand.span.slice(source).to_owned(),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+                vec![("-z".to_owned(), "baz".to_owned())]
+            );
+
+            let negated_unary = commands
+                .iter()
+                .find(|(text, _)| text == "[ ! -n qux ]")
+                .and_then(|(_, fact)| fact.simple_test())
+                .expect("expected negated unary test fact");
+            assert_eq!(
+                negated_unary
+                    .string_unary_expression_words(source)
+                    .into_iter()
+                    .map(|(operator, operand)| {
+                        (
+                            operator.span.slice(source).to_owned(),
+                            operand.span.slice(source).to_owned(),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+                vec![("-n".to_owned(), "qux".to_owned())]
+            );
+
+            let mixed = commands
+                .iter()
+                .find(|(text, _)| text == "[ foo -o -z baz ]")
+                .and_then(|(_, fact)| fact.simple_test())
+                .expect("expected mixed test fact");
+            assert_eq!(
+                mixed
+                    .truthy_expression_words(source)
+                    .into_iter()
+                    .map(|word| word.span.slice(source).to_owned())
+                    .collect::<Vec<_>>(),
+                vec!["foo"]
+            );
+            assert_eq!(
+                mixed
+                    .string_unary_expression_words(source)
+                    .into_iter()
+                    .map(|(operator, operand)| {
+                        (
+                            operator.span.slice(source).to_owned(),
+                            operand.span.slice(source).to_owned(),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+                vec![("-z".to_owned(), "baz".to_owned())]
+            );
+
+            let chained = commands
+                .iter()
+                .find(|(text, _)| text == "[ -f file -a ! -z baz ]")
+                .and_then(|(_, fact)| fact.simple_test())
+                .expect("expected chained test fact");
+            assert_eq!(
+                chained
+                    .string_unary_expression_words(source)
+                    .into_iter()
+                    .map(|(operator, operand)| {
+                        (
+                            operator.span.slice(source).to_owned(),
+                            operand.span.slice(source).to_owned(),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+                vec![("-z".to_owned(), "baz".to_owned())]
+            );
+
+            let binary = commands
+                .iter()
+                .find(|(text, _)| text == "[ lhs = rhs ]")
+                .and_then(|(_, fact)| fact.simple_test())
+                .expect("expected binary test fact");
+            assert!(binary.truthy_expression_words(source).is_empty());
+            assert!(binary.string_unary_expression_words(source).is_empty());
         });
     }
 

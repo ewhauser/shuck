@@ -2,8 +2,7 @@ use shuck_ast::Span;
 
 use crate::{
     Checker, CommandSubstitutionKind, ConditionalNodeFact, ConditionalOperatorFamily,
-    ExpansionContext, Rule, SimpleTestOperatorFamily, SimpleTestShape, SubstitutionFact, Violation,
-    WordFactContext,
+    ExpansionContext, Rule, SubstitutionFact, Violation, WordFactContext,
 };
 
 pub struct GrepOutputInTest;
@@ -40,7 +39,11 @@ pub fn grep_output_in_test(checker: &mut Checker) {
                 ));
             }
             if let Some(conditional) = fact.conditional() {
-                spans.extend(collect_conditional_spans(conditional, &substitutions));
+                spans.extend(collect_conditional_spans(
+                    conditional,
+                    checker.source(),
+                    &substitutions,
+                ));
             }
             spans
         })
@@ -54,37 +57,30 @@ fn collect_simple_test_spans(
     simple_test: &crate::SimpleTestFact<'_>,
     substitutions: &[&SubstitutionFact],
 ) -> Vec<Span> {
-    match simple_test.shape() {
-        SimpleTestShape::Truthy => simple_test
-            .operands()
-            .first()
-            .copied()
-            .and_then(|word| {
-                word_fact_has_plain_command_substitution(checker, word.span, substitutions)
-                    .then_some(word.span)
-            })
+    let source = checker.source();
+    let mut spans = simple_test
+        .truthy_expression_words(source)
+        .into_iter()
+        .filter(|word| word_fact_has_plain_command_substitution(checker, word.span, substitutions))
+        .map(|word| shellcheck_truthy_test_span(source, word.span))
+        .collect::<Vec<_>>();
+
+    spans.extend(
+        simple_test
+            .string_unary_expression_words(source)
             .into_iter()
-            .collect(),
-        SimpleTestShape::Unary
-            if simple_test.operator_family() == SimpleTestOperatorFamily::StringUnary =>
-        {
-            simple_test
-                .operands()
-                .get(1)
-                .copied()
-                .and_then(|word| {
-                    word_fact_has_plain_command_substitution(checker, word.span, substitutions)
-                        .then_some(simple_test.operands()[0].span)
-                })
-                .into_iter()
-                .collect()
-        }
-        _ => Vec::new(),
-    }
+            .filter_map(|(operator, operand)| {
+                word_fact_has_plain_command_substitution(checker, operand.span, substitutions)
+                    .then_some(operator.span)
+            }),
+    );
+
+    spans
 }
 
 fn collect_conditional_spans(
     conditional: &crate::ConditionalFact<'_>,
+    source: &str,
     substitutions: &[&SubstitutionFact],
 ) -> Vec<Span> {
     let mut spans = Vec::new();
@@ -131,7 +127,7 @@ fn collect_conditional_spans(
             }) =>
         {
             if let Some(word) = bare_word.operand().word() {
-                spans.push(word.span);
+                spans.push(shellcheck_truthy_test_span(source, word.span));
             }
         }
         ConditionalNodeFact::Unary(unary)
@@ -170,7 +166,7 @@ fn collect_conditional_spans(
                 }) =>
             {
                 if let Some(word) = bare_word.operand().word() {
-                    spans.push(word.span);
+                    spans.push(shellcheck_truthy_test_span(source, word.span));
                 }
             }
             ConditionalNodeFact::Unary(unary)
@@ -195,6 +191,22 @@ fn collect_conditional_spans(
     }
 
     spans
+}
+
+fn shellcheck_truthy_test_span(source: &str, span: Span) -> Span {
+    let Some(next) = source
+        .get(span.end.offset..)
+        .and_then(|tail| tail.chars().next())
+    else {
+        return span;
+    };
+    if !matches!(next, ' ' | '\t') {
+        return span;
+    }
+
+    let end_offset = span.end.offset + next.len_utf8();
+    let separator = &source[span.end.offset..end_offset];
+    Span::from_positions(span.start, span.end.advanced_by(separator))
 }
 
 fn word_fact_has_plain_command_substitution(
@@ -291,7 +303,7 @@ mod tests {
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$(grep foo file)"]
+            vec!["$(grep foo file) "]
         );
     }
 
@@ -306,5 +318,39 @@ mod tests {
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::GrepOutputInTest));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_negated_truthy_simple_tests() {
+        let source = "\
+#!/bin/sh
+[ ! \"$(grep foo input.txt)\" ]
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::GrepOutputInTest));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["\"$(grep foo input.txt)\" "]
+        );
+    }
+
+    #[test]
+    fn reports_string_unary_subexpressions_in_compound_simple_tests() {
+        let source = "\
+#!/bin/sh
+[ -f \"$path\" -a ! -z \"$(grep foo input.txt)\" ]
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::GrepOutputInTest));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["-z"]
+        );
     }
 }
