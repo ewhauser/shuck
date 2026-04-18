@@ -413,7 +413,7 @@ fn parse_simple_test_expression_segment<'a>(
 
     let expression = &segment[expression_start..];
     match expression {
-        [word] => Some(SimpleTestExpression::Truthy(*word)),
+        [word] => Some(SimpleTestExpression::Truthy(word)),
         [operator, operand]
             if simple_test_effective_operand_text(
                 simple_test,
@@ -424,8 +424,8 @@ fn parse_simple_test_expression_segment<'a>(
             .is_some_and(simple_test_is_string_unary_operator) =>
         {
             Some(SimpleTestExpression::StringUnary {
-                operator: *operator,
-                operand: *operand,
+                operator,
+                operand,
             })
         }
         [] | [_, _, ..] => None,
