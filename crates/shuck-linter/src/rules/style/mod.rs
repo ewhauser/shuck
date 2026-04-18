@@ -22,7 +22,6 @@ pub mod echoed_command_substitution;
 pub mod egrep_deprecated;
 pub mod env_prefix_command_only;
 pub mod escaped_underscore;
-pub mod escaped_underscore_literal;
 pub mod export_command_substitution;
 pub mod fgrep_deprecated;
 pub mod function_body_without_braces;
@@ -144,7 +143,6 @@ mod tests {
     #[test_case(Rule::DollarInArithmetic, Path::new("S045.sh"))]
     // S048 was collapsed into S045.
     #[test_case(Rule::EscapedUnderscore, Path::new("S023.sh"))]
-    #[test_case(Rule::EscapedUnderscoreLiteral, Path::new("S027.sh"))]
     #[test_case(Rule::SingleQuoteBackslash, Path::new("S024.sh"))]
     #[test_case(Rule::LiteralBackslash, Path::new("S025.sh"))]
     #[test_case(Rule::LiteralBackslashInSingleQuotes, Path::new("S039.sh"))]

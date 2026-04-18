@@ -552,9 +552,6 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::EscapedUnderscore) {
             rules::style::escaped_underscore::escaped_underscore(self);
         }
-        if self.is_rule_enabled(Rule::EscapedUnderscoreLiteral) {
-            rules::style::escaped_underscore_literal::escaped_underscore_literal(self);
-        }
         if self.is_rule_enabled(Rule::NeedlessBackslashUnderscore) {
             rules::style::needless_backslash_underscore::needless_backslash_underscore(self);
         }
