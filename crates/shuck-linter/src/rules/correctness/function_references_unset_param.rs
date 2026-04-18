@@ -291,6 +291,24 @@ greet
     }
 
     #[test]
+    fn wrapper_resolved_targets_do_not_suppress_direct_zero_arg_reports() {
+        let source = "\
+#!/usr/bin/env bash
+greet() { echo \"$1 $2\"; }
+command greet ok yes
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "greet");
+        assert_eq!(diagnostics[0].span.start.line, 4);
+    }
+
+    #[test]
     fn nested_set_commands_still_count_as_positional_parameter_resets() {
         let source = "\
 #!/bin/sh

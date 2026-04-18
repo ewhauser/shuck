@@ -5406,7 +5406,7 @@ fn build_function_call_arity_facts<'a>(
         }
 
         for command in commands {
-            if command.effective_or_literal_name() != Some(name.as_str()) {
+            if command.literal_name() != Some(name.as_str()) {
                 continue;
             }
             let Some(name_word) = command.body_name_word() else {
@@ -15732,6 +15732,37 @@ BUILD_VERSION=\"${BUILD_VERSION:-\"$(GetBuildVersion \"${BUILD_REVISION}\")\"}\"
             assert_eq!(header.call_arity().min_arg_count(), Some(1));
             assert_eq!(header.call_arity().max_arg_count(), Some(1));
             assert!(header.call_arity().zero_arg_call_spans().is_empty());
+        });
+    }
+
+    #[test]
+    fn function_header_fact_ignores_wrapper_resolved_targets_for_call_arity() {
+        let source = "\
+#!/usr/bin/env bash
+greet() { printf '%s\n' \"$1\"; }
+command greet ok
+greet
+";
+
+        with_facts(source, None, |_, facts| {
+            let header = facts
+                .function_headers()
+                .iter()
+                .find(|header| {
+                    header
+                        .static_name_entry()
+                        .is_some_and(|(name, _)| name == "greet")
+                })
+                .expect("expected greet header fact");
+
+            assert_eq!(header.call_arity().call_count(), 1);
+            assert_eq!(header.call_arity().min_arg_count(), Some(0));
+            assert_eq!(header.call_arity().max_arg_count(), Some(0));
+            assert_eq!(header.call_arity().zero_arg_call_spans().len(), 1);
+            assert_eq!(
+                header.call_arity().zero_arg_call_spans()[0].slice(source),
+                "greet"
+            );
         });
     }
 
