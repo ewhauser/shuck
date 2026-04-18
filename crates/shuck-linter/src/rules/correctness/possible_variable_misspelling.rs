@@ -145,8 +145,139 @@ fn candidate_match_rank(target_name: &str, candidate_name: &str) -> Option<u8> {
     if candidate_upper == format!("X{target_name}") {
         return Some(1);
     }
+    if target_name == format!("{candidate_upper}_") {
+        return Some(2);
+    }
+    if is_short_split_id_variant(target_name, candidate_upper.as_str()) {
+        return Some(3);
+    }
+    if is_common_build_setting_name(target_name) {
+        return None;
+    }
+    if is_environment_style_name(candidate_name)
+        && has_single_environment_style_typo(target_name, candidate_upper.as_str())
+    {
+        return Some(4);
+    }
 
     None
+}
+
+fn is_short_split_id_variant(target_name: &str, candidate_upper: &str) -> bool {
+    short_two_segment_underscore_variant(candidate_upper, target_name)
+        || short_two_segment_underscore_variant(target_name, candidate_upper)
+}
+
+fn short_two_segment_underscore_variant(with_underscore: &str, without_underscore: &str) -> bool {
+    let mut segments = with_underscore.split('_');
+    let Some(first) = segments.next() else {
+        return false;
+    };
+    let Some(second) = segments.next() else {
+        return false;
+    };
+    if segments.next().is_some() || first.is_empty() || second.is_empty() {
+        return false;
+    }
+    if first.len() > 2 || second.len() > 2 {
+        return false;
+    }
+
+    format!("{first}{second}") == without_underscore
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EnvironmentStyleEdit {
+    Substitute,
+    Insert { byte: u8, index: usize },
+    Delete { byte: u8, index: usize },
+    Transpose,
+}
+
+fn has_single_environment_style_typo(target_name: &str, candidate_upper: &str) -> bool {
+    let Some(edit) =
+        single_environment_style_edit(target_name.as_bytes(), candidate_upper.as_bytes())
+    else {
+        return false;
+    };
+
+    match edit {
+        EnvironmentStyleEdit::Substitute | EnvironmentStyleEdit::Transpose => true,
+        EnvironmentStyleEdit::Insert { byte, index }
+        | EnvironmentStyleEdit::Delete { byte, index } => {
+            index > 0
+                && !(byte == b'X'
+                    && byte_before_edit(index, target_name.as_bytes(), candidate_upper.as_bytes())
+                        == Some(b'_'))
+        }
+    }
+}
+
+fn single_environment_style_edit(
+    target: &[u8],
+    candidate: &[u8],
+) -> Option<EnvironmentStyleEdit> {
+    if target.len() == candidate.len() {
+        let mismatches = target
+            .iter()
+            .zip(candidate.iter())
+            .enumerate()
+            .filter_map(|(index, (&left, &right))| (left != right).then_some((index, left, right)))
+            .collect::<Vec<_>>();
+
+        return match mismatches.as_slice() {
+            [(_, left, right)] if left.is_ascii_alphabetic() && right.is_ascii_alphabetic() => {
+                Some(EnvironmentStyleEdit::Substitute)
+            }
+            [(first_index, first_left, first_right), (second_index, second_left, second_right)]
+                if second_index == &(first_index + 1)
+                    && first_left.is_ascii_alphabetic()
+                    && first_right.is_ascii_alphabetic()
+                    && second_left.is_ascii_alphabetic()
+                    && second_right.is_ascii_alphabetic()
+                    && *first_left == *second_right
+                    && *second_left == *first_right =>
+            {
+                Some(EnvironmentStyleEdit::Transpose)
+            }
+            _ => None,
+        };
+    }
+
+    if target.len() + 1 == candidate.len() {
+        let index = first_mismatch_index(target, candidate).unwrap_or(target.len());
+        let inserted = candidate[index];
+        return (inserted.is_ascii_alphabetic() && target[index..] == candidate[index + 1..])
+            .then_some(EnvironmentStyleEdit::Insert {
+                byte: inserted,
+                index,
+            });
+    }
+
+    if candidate.len() + 1 == target.len() {
+        let index = first_mismatch_index(target, candidate).unwrap_or(candidate.len());
+        let deleted = target[index];
+        return (deleted.is_ascii_alphabetic() && target[index + 1..] == candidate[index..])
+            .then_some(EnvironmentStyleEdit::Delete {
+                byte: deleted,
+                index,
+            });
+    }
+
+    None
+}
+
+fn first_mismatch_index(left: &[u8], right: &[u8]) -> Option<usize> {
+    left.iter()
+        .zip(right.iter())
+        .position(|(left, right)| left != right)
+}
+
+fn byte_before_edit(index: usize, target: &[u8], candidate: &[u8]) -> Option<u8> {
+    index
+        .checked_sub(1)
+        .and_then(|previous| target.get(previous).or_else(|| candidate.get(previous)))
+        .copied()
 }
 
 fn is_known_runtime_name(name: &str) -> bool {
@@ -179,9 +310,14 @@ fn is_known_runtime_name(name: &str) -> bool {
             | "OSTYPE"
             | "HISTCONTROL"
             | "HISTSIZE"
+            | "EUID"
             | "GEM_HOME"
             | "GEM_PATH"
     ) || name.starts_with("LC_")
+}
+
+fn is_common_build_setting_name(name: &str) -> bool {
+    matches!(name, "CFLAGS" | "CPPFLAGS" | "CXXFLAGS" | "LDFLAGS" | "LIBS")
 }
 
 #[cfg(test)]
@@ -257,6 +393,89 @@ echo \"$FOOBAR\"
     }
 
     #[test]
+    fn reports_common_environment_style_typos() {
+        let source = "\
+#!/bin/sh
+PRGNAM=demo
+PROFILE=core
+LIBDIRSUFFIX=64
+SLKCFLAGS='-O2'
+echo \"$PKGNAM\"
+echo \"$PROFILES\"
+echo \"$LIBDIRSUFIX\"
+echo \"$SLKFLAGS\"
+echo \"$SLCKFLAGS\"
+echo \"$SLKCFLAG\"
+echo \"$BRANCH_\"
+BRANCH=stable
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "$PKGNAM",
+                "$PROFILES",
+                "$LIBDIRSUFIX",
+                "$SLKFLAGS",
+                "$SLCKFLAGS",
+                "$SLKCFLAG",
+                "$BRANCH_"
+            ]
+        );
+    }
+
+    #[test]
+    fn keeps_reviewed_alias_families_out_of_scope() {
+        let source = "\
+#!/bin/sh
+foo_bar=demo
+PKG_CONFIG=pkg-config
+XBPS_REMOVE_CMD=rm
+LDFLAGS='-Wl,-s'
+echo \"$FOOBAR\"
+echo \"$PKGCONFIG\"
+echo \"$XBPS_REMOVE_XCMD\"
+echo \"$CLDFLAGS\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_short_split_id_variants_but_not_broader_underscore_aliases() {
+        let source = "\
+#!/bin/sh
+CT_ID=100
+PKG_CONFIG=pkg-config
+echo \"$CTID\"
+echo \"$PKGCONFIG\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$CTID"]
+        );
+    }
+
+    #[test]
     fn ignores_runtime_environment_names() {
         let source = "\
 #!/bin/sh
@@ -264,8 +483,25 @@ path=1
 echo \"$PATH\"
 gem_home=1
 gem_path=1
+euid=1
 echo \"$GEM_HOME\"
 echo \"$GEM_PATH\"
+echo \"$EUID\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_fuzzy_matches_for_common_build_settings() {
+        let source = "\
+#!/bin/sh
+LDFLGAS='-Wl,--gc-sections'
+echo \"$LDFLAGS\"
 ";
         let diagnostics = test_snippet(
             source,
