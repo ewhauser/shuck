@@ -3298,6 +3298,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let echo_to_sed_substitution_spans = build_echo_to_sed_substitution_spans(
             &commands,
             &pipelines,
+            &backticks,
             &words,
             &word_index,
             self.source,
@@ -3419,6 +3420,7 @@ fn build_echo_backslash_escape_word_spans(commands: &[CommandFact<'_>], source: 
 fn build_echo_to_sed_substitution_spans<'a>(
     commands: &[CommandFact<'a>],
     pipelines: &[PipelineFact<'a>],
+    backticks: &[BacktickFragmentFact],
     words: &[WordFact<'a>],
     word_index: &FxHashMap<FactSpan, Vec<usize>>,
     source: &str,
@@ -3426,12 +3428,12 @@ fn build_echo_to_sed_substitution_spans<'a>(
     let mut spans = pipelines
         .iter()
         .filter_map(|pipeline| {
-            sc2001_like_pipeline_span(commands, pipeline, words, word_index, source)
+            sc2001_like_pipeline_span(commands, pipeline, backticks, words, word_index, source)
         })
         .chain(
             commands
                 .iter()
-                .filter_map(|command| sc2001_like_here_string_span(command, source)),
+                .filter_map(|command| sc2001_like_here_string_span(command, backticks, source)),
         )
         .collect::<Vec<_>>();
 
@@ -3442,6 +3444,7 @@ fn build_echo_to_sed_substitution_spans<'a>(
 fn sc2001_like_pipeline_span<'a>(
     commands: &[CommandFact<'a>],
     pipeline: &PipelineFact<'a>,
+    backticks: &[BacktickFragmentFact],
     words: &[WordFact<'a>],
     word_index: &FxHashMap<FactSpan, Vec<usize>>,
     source: &str,
@@ -3466,11 +3469,7 @@ fn sc2001_like_pipeline_span<'a>(
         return None;
     }
 
-    if !right
-        .options()
-        .sed()
-        .is_some_and(|sed| sed.has_single_substitution_script())
-    {
+    if !command_has_sc2001_like_sed_script(right, backticks, source) {
         return None;
     }
 
@@ -3505,16 +3504,16 @@ fn sc2001_like_pipeline_span<'a>(
     ))
 }
 
-fn sc2001_like_here_string_span(command: &CommandFact<'_>, source: &str) -> Option<Span> {
+fn sc2001_like_here_string_span(
+    command: &CommandFact<'_>,
+    backticks: &[BacktickFragmentFact],
+    source: &str,
+) -> Option<Span> {
     if !command_is_plain_named(command, "sed") {
         return None;
     }
 
-    if !command
-        .options()
-        .sed()
-        .is_some_and(|sed| sed.has_single_substitution_script())
-    {
+    if !command_has_sc2001_like_sed_script(command, backticks, source) {
         return None;
     }
 
@@ -3532,6 +3531,37 @@ fn sc2001_like_here_string_span(command: &CommandFact<'_>, source: &str) -> Opti
 
 fn command_is_plain_named(command: &CommandFact<'_>, name: &str) -> bool {
     command.effective_name_is(name) && command.wrappers().is_empty()
+}
+
+fn command_has_sc2001_like_sed_script(
+    command: &CommandFact<'_>,
+    backticks: &[BacktickFragmentFact],
+    source: &str,
+) -> bool {
+    command
+        .options()
+        .sed()
+        .is_some_and(|sed| sed.has_single_substitution_script())
+        || (command_is_inside_backtick_fragment(command, backticks)
+            && sed_script_text(
+                command.body_args(),
+                source,
+                SedScriptQuoteMode::AllowBacktickEscapedDoubleQuotes,
+            )
+            .as_deref()
+            .is_some_and(is_simple_sed_substitution_script))
+}
+
+fn command_is_inside_backtick_fragment(
+    command: &CommandFact<'_>,
+    backticks: &[BacktickFragmentFact],
+) -> bool {
+    let span = command.span();
+    backticks.iter().any(|fragment| {
+        let fragment_span = fragment.span();
+        fragment_span.start.offset <= span.start.offset
+            && fragment_span.end.offset >= span.end.offset
+    })
 }
 
 fn word_fact_with_context<'a>(
@@ -11876,11 +11906,11 @@ fn parse_echo_command<'a>(args: &[&'a Word], source: &str) -> EchoCommandFacts<'
 }
 
 fn parse_sed_command(args: &[&Word], source: &str) -> SedCommandFacts {
-    let script = sed_script_text(args, source);
+    let script = sed_script_text(args, source, SedScriptQuoteMode::ShellOnly);
 
     let script = match args {
         [flag, words @ ..] if static_word_text(flag, source).as_deref() == Some("-e") => {
-            sed_script_text(words, source)
+            sed_script_text(words, source, SedScriptQuoteMode::ShellOnly)
         }
         _ => script,
     };
@@ -11892,13 +11922,25 @@ fn parse_sed_command(args: &[&Word], source: &str) -> SedCommandFacts {
     }
 }
 
-fn sed_script_text<'a>(args: &[&Word], source: &'a str) -> Option<Cow<'a, str>> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SedScriptQuoteMode {
+    ShellOnly,
+    AllowBacktickEscapedDoubleQuotes,
+}
+
+fn sed_script_text<'a>(
+    args: &[&Word],
+    source: &'a str,
+    quote_mode: SedScriptQuoteMode,
+) -> Option<Cow<'a, str>> {
     match args {
-        [script] => Some(Cow::Borrowed(word_text_without_matching_quotes(
-            script, source,
+        [script] => Some(Cow::Borrowed(strip_matching_sed_script_quotes_in_source(
+            script.span.slice(source),
+            quote_mode,
         ))),
         [first, .., last]
-            if first.span.slice(source).starts_with("\\\"")
+            if quote_mode == SedScriptQuoteMode::AllowBacktickEscapedDoubleQuotes
+                && first.span.slice(source).starts_with("\\\"")
                 && last.span.slice(source).ends_with("\\\"") =>
         {
             let mut text = String::new();
@@ -11909,7 +11951,7 @@ fn sed_script_text<'a>(args: &[&Word], source: &'a str) -> Option<Cow<'a, str>> 
                 text.push_str(word.span.slice(source));
             }
             Some(Cow::Owned(
-                strip_matching_quotes_in_source(&text).to_owned(),
+                strip_backtick_escaped_double_quotes_in_source(&text).to_owned(),
             ))
         }
         _ => None,
@@ -12050,14 +12092,20 @@ fn is_backslash_prefixed_match_escape(replacement: &str) -> bool {
         })
 }
 
-fn word_text_without_matching_quotes<'a>(word: &Word, source: &'a str) -> &'a str {
-    strip_matching_quotes_in_source(word.span.slice(source))
+fn strip_matching_sed_script_quotes_in_source(text: &str, quote_mode: SedScriptQuoteMode) -> &str {
+    if quote_mode == SedScriptQuoteMode::AllowBacktickEscapedDoubleQuotes
+        && text.len() >= 4
+        && text.starts_with("\\\"")
+        && text.ends_with("\\\"")
+    {
+        strip_backtick_escaped_double_quotes_in_source(text)
+    } else {
+        strip_shell_matching_quotes_in_source(text)
+    }
 }
 
-fn strip_matching_quotes_in_source(text: &str) -> &str {
-    if text.len() >= 4 && text.starts_with("\\\"") && text.ends_with("\\\"") {
-        &text[2..text.len() - 2]
-    } else if text.len() >= 2
+fn strip_shell_matching_quotes_in_source(text: &str) -> &str {
+    if text.len() >= 2
         && ((text.starts_with('"') && text.ends_with('"'))
             || (text.starts_with('\'') && text.ends_with('\'')))
     {
@@ -12065,6 +12113,11 @@ fn strip_matching_quotes_in_source(text: &str) -> &str {
     } else {
         text
     }
+}
+
+fn strip_backtick_escaped_double_quotes_in_source(text: &str) -> &str {
+    debug_assert!(text.len() >= 4 && text.starts_with("\\\"") && text.ends_with("\\\""));
+    &text[2..text.len() - 2]
 }
 
 fn parse_tr_command<'a>(args: &[&'a Word], source: &str) -> TrCommandFacts<'a> {
@@ -16072,7 +16125,7 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
 
     #[test]
     fn summarizes_command_options_and_invokers() {
-        let source = "#!/bin/bash\nread -r name\necho -ne hi\necho '-I' hi\necho \"\\\\n\"\necho \\x41\necho \"prefix $VAR \\\\0 suffix\"\ncommand echo \\n\nsed 's/foo/bar/'\nsed -e 's/foo/bar/'\nsed -e 's:\\([0-9][0-9]*\\)[a-z]*\\$:\\1:'\nsed 's/[]\\[^$.*/]/\\\\&/g'\nsed 's/\\([/&]\\)/\\\\\\1/g'\nsed -n 's/foo/bar/p'\nsed --expression 's/foo/bar/'\nsed -r 's/foo/bar/'\ntr -ds a-z A-Z\ntr -- 'a-z' xyz\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -type d -name CVS | xargs -iX rm -rf X\nfind . -type d -name CVS | xargs --replace rm -rf {}\nfind . -name a -o -name b -print\nfind . -name *.cfg\nfind . -name \"$prefix\"*.jar\nfind . -wholename */tmp/*\nfind . -name \\*.ignore\nfind . -type f*\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\n./configure --with-optmizer=${CFLAGS}\nconfigure \"--enable-optmizer=${CFLAGS}\"\n./configure --with-optimizer=${CFLAGS}\nps -p 1 -o comm=\nps p 123 -o comm=\nps -ef\ndoas printf '%s\\n' hi\n";
+        let source = "#!/bin/bash\nread -r name\necho -ne hi\necho '-I' hi\necho \"\\\\n\"\necho \\x41\necho \"prefix $VAR \\\\0 suffix\"\ncommand echo \\n\nsed 's/foo/bar/'\nsed -e 's/foo/bar/'\nsed -e 's:\\([0-9][0-9]*\\)[a-z]*\\$:\\1:'\nsed 's/[]\\[^$.*/]/\\\\&/g'\nsed 's/\\([/&]\\)/\\\\\\1/g'\nsed -n 's/foo/bar/p'\nsed --expression 's/foo/bar/'\nsed -r 's/foo/bar/'\nsed \\\"s/foo/bar/\\\"\ntr -ds a-z A-Z\ntr -- 'a-z' xyz\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -type d -name CVS | xargs -iX rm -rf X\nfind . -type d -name CVS | xargs --replace rm -rf {}\nfind . -name a -o -name b -print\nfind . -name *.cfg\nfind . -name \"$prefix\"*.jar\nfind . -wholename */tmp/*\nfind . -name \\*.ignore\nfind . -type f*\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\n./configure --with-optmizer=${CFLAGS}\nconfigure \"--enable-optmizer=${CFLAGS}\"\n./configure --with-optimizer=${CFLAGS}\nps -p 1 -o comm=\nps p 123 -o comm=\nps -ef\ndoas printf '%s\\n' hi\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -16132,7 +16185,7 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
             .iter()
             .filter(|fact| fact.effective_name_is("sed"))
             .collect::<Vec<_>>();
-        assert_eq!(sed_commands.len(), 8);
+        assert_eq!(sed_commands.len(), 9);
         assert!(
             sed_commands[0]
                 .options()
@@ -16177,6 +16230,12 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
         );
         assert!(
             !sed_commands[7]
+                .options()
+                .sed()
+                .is_some_and(|sed| sed.has_single_substitution_script())
+        );
+        assert!(
+            !sed_commands[8]
                 .options()
                 .sed()
                 .is_some_and(|sed| sed.has_single_substitution_script())
@@ -16522,6 +16581,7 @@ echo $value | sed 's/foo/bar/' | cat
 echo \"$ENDPOINT\" | sed 's/[:\\/]/_/g'
 echo \"$PAYLOAD\" | sed 's/\\//-/g'
 echo $PACKAGE_NAME | sed 's/\\./\\//g'
+echo \"$value\" | sed \\\"s/foo/bar/\\\"
 echo \"$key\" | sed 's/[]\\[^$.*/]/\\\\&/g'
 echo \"${ENTRY}\" | sed 's/\\([/&]\\)/\\\\\\1/g'
 sed 's/[]\\[^$.*/]/\\\\&/g' <<<\"$key\"
