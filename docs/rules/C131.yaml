@@ -9,8 +9,8 @@ shells:
   - bash
   - dash
   - ksh
-description: An unquoted variable is used as a command name in a function.
-rationale: Quote the variable or validate its content before execution.
+description: An unquoted expansion reuses a variable that stores shell-style quoting or escapes.
+rationale: Build argv with arrays, `set --`, or helper functions instead of storing quoting syntax in a scalar.
 source:
   shell_checks_rule: rules/SH-308.yaml
   shell_checks_example: examples/308.sh
@@ -19,9 +19,5 @@ examples:
     source: shell-checks/examples/308.sh
     code: |
       #!/bin/sh
-      # shellcheck disable=2154,3024,2086,2034,2089
-      myfunc() {
-      	CFLAGS+=" -DDIR=\"$PREFIX/share/\""
-      	$CC $CFLAGS -c test.c -o test.o
-      }
-      myfunc
+      args='--name "hello world"'
+      printf '%s\n' $args

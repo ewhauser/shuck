@@ -1,7 +1,4 @@
 #!/bin/sh
 
-f() {
-  $cmd
-}
-
-f
+args='--name "hello world"'
+printf '%s\n' $args
