@@ -1510,6 +1510,10 @@ fn literal_open_double_quote_gap_looks_suspicious(span: Span, source: &str) -> b
     true
 }
 
+fn empty_double_quoted_fragment(part: &WordPartNode, source: &str) -> bool {
+    matches!(part.kind, WordPart::DoubleQuoted { .. }) && part.span.slice(source) == "\"\""
+}
+
 fn is_nested_parameter_expansion(parameter: &shuck_ast::ParameterExpansion, source: &str) -> bool {
     matches!(&parameter.syntax, ParameterExpansionSyntax::Bourne(_))
         && contains_nested_parameter_marker(parameter.raw_body.slice(source).trim_start())

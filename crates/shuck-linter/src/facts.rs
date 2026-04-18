@@ -18706,6 +18706,20 @@ echo \"GEM_HOME FIRST: \\$GEM_HOME\"
     }
 
     #[test]
+    fn open_double_quote_surface_facts_ignore_valid_multiline_quotes_with_suffix_expansion() {
+        let source = "\
+#!/bin/sh
+echo \"line one
+line two\"$suffix
+";
+
+        with_facts(source, None, |_, facts| {
+            assert!(facts.open_double_quote_fragments().is_empty());
+            assert!(facts.suspect_closing_quote_fragments().is_empty());
+        });
+    }
+
+    #[test]
     fn open_double_quote_surface_facts_report_only_first_fragment_per_word() {
         let source = "\
 #!/bin/sh
