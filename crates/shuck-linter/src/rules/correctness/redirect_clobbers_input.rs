@@ -137,6 +137,9 @@ sed -e 's/x/y/' foo > foo
 sed -es/x/y/ foo > foo
 awk -f prog.awk data.txt > data.txt
 awk -fprog.awk data.txt > data.txt
+cat <<<$(jq '.dns={}' \"$cfg\") >\"$cfg\"
+jq --rawfile cfg \"$cfg\" '.dns=$cfg' >\"$cfg\"
+jq -Lnewmods '.x=1' \"$cfg\" >\"$cfg\"
 cat < bar | gzip > bar
 { cat < baz; } > baz
 echo \"$(cat \"$f\")\" | sed 's/x/y/' >\"$f\"
@@ -155,8 +158,9 @@ printf '%s\\0' **/* | bsdtar --null --files-from - --exclude .MTREE | gzip -c -f
                 .collect::<Vec<_>>(),
             vec![
                 "foo", "foo", "foo", "foo", "test.c", "test.c", "\"$src\"", "\"$src\"", "foo",
-                "foo", "foo", "foo", "data.txt", "data.txt", "data.txt", "data.txt", "bar", "bar",
-                "baz", "baz", "\"$f\"", "\"$f\"", ".MTREE", ".MTREE", "\"$f\"", "\"$f\"",
+                "foo", "foo", "foo", "data.txt", "data.txt", "data.txt", "data.txt", "\"$cfg\"",
+                "\"$cfg\"", "\"$cfg\"", "\"$cfg\"", "\"$cfg\"", "\"$cfg\"", "bar", "bar", "baz",
+                "baz", "\"$f\"", "\"$f\"", ".MTREE", ".MTREE", "\"$f\"", "\"$f\"",
             ]
         );
     }
@@ -173,6 +177,12 @@ sort --output=log.txt input.txt > log.txt
 echo foo > foo
 printf '%s\\n' foo > foo
 cat < \"$src\" > \"$dst\"
+alsamixer >/dev/tty </dev/tty
+cat </dev/fd/0 >/dev/fd/0
+jq --args '$ARGS.positional[0]' \"$cfg\" >\"$cfg\"
+jq --jsonargs '$ARGS.positional[0]' \"$cfg\" >\"$cfg\"
+jq --indent 2 --args '$ARGS.positional[0]' \"$cfg\" >\"$cfg\"
+jq -nc '.x=1' \"$cfg\" >\"$cfg\"
 ";
         let diagnostics = test_snippet(
             source,

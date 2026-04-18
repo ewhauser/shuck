@@ -13010,6 +13010,7 @@ fn same_command_file_operand_words<'a>(
             })
             .into_boxed_slice()
         }
+        Some("jq") => jq_file_operand_words(args, source).into_boxed_slice(),
         Some("bsdtar") | Some("tar") => {
             collect_file_operand_words_after_prefix(args, source, 0, |text| match text {
                 "--exclude" => Some(OperandArgAction::IncludeNext),
@@ -13289,6 +13290,158 @@ fn collect_file_operand_words_after_prefix<'a>(
         }
 
         operands.push(*word);
+        index += 1;
+    }
+
+    operands
+}
+
+fn jq_file_operand_words<'a>(args: &[&'a Word], source: &str) -> Vec<&'a Word> {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum PendingOptionArgs {
+        Skip(usize),
+        NamedFileSource { seen_name: bool },
+    }
+
+    let mut operands = Vec::new();
+    let mut index = 0usize;
+    let mut options_open = true;
+    let mut pending_args: Option<PendingOptionArgs> = None;
+    let mut filter_from_file = false;
+    let mut null_input = false;
+    let mut consumed_filter = false;
+    let mut positional_args_mode = false;
+
+    while let Some(word) = args.get(index) {
+        if let Some(pending) = pending_args {
+            match pending {
+                PendingOptionArgs::Skip(remaining) => {
+                    if remaining > 1 {
+                        pending_args = Some(PendingOptionArgs::Skip(remaining - 1));
+                    } else {
+                        pending_args = None;
+                    }
+                    index += 1;
+                    continue;
+                }
+                PendingOptionArgs::NamedFileSource { seen_name: false } => {
+                    pending_args = Some(PendingOptionArgs::NamedFileSource { seen_name: true });
+                    index += 1;
+                    continue;
+                }
+                PendingOptionArgs::NamedFileSource { seen_name: true } => {
+                    operands.push(*word);
+                    pending_args = None;
+                    index += 1;
+                    continue;
+                }
+            }
+        }
+
+        let Some(text) = static_word_text(word, source) else {
+            if options_open && word_starts_with_literal_dash(word, source) {
+                index += 1;
+                continue;
+            }
+
+            options_open = false;
+            if !consumed_filter && !filter_from_file {
+                consumed_filter = true;
+                index += 1;
+                continue;
+            }
+
+            if !null_input && !positional_args_mode {
+                operands.push(*word);
+            }
+            index += 1;
+            continue;
+        };
+
+        if options_open && text == "--" {
+            options_open = false;
+            index += 1;
+            continue;
+        }
+
+        if options_open && text.starts_with('-') && text != "-" {
+            if !text.starts_with("--")
+                && let Some(cluster) = text.strip_prefix('-')
+            {
+                let mut cluster_chars = cluster.chars().peekable();
+                while let Some(flag) = cluster_chars.next() {
+                    match flag {
+                        'n' => {
+                            null_input = true;
+                        }
+                        'f' => {
+                            filter_from_file = true;
+                            consumed_filter = true;
+                            if cluster_chars.peek().is_none() {
+                                pending_args = Some(PendingOptionArgs::Skip(1));
+                            }
+                            break;
+                        }
+                        'L' => {
+                            if cluster_chars.peek().is_none() {
+                                pending_args = Some(PendingOptionArgs::Skip(1));
+                            }
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            match text.as_str() {
+                "-n" | "--null-input" => {
+                    null_input = true;
+                }
+                "-f" | "--from-file" => {
+                    filter_from_file = true;
+                    consumed_filter = true;
+                    pending_args = Some(PendingOptionArgs::Skip(1));
+                }
+                "--arg" | "--argjson" => {
+                    pending_args = Some(PendingOptionArgs::Skip(2));
+                }
+                "--rawfile" | "--slurpfile" | "--argfile" => {
+                    pending_args = Some(PendingOptionArgs::NamedFileSource { seen_name: false });
+                }
+                "--indent" => {
+                    pending_args = Some(PendingOptionArgs::Skip(1));
+                }
+                "-L" | "--library-path" => {
+                    pending_args = Some(PendingOptionArgs::Skip(1));
+                }
+                "--args" | "--jsonargs" => {
+                    positional_args_mode = true;
+                }
+                _ if text.starts_with("--from-file=") => {
+                    filter_from_file = true;
+                    consumed_filter = true;
+                }
+                _ if text.starts_with("--library-path=")
+                    || text.starts_with("--arg=")
+                    || text.starts_with("--argjson=")
+                    || text.starts_with("--args=")
+                    || text.starts_with("--jsonargs=") => {}
+                _ => {}
+            }
+            index += 1;
+            continue;
+        }
+
+        options_open = false;
+        if !consumed_filter && !filter_from_file {
+            consumed_filter = true;
+            index += 1;
+            continue;
+        }
+
+        if !null_input && !positional_args_mode {
+            operands.push(*word);
+        }
         index += 1;
     }
 
@@ -15520,6 +15673,83 @@ fi
                 .expect("expected nested elif condition command");
             assert!(elif_nested.scope_read_source_words().is_empty());
             assert!(facts.is_elif_condition_command(elif_nested.id()));
+        });
+    }
+
+    #[test]
+    fn includes_nested_jq_file_operands_in_writer_scope_reads() {
+        let source = "#!/bin/bash\ncat <<<$(jq '.dns={}' \"$cfg\") >\"$cfg\"\n";
+
+        with_facts(source, None, |_, facts| {
+            let jq = facts
+                .commands()
+                .iter()
+                .find(|fact| fact.effective_name_is("jq"))
+                .expect("expected nested jq command");
+            assert_eq!(
+                jq.file_operand_words()
+                    .iter()
+                    .map(|word| word.span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["\"$cfg\""]
+            );
+
+            let cat = facts
+                .structural_commands()
+                .find(|fact| fact.effective_name_is("cat"))
+                .expect("expected structural cat command");
+            assert_eq!(
+                cat.scope_read_source_words()
+                    .iter()
+                    .map(|fact| fact.word().span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["\"$cfg\""]
+            );
+        });
+    }
+
+    #[test]
+    fn parses_jq_input_modes_into_file_operands() {
+        let source = "\
+#!/bin/bash
+jq --args '$ARGS.positional[0]' \"$cfg\"
+jq --jsonargs '$ARGS.positional[0]' \"$cfg\"
+jq --indent 2 --args '$ARGS.positional[0]' \"$cfg\"
+jq --rawfile cfg \"$cfg\" '.dns=$cfg'
+jq --slurpfile cfg \"$cfg\" '.dns=$cfg'
+jq --argfile cfg \"$cfg\" '.dns=$cfg'
+jq -nc '.x=1' \"$cfg\"
+jq -Lnewmods '.x=1' \"$cfg\"
+";
+
+        with_facts(source, None, |_, facts| {
+            let jq_commands = facts
+                .structural_commands()
+                .filter(|fact| fact.effective_name_is("jq"))
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                jq_commands
+                    .iter()
+                    .map(|command| {
+                        command
+                            .file_operand_words()
+                            .iter()
+                            .map(|word| word.span.slice(source))
+                            .collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>(),
+                vec![
+                    Vec::<&str>::new(),
+                    Vec::<&str>::new(),
+                    Vec::<&str>::new(),
+                    vec!["\"$cfg\""],
+                    vec!["\"$cfg\""],
+                    vec!["\"$cfg\""],
+                    Vec::<&str>::new(),
+                    vec!["\"$cfg\""],
+                ]
+            );
         });
     }
 
