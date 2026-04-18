@@ -3551,13 +3551,11 @@ fn command_has_sc2001_like_sed_script(
         .sed()
         .is_some_and(|sed| sed.has_single_substitution_script())
         || (command_is_inside_backtick_fragment(command, backticks)
-            && sed_script_text(
+            && sed_has_single_substitution_script(
                 command.body_args(),
                 source,
                 SedScriptQuoteMode::AllowBacktickEscapedDoubleQuotes,
-            )
-            .as_deref()
-            .is_some_and(is_simple_sed_substitution_script))
+            ))
 }
 
 fn command_is_inside_backtick_fragment(
@@ -11914,19 +11912,12 @@ fn parse_echo_command<'a>(args: &[&'a Word], source: &str) -> EchoCommandFacts<'
 }
 
 fn parse_sed_command(args: &[&Word], source: &str) -> SedCommandFacts {
-    let script = sed_script_text(args, source, SedScriptQuoteMode::ShellOnly);
-
-    let script = match args {
-        [flag, words @ ..] if static_word_text(flag, source).as_deref() == Some("-e") => {
-            sed_script_text(words, source, SedScriptQuoteMode::ShellOnly)
-        }
-        _ => script,
-    };
-
     SedCommandFacts {
-        has_single_substitution_script: script
-            .as_deref()
-            .is_some_and(is_simple_sed_substitution_script),
+        has_single_substitution_script: sed_has_single_substitution_script(
+            args,
+            source,
+            SedScriptQuoteMode::ShellOnly,
+        ),
     }
 }
 
@@ -11964,6 +11955,22 @@ fn sed_script_text<'a>(
         }
         _ => None,
     }
+}
+
+fn sed_has_single_substitution_script(
+    args: &[&Word],
+    source: &str,
+    quote_mode: SedScriptQuoteMode,
+) -> bool {
+    sed_script_text(args, source, quote_mode)
+        .or_else(|| match args {
+            [flag, words @ ..] if static_word_text(flag, source).as_deref() == Some("-e") => {
+                sed_script_text(words, source, quote_mode)
+            }
+            _ => None,
+        })
+        .as_deref()
+        .is_some_and(is_simple_sed_substitution_script)
 }
 
 fn is_echo_portability_flag(text: &str) -> bool {
@@ -16540,6 +16547,7 @@ echo \"$value\" | sed 's/a/b/' <<<\"$shadow\"
 CFLAGS=\"`echo \\\"$CFLAGS\\\" | sed \\\"s/ $COVERAGE_FLAGS//\\\"`\"
 OPTFLAG=\"`echo \\\"$CFLAGS\\\" | sed 's/^.*\\(-O[^ ]\\).*$/\\1/'`\"
 EC2_REGION=\"`echo \\\"$EC2_AVAIL_ZONE\\\" | sed -e 's:\\([0-9][0-9]*\\)[a-z]*\\$:\\1:'`\"
+ESCAPED_REGION=\"`echo \\\"$EC2_AVAIL_ZONE\\\" | sed -e \\\"s/foo/bar/\\\"`\"
 echo \"$caps_add\" | sed 's/^/  /' \t
 trimmed=$(sed 's/[[:space:]]*$//' <<<\"$value\")
 literal=$(sed 's/[[:space:]]*$//' <<<literal)
@@ -16566,6 +16574,7 @@ literal=$(sed 's/[[:space:]]*$//' <<<literal)
                     "echo \\\"$CFLAGS\\\" | sed \\\"s/ $COVERAGE_FLAGS//\\\"",
                     "echo \\\"$CFLAGS\\\" | sed 's/^.*\\(-O[^ ]\\).*$/\\1/'",
                     "echo \\\"$EC2_AVAIL_ZONE\\\" | sed -e 's:\\([0-9][0-9]*\\)[a-z]*\\$:\\1:'",
+                    "echo \\\"$EC2_AVAIL_ZONE\\\" | sed -e \\\"s/foo/bar/\\\"",
                     "echo \"$caps_add\" | sed 's/^/  /' \t",
                     "sed 's/[[:space:]]*$//' <<<\"$value\"",
                     "sed 's/[[:space:]]*$//' <<<literal",
