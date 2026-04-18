@@ -633,8 +633,8 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::SingleIterationLoop) {
             rules::style::single_iteration_loop::single_iteration_loop(self);
         }
-        if self.is_rule_enabled(Rule::ConditionalAssignmentShortcut) {
-            rules::style::conditional_assignment_shortcut::conditional_assignment_shortcut(self);
+        if self.is_rule_enabled(Rule::BareCommandNameAssignment) {
+            rules::style::bare_command_name_assignment::bare_command_name_assignment(self);
         }
         if self.is_rule_enabled(Rule::LoopFromCommandOutput) {
             rules::style::loop_from_command_output::loop_from_command_output(self);

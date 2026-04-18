@@ -1,5 +1,5 @@
 legacy_code: SH-128
-legacy_name: conditional-assignment-shortcut
+legacy_name: bare-command-name-assignment
 new_category: Style
 new_code: S032
 runtime_kind: ast
@@ -9,8 +9,8 @@ shells:
   - bash
   - dash
   - ksh
-description: Uses a boolean-style assignment shortcut after a command check
-rationale: "Use an explicit `if` block instead of hiding the assignment behind `||`."
+description: Assigns a bare command-like word as a value without quotes.
+rationale: Quote the literal text if you mean a command name, or use `$(...)` if you meant to capture command output.
 source:
   shell_checks_rule: rules/SH-128.yaml
   shell_checks_example: examples/128.sh
@@ -19,4 +19,4 @@ examples:
     source: shell-checks/examples/128.sh
     code: |
       #!/bin/sh
-      false || remove=set
+      tool=grep

@@ -594,7 +594,7 @@ declare_rules! {
     ("S018", Category::Style, Severity::Warning, CommandOutputArraySplit),
     ("S021", Category::Style, Severity::Warning, PositionalArgsInString),
     ("S020", Category::Style, Severity::Warning, SingleIterationLoop),
-    ("S032", Category::Style, Severity::Warning, ConditionalAssignmentShortcut),
+    ("S032", Category::Style, Severity::Warning, BareCommandNameAssignment),
     ("S036", Category::Style, Severity::Warning, BareRead),
     ("S037", Category::Style, Severity::Warning, RedundantSpacesInEcho),
     ("S038", Category::Style, Severity::Warning, RedundantReturnStatus),
@@ -791,7 +791,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-350" => Some(Rule::MixedQuoteWord),
         "SH-071" => Some(Rule::GrepOutputInTest),
         "SH-076" => Some(Rule::SingleIterationLoop),
-        "SH-128" => Some(Rule::ConditionalAssignmentShortcut),
+        "SH-128" => Some(Rule::BareCommandNameAssignment),
         "SH-041" => Some(Rule::FindOutputToXargs),
         "SH-042" => Some(Rule::TrapStringExpansion),
         "SH-043" => Some(Rule::QuotedBashRegex),
@@ -1041,13 +1041,10 @@ mod tests {
         assert_eq!(code_to_rule("SH-077"), Some(Rule::PositionalArgsInString));
         assert_eq!(code_to_rule("S020"), Some(Rule::SingleIterationLoop));
         assert_eq!(code_to_rule("SH-076"), Some(Rule::SingleIterationLoop));
-        assert_eq!(
-            code_to_rule("S032"),
-            Some(Rule::ConditionalAssignmentShortcut)
-        );
+        assert_eq!(code_to_rule("S032"), Some(Rule::BareCommandNameAssignment));
         assert_eq!(
             code_to_rule("SH-128"),
-            Some(Rule::ConditionalAssignmentShortcut)
+            Some(Rule::BareCommandNameAssignment)
         );
         assert_eq!(code_to_rule("SH-064"), Some(Rule::GrepCountPipeline));
         assert_eq!(code_to_rule("SH-137"), Some(Rule::SingleTestSubshell));

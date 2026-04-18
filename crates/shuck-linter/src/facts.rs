@@ -2559,6 +2559,7 @@ pub struct LinterFacts<'a> {
     condition_command_substitution_spans: Vec<Span>,
     backtick_command_name_spans: Vec<Span>,
     dollar_question_after_command_spans: Vec<Span>,
+    bare_command_name_assignment_spans: Vec<Span>,
     subshell_assignment_sites: Vec<NamedSpan>,
     subshell_later_use_sites: Vec<NamedSpan>,
     unused_heredoc_spans: Vec<Span>,
@@ -2908,6 +2909,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn dollar_question_after_command_spans(&self) -> &[Span] {
         &self.dollar_question_after_command_spans
+    }
+
+    pub fn bare_command_name_assignment_spans(&self) -> &[Span] {
+        &self.bare_command_name_assignment_spans
     }
 
     pub fn subshell_assignment_sites(&self) -> &[NamedSpan] {
@@ -3509,6 +3514,8 @@ impl<'a> LinterFactsBuilder<'a> {
             &word_index,
             self.source,
         );
+        let bare_command_name_assignment_spans =
+            build_bare_command_name_assignment_spans(&commands, &words, &word_index, self.source);
         let unquoted_command_argument_use_offsets =
             build_unquoted_command_argument_use_offsets(self.semantic, &words);
 
@@ -3559,6 +3566,7 @@ impl<'a> LinterFactsBuilder<'a> {
             condition_command_substitution_spans,
             backtick_command_name_spans,
             dollar_question_after_command_spans,
+            bare_command_name_assignment_spans,
             subshell_assignment_sites: nonpersistent_assignment_spans.subshell_assignment_sites,
             subshell_later_use_sites: nonpersistent_assignment_spans.subshell_later_use_sites,
             unused_heredoc_spans: heredoc_summary.unused_heredoc_spans,
@@ -3794,6 +3802,230 @@ fn word_fact_is_pure_quoted_dynamic(fact: &WordFact<'_>, source: &str) -> bool {
         || !span::word_quoted_all_elements_array_slice_spans(fact.word()).is_empty()
         || word_fact_is_double_quoted_command_substitution_only(fact, source)
         || word_fact_is_backtick_escaped_double_quoted_dynamic(fact, source)
+}
+
+fn build_bare_command_name_assignment_spans<'a>(
+    commands: &[CommandFact<'a>],
+    words: &[WordFact<'a>],
+    word_index: &FxHashMap<FactSpan, Vec<usize>>,
+    source: &str,
+) -> Vec<Span> {
+    commands
+        .iter()
+        .filter_map(|command| bare_command_name_assignment_span(command, words, word_index, source))
+        .collect()
+}
+
+fn bare_command_name_assignment_span<'a>(
+    command: &CommandFact<'a>,
+    words: &[WordFact<'a>],
+    word_index: &FxHashMap<FactSpan, Vec<usize>>,
+    source: &str,
+) -> Option<Span> {
+    let (assignment, anchor_full_command) = match command.command() {
+        Command::Simple(simple) if simple.assignments.len() == 1 => (
+            &simple.assignments[0],
+            !simple.name.span.slice(source).is_empty(),
+        ),
+        Command::Builtin(BuiltinCommand::Break(builtin)) if builtin.assignments.len() == 1 => {
+            (&builtin.assignments[0], true)
+        }
+        Command::Builtin(BuiltinCommand::Continue(builtin)) if builtin.assignments.len() == 1 => {
+            (&builtin.assignments[0], true)
+        }
+        Command::Builtin(BuiltinCommand::Return(builtin)) if builtin.assignments.len() == 1 => {
+            (&builtin.assignments[0], true)
+        }
+        Command::Builtin(BuiltinCommand::Exit(builtin)) if builtin.assignments.len() == 1 => {
+            (&builtin.assignments[0], true)
+        }
+        Command::Simple(_)
+        | Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => return None,
+    };
+
+    let AssignmentValue::Scalar(word) = &assignment.value else {
+        return None;
+    };
+    let fact = word_fact_with_context(
+        words,
+        word_index,
+        word.span,
+        WordFactContext::Expansion(ExpansionContext::AssignmentValue),
+    )?;
+    if fact.classification().quote != WordQuote::Unquoted
+        || !fact.classification().is_fixed_literal()
+    {
+        return None;
+    }
+
+    let text = fact.static_text()?;
+    if !is_bare_command_name_assignment_value(text) {
+        return None;
+    }
+
+    Some(if anchor_full_command {
+        anchored_assignment_command_span(command, assignment, source)
+    } else {
+        assignment_target_span(assignment)
+    })
+}
+
+fn anchored_assignment_command_span(
+    command: &CommandFact<'_>,
+    assignment: &Assignment,
+    source: &str,
+) -> Span {
+    match command.command() {
+        Command::Builtin(_) => return command.span_in_source(source),
+        Command::Simple(simple) => {
+            let end = simple
+                .args
+                .last()
+                .map(|word| word.span.end)
+                .unwrap_or(simple.name.span.end);
+
+            return Span {
+                start: assignment.span.start,
+                end,
+            };
+        }
+        Command::Decl(_)
+        | Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => {}
+    }
+
+    Span {
+        start: assignment.span.start,
+        end: assignment.span.end,
+    }
+}
+
+fn assignment_target_span(assignment: &Assignment) -> Span {
+    assignment.target.subscript.as_ref().map_or_else(
+        || assignment.target.name_span,
+        |subscript| {
+            Span::from_positions(
+                assignment.target.name_span.start,
+                subscript.span().end.advanced_by("]"),
+            )
+        },
+    )
+}
+
+fn is_bare_command_name_assignment_value(text: &str) -> bool {
+    matches!(
+        text,
+        "admin"
+            | "alias"
+            | "awk"
+            | "basename"
+            | "bg"
+            | "break"
+            | "c99"
+            | "cat"
+            | "cd"
+            | "cflow"
+            | "chmod"
+            | "chown"
+            | "cksum"
+            | "cmp"
+            | "comm"
+            | "command"
+            | "compress"
+            | "continue"
+            | "cp"
+            | "csplit"
+            | "ctags"
+            | "cut"
+            | "cxref"
+            | "date"
+            | "dd"
+            | "delta"
+            | "df"
+            | "dirname"
+            | "du"
+            | "echo"
+            | "env"
+            | "eval"
+            | "ex"
+            | "exec"
+            | "exit"
+            | "expand"
+            | "export"
+            | "expr"
+            | "file"
+            | "fg"
+            | "find"
+            | "fold"
+            | "getopts"
+            | "grep"
+            | "hash"
+            | "head"
+            | "jobs"
+            | "join"
+            | "kill"
+            | "link"
+            | "ln"
+            | "ls"
+            | "m4"
+            | "make"
+            | "mkdir"
+            | "mkfifo"
+            | "more"
+            | "mv"
+            | "nm"
+            | "nice"
+            | "nl"
+            | "nohup"
+            | "od"
+            | "paste"
+            | "patch"
+            | "pathchk"
+            | "pax"
+            | "printf"
+            | "pwd"
+            | "read"
+            | "readonly"
+            | "renice"
+            | "return"
+            | "rm"
+            | "rmdir"
+            | "sed"
+            | "set"
+            | "shift"
+            | "sh"
+            | "sleep"
+            | "sort"
+            | "split"
+            | "strings"
+            | "tail"
+            | "test"
+            | "time"
+            | "touch"
+            | "tr"
+            | "trap"
+            | "tty"
+            | "type"
+            | "ulimit"
+            | "umask"
+            | "unalias"
+            | "uname"
+            | "unexpand"
+            | "uniq"
+            | "unlink"
+            | "unset"
+            | "wait"
+            | "wc"
+            | "xargs"
+            | "zcat"
+    )
 }
 
 fn word_fact_is_double_quoted_command_substitution_only(fact: &WordFact<'_>, source: &str) -> bool {
@@ -19172,6 +19404,40 @@ test
             );
             assert_eq!(commands[2].glued_closing_bracket_operand_span(), None);
             assert_eq!(commands[3].glued_closing_bracket_operand_span(), None);
+        });
+    }
+
+    #[test]
+    fn collects_bare_command_name_assignment_spans() {
+        let source = "\
+#!/bin/sh
+tool=grep
+paths[$path]=set
+tool=sh printf '%s\\n' hi
+pager=cat \"$1\" -u perl
+tool=\"grep\"
+tool=git
+tool=grep other=set printf '%s\\n' hi
+f() {
+  state=sh return 0
+}
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .bare_command_name_assignment_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec![
+                    "tool",
+                    "paths[$path]",
+                    "tool=sh printf '%s\\n' hi",
+                    "pager=cat \"$1\" -u perl",
+                    "state=sh return 0",
+                ]
+            );
         });
     }
 

@@ -4,12 +4,12 @@ pub mod array_index_arithmetic;
 pub mod avoid_let_builtin;
 pub mod backslash_before_command;
 pub mod backtick_output_to_command;
+pub mod bare_command_name_assignment;
 pub mod bare_read;
 pub mod combine_appends;
 pub mod command_output_array_split;
 pub mod command_substitution_in_alias;
 pub mod compound_test_operator;
-pub mod conditional_assignment_shortcut;
 pub mod default_value_in_colon_assign;
 pub mod deprecated_tempfile_command;
 pub mod dollar_in_arithmetic;
@@ -122,7 +122,7 @@ mod tests {
     #[test_case(Rule::CommandOutputArraySplit, Path::new("S018.sh"))]
     #[test_case(Rule::PositionalArgsInString, Path::new("S021.sh"))]
     #[test_case(Rule::SingleIterationLoop, Path::new("S020.sh"))]
-    #[test_case(Rule::ConditionalAssignmentShortcut, Path::new("S032.sh"))]
+    #[test_case(Rule::BareCommandNameAssignment, Path::new("S032.sh"))]
     #[test_case(Rule::BareRead, Path::new("S036.sh"))]
     #[test_case(Rule::RedundantSpacesInEcho, Path::new("S037.sh"))]
     #[test_case(Rule::RedundantReturnStatus, Path::new("S038.sh"))]
