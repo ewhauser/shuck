@@ -2314,8 +2314,7 @@ impl<'a> CommandOptionFacts<'a> {
                 }
             }),
             nonportable_sh_builtin_option_span: first_nonportable_sh_builtin_option_span(
-                normalized,
-                source,
+                normalized, source,
             ),
             file_operand_words: same_command_file_operand_words(
                 normalized.effective_or_literal_name(),
@@ -13655,16 +13654,20 @@ fn first_nonportable_sh_builtin_option_span(
             source,
             ShBuiltinOptionPolicy::AllowOnly("r"),
         ),
-        "export" => normalized.declaration.as_ref().and_then(|declaration| {
-            matches!(declaration.kind, command::DeclarationKind::Export).then(|| ())
-        }).and_then(|_| {
-            let operands = normalized
-                .declaration
-                .as_ref()
-                .expect("checked export declaration")
-                .operands;
-            first_nonportable_sh_export_option_span(operands, source)
-        }),
+        "export" => normalized
+            .declaration
+            .as_ref()
+            .and_then(|declaration| {
+                matches!(declaration.kind, command::DeclarationKind::Export).then(|| ())
+            })
+            .and_then(|_| {
+                let operands = normalized
+                    .declaration
+                    .as_ref()
+                    .expect("checked export declaration")
+                    .operands;
+                first_nonportable_sh_export_option_span(operands, source)
+            }),
         "ulimit" => first_nonportable_sh_option_span_in_words(
             normalized.body_args(),
             source,
@@ -13679,16 +13682,11 @@ fn first_nonportable_sh_builtin_option_span(
     }
 }
 
-fn first_nonportable_sh_export_option_span(
-    operands: &[DeclOperand],
-    source: &str,
-) -> Option<Span> {
+fn first_nonportable_sh_export_option_span(operands: &[DeclOperand], source: &str) -> Option<Span> {
     for operand in operands {
         match operand {
             DeclOperand::Flag(word) => {
-                let Some(text) = static_word_text(word, source) else {
-                    return None;
-                };
+                let text = static_word_text(word, source)?;
 
                 if text == "--" {
                     return None;
@@ -13756,9 +13754,9 @@ fn sh_builtin_option_word_is_portable(text: &str, policy: ShBuiltinOptionPolicy)
 
     match policy {
         ShBuiltinOptionPolicy::Any => false,
-        ShBuiltinOptionPolicy::AllowOnly(allowed_flags) => flags
-            .chars()
-            .all(|flag| allowed_flags.contains(flag)),
+        ShBuiltinOptionPolicy::AllowOnly(allowed_flags) => {
+            flags.chars().all(|flag| allowed_flags.contains(flag))
+        }
     }
 }
 
@@ -17475,7 +17473,17 @@ type -P printf
 
                 assert_eq!(
                     spans,
-                    vec!["-p", "-\"$mode\"", "-v", "-fn", "-p", "-n", "-p", "-n", "-P"]
+                    vec![
+                        "-p",
+                        "-\"$mode\"",
+                        "-v",
+                        "-fn",
+                        "-p",
+                        "-n",
+                        "-p",
+                        "-n",
+                        "-P"
+                    ]
                 );
             },
         );
