@@ -3,7 +3,7 @@ legacy_name: string-compared-with-eq
 new_category: Correctness
 new_code: C121
 runtime_kind: ast
-shellcheck_code: SC2170
+shellcheck_code: SC2309
 shells:
   - sh
   - bash

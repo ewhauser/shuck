@@ -3,7 +3,7 @@ legacy_name: wait-option
 new_category: Portability
 new_code: X022
 runtime_kind: ast
-shellcheck_code: SC3048
+shellcheck_code: SC3045
 shells:
   - sh
   - dash

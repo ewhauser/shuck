@@ -3,7 +3,7 @@ legacy_name: ampersand-redirect-in-sh
 new_category: Portability
 new_code: X063
 runtime_kind: ast
-shellcheck_code: SC3070
+shellcheck_code: SC3021
 shells:
   - sh
   - dash

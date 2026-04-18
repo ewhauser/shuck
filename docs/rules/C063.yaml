@@ -3,7 +3,7 @@ legacy_name: overwritten-function
 new_category: Correctness
 new_code: C063
 runtime_kind: ast
-shellcheck_code: SC2266
+shellcheck_code: SC2329
 shells:
   - sh
   - bash

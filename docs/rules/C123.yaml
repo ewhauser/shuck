@@ -3,7 +3,7 @@ legacy_name: function-references-unset-param
 new_category: Correctness
 new_code: C123
 runtime_kind: ast
-shellcheck_code: SC2364
+shellcheck_code: SC2119
 shells:
   - sh
   - bash

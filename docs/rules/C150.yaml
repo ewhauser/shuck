@@ -3,7 +3,7 @@ legacy_name: subshell-local-assignment
 new_category: Correctness
 new_code: C150
 runtime_kind: ast
-shellcheck_code: SC2031
+shellcheck_code: SC2030
 shells:
   - sh
   - bash

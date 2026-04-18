@@ -3,7 +3,7 @@ legacy_name: escaped-negation-in-test
 new_category: Correctness
 new_code: C082
 runtime_kind: ast
-shellcheck_code: SC2302
+shellcheck_code: SC2057
 shells:
   - sh
   - bash

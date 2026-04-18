@@ -3,7 +3,7 @@ legacy_name: ls-piped-to-xargs
 new_category: Style
 new_code: S046
 runtime_kind: ast
-shellcheck_code: SC2293
+shellcheck_code: SC2011
 shells:
   - sh
   - bash

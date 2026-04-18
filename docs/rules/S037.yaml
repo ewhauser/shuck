@@ -3,7 +3,7 @@ legacy_name: redundant-spaces-in-echo
 new_category: Style
 new_code: S037
 runtime_kind: ast
-shellcheck_code: SC2263
+shellcheck_code: SC2291
 shells:
   - sh
   - bash

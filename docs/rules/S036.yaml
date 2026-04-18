@@ -3,7 +3,7 @@ legacy_name: bare-read
 new_category: Style
 new_code: S036
 runtime_kind: ast
-shellcheck_code: SC2258
+shellcheck_code: SC3061
 shells:
   - sh
   - dash
