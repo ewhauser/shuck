@@ -623,7 +623,7 @@ declare_rules! {
     ("S068", Category::Style, Severity::Warning, TrapSignalNumbers),
     ("S069", Category::Style, Severity::Hint, SingleLetterCaseLabel),
     ("S070", Category::Style, Severity::Warning, DoubleQuoteNesting),
-    ("S071", Category::Style, Severity::Warning, EnvPrefixQuoting),
+    ("S071", Category::Style, Severity::Warning, EnvPrefixCommandOnly),
     ("S076", Category::Style, Severity::Warning, MixedQuoteWord),
     ("S049", Category::Style, Severity::Warning, UnquotedTrRange),
     ("S046", Category::Style, Severity::Warning, LsPipedToXargs),
@@ -789,7 +789,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-255" => Some(Rule::XargsWithInlineReplace),
         "SH-256" => Some(Rule::XPrefixInTest),
         "SH-306" => Some(Rule::DoubleQuoteNesting),
-        "SH-309" => Some(Rule::EnvPrefixQuoting),
+        "SH-309" => Some(Rule::EnvPrefixCommandOnly),
         "SH-350" => Some(Rule::MixedQuoteWord),
         "SH-071" => Some(Rule::GrepOutputInTest),
         "SH-076" => Some(Rule::SingleIterationLoop),
@@ -1035,8 +1035,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-297"), Some(Rule::TrapSignalNumbers));
         assert_eq!(code_to_rule("S069"), Some(Rule::SingleLetterCaseLabel));
         assert_eq!(code_to_rule("SH-300"), Some(Rule::SingleLetterCaseLabel));
-        assert_eq!(code_to_rule("S071"), Some(Rule::EnvPrefixQuoting));
-        assert_eq!(code_to_rule("SH-309"), Some(Rule::EnvPrefixQuoting));
+        assert_eq!(code_to_rule("S071"), Some(Rule::EnvPrefixCommandOnly));
+        assert_eq!(code_to_rule("SH-309"), Some(Rule::EnvPrefixCommandOnly));
         assert_eq!(code_to_rule("S076"), Some(Rule::MixedQuoteWord));
         assert_eq!(code_to_rule("SH-350"), Some(Rule::MixedQuoteWord));
         assert_eq!(code_to_rule("S021"), Some(Rule::PositionalArgsInString));

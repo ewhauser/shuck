@@ -761,6 +761,7 @@ pub struct WordFact<'a> {
     operand_class: Option<TestOperandClass>,
     static_text: Option<Box<str>>,
     has_literal_affixes: bool,
+    contains_shell_quoting_literals: bool,
     scalar_expansion_spans: Box<[Span]>,
     unquoted_scalar_expansion_spans: Box<[Span]>,
     array_expansion_spans: Box<[Span]>,
@@ -842,6 +843,10 @@ impl<'a> WordFact<'a> {
 
     pub fn has_literal_affixes(&self) -> bool {
         self.has_literal_affixes
+    }
+
+    pub fn contains_shell_quoting_literals(&self) -> bool {
+        self.contains_shell_quoting_literals
     }
 
     pub fn scalar_expansion_spans(&self) -> &[Span] {
@@ -1834,6 +1839,7 @@ impl DirectoryChangeCommandKind {
 pub struct DirectoryChangeCommandFacts {
     kind: DirectoryChangeCommandKind,
     plain_directory_stack_marker: bool,
+    manual_restore_candidate: bool,
 }
 
 impl DirectoryChangeCommandFacts {
@@ -1847,6 +1853,10 @@ impl DirectoryChangeCommandFacts {
 
     pub fn is_plain_directory_stack_marker(&self) -> bool {
         self.plain_directory_stack_marker
+    }
+
+    pub fn is_manual_restore_candidate(&self) -> bool {
+        self.manual_restore_candidate
     }
 }
 
@@ -2284,6 +2294,7 @@ pub struct LinterFacts<'a> {
     broken_assoc_key_spans: Vec<Span>,
     comma_array_assignment_spans: Vec<Span>,
     ifs_literal_backslash_assignment_value_spans: Vec<Span>,
+    env_prefix_assignment_scope_spans: Vec<Span>,
     presence_tested_names: FxHashSet<Name>,
     nested_presence_test_spans: FxHashMap<Name, Vec<Span>>,
     subscript_index_reference_spans: FxHashSet<FactSpan>,
@@ -2469,6 +2480,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn ifs_literal_backslash_assignment_value_spans(&self) -> &[Span] {
         &self.ifs_literal_backslash_assignment_value_spans
+    }
+
+    pub fn env_prefix_assignment_scope_spans(&self) -> &[Span] {
+        &self.env_prefix_assignment_scope_spans
     }
 
     pub fn is_if_condition_command(&self, id: CommandId) -> bool {
@@ -3250,6 +3265,8 @@ impl<'a> LinterFactsBuilder<'a> {
             &nested_pattern_charclass_spans,
             self.source,
         );
+        let env_prefix_assignment_scope_spans =
+            build_env_prefix_assignment_scope_spans(self.semantic, self.source, &commands);
         let mut word_index = FxHashMap::<FactSpan, Vec<usize>>::default();
         for (index, fact) in words.iter().enumerate() {
             word_index.entry(fact.key()).or_default().push(index);
@@ -3268,6 +3285,7 @@ impl<'a> LinterFactsBuilder<'a> {
             broken_assoc_key_spans,
             comma_array_assignment_spans,
             ifs_literal_backslash_assignment_value_spans,
+            env_prefix_assignment_scope_spans,
             presence_tested_names: presence_tested_names.global_names,
             nested_presence_test_spans: presence_tested_names.nested_command_spans_by_name,
             subscript_index_reference_spans,
@@ -3420,6 +3438,533 @@ fn build_unquoted_command_argument_use_offsets(
     }
 
     offsets_by_name
+}
+
+fn build_env_prefix_assignment_scope_spans(
+    _semantic: &SemanticModel,
+    source: &str,
+    commands: &[CommandFact<'_>],
+) -> Vec<Span> {
+    let mut spans = Vec::new();
+    let mut seen = FxHashSet::default();
+    for command in commands {
+        if command_is_assignment_only(command, source) {
+            continue;
+        }
+
+        let assignments = query::command_assignments(command.command());
+        let broken_legacy_bracket_tail = match command.command() {
+            Command::Simple(simple) => broken_legacy_bracket_tail(simple, source),
+            Command::Builtin(_)
+            | Command::Decl(_)
+            | Command::Binary(_)
+            | Command::Compound(_)
+            | Command::Function(_)
+            | Command::AnonymousFunction(_) => None,
+        };
+        for (index, assignment) in assignments.iter().enumerate() {
+            let span_key = FactSpan::new(assignment.target.name_span);
+            if seen.contains(&span_key) {
+                continue;
+            }
+
+            let identity_self_copy = assignment_is_identity_self_copy(assignment);
+            let earlier_prefix_uses_name = assignments.iter().take(index).any(|other| {
+                assignment_mentions_name_outside_nested_commands(other, &assignment.target.name)
+            });
+            let later_prefix_uses_name =
+                assignments
+                    .iter()
+                    .enumerate()
+                    .skip(index + 1)
+                    .any(|(other_index, other)| {
+                        assignment_mentions_name_outside_nested_commands(
+                            other,
+                            &assignment.target.name,
+                        ) || match (command.command(), broken_legacy_bracket_tail) {
+                            (Command::Simple(simple), Some(tail))
+                                if tail.assignment_index == other_index =>
+                            {
+                                broken_legacy_bracket_tail_mentions_name(
+                                    simple,
+                                    tail,
+                                    &assignment.target.name,
+                                )
+                            }
+                            (
+                                Command::Builtin(_)
+                                | Command::Decl(_)
+                                | Command::Binary(_)
+                                | Command::Compound(_)
+                                | Command::Function(_)
+                                | Command::AnonymousFunction(_),
+                                _,
+                            )
+                            | (Command::Simple(_), _) => false,
+                        }
+                    });
+            let body_uses_name = command_body_mentions_name_outside_nested_commands(
+                command,
+                source,
+                &assignment.target.name,
+            );
+
+            if earlier_prefix_uses_name
+                || later_prefix_uses_name
+                || (body_uses_name && !identity_self_copy)
+            {
+                seen.insert(span_key);
+                spans.push(assignment.target.name_span);
+            }
+        }
+    }
+
+    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    spans
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BrokenLegacyBracketTail {
+    assignment_index: usize,
+    synthetic_word_count: usize,
+}
+
+fn command_is_assignment_only(fact: &CommandFact<'_>, source: &str) -> bool {
+    match fact.command() {
+        Command::Simple(command) if !command.assignments.is_empty() => {
+            fact.literal_name() == Some("")
+                || broken_legacy_bracket_tail(command, source)
+                    .is_some_and(|tail| tail.synthetic_word_count == command.args.len() + 1)
+        }
+        Command::Simple(_)
+        | Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => false,
+    }
+}
+
+fn broken_legacy_bracket_tail(
+    command: &SimpleCommand,
+    source: &str,
+) -> Option<BrokenLegacyBracketTail> {
+    let assignment_index = command.assignments.len().checked_sub(1)?;
+    if !assignment_is_broken_legacy_bracket_arithmetic(&command.assignments[assignment_index]) {
+        return None;
+    }
+
+    let synthetic_word_count = std::iter::once(&command.name)
+        .chain(command.args.iter())
+        .position(|word| static_word_text(word, source).as_deref() == Some("]"))?
+        + 1;
+
+    Some(BrokenLegacyBracketTail {
+        assignment_index,
+        synthetic_word_count,
+    })
+}
+
+fn assignment_is_broken_legacy_bracket_arithmetic(assignment: &Assignment) -> bool {
+    let AssignmentValue::Scalar(word) = &assignment.value else {
+        return false;
+    };
+    let [part] = word.parts.as_slice() else {
+        return false;
+    };
+    matches!(
+        &part.kind,
+        WordPart::ArithmeticExpansion {
+            syntax: ArithmeticExpansionSyntax::LegacyBracket,
+            expression_ast: None,
+            ..
+        }
+    )
+}
+
+fn assignment_mentions_name_outside_nested_commands(assignment: &Assignment, name: &Name) -> bool {
+    subscript_mentions_name(assignment.target.subscript.as_ref(), name)
+        || match &assignment.value {
+            AssignmentValue::Scalar(word) => word_mentions_name_outside_nested_commands(word, name),
+            AssignmentValue::Compound(array) => {
+                array.elements.iter().any(|element| match element {
+                    ArrayElem::Sequential(word) => {
+                        word_mentions_name_outside_nested_commands(word, name)
+                    }
+                    ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
+                        subscript_mentions_name(Some(key), name)
+                            || word_mentions_name_outside_nested_commands(value, name)
+                    }
+                })
+            }
+        }
+}
+
+fn command_body_mentions_name_outside_nested_commands(
+    fact: &CommandFact<'_>,
+    source: &str,
+    name: &Name,
+) -> bool {
+    let redirects_mention_name = fact
+        .redirects()
+        .iter()
+        .filter_map(Redirect::word_target)
+        .any(|word| word_mentions_name_outside_nested_commands(word, name));
+
+    match fact.command() {
+        Command::Simple(command) => {
+            simple_command_body_words(command, source)
+                .any(|word| word_mentions_name_outside_nested_commands(word, name))
+                || redirects_mention_name
+        }
+        Command::Builtin(command) => {
+            builtin_words(command)
+                .into_iter()
+                .any(|word| word_mentions_name_outside_nested_commands(word, name))
+                || redirects_mention_name
+        }
+        Command::Decl(command) => {
+            command.operands.iter().any(|operand| match operand {
+                DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
+                    word_mentions_name_outside_nested_commands(word, name)
+                }
+                DeclOperand::Assignment(assignment) => {
+                    assignment_mentions_name_outside_nested_commands(assignment, name)
+                }
+                DeclOperand::Name(_) => false,
+            }) || redirects_mention_name
+        }
+        Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => false,
+    }
+}
+
+fn simple_command_body_words<'a>(
+    command: &'a SimpleCommand,
+    source: &'a str,
+) -> impl Iterator<Item = &'a Word> {
+    let skip =
+        broken_legacy_bracket_tail(command, source).map_or(0, |tail| tail.synthetic_word_count);
+    std::iter::once(&command.name)
+        .chain(command.args.iter())
+        .skip(skip)
+}
+
+fn broken_legacy_bracket_tail_mentions_name(
+    command: &SimpleCommand,
+    tail: BrokenLegacyBracketTail,
+    name: &Name,
+) -> bool {
+    std::iter::once(&command.name)
+        .chain(command.args.iter())
+        .take(tail.synthetic_word_count.saturating_sub(1))
+        .any(|word| word_mentions_name_outside_nested_commands(word, name))
+}
+
+fn builtin_words(command: &BuiltinCommand) -> Vec<&Word> {
+    let mut words = Vec::new();
+    match command {
+        BuiltinCommand::Break(command) => {
+            if let Some(word) = &command.depth {
+                words.push(word);
+            }
+            words.extend(command.extra_args.iter());
+        }
+        BuiltinCommand::Continue(command) => {
+            if let Some(word) = &command.depth {
+                words.push(word);
+            }
+            words.extend(command.extra_args.iter());
+        }
+        BuiltinCommand::Return(command) => {
+            if let Some(word) = &command.code {
+                words.push(word);
+            }
+            words.extend(command.extra_args.iter());
+        }
+        BuiltinCommand::Exit(command) => {
+            if let Some(word) = &command.code {
+                words.push(word);
+            }
+            words.extend(command.extra_args.iter());
+        }
+    }
+    words
+}
+
+fn assignment_is_identity_self_copy(assignment: &Assignment) -> bool {
+    if assignment.append {
+        return false;
+    }
+
+    let AssignmentValue::Scalar(word) = &assignment.value else {
+        return false;
+    };
+    word_is_identity_self_copy(word, &assignment.target.name)
+}
+
+fn word_is_identity_self_copy(word: &Word, name: &Name) -> bool {
+    let [part] = word.parts.as_slice() else {
+        return false;
+    };
+    word_part_is_identity_self_copy(&part.kind, name)
+}
+
+fn word_part_is_identity_self_copy(part: &WordPart, name: &Name) -> bool {
+    match part {
+        WordPart::Variable(variable) => variable == name,
+        WordPart::DoubleQuoted { parts, .. } => {
+            let [part] = parts.as_slice() else {
+                return false;
+            };
+            word_part_is_identity_self_copy(&part.kind, name)
+        }
+        WordPart::Parameter(parameter) => parameter_is_plain_access_to_name(parameter, name),
+        _ => false,
+    }
+}
+
+fn parameter_is_plain_access_to_name(parameter: &ParameterExpansion, name: &Name) -> bool {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
+            if reference.subscript.is_none() =>
+        {
+            &reference.name == name
+        }
+        ParameterExpansionSyntax::Zsh(syntax)
+            if syntax.operation.is_none()
+                && matches!(&syntax.target, ZshExpansionTarget::Reference(reference) if reference.subscript.is_none() && &reference.name == name) =>
+        {
+            true
+        }
+        _ => false,
+    }
+}
+
+fn subscript_mentions_name(subscript: Option<&Subscript>, name: &Name) -> bool {
+    let Some(subscript) = subscript else {
+        return false;
+    };
+
+    subscript
+        .word_ast
+        .as_ref()
+        .is_some_and(|word| word_mentions_name_outside_nested_commands(word, name))
+        || subscript
+            .arithmetic_ast
+            .as_ref()
+            .is_some_and(|expr| arithmetic_mentions_name_outside_nested_commands(expr, name))
+}
+
+fn word_mentions_name_outside_nested_commands(word: &Word, name: &Name) -> bool {
+    word.parts
+        .iter()
+        .any(|part| word_part_mentions_name_outside_nested_commands(&part.kind, name))
+}
+
+fn word_part_mentions_name_outside_nested_commands(part: &WordPart, name: &Name) -> bool {
+    match part {
+        WordPart::Literal(_)
+        | WordPart::ZshQualifiedGlob(_)
+        | WordPart::SingleQuoted { .. }
+        | WordPart::PrefixMatch { .. } => false,
+        WordPart::DoubleQuoted { parts, .. } => parts
+            .iter()
+            .any(|part| word_part_mentions_name_outside_nested_commands(&part.kind, name)),
+        WordPart::Variable(variable) => variable == name,
+        WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => false,
+        WordPart::ArithmeticExpansion {
+            expression_ast,
+            expression_word_ast,
+            ..
+        } => {
+            expression_ast
+                .as_ref()
+                .is_some_and(|expr| arithmetic_mentions_name_outside_nested_commands(expr, name))
+                || word_mentions_name_outside_nested_commands(expression_word_ast, name)
+        }
+        WordPart::Parameter(parameter) => {
+            parameter_mentions_name_outside_nested_commands(parameter, name)
+        }
+        WordPart::ParameterExpansion {
+            reference,
+            operand_word_ast,
+            ..
+        } => {
+            var_ref_mentions_name_outside_nested_commands(reference, name)
+                || operand_word_ast
+                    .as_ref()
+                    .is_some_and(|word| word_mentions_name_outside_nested_commands(word, name))
+        }
+        WordPart::Length(reference)
+        | WordPart::ArrayAccess(reference)
+        | WordPart::ArrayLength(reference)
+        | WordPart::ArrayIndices(reference)
+        | WordPart::Transformation { reference, .. } => {
+            var_ref_mentions_name_outside_nested_commands(reference, name)
+        }
+        WordPart::Substring {
+            reference,
+            offset_ast,
+            offset_word_ast,
+            length_ast,
+            length_word_ast,
+            ..
+        }
+        | WordPart::ArraySlice {
+            reference,
+            offset_ast,
+            offset_word_ast,
+            length_ast,
+            length_word_ast,
+            ..
+        } => {
+            var_ref_mentions_name_outside_nested_commands(reference, name)
+                || offset_ast.as_ref().is_some_and(|expr| {
+                    arithmetic_mentions_name_outside_nested_commands(expr, name)
+                })
+                || word_mentions_name_outside_nested_commands(offset_word_ast, name)
+                || length_ast.as_ref().is_some_and(|expr| {
+                    arithmetic_mentions_name_outside_nested_commands(expr, name)
+                })
+                || length_word_ast
+                    .as_ref()
+                    .is_some_and(|word| word_mentions_name_outside_nested_commands(word, name))
+        }
+        WordPart::IndirectExpansion {
+            reference,
+            operand_word_ast,
+            ..
+        } => {
+            var_ref_mentions_name_outside_nested_commands(reference, name)
+                || operand_word_ast
+                    .as_ref()
+                    .is_some_and(|word| word_mentions_name_outside_nested_commands(word, name))
+        }
+    }
+}
+
+fn parameter_mentions_name_outside_nested_commands(
+    parameter: &ParameterExpansion,
+    name: &Name,
+) -> bool {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+            BourneParameterExpansion::Access { reference }
+            | BourneParameterExpansion::Length { reference }
+            | BourneParameterExpansion::Indices { reference }
+            | BourneParameterExpansion::Transformation { reference, .. } => {
+                var_ref_mentions_name_outside_nested_commands(reference, name)
+            }
+            BourneParameterExpansion::Indirect {
+                reference,
+                operand_word_ast,
+                ..
+            }
+            | BourneParameterExpansion::Operation {
+                reference,
+                operand_word_ast,
+                ..
+            } => {
+                var_ref_mentions_name_outside_nested_commands(reference, name)
+                    || operand_word_ast
+                        .as_ref()
+                        .is_some_and(|word| word_mentions_name_outside_nested_commands(word, name))
+            }
+            BourneParameterExpansion::Slice {
+                reference,
+                offset_ast,
+                length_ast,
+                ..
+            } => {
+                var_ref_mentions_name_outside_nested_commands(reference, name)
+                    || offset_ast.as_ref().is_some_and(|expr| {
+                        arithmetic_mentions_name_outside_nested_commands(expr, name)
+                    })
+                    || length_ast.as_ref().is_some_and(|expr| {
+                        arithmetic_mentions_name_outside_nested_commands(expr, name)
+                    })
+            }
+            BourneParameterExpansion::PrefixMatch { .. } => false,
+        },
+        ParameterExpansionSyntax::Zsh(syntax) => {
+            zsh_target_mentions_name_outside_nested_commands(&syntax.target, name)
+        }
+    }
+}
+
+fn zsh_target_mentions_name_outside_nested_commands(
+    target: &ZshExpansionTarget,
+    name: &Name,
+) -> bool {
+    match target {
+        ZshExpansionTarget::Reference(reference) => {
+            var_ref_mentions_name_outside_nested_commands(reference, name)
+        }
+        ZshExpansionTarget::Nested(parameter) => {
+            parameter_mentions_name_outside_nested_commands(parameter, name)
+        }
+        ZshExpansionTarget::Word(word) => word_mentions_name_outside_nested_commands(word, name),
+        ZshExpansionTarget::Empty => false,
+    }
+}
+
+fn var_ref_mentions_name_outside_nested_commands(reference: &VarRef, name: &Name) -> bool {
+    reference.name == *name || subscript_mentions_name(reference.subscript.as_ref(), name)
+}
+
+fn arithmetic_mentions_name_outside_nested_commands(
+    expression: &ArithmeticExprNode,
+    name: &Name,
+) -> bool {
+    match &expression.kind {
+        ArithmeticExpr::Number(_) => false,
+        ArithmeticExpr::Variable(variable) => variable == name,
+        ArithmeticExpr::Indexed {
+            name: variable,
+            index,
+        } => variable == name || arithmetic_mentions_name_outside_nested_commands(index, name),
+        ArithmeticExpr::ShellWord(word) => word_mentions_name_outside_nested_commands(word, name),
+        ArithmeticExpr::Parenthesized { expression } => {
+            arithmetic_mentions_name_outside_nested_commands(expression, name)
+        }
+        ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
+            arithmetic_mentions_name_outside_nested_commands(expr, name)
+        }
+        ArithmeticExpr::Binary { left, right, .. } => {
+            arithmetic_mentions_name_outside_nested_commands(left, name)
+                || arithmetic_mentions_name_outside_nested_commands(right, name)
+        }
+        ArithmeticExpr::Conditional {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
+            arithmetic_mentions_name_outside_nested_commands(condition, name)
+                || arithmetic_mentions_name_outside_nested_commands(then_expr, name)
+                || arithmetic_mentions_name_outside_nested_commands(else_expr, name)
+        }
+        ArithmeticExpr::Assignment { target, value, .. } => {
+            arithmetic_lvalue_mentions_name_outside_nested_commands(target, name)
+                || arithmetic_mentions_name_outside_nested_commands(value, name)
+        }
+    }
+}
+
+fn arithmetic_lvalue_mentions_name_outside_nested_commands(
+    target: &ArithmeticLvalue,
+    name: &Name,
+) -> bool {
+    match target {
+        ArithmeticLvalue::Variable(variable) => variable == name,
+        ArithmeticLvalue::Indexed {
+            name: variable,
+            index,
+        } => variable == name || arithmetic_mentions_name_outside_nested_commands(index, name),
+    }
 }
 
 fn echo_uses_escape_interpreting_flag(command: &CommandFact<'_>) -> bool {
@@ -8684,6 +9229,10 @@ impl<'a> WordFactCollector<'a> {
             key,
             static_text: static_word_text(word_ref, self.source).map(String::into_boxed_str),
             has_literal_affixes: word_has_literal_affixes(word_ref),
+            contains_shell_quoting_literals: word_contains_shell_quoting_literals(
+                word_ref,
+                self.source,
+            ),
             scalar_expansion_spans: span::scalar_expansion_part_spans(word_ref, self.source)
                 .into_boxed_slice(),
             unquoted_scalar_expansion_spans: span::unquoted_scalar_expansion_part_spans(
@@ -9553,6 +10102,55 @@ fn word_has_literal_affixes(word: &Word) -> bool {
             WordPart::Literal(_) | WordPart::SingleQuoted { .. } | WordPart::DoubleQuoted { .. }
         )
     })
+}
+
+fn word_contains_shell_quoting_literals(word: &Word, source: &str) -> bool {
+    word_parts_contain_shell_quoting_literals(&word.parts, source)
+}
+
+fn word_parts_contain_shell_quoting_literals(parts: &[WordPartNode], source: &str) -> bool {
+    parts.iter().any(|part| match &part.kind {
+        WordPart::Literal(text) => {
+            text_contains_shell_quoting_literals(text.as_str(source, part.span))
+        }
+        WordPart::SingleQuoted { value, .. } => {
+            text_contains_shell_quoting_literals(value.slice(source))
+        }
+        WordPart::DoubleQuoted { parts, .. } => {
+            word_parts_contain_shell_quoting_literals(parts, source)
+        }
+        _ => false,
+    })
+}
+
+fn text_contains_shell_quoting_literals(text: &str) -> bool {
+    if text.contains(['"', '\'']) {
+        return true;
+    }
+
+    let chars = text.chars().collect::<Vec<_>>();
+    let mut index = 0usize;
+    while index < chars.len() {
+        if chars[index] != '\\' {
+            index += 1;
+            continue;
+        }
+
+        let mut end = index + 1;
+        while end < chars.len() && chars[end] == '\\' {
+            end += 1;
+        }
+        if chars
+            .get(end)
+            .is_some_and(|next| next.is_whitespace() || matches!(next, '"' | '\''))
+        {
+            return true;
+        }
+
+        index = end;
+    }
+
+    false
 }
 
 fn is_shell_variable_name(name: &str) -> bool {
@@ -12974,19 +13572,28 @@ fn parse_directory_change_command(
         _ => return None,
     };
 
+    let target = normalized
+        .body_args()
+        .first()
+        .and_then(|word| static_word_text(word, source));
+
     let plain_directory_stack_marker = matches!(
         kind,
         DirectoryChangeCommandKind::Cd | DirectoryChangeCommandKind::Pushd
     ) && normalized.wrappers.is_empty()
-        && normalized
-            .body_args()
-            .first()
-            .and_then(|word| static_word_text(word, source))
+        && target
+            .as_ref()
             .is_some_and(|target| is_directory_stack_marker(target.as_str()));
+
+    let manual_restore_candidate = kind == DirectoryChangeCommandKind::Cd
+        && target
+            .as_ref()
+            .is_some_and(|target| matches!(target.as_str(), ".." | "-"));
 
     Some(DirectoryChangeCommandFacts {
         kind,
         plain_directory_stack_marker,
+        manual_restore_candidate,
     })
 }
 
@@ -15831,7 +16438,7 @@ find . -execdir sh -ec 'mv {} \"$target\"' \\;
 
     #[test]
     fn summarizes_directory_change_commands_and_errexit_hints() {
-        let source = "\n#!/bin/bash -eu\ncd ../..\nbuiltin cd /\npushd ..\npopd\n";
+        let source = "\n#!/bin/bash -eu\ncd ../..\ncd -\nbuiltin cd /\npushd ..\npopd\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -15848,6 +16455,7 @@ find . -execdir sh -ec 'mv {} \"$target\"' \\;
                     (
                         directory_change.command_name(),
                         directory_change.is_plain_directory_stack_marker(),
+                        directory_change.is_manual_restore_candidate(),
                         fact.wrappers().to_vec(),
                     )
                 })
@@ -15857,10 +16465,11 @@ find . -execdir sh -ec 'mv {} \"$target\"' \\;
         assert_eq!(
             directory_changes,
             vec![
-                ("cd", true, vec![]),
-                ("cd", false, vec![WrapperKind::Builtin]),
-                ("pushd", true, vec![]),
-                ("popd", false, vec![])
+                ("cd", true, false, vec![]),
+                ("cd", false, true, vec![]),
+                ("cd", false, false, vec![WrapperKind::Builtin]),
+                ("pushd", true, false, vec![]),
+                ("popd", false, false, vec![])
             ]
         );
     }
@@ -17570,6 +18179,49 @@ case x in *[!a-zA-Z0-9._/+\\-]*) continue ;; esac
 
         assert!(facts.is_subscript_index_reference(idx_reference.span));
         assert!(!facts.is_subscript_index_reference(free_reference.span));
+    }
+
+    #[test]
+    fn tracks_command_prefix_assignments_reused_later_in_the_same_command() {
+        let source = "\
+#!/bin/bash
+CFLAGS=\"${SLKCFLAGS}\" ./configure --with-optmizer=${CFLAGS}
+PATH=/tmp \"$PATH\"/bin/tool
+A=1 B=\"$A\" C=\"$B\" cmd
+foo=\"$foo\" bar=\"$foo\" cmd
+foo=1 export \"$foo\"
+foo=1 bar[$foo]=x cmd
+FOO=tmp cmd >\"$FOO\"
+foo=\"$foo\" cmd
+foo=1 cmd \"$(printf %s \"$foo\")\"
+foo=1 foo=2 cmd
+foo=1 bar=\"$foo\"
+COUNTDOWN=$[ $COUNTDOWN - 1 ]
+COUNTDOWN=$[ $COUNTDOWN - 1 ] echo \"$COUNTDOWN\"
+X=1 A=$[ $X + 1 ] true
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .env_prefix_assignment_scope_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec![
+                    "CFLAGS",
+                    "PATH",
+                    "A",
+                    "B",
+                    "foo",
+                    "foo",
+                    "foo",
+                    "FOO",
+                    "COUNTDOWN",
+                    "X"
+                ]
+            );
+        });
     }
 
     #[test]
