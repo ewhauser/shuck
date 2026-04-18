@@ -86,6 +86,7 @@ pub(crate) struct ExactVariableDataflow {
     unreachable_blocks: DenseBitSet,
     reaching_definitions: OnceLock<DenseReachingDefinitions>,
     initialized_name_states: OnceLock<DenseInitializedNameStates>,
+    scope_components: OnceLock<Vec<ExactScopeComponent>>,
 }
 
 impl ExactVariableDataflow {
@@ -115,6 +116,21 @@ impl ExactVariableDataflow {
                 context.entry_bindings,
             )
         })
+    }
+
+    fn scope_components<'a>(&'a self, context: &DataflowContext<'_>) -> &'a [ExactScopeComponent] {
+        self.scope_components
+            .get_or_init(|| {
+                let reaching_definitions = self.reaching_definitions(context);
+                compute_scope_components_dense(
+                    context.cfg,
+                    context.scopes.len(),
+                    context.cfg.blocks().len(),
+                    context.bindings.len(),
+                    &reaching_definitions.reaching_out,
+                )
+            })
+            .as_slice()
     }
 
     pub(crate) fn reaching_bindings_for_reference(
@@ -191,6 +207,7 @@ pub(crate) fn build_exact_variable_dataflow(
         unreachable_blocks,
         reaching_definitions: OnceLock::new(),
         initialized_name_states: OnceLock::new(),
+        scope_components: OnceLock::new(),
     }
 }
 
@@ -328,13 +345,7 @@ fn analyze_unused_assignments_exact(
                 .expect("synthetic read name interned")
         })
         .collect::<Vec<_>>();
-    let scope_components = compute_scope_components_dense(
-        context.cfg,
-        context.scopes.len(),
-        context.cfg.blocks().len(),
-        context.bindings.len(),
-        &reaching_definitions.reaching_out,
-    );
+    let scope_components = exact.scope_components(context);
     let interprocedural_reads = if context.call_sites.is_empty() {
         None
     } else {
@@ -1379,34 +1390,17 @@ fn block_exits_component(
 }
 
 pub(crate) fn summarize_scope_provided_bindings(
-    cfg: &ControlFlowGraph,
-    scopes: &[Scope],
-    bindings: &[Binding],
-    entry_bindings: &[BindingId],
+    context: &DataflowContext<'_>,
+    exact: &ExactVariableDataflow,
     scope: ScopeId,
 ) -> Vec<ProvidedBinding> {
-    let mut names = NameTable::default();
-    for binding in bindings {
-        names.intern(&binding.name);
-    }
-    let binding_data = build_dense_binding_data(bindings, scopes, &names);
-    let reaching_definitions =
-        compute_reaching_definitions_dense(cfg, bindings, &binding_data, entry_bindings);
-    let initialized_states =
-        compute_initialized_name_states_dense(cfg, bindings, &binding_data, entry_bindings);
-    let scope_components = compute_scope_components_dense(
-        cfg,
-        scopes.len(),
-        cfg.blocks().len(),
-        bindings.len(),
-        &reaching_definitions.reaching_out,
-    );
-    let exit_blocks = exit_blocks_for_scope(cfg, &scope_components, scope);
+    let exit_blocks = exit_blocks_for_scope(context.cfg, exact.scope_components(context), scope);
     if exit_blocks.is_empty() {
         return Vec::new();
     }
 
-    let eligible_names = bindings
+    let eligible_names = context
+        .bindings
         .iter()
         .filter(|binding| {
             binding.scope == scope
@@ -1416,6 +1410,7 @@ pub(crate) fn summarize_scope_provided_bindings(
         .map(|binding| binding.name.clone())
         .collect::<FxHashSet<_>>();
 
+    let initialized_states = exact.initialized_name_states(context);
     let mut maybe_counts = FxHashMap::<Name, usize>::default();
     let mut definite_counts = FxHashMap::<Name, usize>::default();
 
@@ -1424,7 +1419,7 @@ pub(crate) fn summarize_scope_provided_bindings(
         let definite_names = &initialized_states.definite_out[exit_block.index()];
 
         for name in &eligible_names {
-            let Some(name_id) = names.get(name) else {
+            let Some(name_id) = exact.names.get(name) else {
                 continue;
             };
             if maybe_names.contains(name_id.index()) {
@@ -1464,32 +1459,18 @@ pub(crate) fn summarize_scope_provided_bindings(
 }
 
 pub(crate) fn summarize_scope_provided_functions(
-    cfg: &ControlFlowGraph,
-    scopes: &[Scope],
-    bindings: &[Binding],
-    entry_bindings: &[BindingId],
+    context: &DataflowContext<'_>,
+    exact: &ExactVariableDataflow,
     scope: ScopeId,
 ) -> Vec<ProvidedBinding> {
-    let mut names = NameTable::default();
-    for binding in bindings {
-        names.intern(&binding.name);
-    }
-    let binding_data = build_dense_binding_data(bindings, scopes, &names);
-    let reaching_definitions =
-        compute_reaching_definitions_dense(cfg, bindings, &binding_data, entry_bindings);
-    let scope_components = compute_scope_components_dense(
-        cfg,
-        scopes.len(),
-        cfg.blocks().len(),
-        bindings.len(),
-        &reaching_definitions.reaching_out,
-    );
-    let exit_blocks = exit_blocks_for_scope(cfg, &scope_components, scope);
+    let reaching_definitions = exact.reaching_definitions(context);
+    let exit_blocks = exit_blocks_for_scope(context.cfg, exact.scope_components(context), scope);
     if exit_blocks.is_empty() {
         return Vec::new();
     }
 
-    let eligible_names = bindings
+    let eligible_names = context
+        .bindings
         .iter()
         .filter(|binding| binding.scope == scope && function_binding_certainty(binding).is_some())
         .map(|binding| binding.name.clone())
@@ -1502,16 +1483,16 @@ pub(crate) fn summarize_scope_provided_functions(
         let reaching = &reaching_definitions.reaching_out[exit_block.index()];
 
         for name in &eligible_names {
-            let Some(name_id) = names.get(name) else {
+            let Some(name_id) = exact.names.get(name) else {
                 continue;
             };
             let mut maybe_present = false;
             let mut definite_present = false;
-            for binding_index in binding_data.bindings_for_name[name_id.index()].iter_ones() {
+            for binding_index in exact.binding_data.bindings_for_name[name_id.index()].iter_ones() {
                 if !reaching.contains(binding_index) {
                     continue;
                 }
-                let binding = &bindings[binding_index];
+                let binding = &context.bindings[binding_index];
                 if binding.scope != scope {
                     continue;
                 }

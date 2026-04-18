@@ -1011,26 +1011,20 @@ impl<'model> SemanticAnalysis<'model> {
     }
 
     pub(crate) fn summarize_scope_provided_bindings(&self, scope: ScopeId) -> Vec<ProvidedBinding> {
-        dataflow::summarize_scope_provided_bindings(
-            self.cfg(),
-            &self.model.scopes,
-            &self.model.bindings,
-            &self.model.entry_bindings,
-            scope,
-        )
+        let cfg = self.cfg();
+        let exact = self.exact_variable_dataflow();
+        let context = self.model.dataflow_context(cfg);
+        dataflow::summarize_scope_provided_bindings(&context, exact, scope)
     }
 
     pub(crate) fn summarize_scope_provided_functions(
         &self,
         scope: ScopeId,
     ) -> Vec<ProvidedBinding> {
-        dataflow::summarize_scope_provided_functions(
-            self.cfg(),
-            &self.model.scopes,
-            &self.model.bindings,
-            &self.model.entry_bindings,
-            scope,
-        )
+        let cfg = self.cfg();
+        let exact = self.exact_variable_dataflow();
+        let context = self.model.dataflow_context(cfg);
+        dataflow::summarize_scope_provided_functions(&context, exact, scope)
     }
 
     fn compute_overwritten_functions(&self) -> Vec<OverwrittenFunction> {
@@ -2462,6 +2456,65 @@ emoji[smile]=2
                 .map(|reference| model.reference(reference.reference).name.to_string())
                 .collect::<Vec<_>>(),
             vec!["UNDEF"]
+        );
+    }
+
+    #[test]
+    fn scope_summary_queries_reuse_exact_variable_dataflow_bundle() {
+        let model = model(
+            "\
+outer=1
+foo() {
+  local skip=0
+  inner=2
+}
+",
+        );
+        let foo_scope = model
+            .scopes()
+            .iter()
+            .find_map(|scope| match &scope.kind {
+                ScopeKind::Function(FunctionScopeKind::Named(names))
+                    if names.iter().any(|name| name == "foo") =>
+                {
+                    Some(scope.id)
+                }
+                _ => None,
+            })
+            .unwrap();
+        let analysis = model.analysis();
+
+        assert!(analysis.exact_variable_dataflow.get().is_none());
+
+        let root_bindings = analysis.summarize_scope_provided_bindings(ScopeId(0));
+        let bundle_ptr = analysis.exact_variable_dataflow() as *const ExactVariableDataflow;
+        let foo_bindings = analysis.summarize_scope_provided_bindings(foo_scope);
+        let function_ptr = analysis.exact_variable_dataflow() as *const ExactVariableDataflow;
+        let root_functions = analysis.summarize_scope_provided_functions(ScopeId(0));
+        let reused_ptr = analysis.exact_variable_dataflow() as *const ExactVariableDataflow;
+
+        assert_eq!(bundle_ptr, function_ptr);
+        assert_eq!(bundle_ptr, reused_ptr);
+        assert_eq!(
+            root_bindings
+                .iter()
+                .map(|binding| binding.name.to_string())
+                .collect::<Vec<_>>(),
+            vec!["outer"]
+        );
+        assert_eq!(
+            foo_bindings
+                .iter()
+                .map(|binding| binding.name.to_string())
+                .collect::<Vec<_>>(),
+            vec!["inner"]
+        );
+        assert_eq!(
+            root_functions
+                .iter()
+                .map(|binding| binding.name.to_string())
+                .collect::<Vec<_>>(),
+            vec!["foo"]
         );
     }
 
