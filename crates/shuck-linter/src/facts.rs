@@ -7629,6 +7629,10 @@ fn build_nonpersistent_assignment_spans(
 
     let innermost_command_ids_by_offset =
         build_innermost_command_ids_by_offset(commands, command_id_query_offsets);
+    let commands_by_id = commands
+        .iter()
+        .map(|command| (command.id(), command))
+        .collect::<FxHashMap<_, _>>();
     let command_end_offsets = commands
         .iter()
         .map(|command| (command.id(), command.span().end.offset))
@@ -7708,17 +7712,26 @@ fn build_nonpersistent_assignment_spans(
             .get(synthetic_read.name())
             .map(Vec::as_slice)
             .unwrap_or(&[]);
-        let event_command_id = precomputed_command_id_for_offset(
+        let synthetic_command_id = precomputed_command_id_for_offset(
             &innermost_command_ids_by_offset,
             synthetic_read.span().start.offset,
         );
+        let same_command_prefix_reset = synthetic_command_id
+            .and_then(|id| commands_by_id.get(&id).copied())
+            .is_some_and(|command| {
+                command_prefix_assignments_reset_name(command.command(), synthetic_read.name())
+            });
+        let synthetic_command_end_offset = synthetic_command_id
+            .and_then(|id| command_end_offsets.get(&id).copied())
+            .unwrap_or(synthetic_read.span().start.offset);
         if let Some(candidate) = candidate_ids.iter().rev().find(|candidate| {
             synthetic_read.span().start.offset > candidate.subshell_end
+                && !same_command_prefix_reset
                 && !has_intervening_persistent_reset(
                     reset_offsets,
                     candidate.subshell_end,
-                    synthetic_read.span().start.offset,
-                    event_command_id,
+                    synthetic_command_end_offset,
+                    None,
                 )
         }) {
             assignment_sites.push(NamedSpan {
@@ -7934,6 +7947,12 @@ fn has_intervening_persistent_reset(
             && effective_offset < event_offset
             && event_command_id.is_none_or(|event_id| reset.command_id != Some(event_id))
     })
+}
+
+fn command_prefix_assignments_reset_name(command: &Command, name: &Name) -> bool {
+    query::command_assignments(command)
+        .iter()
+        .any(|assignment| assignment.target.name == *name)
 }
 
 fn build_innermost_command_ids_by_offset(
