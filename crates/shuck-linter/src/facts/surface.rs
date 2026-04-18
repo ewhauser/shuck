@@ -743,7 +743,8 @@ impl<'a> SurfaceFragmentSink<'a> {
         span: Span,
         context: SurfaceScanContext<'_>,
     ) {
-        let guarded_reference = parameter_expansion_guards_unset_reference(parameter);
+        let guarded_reference = context.guarded_parameter_operand
+            || parameter_expansion_guards_unset_reference(parameter);
 
         self.record_special_positional_parameter(parameter, guarded_reference);
         if span.slice(self.source).starts_with("${##") {

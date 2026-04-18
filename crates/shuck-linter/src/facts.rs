@@ -19706,6 +19706,7 @@ printf '%s\n' \"${!name}\" \"${!arr[*]}\"
 printf '%s\n' \"${arr[0]}\" \"${arr[@]}\" \"${arr[*]}\" \"${#arr[0]}\" \"${#arr[@]}\" \"${arr[0]%x}\" \"${arr[0]:2}\" \"${arr[0]//x/y}\" \"${arr[0]:-fallback}\" \"${!arr[0]}\"
 printf '%s\n' \"${name:2}\" \"${1:1}\" \"${name::2}\" \"${@:1}\" \"${*:1:2}\" \"${arr[@]:1}\" \"${arr[0]:1}\"
 printf '%s\n' \"${@:-fallback}\" \"${name:-$10}\"
+printf '%s\n' \"${name:-${@}}\"
 printf '%s\n' \"${name^}\" \"${name^^pattern}\" \"${name,}\" \"${arr[0]^^}\" \"${arr[@],,}\" \"${!name^^}\" \"${name//x/y}\"
 printf '%s\n' \"${name/a/b}\" \"${name//a}\" \"${arr[0]//a/b}\" \"${arr[@]/a/b}\" \"${arr[*]//a}\" \"${!name//a/b}\"
 if [ \"$(dpkg-query -W -f '${db:Status-Status}\\n' package 2>/dev/null)\" != \"installed\" ]; then :; fi
@@ -19785,6 +19786,12 @@ if [[ \"$@\" =~ x ]]; then :; fi
                         "$10",
                         PositionalParameterFragmentKind::AboveNine,
                         true,
+                        true
+                    ),
+                    (
+                        "${@}",
+                        PositionalParameterFragmentKind::General,
+                        false,
                         true
                     ),
                 ]
