@@ -1503,11 +1503,29 @@ fn literal_open_double_quote_gap_looks_suspicious(span: Span, source: &str) -> b
         return false;
     }
 
-    if text.starts_with('\\') {
+    if escaped_dollar_literal_gap(text) {
         return false;
     }
 
     true
+}
+
+fn escaped_dollar_literal_gap(text: &str) -> bool {
+    let mut saw_escaped_dollar = false;
+    let mut chars = text.chars();
+
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            continue;
+        }
+
+        saw_escaped_dollar = true;
+        if chars.next() != Some('$') {
+            return false;
+        }
+    }
+
+    saw_escaped_dollar
 }
 
 fn is_nested_parameter_expansion(parameter: &shuck_ast::ParameterExpansion, source: &str) -> bool {

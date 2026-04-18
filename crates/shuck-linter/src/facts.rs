@@ -18680,6 +18680,31 @@ say \"configure\" now
     }
 
     #[test]
+    fn open_double_quote_surface_facts_track_backslash_prefixed_literal_gap_fragments() {
+        let source = "\
+#!/bin/sh
+echo \"line one
+line two\"\\foo\"tail\"
+";
+
+        with_facts(source, None, |_, facts| {
+            let open = facts
+                .open_double_quote_fragments()
+                .iter()
+                .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+                .collect::<Vec<_>>();
+            let close = facts
+                .suspect_closing_quote_fragments()
+                .iter()
+                .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+                .collect::<Vec<_>>();
+
+            assert_eq!(open, vec![(2, 6)]);
+            assert_eq!(close, vec![(3, 9)]);
+        });
+    }
+
+    #[test]
     fn open_double_quote_surface_facts_ignore_empty_prefix_multiline_quotes_with_literal_suffix() {
         let source = "\
 #!/bin/sh
