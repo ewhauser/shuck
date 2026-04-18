@@ -183,6 +183,19 @@ printf '%s\\n' \"$CFLAGS\"\n";
     }
 
     #[test]
+    fn ignores_quoted_uses_in_earlier_unquoted_command_substitutions() {
+        let source = "\
+#!/bin/bash
+echo $(CFLAGS+=\" -DDIR=\\\"$PREFIX/share/\\\"\"; printf '%s\\n' \"$CFLAGS\")\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn ignores_subscripted_appends() {
         let source = "\
 #!/bin/bash

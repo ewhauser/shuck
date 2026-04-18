@@ -3343,43 +3343,6 @@ impl<'a> LinterFactsBuilder<'a> {
     }
 }
 
-#[derive(Debug, Default)]
-struct ContainingSpanIndex {
-    starts: Vec<usize>,
-    prefix_max_ends: Vec<usize>,
-}
-
-impl ContainingSpanIndex {
-    fn new(spans: &[Span]) -> Self {
-        let mut bounds = spans
-            .iter()
-            .map(|span| (span.start.offset, span.end.offset))
-            .collect::<Vec<_>>();
-        bounds.sort_unstable();
-
-        let mut starts = Vec::with_capacity(bounds.len());
-        let mut prefix_max_ends = Vec::with_capacity(bounds.len());
-        let mut max_end = 0usize;
-        for (start, end) in bounds {
-            starts.push(start);
-            max_end = max_end.max(end);
-            prefix_max_ends.push(max_end);
-        }
-
-        Self {
-            starts,
-            prefix_max_ends,
-        }
-    }
-
-    fn contains(&self, span: Span) -> bool {
-        let candidate_count = self
-            .starts
-            .partition_point(|start| *start <= span.start.offset);
-        candidate_count != 0 && self.prefix_max_ends[candidate_count - 1] >= span.end.offset
-    }
-}
-
 fn build_echo_backslash_escape_word_spans(commands: &[CommandFact<'_>], source: &str) -> Vec<Span> {
     let mut spans = commands
         .iter()
@@ -3399,33 +3362,48 @@ fn build_unquoted_command_argument_use_offsets(
     semantic: &SemanticModel,
     words: &[WordFact<'_>],
 ) -> FxHashMap<Name, Vec<usize>> {
-    let unquoted_command_argument_spans = words
+    let unquoted_command_argument_word_spans = words
         .iter()
         .filter(|fact| fact.expansion_context() == Some(ExpansionContext::CommandArgument))
         .filter(|fact| fact.classification().quote == WordQuote::Unquoted)
         .map(WordFact::span)
         .collect::<Vec<_>>();
-    if unquoted_command_argument_spans.is_empty() {
+    if unquoted_command_argument_word_spans.is_empty() {
         return FxHashMap::default();
     }
 
-    let unquoted_command_argument_index =
-        ContainingSpanIndex::new(&unquoted_command_argument_spans);
+    let references = semantic.references();
+    let mut reference_indices = references
+        .iter()
+        .enumerate()
+        .filter(|(_, reference)| {
+            !matches!(
+                reference.kind,
+                shuck_semantic::ReferenceKind::DeclarationName
+            )
+        })
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    reference_indices.sort_unstable_by_key(|&index| references[index].span.start.offset);
+
     let mut offsets_by_name = FxHashMap::<Name, Vec<usize>>::default();
-    for reference in semantic.references() {
-        if matches!(
-            reference.kind,
-            shuck_semantic::ReferenceKind::DeclarationName
-        ) {
-            continue;
+    for word_span in unquoted_command_argument_word_spans {
+        let first_reference = reference_indices
+            .partition_point(|&index| references[index].span.start.offset < word_span.start.offset);
+        for &index in &reference_indices[first_reference..] {
+            let reference = &references[index];
+            if reference.span.start.offset > word_span.end.offset {
+                break;
+            }
+            if !contains_span(word_span, reference.span) {
+                continue;
+            }
+
+            offsets_by_name
+                .entry(reference.name.clone())
+                .or_default()
+                .push(word_span.start.offset);
         }
-        if !unquoted_command_argument_index.contains(reference.span) {
-            continue;
-        }
-        offsets_by_name
-            .entry(reference.name.clone())
-            .or_default()
-            .push(reference.span.start.offset);
     }
 
     for offsets in offsets_by_name.values_mut() {
