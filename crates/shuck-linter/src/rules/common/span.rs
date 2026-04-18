@@ -96,6 +96,12 @@ pub fn all_elements_array_expansion_part_spans(word: &Word, source: &str) -> Vec
     spans
 }
 
+pub fn unquoted_all_elements_array_expansion_part_spans(word: &Word, source: &str) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_unquoted_all_elements_array_expansion_spans(&word.parts, false, source, &mut spans);
+    spans
+}
+
 pub fn word_all_elements_array_slice_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_all_elements_array_slice_spans(&word.parts, false, false, &mut spans);
@@ -758,6 +764,26 @@ fn collect_all_elements_array_expansion_spans(
                 }
             }
             WordPart::Variable(name) if name.as_str() == "*" => {}
+            _ => {}
+        }
+    }
+}
+
+fn collect_unquoted_all_elements_array_expansion_spans(
+    parts: &[WordPartNode],
+    quoted: bool,
+    _source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::SingleQuoted { .. } => {}
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_unquoted_all_elements_array_expansion_spans(parts, true, _source, spans)
+            }
+            _ if !quoted && part_uses_unquoted_all_elements_array_expansion(&part.kind) => {
+                spans.push(part.span)
+            }
             _ => {}
         }
     }
@@ -2056,6 +2082,20 @@ fn part_uses_positional_at_splat(part: &WordPart) -> bool {
     }
 }
 
+fn part_uses_unquoted_all_elements_array_expansion(part: &WordPart) -> bool {
+    match part {
+        WordPart::Variable(name) => name.as_str() == "@",
+        WordPart::ArrayAccess(reference) | WordPart::ArrayIndices(reference) => {
+            var_ref_uses_all_elements_at_splat(reference)
+        }
+        WordPart::ArraySlice { reference, .. } => var_ref_uses_all_elements_at_splat(reference),
+        WordPart::Parameter(parameter) => {
+            parameter_uses_unquoted_all_elements_array_expansion(parameter)
+        }
+        _ => false,
+    }
+}
+
 fn part_is_pure_positional_at_splat(part: &WordPart) -> bool {
     match part {
         WordPart::Variable(name) => name.as_str() == "@",
@@ -2109,6 +2149,32 @@ fn parameter_uses_all_elements_array_slice(parameter: &ParameterExpansion) -> bo
         BourneParameterExpansion::Slice { reference, .. }
             if var_ref_uses_all_elements_at_splat(reference)
     )
+}
+
+fn parameter_uses_unquoted_all_elements_array_expansion(parameter: &ParameterExpansion) -> bool {
+    let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax else {
+        return false;
+    };
+
+    match syntax {
+        BourneParameterExpansion::Access { reference }
+        | BourneParameterExpansion::Indices { reference }
+        | BourneParameterExpansion::Slice { reference, .. } => {
+            var_ref_uses_all_elements_at_splat(reference)
+        }
+        BourneParameterExpansion::Operation {
+            reference,
+            operator,
+            ..
+        } => {
+            !matches!(operator, ParameterOp::UseReplacement)
+                && var_ref_uses_all_elements_at_splat(reference)
+        }
+        BourneParameterExpansion::Transformation { reference, .. } => {
+            var_ref_uses_all_elements_at_splat(reference)
+        }
+        _ => false,
+    }
 }
 
 fn parameter_is_unindexed_bash_source(parameter: &ParameterExpansion) -> bool {
@@ -2474,6 +2540,7 @@ mod tests {
     use super::{
         all_elements_array_expansion_part_spans, array_expansion_part_spans,
         command_substitution_part_spans, find_extglob_bounds, scalar_expansion_part_spans,
+        unquoted_all_elements_array_expansion_part_spans,
         unquoted_command_substitution_part_spans_in_source, unquoted_scalar_expansion_part_spans,
         word_all_elements_array_slice_span_in_source, word_all_elements_array_slice_spans,
         word_caret_negated_bracket_spans, word_double_quoted_scalar_only_expansion_spans,
@@ -2843,6 +2910,87 @@ printf '%s\\n' ${#arr[@]} ${!arr[@]} ${name:-safe[@]} ${arr[@]}
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["${arr[@]}"]
+        );
+    }
+
+    #[test]
+    fn unquoted_all_elements_array_expansion_spans_only_return_unquoted_at_style_parts() {
+        let source = "printf '%s\\n' $@ $* \"$@\" \"$*\" ${arr[@]} ${arr[*]} ${arr[@]:1:2} ${arr[*]:1:2} ${!arr[@]} ${arr[@]/#/#} ${arr[@]@Q} ${arr[@]:-fallback} ${arr[@]:+fallback} ${1+\"$@\"}\n";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        assert_eq!(
+            unquoted_all_elements_array_expansion_part_spans(&command.args[1], source)
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$@"]
+        );
+        assert!(
+            unquoted_all_elements_array_expansion_part_spans(&command.args[2], source).is_empty()
+        );
+        assert!(
+            unquoted_all_elements_array_expansion_part_spans(&command.args[3], source).is_empty()
+        );
+        assert!(
+            unquoted_all_elements_array_expansion_part_spans(&command.args[4], source).is_empty()
+        );
+        assert_eq!(
+            unquoted_all_elements_array_expansion_part_spans(&command.args[5], source)
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${arr[@]}"]
+        );
+        assert!(
+            unquoted_all_elements_array_expansion_part_spans(&command.args[6], source).is_empty()
+        );
+        assert_eq!(
+            unquoted_all_elements_array_expansion_part_spans(&command.args[7], source)
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${arr[@]:1:2}"]
+        );
+        assert!(
+            unquoted_all_elements_array_expansion_part_spans(&command.args[8], source).is_empty()
+        );
+        assert_eq!(
+            unquoted_all_elements_array_expansion_part_spans(&command.args[9], source)
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${!arr[@]}"]
+        );
+        assert_eq!(
+            unquoted_all_elements_array_expansion_part_spans(&command.args[10], source)
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${arr[@]/#/#}"]
+        );
+        assert_eq!(
+            unquoted_all_elements_array_expansion_part_spans(&command.args[11], source)
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${arr[@]@Q}"]
+        );
+        assert_eq!(
+            unquoted_all_elements_array_expansion_part_spans(&command.args[12], source)
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${arr[@]:-fallback}"]
+        );
+        assert!(
+            unquoted_all_elements_array_expansion_part_spans(&command.args[13], source).is_empty()
+        );
+        assert!(
+            unquoted_all_elements_array_expansion_part_spans(&command.args[14], source).is_empty()
         );
     }
 
