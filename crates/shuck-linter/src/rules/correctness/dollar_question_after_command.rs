@@ -163,4 +163,28 @@ run
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn ignores_arithmetic_for_header_checks() {
+        let source = "\
+#!/bin/bash
+run
+for (( $? == 0; ; )); do break; done
+run
+for (( ; $? == 0; )); do break; done
+run
+for (( ; ; $? == 0 )); do break; done
+check_loop_status() {
+  for (( $? == 0; ; )); do break; done
+  for (( ; $? == 0; )); do break; done
+  for (( ; ; $? == 0 )); do break; done
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::DollarQuestionAfterCommand),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
 }

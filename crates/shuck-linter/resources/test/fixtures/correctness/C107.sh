@@ -36,3 +36,17 @@ test $? -ne 0
 exit $?
 [ $? -eq 1 ]
 [[ "$name" = ok || $? -eq 1 ]]
+
+# Valid: arithmetic-for headers stay out of C107.
+run
+for (( $? == 0; ; )); do break; done
+run
+for (( ; $? == 0; )); do break; done
+run
+for (( ; ; $? == 0 )); do break; done
+
+check_loop_status() {
+  for (( $? == 0; ; )); do break; done
+  for (( ; $? == 0; )); do break; done
+  for (( ; ; $? == 0 )); do break; done
+}
