@@ -8782,6 +8782,12 @@ fn pattern_contains_word_or_group(pattern: &Pattern) -> bool {
 #[derive(Debug, Clone)]
 struct StaticCasePatternMatcher {
     tokens: Vec<CasePatternToken>,
+    min_len: usize,
+    max_len: Option<usize>,
+    literal_prefix: Box<str>,
+    literal_suffix: Box<str>,
+    literal_symbols: Box<[char]>,
+    start_states: Box<[usize]>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -8809,14 +8815,30 @@ impl StaticCasePatternMatcher {
 
         let mut tokens = Vec::new();
         collect_static_case_pattern_tokens(pattern.span.slice(source), &mut tokens)?;
-        Some(Self { tokens })
+        let (min_len, max_len, literal_prefix, literal_suffix, literal_symbols, start_states) =
+            summarize_static_case_pattern_tokens(&tokens);
+        Some(Self {
+            tokens,
+            min_len,
+            max_len,
+            literal_prefix,
+            literal_suffix,
+            literal_symbols,
+            start_states,
+        })
     }
 
     fn subsumes(&self, other: &Self) -> bool {
-        let mut symbols = self.literal_symbols();
-        symbols.extend(other.literal_symbols());
+        if !self.could_subsume(other) {
+            return false;
+        }
 
-        let start = (self.start_states(), other.start_states());
+        let symbols = merged_case_pattern_symbols(
+            self.literal_symbols.as_ref(),
+            other.literal_symbols.as_ref(),
+        );
+
+        let start = (self.start_states.to_vec(), other.start_states.to_vec());
         let mut seen = FxHashSet::default();
         let mut worklist = vec![start.clone()];
         seen.insert(start);
@@ -8826,12 +8848,7 @@ impl StaticCasePatternMatcher {
                 return false;
             }
 
-            for symbol in symbols
-                .iter()
-                .copied()
-                .map(CasePatternSymbol::Literal)
-                .chain(std::iter::once(CasePatternSymbol::Other))
-            {
+            for symbol in symbols.iter().copied() {
                 let next_right = other.advance(&right, symbol);
                 if next_right.is_empty() {
                     continue;
@@ -8847,18 +8864,29 @@ impl StaticCasePatternMatcher {
         true
     }
 
-    fn literal_symbols(&self) -> FxHashSet<char> {
-        self.tokens
-            .iter()
-            .filter_map(|token| match token {
-                CasePatternToken::Literal(ch) => Some(*ch),
-                CasePatternToken::AnyChar | CasePatternToken::AnyString => None,
-            })
-            .collect()
-    }
+    fn could_subsume(&self, other: &Self) -> bool {
+        if self.min_len > other.min_len {
+            return false;
+        }
+        match (self.max_len, other.max_len) {
+            (Some(_), None) => return false,
+            (Some(self_max), Some(other_max)) if self_max < other_max => return false,
+            (Some(_), Some(_)) | (None, Some(_)) | (None, None) => {}
+        }
+        if !self.literal_prefix.is_empty()
+            && !other
+                .literal_prefix
+                .starts_with(self.literal_prefix.as_ref())
+        {
+            return false;
+        }
+        if !self.literal_suffix.is_empty()
+            && !other.literal_suffix.ends_with(self.literal_suffix.as_ref())
+        {
+            return false;
+        }
 
-    fn start_states(&self) -> Vec<usize> {
-        self.epsilon_closure([0])
+        true
     }
 
     fn advance(&self, states: &[usize], symbol: CasePatternSymbol) -> Vec<usize> {
@@ -8888,35 +8916,150 @@ impl StaticCasePatternMatcher {
     }
 
     fn epsilon_closure(&self, seeds: impl IntoIterator<Item = usize>) -> Vec<usize> {
-        let mut seen = vec![false; self.tokens.len() + 1];
-        let mut stack = Vec::new();
-
-        for state in seeds {
-            if state <= self.tokens.len() && !seen[state] {
-                seen[state] = true;
-                stack.push(state);
-            }
-        }
-
-        while let Some(state) = stack.pop() {
-            if matches!(self.tokens.get(state), Some(CasePatternToken::AnyString)) {
-                let next = state + 1;
-                if !seen[next] {
-                    seen[next] = true;
-                    stack.push(next);
-                }
-            }
-        }
-
-        seen.into_iter()
-            .enumerate()
-            .filter_map(|(index, present)| present.then_some(index))
-            .collect()
+        case_pattern_epsilon_closure(&self.tokens, seeds)
     }
 
     fn is_accepting(&self, states: &[usize]) -> bool {
         states.contains(&self.tokens.len())
     }
+}
+
+fn summarize_static_case_pattern_tokens(
+    tokens: &[CasePatternToken],
+) -> (
+    usize,
+    Option<usize>,
+    Box<str>,
+    Box<str>,
+    Box<[char]>,
+    Box<[usize]>,
+) {
+    let mut min_len = 0usize;
+    let mut max_len = Some(0usize);
+    let mut literal_prefix = String::new();
+    let mut saw_wildcard = false;
+    let mut literal_suffix_reversed = String::new();
+    let mut saw_suffix_wildcard = false;
+    let mut literal_symbols = Vec::new();
+
+    for token in tokens {
+        match token {
+            CasePatternToken::Literal(ch) => {
+                min_len += 1;
+                if let Some(max_len) = &mut max_len {
+                    *max_len += 1;
+                }
+                if !saw_wildcard {
+                    literal_prefix.push(*ch);
+                }
+                literal_symbols.push(*ch);
+            }
+            CasePatternToken::AnyChar => {
+                min_len += 1;
+                if let Some(max_len) = &mut max_len {
+                    *max_len += 1;
+                }
+                saw_wildcard = true;
+            }
+            CasePatternToken::AnyString => {
+                max_len = None;
+                saw_wildcard = true;
+            }
+        }
+    }
+
+    for token in tokens.iter().rev() {
+        match token {
+            CasePatternToken::Literal(ch) if !saw_suffix_wildcard => {
+                literal_suffix_reversed.push(*ch);
+            }
+            CasePatternToken::Literal(_)
+            | CasePatternToken::AnyChar
+            | CasePatternToken::AnyString => {
+                saw_suffix_wildcard = true;
+            }
+        }
+    }
+
+    literal_symbols.sort_unstable();
+    literal_symbols.dedup();
+
+    (
+        min_len,
+        max_len,
+        literal_prefix.into_boxed_str(),
+        literal_suffix_reversed
+            .chars()
+            .rev()
+            .collect::<String>()
+            .into_boxed_str(),
+        literal_symbols.into_boxed_slice(),
+        case_pattern_epsilon_closure(tokens, [0]).into_boxed_slice(),
+    )
+}
+
+fn case_pattern_epsilon_closure(
+    tokens: &[CasePatternToken],
+    seeds: impl IntoIterator<Item = usize>,
+) -> Vec<usize> {
+    let mut seen = vec![false; tokens.len() + 1];
+    let mut stack = Vec::new();
+
+    for state in seeds {
+        if state <= tokens.len() && !seen[state] {
+            seen[state] = true;
+            stack.push(state);
+        }
+    }
+
+    while let Some(state) = stack.pop() {
+        if matches!(tokens.get(state), Some(CasePatternToken::AnyString)) {
+            let next = state + 1;
+            if !seen[next] {
+                seen[next] = true;
+                stack.push(next);
+            }
+        }
+    }
+
+    seen.into_iter()
+        .enumerate()
+        .filter_map(|(index, present)| present.then_some(index))
+        .collect()
+}
+
+fn merged_case_pattern_symbols(left: &[char], right: &[char]) -> Vec<CasePatternSymbol> {
+    let mut symbols = Vec::with_capacity(left.len() + right.len() + 1);
+    let mut left_index = 0usize;
+    let mut right_index = 0usize;
+
+    while left_index < left.len() && right_index < right.len() {
+        match left[left_index].cmp(&right[right_index]) {
+            std::cmp::Ordering::Less => {
+                symbols.push(CasePatternSymbol::Literal(left[left_index]));
+                left_index += 1;
+            }
+            std::cmp::Ordering::Greater => {
+                symbols.push(CasePatternSymbol::Literal(right[right_index]));
+                right_index += 1;
+            }
+            std::cmp::Ordering::Equal => {
+                symbols.push(CasePatternSymbol::Literal(left[left_index]));
+                left_index += 1;
+                right_index += 1;
+            }
+        }
+    }
+
+    for &symbol in &left[left_index..] {
+        symbols.push(CasePatternSymbol::Literal(symbol));
+    }
+    for &symbol in &right[right_index..] {
+        symbols.push(CasePatternSymbol::Literal(symbol));
+    }
+    symbols.push(CasePatternSymbol::Other);
+
+    symbols
 }
 
 fn ensure_case_pattern_is_statically_analyzable(pattern: &Pattern, source: &str) -> Option<()> {
