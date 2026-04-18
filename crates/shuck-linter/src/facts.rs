@@ -7529,8 +7529,10 @@ fn build_nonpersistent_assignment_spans(
     semantic: &SemanticModel,
     commands: &[CommandFact<'_>],
 ) -> NonpersistentAssignmentSpans {
-    let mut candidate_bindings_by_scope: FxHashMap<(Name, usize, usize), CandidateSubshellAssignment> =
-        FxHashMap::default();
+    let mut candidate_bindings_by_scope: FxHashMap<
+        (Name, usize, usize),
+        CandidateSubshellAssignment,
+    > = FxHashMap::default();
     let mut persistent_reset_offsets_by_name: FxHashMap<Name, Vec<usize>> = FxHashMap::default();
     let mut command_id_query_offsets = Vec::new();
     let mut relevant_references = Vec::new();

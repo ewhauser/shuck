@@ -10,7 +10,10 @@ impl Violation for SubshellLocalAssignment {
     }
 
     fn message(&self) -> String {
-        format!("assignment to `{}` only changes the subshell copy", self.name)
+        format!(
+            "assignment to `{}` only changes the subshell copy",
+            self.name
+        )
     }
 }
 

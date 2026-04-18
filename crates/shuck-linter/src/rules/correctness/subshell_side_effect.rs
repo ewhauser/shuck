@@ -10,7 +10,10 @@ impl Violation for SubshellSideEffect {
     }
 
     fn message(&self) -> String {
-        format!("`{}` may still resolve to the outer-shell value here", self.name)
+        format!(
+            "`{}` may still resolve to the outer-shell value here",
+            self.name
+        )
     }
 }
 

@@ -3698,7 +3698,7 @@ printf '%s\\n' \"$config_path\" \"$still_missing\"
                     && matches!(binding.kind, BindingKind::ParameterDefaultAssignment)
             })
             .unwrap();
-        assert_eq!(binding.span.slice(source), "config_path");
+        assert_eq!(binding.span.slice(source), "${config_path:=/tmp/default}");
     }
 
     #[test]
