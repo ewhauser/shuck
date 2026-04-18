@@ -2125,6 +2125,7 @@ pub struct CommandOptionFacts<'a> {
     expr: Option<ExprCommandFacts>,
     exit: Option<ExitCommandFacts<'a>>,
     sudo_family: Option<SudoFamilyCommandFacts>,
+    nonportable_sh_builtin_option_span: Option<Span>,
     file_operand_words: Box<[&'a Word]>,
 }
 
@@ -2215,6 +2216,10 @@ impl<'a> CommandOptionFacts<'a> {
 
     pub fn sudo_family(&self) -> Option<&SudoFamilyCommandFacts> {
         self.sudo_family.as_ref()
+    }
+
+    pub fn nonportable_sh_builtin_option_span(&self) -> Option<Span> {
+        self.nonportable_sh_builtin_option_span
     }
 
     pub fn file_operand_words(&self) -> &[&'a Word] {
@@ -2308,6 +2313,10 @@ impl<'a> CommandOptionFacts<'a> {
                         .expect("sudo-family wrapper should preserve its invoker"),
                 }
             }),
+            nonportable_sh_builtin_option_span: first_nonportable_sh_builtin_option_span(
+                normalized,
+                source,
+            ),
             file_operand_words: same_command_file_operand_words(
                 normalized.effective_or_literal_name(),
                 normalized.body_args(),
@@ -13630,6 +13639,129 @@ fn option_takes_argument(flag: char) -> bool {
     matches!(flag, 'a' | 'd' | 'i' | 'n' | 'N' | 'p' | 't' | 'u')
 }
 
+#[derive(Debug, Clone, Copy)]
+enum ShBuiltinOptionPolicy {
+    Any,
+    AllowOnly(&'static str),
+}
+
+fn first_nonportable_sh_builtin_option_span(
+    normalized: &NormalizedCommand<'_>,
+    source: &str,
+) -> Option<Span> {
+    match normalized.effective_name.as_deref()? {
+        "read" => first_nonportable_sh_option_span_in_words(
+            normalized.body_args(),
+            source,
+            ShBuiltinOptionPolicy::AllowOnly("r"),
+        ),
+        "export" => normalized.declaration.as_ref().and_then(|declaration| {
+            matches!(declaration.kind, command::DeclarationKind::Export).then(|| ())
+        }).and_then(|_| {
+            let operands = normalized
+                .declaration
+                .as_ref()
+                .expect("checked export declaration")
+                .operands;
+            first_nonportable_sh_export_option_span(operands, source)
+        }),
+        "ulimit" => first_nonportable_sh_option_span_in_words(
+            normalized.body_args(),
+            source,
+            ShBuiltinOptionPolicy::AllowOnly("f"),
+        ),
+        "printf" | "trap" | "type" | "wait" => first_nonportable_sh_option_span_in_words(
+            normalized.body_args(),
+            source,
+            ShBuiltinOptionPolicy::Any,
+        ),
+        _ => None,
+    }
+}
+
+fn first_nonportable_sh_export_option_span(
+    operands: &[DeclOperand],
+    source: &str,
+) -> Option<Span> {
+    for operand in operands {
+        match operand {
+            DeclOperand::Flag(word) => {
+                let Some(text) = static_word_text(word, source) else {
+                    return None;
+                };
+
+                if text == "--" {
+                    return None;
+                }
+
+                if !text.starts_with('-') || text == "-" {
+                    return None;
+                }
+
+                if sh_builtin_option_word_is_portable(
+                    text.as_str(),
+                    ShBuiltinOptionPolicy::AllowOnly("p"),
+                ) {
+                    continue;
+                }
+
+                return Some(word.span);
+            }
+            DeclOperand::Dynamic(word) => {
+                return word_starts_with_literal_dash(word, source).then_some(word.span);
+            }
+            DeclOperand::Name(_) | DeclOperand::Assignment(_) => return None,
+        }
+    }
+
+    None
+}
+
+fn first_nonportable_sh_option_span_in_words(
+    args: &[&Word],
+    source: &str,
+    policy: ShBuiltinOptionPolicy,
+) -> Option<Span> {
+    for word in args {
+        let Some(text) = static_word_text(word, source) else {
+            return word_starts_with_literal_dash(word, source).then_some(word.span);
+        };
+
+        if text == "--" {
+            return None;
+        }
+
+        if !text.starts_with('-') || text == "-" {
+            return None;
+        }
+
+        if sh_builtin_option_word_is_portable(text.as_str(), policy) {
+            continue;
+        }
+
+        return Some(word.span);
+    }
+
+    None
+}
+
+fn sh_builtin_option_word_is_portable(text: &str, policy: ShBuiltinOptionPolicy) -> bool {
+    let Some(flags) = text.strip_prefix('-') else {
+        return false;
+    };
+
+    if flags.is_empty() {
+        return false;
+    }
+
+    match policy {
+        ShBuiltinOptionPolicy::Any => false,
+        ShBuiltinOptionPolicy::AllowOnly(allowed_flags) => flags
+            .chars()
+            .all(|flag| allowed_flags.contains(flag)),
+    }
+}
+
 fn printf_format_word<'a>(args: &[&'a Word], source: &str) -> Option<&'a Word> {
     let mut index = 0usize;
 
@@ -17302,6 +17434,50 @@ find . -execdir sh -ec 'mv {} \"$target\"' \\;
         assert_eq!(
             read.options().read().map(|read| read.uses_raw_input),
             Some(false)
+        );
+    }
+
+    #[test]
+    fn summarizes_first_nonportable_sh_builtin_option_words() {
+        let source = "\
+#!/bin/sh
+read -r name
+read -p prompt name
+read -\"$mode\" name
+printf -v out '%s' foo
+printf -- -v out
+export -p
+export -fn foo
+trap -p EXIT
+trap -- -p EXIT
+wait -n
+wait -p jobid -n
+ulimit -f
+ulimit -n
+type -P printf
+";
+
+        with_facts_dialect(
+            source,
+            None,
+            ParseShellDialect::Bash,
+            ShellDialect::Sh,
+            |_, facts| {
+                let spans = facts
+                    .commands()
+                    .iter()
+                    .filter_map(|fact| {
+                        fact.options()
+                            .nonportable_sh_builtin_option_span()
+                            .map(|span| span.slice(source))
+                    })
+                    .collect::<Vec<_>>();
+
+                assert_eq!(
+                    spans,
+                    vec!["-p", "-\"$mode\"", "-v", "-fn", "-p", "-n", "-p", "-n", "-P"]
+                );
+            },
         );
     }
 

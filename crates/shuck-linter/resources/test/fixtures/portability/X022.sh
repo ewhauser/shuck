@@ -1,6 +1,8 @@
 #!/bin/sh
+read -p prompt name
+printf -v out '%s\n' foo
+export -fn greet
+trap -p EXIT
 wait -n
-wait -pn x
-wait -f -n %1
-wait -x
-wait -1
+ulimit -n
+type -P printf

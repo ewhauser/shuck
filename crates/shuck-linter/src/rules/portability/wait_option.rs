@@ -8,7 +8,7 @@ impl Violation for WaitOption {
     }
 
     fn message(&self) -> String {
-        "wait options are not portable in `sh` scripts".to_owned()
+        "this builtin option is not portable in `sh` scripts".to_owned()
     }
 }
 
@@ -21,13 +21,7 @@ pub fn wait_option(checker: &mut Checker) {
         .facts()
         .commands()
         .iter()
-        .filter(|fact| fact.effective_name_is("wait"))
-        .flat_map(|fact| {
-            fact.options()
-                .wait()
-                .into_iter()
-                .flat_map(|wait| wait.option_spans().iter().copied())
-        })
+        .filter_map(|fact| fact.options().nonportable_sh_builtin_option_span())
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || WaitOption);
@@ -39,31 +33,36 @@ mod tests {
     use crate::{LinterSettings, Rule};
 
     #[test]
-    fn reports_wait_options_in_sh() {
+    fn reports_nonportable_builtin_options_in_sh() {
         let source = "\
 #!/bin/sh
+read -r name
+read -p prompt name
+read -\"$mode\" name
+printf -v out '%s' foo
+export -fn greet
+trap -p EXIT
 wait -n
-wait -pn x
-wait -f -n %1
-wait -x
-wait -1
+ulimit -n
+type -P printf
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::WaitOption));
 
-        assert_eq!(diagnostics.len(), 6);
+        assert_eq!(diagnostics.len(), 8);
         assert_eq!(
             diagnostics
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["-n", "-pn", "-f", "-n", "-x", "-1"]
+            vec!["-p", "-\"$mode\"", "-v", "-fn", "-p", "-n", "-n", "-P"]
         );
     }
 
     #[test]
-    fn ignores_wait_options_in_bash() {
+    fn ignores_builtin_options_in_bash() {
         let source = "\
 #!/bin/bash
+read -p prompt name
 wait -n
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::WaitOption));
@@ -72,10 +71,16 @@ wait -n
     }
 
     #[test]
-    fn ignores_wait_after_double_dash() {
+    fn ignores_operands_after_double_dash() {
         let source = "\
 #!/bin/sh
+read -- -p name
+printf -- -v out
+export -- -f greet
+trap -- -p EXIT
 wait -- -n
+ulimit -- -n
+type -- -P printf
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::WaitOption));
 
@@ -83,39 +88,46 @@ wait -- -n
     }
 
     #[test]
-    fn reports_options_after_wait_p_argument() {
+    fn reports_only_the_first_nonportable_option_word_per_command() {
         let source = "\
 #!/bin/sh
+read -r -p prompt -n 1 name
 wait -p jobid -n
+ulimit -H -n 1
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::WaitOption));
 
-        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics.len(), 3);
         assert_eq!(
             diagnostics
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["-p", "-n"]
+            vec!["-p", "-p", "-H"]
         );
     }
 
     #[test]
-    fn reports_attached_wait_p_argument_without_skipping_later_options() {
+    fn reports_combined_and_dynamic_option_words() {
         let source = "\
 #!/bin/sh
-wait -pjob -n
-wait -pfn -f
+read -rp prompt name
+wait -fpn job
+printf -\"$mode\" '%s' foo
+trap -lp EXIT
+export -pn greet
+ulimit -HSn 1
+type -ap printf
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::WaitOption));
 
-        assert_eq!(diagnostics.len(), 4);
+        assert_eq!(diagnostics.len(), 7);
         assert_eq!(
             diagnostics
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["-pjob", "-n", "-pfn", "-f"]
+            vec!["-rp", "-fpn", "-\"$mode\"", "-lp", "-pn", "-HSn", "-ap"]
         );
     }
 }
