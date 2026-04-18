@@ -1793,6 +1793,7 @@ impl SedCommandFacts {
 #[derive(Debug, Clone, Copy)]
 pub struct PrintfCommandFacts<'a> {
     pub format_word: Option<&'a Word>,
+    pub format_word_has_literal_percent: bool,
     pub uses_q_format: bool,
 }
 
@@ -2323,6 +2324,8 @@ impl<'a> CommandOptionFacts<'a> {
             printf: normalized.effective_name_is("printf").then(|| {
                 let format_word = printf_format_word(normalized.body_args(), source);
                 PrintfCommandFacts {
+                    format_word_has_literal_percent: format_word
+                        .is_some_and(|word| printf_format_word_has_literal_percent(word, source)),
                     uses_q_format: format_word
                         .is_some_and(|word| printf_uses_q_format(word, source)),
                     format_word,
@@ -14461,6 +14464,40 @@ fn printf_format_word<'a>(args: &[&'a Word], source: &str) -> Option<&'a Word> {
     args.get(index).copied()
 }
 
+fn printf_format_word_has_literal_percent(word: &Word, source: &str) -> bool {
+    word_parts_have_literal_percent(&word.parts, source)
+}
+
+fn word_parts_have_literal_percent(parts: &[WordPartNode], source: &str) -> bool {
+    parts
+        .iter()
+        .any(|part| word_part_has_literal_percent(part, source))
+}
+
+fn word_part_has_literal_percent(part: &WordPartNode, source: &str) -> bool {
+    match &part.kind {
+        WordPart::Literal(text) => text.as_str(source, part.span).contains('%'),
+        WordPart::ZshQualifiedGlob(_) => part.span.slice(source).contains('%'),
+        WordPart::SingleQuoted { value, .. } => value.slice(source).contains('%'),
+        WordPart::DoubleQuoted { parts, .. } => word_parts_have_literal_percent(parts, source),
+        WordPart::Variable(_)
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ArithmeticExpansion { .. }
+        | WordPart::Parameter(_)
+        | WordPart::ParameterExpansion { .. }
+        | WordPart::Length(_)
+        | WordPart::ArrayAccess(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::Substring { .. }
+        | WordPart::ArraySlice { .. }
+        | WordPart::IndirectExpansion { .. }
+        | WordPart::PrefixMatch { .. }
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::Transformation { .. } => false,
+    }
+}
+
 fn printf_uses_q_format(word: &Word, source: &str) -> bool {
     let Some(text) = static_word_text(word, source) else {
         return false;
@@ -17415,6 +17452,12 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
             Some("\"$fmt\"")
         );
         assert!(
+            printf
+                .options()
+                .printf()
+                .is_some_and(|printf| !printf.format_word_has_literal_percent)
+        );
+        assert!(
             !printf
                 .options()
                 .printf()
@@ -17454,6 +17497,7 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
             .and_then(|fact| fact.options().printf())
             .expect("expected star-width q printf facts");
         assert!(star_q_printf.uses_q_format);
+        assert!(star_q_printf.format_word_has_literal_percent);
 
         let unset = facts
             .commands()
@@ -17644,6 +17688,47 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
             .and_then(|fact| fact.options().sudo_family())
             .expect("expected sudo-family facts");
         assert_eq!(doas.invoker, SudoFamilyInvoker::Doas);
+    }
+
+    #[test]
+    fn tracks_printf_formats_with_and_without_literal_percents() {
+        let source = "printf \"$fmt\" value\nprintf \"${left}${right}\" value\nprintf \"${fmt:-%s}\" value\nprintf \"$(echo %s)\" value\nprintf \"pre$foo\" value\nprintf \"%${width}s\\n\" value\nprintf \"${color}%s${reset}\" value\nprintf \"$fmt%s\" value\nprintf '%s\\n' value\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let printfs = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("printf"))
+            .filter_map(|fact| fact.options().printf())
+            .map(|printf| {
+                (
+                    printf
+                        .format_word
+                        .map(|word| word.span.slice(source))
+                        .expect("expected format word"),
+                    printf.format_word_has_literal_percent,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            printfs,
+            vec![
+                ("\"$fmt\"", false),
+                ("\"${left}${right}\"", false),
+                ("\"${fmt:-%s}\"", false),
+                ("\"$(echo %s)\"", false),
+                ("\"pre$foo\"", false),
+                ("\"%${width}s\\n\"", true),
+                ("\"${color}%s${reset}\"", true),
+                ("\"$fmt%s\"", true),
+                ("'%s\\n'", true),
+            ]
+        );
     }
 
     #[test]

@@ -18,9 +18,10 @@ pub fn printf_format_variable(checker: &mut Checker) {
         .commands()
         .iter()
         .filter_map(|fact| {
-            fact.options()
-                .printf()
-                .and_then(|printf| printf.format_word)
+            let printf = fact.options().printf()?;
+            (!printf.format_word_has_literal_percent)
+                .then_some(printf.format_word)
+                .flatten()
         })
         .filter_map(|word| {
             checker
@@ -42,8 +43,8 @@ mod tests {
     use crate::{LinterSettings, Rule};
 
     #[test]
-    fn reports_runtime_supplied_formats_and_skips_fixed_literals() {
-        let source = "printf '%s\\n' value\nprintf \"$fmt\" value\nprintf \"$(echo %s)\" value\n";
+    fn reports_dynamic_formats_without_literal_percents_and_skips_percent_templates() {
+        let source = "printf '%s\\n' value\nprintf \"$fmt\" value\nprintf \"$(echo %s)\" value\nprintf \"${left}${right}\" value\nprintf \"pre$foo\" value\nprintf \"%${span}s\\n\" value\nprintf \"${color}%s${reset}\" value\nprintf \"$fmt%s\" value\n";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::PrintfFormatVariable),
@@ -54,7 +55,7 @@ mod tests {
                 .iter()
                 .map(|diagnostic| diagnostic.span.start.line)
                 .collect::<Vec<_>>(),
-            vec![2, 3]
+            vec![2, 3, 4, 5]
         );
     }
 
