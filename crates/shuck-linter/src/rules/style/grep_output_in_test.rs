@@ -387,4 +387,17 @@ mod tests {
             vec!["\"$(grep foo input.txt)\" "]
         );
     }
+
+    #[test]
+    fn ignores_unary_a_and_o_tests() {
+        let source = "\
+#!/bin/sh
+[ -a \"$(grep foo input.txt)\" ]
+[ -o \"$(grep foo input.txt)\" ]
+[ -a \"$path\" -o -z \"$ok\" ]
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::GrepOutputInTest));
+
+        assert!(diagnostics.is_empty());
+    }
 }

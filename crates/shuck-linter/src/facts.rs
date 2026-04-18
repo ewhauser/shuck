@@ -375,7 +375,9 @@ fn simple_test_expressions<'a>(
             && simple_test_effective_operand_text(simple_test, index, source)
                 .as_deref()
                 .is_some_and(simple_test_is_logical_connector);
-        if !is_connector && index != operands.len() {
+        let splits_segment = is_connector
+            && simple_test_segment_is_expression(simple_test, segment_start, index, source);
+        if !splits_segment && index != operands.len() {
             continue;
         }
 
@@ -389,6 +391,39 @@ fn simple_test_expressions<'a>(
     }
 
     expressions
+}
+
+fn simple_test_segment_is_expression(
+    simple_test: &SimpleTestFact<'_>,
+    start: usize,
+    end: usize,
+    source: &str,
+) -> bool {
+    if start >= end {
+        return false;
+    }
+
+    let segment = &simple_test.effective_operands()[start..end];
+    let mut expression_start = 0;
+    while expression_start + 1 < segment.len()
+        && simple_test_effective_operand_text(simple_test, start + expression_start, source)
+            .as_deref()
+            == Some("!")
+    {
+        expression_start += 1;
+    }
+
+    let expression_len = segment.len() - expression_start;
+    match expression_len {
+        1 => true,
+        2 => simple_test_effective_operand_text(simple_test, start + expression_start, source)
+            .as_deref()
+            .is_some_and(simple_test_is_unary_operator),
+        3 => simple_test_effective_operand_text(simple_test, start + expression_start + 1, source)
+            .as_deref()
+            .is_some_and(simple_test_is_binary_operator),
+        _ => false,
+    }
 }
 
 fn parse_simple_test_expression_segment<'a>(
@@ -17371,7 +17406,10 @@ test
 [ \"-n\" ]
 [ \"-n\" foo ]
 [ \"!\" \"-n\" qux ]
+[ -a foo ]
+[ -o foo ]
 [ foo -o -z baz ]
+[ -a foo -o -z baz ]
 [ foo \"-o\" \"-z\" baz ]
 [ -f file -a ! -z baz ]
 [ lhs = rhs ]
@@ -17506,6 +17544,22 @@ test
                 vec![("\"-n\"".to_owned(), "qux".to_owned())]
             );
 
+            let unary_and = commands
+                .iter()
+                .find(|(text, _)| text == "[ -a foo ]")
+                .and_then(|(_, fact)| fact.simple_test())
+                .expect("expected unary -a test fact");
+            assert!(unary_and.truthy_expression_words(source).is_empty());
+            assert!(unary_and.string_unary_expression_words(source).is_empty());
+
+            let unary_or = commands
+                .iter()
+                .find(|(text, _)| text == "[ -o foo ]")
+                .and_then(|(_, fact)| fact.simple_test())
+                .expect("expected unary -o test fact");
+            assert!(unary_or.truthy_expression_words(source).is_empty());
+            assert!(unary_or.string_unary_expression_words(source).is_empty());
+
             let mixed = commands
                 .iter()
                 .find(|(text, _)| text == "[ foo -o -z baz ]")
@@ -17521,6 +17575,30 @@ test
             );
             assert_eq!(
                 mixed
+                    .string_unary_expression_words(source)
+                    .into_iter()
+                    .map(|(operator, operand)| {
+                        (
+                            operator.span.slice(source).to_owned(),
+                            operand.span.slice(source).to_owned(),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+                vec![("-z".to_owned(), "baz".to_owned())]
+            );
+
+            let unary_and_then_connector = commands
+                .iter()
+                .find(|(text, _)| text == "[ -a foo -o -z baz ]")
+                .and_then(|(_, fact)| fact.simple_test())
+                .expect("expected unary -a with connector test fact");
+            assert!(
+                unary_and_then_connector
+                    .truthy_expression_words(source)
+                    .is_empty()
+            );
+            assert_eq!(
+                unary_and_then_connector
                     .string_unary_expression_words(source)
                     .into_iter()
                     .map(|(operator, operand)| {
