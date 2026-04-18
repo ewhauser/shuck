@@ -7121,8 +7121,10 @@ fn build_nonpersistent_assignment_spans(
                 let resets = offsets
                     .into_iter()
                     .map(|offset| {
-                        let command_id =
-                            precomputed_command_id_for_offset(&innermost_command_ids_by_offset, offset);
+                        let command_id = precomputed_command_id_for_offset(
+                            &innermost_command_ids_by_offset,
+                            offset,
+                        );
                         let command_end_offset = command_id
                             .and_then(|id| command_end_offsets.get(&id).copied())
                             .unwrap_or(offset);
