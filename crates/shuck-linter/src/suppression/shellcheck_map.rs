@@ -118,6 +118,7 @@ mod tests {
         assert_eq!(map.resolve("sc2154"), Some(Rule::UndefinedVariable));
         assert_eq!(map.resolve("SC2086"), Some(Rule::UnquotedExpansion));
         assert_eq!(map.resolve("SC2238"), Some(Rule::RedirectToCommandName));
+        assert_eq!(map.resolve("SC2063"), Some(Rule::LeadingGlobInGrepPattern));
         assert_eq!(map.resolve("SC3034"), Some(Rule::BashFileSlurp));
         assert_eq!(map.resolve("SC2096"), Some(Rule::DuplicateShebangFlag));
         assert_eq!(map.resolve("SC2318"), Some(Rule::LocalCrossReference));
@@ -179,5 +180,6 @@ mod tests {
         assert_eq!(map.code_for_rule(Rule::DuplicateShebangFlag), Some(2096));
         assert_eq!(map.code_for_rule(Rule::BashFileSlurp), Some(3034));
         assert_eq!(map.code_for_rule(Rule::BackslashBeforeCommand), Some(1012));
+        assert_eq!(map.code_for_rule(Rule::LeadingGlobInGrepPattern), Some(2063));
     }
 }

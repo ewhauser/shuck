@@ -1977,10 +1977,29 @@ impl<'a> GrepCommandFacts<'a> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GrepPatternSourceKind {
+    ImplicitOperand,
+    ShortOptionSeparate,
+    ShortOptionAttached,
+    LongOptionSeparate,
+    LongOptionAttached,
+}
+
+impl GrepPatternSourceKind {
+    pub fn uses_separate_pattern_word(self) -> bool {
+        matches!(
+            self,
+            Self::ImplicitOperand | Self::ShortOptionSeparate | Self::LongOptionSeparate
+        )
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct GrepPatternFact<'a> {
     word: &'a Word,
     static_text: Option<Box<str>>,
+    source_kind: GrepPatternSourceKind,
 }
 
 impl<'a> GrepPatternFact<'a> {
@@ -1994,6 +2013,10 @@ impl<'a> GrepPatternFact<'a> {
 
     pub fn static_text(&self) -> Option<&str> {
         self.static_text.as_deref()
+    }
+
+    pub fn source_kind(&self) -> GrepPatternSourceKind {
+        self.source_kind
     }
 }
 
@@ -13304,7 +13327,11 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
         if text == "--regexp" {
             explicit_pattern_source = true;
             if let Some(pattern_word) = args.get(index + 1) {
-                patterns.push(grep_pattern_fact(pattern_word, source));
+                patterns.push(grep_pattern_fact(
+                    pattern_word,
+                    source,
+                    GrepPatternSourceKind::LongOptionSeparate,
+                ));
                 index += 2;
             } else {
                 index += 1;
@@ -13314,7 +13341,12 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
 
         if text.starts_with("--regexp=") {
             explicit_pattern_source = true;
-            patterns.push(grep_prefixed_pattern_fact(word, source, "--regexp=".len()));
+            patterns.push(grep_prefixed_pattern_fact(
+                word,
+                source,
+                "--regexp=".len(),
+                GrepPatternSourceKind::LongOptionAttached,
+            ));
             index += 1;
             continue;
         }
@@ -13345,7 +13377,11 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
         if text == "-e" {
             explicit_pattern_source = true;
             if let Some(pattern_word) = args.get(index + 1) {
-                patterns.push(grep_pattern_fact(pattern_word, source));
+                patterns.push(grep_pattern_fact(
+                    pattern_word,
+                    source,
+                    GrepPatternSourceKind::ShortOptionSeparate,
+                ));
                 index += 2;
             } else {
                 index += 1;
@@ -13377,9 +13413,18 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
             if flag == 'e' {
                 explicit_pattern_source = true;
                 if chars.peek().is_some() {
-                    patterns.push(grep_prefixed_pattern_fact(word, source, 2));
+                    patterns.push(grep_prefixed_pattern_fact(
+                        word,
+                        source,
+                        2,
+                        GrepPatternSourceKind::ShortOptionAttached,
+                    ));
                 } else if let Some(pattern_word) = args.get(index + 1) {
-                    patterns.push(grep_pattern_fact(pattern_word, source));
+                    patterns.push(grep_pattern_fact(
+                        pattern_word,
+                        source,
+                        GrepPatternSourceKind::ShortOptionSeparate,
+                    ));
                     consume_next_argument = true;
                 }
                 break;
@@ -13403,7 +13448,11 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
     }
 
     if !explicit_pattern_source && let Some(pattern_word) = args.get(index) {
-        patterns.push(grep_pattern_fact(pattern_word, source));
+        patterns.push(grep_pattern_fact(
+            pattern_word,
+            source,
+            GrepPatternSourceKind::ImplicitOperand,
+        ));
     }
 
     Some(GrepCommandFacts {
@@ -14016,20 +14065,29 @@ fn grep_file_operand_words<'a>(args: &[&'a Word], source: &str) -> Vec<&'a Word>
     args.get(index..).unwrap_or(&[]).to_vec()
 }
 
-fn grep_pattern_fact<'a>(word: &'a Word, source: &str) -> GrepPatternFact<'a> {
-    grep_prefixed_pattern_fact(word, source, 0)
+fn grep_pattern_fact<'a>(
+    word: &'a Word,
+    source: &str,
+    source_kind: GrepPatternSourceKind,
+) -> GrepPatternFact<'a> {
+    grep_prefixed_pattern_fact(word, source, 0, source_kind)
 }
 
 fn grep_prefixed_pattern_fact<'a>(
     word: &'a Word,
     source: &str,
     prefix_len: usize,
+    source_kind: GrepPatternSourceKind,
 ) -> GrepPatternFact<'a> {
     let static_text = static_word_text(word, source)
         .and_then(|text| text.get(prefix_len..).map(str::to_owned))
         .map(String::into_boxed_str);
 
-    GrepPatternFact { word, static_text }
+    GrepPatternFact {
+        word,
+        static_text,
+        source_kind,
+    }
 }
 
 fn grep_option_takes_argument(flag: char) -> bool {
@@ -15940,9 +15998,9 @@ mod tests {
     use shuck_semantic::SemanticModel;
 
     use super::{
-        CommandId, ConditionalNodeFact, ConditionalOperatorFamily, LinterFacts,
-        SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax, SubstitutionHostKind,
-        SudoFamilyInvoker, WordFactHostKind,
+        CommandId, ConditionalNodeFact, ConditionalOperatorFamily, GrepPatternSourceKind,
+        LinterFacts, SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax,
+        SubstitutionHostKind, SudoFamilyInvoker, WordFactHostKind,
     };
     use crate::rules::common::command::WrapperKind;
     use crate::rules::common::expansion::{ExpansionContext, SubstitutionOutputIntent};
@@ -17907,7 +17965,13 @@ grep -e'*start' data.txt
                 (
                     grep.patterns()
                         .iter()
-                        .map(|pattern| (pattern.span().slice(source), pattern.static_text()))
+                        .map(|pattern| {
+                            (
+                                pattern.span().slice(source),
+                                pattern.static_text(),
+                                pattern.source_kind(),
+                            )
+                        })
                         .collect::<Vec<_>>(),
                     grep.uses_fixed_strings,
                 )
@@ -17917,24 +17981,143 @@ grep -e'*start' data.txt
         assert_eq!(
             grep_patterns,
             vec![
-                (vec![("item,[0-4]", Some("item,[0-4]"))], false),
-                (vec![("item*", Some("item*"))], false),
-                (vec![("-eitem*", Some("item*"))], false),
-                (vec![("item*", Some("item*"))], false),
-                (vec![("--regexp='a[b]c'", Some("a[b]c"))], false),
-                (vec![("item?", Some("item?"))], false),
-                (vec![("--regexp=foo*", Some("foo*"))], false),
-                (vec![("-eo", Some("o"))], false),
-                (vec![("item*", Some("item*"))], true),
+                (
+                    vec![(
+                        "item,[0-4]",
+                        Some("item,[0-4]"),
+                        GrepPatternSourceKind::ImplicitOperand,
+                    )],
+                    false,
+                ),
+                (
+                    vec![(
+                        "item*",
+                        Some("item*"),
+                        GrepPatternSourceKind::ShortOptionSeparate,
+                    )],
+                    false,
+                ),
+                (
+                    vec![(
+                        "-eitem*",
+                        Some("item*"),
+                        GrepPatternSourceKind::ShortOptionAttached,
+                    )],
+                    false,
+                ),
+                (
+                    vec![(
+                        "item*",
+                        Some("item*"),
+                        GrepPatternSourceKind::ShortOptionSeparate,
+                    )],
+                    false,
+                ),
+                (
+                    vec![(
+                        "--regexp='a[b]c'",
+                        Some("a[b]c"),
+                        GrepPatternSourceKind::LongOptionAttached,
+                    )],
+                    false,
+                ),
+                (
+                    vec![(
+                        "item?",
+                        Some("item?"),
+                        GrepPatternSourceKind::LongOptionSeparate,
+                    )],
+                    false,
+                ),
+                (
+                    vec![(
+                        "--regexp=foo*",
+                        Some("foo*"),
+                        GrepPatternSourceKind::LongOptionAttached,
+                    )],
+                    false,
+                ),
+                (
+                    vec![(
+                        "-eo",
+                        Some("o"),
+                        GrepPatternSourceKind::ShortOptionAttached,
+                    )],
+                    false,
+                ),
+                (
+                    vec![(
+                        "item*",
+                        Some("item*"),
+                        GrepPatternSourceKind::ImplicitOperand,
+                    )],
+                    true,
+                ),
                 (Vec::new(), false),
-                (vec![("foo*bar", Some("foo*bar"))], false),
-                (vec![("foo*bar", Some("foo*bar"))], true),
-                (vec![("foo*", Some("foo*"))], false),
-                (vec![("foo*", Some("foo*"))], false),
-                (vec![("foo*", Some("foo*"))], false),
-                (vec![("foo*", Some("foo*"))], false),
-                (vec![("--regexp='*start'", Some("*start"))], false),
-                (vec![("-e'*start'", Some("*start"))], false),
+                (
+                    vec![(
+                        "foo*bar",
+                        Some("foo*bar"),
+                        GrepPatternSourceKind::ImplicitOperand,
+                    )],
+                    false,
+                ),
+                (
+                    vec![(
+                        "foo*bar",
+                        Some("foo*bar"),
+                        GrepPatternSourceKind::ImplicitOperand,
+                    )],
+                    true,
+                ),
+                (
+                    vec![(
+                        "foo*",
+                        Some("foo*"),
+                        GrepPatternSourceKind::ImplicitOperand,
+                    )],
+                    false,
+                ),
+                (
+                    vec![(
+                        "foo*",
+                        Some("foo*"),
+                        GrepPatternSourceKind::ImplicitOperand,
+                    )],
+                    false,
+                ),
+                (
+                    vec![(
+                        "foo*",
+                        Some("foo*"),
+                        GrepPatternSourceKind::ImplicitOperand,
+                    )],
+                    false,
+                ),
+                (
+                    vec![(
+                        "foo*",
+                        Some("foo*"),
+                        GrepPatternSourceKind::ImplicitOperand,
+                    )],
+                    false,
+                ),
+                (
+                    vec![(
+                        "--regexp='*start'",
+                        Some("*start"),
+                        GrepPatternSourceKind::LongOptionAttached,
+                    )],
+                    false,
+                ),
+                (
+                    vec![(
+                        "-e'*start'",
+                        Some("*start"),
+                        GrepPatternSourceKind::ShortOptionAttached,
+                    )],
+                    false,
+                ),
             ]
         );
     }

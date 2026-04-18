@@ -1,5 +1,5 @@
 legacy_code: SH-294
-legacy_name: backtick-output-to-command
+legacy_name: leading-glob-in-grep-pattern
 new_category: Style
 new_code: S067
 runtime_kind: ast
@@ -9,12 +9,14 @@ shells:
   - bash
   - dash
   - ksh
-description: Backtick output is word-split and passed as arguments to a command.
-rationale: "Use `xargs` or a `while read` loop for safe argument passing."
+description: A grep pattern starts with `*`, which reads like a shell glob instead of a regex.
+rationale: "Use `.*text` to match any prefix in regex mode, or escape a literal `*` if that character is part of the pattern."
 source:
   shell_checks_rule: rules/SH-294.yaml
   shell_checks_example: examples/294.sh
 examples:
   - kind: invalid
     source: shell-checks/examples/294.sh
-    code: "#!/bin/sh\n# shellcheck disable=2006,2046\ngit branch -d `git branch --merged | grep -v '^*' | grep -v 'master' | tr -d '\n'`\n"
+    code: |
+      #!/bin/sh
+      maintainer=$(grep -E -i "*MAINTAINER" "$AUDIT_FILE" | sed 's/=/ /g')

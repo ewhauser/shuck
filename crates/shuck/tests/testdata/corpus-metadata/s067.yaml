@@ -1,40 +1,7 @@
 reviewed_divergences:
   - side: shuck-only
-    path_suffix: "megastep__makeself__makeself.sh"
-    reason: "This script feeds a basename result to `test` through an unquoted legacy substitution. Shuck intentionally keeps warning because the shell still splits the command output before `test` sees it."
+    path_suffix: "docker__docker-bench-security__tests__7_docker_swarm_configuration.sh"
+    reason: "This test-harness fixture probes swarm listeners with a quoted grep pattern that begins with `*`. The current ShellCheck run does not emit SC2063 here, while Shuck still reports the regex-vs-glob mismatch."
   - side: shuck-only
-    path_suffix: "nvm-sh__nvm__test__fast__Listing versions__Running 'nvm ls' should filter out '.nvm'"
-    reason: "This test harness uses a legacy substitution as a bracket-test operand. Shuck intentionally warns on the split-argument form even in harness code."
-  - side: shuck-only
-    path_suffix: "nvm-sh__nvm__test__fast__Running 'nvm deactivate' should unset the nvm environment variables"
-    reason: "This harness repeatedly feeds `expr` results to `[` through unquoted legacy substitutions. Shuck intentionally keeps warning because the shell still performs argument splitting first."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__catimg__catimg.sh"
-    reason: "This helper expands remap text into convert arguments via an unquoted legacy substitution. Shuck intentionally warns because those arguments are formed by shell splitting."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__macos__spotify"
-    reason: "These helper functions pass track metadata from `osascript` to `echo` through unquoted legacy substitutions. Shuck intentionally warns because spaces in the metadata are still split into separate arguments."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__packages__picolisp__build.sh"
-    reason: "This build step injects `pkg-config` flags through an unquoted legacy substitution. Shuck intentionally warns because the compiler argument list is assembled by shell splitting."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__x11-packages__qt5-qtbase__postinst"
-    reason: "This post-install check passes `uname` output to `[` through an unquoted legacy substitution. Shuck intentionally warns on that split-argument pattern."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__x11-packages__qt5-qtdeclarative__postinst"
-    reason: "This post-install check passes `uname` output to `[` through an unquoted legacy substitution. Shuck intentionally warns on that split-argument pattern."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__x11-packages__qt5-qttools__postinst"
-    reason: "This post-install check passes `uname` output to `[` through an unquoted legacy substitution. Shuck intentionally warns on that split-argument pattern."
-  - side: shuck-only
-    path_suffix: "void-linux__void-packages__srcpkgs__base-files__files__colorls.sh"
-    reason: "This script injects `dircolors` output into `eval` through an unquoted legacy substitution. Shuck intentionally warns because the shell tokenizes that text into command arguments."
-  - side: shuck-only
-    path_suffix: "void-linux__void-packages__srcpkgs__lightdm__files__xsession"
-    reason: "This session loader feeds `setxkbmap` from an unquoted legacy substitution. Shuck intentionally warns because whitespace from the file becomes separate command arguments."
-  - side: shuck-only
-    path_suffix: "void-linux__void-packages__srcpkgs__postgresql17__files__postgresql17__control__t"
-    reason: "This control script passes a pid read from a file via an unquoted legacy substitution. Shuck intentionally warns on the legacy split-argument form."
-  - side: shuck-only
-    path_suffix: "void-linux__void-packages__srcpkgs__postgresql18__files__postgresql18__control__t"
-    reason: "This control script passes a pid read from a file via an unquoted legacy substitution. Shuck intentionally warns on the legacy split-argument form."
+    path_suffix: "dylanaraps__neofetch__neofetch"
+    reason: "This larger project-closure fixture searches terminal font strings with a quoted grep pattern that begins with `*`. The current ShellCheck run stays silent on SC2063 in this script, while Shuck keeps the grep-pattern warning."

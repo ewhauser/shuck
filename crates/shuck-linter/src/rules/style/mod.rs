@@ -3,7 +3,6 @@ pub mod arithmetic_score_line;
 pub mod array_index_arithmetic;
 pub mod avoid_let_builtin;
 pub mod backslash_before_command;
-pub mod backtick_output_to_command;
 pub mod bare_command_name_assignment;
 pub mod bare_read;
 pub mod combine_appends;
@@ -13,6 +12,7 @@ pub mod compound_test_operator;
 pub mod default_value_in_colon_assign;
 pub mod deprecated_tempfile_command;
 pub mod dollar_in_arithmetic;
+pub mod leading_glob_in_grep_pattern;
 // S048 was collapsed into S045.
 pub mod double_quote_nesting;
 pub mod duplicate_shebang_flag;
@@ -104,7 +104,7 @@ mod tests {
     #[test_case(Rule::RelativeSymlinkTarget, Path::new("S063.sh"))]
     #[test_case(Rule::XargsWithInlineReplace, Path::new("S064.sh"))]
     #[test_case(Rule::XPrefixInTest, Path::new("S065.sh"))]
-    #[test_case(Rule::BacktickOutputToCommand, Path::new("S067.sh"))]
+    #[test_case(Rule::LeadingGlobInGrepPattern, Path::new("S067.sh"))]
     #[test_case(Rule::TrapSignalNumbers, Path::new("S068.sh"))]
     #[test_case(Rule::SingleLetterCaseLabel, Path::new("S069.sh"))]
     #[test_case(Rule::DoubleQuoteNesting, Path::new("S070.sh"))]

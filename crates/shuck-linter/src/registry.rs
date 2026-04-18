@@ -619,7 +619,7 @@ declare_rules! {
     ("S063", Category::Style, Severity::Warning, RelativeSymlinkTarget),
     ("S064", Category::Style, Severity::Warning, XargsWithInlineReplace),
     ("S065", Category::Style, Severity::Warning, XPrefixInTest),
-    ("S067", Category::Style, Severity::Warning, BacktickOutputToCommand),
+    ("S067", Category::Style, Severity::Warning, LeadingGlobInGrepPattern),
     ("S068", Category::Style, Severity::Warning, TrapSignalNumbers),
     ("S069", Category::Style, Severity::Hint, SingleLetterCaseLabel),
     ("S070", Category::Style, Severity::Warning, DoubleQuoteNesting),
@@ -927,7 +927,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-063" => Some(Rule::QuotedDollarStarLoop),
         "SH-067" => Some(Rule::UnquotedArraySplit),
         "SH-068" => Some(Rule::CommandOutputArraySplit),
-        "SH-294" => Some(Rule::BacktickOutputToCommand),
+        "SH-294" => Some(Rule::LeadingGlobInGrepPattern),
         "SH-077" => Some(Rule::PositionalArgsInString),
         "SH-064" => Some(Rule::GrepCountPipeline),
         "SH-137" => Some(Rule::SingleTestSubshell),
@@ -1027,8 +1027,8 @@ mod tests {
         assert_eq!(code_to_rule("SH-067"), Some(Rule::UnquotedArraySplit));
         assert_eq!(code_to_rule("S018"), Some(Rule::CommandOutputArraySplit));
         assert_eq!(code_to_rule("SH-068"), Some(Rule::CommandOutputArraySplit));
-        assert_eq!(code_to_rule("S067"), Some(Rule::BacktickOutputToCommand));
-        assert_eq!(code_to_rule("SH-294"), Some(Rule::BacktickOutputToCommand));
+        assert_eq!(code_to_rule("S067"), Some(Rule::LeadingGlobInGrepPattern));
+        assert_eq!(code_to_rule("SH-294"), Some(Rule::LeadingGlobInGrepPattern));
         assert_eq!(code_to_rule("S068"), Some(Rule::TrapSignalNumbers));
         assert_eq!(code_to_rule("SH-297"), Some(Rule::TrapSignalNumbers));
         assert_eq!(code_to_rule("S069"), Some(Rule::SingleLetterCaseLabel));

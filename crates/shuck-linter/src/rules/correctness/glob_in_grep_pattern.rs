@@ -24,6 +24,7 @@ pub fn glob_in_grep_pattern(checker: &mut Checker) {
         .filter(|pattern| {
             pattern
                 .static_text()
+                .filter(|text| !text.starts_with('*'))
                 .is_some_and(has_glob_style_star_confusion)
         })
         .map(|pattern| pattern.span())
