@@ -131,6 +131,21 @@ greet
     }
 
     #[test]
+    fn ignores_guarded_special_positional_parameters() {
+        let source = "\
+#!/bin/sh
+greet() { printf '%s\n' \"${@:-fallback}\"; }
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn ignores_functions_that_reset_positional_parameters() {
         let source = "\
 #!/bin/sh

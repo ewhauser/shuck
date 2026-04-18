@@ -808,6 +808,7 @@ pub enum PositionalParameterFragmentKind {
 pub struct PositionalParameterFragmentFact {
     span: Span,
     kind: PositionalParameterFragmentKind,
+    guarded: bool,
 }
 
 impl PositionalParameterFragmentFact {
@@ -821,6 +822,10 @@ impl PositionalParameterFragmentFact {
 
     pub fn is_above_nine(&self) -> bool {
         self.kind == PositionalParameterFragmentKind::AboveNine
+    }
+
+    pub fn is_guarded(&self) -> bool {
+        self.guarded
     }
 }
 
@@ -5779,6 +5784,10 @@ fn build_function_positional_parameter_facts(
     }
 
     for fragment in positional_parameter_fragments {
+        if fragment.is_guarded() {
+            continue;
+        }
+
         if reference_has_local_positional_reset(
             semantic,
             fragment.span().start.offset,
@@ -19696,6 +19705,7 @@ echo $\"Usage: $0 {start|stop}\"
 printf '%s\n' \"${!name}\" \"${!arr[*]}\"
 printf '%s\n' \"${arr[0]}\" \"${arr[@]}\" \"${arr[*]}\" \"${#arr[0]}\" \"${#arr[@]}\" \"${arr[0]%x}\" \"${arr[0]:2}\" \"${arr[0]//x/y}\" \"${arr[0]:-fallback}\" \"${!arr[0]}\"
 printf '%s\n' \"${name:2}\" \"${1:1}\" \"${name::2}\" \"${@:1}\" \"${*:1:2}\" \"${arr[@]:1}\" \"${arr[0]:1}\"
+printf '%s\n' \"${@:-fallback}\" \"${name:-$10}\"
 printf '%s\n' \"${name^}\" \"${name^^pattern}\" \"${name,}\" \"${arr[0]^^}\" \"${arr[@],,}\" \"${!name^^}\" \"${name//x/y}\"
 printf '%s\n' \"${name/a/b}\" \"${name//a}\" \"${arr[0]//a/b}\" \"${arr[@]/a/b}\" \"${arr[*]//a}\" \"${!name//a/b}\"
 if [ \"$(dpkg-query -W -f '${db:Status-Status}\\n' package 2>/dev/null)\" != \"installed\" ]; then :; fi
@@ -19736,14 +19746,47 @@ if [[ \"$@\" =~ x ]]; then :; fi
                             fragment.span().slice(source),
                             fragment.kind(),
                             fragment.is_above_nine(),
+                            fragment.is_guarded(),
                         )
                     })
                     .collect::<Vec<_>>(),
                 vec![
-                    ("$10", PositionalParameterFragmentKind::AboveNine, true),
-                    ("$10", PositionalParameterFragmentKind::AboveNine, true),
-                    ("${@:1}", PositionalParameterFragmentKind::General, false),
-                    ("${*:1:2}", PositionalParameterFragmentKind::General, false),
+                    (
+                        "$10",
+                        PositionalParameterFragmentKind::AboveNine,
+                        true,
+                        false
+                    ),
+                    (
+                        "$10",
+                        PositionalParameterFragmentKind::AboveNine,
+                        true,
+                        false
+                    ),
+                    (
+                        "${@:1}",
+                        PositionalParameterFragmentKind::General,
+                        false,
+                        false
+                    ),
+                    (
+                        "${*:1:2}",
+                        PositionalParameterFragmentKind::General,
+                        false,
+                        false
+                    ),
+                    (
+                        "${@:-fallback}",
+                        PositionalParameterFragmentKind::General,
+                        false,
+                        true
+                    ),
+                    (
+                        "$10",
+                        PositionalParameterFragmentKind::AboveNine,
+                        true,
+                        true
+                    ),
                 ]
             );
             assert_eq!(

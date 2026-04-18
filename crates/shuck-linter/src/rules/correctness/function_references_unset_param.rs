@@ -171,6 +171,21 @@ greet
     }
 
     #[test]
+    fn ignores_guarded_special_positional_parameters() {
+        let source = "\
+#!/bin/sh
+greet() { printf '%s\n' \"${@:-fallback}\"; }
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn later_redefinitions_do_not_inherit_argumented_calls_from_earlier_bindings() {
         let source = "\
 #!/bin/sh
