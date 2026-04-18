@@ -869,6 +869,41 @@ fn_backup_compression
     }
 
     #[test]
+    fn reports_helper_initialized_bindings_when_other_callers_skip_the_helper() {
+        let source = "\
+#!/bin/bash
+init_flag() {
+  flag=-n
+}
+
+render() {
+  printf '%s\\n' ${flag}
+}
+
+safe_path() {
+  init_flag
+  render
+}
+
+unsafe_path() {
+  render
+}
+
+safe_path
+unsafe_path
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${flag}"]
+        );
+    }
+
+    #[test]
     fn reports_ambient_contract_bindings_without_known_values() {
         let path = Path::new("/tmp/void-packages/common/build-style/example.sh");
         let source = "\

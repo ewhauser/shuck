@@ -3246,7 +3246,12 @@ impl<'a> LinterFactsBuilder<'a> {
                 elif_condition_command_ids.insert(id);
             }
 
-            collect_binding_values(visit.command, self.semantic, &mut binding_values);
+            collect_binding_values(
+                visit.command,
+                self.semantic,
+                self.source,
+                &mut binding_values,
+            );
             collect_broken_assoc_key_spans(visit.command, self.source, &mut broken_assoc_key_spans);
             collect_comma_array_assignment_spans(
                 visit.command,
@@ -15668,13 +15673,28 @@ fn trap_action_word<'a>(command: &'a Command, source: &str) -> Option<&'a Word> 
 fn collect_binding_values<'a>(
     command: &'a Command,
     semantic: &SemanticModel,
+    source: &str,
     binding_values: &mut FxHashMap<BindingId, BindingValueFact<'a>>,
 ) {
-    for assignment in query::command_assignments(command) {
+    let assignments = match command {
+        Command::Simple(simple) if simple.name.span.slice(source).is_empty() => &simple.assignments,
+        Command::Builtin(_) | Command::Decl(_) => query::command_assignments(command),
+        Command::Simple(_)
+        | Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => &[],
+    };
+
+    for assignment in assignments {
         let AssignmentValue::Scalar(word) = &assignment.value else {
             continue;
         };
-        if let Some(binding_id) = binding_value_id_for_name(semantic, &assignment.target.name, assignment.target.name_span) {
+        if let Some(binding_id) = binding_value_id_for_name(
+            semantic,
+            &assignment.target.name,
+            assignment.target.name_span,
+        ) {
             binding_values.insert(binding_id, BindingValueFact::scalar(word));
         }
     }
@@ -15686,7 +15706,11 @@ fn collect_binding_values<'a>(
         let AssignmentValue::Scalar(word) = &assignment.value else {
             continue;
         };
-        if let Some(binding_id) = binding_value_id_for_name(semantic, &assignment.target.name, assignment.target.name_span) {
+        if let Some(binding_id) = binding_value_id_for_name(
+            semantic,
+            &assignment.target.name,
+            assignment.target.name_span,
+        ) {
             binding_values.insert(binding_id, BindingValueFact::scalar(word));
         }
     }
@@ -15741,7 +15765,9 @@ fn binding_value_id_for_name(
     name: &Name,
     span: Span,
 ) -> Option<BindingId> {
-    semantic.visible_binding(name, span).map(|binding| binding.id)
+    semantic
+        .visible_binding(name, span)
+        .map(|binding| binding.id)
 }
 
 fn annotate_conditional_assignment_shortcuts<'a>(
@@ -16771,7 +16797,8 @@ done
 
     #[test]
     fn marks_conditional_assignment_shortcuts_on_binding_values() {
-        let source = "#!/bin/bash\ntrue && w='-w' || w=''\nif true; then flag='-f'; else flag=''; fi\n";
+        let source =
+            "#!/bin/bash\ntrue && w='-w' || w=''\nif true; then flag='-f'; else flag=''; fi\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -16783,7 +16810,8 @@ done
             .iter()
             .copied()
             .map(|binding_id| {
-                facts.binding_value(binding_id)
+                facts
+                    .binding_value(binding_id)
                     .expect("expected w binding value fact")
                     .conditional_assignment_shortcut()
             })
@@ -16795,12 +16823,38 @@ done
             .iter()
             .copied()
             .map(|binding_id| {
-                facts.binding_value(binding_id)
+                facts
+                    .binding_value(binding_id)
                     .expect("expected flag binding value fact")
                     .conditional_assignment_shortcut()
             })
             .collect::<Vec<_>>();
         assert_eq!(flag_bindings, vec![false, false]);
+    }
+
+    #[test]
+    fn ignores_command_prefix_assignments_when_indexing_binding_values() {
+        let source = "\
+#!/bin/bash
+foo=stable
+foo=ephemeral tool
+printf '%s\\n' \"$foo\"
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let foo_bindings = semantic.bindings_for(&Name::from("foo"));
+        assert_eq!(foo_bindings.len(), 1);
+        assert_eq!(
+            facts
+                .binding_value(foo_bindings[0])
+                .and_then(|value| value.scalar_word())
+                .map(|word| word.span.slice(source)),
+            Some("stable")
+        );
     }
 
     #[test]

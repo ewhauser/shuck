@@ -5,8 +5,7 @@ use shuck_ast::{
 };
 use shuck_semantic::{
     AssignmentValueOrigin, BindingAttributes, BindingKind, BindingOrigin, ContractCertainty,
-    LoopValueOrigin, ScopeId, ScopeKind, SemanticAnalysis, SemanticModel,
-    UninitializedCertainty,
+    LoopValueOrigin, ScopeId, ScopeKind, SemanticAnalysis, SemanticModel, UninitializedCertainty,
 };
 use shuck_semantic::{BindingId, BlockId, ReferenceId, ReferenceKind};
 
@@ -228,8 +227,7 @@ impl<'a> SafeValueIndex<'a> {
         let result = match &binding.origin {
             BindingOrigin::Assignment {
                 value:
-                    AssignmentValueOrigin::PlainScalarAccess
-                    | AssignmentValueOrigin::StaticLiteral,
+                    AssignmentValueOrigin::PlainScalarAccess | AssignmentValueOrigin::StaticLiteral,
                 ..
             } => {
                 let scalar_word = self
@@ -352,27 +350,52 @@ impl<'a> SafeValueIndex<'a> {
         let mut bindings = self
             .helper_bindings_called_in_scope_before(name, scope, offset)
             .into_iter()
-            .collect::<Vec<_>>();
+            .collect::<FxHashSet<_>>();
 
-        let Some(function_kind) = self.named_function_kind(scope) else {
-            return bindings;
-        };
+        if let Some(caller_bindings) = self.helper_bindings_reaching_all_callers(name, scope, seen)
+        {
+            bindings.extend(caller_bindings);
+        }
+
+        seen.remove(&(scope, offset));
+        bindings.into_iter().collect()
+    }
+
+    fn helper_bindings_reaching_all_callers(
+        &self,
+        name: &Name,
+        scope: ScopeId,
+        seen: &mut FxHashSet<(ScopeId, usize)>,
+    ) -> Option<FxHashSet<BindingId>> {
+        let function_kind = self.named_function_kind(scope)?;
+        let mut caller_sites = Vec::new();
+        let mut seen_sites = FxHashSet::default();
 
         for function_name in function_kind.static_names() {
             for site in self.semantic.call_sites_for(function_name) {
                 if site.scope == scope {
                     continue;
                 }
-                bindings.extend(self.called_helper_bindings_before(
-                    name,
-                    site.scope,
-                    site.span.start.offset,
-                    seen,
-                ));
+                if seen_sites.insert((site.scope, site.span.start.offset, site.span.end.offset)) {
+                    caller_sites.push(site.clone());
+                }
             }
         }
 
-        bindings
+        let mut shared = None::<FxHashSet<BindingId>>;
+        for site in caller_sites {
+            let branch = self
+                .called_helper_bindings_before(name, site.scope, site.span.start.offset, seen)
+                .into_iter()
+                .collect::<FxHashSet<_>>();
+
+            match &mut shared {
+                Some(shared) => shared.retain(|binding_id| branch.contains(binding_id)),
+                None => shared = Some(branch),
+            }
+        }
+
+        shared
     }
 
     fn helper_bindings_called_in_scope_before(
@@ -389,25 +412,22 @@ impl<'a> SafeValueIndex<'a> {
             };
 
             let called_before = function_kind.static_names().iter().any(|function_name| {
-                self.semantic.call_sites_for(function_name).iter().any(|site| {
-                    site.scope == scope && site.span.start.offset < offset
-                })
+                self.semantic
+                    .call_sites_for(function_name)
+                    .iter()
+                    .any(|site| site.scope == scope && site.span.start.offset < offset)
             });
             if !called_before {
                 continue;
             }
 
-            bindings.extend(
-                self.semantic
-                    .bindings_for(name)
-                    .iter()
-                    .copied()
-                    .filter(|binding_id| {
-                        let binding = self.semantic.binding(*binding_id);
-                        binding.scope == callee_scope
-                            && !binding.attributes.contains(BindingAttributes::LOCAL)
-                    }),
-            );
+            bindings.extend(self.semantic.bindings_for(name).iter().copied().filter(
+                |binding_id| {
+                    let binding = self.semantic.binding(*binding_id);
+                    binding.scope == callee_scope
+                        && !binding.attributes.contains(BindingAttributes::LOCAL)
+                },
+            ));
         }
 
         bindings
@@ -417,25 +437,19 @@ impl<'a> SafeValueIndex<'a> {
         self.semantic
             .scopes()
             .iter()
-            .filter_map(|scope| {
-                matches!(scope.kind, ScopeKind::Function(_)).then_some(scope.id)
-            })
+            .filter_map(|scope| matches!(scope.kind, ScopeKind::Function(_)).then_some(scope.id))
             .filter(|scope| {
                 self.analysis
                     .summarize_scope_provided_bindings(*scope)
                     .iter()
                     .any(|binding| {
-                        binding.name == *name
-                            && binding.certainty == ContractCertainty::Definite
+                        binding.name == *name && binding.certainty == ContractCertainty::Definite
                     })
             })
             .collect()
     }
 
-    fn named_function_kind(
-        &self,
-        scope: ScopeId,
-    ) -> Option<&shuck_semantic::FunctionScopeKind> {
+    fn named_function_kind(&self, scope: ScopeId) -> Option<&shuck_semantic::FunctionScopeKind> {
         match &self.semantic.scope(scope).kind {
             ScopeKind::Function(function) if !function.static_names().is_empty() => Some(function),
             ScopeKind::File
@@ -1040,9 +1054,11 @@ done
             })
             .collect::<Vec<_>>();
         assert_eq!(unsafe_words.len(), 2, "expected unsafe loop-body words");
-        assert!(unsafe_words
-            .iter()
-            .all(|fact| !safe_values.word_is_safe(fact.word(), SafeValueQuery::Argv)));
+        assert!(
+            unsafe_words
+                .iter()
+                .all(|fact| !safe_values.word_is_safe(fact.word(), SafeValueQuery::Argv))
+        );
 
         let safe_words = facts
             .word_facts()
@@ -1053,9 +1069,11 @@ done
             })
             .collect::<Vec<_>>();
         assert_eq!(safe_words.len(), 2, "expected safe literal-loop words");
-        assert!(safe_words
-            .iter()
-            .all(|fact| safe_values.word_is_safe(fact.word(), SafeValueQuery::Argv)));
+        assert!(
+            safe_words
+                .iter()
+                .all(|fact| safe_values.word_is_safe(fact.word(), SafeValueQuery::Argv))
+        );
     }
 
     #[test]
@@ -1304,6 +1322,50 @@ fn_backup_compression
     }
 
     #[test]
+    fn helper_initialized_bindings_do_not_leak_across_distinct_callers() {
+        let source = "\
+#!/bin/bash
+init_flag() {
+  flag=-n
+}
+
+render() {
+  printf '%s\\n' ${flag}
+}
+
+safe_path() {
+  init_flag
+  render
+}
+
+unsafe_path() {
+  render
+}
+
+safe_path
+unsafe_path
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "${flag}"
+            })
+            .expect("expected shared helper-derived command argument fact");
+
+        assert!(!safe_values.word_is_safe(word_fact.word(), SafeValueQuery::Argv));
+    }
+
+    #[test]
     fn imported_bindings_stay_unsafe_without_known_values() {
         let source = "\
 #!/bin/bash
@@ -1344,5 +1406,4 @@ printf '%s\\n' $pkgname
 
         assert!(!safe_values.word_is_safe(word_fact.word(), SafeValueQuery::Argv));
     }
-
 }
