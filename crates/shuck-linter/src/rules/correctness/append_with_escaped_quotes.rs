@@ -1,7 +1,6 @@
 use shuck_ast::{Assignment, AssignmentValue, BuiltinCommand, Command, DeclOperand, Span};
-use shuck_semantic::ReferenceKind;
 
-use crate::{Checker, ExpansionContext, Rule, Violation, WordFactContext, WordQuote};
+use crate::{Checker, ExpansionContext, Rule, Violation, WordFactContext};
 
 pub struct AppendWithEscapedQuotes;
 
@@ -114,22 +113,10 @@ fn escaped_quote_append_span(
 }
 
 fn has_later_unquoted_command_argument_use(checker: &Checker<'_>, assignment: &Assignment) -> bool {
-    checker
-        .facts()
-        .expansion_word_facts(ExpansionContext::CommandArgument)
-        .filter(|fact| fact.classification().quote == WordQuote::Unquoted)
-        .filter(|fact| fact.span().start.offset > assignment.target.name_span.start.offset)
-        .any(|fact| {
-            checker.semantic().references().iter().any(|reference| {
-                reference.kind != ReferenceKind::DeclarationName
-                    && reference.name.as_str() == assignment.target.name.as_str()
-                    && contains_span(fact.span(), reference.span)
-            })
-        })
-}
-
-fn contains_span(outer: Span, inner: Span) -> bool {
-    outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
+    checker.facts().has_later_unquoted_command_argument_use(
+        &assignment.target.name,
+        assignment.target.name_span.start.offset,
+    )
 }
 
 #[cfg(test)]
@@ -172,6 +159,21 @@ CFLAGS=\" -DDIR=\\\"$PREFIX/share/\\\"\"\nCFLAGS+=\" -DDIR=$PREFIX/share/\"\nCFL
 GO_LDFLAGS=\"\"
 GO_LDFLAGS+=\" -X \\\"main.GitVersion=$VERSION\\\"\"\n\
 go build -ldflags \"$GO_LDFLAGS\"\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_escaped_quote_appends_without_later_unquoted_argument_use() {
+        let source = "\
+#!/bin/sh
+echo $CFLAGS
+CFLAGS+=\" -DDIR=\\\"$PREFIX/share/\\\"\"\n\
+printf '%s\\n' \"$CFLAGS\"\n";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes),
