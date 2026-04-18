@@ -73,6 +73,7 @@ pub mod loop_without_end;
 pub mod malformed_arithmetic_in_condition;
 pub mod mapfile_process_substitution;
 pub mod misquoted_heredoc_close;
+pub mod missing_bracket_space;
 pub mod missing_done_in_for_loop;
 pub mod missing_fi;
 pub mod missing_semicolon_before_brace;
@@ -169,6 +170,7 @@ mod tests {
     #[test_case(Rule::TruthyLiteralTest, Path::new("C020.sh"))]
     #[test_case(Rule::ConstantCaseSubject, Path::new("C021.sh"))]
     #[test_case(Rule::EmptyTest, Path::new("C022.sh"))]
+    #[test_case(Rule::MissingBracketSpace, Path::new("C030.sh"))]
     #[test_case(Rule::PositionalTenBraces, Path::new("C025.sh"))]
     #[test_case(Rule::MissingFi, Path::new("C035.sh"))]
     #[test_case(Rule::BrokenTestEnd, Path::new("C036.sh"))]

@@ -1,4 +1,4 @@
-use crate::{Checker, Rule, SimpleTestShape, Violation};
+use crate::{Checker, Rule, SimpleTestShape, SimpleTestSyntax, Violation};
 
 pub struct EmptyTest;
 
@@ -21,7 +21,11 @@ pub fn empty_test(checker: &mut Checker) {
             fact.simple_test()
                 .map(|simple_test| (fact.span(), simple_test))
         })
-        .filter(|(_, fact)| fact.shape() == SimpleTestShape::Empty && !fact.empty_test_suppressed())
+        .filter(|(_, fact)| {
+            fact.syntax() == SimpleTestSyntax::Bracket
+                && fact.shape() == SimpleTestShape::Empty
+                && !fact.empty_test_suppressed()
+        })
         .map(|(span, _)| span)
         .collect::<Vec<_>>();
 
@@ -30,30 +34,19 @@ pub fn empty_test(checker: &mut Checker) {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
-    use crate::test::test_snippet_at_path;
+    use crate::test::test_snippet;
     use crate::{LinterSettings, Rule};
 
     #[test]
-    fn shellspec_parameters_blocks_are_ignored() {
+    fn ignores_empty_test_builtin_calls() {
         let source = "\
-Describe 'clone'
-Parameters
-  \"test\"
-  \"test$SHELLSPEC_LF\"
-End
-
+#!/bin/sh
 test
+test || __() { :; }
+test \"\" && exit
 ";
-        let diagnostics = test_snippet_at_path(
-            Path::new("/tmp/ko1nksm__shellspec__spec__core__clone_spec.sh"),
-            source,
-            &LinterSettings::for_rule(Rule::EmptyTest),
-        );
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::EmptyTest));
 
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].rule, Rule::EmptyTest);
-        assert_eq!(diagnostics[0].span.slice(source).trim_end(), "test");
+        assert!(diagnostics.is_empty());
     }
 }

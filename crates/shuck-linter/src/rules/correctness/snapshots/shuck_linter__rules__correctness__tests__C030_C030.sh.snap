@@ -1,0 +1,8 @@
+---
+source: crates/shuck-linter/src/rules/correctness/mod.rs
+---
+C030 this unary `[` test operator is missing its operand before the closing `]`
+ --> <source>:2:9
+  |
+2 | if [ -d /tmp]; then
+  |
