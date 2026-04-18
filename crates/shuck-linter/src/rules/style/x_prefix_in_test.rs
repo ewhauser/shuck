@@ -1,8 +1,8 @@
 use shuck_ast::Span;
 
 use crate::{
-    Checker, ConditionalNodeFact, ConditionalOperatorFamily, Rule, SimpleTestOperatorFamily,
-    SimpleTestShape, SimpleTestSyntax, Violation, leading_literal_word_prefix,
+    Checker, ConditionalNodeFact, ConditionalOperatorFamily, Rule, SimpleTestSyntax, Violation,
+    leading_literal_word_prefix,
 };
 
 pub struct XPrefixInTest;
@@ -25,10 +25,8 @@ pub fn x_prefix_in_test(checker: &mut Checker) {
         .iter()
         .flat_map(|fact| {
             let mut spans = Vec::new();
-            if let Some(simple_test) = fact.simple_test()
-                && let Some(span) = simple_test_span(simple_test, source)
-            {
-                spans.push(span);
+            if let Some(simple_test) = fact.simple_test() {
+                spans.extend(simple_test_spans(simple_test, source));
             }
             if let Some(conditional) = fact.conditional() {
                 spans.extend(conditional_spans(conditional, source));
@@ -40,28 +38,21 @@ pub fn x_prefix_in_test(checker: &mut Checker) {
     checker.report_all_dedup(spans, || XPrefixInTest);
 }
 
-fn simple_test_span(simple_test: &crate::SimpleTestFact<'_>, source: &str) -> Option<Span> {
+fn simple_test_spans(simple_test: &crate::SimpleTestFact<'_>, source: &str) -> Vec<Span> {
     if simple_test.syntax() != SimpleTestSyntax::Test
         && simple_test.syntax() != SimpleTestSyntax::Bracket
     {
-        return None;
-    }
-    if simple_test.effective_shape() != SimpleTestShape::Binary
-        || simple_test.effective_operator_family() != SimpleTestOperatorFamily::StringBinary
-    {
-        return None;
+        return Vec::new();
     }
 
-    let operands = simple_test.effective_operands();
-    if operands.len() != 3 {
-        return None;
-    }
-
-    if word_has_x_prefix(operands[0], source) && word_has_x_prefix(operands[2], source) {
-        Some(operands[0].span)
-    } else {
-        None
-    }
+    simple_test
+        .string_binary_expression_words(source)
+        .into_iter()
+        .filter_map(|(left, _operator, right)| {
+            (word_has_x_prefix(left, source) && word_has_x_prefix(right, source))
+                .then_some(left.span)
+        })
+        .collect()
 }
 
 fn conditional_spans(conditional: &crate::ConditionalFact<'_>, source: &str) -> Vec<Span> {
@@ -95,11 +86,15 @@ fn conditional_operand_has_x_prefix(
     operand
         .word()
         .map(|word| word_has_x_prefix(word, source))
-        .unwrap_or_else(|| operand.expression().span().slice(source).starts_with('x'))
+        .unwrap_or_else(|| has_legacy_x_prefix(operand.expression().span().slice(source)))
 }
 
 fn word_has_x_prefix(word: &shuck_ast::Word, source: &str) -> bool {
-    leading_literal_word_prefix(word, source).starts_with('x')
+    has_legacy_x_prefix(&leading_literal_word_prefix(word, source))
+}
+
+fn has_legacy_x_prefix(text: &str) -> bool {
+    matches!(text.as_bytes().first(), Some(b'x' | b'X'))
 }
 
 #[cfg(test)]
@@ -112,12 +107,15 @@ mod tests {
         let source = "\
 #!/bin/bash
 [ x = x ]
-[ x = xbar ]
-[ xfoo = xbar ]
-[ \"xfoo\" = \"x$browser\" ]
+[ X = Xbar ]
+[ \"Xfoo\" = \"X$browser\" ]
+[ X = \"X$browser\" ]
 test \"x$browser\" != \"x\"
-[[ x = xbar ]]
-[[ \"x$browser\" != \"x\" ]]
+[ \"X`id -u`\" = \"X0\" -a -z \"$RUN_AS_USER\" ]
+[ \"pkg-config --exists libffmpegthumbnailer\" -a \"x${VIDEO_THUMBNAILS}\" != \"xno\" ]
+[ X = X ]
+[[ X = Xbar ]]
+[[ \"X$browser\" != \"X\" ]]
 [ \"x$browser\" = \"x$other\" ]
 [ x = \"x$browser\" ]
 ";
@@ -130,12 +128,15 @@ test \"x$browser\" != \"x\"
                 .collect::<Vec<_>>(),
             vec![
                 "x",
-                "x",
-                "xfoo",
-                "\"xfoo\"",
+                "X",
+                "\"Xfoo\"",
+                "X",
                 "\"x$browser\"",
-                "x",
-                "\"x$browser\"",
+                "\"X`id -u`\"",
+                "\"x${VIDEO_THUMBNAILS}\"",
+                "X",
+                "X",
+                "\"X$browser\"",
                 "\"x$browser\"",
                 "x"
             ]
@@ -148,10 +149,14 @@ test \"x$browser\" != \"x\"
 #!/bin/bash
 [ \"x$browser\" = \"$other\" ]
 [ x = \"$browser\" ]
-[ xfoo = y ]
-[ \"x$browser\" = \"y\" ]
+[ \"X$browser\" = \"$other\" ]
+[ X = \"$browser\" ]
+[ Xfoo = y ]
+[ \"X$browser\" = \"Y\" ]
 [[ prefix$browser = prefix ]]
+[[ Prefix$browser = Prefix ]]
 [[ x = y ]]
+[[ X = Y ]]
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::XPrefixInTest));
 

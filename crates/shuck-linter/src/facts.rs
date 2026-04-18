@@ -310,7 +310,8 @@ impl<'a> SimpleTestFact<'a> {
             .into_iter()
             .filter_map(|expression| match expression {
                 SimpleTestExpression::Truthy(word) => Some(word),
-                SimpleTestExpression::StringUnary { .. } => None,
+                SimpleTestExpression::StringUnary { .. }
+                | SimpleTestExpression::StringBinary { .. } => None,
             })
             .collect()
     }
@@ -322,7 +323,24 @@ impl<'a> SimpleTestFact<'a> {
                 SimpleTestExpression::StringUnary { operator, operand } => {
                     Some((operator, operand))
                 }
-                SimpleTestExpression::Truthy(_) => None,
+                SimpleTestExpression::Truthy(_) | SimpleTestExpression::StringBinary { .. } => None,
+            })
+            .collect()
+    }
+
+    pub fn string_binary_expression_words(
+        &'a self,
+        source: &str,
+    ) -> Vec<(&'a Word, &'a Word, &'a Word)> {
+        simple_test_expressions(self, source)
+            .into_iter()
+            .filter_map(|expression| match expression {
+                SimpleTestExpression::StringBinary {
+                    left,
+                    operator,
+                    right,
+                } => Some((left, operator, right)),
+                SimpleTestExpression::Truthy(_) | SimpleTestExpression::StringUnary { .. } => None,
             })
             .collect()
     }
@@ -359,6 +377,11 @@ enum SimpleTestExpression<'a> {
     StringUnary {
         operator: &'a Word,
         operand: &'a Word,
+    },
+    StringBinary {
+        left: &'a Word,
+        operator: &'a Word,
+        right: &'a Word,
     },
 }
 
@@ -466,6 +489,21 @@ fn parse_simple_test_expression_segment<'a>(
         {
             Some(SimpleTestExpression::StringUnary { operator, operand })
         }
+        [left, operator, right]
+            if simple_test_effective_operand_text(
+                simple_test,
+                start + expression_start + 1,
+                source,
+            )
+            .as_deref()
+            .is_some_and(simple_test_is_string_binary_operator) =>
+        {
+            Some(SimpleTestExpression::StringBinary {
+                left,
+                operator,
+                right,
+            })
+        }
         [] | [_, _, ..] => None,
     }
 }
@@ -490,6 +528,10 @@ fn simple_test_is_logical_connector(text: &str) -> bool {
 
 fn simple_test_is_string_unary_operator(text: &str) -> bool {
     matches!(text, "-n" | "-z")
+}
+
+fn simple_test_is_string_binary_operator(text: &str) -> bool {
+    matches!(text, "=" | "==" | "!=" | "<" | ">")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18757,7 +18799,7 @@ test
     }
 
     #[test]
-    fn simple_test_fact_tracks_truthy_and_string_unary_subexpressions() {
+    fn simple_test_fact_tracks_truthy_string_unary_and_string_binary_subexpressions() {
         let source = "\
 #!/bin/sh
 [ foo ]
@@ -18776,6 +18818,7 @@ test
 [ foo \"-o\" \"-z\" baz ]
 [ -f file -a ! -z baz ]
 [ lhs = rhs ]
+[ lhs = rhs -a -z baz ]
 ";
 
         with_facts(source, None, |_, facts| {
@@ -19051,6 +19094,53 @@ test
                 .expect("expected binary test fact");
             assert!(binary.truthy_expression_words(source).is_empty());
             assert!(binary.string_unary_expression_words(source).is_empty());
+            assert_eq!(
+                binary
+                    .string_binary_expression_words(source)
+                    .into_iter()
+                    .map(|(left, operator, right)| {
+                        (
+                            left.span.slice(source).to_owned(),
+                            operator.span.slice(source).to_owned(),
+                            right.span.slice(source).to_owned(),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+                vec![("lhs".to_owned(), "=".to_owned(), "rhs".to_owned())]
+            );
+
+            let binary_then_unary = commands
+                .iter()
+                .find(|(text, _)| text == "[ lhs = rhs -a -z baz ]")
+                .and_then(|(_, fact)| fact.simple_test())
+                .expect("expected binary plus unary test fact");
+            assert_eq!(
+                binary_then_unary
+                    .string_binary_expression_words(source)
+                    .into_iter()
+                    .map(|(left, operator, right)| {
+                        (
+                            left.span.slice(source).to_owned(),
+                            operator.span.slice(source).to_owned(),
+                            right.span.slice(source).to_owned(),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+                vec![("lhs".to_owned(), "=".to_owned(), "rhs".to_owned())]
+            );
+            assert_eq!(
+                binary_then_unary
+                    .string_unary_expression_words(source)
+                    .into_iter()
+                    .map(|(operator, operand)| {
+                        (
+                            operator.span.slice(source).to_owned(),
+                            operand.span.slice(source).to_owned(),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+                vec![("-z".to_owned(), "baz".to_owned())]
+            );
         });
     }
 
