@@ -47,17 +47,15 @@ fn main() {
             })
             .unwrap_or_else(|| panic!("missing new_code in {}", path.display()));
 
-        let shellcheck_code = data
-            .lines()
-            .find_map(|line| {
-                let raw = line.strip_prefix("shellcheck_code:")?.trim();
-                Some(
-                    parse_shellcheck_code_value(raw).unwrap_or_else(|_| {
+        let shellcheck_code =
+            data.lines()
+                .find_map(|line| {
+                    let raw = line.strip_prefix("shellcheck_code:")?.trim();
+                    Some(parse_shellcheck_code_value(raw).unwrap_or_else(|_| {
                         panic!("invalid shellcheck_code in {}", path.display())
-                    }),
-                )
-            })
-            .flatten();
+                    }))
+                })
+                .flatten();
 
         let Some(shellcheck_code) = shellcheck_code else {
             continue;
