@@ -240,24 +240,22 @@ impl<'a> SurfaceFragmentSink<'a> {
     }
 
     fn collect_open_double_quote_fragments(&mut self, word: &Word, command_name: Option<&str>) {
-        let Some((opening_span, closing_span)) =
-            first_suspect_double_quote_spans(word, self.source, command_name)
-        else {
-            return;
-        };
-
-        self.facts
-            .open_double_quotes
-            .push(OpenDoubleQuoteFragmentFact { span: opening_span });
-        self.facts
-            .suspect_closing_quotes
-            .push(SuspectClosingQuoteFragmentFact { span: closing_span });
+        for (opening_span, closing_span) in
+            suspect_double_quote_spans(word, self.source, command_name)
+        {
+            self.facts
+                .open_double_quotes
+                .push(OpenDoubleQuoteFragmentFact { span: opening_span });
+            self.facts
+                .suspect_closing_quotes
+                .push(SuspectClosingQuoteFragmentFact { span: closing_span });
+        }
     }
 
     pub(super) fn collect_split_suspect_closing_quote_fragment_in_words(&mut self, words: &[Word]) {
         for span in words
             .iter()
-            .filter_map(|word| split_suspect_closing_quote_span(word, self.source))
+            .flat_map(|word| split_suspect_closing_quote_spans(word, self.source))
         {
             if self
                 .facts
@@ -1297,15 +1295,15 @@ fn is_shell_name(text: &str) -> bool {
         && chars.all(|char| char == '_' || char.is_ascii_alphanumeric())
 }
 
-fn first_suspect_double_quote_spans(
+fn suspect_double_quote_spans(
     word: &Word,
     source: &str,
     command_name: Option<&str>,
-) -> Option<(Span, Span)> {
+) -> Vec<(Span, Span)> {
     word.parts
         .windows(3)
         .enumerate()
-        .find_map(|(index, window)| {
+        .filter_map(|(index, window)| {
             let [current, middle, next] = window else {
                 return None;
             };
@@ -1326,7 +1324,7 @@ fn first_suspect_double_quote_spans(
                 && middle_part_is_word_like_literal_gap(middle, source);
             let has_triple_quote_literal_gap = index > 0
                 && double_quoted_part_is_empty(&word.parts[index - 1], source)
-                && middle_part_is_nonempty_literal_gap(middle, source);
+                && middle_part_is_word_like_literal_gap(middle, source);
             if !has_scalar_gap && !has_word_literal_gap && !has_triple_quote_literal_gap {
                 return None;
             }
@@ -1336,6 +1334,7 @@ fn first_suspect_double_quote_spans(
                 closing_double_quote_span(current.span, source)?,
             ))
         })
+        .collect()
 }
 
 fn double_quoted_parts_contain_live_scalar(parts: &[WordPartNode]) -> bool {
@@ -1406,13 +1405,6 @@ fn middle_part_is_live_scalar_gap(part: &WordPartNode) -> bool {
     )
 }
 
-fn middle_part_is_nonempty_literal_gap(part: &WordPartNode, source: &str) -> bool {
-    let WordPart::Literal(text) = &part.kind else {
-        return false;
-    };
-    !text.as_str(source, part.span).is_empty()
-}
-
 fn middle_part_is_word_like_literal_gap(part: &WordPartNode, source: &str) -> bool {
     let WordPart::Literal(text) = &part.kind else {
         return false;
@@ -1430,20 +1422,39 @@ fn double_quoted_part_is_empty(part: &WordPartNode, source: &str) -> bool {
     })
 }
 
-fn split_suspect_closing_quote_span(word: &Word, source: &str) -> Option<Span> {
-    let text = word.span.slice(source);
-    if !text.contains('\n') {
-        return None;
-    }
+fn split_suspect_closing_quote_spans(word: &Word, source: &str) -> Vec<Span> {
+    word.parts
+        .windows(2)
+        .enumerate()
+        .filter_map(|window| {
+            let (index, [current, next]) = window else {
+                return None;
+            };
+            let WordPart::DoubleQuoted { .. } = &current.kind else {
+                return None;
+            };
+            let WordPart::Literal(text) = &next.kind else {
+                return None;
+            };
+            if !current.span.slice(source).contains('\n') {
+                return None;
+            }
 
-    let quote_offset = text.rfind('"')?;
-    let tail = text.get(quote_offset + 1..)?;
-    if !split_quote_tail_is_suspicious(tail) {
-        return None;
-    }
+            let tail = text.as_str(source, next.span);
+            if !split_quote_tail_is_suspicious(tail) {
+                return None;
+            }
 
-    let start = word.span.start.advanced_by(&text[..quote_offset]);
-    Some(Span::from_positions(start, start))
+            let span = closing_double_quote_span(current.span, source)?;
+            if span.start.column == 1
+                || (index > 0 && double_quoted_part_is_empty(&word.parts[index - 1], source))
+            {
+                Some(span)
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 fn split_quote_tail_is_suspicious(text: &str) -> bool {
