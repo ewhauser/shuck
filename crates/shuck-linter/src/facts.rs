@@ -11876,9 +11876,7 @@ fn parse_echo_command<'a>(args: &[&'a Word], source: &str) -> EchoCommandFacts<'
 }
 
 fn parse_sed_command(args: &[&Word], source: &str) -> SedCommandFacts {
-    let script = match args {
-        words => sed_script_text(words, source),
-    };
+    let script = sed_script_text(args, source);
 
     let script = match args {
         [flag, words @ ..] if static_word_text(flag, source).as_deref() == Some("-e") => {
@@ -11930,92 +11928,117 @@ fn is_echo_portability_flag(text: &str) -> bool {
 }
 
 fn is_simple_sed_substitution_script(text: &str) -> bool {
-    let bytes = text.as_bytes();
-    if bytes.len() < 4 || bytes[0] != b's' {
+    let Some(remainder) = text.strip_prefix('s') else {
+        return false;
+    };
+
+    let Some(delimiter) = remainder.chars().next() else {
+        return false;
+    };
+    if delimiter.is_whitespace() || delimiter == '\\' {
         return false;
     }
 
-    let delimiter = bytes[1];
-    if delimiter.is_ascii_whitespace() || delimiter == b'\\' {
-        return false;
-    }
-
+    let pattern_start = 1 + delimiter.len_utf8();
     let Some((pattern_end, pattern_has_escaped_delimiter)) =
-        find_sed_substitution_section(text, 2, delimiter)
+        find_sed_substitution_section(text, pattern_start, delimiter)
     else {
         return false;
     };
-    let replacement_start = pattern_end + 1;
+    let replacement_start = pattern_end + delimiter.len_utf8();
     let Some((replacement_end, replacement_has_escaped_delimiter)) =
         find_sed_substitution_section(text, replacement_start, delimiter)
     else {
         return false;
     };
 
-    let flags = &text[replacement_end + 1..];
+    let flags = &text[replacement_end + delimiter.len_utf8()..];
     if flags.chars().any(|ch| ch.is_whitespace() || ch == ';') {
         return false;
     }
 
-    let pattern = &text[2..pattern_end];
+    let pattern = &text[pattern_start..pattern_end];
     let replacement = &text[replacement_start..replacement_end];
     !pattern_has_escaped_delimiter
         && !replacement_has_escaped_delimiter
         && !uses_delimiter_sensitive_match_escape(pattern, replacement, delimiter)
 }
 
-fn find_sed_substitution_section(text: &str, start: usize, delimiter: u8) -> Option<(usize, bool)> {
-    let bytes = text.as_bytes();
+fn find_sed_substitution_section(
+    text: &str,
+    start: usize,
+    delimiter: char,
+) -> Option<(usize, bool)> {
+    let _ = text.get(start..)?;
     let mut index = start;
     let mut saw_escaped_delimiter = false;
-    let mut character_class_start = None;
+    let mut escaped = false;
+    let mut character_class_contents = None;
 
-    while index < bytes.len() {
-        if let Some(class_start) = character_class_start {
-            match bytes[index] {
-                b'\\' => {
-                    if bytes.get(index + 1).copied() == Some(delimiter) {
-                        saw_escaped_delimiter = true;
+    while index < text.len() {
+        let mut chars = text[index..].chars();
+        let Some(ch) = chars.next() else {
+            break;
+        };
+        let next = index + ch.len_utf8();
+
+        if let Some(contents) = character_class_contents.as_mut() {
+            if escaped {
+                if ch == delimiter {
+                    saw_escaped_delimiter = true;
+                }
+                *contents += 1;
+                escaped = false;
+            } else {
+                match ch {
+                    '\\' => {
+                        escaped = true;
                     }
-                    index = index.saturating_add(2);
-                    continue;
+                    '^' if *contents == 0 => {}
+                    ']' if *contents > 0 => {
+                        character_class_contents = None;
+                    }
+                    _ => {
+                        *contents += 1;
+                    }
                 }
-                b']' if index
-                    > class_start
-                        + 1
-                        + usize::from(bytes.get(class_start + 1).copied() == Some(b'^')) =>
-                {
-                    character_class_start = None;
-                }
-                _ => {}
             }
-            index += 1;
+            index = next;
             continue;
         }
 
-        match bytes[index] {
-            b'\\' => {
-                if bytes.get(index + 1).copied() == Some(delimiter) {
-                    saw_escaped_delimiter = true;
-                }
-                index = index.saturating_add(2);
-                continue;
+        if escaped {
+            if ch == delimiter {
+                saw_escaped_delimiter = true;
             }
-            b'[' => {
-                character_class_start = Some(index);
+            escaped = false;
+            index = next;
+            continue;
+        }
+
+        match ch {
+            '\\' => {
+                escaped = true;
             }
-            byte if byte == delimiter => return Some((index, saw_escaped_delimiter)),
+            '[' => {
+                character_class_contents = Some(0);
+            }
+            ch if ch == delimiter => return Some((index, saw_escaped_delimiter)),
             _ => {}
         }
-        index += 1;
+        index = next;
     }
 
     None
 }
 
-fn uses_delimiter_sensitive_match_escape(pattern: &str, replacement: &str, delimiter: u8) -> bool {
-    delimiter == b'/'
-        && pattern.as_bytes().contains(&delimiter)
+fn uses_delimiter_sensitive_match_escape(
+    pattern: &str,
+    replacement: &str,
+    delimiter: char,
+) -> bool {
+    delimiter == '/'
+        && pattern.contains(delimiter)
         && is_backslash_prefixed_match_escape(replacement)
 }
 
@@ -16439,6 +16462,7 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
 #!/bin/bash
 echo $value | sed 's/foo/bar/'
 echo \"$value\" | sed 's/foo/bar/g'
+echo \"$value\" | sed 's§foo§bar§'
 echo ${items[@]} | sed -e 's/foo/bar/2'
 result=$(echo \"$(printf %s foo)\" | sed 's/foo/bar/')
 COMMAND=$(echo \"$COMMAND\" | sed \"s#\\(--appendconfig *[^ $]*\\)#\\1'|'$conf#\")
@@ -16463,6 +16487,7 @@ literal=$(sed 's/[[:space:]]*$//' <<<literal)
                 vec![
                     "echo $value | sed 's/foo/bar/'",
                     "echo \"$value\" | sed 's/foo/bar/g'",
+                    "echo \"$value\" | sed 's§foo§bar§'",
                     "echo ${items[@]} | sed -e 's/foo/bar/2'",
                     "echo \"$(printf %s foo)\" | sed 's/foo/bar/'",
                     "echo \"$COMMAND\" | sed \"s#\\(--appendconfig *[^ $]*\\)#\\1'|'$conf#\"",
