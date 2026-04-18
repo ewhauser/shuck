@@ -180,6 +180,7 @@ alsamixer >/dev/tty </dev/tty
 cat </dev/fd/0 >/dev/fd/0
 jq --args '$ARGS.positional[0]' \"$cfg\" >\"$cfg\"
 jq --jsonargs '$ARGS.positional[0]' \"$cfg\" >\"$cfg\"
+jq -nc '.x=1' \"$cfg\" >\"$cfg\"
 ";
         let diagnostics = test_snippet(
             source,

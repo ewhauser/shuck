@@ -13365,6 +13365,22 @@ fn jq_file_operand_words<'a>(args: &[&'a Word], source: &str) -> Vec<&'a Word> {
         }
 
         if options_open && text.starts_with('-') && text != "-" {
+            if !text.starts_with("--") {
+                if short_option_cluster_contains_flag(text.as_str(), 'n') {
+                    null_input = true;
+                }
+                if short_option_cluster_contains_flag(text.as_str(), 'f') {
+                    filter_from_file = true;
+                    consumed_filter = true;
+                    if text.ends_with('f') {
+                        pending_args = Some(PendingOptionArgs::Skip(1));
+                    }
+                }
+                if short_option_cluster_contains_flag(text.as_str(), 'L') && text.ends_with('L') {
+                    pending_args = Some(PendingOptionArgs::Skip(1));
+                }
+            }
+
             match text.as_str() {
                 "-n" | "--null-input" => {
                     null_input = true;
@@ -15686,6 +15702,7 @@ jq --jsonargs '$ARGS.positional[0]' \"$cfg\"
 jq --rawfile cfg \"$cfg\" '.dns=$cfg'
 jq --slurpfile cfg \"$cfg\" '.dns=$cfg'
 jq --argfile cfg \"$cfg\" '.dns=$cfg'
+jq -nc '.x=1' \"$cfg\"
 ";
 
         with_facts(source, None, |_, facts| {
@@ -15711,6 +15728,7 @@ jq --argfile cfg \"$cfg\" '.dns=$cfg'
                     vec!["\"$cfg\""],
                     vec!["\"$cfg\""],
                     vec!["\"$cfg\""],
+                    Vec::<&str>::new(),
                 ]
             );
         });
