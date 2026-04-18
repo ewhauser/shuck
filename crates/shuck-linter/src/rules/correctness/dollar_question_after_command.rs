@@ -121,4 +121,27 @@ fi
             vec!["$?", "$?"]
         );
     }
+
+    #[test]
+    fn reports_pipeline_rhs_status_checks_even_at_function_entry() {
+        let source = "\
+#!/bin/bash
+check_status() {
+  run | [ $? -eq 0 ]
+  run |& [ $? -eq 0 ]
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::DollarQuestionAfterCommand),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$?", "$?"]
+        );
+    }
 }
