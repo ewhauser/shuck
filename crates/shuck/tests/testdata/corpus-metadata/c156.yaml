@@ -378,3 +378,210 @@ reviewed_divergences:
     column: 6
     end_column: 13
     reason: "Shuck intentionally avoids guessing across the CFLAGS/CPPFLAGS/CXXFLAGS family because that broader heuristic produced too many false positives in packaging scripts."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__functions"
+    reason: "This lynis helper uses several nearby `*BINARY` and state names, and shuck intentionally avoids broad nearest-neighbor guessing across that project-specific family."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__tests_accounting"
+    reason: "This lynis test harness uses several nearby helper-binary names, and shuck intentionally avoids broad nearest-neighbor guessing across that project-specific family."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__tests_networking"
+    reason: "This lynis test harness uses several nearby helper-binary names, and shuck intentionally avoids broad nearest-neighbor guessing across that project-specific family."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__tests_ports_packages"
+    reason: "This lynis test harness uses several nearby helper-binary names, and shuck intentionally avoids broad nearest-neighbor guessing across that project-specific family."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__lynis"
+    reason: "These lynis runtime names belong to different state variables, and shuck avoids broad nearest-neighbor guessing across that project-specific family."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__audio__rplay__rplay.SlackBuild"
+    reason: "This SlackBuild keeps `RPLAY*` user and group knobs in a broader helper family, and shuck does not stretch C156 across that longer aliasing."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__desktop__vim-qt__vim-qt.SlackBuild"
+    reason: "This SlackBuild uses several parallel `SLK*FLAGS` variables, and shuck intentionally avoids fuzzy matching across that packaging-specific flag family."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__development__cargo-vendor-filterer__cargo-mkvendored.sh"
+    reason: "This vendored build helper uses several nearby `*BUILD` names, and shuck keeps C156 narrower than ShellCheck's project-specific suffix guess."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__development__gdb-dashboard__gdb-dashboard.SlackBuild"
+    reason: "This shortened `COMMITV` name is outside shuck's deliberately narrow C156 suffix heuristics."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__graphics__djview4__djview4.SlackBuild"
+    reason: "This versioned Qt helper name is outside shuck's deliberately narrow digit-insertion heuristics."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__ham__hackrf__hackrf.SlackBuild"
+    reason: "Shuck intentionally keeps C156 off short option-like names such as `OPT` and `OPT1`."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__libraries__libzrtpcpp__libzrtpcpp.SlackBuild"
+    reason: "This SlackBuild uses several parallel `SLK*FLAGS` variables, and shuck intentionally avoids fuzzy matching across that packaging-specific flag family."
+  - side: shuck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__libraries__slib__slib.SlackBuild"
+    reason: "This is a genuine transposition typo in the docdir path, and shuck intentionally keeps the warning even though ShellCheck does not."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__libraries__xapp__xapp.SlackBuild"
+    reason: "This SlackBuild uses several parallel `SLK*FLAGS` variables, and shuck intentionally avoids fuzzy matching across that packaging-specific flag family."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__network__mod_evasive__mod_evasive.SlackBuild"
+    reason: "This SlackBuild uses several parallel `SLK*FLAGS` variables, and shuck intentionally avoids fuzzy matching across that packaging-specific flag family."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__network__mod_geoip2__mod_geoip2.SlackBuild"
+    reason: "This SlackBuild uses several parallel `SLK*FLAGS` variables, and shuck intentionally avoids fuzzy matching across that packaging-specific flag family."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__network__openconnect__vpnc-script"
+    reason: "These `INTERNAL_IP*_DNS` names are distinct tunnel settings, and shuck avoids broad nearest-neighbor guessing across that family."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__network__opendkim__rc.opendkim"
+    reason: "This init script mixes underscored and plain `DK*` helper names, and shuck intentionally avoids broader underscore-alias guessing there."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__python__cryptography__mkvendored.sh"
+    reason: "This vendored build helper uses several nearby `*BUILD` names, and shuck keeps C156 narrower than ShellCheck's project-specific suffix guess."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__system__bochs__bochs.SlackBuild"
+    reason: "Shuck intentionally keeps C156 off short feature-toggle names such as `EVE` and `EVEX`."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__system__lcdf-typetools__lcdf-typetools.SlackBuild"
+    reason: "This SlackBuild uses several parallel `SLK*FLAGS` variables, and shuck intentionally avoids fuzzy matching across that packaging-specific flag family."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__system__rhvoice__rhvoice.SlackBuild"
+    reason: "This SlackBuild uses several parallel `SLK*FLAGS` variables, and shuck intentionally avoids fuzzy matching across that packaging-specific flag family."
+  - side: shellcheck-only
+    path_suffix: "bitnami__containers__bitnami__openldap__2.6__debian-12__rootfs__opt__bitnami__scripts__libopenldap.sh"
+    reason: "These `LDAP_USER_*` suffixes name different directory components, so treating them as misspellings in sourced helper code is misleading."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__net"
+    reason: "The lowercase `wifidev` here is a function-local parameter, not the global `WIFIDEV` interface variable, so matching them is misleading."
+  - side: shellcheck-only
+    path_suffix: "community-scripts__ProxmoxVE__misc__build.func"
+    reason: "These are UI label variables paired with `DISK_SIZE` and `RAM_SIZE`, not misspellings of those size variables."
+  - side: shellcheck-only
+    path_suffix: "community-scripts__ProxmoxVE__vm__debian-13-vm.sh"
+    reason: "These `DISK*_REF` names are synthesized from `DISK_REF` via `eval`, so shuck intentionally does not guess them as simple misspellings."
+  - side: shellcheck-only
+    path_suffix: "community-scripts__ProxmoxVE__vm__debian-vm.sh"
+    reason: "These `DISK*_REF` names are synthesized from `DISK_REF` via `eval`, so shuck intentionally does not guess them as simple misspellings."
+  - side: shellcheck-only
+    path_suffix: "community-scripts__ProxmoxVE__vm__docker-vm.sh"
+    reason: "These are UI label variables paired with `DISK_SIZE` and `RAM_SIZE`, not misspellings of those size variables."
+  - side: shellcheck-only
+    path_suffix: "community-scripts__ProxmoxVE__vm__nextcloud-vm.sh"
+    reason: "These `DISK*_REF` names are synthesized from `DISK_REF` via `eval`, so shuck intentionally does not guess them as simple misspellings."
+  - side: shellcheck-only
+    path_suffix: "community-scripts__ProxmoxVE__vm__opnsense-vm.sh"
+    reason: "These `DISK*_REF` names are synthesized from `DISK_REF` via `eval`, so shuck intentionally does not guess them as simple misspellings."
+  - side: shellcheck-only
+    path_suffix: "community-scripts__ProxmoxVE__vm__owncloud-vm.sh"
+    reason: "These `DISK*_REF` names are synthesized from `DISK_REF` via `eval`, so shuck intentionally does not guess them as simple misspellings."
+  - side: shellcheck-only
+    path_suffix: "community-scripts__ProxmoxVE__vm__pimox-haos-vm.sh"
+    reason: "These `DISK*_REF` names are synthesized from `DISK_REF` via `eval`, so shuck intentionally does not guess them as simple misspellings."
+  - side: shellcheck-only
+    path_suffix: "community-scripts__ProxmoxVE__vm__ubuntu2204-vm.sh"
+    reason: "These `DISK*_REF` names are synthesized from `DISK_REF` via `eval`, so shuck intentionally does not guess them as simple misspellings."
+  - side: shellcheck-only
+    path_suffix: "community-scripts__ProxmoxVE__vm__ubuntu2404-vm.sh"
+    reason: "These `DISK*_REF` names are synthesized from `DISK_REF` via `eval`, so shuck intentionally does not guess them as simple misspellings."
+  - side: shellcheck-only
+    path_suffix: "community-scripts__ProxmoxVE__vm__ubuntu2504-vm.sh"
+    reason: "These `DISK*_REF` names are synthesized from `DISK_REF` via `eval`, so shuck intentionally does not guess them as simple misspellings."
+  - side: shellcheck-only
+    path_suffix: "dokku__dokku__plugins__common__functions"
+    reason: "These sourced `DOKKU_*` names belong to a broader helper family, and shuck avoids arbitrary nearest-neighbor guesses there."
+  - side: shellcheck-only
+    path_suffix: "dokku__dokku__plugins__scheduler-docker-local__bin__scheduler-deploy-process-container"
+    reason: "These sourced `DOKKU_*` names belong to a broader helper family, and shuck avoids arbitrary nearest-neighbor guesses there."
+  - side: shellcheck-only
+    path_suffix: "dokku__dokku__plugins__scheduler-docker-local__internal-functions"
+    reason: "These sourced `DOCKER_*` names belong to a broader helper family, and shuck avoids arbitrary nearest-neighbor guesses there."
+  - side: shellcheck-only
+    path_suffix: "gentoo__gentoo__media-plugins__vdr-systeminfo__files__systeminfo.sh"
+    reason: "This script uses numbered disk-slot names, and shuck intentionally avoids broader underscore-insertion guessing there."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__bearssl__build.sh"
+    reason: "Shuck intentionally avoids guessing across neighboring compiler-flag variables in build scripts because that broader heuristic is noisy."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__bzip2__build.sh"
+    reason: "Shuck intentionally keeps C156 off short build-variable names such as `SRC` and `SRCL`."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__circl__build.sh"
+    reason: "Shuck intentionally avoids guessing across neighboring compiler-flag variables in build scripts because that broader heuristic is noisy."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__expat__build.sh"
+    reason: "Shuck intentionally avoids guessing across neighboring compiler-flag variables in build scripts because that broader heuristic is noisy."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__gfwx__build.sh"
+    reason: "Shuck intentionally avoids guessing across neighboring compiler-flag variables in build scripts because that broader heuristic is noisy."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__gnutls__build.sh"
+    reason: "Shuck intentionally avoids guessing across neighboring compiler-flag variables in build scripts because that broader heuristic is noisy."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__knot-dns__build.sh"
+    reason: "Shuck intentionally avoids guessing across neighboring compiler-flag variables in build scripts because that broader heuristic is noisy."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__libpsl__build.sh"
+    reason: "Shuck intentionally avoids guessing across neighboring compiler-flag variables in build scripts because that broader heuristic is noisy."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__libtheora__build.sh"
+    reason: "Shuck intentionally avoids guessing across neighboring compiler-flag variables in build scripts because that broader heuristic is noisy."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__mosh__build.sh"
+    reason: "Shuck intentionally avoids guessing across neighboring compiler-flag variables in build scripts because that broader heuristic is noisy."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__num-bigint__build.sh"
+    reason: "Shuck intentionally avoids guessing across neighboring compiler-flag variables in build scripts because that broader heuristic is noisy."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__plan9port__build.sh"
+    reason: "Shuck intentionally avoids guessing across neighboring compiler-flag variables in build scripts because that broader heuristic is noisy."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__protobuf-c__build.sh"
+    reason: "Shuck intentionally avoids guessing across neighboring compiler-flag variables in build scripts because that broader heuristic is noisy."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__pupnp__build.sh"
+    reason: "Shuck intentionally avoids guessing across neighboring compiler-flag variables in build scripts because that broader heuristic is noisy."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__rapidjson__build.sh"
+    reason: "Shuck intentionally avoids guessing across neighboring compiler-flag variables in build scripts because that broader heuristic is noisy."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__relic__build.sh"
+    reason: "Shuck intentionally avoids guessing across neighboring compiler-flag variables in build scripts because that broader heuristic is noisy."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__tensorflow__build.sh"
+    reason: "Shuck intentionally avoids guessing across neighboring compiler-flag variables in build scripts because that broader heuristic is noisy."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__wget2__build.sh"
+    reason: "Shuck intentionally avoids guessing across neighboring compiler-flag variables in build scripts because that broader heuristic is noisy."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__wt__build.sh"
+    reason: "Shuck intentionally avoids guessing across neighboring compiler-flag variables in build scripts because that broader heuristic is noisy."
+  - side: shellcheck-only
+    path_suffix: "ko1nksm__shellspec__shellspec"
+    reason: "These sourced `SHELLSPEC_*DIR` names are distinct project-specific path knobs, and shuck avoids broader nearest-neighbor guessing there."
+  - side: shellcheck-only
+    path_suffix: "moovweb__gvm__binscripts__gvm-installer"
+    reason: "This installer carries several short `G*ROOT` helper names, and shuck avoids arbitrary substitutions across that family."
+  - side: shellcheck-only
+    path_suffix: "moovweb__gvm__examples__native__configure"
+    reason: "Shuck intentionally keeps C156 off short build-variable names such as `LIB` and `LIBS`."
+  - side: shellcheck-only
+    path_suffix: "tteck__Proxmox__vm__debian-vm.sh"
+    reason: "These `DISK*_REF` names are synthesized from `DISK_REF` via `eval`, so shuck intentionally does not guess them as simple misspellings."
+  - side: shellcheck-only
+    path_suffix: "tteck__Proxmox__vm__haos-vm.sh"
+    reason: "These `DISK*_REF` names are synthesized from `DISK_REF` via `eval`, so shuck intentionally does not guess them as simple misspellings."
+  - side: shellcheck-only
+    path_suffix: "tteck__Proxmox__vm__nextcloud-vm.sh"
+    reason: "These `DISK*_REF` names are synthesized from `DISK_REF` via `eval`, so shuck intentionally does not guess them as simple misspellings."
+  - side: shellcheck-only
+    path_suffix: "tteck__Proxmox__vm__openwrt.sh"
+    reason: "These `DISK*_REF` names are synthesized from `DISK_REF` via `eval`, so shuck intentionally does not guess them as simple misspellings."
+  - side: shellcheck-only
+    path_suffix: "tteck__Proxmox__vm__owncloud-vm.sh"
+    reason: "These `DISK*_REF` names are synthesized from `DISK_REF` via `eval`, so shuck intentionally does not guess them as simple misspellings."
+  - side: shellcheck-only
+    path_suffix: "tteck__Proxmox__vm__pimox-haos-vm.sh"
+    reason: "These `DISK*_REF` names are synthesized from `DISK_REF` via `eval`, so shuck intentionally does not guess them as simple misspellings."
+  - side: shellcheck-only
+    path_suffix: "tteck__Proxmox__vm__ubuntu2204-vm.sh"
+    reason: "These `DISK*_REF` names are synthesized from `DISK_REF` via `eval`, so shuck intentionally does not guess them as simple misspellings."
+  - side: shellcheck-only
+    path_suffix: "tteck__Proxmox__vm__ubuntu2404-vm.sh"
+    reason: "These `DISK*_REF` names are synthesized from `DISK_REF` via `eval`, so shuck intentionally does not guess them as simple misspellings."
