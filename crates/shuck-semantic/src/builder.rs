@@ -11,7 +11,10 @@ use shuck_ast::{
 use shuck_indexer::Indexer;
 use shuck_parser::{ShellProfile, ZshEmulationMode};
 
-use crate::binding::{Binding, BindingAttributes, BindingKind};
+use crate::binding::{
+    AssignmentValueOrigin, Binding, BindingAttributes, BindingKind, BindingOrigin,
+    BuiltinBindingTargetKind, LoopValueOrigin,
+};
 use crate::call_graph::{CallGraph, CallSite, OverwrittenFunction};
 use crate::cfg::{
     FlowContext, IsolatedRegion, RecordedCaseArm, RecordedCommand, RecordedCommandId,
@@ -614,6 +617,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                             BindingKind::LoopVariable,
                             self.current_scope(),
                             target.span,
+                            BindingOrigin::LoopVariable {
+                                definition_span: target.span,
+                                items: loop_binding_origin_for_words(command.words.as_deref()),
+                            },
                             BindingAttributes::empty(),
                         );
                     }
@@ -656,6 +663,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     BindingKind::LoopVariable,
                     self.current_scope(),
                     command.variable_span,
+                    BindingOrigin::LoopVariable {
+                        definition_span: command.variable_span,
+                        items: loop_binding_origin_for_words(Some(&command.words)),
+                    },
                     BindingAttributes::empty(),
                 );
 
@@ -789,6 +800,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     BindingKind::LoopVariable,
                     self.current_scope(),
                     command.variable_span,
+                    BindingOrigin::LoopVariable {
+                        definition_span: command.variable_span,
+                        items: loop_binding_origin_for_words(Some(&command.words)),
+                    },
                     BindingAttributes::empty(),
                 );
 
@@ -910,6 +925,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 BindingKind::FunctionDefinition,
                 parent_scope,
                 span,
+                BindingOrigin::FunctionDefinition {
+                    definition_span: span,
+                },
                 BindingAttributes::empty(),
             );
             self.recorded_program
@@ -1003,6 +1021,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             kind,
             scope,
             assignment.target.name_span,
+            binding_origin_for_assignment(assignment),
             attributes,
         );
         if let Some(hint) = indirect_target_hint(assignment, self.source) {
@@ -2080,6 +2099,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     BindingKind::ArithmeticAssignment,
                     self.current_scope(),
                     expr.span,
+                    BindingOrigin::ArithmeticAssignment {
+                        definition_span: expr.span,
+                    },
                     BindingAttributes::empty(),
                 );
             }
@@ -2092,6 +2114,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     BindingKind::ArithmeticAssignment,
                     self.current_scope(),
                     span,
+                    BindingOrigin::ArithmeticAssignment {
+                        definition_span: span,
+                    },
                     BindingAttributes::ARRAY,
                 );
             }
@@ -2123,6 +2148,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             BindingKind::ArithmeticAssignment,
             self.current_scope(),
             name_span,
+            BindingOrigin::ArithmeticAssignment {
+                definition_span: name_span,
+            },
             attributes,
         );
     }
@@ -2155,6 +2183,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         BindingKind::ReadTarget,
                         self.current_scope(),
                         span,
+                        BindingOrigin::BuiltinTarget {
+                            definition_span: span,
+                            kind: BuiltinBindingTargetKind::Read,
+                        },
                         BindingAttributes::empty(),
                     );
                 }
@@ -2178,6 +2210,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         BindingKind::MapfileTarget,
                         self.current_scope(),
                         span,
+                        BindingOrigin::BuiltinTarget {
+                            definition_span: span,
+                            kind: BuiltinBindingTargetKind::Mapfile,
+                        },
                         BindingAttributes::empty(),
                     );
                 }
@@ -2189,6 +2225,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         BindingKind::PrintfTarget,
                         self.current_scope(),
                         span,
+                        BindingOrigin::BuiltinTarget {
+                            definition_span: span,
+                            kind: BuiltinBindingTargetKind::Printf,
+                        },
                         BindingAttributes::empty(),
                     );
                 }
@@ -2200,6 +2240,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         BindingKind::GetoptsTarget,
                         self.current_scope(),
                         span,
+                        BindingOrigin::BuiltinTarget {
+                            definition_span: span,
+                            kind: BuiltinBindingTargetKind::Getopts,
+                        },
                         BindingAttributes::empty(),
                     );
                 }
@@ -2320,7 +2364,16 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         } else {
             BindingKind::Declaration(builtin)
         };
-        self.add_binding(name, kind, scope, span, attributes);
+        let origin = if matches!(kind, BindingKind::Nameref) {
+            BindingOrigin::Nameref {
+                definition_span: span,
+            }
+        } else {
+            BindingOrigin::Declaration {
+                definition_span: span,
+            }
+        };
+        self.add_binding(name, kind, scope, span, origin, attributes);
     }
 
     fn add_binding(
@@ -2329,6 +2382,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         kind: BindingKind,
         scope: ScopeId,
         span: Span,
+        origin: BindingOrigin,
         attributes: BindingAttributes,
     ) -> BindingId {
         let id = BindingId(self.bindings.len() as u32);
@@ -2336,6 +2390,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             id,
             name: name.clone(),
             kind,
+            origin,
             scope,
             span,
             references: Vec::new(),
@@ -2423,6 +2478,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             BindingKind::ParameterDefaultAssignment,
             self.current_scope(),
             reference.span,
+            BindingOrigin::ParameterDefaultAssignment {
+                definition_span: reference.span,
+            },
             BindingAttributes::empty(),
         );
     }
@@ -3418,6 +3476,195 @@ fn single_literal_word(word: &Word) -> Option<&str> {
             _ => None,
         },
         _ => None,
+    }
+}
+
+fn binding_origin_for_assignment(assignment: &Assignment) -> BindingOrigin {
+    let value = if assignment.target.subscript.is_some() {
+        AssignmentValueOrigin::ArrayOrCompound
+    } else {
+        match &assignment.value {
+            AssignmentValue::Scalar(word) => assignment_value_origin_for_word(word),
+            AssignmentValue::Compound(_) => AssignmentValueOrigin::ArrayOrCompound,
+        }
+    };
+
+    BindingOrigin::Assignment {
+        definition_span: assignment.target.name_span,
+        value,
+    }
+}
+
+fn loop_binding_origin_for_words(words: Option<&[Word]>) -> LoopValueOrigin {
+    let Some(words) = words else {
+        return LoopValueOrigin::ImplicitArgv;
+    };
+
+    if words.iter().all(word_is_static_binding_literal) {
+        LoopValueOrigin::StaticWords
+    } else {
+        LoopValueOrigin::ExpandedWords
+    }
+}
+
+fn assignment_value_origin_for_word(word: &Word) -> AssignmentValueOrigin {
+    if !word.brace_syntax.is_empty() {
+        return AssignmentValueOrigin::MixedDynamic;
+    }
+    if word_is_static_binding_literal(word) {
+        return AssignmentValueOrigin::StaticLiteral;
+    }
+
+    let mut scan = AssignmentWordOriginScan::default();
+    scan_assignment_word_parts(&word.parts, &mut scan);
+
+    if scan.category_count() == 0 {
+        return AssignmentValueOrigin::PlainScalarAccess;
+    }
+    if scan.mixed_dynamic || scan.category_count() > 1 {
+        return AssignmentValueOrigin::MixedDynamic;
+    }
+
+    scan.primary_origin().unwrap_or(AssignmentValueOrigin::Unknown)
+}
+
+#[derive(Debug, Default)]
+struct AssignmentWordOriginScan {
+    parameter_operator: bool,
+    transformation: bool,
+    indirect_expansion: bool,
+    command_or_process_substitution: bool,
+    array_or_compound: bool,
+    mixed_dynamic: bool,
+}
+
+impl AssignmentWordOriginScan {
+    fn category_count(&self) -> usize {
+        [
+            self.parameter_operator,
+            self.transformation,
+            self.indirect_expansion,
+            self.command_or_process_substitution,
+            self.array_or_compound,
+            self.mixed_dynamic,
+        ]
+        .into_iter()
+        .filter(|flag| *flag)
+        .count()
+    }
+
+    fn primary_origin(&self) -> Option<AssignmentValueOrigin> {
+        if self.parameter_operator {
+            Some(AssignmentValueOrigin::ParameterOperator)
+        } else if self.transformation {
+            Some(AssignmentValueOrigin::Transformation)
+        } else if self.indirect_expansion {
+            Some(AssignmentValueOrigin::IndirectExpansion)
+        } else if self.command_or_process_substitution {
+            Some(AssignmentValueOrigin::CommandOrProcessSubstitution)
+        } else if self.array_or_compound {
+            Some(AssignmentValueOrigin::ArrayOrCompound)
+        } else if self.mixed_dynamic {
+            Some(AssignmentValueOrigin::MixedDynamic)
+        } else {
+            None
+        }
+    }
+}
+
+fn word_is_static_binding_literal(word: &Word) -> bool {
+    word.brace_syntax.is_empty()
+        && word
+            .parts
+            .iter()
+            .all(|part| binding_literal_part_is_static(&part.kind))
+}
+
+fn binding_literal_part_is_static(part: &WordPart) -> bool {
+    match part {
+        WordPart::Literal(_) | WordPart::SingleQuoted { .. } => true,
+        WordPart::DoubleQuoted { parts, .. } => parts
+            .iter()
+            .all(|part| binding_literal_part_is_static(&part.kind)),
+        WordPart::ZshQualifiedGlob(_)
+        | WordPart::Variable(_)
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ArithmeticExpansion { .. }
+        | WordPart::Parameter(_)
+        | WordPart::ParameterExpansion { .. }
+        | WordPart::Length(_)
+        | WordPart::ArrayAccess(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::Substring { .. }
+        | WordPart::ArraySlice { .. }
+        | WordPart::IndirectExpansion { .. }
+        | WordPart::PrefixMatch { .. }
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::Transformation { .. } => false,
+    }
+}
+
+fn scan_assignment_word_parts(parts: &[WordPartNode], scan: &mut AssignmentWordOriginScan) {
+    for part in parts {
+        scan_assignment_word_part(&part.kind, scan);
+    }
+}
+
+fn scan_assignment_word_part(part: &WordPart, scan: &mut AssignmentWordOriginScan) {
+    match part {
+        WordPart::Literal(_)
+        | WordPart::SingleQuoted { .. }
+        | WordPart::Variable(_)
+        | WordPart::ArithmeticExpansion { .. } => {}
+        WordPart::DoubleQuoted { parts, .. } => scan_assignment_word_parts(parts, scan),
+        WordPart::Parameter(parameter) => scan_parameter_word_part(parameter, scan),
+        WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => {
+            scan.command_or_process_substitution = true;
+        }
+        WordPart::ParameterExpansion { reference, .. } => {
+            if reference.has_array_selector() {
+                scan.array_or_compound = true;
+            } else {
+                scan.parameter_operator = true;
+            }
+        }
+        WordPart::Length(_) | WordPart::Substring { .. } => scan.parameter_operator = true,
+        WordPart::ArrayAccess(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::ArraySlice { .. } => scan.array_or_compound = true,
+        WordPart::IndirectExpansion { .. } | WordPart::PrefixMatch { .. } => {
+            scan.indirect_expansion = true;
+        }
+        WordPart::Transformation { .. } => scan.transformation = true,
+        WordPart::ZshQualifiedGlob(_) => scan.mixed_dynamic = true,
+    }
+}
+
+fn scan_parameter_word_part(parameter: &ParameterExpansion, scan: &mut AssignmentWordOriginScan) {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference }) => {
+            if reference.has_array_selector() {
+                scan.array_or_compound = true;
+            }
+        }
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Length { .. })
+        | ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation { .. })
+        | ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Slice { .. }) => {
+            scan.parameter_operator = true;
+        }
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Indices { .. }) => {
+            scan.array_or_compound = true;
+        }
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Indirect { .. })
+        | ParameterExpansionSyntax::Bourne(BourneParameterExpansion::PrefixMatch { .. }) => {
+            scan.indirect_expansion = true;
+        }
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Transformation { .. }) => {
+            scan.transformation = true;
+        }
+        ParameterExpansionSyntax::Zsh(_) => scan.mixed_dynamic = true,
     }
 }
 

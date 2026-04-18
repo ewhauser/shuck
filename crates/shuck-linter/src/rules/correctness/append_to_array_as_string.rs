@@ -38,7 +38,7 @@ pub fn append_to_array_as_string(checker: &mut Checker) {
                 return None;
             }
 
-            let value = checker.facts().scalar_binding_value(binding.span)?;
+            let value = checker.facts().binding_value(binding.id)?.scalar_word()?;
             leading_literal_word_prefix(value, source)
                 .starts_with(' ')
                 .then_some(binding.span)

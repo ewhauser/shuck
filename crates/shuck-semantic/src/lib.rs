@@ -12,7 +12,10 @@ mod source_closure;
 mod source_ref;
 mod zsh_options;
 
-pub use binding::{Binding, BindingAttributes, BindingId, BindingKind};
+pub use binding::{
+    AssignmentValueOrigin, Binding, BindingAttributes, BindingId, BindingKind, BindingOrigin,
+    BuiltinBindingTargetKind, LoopValueOrigin,
+};
 pub use call_graph::{CallGraph, CallSite, OverwrittenFunction};
 pub use cfg::{BasicBlock, BlockId, ControlFlowGraph, EdgeKind, FlowContext};
 pub use contract::{
@@ -415,6 +418,10 @@ impl SemanticModel {
         &self.scopes
     }
 
+    pub fn scope(&self, id: ScopeId) -> &Scope {
+        &self.scopes[id.index()]
+    }
+
     pub fn bindings(&self) -> &[Binding] {
         &self.bindings
     }
@@ -609,6 +616,9 @@ impl SemanticModel {
             id,
             name: provided.name.clone(),
             kind: BindingKind::Imported,
+            origin: BindingOrigin::Imported {
+                definition_span: span,
+            },
             scope,
             span,
             references: Vec::new(),
@@ -1028,7 +1038,8 @@ impl<'model> SemanticAnalysis<'model> {
             .as_slice()
     }
 
-    pub(crate) fn summarize_scope_provided_bindings(&self, scope: ScopeId) -> Vec<ProvidedBinding> {
+    #[doc(hidden)]
+    pub fn summarize_scope_provided_bindings(&self, scope: ScopeId) -> Vec<ProvidedBinding> {
         let cfg = self.cfg();
         let exact = self.exact_variable_dataflow();
         let context = self.model.dataflow_context(cfg);
@@ -1637,6 +1648,12 @@ mod tests {
         names
     }
 
+    fn binding_for_name<'a>(model: &'a SemanticModel, name: &str) -> &'a Binding {
+        let ids = model.bindings_for(&Name::from(name));
+        assert_eq!(ids.len(), 1, "expected one binding for {name}, got {ids:?}");
+        model.binding(ids[0])
+    }
+
     fn block_with_reference(cfg: &ControlFlowGraph, reference: ReferenceId) -> BlockId {
         cfg.blocks()
             .iter()
@@ -1954,6 +1971,177 @@ done
             assert_eq!(binding.kind, BindingKind::LoopVariable);
             assert_eq!(binding.name, name);
         }
+    }
+
+    #[test]
+    fn classifies_assignment_and_function_binding_origins() {
+        let source = "\
+literal=plain
+copy=$literal
+fallback=${literal:-alt}
+lower=${literal,}
+quoted=${literal@Q}
+name=literal
+indirect=${!name}
+build() { :; }
+";
+        let model = model(source);
+
+        assert!(matches!(
+            binding_for_name(&model, "literal").origin,
+            BindingOrigin::Assignment {
+                value: AssignmentValueOrigin::StaticLiteral,
+                ..
+            }
+        ));
+        assert!(matches!(
+            binding_for_name(&model, "copy").origin,
+            BindingOrigin::Assignment {
+                value: AssignmentValueOrigin::PlainScalarAccess,
+                ..
+            }
+        ));
+        assert!(matches!(
+            binding_for_name(&model, "fallback").origin,
+            BindingOrigin::Assignment {
+                value: AssignmentValueOrigin::ParameterOperator,
+                ..
+            }
+        ));
+        assert!(matches!(
+            binding_for_name(&model, "lower").origin,
+            BindingOrigin::Assignment {
+                value: AssignmentValueOrigin::ParameterOperator,
+                ..
+            }
+        ));
+        assert!(matches!(
+            binding_for_name(&model, "quoted").origin,
+            BindingOrigin::Assignment {
+                value: AssignmentValueOrigin::Transformation,
+                ..
+            }
+        ));
+        assert!(matches!(
+            binding_for_name(&model, "indirect").origin,
+            BindingOrigin::Assignment {
+                value: AssignmentValueOrigin::IndirectExpansion,
+                ..
+            }
+        ));
+        assert!(matches!(
+            binding_for_name(&model, "build").origin,
+            BindingOrigin::FunctionDefinition { .. }
+        ));
+    }
+
+    #[test]
+    fn classifies_loop_and_parameter_default_origins() {
+        let source = "\
+for size in 16 32; do
+  :
+done
+name=world
+for item in $name; do
+  :
+done
+for arg; do
+  :
+done
+: \"${created:=default}\"
+";
+        let model = model(source);
+
+        assert!(matches!(
+            binding_for_name(&model, "size").origin,
+            BindingOrigin::LoopVariable {
+                items: LoopValueOrigin::StaticWords,
+                ..
+            }
+        ));
+        assert!(matches!(
+            binding_for_name(&model, "item").origin,
+            BindingOrigin::LoopVariable {
+                items: LoopValueOrigin::ExpandedWords,
+                ..
+            }
+        ));
+        assert!(matches!(
+            binding_for_name(&model, "arg").origin,
+            BindingOrigin::LoopVariable {
+                items: LoopValueOrigin::ImplicitArgv,
+                ..
+            }
+        ));
+        assert!(matches!(
+            binding_for_name(&model, "created").origin,
+            BindingOrigin::ParameterDefaultAssignment { .. }
+        ));
+    }
+
+    #[test]
+    fn classifies_builtin_target_and_imported_origins() {
+        let source = "\
+read reply
+mapfile lines
+printf -v rendered '%s' hi
+while getopts 'a' opt; do
+  :
+done
+printf '%s\\n' \"$pkgname\"
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let model = SemanticModel::build_with_options(
+            &output.file,
+            source,
+            &indexer,
+            SemanticBuildOptions {
+                file_entry_contract: Some(FileContract {
+                    required_reads: Vec::new(),
+                    provided_bindings: vec![ProvidedBinding::new(
+                        Name::from("pkgname"),
+                        ProvidedBindingKind::Variable,
+                        ContractCertainty::Definite,
+                    )],
+                    provided_functions: Vec::new(),
+                }),
+                ..SemanticBuildOptions::default()
+            },
+        );
+
+        assert!(matches!(
+            binding_for_name(&model, "reply").origin,
+            BindingOrigin::BuiltinTarget {
+                kind: BuiltinBindingTargetKind::Read,
+                ..
+            }
+        ));
+        assert!(matches!(
+            binding_for_name(&model, "lines").origin,
+            BindingOrigin::BuiltinTarget {
+                kind: BuiltinBindingTargetKind::Mapfile,
+                ..
+            }
+        ));
+        assert!(matches!(
+            binding_for_name(&model, "rendered").origin,
+            BindingOrigin::BuiltinTarget {
+                kind: BuiltinBindingTargetKind::Printf,
+                ..
+            }
+        ));
+        assert!(matches!(
+            binding_for_name(&model, "opt").origin,
+            BindingOrigin::BuiltinTarget {
+                kind: BuiltinBindingTargetKind::Getopts,
+                ..
+            }
+        ));
+        assert!(matches!(
+            binding_for_name(&model, "pkgname").origin,
+            BindingOrigin::Imported { .. }
+        ));
     }
 
     #[test]

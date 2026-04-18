@@ -30,7 +30,7 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
                 return None;
             }
 
-            let value = checker.facts().scalar_binding_value(binding.span)?;
+            let value = checker.facts().binding_value(binding.id)?.scalar_word()?;
             let value_fact = checker.facts().word_fact(value.span, context)?;
             if !uses_array_to_scalar_conversion_pattern(checker, binding, value_fact) {
                 return None;
