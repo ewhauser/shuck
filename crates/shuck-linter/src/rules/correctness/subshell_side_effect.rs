@@ -73,6 +73,19 @@ echo \"$count\"
     }
 
     #[test]
+    fn reports_parameter_default_assignments_inside_pipeline_children() {
+        let source = "\
+#!/bin/sh
+printf '%s\\n' x | while read -r _; do : \"${value:=inner}\"; done
+printf '%s\\n' \"${value:=outer}\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "value");
+    }
+
+    #[test]
     fn reports_command_substitution_assignment_sites_that_have_later_outer_reads() {
         let source = "\
 #!/bin/bash
@@ -92,6 +105,31 @@ echo \"$value\"
                 .collect::<Vec<_>>(),
             vec!["value"]
         );
+    }
+
+    #[test]
+    fn ignores_ifs_assignments_inside_pipeline_children() {
+        let source = "\
+#!/bin/sh
+printf '%s\\n' x | while read -r _; do IFS=:; done
+printf '%s\\n' \"$IFS\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_inner_command_substitution_updates_when_the_parent_assignment_resets_the_name() {
+        let source = "\
+#!/bin/sh
+k1=0
+k1=\"$(printf '%s' 1 || k1=0)\"
+printf '%s\\n' \"$k1\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert!(diagnostics.is_empty());
     }
 
     #[test]

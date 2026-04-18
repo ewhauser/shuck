@@ -108,3 +108,44 @@ reviewed_divergences:
     labels:
       - project-closure
     reason: "This tools helper's remaining C150 hits depend on sourced helper-side effects for `HOME` inside project-closure analysis, which shuck does not yet lift into later-read facts."
+  - side: shuck-only
+    path_suffix: "HariSekhon__DevOps-Bash-tools__bin__find_broken_symlinks.sh"
+    line: 53
+    end_line: 53
+    labels:
+      - directive-handling
+      - project-closure
+    reason: "This script sources shared HariSekhon bash helpers before the pipeline. The remaining `exitcode` later-read depends on project-closure shell state rather than the standalone file text, so we record the closure-sensitive comparison."
+  - side: shuck-only
+    path_suffix: "alexanderepstein__Bash-Snippets__gist__gist"
+    labels:
+      - directive-handling
+      - project-closure
+    reason: "These gist listing and detail loops compare through directive-handling and project-closure after sourcing user configuration. The remaining C150 hits are closure-sensitive pipeline noise rather than stable standalone mismatches."
+  - side: shuck-only
+    path_suffix: "aristocratos__bashtop__bashtop"
+    labels:
+      - directive-handling
+      - project-closure
+    reason: "Bashtop bootstraps runtime state from sourced config and theme files before these `proc[...]` reads. The remaining C150 hits only reproduce in the directive-handling/project-closure harness, so they are recorded as closure-sensitive noise."
+  - side: shuck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_table.sh"
+    labels:
+      - project-closure
+    reason: "This monitoring generator repeatedly sources per-network data files and helper state. The remaining shuck-only C150 hits in this file are closure-sensitive monitor wiring rather than stable standalone mismatches."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_table.sh"
+    labels:
+      - project-closure
+    reason: "This monitoring generator repeatedly sources per-network data files and helper state. The remaining shellcheck-only C150 hits depend on project-closure globals that shuck does not yet lift across sourced helper boundaries."
+  - side: shuck-only
+    path_suffix: "oh-my-fish__oh-my-fish__bin__install"
+    labels:
+      - project-closure
+    reason: "This installer is written for fish rather than a Bourne shell, so the project-closure shell-collapsed comparison is not a reliable SC2031 oracle for these `OMF_PATH` reads."
+  - side: shuck-only
+    path_suffix: "xwmx__nb__nb"
+    labels:
+      - directive-handling
+      - project-closure
+    reason: "These nb helper sections run inside a directive-heavy project context that sources wrapper code before reusing locals. The remaining C150 hits are closure-sensitive comparison noise rather than standalone mismatches."
