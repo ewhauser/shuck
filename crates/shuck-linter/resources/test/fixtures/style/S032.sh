@@ -1,15 +1,15 @@
 #!/bin/sh
 
-false || remove=set
+tool=grep
 
-true && remove=set
+tool=sh printf '%s\n' hi
 
-remove=set || echo nope
+tool=patch
 
-true && remove=set && echo later
+tool="grep"
 
-[ -n "$x" ] && domain=$domain || domain=$str
+tool=$(grep pattern file)
 
-echo ok && remove=set
+tool=git
 
-foo=bar && baz=qux
+tool=grep other=set printf '%s\n' hi

@@ -1,3 +1,0 @@
-reviewed_divergences:
-  - side: shuck-only
-    reason: "Shuck intentionally keeps warning on boolean-style assignment shortcuts broadly, including default-value and flag-propagation idioms such as `[ -n \"$flag\" ] && MODE=1` or `[ -z \"$name\" ] && name=default`. In the pinned large-corpus oracle, the active comparison signal for this family is much narrower and stays silent on most of those authored S032 sites, so the remaining `shuck-only` corpus hits are treated as a reviewed policy divergence rather than an implementation bug."
