@@ -2000,6 +2000,7 @@ pub struct GrepPatternFact<'a> {
     word: &'a Word,
     static_text: Option<Box<str>>,
     source_kind: GrepPatternSourceKind,
+    starts_with_glob_style_star: bool,
 }
 
 impl<'a> GrepPatternFact<'a> {
@@ -2017,6 +2018,10 @@ impl<'a> GrepPatternFact<'a> {
 
     pub fn source_kind(&self) -> GrepPatternSourceKind {
         self.source_kind
+    }
+
+    pub fn starts_with_glob_style_star(&self) -> bool {
+        self.starts_with_glob_style_star
     }
 }
 
@@ -14082,11 +14087,15 @@ fn grep_prefixed_pattern_fact<'a>(
     let static_text = static_word_text(word, source)
         .and_then(|text| text.get(prefix_len..).map(str::to_owned))
         .map(String::into_boxed_str);
+    let starts_with_glob_style_star = static_text
+        .as_deref()
+        .is_some_and(|text| text.starts_with('*') || text == "^*");
 
     GrepPatternFact {
         word,
         static_text,
         source_kind,
+        starts_with_glob_style_star,
     }
 }
 
@@ -18098,6 +18107,49 @@ grep -e'*start' data.txt
                     )],
                     false,
                 ),
+            ]
+        );
+    }
+
+    #[test]
+    fn grep_pattern_facts_track_leading_glob_style_star_prefixes() {
+        let source = "\
+#!/bin/bash
+grep '*start' data.txt
+grep ''*user data.txt
+grep '^*' data.txt
+grep '^*foo' data.txt
+grep --regexp='*start' data.txt
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let grep_patterns = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("grep"))
+            .filter_map(|fact| fact.options().grep())
+            .flat_map(|grep| grep.patterns().iter())
+            .map(|pattern| {
+                (
+                    pattern.span().slice(source),
+                    pattern.static_text(),
+                    pattern.starts_with_glob_style_star(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            grep_patterns,
+            vec![
+                ("'*start'", Some("*start"), true),
+                ("''*user", Some("*user"), true),
+                ("'^*'", Some("^*"), true),
+                ("'^*foo'", Some("^*foo"), false),
+                ("--regexp='*start'", Some("*start"), true),
             ]
         );
     }

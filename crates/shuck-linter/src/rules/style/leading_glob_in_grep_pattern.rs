@@ -1,4 +1,4 @@
-use crate::{Checker, GrepPatternSourceKind, Rule, Violation};
+use crate::{Checker, Rule, Violation};
 
 pub struct LeadingGlobInGrepPattern;
 
@@ -13,7 +13,6 @@ impl Violation for LeadingGlobInGrepPattern {
 }
 
 pub fn leading_glob_in_grep_pattern(checker: &mut Checker) {
-    let source = checker.source();
     let spans = checker
         .facts()
         .commands()
@@ -23,40 +22,11 @@ pub fn leading_glob_in_grep_pattern(checker: &mut Checker) {
         .filter(|grep| !grep.uses_fixed_strings)
         .flat_map(|grep| grep.patterns().iter())
         .filter(|pattern| pattern.source_kind().uses_separate_pattern_word())
-        .filter(|pattern| {
-            pattern
-                .static_text()
-                .is_some_and(|text| text.starts_with('*') || text == "^*")
-        })
-        .filter(|pattern| {
-            word_text_starts_with_glob_star(pattern.span().slice(source), pattern.source_kind())
-        })
+        .filter(|pattern| pattern.starts_with_glob_style_star())
         .map(|pattern| pattern.span())
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || LeadingGlobInGrepPattern);
-}
-
-fn word_text_starts_with_glob_star(text: &str, source_kind: GrepPatternSourceKind) -> bool {
-    let bytes = text.as_bytes();
-    match source_kind {
-        GrepPatternSourceKind::ImplicitOperand
-        | GrepPatternSourceKind::ShortOptionSeparate
-        | GrepPatternSourceKind::LongOptionSeparate => {
-            matches!(
-                bytes,
-                [b'*', ..]
-                    | [b'"', b'*', ..]
-                    | [b'\'', b'*', ..]
-                    | [b'^', b'*']
-                    | [b'"', b'^', b'*', b'"']
-                    | [b'\'', b'^', b'*', b'\'']
-            )
-        }
-        GrepPatternSourceKind::ShortOptionAttached | GrepPatternSourceKind::LongOptionAttached => {
-            false
-        }
-    }
 }
 
 #[cfg(test)]
@@ -69,7 +39,9 @@ mod tests {
         let source = "\
 #!/bin/sh
 grep '*MAINTAINER' \"$AUDIT_FILE\"
+grep ''*USER \"$AUDIT_FILE\"
 grep \"*ENTRYPOINT\" \"$AUDIT_FILE\"
+grep \\*CMD2 \"$AUDIT_FILE\"
 grep *CMD \"$AUDIT_FILE\"
 grep -e '*LABEL' \"$AUDIT_FILE\"
 grep --regexp '*EXPOSE' \"$AUDIT_FILE\"
@@ -87,7 +59,9 @@ grep -v '^*' \"$AUDIT_FILE\"
                 .collect::<Vec<_>>(),
             vec![
                 "'*MAINTAINER'",
+                "''*USER",
                 "\"*ENTRYPOINT\"",
+                "\\*CMD2",
                 "*CMD",
                 "'*LABEL'",
                 "'*EXPOSE'",
@@ -102,7 +76,6 @@ grep -v '^*' \"$AUDIT_FILE\"
 #!/bin/sh
 grep 'MAINTAINER*' \"$AUDIT_FILE\"
 grep '.*MAINTAINER' \"$AUDIT_FILE\"
-grep \\*MAINTAINER \"$AUDIT_FILE\"
 grep -F '*MAINTAINER' \"$AUDIT_FILE\"
 grep -e'*MAINTAINER' \"$AUDIT_FILE\"
 grep --regexp='*MAINTAINER' \"$AUDIT_FILE\"
