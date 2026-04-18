@@ -649,7 +649,6 @@ declare_rules! {
         Severity::Warning,
         NeedlessBackslashUnderscore
     ),
-    ("S027", Category::Style, Severity::Warning, EscapedUnderscoreLiteral),
     ("S028", Category::Style, Severity::Warning, SuspectClosingQuote),
     ("S029", Category::Style, Severity::Warning, LiteralBraces),
     ("S030", Category::Style, Severity::Warning, HeredocEndSpace),
@@ -743,7 +742,6 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-198" => Some(Rule::LsPipedToXargs),
         "SH-203" => Some(Rule::UnquotedTrRange),
         "SH-082" => Some(Rule::EscapedUnderscore),
-        "SH-095" => Some(Rule::EscapedUnderscoreLiteral),
         "SH-208" => Some(Rule::UnquotedTrClass),
         "SH-212" => Some(Rule::UnquotedVariableInTest),
         "SH-087" => Some(Rule::SingleQuoteBackslash),
@@ -1056,8 +1054,6 @@ mod tests {
         assert_eq!(code_to_rule("SH-164"), Some(Rule::SubshellTestGroup));
         assert_eq!(code_to_rule("S023"), Some(Rule::EscapedUnderscore));
         assert_eq!(code_to_rule("SH-082"), Some(Rule::EscapedUnderscore));
-        assert_eq!(code_to_rule("S027"), Some(Rule::EscapedUnderscoreLiteral));
-        assert_eq!(code_to_rule("SH-095"), Some(Rule::EscapedUnderscoreLiteral));
         assert_eq!(code_to_rule("S034"), Some(Rule::ArrayIndexArithmetic));
         assert_eq!(code_to_rule("SH-157"), Some(Rule::ArrayIndexArithmetic));
         assert_eq!(code_to_rule("S035"), Some(Rule::ArithmeticScoreLine));
