@@ -1393,7 +1393,7 @@ impl GetoptsCaseFact {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct FunctionHeaderFact<'a> {
     function: &'a FunctionDef,
     binding_id: Option<BindingId>,
@@ -1418,8 +1418,8 @@ impl<'a> FunctionHeaderFact<'a> {
         self.scope_id
     }
 
-    pub fn call_arity(&self) -> FunctionCallArityFacts {
-        self.call_arity
+    pub fn call_arity(&self) -> &FunctionCallArityFacts {
+        &self.call_arity
     }
 
     pub fn function_span_in_source(&self, source: &str) -> Span {
@@ -1447,37 +1447,45 @@ impl<'a> FunctionHeaderFact<'a> {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct FunctionCallArityFacts {
     call_count: usize,
     min_arg_count: usize,
     max_arg_count: usize,
+    zero_arg_call_spans: Vec<Span>,
 }
 
 impl FunctionCallArityFacts {
-    pub fn call_count(self) -> usize {
+    pub fn call_count(&self) -> usize {
         self.call_count
     }
 
-    pub fn min_arg_count(self) -> Option<usize> {
+    pub fn min_arg_count(&self) -> Option<usize> {
         (self.call_count != 0).then_some(self.min_arg_count)
     }
 
-    pub fn max_arg_count(self) -> Option<usize> {
+    pub fn max_arg_count(&self) -> Option<usize> {
         (self.call_count != 0).then_some(self.max_arg_count)
     }
 
-    pub fn called_only_without_args(self) -> bool {
+    pub fn called_only_without_args(&self) -> bool {
         self.call_count != 0 && self.max_arg_count == 0
     }
 
-    fn record_call(&mut self, arg_count: usize) {
+    pub fn zero_arg_call_spans(&self) -> &[Span] {
+        &self.zero_arg_call_spans
+    }
+
+    fn record_call(&mut self, arg_count: usize, span: Span) {
         if self.call_count == 0 {
             self.min_arg_count = arg_count;
             self.max_arg_count = arg_count;
         } else {
             self.min_arg_count = self.min_arg_count.min(arg_count);
             self.max_arg_count = self.max_arg_count.max(arg_count);
+        }
+        if arg_count == 0 {
+            self.zero_arg_call_spans.push(span);
         }
         self.call_count += 1;
     }
@@ -3348,7 +3356,8 @@ impl<'a> LinterFactsBuilder<'a> {
         }
 
         let presence_tested_names = build_presence_tested_names(&commands, self.source);
-        let function_headers = build_function_header_facts(self.semantic, &functions);
+        let function_headers =
+            build_function_header_facts(self.semantic, &functions, &commands, self.source);
         sort_and_dedup_spans(&mut condition_status_capture_spans);
         sort_and_dedup_spans(&mut condition_command_substitution_spans);
         let function_parameter_fallback_spans = build_function_parameter_fallback_spans(
@@ -3356,8 +3365,6 @@ impl<'a> LinterFactsBuilder<'a> {
             &structural_command_ids,
             self.source,
         );
-        let function_positional_parameter_facts =
-            build_function_positional_parameter_facts(self.semantic, &commands);
         let for_headers = build_for_header_facts(&commands, &command_ids_by_span, self.source);
         let select_headers =
             build_select_header_facts(&commands, &command_ids_by_span, self.source);
@@ -3421,6 +3428,11 @@ impl<'a> LinterFactsBuilder<'a> {
             star_glob_removals,
             subscript_spans,
         } = surface_fragments;
+        let function_positional_parameter_facts = build_function_positional_parameter_facts(
+            self.semantic,
+            &commands,
+            &positional_parameters,
+        );
         let double_paren_grouping_spans = build_double_paren_grouping_spans(&commands, self.source);
         let arithmetic_for_update_operator_spans =
             build_arithmetic_for_update_operator_spans(&commands, self.source);
@@ -5304,8 +5316,11 @@ fn collect_base_prefix_spans_in_text(span: Span, source: &str, spans: &mut Vec<S
 fn build_function_header_facts<'a>(
     semantic: &SemanticModel,
     functions: &[&'a FunctionDef],
+    commands: &[CommandFact<'a>],
+    source: &str,
 ) -> Vec<FunctionHeaderFact<'a>> {
-    let call_arity_by_binding = build_function_call_arity_facts(semantic, functions);
+    let call_arity_by_binding =
+        build_function_call_arity_facts(semantic, functions, commands, source);
     functions
         .iter()
         .copied()
@@ -5314,7 +5329,7 @@ fn build_function_header_facts<'a>(
             let scope_id = binding_id
                 .and_then(|binding_id| function_header_scope_id(semantic, function, binding_id));
             let call_arity = binding_id
-                .and_then(|binding_id| call_arity_by_binding.get(&binding_id).copied())
+                .and_then(|binding_id| call_arity_by_binding.get(&binding_id).cloned())
                 .unwrap_or_default();
 
             FunctionHeaderFact {
@@ -5373,9 +5388,11 @@ fn function_parameter_fallback_span(pair: &[&CommandFact<'_>], source: &str) -> 
     let start = first.span().start.advanced_by(&text[..relative]);
     Some(Span::from_positions(start, start.advanced_by("(")))
 }
-fn build_function_call_arity_facts(
+fn build_function_call_arity_facts<'a>(
     semantic: &SemanticModel,
     functions: &[&FunctionDef],
+    commands: &[CommandFact<'a>],
+    source: &str,
 ) -> FxHashMap<BindingId, FunctionCallArityFacts> {
     let mut facts = FxHashMap::<BindingId, FunctionCallArityFacts>::default();
     let mut seen_names = FxHashSet::default();
@@ -5388,19 +5405,56 @@ fn build_function_call_arity_facts(
             continue;
         }
 
-        for site in semantic.call_sites_for(name) {
-            let Some(binding_id) = visible_function_binding_for_call_site(semantic, name, site)
-            else {
+        for command in commands {
+            if command.effective_or_literal_name() != Some(name.as_str()) {
+                continue;
+            }
+            let Some(name_word) = command.body_name_word() else {
+                continue;
+            };
+            let Some(binding_id) = visible_function_binding_for_call_offset(
+                semantic,
+                name,
+                name_word.span.start.offset,
+            ) else {
                 continue;
             };
             facts
                 .entry(binding_id)
                 .or_default()
-                .record_call(site.arg_count);
+                .record_call(function_call_arg_count(command, source), name_word.span);
         }
     }
 
     facts
+}
+
+fn function_call_arg_count(command: &CommandFact<'_>, source: &str) -> usize {
+    let arg_count = command.body_args().len();
+    if arg_count != 0 || !command.redirects().is_empty() || !command.is_nested_word_command() {
+        return arg_count;
+    }
+
+    let Some(name_word) = command.body_name_word() else {
+        return 0;
+    };
+    let stmt_span = trim_trailing_whitespace_span(command.stmt().span, source);
+    let tail = if stmt_span.end.offset > name_word.span.end.offset {
+        trim_shell_layout_prefix(&source[name_word.span.end.offset..stmt_span.end.offset])
+    } else {
+        trim_shell_layout_prefix(&source[name_word.span.end.offset..])
+    };
+    if tail.is_empty() {
+        return 0;
+    }
+    if matches!(
+        tail.as_bytes().first(),
+        Some(b')' | b';' | b'|' | b'&' | b'<' | b'>' | b'#')
+    ) {
+        return 0;
+    }
+
+    1
 }
 
 fn function_header_binding_id(
@@ -5434,12 +5488,11 @@ fn function_header_scope_id(
     })
 }
 
-fn visible_function_binding_for_call_site(
+fn visible_function_binding_for_call_offset(
     semantic: &SemanticModel,
     name: &Name,
-    site: &shuck_semantic::CallSite,
+    site_offset: usize,
 ) -> Option<BindingId> {
-    let site_offset = site.span.start.offset;
     let scopes = semantic
         .ancestor_scopes(semantic.scope_at(site_offset))
         .collect::<Vec<_>>();
@@ -5639,6 +5692,7 @@ fn stmt_is_terminal_status_propagating_command(stmt: &Stmt) -> bool {
 fn build_function_positional_parameter_facts(
     semantic: &SemanticModel,
     commands: &[CommandFact<'_>],
+    positional_parameter_fragments: &[PositionalParameterFragmentFact],
 ) -> FxHashMap<ScopeId, FunctionPositionalParameterFacts> {
     let mut facts: FxHashMap<ScopeId, FunctionPositionalParameterFacts> = FxHashMap::default();
     let mut local_reset_offsets_by_scope: FxHashMap<ScopeId, Vec<usize>> = FxHashMap::default();
@@ -5705,6 +5759,25 @@ fn build_function_positional_parameter_facts(
         let entry = facts.entry(scope).or_default();
         entry.required_arg_count = entry.required_arg_count.max(index);
         entry.uses_unprotected_positional_parameters = true;
+    }
+
+    for fragment in positional_parameter_fragments {
+        if reference_has_local_positional_reset(
+            semantic,
+            fragment.span().start.offset,
+            &local_reset_offsets_by_scope,
+        ) {
+            continue;
+        }
+
+        let Some(scope) = enclosing_function_scope(semantic, fragment.span().start.offset) else {
+            continue;
+        };
+
+        facts
+            .entry(scope)
+            .or_default()
+            .uses_unprotected_positional_parameters = true;
     }
 
     for command in commands {
@@ -14507,6 +14580,7 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
 
     while let Some(word) = args.get(index) {
         let Some(text) = static_word_text(word, source) else {
+            resets_positional_parameters = true;
             break;
         };
 
@@ -15624,6 +15698,40 @@ mod tests {
             assert_eq!(header.call_arity().call_count(), 2);
             assert_eq!(header.call_arity().min_arg_count(), Some(0));
             assert_eq!(header.call_arity().max_arg_count(), Some(1));
+            assert_eq!(header.call_arity().zero_arg_call_spans().len(), 1);
+            assert_eq!(
+                header.call_arity().zero_arg_call_spans()[0].slice(source),
+                "greet"
+            );
+        });
+    }
+
+    #[test]
+    fn function_header_fact_tracks_call_arity_inside_parameter_expansion_defaults() {
+        let source = "\
+#!/usr/bin/env bash
+GetBuildVersion() {
+  local build_revision=\"${1}\"
+  printf '%s\n' \"$build_revision\"
+}
+BUILD_VERSION=\"${BUILD_VERSION:-\"$(GetBuildVersion \"${BUILD_REVISION}\")\"}\"
+";
+
+        with_facts(source, None, |_, facts| {
+            let header = facts
+                .function_headers()
+                .iter()
+                .find(|header| {
+                    header
+                        .static_name_entry()
+                        .is_some_and(|(name, _)| name == "GetBuildVersion")
+                })
+                .expect("expected GetBuildVersion header fact");
+
+            assert_eq!(header.call_arity().call_count(), 1);
+            assert_eq!(header.call_arity().min_arg_count(), Some(1));
+            assert_eq!(header.call_arity().max_arg_count(), Some(1));
+            assert!(header.call_arity().zero_arg_call_spans().is_empty());
         });
     }
 
@@ -19545,7 +19653,7 @@ if [[ \"$@\" =~ x ]]; then :; fi
                     .iter()
                     .map(|fragment| fragment.span().slice(source))
                     .collect::<Vec<_>>(),
-                vec!["$10", "$10"]
+                vec!["$10", "$10", "${@:1}", "${*:1:2}"]
             );
             assert_eq!(
                 facts

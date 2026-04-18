@@ -322,6 +322,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             let call_site = CallSite {
                 callee: callee.clone(),
                 span: command.span,
+                name_span: command.name.span,
                 scope,
                 arg_count: command.args.len(),
             };

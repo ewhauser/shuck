@@ -731,6 +731,12 @@ impl<'a> SurfaceFragmentSink<'a> {
         span: Span,
         context: SurfaceScanContext<'_>,
     ) {
+        self.record_special_positional_parameter(parameter);
+        if span.slice(self.source).starts_with("${##") {
+            self.facts
+                .positional_parameters
+                .push(PositionalParameterFragmentFact { span });
+        }
         if is_nested_parameter_expansion(parameter, self.source) {
             self.facts
                 .nested_parameter_expansions
@@ -794,6 +800,33 @@ impl<'a> SurfaceFragmentSink<'a> {
                 | BourneParameterExpansion::Slice { .. }
                 | BourneParameterExpansion::Transformation { .. } => {}
             }
+        }
+    }
+
+    fn record_special_positional_parameter(&mut self, parameter: &shuck_ast::ParameterExpansion) {
+        let reference = match &parameter.syntax {
+            ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+                BourneParameterExpansion::Access { reference }
+                | BourneParameterExpansion::Length { reference }
+                | BourneParameterExpansion::Indices { reference }
+                | BourneParameterExpansion::Indirect { reference, .. }
+                | BourneParameterExpansion::Slice { reference, .. }
+                | BourneParameterExpansion::Operation { reference, .. }
+                | BourneParameterExpansion::Transformation { reference, .. } => Some(reference),
+                BourneParameterExpansion::PrefixMatch { .. } => None,
+            },
+            ParameterExpansionSyntax::Zsh(_) => None,
+        };
+
+        if let Some(reference) = reference
+            && reference.subscript.is_none()
+            && matches!(reference.name.as_str(), "@" | "*" | "#")
+        {
+            self.facts
+                .positional_parameters
+                .push(PositionalParameterFragmentFact {
+                    span: reference.span,
+                });
         }
     }
 

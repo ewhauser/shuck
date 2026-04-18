@@ -1,0 +1,83 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "Bash-it__bash-it__completion__available__salt.completion.bash"
+    labels:
+      - directive-handling
+      - helper-library
+    reason: "These bash-completion helpers are compared as sourced library code, and the remaining zero-argument `_salt_get_grains` calls run inside helper-library and directive-handling context rather than a standalone command-line entrypoint. Shuck's file-local call graph still reports the helper invocation sites, so this completion-library drift is reviewed instead of broadening C123 to trust incomplete closure state."
+  - side: shuck-only
+    path_suffix: "Bash-it__bash-it__completion__available__virtualbox.completion.bash"
+    labels:
+      - directive-handling
+      - helper-library
+    reason: "These VirtualBox completion helpers are sourced library code, and the pinned oracle's helper-library plus directive-handling path suppresses the local zero-argument helper invocations. Shuck still reports the in-file `__vboxmanage_list_vms` call sites from its standalone view, so this completion-helper divergence is reviewed."
+  - side: shuck-only
+    path_suffix: "Bash-it__bash-it__plugins__available__browser.plugin.bash"
+    labels:
+      - directive-handling
+      - helper-library
+    reason: "This browser plugin is evaluated as sourced helper code, where the plugin entrypoints rely on ambient shell state more than positional arguments. Shuck still sees the local `browser` helper call without that surrounding plugin context, so the remaining helper-library drift is reviewed."
+  - side: shuck-only
+    path_suffix: "Bash-it__bash-it__plugins__available__z_autoenv.plugin.bash"
+    labels:
+      - directive-handling
+      - helper-library
+      - project-closure
+    reason: "This autoenv plugin is compared through helper-library and project-closure context, and the remaining `autoenv_init` site is part of sourced plugin initialization rather than a self-contained script entrypoint. Shuck's local view still reports the zero-argument helper call, so this closure-dependent difference is reviewed."
+  - side: shuck-only
+    path_suffix: "HariSekhon__DevOps-Bash-tools__.bash.d__git.sh"
+    labels:
+      - directive-handling
+      - project-closure
+    reason: "This bash.d helper is sourced into a larger shell environment, and the remaining `pull` invocation depends on project-closure plus directive-handling context that Shuck does not reconstruct for C123. The standalone local warning is therefore kept as a reviewed closure-side divergence."
+  - side: shuck-only
+    path_suffix: "bittorf__kalua__tests__test_all.sh"
+    labels:
+      - project-closure
+      - test-harness
+    reason: "This corpus case is a test harness that sources loader state before it exercises `test_explode`, so the remaining zero-argument helper call depends on project-closure and harness setup outside the file-local view. Shuck's standalone warning is reviewed rather than treated as a live C123 conformance bug."
+  - side: shellcheck-only
+    path_suffix: "docker-library__official-images__test__tests__postgres-basics__run.sh"
+    line: 33
+    end_line: 33
+    labels:
+      - project-closure
+      - test-harness
+    reason: "Both tools agree on the heredoc-driven zero-argument `psql` helper call at this site, but the pinned oracle anchors the whole `psql <<'EOSQL'` command while Shuck anchors just the callee token. The remaining difference is reviewed as location drift under the harness and project-closure path."
+  - side: shuck-only
+    path_suffix: "docker-library__official-images__test__tests__postgres-basics__run.sh"
+    line: 33
+    end_line: 33
+    labels:
+      - project-closure
+      - test-harness
+    reason: "Both tools agree on the heredoc-driven zero-argument `psql` helper call at this site, but the pinned oracle anchors the whole `psql <<'EOSQL'` command while Shuck anchors just the callee token. The remaining difference is reviewed as location drift under the harness and project-closure path."
+  - side: shellcheck-only
+    path_suffix: "docker-library__official-images__test__tests__postgres-basics__run.sh"
+    line: 37
+    end_line: 37
+    labels:
+      - project-closure
+      - test-harness
+    reason: "Both tools agree on the heredoc-driven zero-argument `psql` helper call at this site, but the pinned oracle anchors the whole `psql <<'EOSQL'` command while Shuck anchors just the callee token. The remaining difference is reviewed as location drift under the harness and project-closure path."
+  - side: shuck-only
+    path_suffix: "docker-library__official-images__test__tests__postgres-basics__run.sh"
+    line: 37
+    end_line: 37
+    labels:
+      - project-closure
+      - test-harness
+    reason: "Both tools agree on the heredoc-driven zero-argument `psql` helper call at this site, but the pinned oracle anchors the whole `psql <<'EOSQL'` command while Shuck anchors just the callee token. The remaining difference is reviewed as location drift under the harness and project-closure path."
+  - side: shuck-only
+    path_suffix: "ko1nksm__shellspec__lib__core__dsl.sh"
+    labels:
+      - directive-handling
+      - helper-library
+    reason: "This ShellSpec DSL file is sourced as helper-library code, and the remaining `shellspec_yield` site relies on the library's ambient execution contract rather than a normal script argv flow. Shuck still reports the local zero-argument helper call from its standalone view, so this helper-library difference is reviewed."
+  - side: shuck-only
+    path_suffix: "scop__bash-completion__completions-core__ssh.bash"
+    labels:
+      - directive-handling
+      - helper-library
+      - shell-collapse
+    reason: "This ssh completion helper is compared through helper-library and shell-collapse context, and the remaining `_comp_xfunc_scp_compgen_remote_files` call depends on sourced completion state outside the file-local argv model. Shuck's standalone helper warning is reviewed rather than treated as a live C123 gap."

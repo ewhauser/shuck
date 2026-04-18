@@ -7,6 +7,7 @@ use crate::{BindingId, ScopeId};
 pub struct CallSite {
     pub callee: Name,
     pub span: Span,
+    pub name_span: Span,
     pub scope: ScopeId,
     pub arg_count: usize,
 }

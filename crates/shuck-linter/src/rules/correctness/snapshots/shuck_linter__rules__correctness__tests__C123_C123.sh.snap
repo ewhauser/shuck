@@ -2,7 +2,7 @@
 source: crates/shuck-linter/src/rules/correctness/mod.rs
 ---
 C123 function `greet` is called with too few arguments
- --> <source>:2:1
+ --> <source>:3:1
   |
-2 | greet() { echo "$1 $2"; }
+3 | greet
   |
