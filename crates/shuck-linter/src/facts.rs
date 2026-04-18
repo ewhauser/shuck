@@ -3425,17 +3425,25 @@ fn build_echo_to_sed_substitution_spans<'a>(
     word_index: &FxHashMap<FactSpan, Vec<usize>>,
     source: &str,
 ) -> Vec<Span> {
-    let mut spans = pipelines
-        .iter()
-        .filter_map(|pipeline| {
+    let mut spans = Vec::new();
+    let mut pipeline_sed_command_ids = FxHashSet::default();
+
+    for pipeline in pipelines {
+        if let Some(span) =
             sc2001_like_pipeline_span(commands, pipeline, backticks, words, word_index, source)
-        })
-        .chain(
-            commands
-                .iter()
-                .filter_map(|command| sc2001_like_here_string_span(command, backticks, source)),
-        )
-        .collect::<Vec<_>>();
+        {
+            spans.push(span);
+            if let Some(last_segment) = pipeline.last_segment() {
+                pipeline_sed_command_ids.insert(last_segment.command_id());
+            }
+        }
+    }
+
+    spans.extend(commands.iter().filter_map(|command| {
+        (!pipeline_sed_command_ids.contains(&command.id()))
+            .then(|| sc2001_like_here_string_span(command, backticks, source))
+            .flatten()
+    }));
 
     sort_and_dedup_spans(&mut spans);
     spans
@@ -16528,6 +16536,7 @@ COMMAND=$(echo \"$COMMAND\" | sed \"s#\\(--appendconfig *[^ $]*\\)#\\1'|'$conf#\
 RUNTIME=$(echo $OUT | sed \"s|$OUT|\\$this_dir|g\")
 escaped_hostname=$(echo \"$hostname\" | sed 's/[]\\[\\.^$*+?{}()|]/\\\\&/g')
 value=$(sed 's/[\\.|$(){}?+*^]/\\\\&/g' <<<\"$value\")
+echo \"$value\" | sed 's/a/b/' <<<\"$shadow\"
 CFLAGS=\"`echo \\\"$CFLAGS\\\" | sed \\\"s/ $COVERAGE_FLAGS//\\\"`\"
 OPTFLAG=\"`echo \\\"$CFLAGS\\\" | sed 's/^.*\\(-O[^ ]\\).*$/\\1/'`\"
 EC2_REGION=\"`echo \\\"$EC2_AVAIL_ZONE\\\" | sed -e 's:\\([0-9][0-9]*\\)[a-z]*\\$:\\1:'`\"
@@ -16553,6 +16562,7 @@ literal=$(sed 's/[[:space:]]*$//' <<<literal)
                     "echo $OUT | sed \"s|$OUT|\\$this_dir|g\"",
                     "echo \"$hostname\" | sed 's/[]\\[\\.^$*+?{}()|]/\\\\&/g'",
                     "sed 's/[\\.|$(){}?+*^]/\\\\&/g' <<<\"$value\"",
+                    "echo \"$value\" | sed 's/a/b/' <<<\"$shadow\"",
                     "echo \\\"$CFLAGS\\\" | sed \\\"s/ $COVERAGE_FLAGS//\\\"",
                     "echo \\\"$CFLAGS\\\" | sed 's/^.*\\(-O[^ ]\\).*$/\\1/'",
                     "echo \\\"$EC2_AVAIL_ZONE\\\" | sed -e 's:\\([0-9][0-9]*\\)[a-z]*\\$:\\1:'",
