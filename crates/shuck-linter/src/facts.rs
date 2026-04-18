@@ -15690,7 +15690,7 @@ fn collect_binding_values<'a>(
         let AssignmentValue::Scalar(word) = &assignment.value else {
             continue;
         };
-        if let Some(binding_id) = binding_value_id_for_name(
+        if let Some(binding_id) = binding_value_definition_id_for_name(
             semantic,
             &assignment.target.name,
             assignment.target.name_span,
@@ -15706,7 +15706,7 @@ fn collect_binding_values<'a>(
         let AssignmentValue::Scalar(word) = &assignment.value else {
             continue;
         };
-        if let Some(binding_id) = binding_value_id_for_name(
+        if let Some(binding_id) = binding_value_definition_id_for_name(
             semantic,
             &assignment.target.name,
             assignment.target.name_span,
@@ -15723,7 +15723,8 @@ fn collect_binding_values<'a>(
             let values = words.iter().collect::<Vec<_>>().into_boxed_slice();
             for target in &command.targets {
                 if let Some(name) = &target.name
-                    && let Some(binding_id) = binding_value_id_for_name(semantic, name, target.span)
+                    && let Some(binding_id) =
+                        binding_value_definition_id_for_name(semantic, name, target.span)
                 {
                     binding_values.insert(
                         binding_id,
@@ -15733,9 +15734,11 @@ fn collect_binding_values<'a>(
             }
         }
         Command::Compound(CompoundCommand::Foreach(command)) => {
-            if let Some(binding_id) =
-                binding_value_id_for_name(semantic, &command.variable, command.variable_span)
-            {
+            if let Some(binding_id) = binding_value_definition_id_for_name(
+                semantic,
+                &command.variable,
+                command.variable_span,
+            ) {
                 binding_values.insert(
                     binding_id,
                     BindingValueFact::from_loop_words(
@@ -15745,9 +15748,11 @@ fn collect_binding_values<'a>(
             }
         }
         Command::Compound(CompoundCommand::Select(command)) => {
-            if let Some(binding_id) =
-                binding_value_id_for_name(semantic, &command.variable, command.variable_span)
-            {
+            if let Some(binding_id) = binding_value_definition_id_for_name(
+                semantic,
+                &command.variable,
+                command.variable_span,
+            ) {
                 binding_values.insert(
                     binding_id,
                     BindingValueFact::from_loop_words(
@@ -15760,7 +15765,20 @@ fn collect_binding_values<'a>(
     }
 }
 
-fn binding_value_id_for_name(
+fn binding_value_definition_id_for_name(
+    semantic: &SemanticModel,
+    name: &Name,
+    span: Span,
+) -> Option<BindingId> {
+    semantic
+        .bindings_for(name)
+        .iter()
+        .rev()
+        .copied()
+        .find(|binding_id| semantic.binding(*binding_id).span == span)
+}
+
+fn binding_value_visible_id_for_name(
     semantic: &SemanticModel,
     name: &Name,
     span: Span,
@@ -15785,7 +15803,8 @@ fn annotate_conditional_assignment_shortcuts<'a>(
             let Some(span) = segment.assignment_span() else {
                 continue;
             };
-            let Some(binding_id) = binding_value_id_for_name(semantic, &Name::from(target), span)
+            let Some(binding_id) =
+                binding_value_visible_id_for_name(semantic, &Name::from(target), span)
             else {
                 continue;
             };
@@ -16129,7 +16148,7 @@ mod tests {
     use shuck_ast::{BinaryOp, CommandSubstitutionSyntax, ConditionalBinaryOp, Name};
     use shuck_indexer::Indexer;
     use shuck_parser::parser::{Parser, ShellDialect as ParseShellDialect};
-    use shuck_semantic::SemanticModel;
+    use shuck_semantic::{BindingAttributes, SemanticModel};
 
     use super::{
         CommandId, ConditionalNodeFact, ConditionalOperatorFamily, GrepPatternSourceKind,
@@ -16854,6 +16873,58 @@ printf '%s\\n' \"$foo\"
                 .and_then(|value| value.scalar_word())
                 .map(|word| word.span.slice(source)),
             Some("stable")
+        );
+    }
+
+    #[test]
+    fn declaration_assignment_values_attach_to_the_declared_binding() {
+        let source = "\
+#!/bin/bash
+f() {
+  (
+    value=shadow
+    local value=chosen
+    printf '%s\\n' \"$value\"
+  )
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let shadow_binding = semantic
+            .bindings_for(&Name::from("value"))
+            .iter()
+            .copied()
+            .find(|binding_id| semantic.binding(*binding_id).attributes.is_empty())
+            .expect("expected subshell shadow binding");
+        let local_binding = semantic
+            .bindings_for(&Name::from("value"))
+            .iter()
+            .copied()
+            .find(|binding_id| {
+                semantic
+                    .binding(*binding_id)
+                    .attributes
+                    .contains(BindingAttributes::LOCAL)
+            })
+            .expect("expected local declaration binding");
+
+        assert_eq!(
+            facts
+                .binding_value(shadow_binding)
+                .and_then(|value| value.scalar_word())
+                .map(|word| word.span.slice(source)),
+            Some("shadow")
+        );
+        assert_eq!(
+            facts
+                .binding_value(local_binding)
+                .and_then(|value| value.scalar_word())
+                .map(|word| word.span.slice(source)),
+            Some("chosen")
         );
     }
 

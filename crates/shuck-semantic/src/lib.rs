@@ -882,6 +882,11 @@ impl<'model> SemanticAnalysis<'model> {
         })
     }
 
+    #[doc(hidden)]
+    pub fn block_ids_for_span(&self, span: Span) -> &[BlockId] {
+        self.cfg().block_ids_for_span(span)
+    }
+
     fn exact_variable_dataflow(&self) -> &ExactVariableDataflow {
         self.exact_variable_dataflow.get_or_init(|| {
             let cfg = self.cfg();

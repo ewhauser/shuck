@@ -904,6 +904,66 @@ unsafe_path
     }
 
     #[test]
+    fn reports_helper_bindings_when_initializers_are_guarded_by_conditionals() {
+        let source = "\
+#!/bin/bash
+init_flag() {
+  flag=-n
+}
+
+render() {
+  if [ \"$1\" = yes ]; then
+    init_flag
+  fi
+  printf '%s\\n' ${flag}
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${flag}"]
+        );
+    }
+
+    #[test]
+    fn skips_helper_initialized_bindings_when_all_callers_provide_distinct_values() {
+        let source = "\
+#!/bin/bash
+init_flag_a() {
+  flag=-a
+}
+
+init_flag_b() {
+  flag=-b
+}
+
+render() {
+  printf '%s\\n' ${flag}
+}
+
+safe_path_a() {
+  init_flag_a
+  render
+}
+
+safe_path_b() {
+  init_flag_b
+  render
+}
+
+safe_path_a
+safe_path_b
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn reports_ambient_contract_bindings_without_known_values() {
         let path = Path::new("/tmp/void-packages/common/build-style/example.sh");
         let source = "\
