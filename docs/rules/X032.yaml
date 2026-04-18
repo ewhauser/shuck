@@ -3,7 +3,7 @@ legacy_name: printf-q-format-in-sh
 new_category: Portability
 new_code: X032
 runtime_kind: ast
-shellcheck_code: SC3025
+shellcheck_code: SC3050
 shells:
   - sh
   - dash

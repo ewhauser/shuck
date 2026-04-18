@@ -3,7 +3,7 @@ legacy_name: ampersand-redirection
 new_category: Portability
 new_code: X012
 runtime_kind: ast
-shellcheck_code: SC3052
+shellcheck_code: SC3020
 shells:
   - sh
   - dash

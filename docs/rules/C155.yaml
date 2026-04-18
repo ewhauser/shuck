@@ -3,7 +3,7 @@ legacy_name: subshell-side-effect
 new_category: Correctness
 new_code: C155
 runtime_kind: ast
-shellcheck_code: SC2030
+shellcheck_code: SC2031
 shells:
   - sh
   - bash

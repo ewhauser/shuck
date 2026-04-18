@@ -3,7 +3,7 @@ legacy_name: redirect-before-pipe
 new_category: Correctness
 new_code: C119
 runtime_kind: ast
-shellcheck_code: SC2358
+shellcheck_code: SC2260
 shells:
   - sh
   - bash

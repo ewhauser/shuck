@@ -3,7 +3,7 @@ legacy_name: backtick-output-to-command
 new_category: Style
 new_code: S067
 runtime_kind: ast
-shellcheck_code: SC2366
+shellcheck_code: SC2063
 shells:
   - sh
   - bash

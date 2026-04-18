@@ -3,7 +3,7 @@ legacy_name: single-letter-case-label
 new_category: Style
 new_code: S069
 runtime_kind: ast
-shellcheck_code: SC2372
+shellcheck_code: SC2220
 shells:
   - sh
   - bash

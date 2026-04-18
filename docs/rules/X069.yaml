@@ -3,7 +3,7 @@ legacy_name: signal-name-in-trap
 new_category: Portability
 new_code: X069
 runtime_kind: ast
-shellcheck_code: SC3076
+shellcheck_code: SC3048
 shells:
   - sh
   - dash

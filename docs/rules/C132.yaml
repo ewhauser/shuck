@@ -3,7 +3,7 @@ legacy_name: misspelled-option-name
 new_category: Correctness
 new_code: C132
 runtime_kind: ast
-shellcheck_code: SC2380
+shellcheck_code: SC2098
 shells:
   - sh
   - bash

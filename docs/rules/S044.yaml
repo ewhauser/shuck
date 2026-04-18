@@ -3,7 +3,7 @@ legacy_name: unquoted-variable-in-sed
 new_category: Style
 new_code: S044
 runtime_kind: ast
-shellcheck_code: SC2291
+shellcheck_code: SC2001
 shells:
   - bash
   - ksh

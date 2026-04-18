@@ -121,7 +121,7 @@ mod tests {
         assert_eq!(map.resolve("SC3034"), Some(Rule::BashFileSlurp));
         assert_eq!(map.resolve("SC2096"), Some(Rule::DuplicateShebangFlag));
         assert_eq!(map.resolve("SC2318"), Some(Rule::LocalCrossReference));
-        assert_eq!(map.resolve("SC2260"), None);
+        assert_eq!(map.resolve("SC2260"), Some(Rule::RedirectBeforePipe));
         assert_eq!(map.resolve("SC2317"), None);
         assert_eq!(map.resolve("SC7777"), None);
     }
@@ -147,7 +147,7 @@ mod tests {
             map.resolve_all("SC3084"),
             vec![Rule::SourceInsideFunctionInSh]
         );
-        assert!(map.resolve_all("SC2260").is_empty());
+        assert_eq!(map.resolve_all("SC2260"), vec![Rule::RedirectBeforePipe]);
     }
 
     #[test]

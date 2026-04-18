@@ -3,7 +3,7 @@ legacy_name: errexit-trap-in-sh
 new_category: Portability
 new_code: X068
 runtime_kind: ast
-shellcheck_code: SC3075
+shellcheck_code: SC3041
 shells:
   - sh
 description: "The `-E` flag for `set` is used in POSIX sh."

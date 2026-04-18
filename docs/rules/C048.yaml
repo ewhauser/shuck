@@ -3,7 +3,7 @@ legacy_name: case-pattern-var
 new_category: Correctness
 new_code: C048
 runtime_kind: ast
-shellcheck_code: SC2242
+shellcheck_code: SC2254
 shells:
   - sh
   - bash

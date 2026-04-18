@@ -3,7 +3,7 @@ legacy_name: commented-continuation-line
 new_category: Correctness
 new_code: C076
 runtime_kind: ast
-shellcheck_code: SC2289
+shellcheck_code: SC1143
 shells:
   - sh
   - bash

@@ -3,7 +3,7 @@ legacy_name: greater-than-in-test
 new_category: Correctness
 new_code: C086
 runtime_kind: ast
-shellcheck_code: SC2308
+shellcheck_code: SC2071
 shells:
   - sh
   - bash
