@@ -213,10 +213,7 @@ fn has_single_environment_style_typo(target_name: &str, candidate_upper: &str) -
     }
 }
 
-fn single_environment_style_edit(
-    target: &[u8],
-    candidate: &[u8],
-) -> Option<EnvironmentStyleEdit> {
+fn single_environment_style_edit(target: &[u8], candidate: &[u8]) -> Option<EnvironmentStyleEdit> {
     if target.len() == candidate.len() {
         let mismatches = target
             .iter()
@@ -229,14 +226,16 @@ fn single_environment_style_edit(
             [(_, left, right)] if left.is_ascii_alphabetic() && right.is_ascii_alphabetic() => {
                 Some(EnvironmentStyleEdit::Substitute)
             }
-            [(first_index, first_left, first_right), (second_index, second_left, second_right)]
-                if second_index == &(first_index + 1)
-                    && first_left.is_ascii_alphabetic()
-                    && first_right.is_ascii_alphabetic()
-                    && second_left.is_ascii_alphabetic()
-                    && second_right.is_ascii_alphabetic()
-                    && *first_left == *second_right
-                    && *second_left == *first_right =>
+            [
+                (first_index, first_left, first_right),
+                (second_index, second_left, second_right),
+            ] if second_index == &(first_index + 1)
+                && first_left.is_ascii_alphabetic()
+                && first_right.is_ascii_alphabetic()
+                && second_left.is_ascii_alphabetic()
+                && second_right.is_ascii_alphabetic()
+                && *first_left == *second_right
+                && *second_left == *first_right =>
             {
                 Some(EnvironmentStyleEdit::Transpose)
             }
@@ -317,7 +316,10 @@ fn is_known_runtime_name(name: &str) -> bool {
 }
 
 fn is_common_build_setting_name(name: &str) -> bool {
-    matches!(name, "CFLAGS" | "CPPFLAGS" | "CXXFLAGS" | "LDFLAGS" | "LIBS")
+    matches!(
+        name,
+        "CFLAGS" | "CPPFLAGS" | "CXXFLAGS" | "LDFLAGS" | "LIBS"
+    )
 }
 
 #[cfg(test)]
