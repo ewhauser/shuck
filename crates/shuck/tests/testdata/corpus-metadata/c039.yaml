@@ -19,3 +19,11 @@ reviewed_divergences:
     labels:
       - project-closure
     reason: "This Proxmox helper writes a systemd unit with a multiline `echo \"[Unit]...` block. The remaining C039 hit appears only on the project-closure copy, so it stays reviewed instead of broadening the rule."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__ox-ruby__build.sh"
+    line: 37
+    reason: "This OSS-Fuzz wrapper uses an `echo \"\"\"...` block that collapses the shell into an ambiguous quote state. ShellCheck keeps SC1078 on the first empty-prefix opener, while Shuck now avoids that location to preserve valid multiline concatenations like `\"\"\"line...\"suffix`."
+  - side: shuck-only
+    path_suffix: "google__oss-fuzz__projects__ox-ruby__build.sh"
+    line: 50
+    reason: "After the same collapsed `echo \"\"\"...` wrapper, Shuck still surfaces a later C039 location inside the carried-over command body. That follow-on hit stays reviewed instead of restoring the unsafe empty-prefix fallback."

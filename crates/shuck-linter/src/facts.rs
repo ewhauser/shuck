@@ -18680,28 +18680,16 @@ say \"configure\" now
     }
 
     #[test]
-    fn open_double_quote_surface_facts_track_empty_prefix_multiline_fragments() {
+    fn open_double_quote_surface_facts_ignore_empty_prefix_multiline_quotes_with_literal_suffix() {
         let source = "\
 #!/bin/sh
-echo \"\"\"#!/usr/bin/env bash
-echo \"GEM_HOME FIRST: \\$GEM_HOME\"
-\"\"\"
+echo \"\"\"line one
+line two\"suffix
 ";
 
         with_facts(source, None, |_, facts| {
-            let open = facts
-                .open_double_quote_fragments()
-                .iter()
-                .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
-                .collect::<Vec<_>>();
-            let close = facts
-                .suspect_closing_quote_fragments()
-                .iter()
-                .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
-                .collect::<Vec<_>>();
-
-            assert_eq!(open, vec![(2, 8)]);
-            assert_eq!(close, vec![(3, 6)]);
+            assert!(facts.open_double_quote_fragments().is_empty());
+            assert!(facts.suspect_closing_quote_fragments().is_empty());
         });
     }
 
@@ -18720,14 +18708,27 @@ line two\"$suffix
     }
 
     #[test]
+    fn open_double_quote_surface_facts_ignore_empty_prefix_multiline_quotes_with_suffix_expansion()
+    {
+        let source = "\
+#!/bin/sh
+echo \"\"\"line one
+line two\"$suffix
+";
+
+        with_facts(source, None, |_, facts| {
+            assert!(facts.open_double_quote_fragments().is_empty());
+            assert!(facts.suspect_closing_quote_fragments().is_empty());
+        });
+    }
+
+    #[test]
     fn open_double_quote_surface_facts_report_only_first_fragment_per_word() {
         let source = "\
 #!/bin/sh
-echo \"\"\"#!/usr/bin/env bash
-echo \"GEM_HOME FIRST: \\$GEM_HOME\"
-
-echo \"GEM_PATH: \\$GEM_PATH\"
-echo \"GEM_HOME: \\$GEM_HOME\"
+echo \"help text
+say \"configure\" now
+then \"install\" later
 \"\"\"
 ";
 
@@ -18743,8 +18744,8 @@ echo \"GEM_HOME: \\$GEM_HOME\"
                 .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
                 .collect::<Vec<_>>();
 
-            assert_eq!(open, vec![(2, 8)]);
-            assert_eq!(close, vec![(3, 6)]);
+            assert_eq!(open, vec![(2, 6)]);
+            assert_eq!(close, vec![(3, 5)]);
         });
     }
 
