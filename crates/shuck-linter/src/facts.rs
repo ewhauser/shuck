@@ -761,6 +761,7 @@ pub struct WordFact<'a> {
     operand_class: Option<TestOperandClass>,
     static_text: Option<Box<str>>,
     has_literal_affixes: bool,
+    contains_shell_quoting_literals: bool,
     scalar_expansion_spans: Box<[Span]>,
     unquoted_scalar_expansion_spans: Box<[Span]>,
     array_expansion_spans: Box<[Span]>,
@@ -842,6 +843,10 @@ impl<'a> WordFact<'a> {
 
     pub fn has_literal_affixes(&self) -> bool {
         self.has_literal_affixes
+    }
+
+    pub fn contains_shell_quoting_literals(&self) -> bool {
+        self.contains_shell_quoting_literals
     }
 
     pub fn scalar_expansion_spans(&self) -> &[Span] {
@@ -8676,6 +8681,10 @@ impl<'a> WordFactCollector<'a> {
             key,
             static_text: static_word_text(word_ref, self.source).map(String::into_boxed_str),
             has_literal_affixes: word_has_literal_affixes(word_ref),
+            contains_shell_quoting_literals: word_contains_shell_quoting_literals(
+                word_ref,
+                self.source,
+            ),
             scalar_expansion_spans: span::scalar_expansion_part_spans(word_ref, self.source)
                 .into_boxed_slice(),
             unquoted_scalar_expansion_spans: span::unquoted_scalar_expansion_part_spans(
@@ -9395,6 +9404,55 @@ fn word_has_literal_affixes(word: &Word) -> bool {
             WordPart::Literal(_) | WordPart::SingleQuoted { .. } | WordPart::DoubleQuoted { .. }
         )
     })
+}
+
+fn word_contains_shell_quoting_literals(word: &Word, source: &str) -> bool {
+    word_parts_contain_shell_quoting_literals(&word.parts, source)
+}
+
+fn word_parts_contain_shell_quoting_literals(parts: &[WordPartNode], source: &str) -> bool {
+    parts.iter().any(|part| match &part.kind {
+        WordPart::Literal(text) => {
+            text_contains_shell_quoting_literals(text.as_str(source, part.span))
+        }
+        WordPart::SingleQuoted { value, .. } => {
+            text_contains_shell_quoting_literals(value.slice(source))
+        }
+        WordPart::DoubleQuoted { parts, .. } => {
+            word_parts_contain_shell_quoting_literals(parts, source)
+        }
+        _ => false,
+    })
+}
+
+fn text_contains_shell_quoting_literals(text: &str) -> bool {
+    if text.contains(['"', '\'']) {
+        return true;
+    }
+
+    let chars = text.chars().collect::<Vec<_>>();
+    let mut index = 0usize;
+    while index < chars.len() {
+        if chars[index] != '\\' {
+            index += 1;
+            continue;
+        }
+
+        let mut end = index + 1;
+        while end < chars.len() && chars[end] == '\\' {
+            end += 1;
+        }
+        if chars
+            .get(end)
+            .is_some_and(|next| next.is_whitespace() || matches!(next, '"' | '\''))
+        {
+            return true;
+        }
+
+        index = end;
+    }
+
+    false
 }
 
 fn is_shell_variable_name(name: &str) -> bool {
