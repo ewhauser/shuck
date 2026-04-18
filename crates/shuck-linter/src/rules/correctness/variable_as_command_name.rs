@@ -46,7 +46,9 @@ pub fn variable_as_command_name(checker: &mut Checker) {
             if !matches_sc2090_context(context) {
                 return None;
             }
-            if context != ExpansionContext::CommandName && command_is_eval(checker, fact.command_id()) {
+            if context != ExpansionContext::CommandName
+                && command_is_eval(checker, fact.command_id())
+            {
                 return None;
             }
 
@@ -93,7 +95,8 @@ fn unsafe_shell_quoting_bindings(
         .iter()
         .filter_map(|(binding_id, word_span, context)| {
             let fact = checker.facts().word_fact(*word_span, *context)?;
-            fact.contains_shell_quoting_literals().then_some(*binding_id)
+            fact.contains_shell_quoting_literals()
+                .then_some(*binding_id)
         })
         .collect::<FxHashSet<_>>();
 
@@ -129,9 +132,9 @@ fn unsafe_shell_quoting_bindings(
 
 fn binding_assignment_context(kind: BindingKind) -> Option<WordFactContext> {
     match kind {
-        BindingKind::Assignment | BindingKind::AppendAssignment => {
-            Some(WordFactContext::Expansion(ExpansionContext::AssignmentValue))
-        }
+        BindingKind::Assignment | BindingKind::AppendAssignment => Some(
+            WordFactContext::Expansion(ExpansionContext::AssignmentValue),
+        ),
         BindingKind::Declaration(_) => Some(WordFactContext::Expansion(
             ExpansionContext::DeclarationAssignmentValue,
         )),
@@ -160,7 +163,11 @@ fn matches_sc2090_context(context: ExpansionContext) -> bool {
 }
 
 fn command_is_eval(checker: &Checker<'_>, command_id: CommandId) -> bool {
-    checker.facts().command(command_id).effective_or_literal_name() == Some("eval")
+    checker
+        .facts()
+        .command(command_id)
+        .effective_or_literal_name()
+        == Some("eval")
 }
 
 fn export_name_spans(checker: &Checker<'_>, unsafe_bindings: &FxHashSet<BindingId>) -> Vec<Span> {
@@ -201,8 +208,9 @@ fn expansion_span_uses_unsafe_binding(
     reference_indices: &[usize],
     unsafe_bindings: &FxHashSet<BindingId>,
 ) -> bool {
-    let first_reference = reference_indices
-        .partition_point(|&index| references[index].span.start.offset < expansion_span.start.offset);
+    let first_reference = reference_indices.partition_point(|&index| {
+        references[index].span.start.offset < expansion_span.start.offset
+    });
 
     for &index in &reference_indices[first_reference..] {
         let reference = &references[index];
@@ -231,8 +239,9 @@ fn plain_expansion_span_uses_unsafe_binding(
     reference_indices: &[usize],
     unsafe_bindings: &FxHashSet<BindingId>,
 ) -> bool {
-    let first_reference = reference_indices
-        .partition_point(|&index| references[index].span.start.offset < expansion_span.start.offset);
+    let first_reference = reference_indices.partition_point(|&index| {
+        references[index].span.start.offset < expansion_span.start.offset
+    });
 
     for &index in &reference_indices[first_reference..] {
         let reference = &references[index];
@@ -256,7 +265,11 @@ fn plain_expansion_span_uses_unsafe_binding(
     false
 }
 
-fn expansion_span_is_plain_reference(expansion_span: Span, reference: &Reference, source: &str) -> bool {
+fn expansion_span_is_plain_reference(
+    expansion_span: Span,
+    reference: &Reference,
+    source: &str,
+) -> bool {
     let text = expansion_span.slice(source);
     text == format!("${}", reference.name.as_str())
         || text == format!("${{{}}}", reference.name.as_str())
