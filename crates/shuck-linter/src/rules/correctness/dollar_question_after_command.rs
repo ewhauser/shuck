@@ -144,4 +144,23 @@ check_status() {
             vec!["$?", "$?"]
         );
     }
+
+    #[test]
+    fn ignores_noncanonical_zero_spellings() {
+        let source = "\
+#!/bin/bash
+run
+[ $? -eq 00 ]
+[ $? -ne 000 ]
+[ $? -gt +0 ]
+[[ $? == 00 ]]
+(( $? == 00 ))
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::DollarQuestionAfterCommand),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
 }
