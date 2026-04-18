@@ -3,7 +3,7 @@ legacy_name: empty-test
 new_category: Correctness
 new_code: C022
 runtime_kind: ast
-shellcheck_code: SC1019
+shellcheck_code: SC2212
 shells:
   - sh
   - bash
