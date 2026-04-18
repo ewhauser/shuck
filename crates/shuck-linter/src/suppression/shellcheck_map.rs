@@ -4,11 +4,22 @@ use crate::{Rule, code_to_rule};
 
 include!(concat!(env!("OUT_DIR"), "/shellcheck_map_data.rs"));
 
+const SUPPRESSION_ALIAS_CODES: &[(u32, Rule)] = &[
+    // Older ShellCheck compatibility codes still appear in user suppressions.
+    (2268, Rule::BackslashBeforeCommand),
+    (2316, Rule::BacktickInCommandPosition),
+    (2316, Rule::LocalDeclareCombined),
+    (2321, Rule::FunctionKeywordInSh),
+    (2351, Rule::XPrefixInTest),
+    (3084, Rule::SourceInsideFunctionInSh),
+];
+
 /// Maps ShellCheck SC codes to Shuck rules.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShellCheckCodeMap {
     sc_to_rule: FxHashMap<u32, Rule>,
     rule_to_sc: FxHashMap<Rule, u32>,
+    suppression_aliases: Vec<(u32, Rule)>,
 }
 
 impl ShellCheckCodeMap {
@@ -33,7 +44,22 @@ impl ShellCheckCodeMap {
 
     /// Look up all ShellCheck mappings for a code like `SC2086`.
     pub fn resolve_all(&self, sc_code: &str) -> Vec<Rule> {
-        self.resolve(sc_code).into_iter().collect()
+        let Some(number) = Self::parse_code(sc_code) else {
+            return Vec::new();
+        };
+
+        let mut rules = self
+            .sc_to_rule
+            .get(&number)
+            .copied()
+            .into_iter()
+            .collect::<Vec<_>>();
+        for &(code, rule) in &self.suppression_aliases {
+            if code == number && !rules.contains(&rule) {
+                rules.push(rule);
+            }
+        }
+        rules
     }
 
     fn parse_code(sc_code: &str) -> Option<u32> {
@@ -72,6 +98,7 @@ impl Default for ShellCheckCodeMap {
         Self {
             sc_to_rule,
             rule_to_sc,
+            suppression_aliases: SUPPRESSION_ALIAS_CODES.to_vec(),
         }
     }
 }
@@ -100,11 +127,26 @@ mod tests {
     }
 
     #[test]
-    fn resolve_all_is_strictly_one_to_one() {
+    fn resolve_all_keeps_legacy_suppression_aliases() {
         let map = ShellCheckCodeMap::default();
 
         assert_eq!(map.resolve_all("SC2086"), vec![Rule::UnquotedExpansion]);
-        assert_eq!(map.resolve_all("SC2268"), vec![Rule::XPrefixInTest]);
+        assert_eq!(
+            map.resolve_all("SC2268"),
+            vec![Rule::XPrefixInTest, Rule::BackslashBeforeCommand]
+        );
+        assert_eq!(
+            map.resolve_all("SC2316"),
+            vec![Rule::BacktickInCommandPosition, Rule::LocalDeclareCombined]
+        );
+        assert_eq!(
+            map.resolve_all("SC2321"),
+            vec![Rule::ArrayIndexArithmetic, Rule::FunctionKeywordInSh]
+        );
+        assert_eq!(
+            map.resolve_all("SC3084"),
+            vec![Rule::SourceInsideFunctionInSh]
+        );
         assert!(map.resolve_all("SC2260").is_empty());
     }
 
