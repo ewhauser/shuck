@@ -13408,6 +13408,9 @@ fn jq_file_operand_words<'a>(args: &[&'a Word], source: &str) -> Vec<&'a Word> {
                 "--rawfile" | "--slurpfile" | "--argfile" => {
                     pending_args = Some(PendingOptionArgs::NamedFileSource { seen_name: false });
                 }
+                "--indent" => {
+                    pending_args = Some(PendingOptionArgs::Skip(1));
+                }
                 "-L" | "--library-path" => {
                     pending_args = Some(PendingOptionArgs::Skip(1));
                 }
@@ -15711,6 +15714,7 @@ fi
 #!/bin/bash
 jq --args '$ARGS.positional[0]' \"$cfg\"
 jq --jsonargs '$ARGS.positional[0]' \"$cfg\"
+jq --indent 2 --args '$ARGS.positional[0]' \"$cfg\"
 jq --rawfile cfg \"$cfg\" '.dns=$cfg'
 jq --slurpfile cfg \"$cfg\" '.dns=$cfg'
 jq --argfile cfg \"$cfg\" '.dns=$cfg'
@@ -15736,6 +15740,7 @@ jq -Lnewmods '.x=1' \"$cfg\"
                     })
                     .collect::<Vec<_>>(),
                 vec![
+                    Vec::<&str>::new(),
                     Vec::<&str>::new(),
                     Vec::<&str>::new(),
                     vec!["\"$cfg\""],
