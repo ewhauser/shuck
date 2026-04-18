@@ -798,14 +798,29 @@ impl LegacyArithmeticFragmentFact {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PositionalParameterFragmentKind {
+    AboveNine,
+    General,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct PositionalParameterFragmentFact {
     span: Span,
+    kind: PositionalParameterFragmentKind,
 }
 
 impl PositionalParameterFragmentFact {
     pub fn span(&self) -> Span {
         self.span
+    }
+
+    pub fn kind(&self) -> PositionalParameterFragmentKind {
+        self.kind
+    }
+
+    pub fn is_above_nine(&self) -> bool {
+        self.kind == PositionalParameterFragmentKind::AboveNine
     }
 }
 
@@ -15586,6 +15601,7 @@ mod tests {
         SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax, SubstitutionHostKind,
         SudoFamilyInvoker, WordFactHostKind,
     };
+    use crate::facts::PositionalParameterFragmentKind;
     use crate::rules::common::command::WrapperKind;
     use crate::rules::common::expansion::{ExpansionContext, SubstitutionOutputIntent};
     use crate::{ShellDialect, classify_file_context};
@@ -19715,9 +19731,20 @@ if [[ \"$@\" =~ x ]]; then :; fi
                 facts
                     .positional_parameter_fragments()
                     .iter()
-                    .map(|fragment| fragment.span().slice(source))
+                    .map(|fragment| {
+                        (
+                            fragment.span().slice(source),
+                            fragment.kind(),
+                            fragment.is_above_nine(),
+                        )
+                    })
                     .collect::<Vec<_>>(),
-                vec!["$10", "$10", "${@:1}", "${*:1:2}"]
+                vec![
+                    ("$10", PositionalParameterFragmentKind::AboveNine, true),
+                    ("$10", PositionalParameterFragmentKind::AboveNine, true),
+                    ("${@:1}", PositionalParameterFragmentKind::General, false),
+                    ("${*:1:2}", PositionalParameterFragmentKind::General, false),
+                ]
             );
             assert_eq!(
                 facts

@@ -344,6 +344,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                     .positional_parameters
                     .push(PositionalParameterFragmentFact {
                         span: part.span.merge(next_part.span),
+                        kind: PositionalParameterFragmentKind::AboveNine,
                     });
             }
 
@@ -576,6 +577,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                     .positional_parameters
                     .push(PositionalParameterFragmentFact {
                         span: part.span.merge(next_part.span),
+                        kind: PositionalParameterFragmentKind::AboveNine,
                     });
             }
 
@@ -735,7 +737,10 @@ impl<'a> SurfaceFragmentSink<'a> {
         if span.slice(self.source).starts_with("${##") {
             self.facts
                 .positional_parameters
-                .push(PositionalParameterFragmentFact { span });
+                .push(PositionalParameterFragmentFact {
+                    span,
+                    kind: PositionalParameterFragmentKind::General,
+                });
         }
         if is_nested_parameter_expansion(parameter, self.source) {
             self.facts
@@ -826,6 +831,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                 .positional_parameters
                 .push(PositionalParameterFragmentFact {
                     span: reference.span,
+                    kind: PositionalParameterFragmentKind::General,
                 });
         }
     }
