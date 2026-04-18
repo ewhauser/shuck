@@ -1985,7 +1985,8 @@ fn fixture_supported_for_large_corpus(
     if path_is_sample_file(&fixture.path)
         || path_is_fish_file(&fixture.path)
         || path_is_patch_file(&fixture.path)
-        || path_is_config_guess_file(&fixture.path)
+        || path_is_guess_file(&fixture.path)
+        || path_is_config_sub_file(&fixture.path)
         || fixture_is_repo_git_entry(fixture)
     {
         return false;
@@ -2001,7 +2002,8 @@ fn fixture_selected_for_large_corpus_zsh_parse(fixture: &LargeCorpusFixture) -> 
     if path_is_sample_file(&fixture.path)
         || path_is_fish_file(&fixture.path)
         || path_is_patch_file(&fixture.path)
-        || path_is_config_guess_file(&fixture.path)
+        || path_is_guess_file(&fixture.path)
+        || path_is_config_sub_file(&fixture.path)
         || fixture_is_repo_git_entry(fixture)
     {
         return false;
@@ -2062,10 +2064,16 @@ fn path_is_appledouble_file(path: &Path) -> bool {
         .is_some_and(|name| name.starts_with("._"))
 }
 
-fn path_is_config_guess_file(path: &Path) -> bool {
+fn path_is_guess_file(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
-        .is_some_and(|name| name.eq_ignore_ascii_case("config.guess"))
+        .is_some_and(|name| name.to_ascii_lowercase().ends_with(".guess"))
+}
+
+fn path_is_config_sub_file(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.to_ascii_lowercase().ends_with("config.sub"))
 }
 
 fn fixture_is_repo_git_entry(fixture: &LargeCorpusFixture) -> bool {
@@ -2289,7 +2297,8 @@ fn collect_fixtures(corpus_dir: &Path) -> Vec<LargeCorpusFixture> {
             || path_is_fish_file(&path)
             || path_is_patch_file(&path)
             || path_is_appledouble_file(&path)
-            || path_is_config_guess_file(&path)
+            || path_is_guess_file(&path)
+            || path_is_config_sub_file(&path)
         {
             continue;
         }
@@ -3589,15 +3598,29 @@ mod tests {
     }
 
     #[test]
-    fn config_guess_files_are_skipped_for_large_corpus() {
+    fn guess_files_are_skipped_for_large_corpus() {
         let fixture = LargeCorpusFixture {
-            path: PathBuf::from("build-aux/config.guess"),
-            cache_rel_path: PathBuf::from("build-aux/config.guess"),
+            path: PathBuf::from("termux__termux-packages__scripts__config.guess"),
+            cache_rel_path: PathBuf::from("termux__termux-packages__scripts__config.guess"),
             shell: "sh".into(),
             source_hash: String::new(),
         };
 
-        assert!(path_is_config_guess_file(&fixture.path));
+        assert!(path_is_guess_file(&fixture.path));
+        assert!(!fixture_supported_for_large_corpus(&fixture, None));
+        assert!(!fixture_selected_for_large_corpus_zsh_parse(&fixture));
+    }
+
+    #[test]
+    fn config_sub_files_are_skipped_for_large_corpus() {
+        let fixture = LargeCorpusFixture {
+            path: PathBuf::from("termux__termux-packages__scripts__config.sub"),
+            cache_rel_path: PathBuf::from("termux__termux-packages__scripts__config.sub"),
+            shell: "sh".into(),
+            source_hash: String::new(),
+        };
+
+        assert!(path_is_config_sub_file(&fixture.path));
         assert!(!fixture_supported_for_large_corpus(&fixture, None));
         assert!(!fixture_selected_for_large_corpus_zsh_parse(&fixture));
     }
@@ -4443,7 +4466,7 @@ mod tests {
     }
 
     #[test]
-    fn collect_fixtures_skips_sample_fish_patch_appledouble_and_config_guess_files() {
+    fn collect_fixtures_skips_sample_fish_patch_appledouble_guess_and_config_sub_files() {
         let tempdir = tempfile::tempdir().unwrap();
         let scripts_dir = tempdir.path().join("scripts");
         let nested_dir = scripts_dir.join("nested");
@@ -4452,6 +4475,21 @@ mod tests {
         fs::write(scripts_dir.join("keep.sh"), "#!/bin/sh\necho keep\n").unwrap();
         fs::write(scripts_dir.join("._keep.sh"), "skip\n").unwrap();
         fs::write(scripts_dir.join("config.guess"), "not a shell script\n").unwrap();
+        fs::write(
+            scripts_dir.join("build-aux-config.sub"),
+            "not a shell script\n",
+        )
+        .unwrap();
+        fs::write(
+            scripts_dir.join("termux__termux-packages__scripts__config.guess"),
+            "not a shell script\n",
+        )
+        .unwrap();
+        fs::write(
+            scripts_dir.join("termux__termux-packages__scripts__config.sub"),
+            "not a shell script\n",
+        )
+        .unwrap();
         fs::write(
             scripts_dir.join("pre-commit.sample"),
             "#!/bin/sh\necho skip\n",
@@ -4467,7 +4505,12 @@ mod tests {
         fs::write(nested_dir.join("prompt.fish"), "echo skip\n").unwrap();
         fs::write(nested_dir.join("fixup.diff"), "--- a/file\n+++ b/file\n").unwrap();
         fs::write(nested_dir.join("._nested.sh"), "skip\n").unwrap();
-        fs::write(nested_dir.join("config.guess"), "not a shell script\n").unwrap();
+        fs::write(nested_dir.join("toolchain.guess"), "not a shell script\n").unwrap();
+        fs::write(
+            nested_dir.join("toolchain-config.sub"),
+            "not a shell script\n",
+        )
+        .unwrap();
 
         let fixtures = collect_fixtures(tempdir.path());
         let collected_paths: Vec<_> = fixtures
