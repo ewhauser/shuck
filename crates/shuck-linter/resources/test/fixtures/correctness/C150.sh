@@ -9,7 +9,7 @@ items=old
 (items=new)
 printf '%s\n' "$items"
 
-# Valid: pipeline-child updates belong to the pipeline-specific rule.
+# Invalid: pipeline-child updates stay in the child shell.
 count=0
 printf '%s\n' x | while read -r _; do count=1; done
 echo "$count"

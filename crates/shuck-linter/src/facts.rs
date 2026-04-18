@@ -7054,6 +7054,9 @@ fn build_nonpersistent_assignment_spans(
         if !is_reportable_subshell_assignment(binding.kind, binding.attributes) {
             continue;
         }
+        if !is_reportable_nonpersistent_assignment_name(&binding.name) {
+            continue;
+        }
 
         let Some(nonpersistent_scope) =
             innermost_nonpersistent_scope_span(semantic, binding.span.start.offset)
@@ -7067,7 +7070,6 @@ fn build_nonpersistent_assignment_spans(
             .push(CandidateSubshellAssignment {
                 binding_id: binding.id,
                 assignment_span: binding.span,
-                kind: nonpersistent_scope.kind,
                 subshell_start: nonpersistent_scope.span.start.offset,
                 subshell_end: nonpersistent_scope.span.end.offset,
             });
@@ -7075,6 +7077,9 @@ fn build_nonpersistent_assignment_spans(
 
     for binding in semantic.bindings() {
         if !is_persistent_subshell_reset_binding(binding.kind, binding.attributes) {
+            continue;
+        }
+        if !is_reportable_nonpersistent_assignment_name(&binding.name) {
             continue;
         }
         if is_within_any_nonpersistent_scope(semantic, binding.span.start.offset) {
@@ -7094,6 +7099,9 @@ fn build_nonpersistent_assignment_spans(
         ) {
             continue;
         }
+        if !is_reportable_nonpersistent_assignment_name(&reference.name) {
+            continue;
+        }
         if candidate_bindings_by_name.contains_key(&reference.name) {
             command_id_query_offsets.push(reference.span.start.offset);
             relevant_references.push(reference);
@@ -7102,18 +7110,28 @@ fn build_nonpersistent_assignment_spans(
 
     let innermost_command_ids_by_offset =
         build_innermost_command_ids_by_offset(commands, command_id_query_offsets);
+    let command_end_offsets = commands
+        .iter()
+        .map(|command| (command.id(), command.span().end.offset))
+        .collect::<FxHashMap<_, _>>();
     let persistent_reset_offsets_by_name: FxHashMap<Name, Vec<PersistentReset>> =
         persistent_reset_offsets_by_name
             .into_iter()
             .map(|(name, offsets)| {
                 let resets = offsets
                     .into_iter()
-                    .map(|offset| PersistentReset {
-                        offset,
-                        command_id: precomputed_command_id_for_offset(
-                            &innermost_command_ids_by_offset,
+                    .map(|offset| {
+                        let command_id =
+                            precomputed_command_id_for_offset(&innermost_command_ids_by_offset, offset);
+                        let command_end_offset = command_id
+                            .and_then(|id| command_end_offsets.get(&id).copied())
+                            .unwrap_or(offset);
+
+                        PersistentReset {
                             offset,
-                        ),
+                            command_id,
+                            command_end_offset,
+                        }
                     })
                     .collect();
                 (name, resets)
@@ -7136,7 +7154,7 @@ fn build_nonpersistent_assignment_spans(
             reference.span.start.offset,
         );
         let resolved = semantic.resolved_binding(reference.id);
-        let mut matched_nonpipeline_candidate = false;
+        let mut matched_candidate = false;
         for candidate in candidate_ids {
             if reference.span.start.offset <= candidate.subshell_end
                 || has_intervening_persistent_reset(
@@ -7154,18 +7172,19 @@ fn build_nonpersistent_assignment_spans(
             }
 
             side_effect_spans.push(candidate.assignment_span);
-            if !matches!(candidate.kind, NonpersistentAssignmentKind::Pipeline) {
-                matched_nonpipeline_candidate = true;
-            }
+            matched_candidate = true;
         }
 
-        if matched_nonpipeline_candidate {
+        if matched_candidate {
             later_use_spans.push(reference.span);
         }
     }
 
     for binding in semantic.bindings() {
         if !is_reportable_subshell_later_use_binding(binding.kind, binding.attributes) {
+            continue;
+        }
+        if !is_reportable_nonpersistent_assignment_name(&binding.name) {
             continue;
         }
 
@@ -7177,7 +7196,7 @@ fn build_nonpersistent_assignment_spans(
             .get(&binding.name)
             .map(Vec::as_slice)
             .unwrap_or(&[]);
-        let mut matched_nonpipeline_candidate = false;
+        let mut matched_candidate = false;
         for candidate in candidate_ids {
             if binding.span.start.offset <= candidate.subshell_end
                 || has_intervening_persistent_reset(
@@ -7191,12 +7210,10 @@ fn build_nonpersistent_assignment_spans(
             }
 
             side_effect_spans.push(candidate.assignment_span);
-            if !matches!(candidate.kind, NonpersistentAssignmentKind::Pipeline) {
-                matched_nonpipeline_candidate = true;
-            }
+            matched_candidate = true;
         }
 
-        if matched_nonpipeline_candidate {
+        if matched_candidate {
             later_use_spans.push(binding.span);
         }
     }
@@ -7218,6 +7235,7 @@ fn build_nonpersistent_assignment_spans(
 fn is_reportable_subshell_assignment(kind: BindingKind, attributes: BindingAttributes) -> bool {
     match kind {
         BindingKind::Assignment
+        | BindingKind::ParameterDefaultAssignment
         | BindingKind::AppendAssignment
         | BindingKind::ArrayAssignment
         | BindingKind::LoopVariable
@@ -7230,7 +7248,6 @@ fn is_reportable_subshell_assignment(kind: BindingKind, attributes: BindingAttri
             attributes.contains(BindingAttributes::DECLARATION_INITIALIZED)
                 && !attributes.contains(BindingAttributes::LOCAL)
         }
-        BindingKind::ParameterDefaultAssignment => false,
         BindingKind::Imported => false,
         BindingKind::FunctionDefinition | BindingKind::Nameref => false,
     }
@@ -7242,6 +7259,7 @@ fn is_reportable_subshell_later_use_binding(
 ) -> bool {
     match kind {
         BindingKind::AppendAssignment => true,
+        BindingKind::ArithmeticAssignment => true,
         BindingKind::Declaration(_) => {
             attributes.contains(BindingAttributes::DECLARATION_INITIALIZED)
                 && !attributes.contains(BindingAttributes::LOCAL)
@@ -7253,7 +7271,6 @@ fn is_reportable_subshell_later_use_binding(
         | BindingKind::MapfileTarget
         | BindingKind::PrintfTarget
         | BindingKind::GetoptsTarget
-        | BindingKind::ArithmeticAssignment
         | BindingKind::ParameterDefaultAssignment
         | BindingKind::FunctionDefinition
         | BindingKind::Imported
@@ -7261,25 +7278,21 @@ fn is_reportable_subshell_later_use_binding(
     }
 }
 
+fn is_reportable_nonpersistent_assignment_name(name: &Name) -> bool {
+    name.as_str() != "IFS"
+}
+
 #[derive(Debug, Clone, Copy)]
 struct CandidateSubshellAssignment {
     binding_id: shuck_semantic::BindingId,
     assignment_span: Span,
-    kind: NonpersistentAssignmentKind,
     subshell_start: usize,
     subshell_end: usize,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum NonpersistentAssignmentKind {
-    Pipeline,
-    Subshell,
 }
 
 #[derive(Debug, Clone, Copy)]
 struct NonpersistentScopeSpan {
     span: Span,
-    kind: NonpersistentAssignmentKind,
 }
 
 #[derive(Debug, Default)]
@@ -7292,6 +7305,7 @@ struct NonpersistentAssignmentSpans {
 struct PersistentReset {
     offset: usize,
     command_id: Option<CommandId>,
+    command_end_offset: usize,
 }
 
 fn innermost_nonpersistent_scope_span(
@@ -7304,15 +7318,14 @@ fn innermost_nonpersistent_scope_span(
         .iter()
         .find(|candidate| candidate.id == scope)
         .map(|candidate| candidate.span)?;
-    let kind = match semantic.scope_kind(scope) {
-        shuck_semantic::ScopeKind::Pipeline => NonpersistentAssignmentKind::Pipeline,
-        shuck_semantic::ScopeKind::Subshell | shuck_semantic::ScopeKind::CommandSubstitution => {
-            NonpersistentAssignmentKind::Subshell
-        }
+    match semantic.scope_kind(scope) {
+        shuck_semantic::ScopeKind::Pipeline
+        | shuck_semantic::ScopeKind::Subshell
+        | shuck_semantic::ScopeKind::CommandSubstitution => {}
         shuck_semantic::ScopeKind::Function(_) | shuck_semantic::ScopeKind::File => return None,
-    };
+    }
 
-    Some(NonpersistentScopeSpan { span, kind })
+    Some(NonpersistentScopeSpan { span })
 }
 
 fn is_within_any_nonpersistent_scope(semantic: &SemanticModel, offset: usize) -> bool {
@@ -7331,6 +7344,7 @@ fn is_within_any_nonpersistent_scope(semantic: &SemanticModel, offset: usize) ->
 fn is_persistent_subshell_reset_binding(kind: BindingKind, attributes: BindingAttributes) -> bool {
     match kind {
         BindingKind::Assignment
+        | BindingKind::ParameterDefaultAssignment
         | BindingKind::AppendAssignment
         | BindingKind::ArrayAssignment
         | BindingKind::LoopVariable
@@ -7343,7 +7357,6 @@ fn is_persistent_subshell_reset_binding(kind: BindingKind, attributes: BindingAt
             attributes.contains(BindingAttributes::DECLARATION_INITIALIZED)
                 && !attributes.contains(BindingAttributes::LOCAL)
         }
-        BindingKind::ParameterDefaultAssignment => false,
         BindingKind::FunctionDefinition | BindingKind::Imported | BindingKind::Nameref => false,
     }
 }
@@ -7355,8 +7368,14 @@ fn has_intervening_persistent_reset(
     event_command_id: Option<CommandId>,
 ) -> bool {
     resets.iter().any(|reset| {
-        reset.offset > candidate_end
-            && reset.offset < event_offset
+        let effective_offset = if reset.offset > candidate_end {
+            reset.offset
+        } else {
+            reset.command_end_offset
+        };
+
+        effective_offset > candidate_end
+            && effective_offset < event_offset
             && event_command_id.is_none_or(|event_id| reset.command_id != Some(event_id))
     })
 }
