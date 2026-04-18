@@ -18,4 +18,40 @@ mod build_script {
         assert_eq!(parse_shellcheck_code_value("\"SC2034\""), Ok(Some(2034)));
         assert_eq!(parse_shellcheck_code_value("'sc2034'"), Ok(Some(2034)));
     }
+
+    #[test]
+    fn parse_rule_metadata_accepts_quoted_new_code() {
+        let yaml = r#"
+new_code: "C001"
+shellcheck_code: SC2034
+"#;
+
+        assert_eq!(
+            parse_rule_metadata(yaml),
+            Ok(("C001".to_owned(), Some(2034)))
+        );
+    }
+
+    #[test]
+    fn parse_rule_metadata_accepts_inline_shellcheck_comments() {
+        let yaml = r#"
+new_code: C001
+shellcheck_code: SC2034 # compatibility code
+"#;
+
+        assert_eq!(
+            parse_rule_metadata(yaml),
+            Ok(("C001".to_owned(), Some(2034)))
+        );
+    }
+
+    #[test]
+    fn parse_rule_metadata_treats_null_shellcheck_code_as_unmapped() {
+        let yaml = r#"
+new_code: C001
+shellcheck_code: null
+"#;
+
+        assert_eq!(parse_rule_metadata(yaml), Ok(("C001".to_owned(), None)));
+    }
 }

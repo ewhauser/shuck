@@ -2,7 +2,15 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-fn parse_shellcheck_code_value(raw: &str) -> Result<Option<u32>, &'static str> {
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize)]
+struct RuleMetadata {
+    new_code: String,
+    shellcheck_code: Option<String>,
+}
+
+fn parse_shellcheck_code_value(raw: &str) -> Result<Option<u32>, String> {
     let raw = raw.trim().trim_matches(|ch| matches!(ch, '"' | '\''));
     if raw.is_empty() || raw.eq_ignore_ascii_case("null") || raw == "~" {
         return Ok(None);
@@ -11,11 +19,30 @@ fn parse_shellcheck_code_value(raw: &str) -> Result<Option<u32>, &'static str> {
     let digits = raw
         .strip_prefix("SC")
         .or_else(|| raw.strip_prefix("sc"))
-        .ok_or("invalid shellcheck_code prefix")?;
+        .ok_or_else(|| "invalid shellcheck_code prefix".to_owned())?;
     let number = digits
         .parse::<u32>()
-        .map_err(|_| "invalid shellcheck_code number")?;
+        .map_err(|_| "invalid shellcheck_code number".to_owned())?;
     Ok(Some(number))
+}
+
+fn parse_rule_metadata(data: &str) -> Result<(String, Option<u32>), String> {
+    let metadata: RuleMetadata =
+        serde_yaml::from_str(data).map_err(|err| format!("invalid rule metadata: {err}"))?;
+
+    let rule_code = metadata.new_code.trim();
+    if rule_code.is_empty() {
+        return Err("missing new_code".to_owned());
+    }
+
+    let shellcheck_code = metadata
+        .shellcheck_code
+        .as_deref()
+        .map(parse_shellcheck_code_value)
+        .transpose()?
+        .flatten();
+
+    Ok((rule_code.to_owned(), shellcheck_code))
 }
 
 fn main() {
@@ -38,29 +65,13 @@ fn main() {
         let data = fs::read_to_string(&path)
             .unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
 
-        let rule_code = data
-            .lines()
-            .find_map(|line| {
-                line.strip_prefix("new_code:")
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-            })
-            .unwrap_or_else(|| panic!("missing new_code in {}", path.display()));
-
-        let shellcheck_code =
-            data.lines()
-                .find_map(|line| {
-                    let raw = line.strip_prefix("shellcheck_code:")?.trim();
-                    Some(parse_shellcheck_code_value(raw).unwrap_or_else(|_| {
-                        panic!("invalid shellcheck_code in {}", path.display())
-                    }))
-                })
-                .flatten();
+        let (rule_code, shellcheck_code) =
+            parse_rule_metadata(&data).unwrap_or_else(|err| panic!("{err} in {}", path.display()));
 
         let Some(shellcheck_code) = shellcheck_code else {
             continue;
         };
-        mappings.push((rule_code.to_owned(), shellcheck_code));
+        mappings.push((rule_code, shellcheck_code));
     }
 
     let mut generated = String::from("pub const RULE_SHELLCHECK_CODES: &[(&str, u32)] = &[\n");
