@@ -8940,9 +8940,7 @@ impl StaticCasePatternMatcher {
     }
 }
 
-fn summarize_static_case_pattern_tokens(
-    tokens: &[CasePatternToken],
-) -> StaticCasePatternSummary {
+fn summarize_static_case_pattern_tokens(tokens: &[CasePatternToken]) -> StaticCasePatternSummary {
     let mut min_len = 0usize;
     let mut max_len = Some(0usize);
     let mut literal_prefix = String::new();
