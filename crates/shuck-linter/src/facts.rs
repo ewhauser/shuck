@@ -13365,30 +13365,30 @@ fn jq_file_operand_words<'a>(args: &[&'a Word], source: &str) -> Vec<&'a Word> {
         }
 
         if options_open && text.starts_with('-') && text != "-" {
-            if !text.starts_with("--") {
-                if let Some(cluster) = text.strip_prefix('-') {
-                    let mut cluster_chars = cluster.chars().peekable();
-                    while let Some(flag) = cluster_chars.next() {
-                        match flag {
-                            'n' => {
-                                null_input = true;
-                            }
-                            'f' => {
-                                filter_from_file = true;
-                                consumed_filter = true;
-                                if cluster_chars.peek().is_none() {
-                                    pending_args = Some(PendingOptionArgs::Skip(1));
-                                }
-                                break;
-                            }
-                            'L' => {
-                                if cluster_chars.peek().is_none() {
-                                    pending_args = Some(PendingOptionArgs::Skip(1));
-                                }
-                                break;
-                            }
-                            _ => {}
+            if !text.starts_with("--")
+                && let Some(cluster) = text.strip_prefix('-')
+            {
+                let mut cluster_chars = cluster.chars().peekable();
+                while let Some(flag) = cluster_chars.next() {
+                    match flag {
+                        'n' => {
+                            null_input = true;
                         }
+                        'f' => {
+                            filter_from_file = true;
+                            consumed_filter = true;
+                            if cluster_chars.peek().is_none() {
+                                pending_args = Some(PendingOptionArgs::Skip(1));
+                            }
+                            break;
+                        }
+                        'L' => {
+                            if cluster_chars.peek().is_none() {
+                                pending_args = Some(PendingOptionArgs::Skip(1));
+                            }
+                            break;
+                        }
+                        _ => {}
                     }
                 }
             }
