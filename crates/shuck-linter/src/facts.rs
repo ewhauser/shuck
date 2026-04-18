@@ -415,7 +415,13 @@ fn simple_test_segment_is_expression(
 
     let expression_len = segment.len() - expression_start;
     match expression_len {
-        1 => true,
+        1 => {
+            let word = segment[expression_start];
+            !(simple_test_effective_operand_text(simple_test, start + expression_start, source)
+                .as_deref()
+                == Some("!")
+                && classify_word(word, source).quote == WordQuote::Unquoted)
+        }
         2 => simple_test_effective_operand_text(simple_test, start + expression_start, source)
             .as_deref()
             .is_some_and(simple_test_is_unary_operator),
@@ -17408,6 +17414,8 @@ test
 [ \"!\" \"-n\" qux ]
 [ -a foo ]
 [ -o foo ]
+[ ! -a baz ]
+[ ! -o quux ]
 [ foo -o -z baz ]
 [ -a foo -o -z baz ]
 [ foo \"-o\" \"-z\" baz ]
@@ -17502,6 +17510,30 @@ test
             );
             assert!(
                 quoted_literal
+                    .string_unary_expression_words(source)
+                    .is_empty()
+            );
+
+            let negated_unary_a = commands
+                .iter()
+                .find(|(text, _)| text == "[ ! -a baz ]")
+                .and_then(|(_, fact)| fact.simple_test())
+                .expect("expected negated unary -a test fact");
+            assert!(negated_unary_a.truthy_expression_words(source).is_empty());
+            assert!(
+                negated_unary_a
+                    .string_unary_expression_words(source)
+                    .is_empty()
+            );
+
+            let negated_unary_o = commands
+                .iter()
+                .find(|(text, _)| text == "[ ! -o quux ]")
+                .and_then(|(_, fact)| fact.simple_test())
+                .expect("expected negated unary -o test fact");
+            assert!(negated_unary_o.truthy_expression_words(source).is_empty());
+            assert!(
+                negated_unary_o
                     .string_unary_expression_words(source)
                     .is_empty()
             );

@@ -394,6 +394,8 @@ mod tests {
 #!/bin/sh
 [ -a \"$(grep foo input.txt)\" ]
 [ -o \"$(grep foo input.txt)\" ]
+[ ! -a \"$(grep foo input.txt)\" ]
+[ ! -o \"$(grep foo input.txt)\" ]
 [ -a \"$path\" -o -z \"$ok\" ]
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::GrepOutputInTest));
