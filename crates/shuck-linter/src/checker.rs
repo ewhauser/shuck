@@ -537,8 +537,8 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::DoubleQuoteNesting) {
             rules::style::double_quote_nesting::double_quote_nesting(self);
         }
-        if self.is_rule_enabled(Rule::EnvPrefixQuoting) {
-            rules::style::env_prefix_quoting::env_prefix_quoting(self);
+        if self.is_rule_enabled(Rule::EnvPrefixCommandOnly) {
+            rules::style::env_prefix_command_only::env_prefix_command_only(self);
         }
         if self.is_rule_enabled(Rule::MixedQuoteWord) {
             rules::style::mixed_quote_word::mixed_quote_word(self);
