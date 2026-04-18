@@ -2,12 +2,7 @@
 
 Audit date: 2026-04-17
 
-This note now tracks the follow-up work that still remains from the original audit pass.
-
-Handled since the original audit:
-
-- The direct mappings from the original note have already landed.
-- The `C022 -> SC2212` and `C030 -> SC1019` metadata refresh has already landed and was validated against the large corpus.
+This note tracks the follow-up work that still remains from the original audit pass.
 
 Remaining work:
 
