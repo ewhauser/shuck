@@ -20,7 +20,7 @@ pub mod echo_here_doc;
 pub mod echo_inside_command_substitution;
 pub mod echoed_command_substitution;
 pub mod egrep_deprecated;
-pub mod env_prefix_quoting;
+pub mod env_prefix_command_only;
 pub mod escaped_underscore;
 pub mod escaped_underscore_literal;
 pub mod export_command_substitution;
@@ -109,7 +109,7 @@ mod tests {
     #[test_case(Rule::TrapSignalNumbers, Path::new("S068.sh"))]
     #[test_case(Rule::SingleLetterCaseLabel, Path::new("S069.sh"))]
     #[test_case(Rule::DoubleQuoteNesting, Path::new("S070.sh"))]
-    #[test_case(Rule::EnvPrefixQuoting, Path::new("S071.sh"))]
+    #[test_case(Rule::EnvPrefixCommandOnly, Path::new("S071.sh"))]
     #[test_case(Rule::MixedQuoteWord, Path::new("S076.sh"))]
     #[test_case(Rule::FunctionInAlias, Path::new("S057.sh"))]
     #[test_case(Rule::FunctionBodyWithoutBraces, Path::new("S041.sh"))]

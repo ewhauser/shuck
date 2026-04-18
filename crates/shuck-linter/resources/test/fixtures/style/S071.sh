@@ -1,10 +1,13 @@
 #!/bin/bash
-CFLAGS="${SLKCFLAGS}" ./configure --target="$ARCH-slackware-linux"
-A="$a" B="${b:-fallback}" command run
-C="$left""$right" command run
-CFLAGS=$SLKCFLAGS ./configure
-CFLAGS="~" ./configure
-CFLAGS="prefix$SLKCFLAGS" ./configure
-CFLAGS="${arr[@]}" ./configure
-export CFLAGS="${SLKCFLAGS}"
-CFLAGS="${SLKCFLAGS}"
+CFLAGS="${SLKCFLAGS}" ./configure --with-optmizer=${CFLAGS}
+PATH=/tmp "$PATH"/bin/tool
+A=1 B="$A" C="$B" cmd
+foo="$foo" bar="$foo" cmd
+foo=1 export "$foo"
+foo=1 bar[$foo]=x cmd
+foo=1 echo hi
+foo="$foo" cmd
+foo=1 cmd "$(printf %s "$foo")"
+foo=1 foo=2 cmd
+foo=1 bar="$foo"
+COUNTDOWN=$[ $COUNTDOWN - 1 ]

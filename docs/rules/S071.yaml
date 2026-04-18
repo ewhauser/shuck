@@ -1,5 +1,5 @@
 legacy_code: SH-309
-legacy_name: env-prefix-quoting
+legacy_name: env-prefix-command-only
 new_category: Style
 new_code: S071
 runtime_kind: ast
@@ -9,8 +9,8 @@ shells:
   - bash
   - dash
   - ksh
-description: An environment variable prefix to a command has unnecessary quoting.
-rationale: Remove quotes around the variable in the prefix assignment.
+description: A command-prefix assignment is reused later in the same command even though later expansions still see the older shell value.
+rationale: Prefix assignments are passed to the invoked command after the shell finishes expanding the rest of the command. Assign the variable earlier or use the intended value directly.
 source:
   shell_checks_rule: rules/SH-309.yaml
   shell_checks_example: examples/309.sh
