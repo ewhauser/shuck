@@ -1,37 +1,38 @@
 #!/bin/bash
 
-# Invalid: output commands overwrite the status that later `$?` reads.
+# Invalid: test-style commands should use the earlier command directly.
 run
-echo status
 if [ $? -ne 0 ]; then :; fi
 
 run
-printf '%s\n' status
+[[ $? -ne 0 ]]
+
+run && [ $? -eq 0 ]
+
+run || [ $? -ne 0 ]
+
+{ [ $? -ne 0 ]; }
+
+check_status() {
+  if [ $? -ne 0 ]; then :; fi
+  [ $? -ne 0 ]
+  run && [ $? -ne 0 ]
+}
+
+if [ "$x" = y ]; then
+  [ $? -ne 0 ]
+fi
+
+# Valid: saving the status keeps the intended result.
+run
+saved=$?
+if [ "$saved" -ne 0 ]; then :; fi
+
+# Valid: non-test uses of `$?` stay out of C107.
 case $? in
   0) : ;;
 esac
-
-check_status() {
-  run
-  printf '%s\n' status
-  return $?
-}
-
-run
-echo status
-saved=$?
-
-# Valid: immediate status checks are handled by other rules.
-run
-if [ $? -ne 0 ]; then :; fi
-
-# Valid: saving the status before another command keeps the intended value.
-run
-saved=$?
-echo status
-if [ "$saved" -ne 0 ]; then :; fi
-
-# Valid: non-output commands stay outside this narrower C107 check.
-run
-pwd >/dev/null
-if [ $? -ne 0 ]; then :; fi
+test $? -ne 0
+exit $?
+[ $? -eq 1 ]
+[[ "$name" = ok || $? -eq 1 ]]
