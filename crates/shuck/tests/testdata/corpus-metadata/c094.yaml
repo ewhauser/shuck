@@ -1,0 +1,75 @@
+reviewed_divergences:
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__audio__asap__asap.SlackBuild"
+    reason: "This build helper reuses redirected filename text through shell variables and derived output templates, and the pinned ShellCheck SC2094 oracle treats that text collision as a same-file read/write site even though the command is not reopening the redirect target as input. Shuck keeps C094 scoped to actual file operands and redirect sources."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__development__gnulib__gnulib.SlackBuild"
+    reason: "This build helper reuses redirected filename text through shell variables and derived output templates, and the pinned ShellCheck SC2094 oracle treats that text collision as a same-file read/write site even though the command is not reopening the redirect target as input. Shuck keeps C094 scoped to actual file operands and redirect sources."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__development__guile1.8__guile1.8.SlackBuild"
+    reason: "This build helper reuses redirected filename text through shell variables and derived output templates, and the pinned ShellCheck SC2094 oracle treats that text collision as a same-file read/write site even though the command is not reopening the redirect target as input. Shuck keeps C094 scoped to actual file operands and redirect sources."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__development__guile2.0__guile2.0.SlackBuild"
+    reason: "This build helper reuses redirected filename text through shell variables and derived output templates, and the pinned ShellCheck SC2094 oracle treats that text collision as a same-file read/write site even though the command is not reopening the redirect target as input. Shuck keeps C094 scoped to actual file operands and redirect sources."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__development__guile2.2__guile2.2.SlackBuild"
+    reason: "This build helper reuses redirected filename text through shell variables and derived output templates, and the pinned ShellCheck SC2094 oracle treats that text collision as a same-file read/write site even though the command is not reopening the redirect target as input. Shuck keeps C094 scoped to actual file operands and redirect sources."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__development__z88dk__z88dk.SlackBuild"
+    reason: "This build helper reuses redirected filename text through shell variables and derived output templates, and the pinned ShellCheck SC2094 oracle treats that text collision as a same-file read/write site even though the command is not reopening the redirect target as input. Shuck keeps C094 scoped to actual file operands and redirect sources."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__games__adl__adl.SlackBuild"
+    reason: "This build helper reuses redirected filename text through shell variables and derived output templates, and the pinned ShellCheck SC2094 oracle treats that text collision as a same-file read/write site even though the command is not reopening the redirect target as input. Shuck keeps C094 scoped to actual file operands and redirect sources."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__games__doomsday__doomsday.SlackBuild"
+    reason: "This build helper reuses redirected filename text through shell variables and derived output templates, and the pinned ShellCheck SC2094 oracle treats that text collision as a same-file read/write site even though the command is not reopening the redirect target as input. Shuck keeps C094 scoped to actual file operands and redirect sources."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__games__unnethack__unnethack.SlackBuild"
+    reason: "This build helper reuses redirected filename text through shell variables and derived output templates, and the pinned ShellCheck SC2094 oracle treats that text collision as a same-file read/write site even though the command is not reopening the redirect target as input. Shuck keeps C094 scoped to actual file operands and redirect sources."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__games__wargus__wargus.SlackBuild"
+    reason: "This build helper reuses redirected filename text through shell variables and derived output templates, and the pinned ShellCheck SC2094 oracle treats that text collision as a same-file read/write site even though the command is not reopening the redirect target as input. Shuck keeps C094 scoped to actual file operands and redirect sources."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__libraries__aubio__aubio.SlackBuild"
+    reason: "This build helper reuses redirected filename text through shell variables and derived output templates, and the pinned ShellCheck SC2094 oracle treats that text collision as a same-file read/write site even though the command is not reopening the redirect target as input. Shuck keeps C094 scoped to actual file operands and redirect sources."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__network__ircII__ircII.SlackBuild"
+    reason: "This build helper reuses redirected filename text through shell variables and derived output templates, and the pinned ShellCheck SC2094 oracle treats that text collision as a same-file read/write site even though the command is not reopening the redirect target as input. Shuck keeps C094 scoped to actual file operands and redirect sources."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__system__atarisio__atarisio.SlackBuild"
+    reason: "This build helper reuses redirected filename text through shell variables and derived output templates, and the pinned ShellCheck SC2094 oracle treats that text collision as a same-file read/write site even though the command is not reopening the redirect target as input. Shuck keeps C094 scoped to actual file operands and redirect sources."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__system__fsviewer__fsviewer.SlackBuild"
+    reason: "This build helper reuses redirected filename text through shell variables and derived output templates, and the pinned ShellCheck SC2094 oracle treats that text collision as a same-file read/write site even though the command is not reopening the redirect target as input. Shuck keeps C094 scoped to actual file operands and redirect sources."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__system__ft2demos__ft2demos.SlackBuild"
+    reason: "This build helper reuses redirected filename text through shell variables and derived output templates, and the pinned ShellCheck SC2094 oracle treats that text collision as a same-file read/write site even though the command is not reopening the redirect target as input. Shuck keeps C094 scoped to actual file operands and redirect sources."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__system__vice__vice.SlackBuild"
+    reason: "This build helper reuses redirected filename text through shell variables and derived output templates, and the pinned ShellCheck SC2094 oracle treats that text collision as a same-file read/write site even though the command is not reopening the redirect target as input. Shuck keeps C094 scoped to actual file operands and redirect sources."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_table.sh"
+    labels:
+      - project-closure
+    reason: "This helper reuses redirected filename tokens as scalar values and formatting placeholders, and the pinned ShellCheck SC2094 oracle treats that text collision as a same-file read/write site even though the command is not reopening that path as input. Shuck keeps C094 scoped to actual file operands and redirect sources."
+  - side: shellcheck-only
+    path_suffix: "swoodford__aws__s3-restrict-bucket-policy.sh"
+    reason: "This helper reuses redirected filename tokens as scalar values and formatting placeholders, and the pinned ShellCheck SC2094 oracle treats that text collision as a same-file read/write site even though the command is not reopening that path as input. Shuck keeps C094 scoped to actual file operands and redirect sources."
+  - side: shellcheck-only
+    path_suffix: "swoodford__aws__vpc-sg-import-rules.sh"
+    reason: "This helper reuses redirected filename tokens as scalar values and formatting placeholders, and the pinned ShellCheck SC2094 oracle treats that text collision as a same-file read/write site even though the command is not reopening that path as input. Shuck keeps C094 scoped to actual file operands and redirect sources."
+  - side: shellcheck-only
+    path_suffix: "swoodford__aws__vpc-sg-merge-groups.sh"
+    reason: "This helper reuses redirected filename tokens as scalar values and formatting placeholders, and the pinned ShellCheck SC2094 oracle treats that text collision as a same-file read/write site even though the command is not reopening that path as input. Shuck keeps C094 scoped to actual file operands and redirect sources."
+  - side: shellcheck-only
+    path_suffix: "swoodford__aws__vpc-sg-rename-group.sh"
+    reason: "This helper reuses redirected filename tokens as scalar values and formatting placeholders, and the pinned ShellCheck SC2094 oracle treats that text collision as a same-file read/write site even though the command is not reopening that path as input. Shuck keeps C094 scoped to actual file operands and redirect sources."
+  - side: shellcheck-only
+    path_suffix: "swoodford__aws__waf-import-ip-set-facebook.sh"
+    reason: "This helper reuses redirected filename tokens as scalar values and formatting placeholders, and the pinned ShellCheck SC2094 oracle treats that text collision as a same-file read/write site even though the command is not reopening that path as input. Shuck keeps C094 scoped to actual file operands and redirect sources."
+  - side: shellcheck-only
+    path_suffix: "swoodford__aws__waf-web-acl-pingdom.sh"
+    reason: "This helper reuses redirected filename tokens as scalar values and formatting placeholders, and the pinned ShellCheck SC2094 oracle treats that text collision as a same-file read/write site even though the command is not reopening that path as input. Shuck keeps C094 scoped to actual file operands and redirect sources."
+  - side: shellcheck-only
+    path_suffix: "swoodford__aws__wafv2-web-acl-pingdom.sh"
+    reason: "This helper reuses redirected filename tokens as scalar values and formatting placeholders, and the pinned ShellCheck SC2094 oracle treats that text collision as a same-file read/write site even though the command is not reopening that path as input. Shuck keeps C094 scoped to actual file operands and redirect sources."

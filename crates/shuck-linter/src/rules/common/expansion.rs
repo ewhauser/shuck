@@ -263,7 +263,7 @@ pub(crate) fn comparable_path(
     }
 
     let key = comparable_path_key_from_parts(&word.parts, source)?;
-    if key == ComparablePathKey::Literal("/dev/null".into()) {
+    if comparable_path_key_is_special_device(&key) {
         return None;
     }
 
@@ -271,6 +271,22 @@ pub(crate) fn comparable_path(
         span: word.span,
         key,
     })
+}
+
+fn comparable_path_key_is_special_device(key: &ComparablePathKey) -> bool {
+    let ComparablePathKey::Literal(path) = key else {
+        return false;
+    };
+
+    matches!(
+        path.as_ref(),
+        "/dev/null" | "/dev/tty" | "/dev/stdin" | "/dev/stdout" | "/dev/stderr"
+    ) || path
+        .strip_prefix("/dev/fd/")
+        .is_some_and(|suffix| suffix.bytes().all(|byte| byte.is_ascii_digit()))
+        || path
+            .strip_prefix("/proc/self/fd/")
+            .is_some_and(|suffix| suffix.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
 fn comparable_path_key_from_parts(
@@ -1425,7 +1441,7 @@ mod tests {
 
     #[test]
     fn comparable_path_accepts_simple_literals_and_single_parameter_expansions() {
-        let source = "cmd foo \"$src\" \"${dst}\" ~/.zshrc \"$dir/Cargo.toml\" $tmpf \"$@\" \"$(printf hi)\" <(cat) *.log /dev/null\n";
+        let source = "cmd foo \"$src\" \"${dst}\" ~/.zshrc \"$dir/Cargo.toml\" $tmpf \"$@\" \"$(printf hi)\" <(cat) *.log /dev/null /dev/tty /dev/stdin /dev/fd/0 /proc/self/fd/1\n";
         let words = parse_argument_words(source);
 
         assert_eq!(
@@ -1484,6 +1500,18 @@ mod tests {
         );
         assert!(
             comparable_path(&words[10], source, ExpansionContext::CommandArgument, None).is_none()
+        );
+        assert!(
+            comparable_path(&words[11], source, ExpansionContext::CommandArgument, None).is_none()
+        );
+        assert!(
+            comparable_path(&words[12], source, ExpansionContext::CommandArgument, None).is_none()
+        );
+        assert!(
+            comparable_path(&words[13], source, ExpansionContext::CommandArgument, None).is_none()
+        );
+        assert!(
+            comparable_path(&words[14], source, ExpansionContext::CommandArgument, None).is_none()
         );
     }
 
