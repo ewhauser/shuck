@@ -71,29 +71,31 @@ fn unary_glued_test(args: &[&shuck_ast::Word], source: &str) -> Option<Span> {
 fn is_unary_test_operator(text: &str) -> bool {
     matches!(
         text,
-        "-n"
-            | "-z"
+        "-e" | "-a"
+            | "-f"
+            | "-d"
             | "-b"
             | "-c"
-            | "-d"
-            | "-e"
-            | "-f"
-            | "-g"
-            | "-h"
-            | "-k"
             | "-p"
-            | "-r"
-            | "-s"
-            | "-t"
+            | "-S"
+            | "-L"
+            | "-h"
+            | "-g"
+            | "-k"
             | "-u"
+            | "-G"
+            | "-O"
+            | "-N"
+            | "-r"
             | "-v"
             | "-w"
             | "-x"
-            | "-L"
-            | "-O"
-            | "-G"
-            | "-S"
-            | "-N"
+            | "-s"
+            | "-t"
+            | "-z"
+            | "-n"
+            | "-o"
+            | "-R"
     )
 }
 
@@ -115,6 +117,9 @@ fi
 if [ -n \"$dir\"]; then
   :
 fi
+if [ -a /tmp]; then
+  :
+fi
 ";
         let diagnostics =
             test_snippet(source, &LinterSettings::for_rule(Rule::MissingBracketSpace));
@@ -124,7 +129,7 @@ fi
                 .iter()
                 .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.start.column))
                 .collect::<Vec<_>>(),
-            vec![(2, 9), (8, 9)]
+            vec![(2, 9), (8, 9), (11, 9)]
         );
     }
 
@@ -141,7 +146,10 @@ fi
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(
-            (diagnostics[0].span.start.line, diagnostics[0].span.start.column),
+            (
+                diagnostics[0].span.start.line,
+                diagnostics[0].span.start.column
+            ),
             (2, 11)
         );
     }
