@@ -3525,7 +3525,8 @@ fn assignment_value_origin_for_word(word: &Word) -> AssignmentValueOrigin {
         return AssignmentValueOrigin::MixedDynamic;
     }
 
-    scan.primary_origin().unwrap_or(AssignmentValueOrigin::Unknown)
+    scan.primary_origin()
+        .unwrap_or(AssignmentValueOrigin::Unknown)
 }
 
 #[derive(Debug, Default)]
