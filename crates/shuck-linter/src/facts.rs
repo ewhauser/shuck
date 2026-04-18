@@ -1578,6 +1578,17 @@ impl<'a> TrCommandFacts<'a> {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct SedCommandFacts {
+    has_single_substitution_script: bool,
+}
+
+impl SedCommandFacts {
+    pub fn has_single_substitution_script(self) -> bool {
+        self.has_single_substitution_script
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct PrintfCommandFacts<'a> {
     pub format_word: Option<&'a Word>,
     pub uses_q_format: bool,
@@ -1936,6 +1947,7 @@ pub struct CommandOptionFacts<'a> {
     ssh: Option<SshCommandFacts>,
     read: Option<ReadCommandFacts>,
     echo: Option<EchoCommandFacts<'a>>,
+    sed: Option<SedCommandFacts>,
     tr: Option<TrCommandFacts<'a>>,
     printf: Option<PrintfCommandFacts<'a>>,
     unset: Option<UnsetCommandFacts<'a>>,
@@ -1971,6 +1983,10 @@ impl<'a> CommandOptionFacts<'a> {
 
     pub fn echo(&self) -> Option<&EchoCommandFacts<'a>> {
         self.echo.as_ref()
+    }
+
+    pub fn sed(&self) -> Option<&SedCommandFacts> {
+        self.sed.as_ref()
     }
 
     pub fn tr(&self) -> Option<&TrCommandFacts<'a>> {
@@ -2064,6 +2080,9 @@ impl<'a> CommandOptionFacts<'a> {
             echo: normalized
                 .effective_name_is("echo")
                 .then(|| parse_echo_command(normalized.body_args(), source)),
+            sed: normalized
+                .effective_name_is("sed")
+                .then(|| parse_sed_command(normalized.body_args(), source)),
             tr: (normalized.effective_name_is("tr") && normalized.wrappers.is_empty())
                 .then(|| parse_tr_command(normalized.body_args(), source)),
             printf: normalized.effective_name_is("printf").then(|| {
@@ -11585,6 +11604,49 @@ fn parse_echo_command<'a>(args: &[&'a Word], source: &str) -> EchoCommandFacts<'
     }
 }
 
+fn parse_sed_command(args: &[&Word], source: &str) -> SedCommandFacts {
+    let script = match args {
+        words => sed_script_text(words, source),
+    };
+
+    let script = match args {
+        [flag, words @ ..] if static_word_text(flag, source).as_deref() == Some("-e") => {
+            sed_script_text(words, source)
+        }
+        _ => script,
+    };
+
+    SedCommandFacts {
+        has_single_substitution_script: script
+            .as_deref()
+            .is_some_and(is_simple_sed_substitution_script),
+    }
+}
+
+fn sed_script_text<'a>(args: &[&Word], source: &'a str) -> Option<Cow<'a, str>> {
+    match args {
+        [script] => Some(Cow::Borrowed(word_text_without_matching_quotes(
+            script, source,
+        ))),
+        [first, .., last]
+            if first.span.slice(source).starts_with("\\\"")
+                && last.span.slice(source).ends_with("\\\"") =>
+        {
+            let mut text = String::new();
+            for (index, word) in args.iter().enumerate() {
+                if index != 0 {
+                    text.push(' ');
+                }
+                text.push_str(word.span.slice(source));
+            }
+            Some(Cow::Owned(
+                strip_matching_quotes_in_source(&text).to_owned(),
+            ))
+        }
+        _ => None,
+    }
+}
+
 fn is_echo_portability_flag(text: &str) -> bool {
     let Some(flags) = text.strip_prefix('-') else {
         return false;
@@ -11594,6 +11656,121 @@ fn is_echo_portability_flag(text: &str) -> bool {
         && flags
             .bytes()
             .all(|byte| matches!(byte, b'n' | b'e' | b'E' | b's'))
+}
+
+fn is_simple_sed_substitution_script(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    if bytes.len() < 4 || bytes[0] != b's' {
+        return false;
+    }
+
+    let delimiter = bytes[1];
+    if delimiter.is_ascii_whitespace() || delimiter == b'\\' {
+        return false;
+    }
+
+    let Some((pattern_end, pattern_has_escaped_delimiter)) =
+        find_sed_substitution_section(text, 2, delimiter)
+    else {
+        return false;
+    };
+    let replacement_start = pattern_end + 1;
+    let Some((replacement_end, replacement_has_escaped_delimiter)) =
+        find_sed_substitution_section(text, replacement_start, delimiter)
+    else {
+        return false;
+    };
+
+    let flags = &text[replacement_end + 1..];
+    if flags.chars().any(|ch| ch.is_whitespace() || ch == ';') {
+        return false;
+    }
+
+    let pattern = &text[2..pattern_end];
+    let replacement = &text[replacement_start..replacement_end];
+    !pattern_has_escaped_delimiter
+        && !replacement_has_escaped_delimiter
+        && !uses_delimiter_sensitive_match_escape(pattern, replacement, delimiter)
+}
+
+fn find_sed_substitution_section(text: &str, start: usize, delimiter: u8) -> Option<(usize, bool)> {
+    let bytes = text.as_bytes();
+    let mut index = start;
+    let mut saw_escaped_delimiter = false;
+    let mut character_class_start = None;
+
+    while index < bytes.len() {
+        if let Some(class_start) = character_class_start {
+            match bytes[index] {
+                b'\\' => {
+                    if bytes.get(index + 1).copied() == Some(delimiter) {
+                        saw_escaped_delimiter = true;
+                    }
+                    index = index.saturating_add(2);
+                    continue;
+                }
+                b']' if index
+                    > class_start
+                        + 1
+                        + usize::from(bytes.get(class_start + 1).copied() == Some(b'^')) =>
+                {
+                    character_class_start = None;
+                }
+                _ => {}
+            }
+            index += 1;
+            continue;
+        }
+
+        match bytes[index] {
+            b'\\' => {
+                if bytes.get(index + 1).copied() == Some(delimiter) {
+                    saw_escaped_delimiter = true;
+                }
+                index = index.saturating_add(2);
+                continue;
+            }
+            b'[' => {
+                character_class_start = Some(index);
+            }
+            byte if byte == delimiter => return Some((index, saw_escaped_delimiter)),
+            _ => {}
+        }
+        index += 1;
+    }
+
+    None
+}
+
+fn uses_delimiter_sensitive_match_escape(pattern: &str, replacement: &str, delimiter: u8) -> bool {
+    delimiter == b'/'
+        && pattern.as_bytes().contains(&delimiter)
+        && is_backslash_prefixed_match_escape(replacement)
+}
+
+fn is_backslash_prefixed_match_escape(replacement: &str) -> bool {
+    replacement == r"\\&"
+        || replacement.strip_prefix(r"\\").is_some_and(|rest| {
+            matches!(rest.as_bytes(), [b'\\', b'1'..=b'9', ..])
+                && rest[1..].bytes().all(|byte| byte.is_ascii_digit())
+        })
+}
+
+fn word_text_without_matching_quotes<'a>(word: &Word, source: &'a str) -> &'a str {
+    strip_matching_quotes_in_source(word.span.slice(source))
+}
+
+fn strip_matching_quotes_in_source(text: &str) -> &str {
+    if text.len() >= 4 && text.starts_with("\\\"") && text.ends_with("\\\"") {
+        &text[2..text.len() - 2]
+    } else if text.len() >= 2
+        && ((text.starts_with('"') && text.ends_with('"'))
+            || (text.starts_with('\'') && text.ends_with('\'')))
+    {
+        &text[1..text.len() - 1]
+    } else {
+        text
+    }
 }
 
 fn parse_tr_command<'a>(args: &[&'a Word], source: &str) -> TrCommandFacts<'a> {
@@ -15601,7 +15778,7 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
 
     #[test]
     fn summarizes_command_options_and_invokers() {
-        let source = "#!/bin/bash\nread -r name\necho -ne hi\necho '-I' hi\necho \"\\\\n\"\necho \\x41\necho \"prefix $VAR \\\\0 suffix\"\ncommand echo \\n\ntr -ds a-z A-Z\ntr -- 'a-z' xyz\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -type d -name CVS | xargs -iX rm -rf X\nfind . -type d -name CVS | xargs --replace rm -rf {}\nfind . -name a -o -name b -print\nfind . -name *.cfg\nfind . -name \"$prefix\"*.jar\nfind . -wholename */tmp/*\nfind . -name \\*.ignore\nfind . -type f*\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\n./configure --with-optmizer=${CFLAGS}\nconfigure \"--enable-optmizer=${CFLAGS}\"\n./configure --with-optimizer=${CFLAGS}\nps -p 1 -o comm=\nps p 123 -o comm=\nps -ef\ndoas printf '%s\\n' hi\n";
+        let source = "#!/bin/bash\nread -r name\necho -ne hi\necho '-I' hi\necho \"\\\\n\"\necho \\x41\necho \"prefix $VAR \\\\0 suffix\"\ncommand echo \\n\nsed 's/foo/bar/'\nsed -e 's/foo/bar/'\nsed -e 's:\\([0-9][0-9]*\\)[a-z]*\\$:\\1:'\nsed 's/[]\\[^$.*/]/\\\\&/g'\nsed 's/\\([/&]\\)/\\\\\\1/g'\nsed -n 's/foo/bar/p'\nsed --expression 's/foo/bar/'\nsed -r 's/foo/bar/'\ntr -ds a-z A-Z\ntr -- 'a-z' xyz\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -type d -name CVS | xargs -iX rm -rf X\nfind . -type d -name CVS | xargs --replace rm -rf {}\nfind . -name a -o -name b -print\nfind . -name *.cfg\nfind . -name \"$prefix\"*.jar\nfind . -wholename */tmp/*\nfind . -name \\*.ignore\nfind . -type f*\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\n./configure --with-optmizer=${CFLAGS}\nconfigure \"--enable-optmizer=${CFLAGS}\"\n./configure --with-optimizer=${CFLAGS}\nps -p 1 -o comm=\nps p 123 -o comm=\nps -ef\ndoas printf '%s\\n' hi\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -15654,6 +15831,61 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["\"\\\\n\"", "\\x41", "\"prefix $VAR \\\\0 suffix\""]
+        );
+
+        let sed_commands = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("sed"))
+            .collect::<Vec<_>>();
+        assert_eq!(sed_commands.len(), 8);
+        assert!(
+            sed_commands[0]
+                .options()
+                .sed()
+                .is_some_and(|sed| sed.has_single_substitution_script())
+        );
+        assert!(
+            sed_commands[1]
+                .options()
+                .sed()
+                .is_some_and(|sed| sed.has_single_substitution_script())
+        );
+        assert!(
+            sed_commands[2]
+                .options()
+                .sed()
+                .is_some_and(|sed| sed.has_single_substitution_script())
+        );
+        assert!(
+            !sed_commands[3]
+                .options()
+                .sed()
+                .is_some_and(|sed| sed.has_single_substitution_script())
+        );
+        assert!(
+            !sed_commands[4]
+                .options()
+                .sed()
+                .is_some_and(|sed| sed.has_single_substitution_script())
+        );
+        assert!(
+            !sed_commands[5]
+                .options()
+                .sed()
+                .is_some_and(|sed| sed.has_single_substitution_script())
+        );
+        assert!(
+            !sed_commands[6]
+                .options()
+                .sed()
+                .is_some_and(|sed| sed.has_single_substitution_script())
+        );
+        assert!(
+            !sed_commands[7]
+                .options()
+                .sed()
+                .is_some_and(|sed| sed.has_single_substitution_script())
         );
 
         let tr = facts

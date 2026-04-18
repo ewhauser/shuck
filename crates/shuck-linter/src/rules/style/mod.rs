@@ -18,6 +18,7 @@ pub mod double_quote_nesting;
 pub mod duplicate_shebang_flag;
 pub mod echo_here_doc;
 pub mod echo_inside_command_substitution;
+pub mod echo_to_sed_substitution;
 pub mod echoed_command_substitution;
 pub mod egrep_deprecated;
 pub mod env_prefix_command_only;
@@ -70,7 +71,6 @@ pub mod unquoted_expansion;
 pub mod unquoted_path_in_mkdir;
 pub mod unquoted_tr_class;
 pub mod unquoted_tr_range;
-pub mod unquoted_variable_in_sed;
 pub mod unquoted_variable_in_test;
 pub mod unquoted_word_between_quotes;
 pub mod x_prefix_in_test;
@@ -127,7 +127,7 @@ mod tests {
     #[test_case(Rule::BareRead, Path::new("S036.sh"))]
     #[test_case(Rule::RedundantSpacesInEcho, Path::new("S037.sh"))]
     #[test_case(Rule::RedundantReturnStatus, Path::new("S038.sh"))]
-    #[test_case(Rule::UnquotedVariableInSed, Path::new("S044.sh"))]
+    #[test_case(Rule::EchoToSedSubstitution, Path::new("S044.sh"))]
     #[test_case(Rule::UnquotedWordBetweenQuotes, Path::new("S050.sh"))]
     #[test_case(Rule::UnquotedTrClass, Path::new("S051.sh"))]
     #[test_case(Rule::UnquotedVariableInTest, Path::new("S052.sh"))]

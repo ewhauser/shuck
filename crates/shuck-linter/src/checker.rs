@@ -275,8 +275,8 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::RedundantSpacesInEcho) {
             rules::style::redundant_spaces_in_echo::redundant_spaces_in_echo(self);
         }
-        if self.is_rule_enabled(Rule::UnquotedVariableInSed) {
-            rules::style::unquoted_variable_in_sed::unquoted_variable_in_sed(self);
+        if self.is_rule_enabled(Rule::EchoToSedSubstitution) {
+            rules::style::echo_to_sed_substitution::echo_to_sed_substitution(self);
         }
         if self.is_rule_enabled(Rule::UnquotedPathInMkdir) {
             rules::style::unquoted_path_in_mkdir::unquoted_path_in_mkdir(self);

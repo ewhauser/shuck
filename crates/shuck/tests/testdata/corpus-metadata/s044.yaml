@@ -1,18 +1,22 @@
 reviewed_divergences:
   - side: shuck-only
+    path_suffix: "google__oss-fuzz__projects__apache-tika__build.sh"
+    reason: "The pinned ShellCheck run aborts later in this build script before it reaches the earlier `echo | sed` rewrite, so the remaining S044 hit is treated as an oracle-side parse-abort artifact rather than a live SC2001 mismatch."
+  - side: shuck-only
     path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
-    line: 2488
-    column: 18
-    end_line: 2488
-    end_column: 20
     labels:
       - helper-library
       - project-closure
-    reason: "ShellCheck 0.11.0 does not report SC2291 for this echo-to-sed substitution helper, but shuck follows the repo-authored S044 scope and flags the unquoted scalar expansion."
+    reason: "This python-build helper is compared through helper-library and project-closure context, and the pinned ShellCheck run aborts earlier in the file before it reaches these `echo | sed` rewrites. Shuck keeps the direct S044 reports on the live rewrite sites."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__sudoers__build.sh"
+    reason: "These legacy-backtick SC2001 sites match in warning shape, but the pinned oracle anchors the span inside the escaped sed script while shuck reports the full inner pipeline. The remaining difference is reviewed as legacy-backtick location drift."
   - side: shuck-only
-    path_suffix: "termux__termux-packages__scripts__build__termux_download_deb_pac.sh"
-    line: 36
-    column: 33
-    end_line: 36
-    end_column: 59
-    reason: "ShellCheck 0.11.0 does not report SC2291 for this echo-to-sed substitution in the package script, but shuck follows the repo-authored S044 scope and flags the unquoted scalar expansion."
+    path_suffix: "google__oss-fuzz__projects__sudoers__build.sh"
+    reason: "These legacy-backtick SC2001 sites match in warning shape, but the pinned oracle anchors the span inside the escaped sed script while shuck reports the full inner pipeline. The remaining difference is reviewed as legacy-backtick location drift."
+  - side: shellcheck-only
+    path_suffix: "swoodford__aws__ec2-associate-elastic-ip.sh"
+    reason: "This legacy-backtick SC2001 match lands on the same inner `echo | sed -e` rewrite, but the pinned oracle truncates the anchor inside the escaped sed script while shuck reports the full pipeline. The remaining difference is reviewed as legacy-backtick location drift."
+  - side: shuck-only
+    path_suffix: "swoodford__aws__ec2-associate-elastic-ip.sh"
+    reason: "This legacy-backtick SC2001 match lands on the same inner `echo | sed -e` rewrite, but the pinned oracle truncates the anchor inside the escaped sed script while shuck reports the full pipeline. The remaining difference is reviewed as legacy-backtick location drift."
