@@ -1,10 +1,27 @@
 #!/bin/sh
 build() {
 	cd /tmp
-	pushd /var
-	popd
-	cd /opt || return
+	pwd
+	cd ..
+	cd /opt
+	pwd
+	cd - >/dev/null
 }
 
-build
-cd /root
+checked_entry() {
+	cd /tmp || return
+	pwd
+	cd ..
+}
+
+checked_restore() {
+	cd /tmp
+	pwd
+	cd .. || return
+}
+
+wrapped_restore() {
+	builtin cd /tmp
+	pwd
+	builtin cd ..
+}

@@ -9,8 +9,8 @@ shells:
   - bash
   - dash
   - ksh
-description: "A `cd` command inside a function has no error handling."
-rationale: "Add `|| return` after `cd` to propagate failures."
+description: "Code changes back with `cd` instead of isolating the directory change."
+rationale: "Run directory-sensitive work in a subshell so the caller's working directory is restored automatically."
 source:
   shell_checks_rule: rules/SH-295.yaml
   shell_checks_example: examples/295.sh
@@ -21,9 +21,8 @@ examples:
       #!/bin/bash
       # shellcheck disable=2164
       build() {
-          cd mehtadata
+          cd metadata
+          ./configure
           make
           cd ..
-          cmake .
       }
-      build

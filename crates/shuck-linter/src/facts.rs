@@ -1834,6 +1834,7 @@ impl DirectoryChangeCommandKind {
 pub struct DirectoryChangeCommandFacts {
     kind: DirectoryChangeCommandKind,
     plain_directory_stack_marker: bool,
+    manual_restore_candidate: bool,
 }
 
 impl DirectoryChangeCommandFacts {
@@ -1847,6 +1848,10 @@ impl DirectoryChangeCommandFacts {
 
     pub fn is_plain_directory_stack_marker(&self) -> bool {
         self.plain_directory_stack_marker
+    }
+
+    pub fn is_manual_restore_candidate(&self) -> bool {
+        self.manual_restore_candidate
     }
 }
 
@@ -12743,19 +12748,28 @@ fn parse_directory_change_command(
         _ => return None,
     };
 
+    let target = normalized
+        .body_args()
+        .first()
+        .and_then(|word| static_word_text(word, source));
+
     let plain_directory_stack_marker = matches!(
         kind,
         DirectoryChangeCommandKind::Cd | DirectoryChangeCommandKind::Pushd
     ) && normalized.wrappers.is_empty()
-        && normalized
-            .body_args()
-            .first()
-            .and_then(|word| static_word_text(word, source))
+        && target
+            .as_ref()
             .is_some_and(|target| is_directory_stack_marker(target.as_str()));
+
+    let manual_restore_candidate = kind == DirectoryChangeCommandKind::Cd
+        && target
+            .as_ref()
+            .is_some_and(|target| matches!(target.as_str(), ".." | "-"));
 
     Some(DirectoryChangeCommandFacts {
         kind,
         plain_directory_stack_marker,
+        manual_restore_candidate,
     })
 }
 
@@ -15600,7 +15614,7 @@ find . -execdir sh -ec 'mv {} \"$target\"' \\;
 
     #[test]
     fn summarizes_directory_change_commands_and_errexit_hints() {
-        let source = "\n#!/bin/bash -eu\ncd ../..\nbuiltin cd /\npushd ..\npopd\n";
+        let source = "\n#!/bin/bash -eu\ncd ../..\ncd -\nbuiltin cd /\npushd ..\npopd\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -15617,6 +15631,7 @@ find . -execdir sh -ec 'mv {} \"$target\"' \\;
                     (
                         directory_change.command_name(),
                         directory_change.is_plain_directory_stack_marker(),
+                        directory_change.is_manual_restore_candidate(),
                         fact.wrappers().to_vec(),
                     )
                 })
@@ -15626,10 +15641,11 @@ find . -execdir sh -ec 'mv {} \"$target\"' \\;
         assert_eq!(
             directory_changes,
             vec![
-                ("cd", true, vec![]),
-                ("cd", false, vec![WrapperKind::Builtin]),
-                ("pushd", true, vec![]),
-                ("popd", false, vec![])
+                ("cd", true, false, vec![]),
+                ("cd", false, true, vec![]),
+                ("cd", false, false, vec![WrapperKind::Builtin]),
+                ("pushd", true, false, vec![]),
+                ("popd", false, false, vec![])
             ]
         );
     }
