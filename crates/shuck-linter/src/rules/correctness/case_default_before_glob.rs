@@ -78,6 +78,24 @@ esac
     }
 
     #[test]
+    fn reports_literals_shadowed_by_suffix_globs() {
+        let source = "\
+#!/bin/sh
+case \"$x\" in
+  *foo) : ;;
+  barfoo) : ;;
+esac
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CaseDefaultBeforeGlob),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "barfoo");
+    }
+
+    #[test]
     fn ignores_escaped_wildcards_that_are_meant_to_be_literal() {
         let source = "\
 #!/bin/sh
