@@ -13366,18 +13366,30 @@ fn jq_file_operand_words<'a>(args: &[&'a Word], source: &str) -> Vec<&'a Word> {
 
         if options_open && text.starts_with('-') && text != "-" {
             if !text.starts_with("--") {
-                if short_option_cluster_contains_flag(text.as_str(), 'n') {
-                    null_input = true;
-                }
-                if short_option_cluster_contains_flag(text.as_str(), 'f') {
-                    filter_from_file = true;
-                    consumed_filter = true;
-                    if text.ends_with('f') {
-                        pending_args = Some(PendingOptionArgs::Skip(1));
+                if let Some(cluster) = text.strip_prefix('-') {
+                    let mut cluster_chars = cluster.chars().peekable();
+                    while let Some(flag) = cluster_chars.next() {
+                        match flag {
+                            'n' => {
+                                null_input = true;
+                            }
+                            'f' => {
+                                filter_from_file = true;
+                                consumed_filter = true;
+                                if cluster_chars.peek().is_none() {
+                                    pending_args = Some(PendingOptionArgs::Skip(1));
+                                }
+                                break;
+                            }
+                            'L' => {
+                                if cluster_chars.peek().is_none() {
+                                    pending_args = Some(PendingOptionArgs::Skip(1));
+                                }
+                                break;
+                            }
+                            _ => {}
+                        }
                     }
-                }
-                if short_option_cluster_contains_flag(text.as_str(), 'L') && text.ends_with('L') {
-                    pending_args = Some(PendingOptionArgs::Skip(1));
                 }
             }
 
@@ -15703,6 +15715,7 @@ jq --rawfile cfg \"$cfg\" '.dns=$cfg'
 jq --slurpfile cfg \"$cfg\" '.dns=$cfg'
 jq --argfile cfg \"$cfg\" '.dns=$cfg'
 jq -nc '.x=1' \"$cfg\"
+jq -Lnewmods '.x=1' \"$cfg\"
 ";
 
         with_facts(source, None, |_, facts| {
@@ -15729,6 +15742,7 @@ jq -nc '.x=1' \"$cfg\"
                     vec!["\"$cfg\""],
                     vec!["\"$cfg\""],
                     Vec::<&str>::new(),
+                    vec!["\"$cfg\""],
                 ]
             );
         });

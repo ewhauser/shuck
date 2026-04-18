@@ -139,6 +139,7 @@ awk -f prog.awk data.txt > data.txt
 awk -fprog.awk data.txt > data.txt
 cat <<<$(jq '.dns={}' \"$cfg\") >\"$cfg\"
 jq --rawfile cfg \"$cfg\" '.dns=$cfg' >\"$cfg\"
+jq -Lnewmods '.x=1' \"$cfg\" >\"$cfg\"
 cat < bar | gzip > bar
 { cat < baz; } > baz
 echo \"$(cat \"$f\")\" | sed 's/x/y/' >\"$f\"
@@ -158,8 +159,8 @@ printf '%s\\0' **/* | bsdtar --null --files-from - --exclude .MTREE | gzip -c -f
             vec![
                 "foo", "foo", "foo", "foo", "test.c", "test.c", "\"$src\"", "\"$src\"", "foo",
                 "foo", "foo", "foo", "data.txt", "data.txt", "data.txt", "data.txt", "\"$cfg\"",
-                "\"$cfg\"", "\"$cfg\"", "\"$cfg\"", "bar", "bar", "baz", "baz", "\"$f\"", "\"$f\"",
-                ".MTREE", ".MTREE", "\"$f\"", "\"$f\"",
+                "\"$cfg\"", "\"$cfg\"", "\"$cfg\"", "\"$cfg\"", "\"$cfg\"", "bar", "bar", "baz",
+                "baz", "\"$f\"", "\"$f\"", ".MTREE", ".MTREE", "\"$f\"", "\"$f\"",
             ]
         );
     }
