@@ -43,3 +43,9 @@ S071 this command-prefix assignment is not visible to later expansions on the sa
   |
 7 | foo=1 bar[$foo]=x cmd
   |
+
+S071 this command-prefix assignment is not visible to later expansions on the same command
+ --> <source>:8:1
+  |
+8 | FOO=tmp cmd >"$FOO"
+  |

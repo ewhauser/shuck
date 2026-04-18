@@ -35,6 +35,7 @@ A=1 B=\"$A\" C=\"$B\" cmd
 foo=\"$foo\" bar=\"$foo\" cmd
 foo=1 export \"$foo\"
 foo=1 bar[$foo]=x cmd
+FOO=tmp cmd >\"$FOO\"
 COUNTDOWN=$[ $COUNTDOWN - 1 ] echo \"$COUNTDOWN\"
 X=1 A=$[ $X + 1 ] true
 ";
@@ -56,6 +57,7 @@ X=1 A=$[ $X + 1 ] true
                 "foo",
                 "foo",
                 "foo",
+                "FOO",
                 "COUNTDOWN",
                 "X"
             ]

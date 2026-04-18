@@ -3486,7 +3486,7 @@ fn build_env_prefix_assignment_scope_spans(
                         }
                     });
             let body_uses_name = command_body_mentions_name_outside_nested_commands(
-                command.command(),
+                command,
                 source,
                 &assignment.target.name,
             );
@@ -3584,25 +3584,39 @@ fn assignment_mentions_name_outside_nested_commands(assignment: &Assignment, nam
 }
 
 fn command_body_mentions_name_outside_nested_commands(
-    command: &Command,
+    fact: &CommandFact<'_>,
     source: &str,
     name: &Name,
 ) -> bool {
-    match command {
-        Command::Simple(command) => simple_command_body_words(command, source)
-            .any(|word| word_mentions_name_outside_nested_commands(word, name)),
-        Command::Builtin(command) => builtin_words(command)
-            .into_iter()
-            .any(|word| word_mentions_name_outside_nested_commands(word, name)),
-        Command::Decl(command) => command.operands.iter().any(|operand| match operand {
-            DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
-                word_mentions_name_outside_nested_commands(word, name)
-            }
-            DeclOperand::Assignment(assignment) => {
-                assignment_mentions_name_outside_nested_commands(assignment, name)
-            }
-            DeclOperand::Name(_) => false,
-        }),
+    let redirects_mention_name = fact
+        .redirects()
+        .iter()
+        .filter_map(Redirect::word_target)
+        .any(|word| word_mentions_name_outside_nested_commands(word, name));
+
+    match fact.command() {
+        Command::Simple(command) => {
+            simple_command_body_words(command, source)
+                .any(|word| word_mentions_name_outside_nested_commands(word, name))
+                || redirects_mention_name
+        }
+        Command::Builtin(command) => {
+            builtin_words(command)
+                .into_iter()
+                .any(|word| word_mentions_name_outside_nested_commands(word, name))
+                || redirects_mention_name
+        }
+        Command::Decl(command) => {
+            command.operands.iter().any(|operand| match operand {
+                DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
+                    word_mentions_name_outside_nested_commands(word, name)
+                }
+                DeclOperand::Assignment(assignment) => {
+                    assignment_mentions_name_outside_nested_commands(assignment, name)
+                }
+                DeclOperand::Name(_) => false,
+            }) || redirects_mention_name
+        }
         Command::Binary(_)
         | Command::Compound(_)
         | Command::Function(_)
@@ -17841,6 +17855,7 @@ A=1 B=\"$A\" C=\"$B\" cmd
 foo=\"$foo\" bar=\"$foo\" cmd
 foo=1 export \"$foo\"
 foo=1 bar[$foo]=x cmd
+FOO=tmp cmd >\"$FOO\"
 foo=\"$foo\" cmd
 foo=1 cmd \"$(printf %s \"$foo\")\"
 foo=1 foo=2 cmd
@@ -17865,6 +17880,7 @@ X=1 A=$[ $X + 1 ] true
                     "foo",
                     "foo",
                     "foo",
+                    "FOO",
                     "COUNTDOWN",
                     "X"
                 ]
