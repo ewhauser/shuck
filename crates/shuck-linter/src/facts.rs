@@ -3387,12 +3387,8 @@ impl<'a> LinterFactsBuilder<'a> {
         let trailing_directive_comment_spans =
             build_trailing_directive_comment_spans(self.source, self._indexer);
         let backtick_command_name_spans = build_backtick_command_name_spans(&commands);
-        let dollar_question_after_command_spans = build_dollar_question_after_command_spans(
-            &self.file.body,
-            &commands,
-            &command_ids_by_span,
-            self.source,
-        );
+        let dollar_question_after_command_spans =
+            build_dollar_question_after_command_spans(&self.file.body, self.source);
         let nonpersistent_assignment_spans =
             build_nonpersistent_assignment_spans(self.semantic, &commands);
         let heredoc_summary =
@@ -7513,20 +7509,9 @@ fn command_name_is_plain_command_substitution(word: &Word, source: &str) -> bool
         )
 }
 
-fn build_dollar_question_after_command_spans(
-    commands: &StmtSeq,
-    command_facts: &[CommandFact<'_>],
-    command_ids_by_span: &CommandLookupIndex,
-    source: &str,
-) -> Vec<Span> {
+fn build_dollar_question_after_command_spans(commands: &StmtSeq, source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
-    collect_dollar_question_after_command_spans_in_seq(
-        commands,
-        command_facts,
-        command_ids_by_span,
-        source,
-        &mut spans,
-    );
+    collect_dollar_question_after_command_spans_in_seq(commands, source, true, &mut spans);
 
     let mut seen = FxHashSet::default();
     spans.retain(|span| seen.insert(FactSpan::new(*span)));
@@ -7960,76 +7945,67 @@ fn pop_finished_commands(active_commands: &mut Vec<OpenCommand>, offset: usize) 
 
 fn collect_dollar_question_after_command_spans_in_seq(
     commands: &StmtSeq,
-    command_facts: &[CommandFact<'_>],
-    command_ids_by_span: &CommandLookupIndex,
     source: &str,
+    mut status_available: bool,
     spans: &mut Vec<Span>,
 ) {
-    for pair in commands.as_slice().windows(2) {
-        if !stmt_is_intervening_output_command(&pair[0], command_facts, command_ids_by_span) {
-            continue;
-        }
-
-        spans.extend(followup_status_parameter_spans_in_stmt(&pair[1], source));
-    }
-
     for stmt in commands.iter() {
-        collect_nested_dollar_question_after_command_spans_in_command(
-            &stmt.command,
-            command_facts,
-            command_ids_by_span,
-            source,
-            spans,
-        );
+        collect_dollar_question_after_command_spans_in_stmt(stmt, source, status_available, spans);
+        status_available = true;
     }
 }
 
-fn collect_nested_dollar_question_after_command_spans_in_command(
-    command: &Command,
-    command_facts: &[CommandFact<'_>],
-    command_ids_by_span: &CommandLookupIndex,
+fn collect_dollar_question_after_command_spans_in_stmt(
+    stmt: &Stmt,
     source: &str,
+    status_available: bool,
+    spans: &mut Vec<Span>,
+) {
+    collect_dollar_question_after_command_spans_in_command(
+        &stmt.command,
+        source,
+        status_available,
+        spans,
+    );
+}
+
+fn collect_dollar_question_after_command_spans_in_command(
+    command: &Command,
+    source: &str,
+    status_available: bool,
     spans: &mut Vec<Span>,
 ) {
     match command {
+        Command::Simple(command) => {
+            if status_available {
+                collect_c107_status_spans_in_simple_test(command, source, spans);
+            }
+        }
         Command::Compound(command) => match command {
             CompoundCommand::If(command) => {
                 collect_dollar_question_after_command_spans_in_seq(
                     &command.condition,
-                    command_facts,
-                    command_ids_by_span,
                     source,
+                    status_available,
                     spans,
                 );
                 collect_dollar_question_after_command_spans_in_seq(
                     &command.then_branch,
-                    command_facts,
-                    command_ids_by_span,
                     source,
+                    true,
                     spans,
                 );
                 for (condition, body) in &command.elif_branches {
                     collect_dollar_question_after_command_spans_in_seq(
-                        condition,
-                        command_facts,
-                        command_ids_by_span,
-                        source,
-                        spans,
+                        condition, source, true, spans,
                     );
-                    collect_dollar_question_after_command_spans_in_seq(
-                        body,
-                        command_facts,
-                        command_ids_by_span,
-                        source,
-                        spans,
-                    );
+                    collect_dollar_question_after_command_spans_in_seq(body, source, true, spans);
                 }
                 if let Some(else_branch) = &command.else_branch {
                     collect_dollar_question_after_command_spans_in_seq(
                         else_branch,
-                        command_facts,
-                        command_ids_by_span,
                         source,
+                        true,
                         spans,
                     );
                 }
@@ -8037,318 +8013,415 @@ fn collect_nested_dollar_question_after_command_spans_in_command(
             CompoundCommand::For(command) => {
                 collect_dollar_question_after_command_spans_in_seq(
                     &command.body,
-                    command_facts,
-                    command_ids_by_span,
                     source,
+                    true,
                     spans,
                 );
             }
             CompoundCommand::Repeat(command) => {
                 collect_dollar_question_after_command_spans_in_seq(
                     &command.body,
-                    command_facts,
-                    command_ids_by_span,
                     source,
+                    true,
                     spans,
                 );
             }
             CompoundCommand::Foreach(command) => {
                 collect_dollar_question_after_command_spans_in_seq(
                     &command.body,
-                    command_facts,
-                    command_ids_by_span,
                     source,
+                    true,
                     spans,
                 );
             }
             CompoundCommand::ArithmeticFor(command) => {
                 collect_dollar_question_after_command_spans_in_seq(
                     &command.body,
-                    command_facts,
-                    command_ids_by_span,
                     source,
+                    true,
                     spans,
                 );
             }
             CompoundCommand::While(command) => {
                 collect_dollar_question_after_command_spans_in_seq(
                     &command.condition,
-                    command_facts,
-                    command_ids_by_span,
                     source,
+                    status_available,
                     spans,
                 );
                 collect_dollar_question_after_command_spans_in_seq(
                     &command.body,
-                    command_facts,
-                    command_ids_by_span,
                     source,
+                    true,
                     spans,
                 );
             }
             CompoundCommand::Until(command) => {
                 collect_dollar_question_after_command_spans_in_seq(
                     &command.condition,
-                    command_facts,
-                    command_ids_by_span,
                     source,
+                    status_available,
                     spans,
                 );
                 collect_dollar_question_after_command_spans_in_seq(
                     &command.body,
-                    command_facts,
-                    command_ids_by_span,
                     source,
+                    true,
                     spans,
                 );
             }
             CompoundCommand::Case(command) => {
                 for case in &command.cases {
                     collect_dollar_question_after_command_spans_in_seq(
-                        &case.body,
-                        command_facts,
-                        command_ids_by_span,
-                        source,
-                        spans,
+                        &case.body, source, true, spans,
                     );
                 }
             }
             CompoundCommand::Select(command) => {
                 collect_dollar_question_after_command_spans_in_seq(
                     &command.body,
-                    command_facts,
-                    command_ids_by_span,
                     source,
+                    true,
                     spans,
                 );
             }
             CompoundCommand::Subshell(body) | CompoundCommand::BraceGroup(body) => {
-                collect_dollar_question_after_command_spans_in_seq(
-                    body,
-                    command_facts,
-                    command_ids_by_span,
-                    source,
-                    spans,
-                );
+                collect_dollar_question_after_command_spans_in_seq(body, source, true, spans);
             }
             CompoundCommand::Time(command) => {
                 if let Some(command) = &command.command {
-                    collect_nested_dollar_question_after_command_spans_in_command(
-                        &command.command,
-                        command_facts,
-                        command_ids_by_span,
+                    collect_dollar_question_after_command_spans_in_stmt(
+                        command,
+                        source,
+                        status_available,
+                        spans,
+                    );
+                }
+            }
+            CompoundCommand::Conditional(command) => {
+                if status_available {
+                    collect_c107_status_spans_in_conditional_expr(
+                        &command.expression,
                         source,
                         spans,
                     );
                 }
             }
-            CompoundCommand::Conditional(_) | CompoundCommand::Arithmetic(_) => {}
+            CompoundCommand::Arithmetic(command) => {
+                if status_available {
+                    collect_c107_status_spans_in_arithmetic_command(command, source, spans);
+                }
+            }
             CompoundCommand::Coproc(command) => {
-                collect_nested_dollar_question_after_command_spans_in_command(
-                    &command.body.command,
-                    command_facts,
-                    command_ids_by_span,
+                collect_dollar_question_after_command_spans_in_stmt(
+                    &command.body,
                     source,
+                    true,
                     spans,
                 );
             }
             CompoundCommand::Always(command) => {
                 collect_dollar_question_after_command_spans_in_seq(
                     &command.body,
-                    command_facts,
-                    command_ids_by_span,
                     source,
+                    true,
                     spans,
                 );
                 collect_dollar_question_after_command_spans_in_seq(
                     &command.always_body,
-                    command_facts,
-                    command_ids_by_span,
                     source,
+                    true,
                     spans,
                 );
             }
         },
         Command::Binary(command) => {
-            if matches!(command.op, BinaryOp::And | BinaryOp::Or)
-                && stmt_is_intervening_output_command(
-                    &command.left,
-                    command_facts,
-                    command_ids_by_span,
-                )
-            {
-                spans.extend(followup_status_parameter_spans_in_stmt(
-                    &command.right,
-                    source,
-                ));
-            }
-
-            collect_nested_dollar_question_after_command_spans_in_command(
-                &command.left.command,
-                command_facts,
-                command_ids_by_span,
+            collect_dollar_question_after_command_spans_in_stmt(
+                &command.left,
                 source,
+                status_available,
                 spans,
             );
-            collect_nested_dollar_question_after_command_spans_in_command(
-                &command.right.command,
-                command_facts,
-                command_ids_by_span,
+            collect_dollar_question_after_command_spans_in_stmt(
+                &command.right,
                 source,
+                true,
                 spans,
             );
         }
         Command::AnonymousFunction(command) => {
-            collect_nested_dollar_question_after_command_spans_in_command(
-                &command.body.command,
-                command_facts,
-                command_ids_by_span,
+            collect_dollar_question_after_command_spans_in_function_body(
+                &command.body,
                 source,
                 spans,
             );
         }
         Command::Function(command) => {
-            collect_nested_dollar_question_after_command_spans_in_command(
-                &command.body.command,
-                command_facts,
-                command_ids_by_span,
+            collect_dollar_question_after_command_spans_in_function_body(
+                &command.body,
                 source,
                 spans,
             );
         }
-        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => {}
+        Command::Builtin(_) | Command::Decl(_) => {}
     }
 }
 
-fn stmt_is_intervening_output_command(
+fn collect_dollar_question_after_command_spans_in_function_body(
     stmt: &Stmt,
-    command_facts: &[CommandFact<'_>],
-    command_ids_by_span: &CommandLookupIndex,
-) -> bool {
-    let Some(command_id) = command_id_for_command(&stmt.command, command_ids_by_span) else {
-        return false;
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match &stmt.command {
+        Command::Compound(CompoundCommand::BraceGroup(body))
+        | Command::Compound(CompoundCommand::Subshell(body)) => {
+            collect_dollar_question_after_command_spans_in_seq(body, source, false, spans);
+        }
+        _ => collect_dollar_question_after_command_spans_in_stmt(stmt, source, false, spans),
+    }
+}
+
+fn collect_c107_status_spans_in_simple_test(
+    command: &shuck_ast::SimpleCommand,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    if static_word_text(&command.name, source).as_deref() != Some("[") {
+        return;
+    }
+
+    let Some((closing_bracket, operands)) = command.args.split_last() else {
+        return;
     };
-    let fact = &command_facts[command_id.index()];
-    fact.effective_name_is("echo") || fact.effective_name_is("printf")
+    if static_word_text(closing_bracket, source).as_deref() != Some("]") {
+        return;
+    }
+
+    let operands = operands.iter().collect::<Vec<_>>();
+    let effective_operand_offset = simple_test_effective_operand_offset(&operands, source);
+    let effective_operands = &operands[effective_operand_offset..];
+    if effective_operands.len() != 3 {
+        return;
+    }
+
+    let Some(operator) = static_word_text(effective_operands[1], source) else {
+        return;
+    };
+    if !matches!(
+        operator.as_str(),
+        "=" | "==" | "!=" | "-eq" | "-ne" | "-lt" | "-le" | "-gt" | "-ge"
+    ) {
+        return;
+    }
+
+    let left_status = c107_status_word_span(effective_operands[0]);
+    let right_status = c107_status_word_span(effective_operands[2]);
+    let left_zero = c107_word_is_zero_literal(effective_operands[0], source);
+    let right_zero = c107_word_is_zero_literal(effective_operands[2], source);
+
+    if let Some(span) = left_status.filter(|_| right_zero) {
+        spans.push(span);
+    } else if let Some(span) = right_status.filter(|_| left_zero) {
+        spans.push(span);
+    }
 }
 
-fn status_parameter_spans_in_word(word: &Word, source: &str) -> Vec<Span> {
-    let mut spans = Vec::new();
-    collect_status_parameter_spans_in_word(word, source, &mut spans);
-    spans
-}
-
-fn followup_status_parameter_spans_in_stmt(stmt: &Stmt, source: &str) -> Vec<Span> {
-    let mut spans = Vec::new();
-    collect_followup_status_parameter_spans_in_stmt(stmt, source, &mut spans);
-    spans
-}
-
-fn collect_followup_status_parameter_spans_in_stmt(
-    stmt: &Stmt,
+fn collect_c107_status_spans_in_conditional_expr(
+    expression: &ConditionalExpr,
     source: &str,
     spans: &mut Vec<Span>,
 ) {
-    collect_status_parameter_spans_in_stmt(stmt, source, spans);
-    collect_followup_status_parameter_spans_in_command(&stmt.command, source, spans);
+    if let Some(span) = c107_conditional_expr_status_span(expression, source) {
+        spans.push(span);
+    }
 }
 
-fn collect_followup_status_parameter_spans_in_command(
-    command: &Command,
-    source: &str,
-    spans: &mut Vec<Span>,
-) {
-    match command {
-        Command::Binary(command) if matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
-            collect_followup_status_parameter_spans_in_stmt(&command.right, source, spans);
+fn c107_conditional_expr_status_span(expression: &ConditionalExpr, source: &str) -> Option<Span> {
+    match expression {
+        ConditionalExpr::Binary(expression) => {
+            if matches!(
+                expression.op,
+                ConditionalBinaryOp::And | ConditionalBinaryOp::Or
+            ) {
+                return None;
+            }
+            if !matches!(
+                expression.op,
+                ConditionalBinaryOp::ArithmeticEq
+                    | ConditionalBinaryOp::ArithmeticNe
+                    | ConditionalBinaryOp::ArithmeticLe
+                    | ConditionalBinaryOp::ArithmeticGe
+                    | ConditionalBinaryOp::ArithmeticLt
+                    | ConditionalBinaryOp::ArithmeticGt
+                    | ConditionalBinaryOp::PatternEqShort
+                    | ConditionalBinaryOp::PatternEq
+                    | ConditionalBinaryOp::PatternNe
+            ) {
+                return None;
+            }
+
+            let left_status = c107_conditional_operand_status_span(&expression.left);
+            let right_status = c107_conditional_operand_status_span(&expression.right);
+            let left_zero = c107_conditional_expr_is_zero_literal(&expression.left, source);
+            let right_zero = c107_conditional_expr_is_zero_literal(&expression.right, source);
+
+            left_status
+                .filter(|_| right_zero)
+                .or_else(|| right_status.filter(|_| left_zero))
         }
-        Command::Compound(command) => match command {
-            CompoundCommand::For(command) => {
-                if let Some(words) = command.words.as_deref() {
-                    for word in words {
-                        spans.extend(status_parameter_spans_in_word(word, source));
-                    }
-                }
+        ConditionalExpr::Unary(expression) => {
+            c107_conditional_expr_status_span(&expression.expr, source)
+        }
+        ConditionalExpr::Parenthesized(expression) => {
+            c107_conditional_expr_status_span(&expression.expr, source)
+        }
+        ConditionalExpr::Word(_)
+        | ConditionalExpr::Pattern(_)
+        | ConditionalExpr::Regex(_)
+        | ConditionalExpr::VarRef(_) => None,
+    }
+}
+
+fn c107_conditional_operand_status_span(expression: &ConditionalExpr) -> Option<Span> {
+    match expression {
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => c107_status_word_span(word),
+        ConditionalExpr::Pattern(pattern) => {
+            pattern.parts.iter().find_map(|part| match &part.kind {
+                PatternPart::Word(word) => c107_status_word_span(word),
+                PatternPart::Literal(_)
+                | PatternPart::AnyString
+                | PatternPart::AnyChar
+                | PatternPart::CharClass(_)
+                | PatternPart::Group { .. } => None,
+            })
+        }
+        ConditionalExpr::VarRef(reference) => {
+            (reference.name.as_str() == "?").then_some(reference.span)
+        }
+        ConditionalExpr::Parenthesized(expression) => {
+            c107_conditional_operand_status_span(&expression.expr)
+        }
+        ConditionalExpr::Unary(expression) => {
+            c107_conditional_operand_status_span(&expression.expr)
+        }
+        ConditionalExpr::Binary(_) => None,
+    }
+}
+
+fn c107_conditional_expr_is_zero_literal(expression: &ConditionalExpr, source: &str) -> bool {
+    match expression {
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+            c107_word_is_zero_literal(word, source)
+        }
+        ConditionalExpr::Pattern(pattern) => c107_pattern_is_zero_literal(pattern, source),
+        ConditionalExpr::Parenthesized(expression) => {
+            c107_conditional_expr_is_zero_literal(&expression.expr, source)
+        }
+        ConditionalExpr::Unary(expression) => {
+            c107_conditional_expr_is_zero_literal(&expression.expr, source)
+        }
+        ConditionalExpr::VarRef(_) | ConditionalExpr::Binary(_) => false,
+    }
+}
+
+fn collect_c107_status_spans_in_arithmetic_command(
+    command: &shuck_ast::ArithmeticCommand,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    let Some(expression) = &command.expr_ast else {
+        return;
+    };
+
+    if let Some(span) = c107_arithmetic_expr_status_span(expression, source) {
+        spans.push(span);
+    }
+}
+
+fn c107_arithmetic_expr_status_span(
+    expression: &shuck_ast::ArithmeticExprNode,
+    source: &str,
+) -> Option<Span> {
+    match &expression.kind {
+        shuck_ast::ArithmeticExpr::Parenthesized { expression } => {
+            c107_arithmetic_expr_status_span(expression, source)
+        }
+        shuck_ast::ArithmeticExpr::Unary { expr, .. } => {
+            c107_arithmetic_expr_status_span(expr, source)
+        }
+        shuck_ast::ArithmeticExpr::Binary { left, op, right } => {
+            if !matches!(
+                op,
+                shuck_ast::ArithmeticBinaryOp::LessThan
+                    | shuck_ast::ArithmeticBinaryOp::LessThanOrEqual
+                    | shuck_ast::ArithmeticBinaryOp::GreaterThan
+                    | shuck_ast::ArithmeticBinaryOp::GreaterThanOrEqual
+                    | shuck_ast::ArithmeticBinaryOp::Equal
+                    | shuck_ast::ArithmeticBinaryOp::NotEqual
+            ) {
+                return None;
             }
-            CompoundCommand::Repeat(command) => {
-                spans.extend(status_parameter_spans_in_word(&command.count, source));
-            }
-            CompoundCommand::Foreach(command) => {
-                for word in &command.words {
-                    spans.extend(status_parameter_spans_in_word(word, source));
-                }
-            }
-            CompoundCommand::ArithmeticFor(command) => {
-                if let Some(init) = command.init_ast.as_ref() {
-                    query::visit_arithmetic_words(init, &mut |word| {
-                        spans.extend(status_parameter_spans_in_word(word, source));
-                    });
-                }
-                if let Some(condition) = command.condition_ast.as_ref() {
-                    query::visit_arithmetic_words(condition, &mut |word| {
-                        spans.extend(status_parameter_spans_in_word(word, source));
-                    });
-                }
-                if let Some(step) = command.step_ast.as_ref() {
-                    query::visit_arithmetic_words(step, &mut |word| {
-                        spans.extend(status_parameter_spans_in_word(word, source));
-                    });
-                }
-            }
-            CompoundCommand::Case(command) => {
-                spans.extend(status_parameter_spans_in_word(&command.word, source));
-            }
-            CompoundCommand::Select(command) => {
-                for word in &command.words {
-                    spans.extend(status_parameter_spans_in_word(word, source));
-                }
-            }
-            CompoundCommand::Time(command) => {
-                if let Some(command) = &command.command {
-                    collect_followup_status_parameter_spans_in_stmt(command, source, spans);
-                }
-            }
-            CompoundCommand::If(command) => {
-                if let Some(first_stmt) = command.condition.first() {
-                    collect_followup_status_parameter_spans_in_stmt(first_stmt, source, spans);
-                }
-            }
-            CompoundCommand::While(command) => {
-                if let Some(first_stmt) = command.condition.first() {
-                    collect_followup_status_parameter_spans_in_stmt(first_stmt, source, spans);
-                }
-            }
-            CompoundCommand::Until(command) => {
-                if let Some(first_stmt) = command.condition.first() {
-                    collect_followup_status_parameter_spans_in_stmt(first_stmt, source, spans);
-                }
-            }
-            CompoundCommand::Subshell(body) | CompoundCommand::BraceGroup(body) => {
-                if let Some(first_stmt) = body.first() {
-                    collect_followup_status_parameter_spans_in_stmt(first_stmt, source, spans);
-                }
-            }
-            CompoundCommand::Coproc(command) => {
-                collect_followup_status_parameter_spans_in_stmt(&command.body, source, spans);
-            }
-            CompoundCommand::Always(command) => {
-                if let Some(first_stmt) = command.body.first() {
-                    collect_followup_status_parameter_spans_in_stmt(first_stmt, source, spans);
-                }
-            }
-            CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_) => {}
+
+            let left_status = c107_arithmetic_operand_status_span(left);
+            let right_status = c107_arithmetic_operand_status_span(right);
+            let left_zero = c107_arithmetic_expr_is_zero_literal(left, source);
+            let right_zero = c107_arithmetic_expr_is_zero_literal(right, source);
+
+            left_status
+                .filter(|_| right_zero)
+                .or_else(|| right_status.filter(|_| left_zero))
+        }
+        _ => None,
+    }
+}
+
+fn c107_arithmetic_operand_status_span(expression: &shuck_ast::ArithmeticExprNode) -> Option<Span> {
+    match &expression.kind {
+        shuck_ast::ArithmeticExpr::ShellWord(word) => c107_status_word_span(word),
+        shuck_ast::ArithmeticExpr::Parenthesized { expression } => {
+            c107_arithmetic_operand_status_span(expression)
+        }
+        shuck_ast::ArithmeticExpr::Unary { expr, .. } => c107_arithmetic_operand_status_span(expr),
+        _ => None,
+    }
+}
+
+fn c107_arithmetic_expr_is_zero_literal(
+    expression: &shuck_ast::ArithmeticExprNode,
+    source: &str,
+) -> bool {
+    match &expression.kind {
+        shuck_ast::ArithmeticExpr::Number(text) => text.slice(source).trim() == "0",
+        shuck_ast::ArithmeticExpr::ShellWord(word) => c107_word_is_zero_literal(word, source),
+        shuck_ast::ArithmeticExpr::Parenthesized { expression } => {
+            c107_arithmetic_expr_is_zero_literal(expression, source)
+        }
+        shuck_ast::ArithmeticExpr::Unary { expr, .. } => {
+            c107_arithmetic_expr_is_zero_literal(expr, source)
+        }
+        _ => false,
+    }
+}
+
+fn c107_status_word_span(word: &Word) -> Option<Span> {
+    crate::word_is_standalone_status_capture(word).then_some(word.span)
+}
+
+fn c107_word_is_zero_literal(word: &Word, source: &str) -> bool {
+    static_word_text(word, source).as_deref() == Some("0")
+}
+
+fn c107_pattern_is_zero_literal(pattern: &Pattern, source: &str) -> bool {
+    match pattern.parts.as_slice() {
+        [part] => match &part.kind {
+            PatternPart::Literal(text) => text.as_str(source, part.span) == "0",
+            PatternPart::Word(word) => c107_word_is_zero_literal(word, source),
+            PatternPart::AnyString
+            | PatternPart::AnyChar
+            | PatternPart::CharClass(_)
+            | PatternPart::Group { .. } => false,
         },
-        Command::AnonymousFunction(command) => {
-            collect_followup_status_parameter_spans_in_stmt(&command.body, source, spans);
-            for word in &command.args {
-                spans.extend(status_parameter_spans_in_word(word, source));
-            }
-        }
-        Command::Binary(_)
-        | Command::Simple(_)
-        | Command::Builtin(_)
-        | Command::Decl(_)
-        | Command::Function(_) => {}
+        _ => false,
     }
 }
 
@@ -16010,6 +16083,54 @@ done
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
                 vec!["$?", "$?", "$?"]
+            );
+        });
+    }
+
+    #[test]
+    fn collects_c107_status_checks_in_reportable_test_contexts() {
+        let source = "\
+#!/bin/bash
+run
+if [ $? -ne 0 ]; then :; fi
+[ $? -ne 0 ]
+run && [ $? -eq 0 ]
+run || [ $? -ne 0 ]
+if (( $? != 0 )); then :; fi
+while [[ $? -ne 0 ]]; do break; done
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .dollar_question_after_command_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["$?", "$?", "$?", "$?", "$?", "$?"]
+            );
+        });
+    }
+
+    #[test]
+    fn keeps_c107_off_plain_function_entry_checks() {
+        let source = "\
+#!/bin/bash
+check_status() {
+  if [ $? -ne 0 ]; then :; fi
+  [ $? -ne 0 ]
+  run && [ $? -ne 0 ]
+}
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .dollar_question_after_command_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["$?", "$?"]
             );
         });
     }

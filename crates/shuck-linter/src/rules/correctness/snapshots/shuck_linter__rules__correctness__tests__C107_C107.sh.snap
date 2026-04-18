@@ -1,27 +1,50 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
-assertion_line: 231
 ---
-C107 `$?` here reflects a later command, not the status you likely meant to keep
- --> <source>:6:6
+C107 test the command directly instead of reading its status back from `$?`
+ --> <source>:5:6
   |
-6 | if [ $? -ne 0 ]; then :; fi
+5 | if [ $? -ne 0 ]; then :; fi
   |
 
-C107 `$?` here reflects a later command, not the status you likely meant to keep
-  --> <source>:10:6
+C107 test the command directly instead of reading its status back from `$?`
+ --> <source>:8:4
+  |
+8 | [[ $? -ne 0 ]]
+  |
+
+C107 test the command directly instead of reading its status back from `$?`
+  --> <source>:10:10
    |
-10 | case $? in
+10 | run && [ $? -eq 0 ]
    |
 
-C107 `$?` here reflects a later command, not the status you likely meant to keep
-  --> <source>:17:10
+C107 test the command directly instead of reading its status back from `$?`
+  --> <source>:12:10
    |
-17 |   return $?
+12 | run || [ $? -ne 0 ]
    |
 
-C107 `$?` here reflects a later command, not the status you likely meant to keep
-  --> <source>:22:7
+C107 test the command directly instead of reading its status back from `$?`
+  --> <source>:14:5
    |
-22 | saved=$?
+14 | { [ $? -ne 0 ]; }
+   |
+
+C107 test the command directly instead of reading its status back from `$?`
+  --> <source>:18:5
+   |
+18 |   [ $? -ne 0 ]
+   |
+
+C107 test the command directly instead of reading its status back from `$?`
+  --> <source>:19:12
+   |
+19 |   run && [ $? -ne 0 ]
+   |
+
+C107 test the command directly instead of reading its status back from `$?`
+  --> <source>:23:5
+   |
+23 |   [ $? -ne 0 ]
    |
