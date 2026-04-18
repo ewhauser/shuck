@@ -2378,6 +2378,7 @@ pub struct LinterFacts<'a> {
     base_prefix_arithmetic_spans: Vec<Span>,
     escape_scan_matches: Vec<EscapeScanMatch>,
     echo_backslash_escape_word_spans: Vec<Span>,
+    echo_to_sed_substitution_spans: Vec<Span>,
     unicode_smart_quote_spans: Vec<Span>,
     pattern_exactly_one_extglob_spans: Vec<Span>,
     pattern_literal_spans: Vec<Span>,
@@ -2805,6 +2806,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn echo_backslash_escape_word_spans(&self) -> &[Span] {
         &self.echo_backslash_escape_word_spans
+    }
+
+    pub fn echo_to_sed_substitution_spans(&self) -> &[Span] {
+        &self.echo_to_sed_substitution_spans
     }
 
     pub fn arithmetic_command_substitution_spans(&self) -> &[Span] {
@@ -3290,6 +3295,13 @@ impl<'a> LinterFactsBuilder<'a> {
         for (index, fact) in words.iter().enumerate() {
             word_index.entry(fact.key()).or_default().push(index);
         }
+        let echo_to_sed_substitution_spans = build_echo_to_sed_substitution_spans(
+            &commands,
+            &pipelines,
+            &words,
+            &word_index,
+            self.source,
+        );
         let unquoted_command_argument_use_offsets =
             build_unquoted_command_argument_use_offsets(self.semantic, &words);
 
@@ -3371,6 +3383,7 @@ impl<'a> LinterFactsBuilder<'a> {
             base_prefix_arithmetic_spans,
             escape_scan_matches,
             echo_backslash_escape_word_spans,
+            echo_to_sed_substitution_spans,
             unicode_smart_quote_spans,
             pattern_exactly_one_extglob_spans,
             pattern_literal_spans,
@@ -3401,6 +3414,264 @@ fn build_echo_backslash_escape_word_spans(commands: &[CommandFact<'_>], source: 
     let mut seen = FxHashSet::default();
     spans.retain(|span| seen.insert(FactSpan::new(*span)));
     spans
+}
+
+fn build_echo_to_sed_substitution_spans<'a>(
+    commands: &[CommandFact<'a>],
+    pipelines: &[PipelineFact<'a>],
+    words: &[WordFact<'a>],
+    word_index: &FxHashMap<FactSpan, Vec<usize>>,
+    source: &str,
+) -> Vec<Span> {
+    let mut spans = pipelines
+        .iter()
+        .filter_map(|pipeline| {
+            sc2001_like_pipeline_span(commands, pipeline, words, word_index, source)
+        })
+        .chain(
+            commands
+                .iter()
+                .filter_map(|command| sc2001_like_here_string_span(command, source)),
+        )
+        .collect::<Vec<_>>();
+
+    sort_and_dedup_spans(&mut spans);
+    spans
+}
+
+fn sc2001_like_pipeline_span<'a>(
+    commands: &[CommandFact<'a>],
+    pipeline: &PipelineFact<'a>,
+    words: &[WordFact<'a>],
+    word_index: &FxHashMap<FactSpan, Vec<usize>>,
+    source: &str,
+) -> Option<Span> {
+    let [left_segment, right_segment] = pipeline.segments() else {
+        return None;
+    };
+
+    let left = command_fact(commands, left_segment.command_id());
+    let right = command_fact(commands, right_segment.command_id());
+
+    if !command_is_plain_named(left, "echo") || !command_is_plain_named(right, "sed") {
+        return None;
+    }
+
+    if left
+        .options()
+        .echo()
+        .and_then(|echo| echo.portability_flag_word())
+        .is_some()
+    {
+        return None;
+    }
+
+    if !right
+        .options()
+        .sed()
+        .is_some_and(|sed| sed.has_single_substitution_script())
+    {
+        return None;
+    }
+
+    let [argument] = left.body_args() else {
+        return None;
+    };
+
+    let word_fact = word_fact_with_context(
+        words,
+        word_index,
+        argument.span,
+        WordFactContext::Expansion(ExpansionContext::CommandArgument),
+    )?;
+
+    if word_fact.static_text().is_some() {
+        return None;
+    }
+
+    if word_fact.scalar_expansion_spans().is_empty()
+        && word_fact.array_expansion_spans().is_empty()
+        && word_fact.command_substitution_spans().is_empty()
+    {
+        return None;
+    }
+
+    if word_fact.has_literal_affixes() && !word_fact_is_pure_quoted_dynamic(word_fact, source) {
+        return None;
+    }
+
+    Some(pipeline_span_with_shellcheck_tail(
+        commands, pipeline, source,
+    ))
+}
+
+fn sc2001_like_here_string_span(command: &CommandFact<'_>, source: &str) -> Option<Span> {
+    if !command_is_plain_named(command, "sed") {
+        return None;
+    }
+
+    if !command
+        .options()
+        .sed()
+        .is_some_and(|sed| sed.has_single_substitution_script())
+    {
+        return None;
+    }
+
+    let mut here_strings = command
+        .redirect_facts()
+        .iter()
+        .filter(|redirect| redirect.redirect().kind == RedirectKind::HereString);
+    here_strings.next()?;
+    if here_strings.next().is_some() {
+        return None;
+    }
+
+    command_span_with_redirects_and_shellcheck_tail(command, source)
+}
+
+fn command_is_plain_named(command: &CommandFact<'_>, name: &str) -> bool {
+    command.effective_name_is(name) && command.wrappers().is_empty()
+}
+
+fn word_fact_with_context<'a>(
+    words: &'a [WordFact<'a>],
+    word_index: &FxHashMap<FactSpan, Vec<usize>>,
+    span: Span,
+    context: WordFactContext,
+) -> Option<&'a WordFact<'a>> {
+    word_index
+        .get(&FactSpan::new(span))
+        .into_iter()
+        .flat_map(|indices| indices.iter())
+        .map(|&index| &words[index])
+        .find(|fact| fact.context() == context)
+}
+
+fn word_fact_is_pure_quoted_dynamic(fact: &WordFact<'_>, source: &str) -> bool {
+    !span::word_double_quoted_scalar_only_expansion_spans(fact.word()).is_empty()
+        || !span::word_quoted_all_elements_array_slice_spans(fact.word()).is_empty()
+        || word_fact_is_double_quoted_command_substitution_only(fact, source)
+        || word_fact_is_backtick_escaped_double_quoted_dynamic(fact, source)
+}
+
+fn word_fact_is_double_quoted_command_substitution_only(fact: &WordFact<'_>, source: &str) -> bool {
+    let [command_substitution] = fact.command_substitution_spans() else {
+        return false;
+    };
+
+    if !fact.scalar_expansion_spans().is_empty() || !fact.array_expansion_spans().is_empty() {
+        return false;
+    }
+
+    let word_text = fact.span().slice(source);
+    word_text.len() == command_substitution.slice(source).len() + 2
+        && word_text.starts_with('"')
+        && word_text.ends_with('"')
+        && &word_text[1..word_text.len() - 1] == command_substitution.slice(source)
+}
+
+fn word_fact_is_backtick_escaped_double_quoted_dynamic(fact: &WordFact<'_>, source: &str) -> bool {
+    let word_text = fact.span().slice(source);
+    if !word_text.starts_with("\\\"") || !word_text.ends_with("\\\"") {
+        return false;
+    }
+
+    let inner = &word_text[2..word_text.len() - 2];
+    match (
+        fact.scalar_expansion_spans(),
+        fact.array_expansion_spans(),
+        fact.command_substitution_spans(),
+    ) {
+        ([scalar], [], []) => inner == scalar.slice(source),
+        ([], [array], []) => inner == array.slice(source),
+        ([], [], [command_substitution]) => inner == command_substitution.slice(source),
+        _ => false,
+    }
+}
+
+fn pipeline_span_with_shellcheck_tail(
+    commands: &[CommandFact<'_>],
+    pipeline: &PipelineFact<'_>,
+    source: &str,
+) -> Span {
+    let first = command_fact(
+        commands,
+        pipeline
+            .first_segment()
+            .expect("pipeline has segments")
+            .command_id(),
+    );
+    let last = command_fact(
+        commands,
+        pipeline
+            .last_segment()
+            .expect("pipeline has segments")
+            .command_id(),
+    );
+    let last_end = last.span_in_source(source).end;
+    let end = extend_over_shellcheck_trailing_inline_space(last_end, source);
+
+    Span::from_positions(
+        first
+            .body_name_word()
+            .expect("plain echo command should have a body name")
+            .span
+            .start,
+        end,
+    )
+}
+
+fn command_span_with_redirects_and_shellcheck_tail(
+    command: &CommandFact<'_>,
+    source: &str,
+) -> Option<Span> {
+    let body_name = command.body_name_word()?;
+    let mut end = body_name.span.end;
+
+    for word in command.body_args() {
+        if word.span.end.offset > end.offset {
+            end = word.span.end;
+        }
+    }
+
+    for redirect in command.redirect_facts() {
+        let redirect_end = redirect.redirect().span.end;
+        if redirect_end.offset > end.offset {
+            end = redirect_end;
+        }
+    }
+
+    Some(Span::from_positions(
+        body_name.span.start,
+        extend_over_shellcheck_trailing_inline_space(end, source),
+    ))
+}
+
+fn extend_over_shellcheck_trailing_inline_space(end: Position, source: &str) -> Position {
+    let tail = &source[end.offset..];
+    let spaces_len = tail
+        .char_indices()
+        .take_while(|(_, ch)| matches!(ch, ' ' | '\t'))
+        .last()
+        .map_or(0, |(index, ch)| index + ch.len_utf8());
+
+    if spaces_len == 0 {
+        return end;
+    }
+
+    let rest = &tail[spaces_len..];
+    if rest.is_empty()
+        || rest.starts_with('\n')
+        || rest.starts_with('\r')
+        || rest.starts_with(')')
+        || rest.starts_with(']')
+        || rest.starts_with('}')
+    {
+        end.advanced_by(&tail[..spaces_len])
+    } else {
+        end
+    }
 }
 
 fn build_unquoted_command_argument_use_offsets(
@@ -16160,6 +16431,83 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
             .and_then(|fact| fact.options().sudo_family())
             .expect("expected sudo-family facts");
         assert_eq!(doas.invoker, SudoFamilyInvoker::Doas);
+    }
+
+    #[test]
+    fn builds_echo_to_sed_substitution_spans() {
+        let source = "\
+#!/bin/bash
+echo $value | sed 's/foo/bar/'
+echo \"$value\" | sed 's/foo/bar/g'
+echo ${items[@]} | sed -e 's/foo/bar/2'
+result=$(echo \"$(printf %s foo)\" | sed 's/foo/bar/')
+COMMAND=$(echo \"$COMMAND\" | sed \"s#\\(--appendconfig *[^ $]*\\)#\\1'|'$conf#\")
+RUNTIME=$(echo $OUT | sed \"s|$OUT|\\$this_dir|g\")
+escaped_hostname=$(echo \"$hostname\" | sed 's/[]\\[\\.^$*+?{}()|]/\\\\&/g')
+value=$(sed 's/[\\.|$(){}?+*^]/\\\\&/g' <<<\"$value\")
+CFLAGS=\"`echo \\\"$CFLAGS\\\" | sed \\\"s/ $COVERAGE_FLAGS//\\\"`\"
+OPTFLAG=\"`echo \\\"$CFLAGS\\\" | sed 's/^.*\\(-O[^ ]\\).*$/\\1/'`\"
+EC2_REGION=\"`echo \\\"$EC2_AVAIL_ZONE\\\" | sed -e 's:\\([0-9][0-9]*\\)[a-z]*\\$:\\1:'`\"
+echo \"$caps_add\" | sed 's/^/  /' \t
+trimmed=$(sed 's/[[:space:]]*$//' <<<\"$value\")
+literal=$(sed 's/[[:space:]]*$//' <<<literal)
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .echo_to_sed_substitution_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec![
+                    "echo $value | sed 's/foo/bar/'",
+                    "echo \"$value\" | sed 's/foo/bar/g'",
+                    "echo ${items[@]} | sed -e 's/foo/bar/2'",
+                    "echo \"$(printf %s foo)\" | sed 's/foo/bar/'",
+                    "echo \"$COMMAND\" | sed \"s#\\(--appendconfig *[^ $]*\\)#\\1'|'$conf#\"",
+                    "echo $OUT | sed \"s|$OUT|\\$this_dir|g\"",
+                    "echo \"$hostname\" | sed 's/[]\\[\\.^$*+?{}()|]/\\\\&/g'",
+                    "sed 's/[\\.|$(){}?+*^]/\\\\&/g' <<<\"$value\"",
+                    "echo \\\"$CFLAGS\\\" | sed \\\"s/ $COVERAGE_FLAGS//\\\"",
+                    "echo \\\"$CFLAGS\\\" | sed 's/^.*\\(-O[^ ]\\).*$/\\1/'",
+                    "echo \\\"$EC2_AVAIL_ZONE\\\" | sed -e 's:\\([0-9][0-9]*\\)[a-z]*\\$:\\1:'",
+                    "echo \"$caps_add\" | sed 's/^/  /' \t",
+                    "sed 's/[[:space:]]*$//' <<<\"$value\"",
+                    "sed 's/[[:space:]]*$//' <<<literal",
+                ]
+            );
+        });
+    }
+
+    #[test]
+    fn skips_nonmatching_echo_to_sed_substitution_shapes() {
+        let source = "\
+#!/bin/bash
+echo literal | sed 's/foo/bar/'
+echo prefix${value}suffix | sed 's/foo/bar/'
+echo \"prefix${value}\" | sed 's/foo/bar/'
+echo $left $right | sed 's/foo/bar/'
+echo \"$left $right\" | sed 's/foo/bar/'
+echo -n $value | sed 's/foo/bar/'
+echo $value | sed -n 's/foo/bar/p'
+echo $value | sed --expression 's/foo/bar/'
+echo $value | sed -es/foo/bar/
+echo $value | sed 's/foo/bar/' | cat
+echo \"$ENDPOINT\" | sed 's/[:\\/]/_/g'
+echo \"$PAYLOAD\" | sed 's/\\//-/g'
+echo $PACKAGE_NAME | sed 's/\\./\\//g'
+echo \"$key\" | sed 's/[]\\[^$.*/]/\\\\&/g'
+echo \"${ENTRY}\" | sed 's/\\([/&]\\)/\\\\\\1/g'
+sed 's/[]\\[^$.*/]/\\\\&/g' <<<\"$key\"
+sed 's/\\([/&]\\)/\\\\\\1/g' <<<\"${ENTRY}\"
+printf '%s\\n' \"$value\" | sed 's/foo/bar/'
+echo \"prefix$(printf %s foo)\" | sed 's/foo/bar/'
+";
+
+        with_facts(source, None, |_, facts| {
+            assert!(facts.echo_to_sed_substitution_spans().is_empty());
+        });
     }
 
     #[test]
