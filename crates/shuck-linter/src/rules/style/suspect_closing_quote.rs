@@ -125,4 +125,17 @@ echo \"GEM_PATH: \\$GEM_PATH\"
         assert_eq!(diagnostics[0].span.start.column, 6);
         assert_eq!(diagnostics[0].span.start, diagnostics[0].span.end);
     }
+
+    #[test]
+    fn ignores_split_closing_quote_shapes_outside_echo_and_printf() {
+        let source = "\
+#!/bin/bash
+cat \"alpha
+\"_beta
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::SuspectClosingQuote));
+
+        assert!(diagnostics.is_empty());
+    }
 }
