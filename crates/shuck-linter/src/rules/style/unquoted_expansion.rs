@@ -558,6 +558,40 @@ done
     }
 
     #[test]
+    fn reports_loop_variables_derived_from_at_slices() {
+        let source = "\
+#!/bin/bash
+f() {
+  for v in ${@:2}; do
+    del $v
+  done
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$v"]
+        );
+    }
+
+    #[test]
+    fn skips_direct_at_slices_that_belong_to_array_split_handling() {
+        let source = "\
+#!/bin/bash
+f() {
+  dns_set ${@:2}
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn skips_bindings_derived_from_arithmetic_values() {
         let source = "\
 #!/bin/bash
