@@ -255,21 +255,21 @@ impl<'a> SurfaceFragmentSink<'a> {
     }
 
     pub(super) fn collect_split_suspect_closing_quote_fragment_in_words(&mut self, words: &[Word]) {
-        for span in words
-            .iter()
-            .flat_map(|word| split_suspect_closing_quote_spans(word, self.source))
-        {
-            if self
-                .facts
-                .suspect_closing_quotes
-                .iter()
-                .any(|fragment| fragment.span() == span)
-            {
-                continue;
+        for (index, word) in words.iter().enumerate() {
+            let has_later_words = index + 1 < words.len();
+            for span in split_suspect_closing_quote_spans(word, self.source, has_later_words) {
+                if self
+                    .facts
+                    .suspect_closing_quotes
+                    .iter()
+                    .any(|fragment| fragment.span() == span)
+                {
+                    continue;
+                }
+                self.facts
+                    .suspect_closing_quotes
+                    .push(SuspectClosingQuoteFragmentFact { span });
             }
-            self.facts
-                .suspect_closing_quotes
-                .push(SuspectClosingQuoteFragmentFact { span });
         }
     }
 
@@ -1415,7 +1415,8 @@ fn middle_part_is_word_like_literal_gap(part: &WordPartNode, source: &str) -> bo
     let WordPart::Literal(text) = &part.kind else {
         return false;
     };
-    split_quote_tail_is_suspicious(text.as_str(source, part.span))
+    let text = text.as_str(source, part.span);
+    split_quote_tail_is_suspicious(text) || backslash_prefixed_word_like_literal_gap(text)
 }
 
 fn double_quoted_part_is_empty(part: &WordPartNode, source: &str) -> bool {
@@ -1428,7 +1429,11 @@ fn double_quoted_part_is_empty(part: &WordPartNode, source: &str) -> bool {
     })
 }
 
-fn split_suspect_closing_quote_spans(word: &Word, source: &str) -> Vec<Span> {
+fn split_suspect_closing_quote_spans(
+    word: &Word,
+    source: &str,
+    has_later_words: bool,
+) -> Vec<Span> {
     word.parts
         .windows(2)
         .enumerate()
@@ -1453,7 +1458,9 @@ fn split_suspect_closing_quote_spans(word: &Word, source: &str) -> Vec<Span> {
 
             let span = closing_double_quote_span(current.span, source)?;
             if span.start.column == 1
-                || (index > 0 && double_quoted_part_is_empty(&word.parts[index - 1], source))
+                || (index > 0
+                    && double_quoted_part_is_empty(&word.parts[index - 1], source)
+                    && has_later_words)
             {
                 Some(span)
             } else {
@@ -1485,29 +1492,12 @@ fn closing_double_quote_span(span: Span, source: &str) -> Option<Span> {
     Some(Span::from_positions(start, start))
 }
 
-fn open_double_quote_gap_looks_suspicious(part: &WordPartNode, source: &str) -> bool {
-    match &part.kind {
-        WordPart::Literal(_) => literal_open_double_quote_gap_looks_suspicious(part.span, source),
-        WordPart::ZshQualifiedGlob(_)
-        | WordPart::SingleQuoted { .. }
-        | WordPart::DoubleQuoted { .. }
-        | WordPart::CommandSubstitution { .. }
-        | WordPart::ProcessSubstitution { .. } => false,
-        _ => true,
-    }
-}
-
-fn literal_open_double_quote_gap_looks_suspicious(span: Span, source: &str) -> bool {
-    let text = span.slice(source).trim();
-    if text.is_empty() {
+fn backslash_prefixed_word_like_literal_gap(text: &str) -> bool {
+    let text = text.trim();
+    let Some(stripped) = text.strip_prefix('\\') else {
         return false;
-    }
-
-    if escaped_dollar_literal_gap(text) {
-        return false;
-    }
-
-    true
+    };
+    !escaped_dollar_literal_gap(text) && split_quote_tail_is_suspicious(stripped)
 }
 
 fn escaped_dollar_literal_gap(text: &str) -> bool {
