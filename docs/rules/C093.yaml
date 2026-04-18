@@ -3,6 +3,7 @@ legacy_name: backtick-in-command-position
 new_category: Correctness
 new_code: C093
 runtime_kind: ast
+shellcheck_code: SC2092
 shells:
   - sh
   - bash

@@ -3,6 +3,7 @@ legacy_name: glob-in-test-comparison
 new_category: Correctness
 new_code: C090
 runtime_kind: ast
+shellcheck_code: SC2081
 shells:
   - sh
   - bash

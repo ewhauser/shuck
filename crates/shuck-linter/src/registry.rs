@@ -805,7 +805,6 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-046" => Some(Rule::LineOrientedInput),
         "SH-048" => Some(Rule::LeadingGlobArgument),
         "SH-049" => Some(Rule::FindOutputLoop),
-        "C113" => Some(Rule::FindOutputLoop),
         "SH-050" => Some(Rule::ExportCommandSubstitution),
         "SH-135" => Some(Rule::EchoHereDoc),
         "SH-052" => Some(Rule::LocalTopLevel),
@@ -912,7 +911,6 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-243" => Some(Rule::UnsetAssociativeArrayElement),
         "SH-244" => Some(Rule::MapfileProcessSubstitution),
         "SH-254" => Some(Rule::GlobWithExpansionInLoop),
-        "SH-253" => Some(Rule::FindOutputLoop),
         "SH-293" => Some(Rule::UnreachableAfterExit),
         "SH-298" => Some(Rule::UnusedHeredoc),
         "SH-300" => Some(Rule::SingleLetterCaseLabel),
@@ -1143,7 +1141,6 @@ mod tests {
         assert_eq!(code_to_rule("SH-201"), Some(Rule::ChainedTestBranches));
         assert_eq!(code_to_rule("SH-046"), Some(Rule::LineOrientedInput));
         assert_eq!(code_to_rule("SH-049"), Some(Rule::FindOutputLoop));
-        assert_eq!(code_to_rule("C113"), Some(Rule::FindOutputLoop));
         assert_eq!(
             code_to_rule("SH-050"),
             Some(Rule::ExportCommandSubstitution)
@@ -1347,7 +1344,6 @@ mod tests {
         );
         assert_eq!(code_to_rule("C114"), Some(Rule::GlobWithExpansionInLoop));
         assert_eq!(code_to_rule("SH-254"), Some(Rule::GlobWithExpansionInLoop));
-        assert_eq!(code_to_rule("SH-253"), Some(Rule::FindOutputLoop));
         assert_eq!(code_to_rule("C124"), Some(Rule::UnreachableAfterExit));
         assert_eq!(code_to_rule("SH-293"), Some(Rule::UnreachableAfterExit));
         assert_eq!(code_to_rule("C127"), Some(Rule::UnusedHeredoc));

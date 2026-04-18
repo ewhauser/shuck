@@ -3,6 +3,7 @@ legacy_name: unquoted-pipe-in-echo
 new_category: Correctness
 new_code: C096
 runtime_kind: ast
+shellcheck_code: SC2102
 shells:
   - sh
   - bash
