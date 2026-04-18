@@ -2422,7 +2422,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             &reference.name,
             BindingKind::ParameterDefaultAssignment,
             self.current_scope(),
-            reference.name_span,
+            reference.span,
             BindingAttributes::empty(),
         );
     }

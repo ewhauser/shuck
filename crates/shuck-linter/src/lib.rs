@@ -721,6 +721,63 @@ set_flag() {
     }
 
     #[test]
+    fn sourced_helper_reads_keep_c150_live_for_subshell_assignments() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+(flag=1)
+. ./helper.sh
+",
+        )
+        .unwrap();
+        fs::write(&helper, "printf '%s\\n' \"$flag\"\n").unwrap();
+
+        let source = fs::read_to_string(&main).unwrap();
+        let diagnostics = lint_path_for_rule(&main, Rule::SubshellLocalAssignment);
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(&source))
+                .collect::<Vec<_>>(),
+            vec!["flag"]
+        );
+    }
+
+    #[test]
+    fn sourced_helper_reads_ignore_subshell_writes_after_same_command_resets() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+(flag=1)
+flag=2 . ./helper.sh
+",
+        )
+        .unwrap();
+        fs::write(&helper, "printf '%s\\n' \"$flag\"\n").unwrap();
+
+        let local_assignment_diagnostics = lint_path_for_rule(&main, Rule::SubshellLocalAssignment);
+        assert!(
+            local_assignment_diagnostics.is_empty(),
+            "diagnostics: {local_assignment_diagnostics:?}"
+        );
+
+        let side_effect_diagnostics = lint_path_for_rule(&main, Rule::SubshellSideEffect);
+        assert!(
+            side_effect_diagnostics.is_empty(),
+            "diagnostics: {side_effect_diagnostics:?}"
+        );
+    }
+
+    #[test]
     fn quoted_heredoc_generated_shell_text_does_not_report_c006() {
         let diagnostics = lint_for_rule(
             "\

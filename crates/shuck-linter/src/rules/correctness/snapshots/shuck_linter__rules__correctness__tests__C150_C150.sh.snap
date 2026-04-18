@@ -1,21 +1,20 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
-assertion_line: 286
 ---
-C150 assignment to `$count` inside a subshell does not update the outer shell
- --> <source>:6:7
+C150 assignment to `count` only changes the subshell copy
+ --> <source>:5:2
   |
-6 | echo "$count"
+5 | (count=1)
   |
 
-C150 assignment to `$items` inside a subshell does not update the outer shell
-  --> <source>:10:16
-   |
-10 | printf '%s\n' "$items"
-   |
+C150 assignment to `items` only changes the subshell copy
+ --> <source>:9:2
+  |
+9 | (items=new)
+  |
 
-C150 assignment to `$count` inside a subshell does not update the outer shell
-  --> <source>:15:7
+C150 assignment to `count` only changes the subshell copy
+  --> <source>:14:39
    |
-15 | echo "$count"
+14 | printf '%s\n' x | while read -r _; do count=1; done
    |

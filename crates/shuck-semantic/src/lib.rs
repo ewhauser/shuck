@@ -77,10 +77,24 @@ pub(crate) enum IndirectTargetHint {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SyntheticRead {
+pub struct SyntheticRead {
     pub(crate) scope: ScopeId,
     pub(crate) span: Span,
     pub(crate) name: Name,
+}
+
+impl SyntheticRead {
+    pub fn scope(&self) -> ScopeId {
+        self.scope
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn name(&self) -> &Name {
+        &self.name
+    }
 }
 
 #[doc(hidden)]
@@ -791,6 +805,10 @@ impl SemanticModel {
 
     pub fn source_refs(&self) -> &[SourceRef] {
         &self.source_refs
+    }
+
+    pub fn synthetic_reads(&self) -> &[SyntheticRead] {
+        &self.synthetic_reads
     }
 
     pub fn import_origins_for_binding(&self, id: BindingId) -> &[PathBuf] {
@@ -3680,7 +3698,7 @@ printf '%s\\n' \"$config_path\" \"$still_missing\"
                     && matches!(binding.kind, BindingKind::ParameterDefaultAssignment)
             })
             .unwrap();
-        assert_eq!(binding.span.slice(source), "config_path");
+        assert_eq!(binding.span.slice(source), "${config_path:=/tmp/default}");
     }
 
     #[test]

@@ -11,18 +11,22 @@ impl Violation for SubshellLocalAssignment {
 
     fn message(&self) -> String {
         format!(
-            "assignment to `{}` inside a subshell does not update the outer shell",
+            "assignment to `{}` only changes the subshell copy",
             self.name
         )
     }
 }
 
 pub fn subshell_local_assignment(checker: &mut Checker) {
-    let spans = checker.facts().subshell_local_assignment_spans().to_vec();
+    let sites = checker.facts().subshell_assignment_sites().to_vec();
 
-    for span in spans {
-        let name = span.slice(checker.source()).to_owned();
-        checker.report(SubshellLocalAssignment { name }, span);
+    for site in sites {
+        checker.report(
+            SubshellLocalAssignment {
+                name: site.name.to_string(),
+            },
+            site.span,
+        );
     }
 }
 
@@ -52,7 +56,7 @@ printf '%s\\n' \"$items\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$count", "$items"]
+            vec!["count", "items"]
         );
     }
 
@@ -74,7 +78,7 @@ echo \"$count\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$count"]
+            vec!["count"]
         );
     }
 
@@ -130,7 +134,7 @@ printf '%s\\n' \"${value:=outer}\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["${value:=outer}"]
+            vec!["${value:=inner}"]
         );
     }
 
@@ -155,7 +159,7 @@ echo \"$value\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$value"]
+            vec!["value"]
         );
     }
 
@@ -249,7 +253,7 @@ printf '%s\\n' \"$value\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$value"]
+            vec!["value"]
         );
     }
 
@@ -350,7 +354,47 @@ second() {
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["PATH", "$PATH"]
+            vec!["PATH"]
         );
+    }
+
+    #[test]
+    fn reports_only_the_first_assignment_in_a_single_child_scope() {
+        let source = "\
+#!/bin/sh
+x=0
+(
+  x=1
+  x=2
+)
+echo \"$x\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 4);
+        assert_eq!(diagnostics[0].span.slice(source), "x");
+    }
+
+    #[test]
+    fn reports_only_the_latest_child_scope_before_a_later_outer_use() {
+        let source = "\
+#!/bin/sh
+x=0
+(x=1)
+(x=2)
+echo \"$x\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 4);
+        assert_eq!(diagnostics[0].span.slice(source), "x");
     }
 }

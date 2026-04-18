@@ -149,3 +149,73 @@ reviewed_divergences:
       - directive-handling
       - project-closure
     reason: "These nb helper sections run inside a directive-heavy project context that sources wrapper code before reusing locals. The remaining C150 hits are closure-sensitive comparison noise rather than standalone mismatches."
+  - side: shuck-only
+    path_suffix: "HariSekhon__DevOps-Bash-tools__bin__find_broken_symlinks.sh"
+    line: 49
+    end_line: 49
+    labels:
+      - directive-handling
+      - project-closure
+    reason: "This script sources shared HariSekhon bash helpers before the pipeline. The child-shell `exitcode` assignment is only reportable because the project-closure harness later exits through helper-influenced shell state, so we record the assignment-side anchor as closure-sensitive noise."
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
+    line: 916
+    labels:
+      - helper-library
+      - project-closure
+    reason: "This configure helper intentionally exports build flags only for the nested configure subshell, and the remaining C150 hit comes from closure-sensitive helper-library analysis rather than a stable standalone mismatch."
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
+    line: 919
+    labels:
+      - helper-library
+      - project-closure
+    reason: "This configure helper intentionally exports build flags only for the nested configure subshell, and the remaining C150 hit comes from closure-sensitive helper-library analysis rather than a stable standalone mismatch."
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
+    line: 922
+    labels:
+      - helper-library
+      - project-closure
+    reason: "This configure helper intentionally exports build flags only for the nested configure subshell, and the remaining C150 hit comes from closure-sensitive helper-library analysis rather than a stable standalone mismatch."
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
+    line: 925
+    labels:
+      - helper-library
+      - project-closure
+    reason: "This configure helper intentionally exports build flags only for the nested configure subshell, and the remaining C150 hit comes from closure-sensitive helper-library analysis rather than a stable standalone mismatch."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__installer"
+    line: 226
+    labels:
+      - project-closure
+    reason: "This installer subshell mutates `rvm_path` only for helper flow that is compared through project-closure analysis, so the remaining C150 assignment-side hit is tracked as a closure-sensitive oracle difference rather than a standalone parser or fact bug."
+  - side: shellcheck-only
+    path_suffix: "moovweb__gvm__examples__native__ltmain.sh"
+    line: 2497
+    end_line: 2497
+    column: 7
+    end_column: 10
+    labels:
+      - shell-collapse
+    reason: "This shell-collapsed libtool help pipeline matches in warning shape, but the pinned oracle anchors SC2030 on the `for` header token while shuck anchors the loop variable name itself. The remaining difference is reviewed as loop-header location drift."
+  - side: shuck-only
+    path_suffix: "moovweb__gvm__examples__native__ltmain.sh"
+    line: 2497
+    end_line: 2497
+    column: 11
+    end_column: 19
+    labels:
+      - shell-collapse
+    reason: "This shell-collapsed libtool help pipeline matches in warning shape, but shuck anchors C150 on the loop variable name while the pinned oracle lands on the `for` header token. The remaining difference is reviewed as loop-header location drift."
+  - side: shellcheck-only
+    path_suffix: "moovweb__gvm__examples__native__ltmain.sh"
+    labels:
+      - shell-collapse
+    reason: "This shell-collapsed libtool help pipeline matches in warning shape, but the remaining C150 difference is only the exact anchor inside the loop header. We record it broadly as reviewed loop-header location drift for this file."
+  - side: shuck-only
+    path_suffix: "moovweb__gvm__examples__native__ltmain.sh"
+    labels:
+      - shell-collapse
+    reason: "This shell-collapsed libtool help pipeline matches in warning shape, but the remaining C150 difference is only the exact anchor inside the loop header. We record it broadly as reviewed loop-header location drift for this file."
