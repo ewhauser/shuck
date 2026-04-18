@@ -598,7 +598,7 @@ declare_rules! {
     ("S036", Category::Style, Severity::Warning, BareRead),
     ("S037", Category::Style, Severity::Warning, RedundantSpacesInEcho),
     ("S038", Category::Style, Severity::Warning, RedundantReturnStatus),
-    ("S044", Category::Style, Severity::Warning, UnquotedVariableInSed),
+    ("S044", Category::Style, Severity::Warning, EchoToSedSubstitution),
     ("S050", Category::Style, Severity::Hint, UnquotedWordBetweenQuotes),
     ("S051", Category::Style, Severity::Warning, UnquotedTrClass),
     ("S052", Category::Style, Severity::Warning, UnquotedVariableInTest),
@@ -775,7 +775,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-051" => Some(Rule::CompoundTestOperator),
         "SH-170" => Some(Rule::RedundantReturnStatus),
         "SH-168" => Some(Rule::RedundantSpacesInEcho),
-        "SH-196" => Some(Rule::UnquotedVariableInSed),
+        "SH-196" => Some(Rule::EchoToSedSubstitution),
         "SH-205" => Some(Rule::UnquotedWordBetweenQuotes),
         "SH-066" => Some(Rule::EchoInsideCommandSubstitution),
         "SH-199" => Some(Rule::LsInSubstitution),
@@ -1126,7 +1126,7 @@ mod tests {
             Some(Rule::EchoInsideCommandSubstitution)
         );
         assert_eq!(code_to_rule("SH-168"), Some(Rule::RedundantSpacesInEcho));
-        assert_eq!(code_to_rule("SH-196"), Some(Rule::UnquotedVariableInSed));
+        assert_eq!(code_to_rule("SH-196"), Some(Rule::EchoToSedSubstitution));
         assert_eq!(code_to_rule("SH-163"), Some(Rule::BareRead));
         assert_eq!(code_to_rule("SH-071"), Some(Rule::GrepOutputInTest));
         assert_eq!(code_to_rule("SH-041"), Some(Rule::FindOutputToXargs));
