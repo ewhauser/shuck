@@ -16,23 +16,29 @@ S067 grep patterns should not start with glob-style `*`
 S067 grep patterns should not start with glob-style `*`
  --> <source>:5:6
   |
-5 | grep *CMD "$AUDIT_FILE"
+5 | grep \*MAINTAINER "$AUDIT_FILE"
   |
 
 S067 grep patterns should not start with glob-style `*`
- --> <source>:6:9
+ --> <source>:6:6
   |
-6 | grep -e '*LABEL' "$AUDIT_FILE"
-  |
-
-S067 grep patterns should not start with glob-style `*`
- --> <source>:7:15
-  |
-7 | grep --regexp '*EXPOSE' "$AUDIT_FILE"
+6 | grep *CMD "$AUDIT_FILE"
   |
 
 S067 grep patterns should not start with glob-style `*`
- --> <source>:8:9
+ --> <source>:7:9
   |
-8 | grep -v '^*' "$AUDIT_FILE"
+7 | grep -e '*LABEL' "$AUDIT_FILE"
+  |
+
+S067 grep patterns should not start with glob-style `*`
+ --> <source>:8:15
+  |
+8 | grep --regexp '*EXPOSE' "$AUDIT_FILE"
+  |
+
+S067 grep patterns should not start with glob-style `*`
+ --> <source>:9:9
+  |
+9 | grep -v '^*' "$AUDIT_FILE"
   |
