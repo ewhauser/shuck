@@ -1313,25 +1313,15 @@ fn suspect_double_quote_spans(
             let [current, middle, next] = window else {
                 return None;
             };
-            let WordPart::DoubleQuoted { parts, .. } = &current.kind else {
-                return None;
-            };
-            if !matches!(next.kind, WordPart::DoubleQuoted { .. })
-                || !current.span.slice(source).contains('\n')
-                || double_quoted_parts_contain_live_scalar(parts)
-            {
-                return None;
-            }
-
-            let has_scalar_gap = middle_part_is_live_scalar_gap(middle);
-            let has_word_literal_gap = index == 0
-                && matches!(command_name, Some("echo" | "printf"))
-                && !double_quoted_parts_contain_command_like_substitution(parts)
-                && middle_part_is_word_like_literal_gap(middle, source);
-            let has_triple_quote_literal_gap = index > 0
-                && double_quoted_part_is_empty(&word.parts[index - 1], source)
-                && middle_part_is_word_like_literal_gap(middle, source);
-            if !has_scalar_gap && !has_word_literal_gap && !has_triple_quote_literal_gap {
+            if !suspicious_reopened_double_quote_window(
+                word,
+                source,
+                command_name,
+                index,
+                current,
+                middle,
+                next,
+            ) {
                 return None;
             }
 
@@ -1341,6 +1331,58 @@ fn suspect_double_quote_spans(
             ))
         })
         .collect()
+}
+
+pub(super) fn word_has_leading_reopened_double_quote_window(
+    word: &Word,
+    source: &str,
+    command_name: Option<&str>,
+) -> bool {
+    word.parts.windows(3).enumerate().any(|(index, window)| {
+        let [current, middle, next] = window else {
+            return false;
+        };
+        suspicious_reopened_double_quote_window(
+            word,
+            source,
+            command_name,
+            index,
+            current,
+            middle,
+            next,
+        ) && (index == 0 || (index == 1 && double_quoted_part_is_empty(&word.parts[0], source)))
+    })
+}
+
+fn suspicious_reopened_double_quote_window(
+    word: &Word,
+    source: &str,
+    command_name: Option<&str>,
+    index: usize,
+    current: &WordPartNode,
+    middle: &WordPartNode,
+    next: &WordPartNode,
+) -> bool {
+    let WordPart::DoubleQuoted { parts, .. } = &current.kind else {
+        return false;
+    };
+    if !matches!(next.kind, WordPart::DoubleQuoted { .. })
+        || !current.span.slice(source).contains('\n')
+        || double_quoted_parts_contain_live_scalar(parts)
+    {
+        return false;
+    }
+
+    let has_scalar_gap = middle_part_is_live_scalar_gap(middle);
+    let has_word_literal_gap = index == 0
+        && matches!(command_name, Some("echo" | "printf"))
+        && !double_quoted_parts_contain_command_like_substitution(parts)
+        && middle_part_is_word_like_literal_gap(middle, source);
+    let has_triple_quote_literal_gap = index > 0
+        && double_quoted_part_is_empty(&word.parts[index - 1], source)
+        && middle_part_is_word_like_literal_gap(middle, source);
+
+    has_scalar_gap || has_word_literal_gap || has_triple_quote_literal_gap
 }
 
 fn double_quoted_parts_contain_live_scalar(parts: &[WordPartNode]) -> bool {
