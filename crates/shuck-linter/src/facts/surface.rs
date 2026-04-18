@@ -60,7 +60,7 @@ impl<'a> SurfaceScanContext<'a> {
         }
     }
 
-    fn without_open_double_quote_scan(self) -> Self {
+    pub(super) fn without_open_double_quote_scan(self) -> Self {
         Self {
             collect_open_double_quotes: false,
             ..self
@@ -206,7 +206,8 @@ impl<'a> SurfaceFragmentSink<'a> {
         }
     }
 
-    pub(super) fn collect_word(&mut self, word: &Word, context: SurfaceScanContext<'_>) {
+    pub(super) fn collect_word(&mut self, word: &Word, context: SurfaceScanContext<'_>) -> bool {
+        let open_double_quote_count = self.facts.open_double_quotes.len();
         collect_unicode_smart_quote_spans_in_word_parts(
             &word.parts,
             self.source,
@@ -217,6 +218,7 @@ impl<'a> SurfaceFragmentSink<'a> {
             self.collect_open_double_quote_fragments(word, context.command_name);
         }
         self.collect_word_parts(&word.parts, context);
+        self.facts.open_double_quotes.len() > open_double_quote_count
     }
 
     pub(super) fn collect_heredoc_body(
@@ -253,21 +255,21 @@ impl<'a> SurfaceFragmentSink<'a> {
     }
 
     pub(super) fn collect_split_suspect_closing_quote_fragment_in_words(&mut self, words: &[Word]) {
-        for span in words
-            .iter()
-            .flat_map(|word| split_suspect_closing_quote_spans(word, self.source))
-        {
-            if self
-                .facts
-                .suspect_closing_quotes
-                .iter()
-                .any(|fragment| fragment.span() == span)
-            {
-                continue;
+        for (index, word) in words.iter().enumerate() {
+            let has_later_words = index + 1 < words.len();
+            for span in split_suspect_closing_quote_spans(word, self.source, has_later_words) {
+                if self
+                    .facts
+                    .suspect_closing_quotes
+                    .iter()
+                    .any(|fragment| fragment.span() == span)
+                {
+                    continue;
+                }
+                self.facts
+                    .suspect_closing_quotes
+                    .push(SuspectClosingQuoteFragmentFact { span });
             }
-            self.facts
-                .suspect_closing_quotes
-                .push(SuspectClosingQuoteFragmentFact { span });
         }
     }
 
@@ -647,7 +649,9 @@ impl<'a> SurfaceFragmentSink<'a> {
                     }
                     self.collect_patterns(patterns, context);
                 }
-                PatternPart::Word(word) => self.collect_word(word, context),
+                PatternPart::Word(word) => {
+                    self.collect_word(word, context);
+                }
                 PatternPart::CharClass(_) if context.collect_pattern_charclasses => {
                     self.facts.pattern_charclass_spans.push(span);
                     if context.nested_word_command {
@@ -705,7 +709,9 @@ impl<'a> SurfaceFragmentSink<'a> {
     ) {
         for redirect in redirects {
             match redirect.word_target() {
-                Some(word) => self.collect_word(word, context),
+                Some(word) => {
+                    self.collect_word(word, context);
+                }
                 None => {
                     let heredoc = redirect.heredoc().expect("expected heredoc redirect");
                     if heredoc.delimiter.expands_body {
@@ -1307,25 +1313,15 @@ fn suspect_double_quote_spans(
             let [current, middle, next] = window else {
                 return None;
             };
-            let WordPart::DoubleQuoted { parts, .. } = &current.kind else {
-                return None;
-            };
-            if !matches!(next.kind, WordPart::DoubleQuoted { .. })
-                || !current.span.slice(source).contains('\n')
-                || double_quoted_parts_contain_live_scalar(parts)
-            {
-                return None;
-            }
-
-            let has_scalar_gap = middle_part_is_live_scalar_gap(middle);
-            let has_word_literal_gap = index == 0
-                && matches!(command_name, Some("echo" | "printf"))
-                && !double_quoted_parts_contain_command_like_substitution(parts)
-                && middle_part_is_word_like_literal_gap(middle, source);
-            let has_triple_quote_literal_gap = index > 0
-                && double_quoted_part_is_empty(&word.parts[index - 1], source)
-                && middle_part_is_word_like_literal_gap(middle, source);
-            if !has_scalar_gap && !has_word_literal_gap && !has_triple_quote_literal_gap {
+            if !suspicious_reopened_double_quote_window(
+                word,
+                source,
+                command_name,
+                index,
+                current,
+                middle,
+                next,
+            ) {
                 return None;
             }
 
@@ -1335,6 +1331,58 @@ fn suspect_double_quote_spans(
             ))
         })
         .collect()
+}
+
+pub(super) fn word_has_reopened_double_quote_window(
+    word: &Word,
+    source: &str,
+    command_name: Option<&str>,
+) -> bool {
+    word.parts.windows(3).enumerate().any(|(index, window)| {
+        let [current, middle, next] = window else {
+            return false;
+        };
+        suspicious_reopened_double_quote_window(
+            word,
+            source,
+            command_name,
+            index,
+            current,
+            middle,
+            next,
+        )
+    })
+}
+
+fn suspicious_reopened_double_quote_window(
+    word: &Word,
+    source: &str,
+    command_name: Option<&str>,
+    index: usize,
+    current: &WordPartNode,
+    middle: &WordPartNode,
+    next: &WordPartNode,
+) -> bool {
+    let WordPart::DoubleQuoted { parts, .. } = &current.kind else {
+        return false;
+    };
+    if !matches!(next.kind, WordPart::DoubleQuoted { .. })
+        || !current.span.slice(source).contains('\n')
+        || double_quoted_parts_contain_live_scalar(parts)
+    {
+        return false;
+    }
+
+    let has_scalar_gap = middle_part_is_live_scalar_gap(middle);
+    let has_word_literal_gap = index == 0
+        && matches!(command_name, Some("echo" | "printf"))
+        && !double_quoted_parts_contain_command_like_substitution(parts)
+        && middle_part_is_word_like_literal_gap(middle, source);
+    let has_triple_quote_literal_gap = index > 0
+        && double_quoted_part_is_empty(&word.parts[index - 1], source)
+        && middle_part_is_word_like_literal_gap(middle, source);
+
+    has_scalar_gap || has_word_literal_gap || has_triple_quote_literal_gap
 }
 
 fn double_quoted_parts_contain_live_scalar(parts: &[WordPartNode]) -> bool {
@@ -1409,7 +1457,8 @@ fn middle_part_is_word_like_literal_gap(part: &WordPartNode, source: &str) -> bo
     let WordPart::Literal(text) = &part.kind else {
         return false;
     };
-    split_quote_tail_is_suspicious(text.as_str(source, part.span))
+    let text = text.as_str(source, part.span);
+    split_quote_tail_is_suspicious(text) || backslash_prefixed_word_like_literal_gap(text)
 }
 
 fn double_quoted_part_is_empty(part: &WordPartNode, source: &str) -> bool {
@@ -1422,7 +1471,11 @@ fn double_quoted_part_is_empty(part: &WordPartNode, source: &str) -> bool {
     })
 }
 
-fn split_suspect_closing_quote_spans(word: &Word, source: &str) -> Vec<Span> {
+fn split_suspect_closing_quote_spans(
+    word: &Word,
+    source: &str,
+    has_later_words: bool,
+) -> Vec<Span> {
     word.parts
         .windows(2)
         .enumerate()
@@ -1447,7 +1500,9 @@ fn split_suspect_closing_quote_spans(word: &Word, source: &str) -> Vec<Span> {
 
             let span = closing_double_quote_span(current.span, source)?;
             if span.start.column == 1
-                || (index > 0 && double_quoted_part_is_empty(&word.parts[index - 1], source))
+                || (index > 0
+                    && double_quoted_part_is_empty(&word.parts[index - 1], source)
+                    && has_later_words)
             {
                 Some(span)
             } else {
@@ -1477,6 +1532,32 @@ fn closing_double_quote_span(span: Span, source: &str) -> Option<Span> {
     let quote_offset = text.rfind('"')?;
     let start = span.start.advanced_by(&text[..quote_offset]);
     Some(Span::from_positions(start, start))
+}
+
+fn backslash_prefixed_word_like_literal_gap(text: &str) -> bool {
+    let text = text.trim();
+    let Some(stripped) = text.strip_prefix('\\') else {
+        return false;
+    };
+    !escaped_dollar_literal_gap(text) && split_quote_tail_is_suspicious(stripped)
+}
+
+fn escaped_dollar_literal_gap(text: &str) -> bool {
+    let mut saw_escaped_dollar = false;
+    let mut chars = text.chars();
+
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            continue;
+        }
+
+        saw_escaped_dollar = true;
+        if chars.next() != Some('$') {
+            return false;
+        }
+    }
+
+    saw_escaped_dollar
 }
 
 fn is_nested_parameter_expansion(parameter: &shuck_ast::ParameterExpansion, source: &str) -> bool {

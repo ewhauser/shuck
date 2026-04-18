@@ -79,6 +79,40 @@ echo \"alpha
     }
 
     #[test]
+    fn reports_independent_reopened_quote_windows_across_multiple_arguments() {
+        let source = "\
+#!/bin/bash
+echo \"a
+\"$x\"b\" \"c
+\"$y\"d\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::OpenDoubleQuote));
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 6);
+        assert_eq!(diagnostics[1].span.start.line, 3);
+        assert_eq!(diagnostics[1].span.start.column, 8);
+    }
+
+    #[test]
+    fn reports_independent_reopened_quote_windows_with_prefixed_later_arguments() {
+        let source = "\
+#!/bin/bash
+echo \"a
+\"$x\"b\" pre\"c
+\"$y\"d\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::OpenDoubleQuote));
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 6);
+        assert_eq!(diagnostics[1].span.start.line, 3);
+        assert_eq!(diagnostics[1].span.start.column, 11);
+    }
+
+    #[test]
     fn ignores_multiline_triple_quote_script_builders() {
         let source = "\
 #!/bin/bash

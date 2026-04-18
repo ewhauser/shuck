@@ -9261,6 +9261,7 @@ impl<'a> WordFactCollector<'a> {
                     static_word_text(&command.name, self.source).as_deref() == Some("trap");
                 let variable_set_operand =
                     surface::simple_command_variable_set_operand(command, self.source);
+                let mut saw_open_double_quote = false;
                 if surface_command_name.as_deref() == Some("unset") {
                     for word in &command.args {
                         self.surface.record_unset_array_target_word(word);
@@ -9271,14 +9272,24 @@ impl<'a> WordFactCollector<'a> {
                         .collect_split_suspect_closing_quote_fragment_in_words(&command.args);
                 }
                 for word in &command.args {
-                    let surface_word_context = if variable_set_operand
+                    let base_surface_word_context = if variable_set_operand
                         .is_some_and(|operand| std::ptr::eq(word, operand))
                     {
                         surface_context.variable_set_operand()
                     } else {
                         surface_context
                     };
-                    self.surface.collect_word(word, surface_word_context);
+                    let surface_word_context = if saw_open_double_quote
+                        && !surface::word_has_reopened_double_quote_window(
+                            word,
+                            self.source,
+                            surface_command_name.as_deref(),
+                        ) {
+                        base_surface_word_context.without_open_double_quote_scan()
+                    } else {
+                        base_surface_word_context
+                    };
+                    saw_open_double_quote |= self.surface.collect_word(word, surface_word_context);
                     if !trap_command {
                         self.push_word(
                             word,
@@ -9362,7 +9373,9 @@ impl<'a> WordFactCollector<'a> {
                 let surface_context = SurfaceScanContext::new(None, self.nested_word_command);
                 for operand in &command.operands {
                     match operand {
-                        DeclOperand::Flag(word) => self.surface.collect_word(word, surface_context),
+                        DeclOperand::Flag(word) => {
+                            self.surface.collect_word(word, surface_context);
+                        }
                         DeclOperand::Dynamic(word) => {
                             self.surface.collect_word(word, surface_context);
                             self.push_word(
@@ -19490,6 +19503,193 @@ if [[ \"$@\" =~ x ]]; then :; fi
                 .expect("expected pipeline tail");
             assert_eq!(tail.static_utility_name(), Some("kill"));
             assert!(tail.static_utility_name_is("kill"));
+        });
+    }
+
+    #[test]
+    fn open_double_quote_surface_facts_track_live_expansion_gaps() {
+        let source = "\
+#!/bin/bash
+echo \"#!/bin/bash
+
+# LLVMFuzzerTestOneInput for fuzzer detection.
+this_dir=\\$(dirname \"\\$0\")
+if [[ \"\\$@\" =~ (^| )-runs=[0-9]+($| ) ]]
+then
+  mem_settings='-Xmx1900m:-Xss900k'
+else
+  mem_settings='-Xmx2048m:-Xss1024k'
+fi
+
+LD_LIBRARY_PATH=\"$JVM_LD_LIBRARY_PATH\":\\$this_dir \\
+  \\$this_dir/jazzer_driver                        \\
+  --agent_path=\\$this_dir/jazzer_agent_deploy.jar \\
+  --cp=$RUNTIME_CLASSPATH                         \\
+  --target_class=$fuzzer_basename                 \\
+  --jvm_args=\"\\$mem_settings\"                     \\
+  \\$@\" > $OUT/$fuzzer_basename
+";
+
+        with_facts(source, None, |_, facts| {
+            let open = facts
+                .open_double_quote_fragments()
+                .iter()
+                .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+                .collect::<Vec<_>>();
+            let close = facts
+                .suspect_closing_quote_fragments()
+                .iter()
+                .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+                .collect::<Vec<_>>();
+
+            assert_eq!(open, vec![(6, 11)]);
+            assert_eq!(close, vec![(13, 17)]);
+        });
+    }
+
+    #[test]
+    fn open_double_quote_surface_facts_ignore_escaped_literal_gaps() {
+        let source = "\
+#!/bin/bash
+echo \"#!/bin/bash
+# LLVMFuzzerTestOneInput for fuzzer detection.
+this_dir=\\$(dirname \"\\$0\")
+mem_settings='-Xmx2048m:-Xss1024k'
+if [[ \"\\$@\" =~ (^| )-runs=[0-9]+($| ) ]]; then
+  mem_settings='-Xmx1900m:-Xss900k'
+fi
+LD_LIBRARY_PATH=\\\"\\$JVM_LD_LIBRARY_PATH\\\":\\$this_dir \\
+\\$this_dir/jazzer_driver --agent_path=\\$this_dir/jazzer_agent_deploy.jar \\
+--cp=$RUNTIME_CLASSPATH \\
+--target_class=$fuzzer_basename \\
+--jvm_args=\"\\$mem_settings\" \\
+\"\\$@\"\" > $OUT/$fuzzer_basename
+";
+
+        with_facts(source, None, |_, facts| {
+            assert!(facts.open_double_quote_fragments().is_empty());
+            assert!(facts.suspect_closing_quote_fragments().is_empty());
+        });
+    }
+
+    #[test]
+    fn open_double_quote_surface_facts_track_literal_gap_fragments() {
+        let source = "\
+#!/bin/sh
+echo \"help text
+say \"configure\" now
+\"
+";
+
+        with_facts(source, None, |_, facts| {
+            let open = facts
+                .open_double_quote_fragments()
+                .iter()
+                .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+                .collect::<Vec<_>>();
+            let close = facts
+                .suspect_closing_quote_fragments()
+                .iter()
+                .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+                .collect::<Vec<_>>();
+
+            assert_eq!(open, vec![(2, 6)]);
+            assert_eq!(close, vec![(3, 5)]);
+        });
+    }
+
+    #[test]
+    fn open_double_quote_surface_facts_track_backslash_prefixed_literal_gap_fragments() {
+        let source = "\
+#!/bin/sh
+echo \"line one
+line two\"\\foo\"tail\"
+";
+
+        with_facts(source, None, |_, facts| {
+            let open = facts
+                .open_double_quote_fragments()
+                .iter()
+                .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+                .collect::<Vec<_>>();
+            let close = facts
+                .suspect_closing_quote_fragments()
+                .iter()
+                .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+                .collect::<Vec<_>>();
+
+            assert_eq!(open, vec![(2, 6)]);
+            assert_eq!(close, vec![(3, 9)]);
+        });
+    }
+
+    #[test]
+    fn open_double_quote_surface_facts_ignore_empty_prefix_multiline_quotes_with_literal_suffix() {
+        let source = "\
+#!/bin/sh
+echo \"\"\"line one
+line two\"suffix
+";
+
+        with_facts(source, None, |_, facts| {
+            assert!(facts.open_double_quote_fragments().is_empty());
+            assert!(facts.suspect_closing_quote_fragments().is_empty());
+        });
+    }
+
+    #[test]
+    fn open_double_quote_surface_facts_ignore_valid_multiline_quotes_with_suffix_expansion() {
+        let source = "\
+#!/bin/sh
+echo \"line one
+line two\"$suffix
+";
+
+        with_facts(source, None, |_, facts| {
+            assert!(facts.open_double_quote_fragments().is_empty());
+            assert!(facts.suspect_closing_quote_fragments().is_empty());
+        });
+    }
+
+    #[test]
+    fn open_double_quote_surface_facts_ignore_empty_prefix_multiline_quotes_with_suffix_expansion()
+    {
+        let source = "\
+#!/bin/sh
+echo \"\"\"line one
+line two\"$suffix
+";
+
+        with_facts(source, None, |_, facts| {
+            assert!(facts.open_double_quote_fragments().is_empty());
+            assert!(facts.suspect_closing_quote_fragments().is_empty());
+        });
+    }
+
+    #[test]
+    fn open_double_quote_surface_facts_report_only_first_fragment_per_word() {
+        let source = "\
+#!/bin/sh
+echo \"help text
+say \"configure\" now
+then \"install\" later
+\"\"\"
+";
+
+        with_facts(source, None, |_, facts| {
+            let open = facts
+                .open_double_quote_fragments()
+                .iter()
+                .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+                .collect::<Vec<_>>();
+            let close = facts
+                .suspect_closing_quote_fragments()
+                .iter()
+                .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+                .collect::<Vec<_>>();
+
+            assert_eq!(open, vec![(2, 6)]);
+            assert_eq!(close, vec![(3, 5)]);
         });
     }
 
