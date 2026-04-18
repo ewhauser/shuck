@@ -60,7 +60,7 @@ impl<'a> SurfaceScanContext<'a> {
         }
     }
 
-    fn without_open_double_quote_scan(self) -> Self {
+    pub(super) fn without_open_double_quote_scan(self) -> Self {
         Self {
             collect_open_double_quotes: false,
             ..self
@@ -206,7 +206,8 @@ impl<'a> SurfaceFragmentSink<'a> {
         }
     }
 
-    pub(super) fn collect_word(&mut self, word: &Word, context: SurfaceScanContext<'_>) {
+    pub(super) fn collect_word(&mut self, word: &Word, context: SurfaceScanContext<'_>) -> bool {
+        let open_double_quote_count = self.facts.open_double_quotes.len();
         collect_unicode_smart_quote_spans_in_word_parts(
             &word.parts,
             self.source,
@@ -217,6 +218,7 @@ impl<'a> SurfaceFragmentSink<'a> {
             self.collect_open_double_quote_fragments(word, context.command_name);
         }
         self.collect_word_parts(&word.parts, context);
+        self.facts.open_double_quotes.len() > open_double_quote_count
     }
 
     pub(super) fn collect_heredoc_body(
@@ -647,7 +649,9 @@ impl<'a> SurfaceFragmentSink<'a> {
                     }
                     self.collect_patterns(patterns, context);
                 }
-                PatternPart::Word(word) => self.collect_word(word, context),
+                PatternPart::Word(word) => {
+                    self.collect_word(word, context);
+                }
                 PatternPart::CharClass(_) if context.collect_pattern_charclasses => {
                     self.facts.pattern_charclass_spans.push(span);
                     if context.nested_word_command {
@@ -705,7 +709,9 @@ impl<'a> SurfaceFragmentSink<'a> {
     ) {
         for redirect in redirects {
             match redirect.word_target() {
-                Some(word) => self.collect_word(word, context),
+                Some(word) => {
+                    self.collect_word(word, context);
+                }
                 None => {
                     let heredoc = redirect.heredoc().expect("expected heredoc redirect");
                     if heredoc.delimiter.expands_body {
@@ -1477,6 +1483,31 @@ fn closing_double_quote_span(span: Span, source: &str) -> Option<Span> {
     let quote_offset = text.rfind('"')?;
     let start = span.start.advanced_by(&text[..quote_offset]);
     Some(Span::from_positions(start, start))
+}
+
+fn open_double_quote_gap_looks_suspicious(part: &WordPartNode, source: &str) -> bool {
+    match &part.kind {
+        WordPart::Literal(_) => literal_open_double_quote_gap_looks_suspicious(part.span, source),
+        WordPart::ZshQualifiedGlob(_)
+        | WordPart::SingleQuoted { .. }
+        | WordPart::DoubleQuoted { .. }
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ProcessSubstitution { .. } => false,
+        _ => true,
+    }
+}
+
+fn literal_open_double_quote_gap_looks_suspicious(span: Span, source: &str) -> bool {
+    let text = span.slice(source).trim();
+    if text.is_empty() {
+        return false;
+    }
+
+    if text.starts_with('\\') {
+        return false;
+    }
+
+    true
 }
 
 fn is_nested_parameter_expansion(parameter: &shuck_ast::ParameterExpansion, source: &str) -> bool {
