@@ -353,4 +353,38 @@ mod tests {
             vec!["-z"]
         );
     }
+
+    #[test]
+    fn reports_quoted_string_unary_operators_in_simple_tests() {
+        let source = "\
+#!/bin/sh
+[ \"-n\" \"$(grep foo input.txt)\" ]
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::GrepOutputInTest));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["\"-n\""]
+        );
+    }
+
+    #[test]
+    fn reports_quoted_logical_connectors_in_simple_tests() {
+        let source = "\
+#!/bin/sh
+[ foo \"-o\" \"$(grep foo input.txt)\" ]
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::GrepOutputInTest));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["\"$(grep foo input.txt)\" "]
+        );
+    }
 }
