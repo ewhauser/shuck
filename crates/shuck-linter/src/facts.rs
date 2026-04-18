@@ -423,10 +423,7 @@ fn parse_simple_test_expression_segment<'a>(
             .as_deref()
             .is_some_and(simple_test_is_string_unary_operator) =>
         {
-            Some(SimpleTestExpression::StringUnary {
-                operator,
-                operand,
-            })
+            Some(SimpleTestExpression::StringUnary { operator, operand })
         }
         [] | [_, _, ..] => None,
     }
