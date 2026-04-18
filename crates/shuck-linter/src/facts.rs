@@ -18038,11 +18038,7 @@ grep -e'*start' data.txt
                     false,
                 ),
                 (
-                    vec![(
-                        "-eo",
-                        Some("o"),
-                        GrepPatternSourceKind::ShortOptionAttached,
-                    )],
+                    vec![("-eo", Some("o"), GrepPatternSourceKind::ShortOptionAttached,)],
                     false,
                 ),
                 (
@@ -18071,35 +18067,19 @@ grep -e'*start' data.txt
                     true,
                 ),
                 (
-                    vec![(
-                        "foo*",
-                        Some("foo*"),
-                        GrepPatternSourceKind::ImplicitOperand,
-                    )],
+                    vec![("foo*", Some("foo*"), GrepPatternSourceKind::ImplicitOperand,)],
                     false,
                 ),
                 (
-                    vec![(
-                        "foo*",
-                        Some("foo*"),
-                        GrepPatternSourceKind::ImplicitOperand,
-                    )],
+                    vec![("foo*", Some("foo*"), GrepPatternSourceKind::ImplicitOperand,)],
                     false,
                 ),
                 (
-                    vec![(
-                        "foo*",
-                        Some("foo*"),
-                        GrepPatternSourceKind::ImplicitOperand,
-                    )],
+                    vec![("foo*", Some("foo*"), GrepPatternSourceKind::ImplicitOperand,)],
                     false,
                 ),
                 (
-                    vec![(
-                        "foo*",
-                        Some("foo*"),
-                        GrepPatternSourceKind::ImplicitOperand,
-                    )],
+                    vec![("foo*", Some("foo*"), GrepPatternSourceKind::ImplicitOperand,)],
                     false,
                 ),
                 (

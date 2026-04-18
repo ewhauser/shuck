@@ -180,6 +180,9 @@ mod tests {
         assert_eq!(map.code_for_rule(Rule::DuplicateShebangFlag), Some(2096));
         assert_eq!(map.code_for_rule(Rule::BashFileSlurp), Some(3034));
         assert_eq!(map.code_for_rule(Rule::BackslashBeforeCommand), Some(1012));
-        assert_eq!(map.code_for_rule(Rule::LeadingGlobInGrepPattern), Some(2063));
+        assert_eq!(
+            map.code_for_rule(Rule::LeadingGlobInGrepPattern),
+            Some(2063)
+        );
     }
 }
