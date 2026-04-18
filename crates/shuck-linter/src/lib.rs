@@ -721,6 +721,34 @@ set_flag() {
     }
 
     #[test]
+    fn sourced_helper_reads_keep_c150_live_for_subshell_assignments() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        fs::write(
+            &main,
+            "\
+#!/bin/sh
+(flag=1)
+. ./helper.sh
+",
+        )
+        .unwrap();
+        fs::write(&helper, "printf '%s\\n' \"$flag\"\n").unwrap();
+
+        let source = fs::read_to_string(&main).unwrap();
+        let diagnostics = lint_path_for_rule(&main, Rule::SubshellLocalAssignment);
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(&source))
+                .collect::<Vec<_>>(),
+            vec!["flag"]
+        );
+    }
+
+    #[test]
     fn quoted_heredoc_generated_shell_text_does_not_report_c006() {
         let diagnostics = lint_for_rule(
             "\

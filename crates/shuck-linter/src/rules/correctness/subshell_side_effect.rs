@@ -10,19 +10,20 @@ impl Violation for SubshellSideEffect {
     }
 
     fn message(&self) -> String {
-        format!(
-            "assignment to `{}` only affects the child shell here",
-            self.name
-        )
+        format!("`{}` may still resolve to the outer-shell value here", self.name)
     }
 }
 
 pub fn subshell_side_effect(checker: &mut Checker) {
-    let spans = checker.facts().subshell_side_effect_spans().to_vec();
+    let sites = checker.facts().subshell_later_use_sites().to_vec();
 
-    for span in spans {
-        let name = span.slice(checker.source()).to_owned();
-        checker.report(SubshellSideEffect { name }, span);
+    for site in sites {
+        checker.report(
+            SubshellSideEffect {
+                name: site.name.to_string(),
+            },
+            site.span,
+        );
     }
 }
 
@@ -49,7 +50,7 @@ printf '%s\\n' \"$items\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["count", "items"]
+            vec!["$count", "$items"]
         );
     }
 
@@ -68,7 +69,7 @@ echo \"$count\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["count"]
+            vec!["$count"]
         );
     }
 
@@ -82,7 +83,7 @@ printf '%s\\n' \"${value:=outer}\"
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.slice(source), "value");
+        assert_eq!(diagnostics[0].span.slice(source), "${value:=outer}");
     }
 
     #[test]
@@ -103,7 +104,7 @@ echo \"$value\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["value"]
+            vec!["$value"]
         );
     }
 

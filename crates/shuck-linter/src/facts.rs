@@ -2509,8 +2509,8 @@ pub struct LinterFacts<'a> {
     condition_command_substitution_spans: Vec<Span>,
     backtick_command_name_spans: Vec<Span>,
     dollar_question_after_command_spans: Vec<Span>,
-    subshell_local_assignment_spans: Vec<Span>,
-    subshell_side_effect_spans: Vec<Span>,
+    subshell_assignment_sites: Vec<NamedSpan>,
+    subshell_later_use_sites: Vec<NamedSpan>,
     unused_heredoc_spans: Vec<Span>,
     heredoc_missing_end_spans: Vec<Span>,
     heredoc_closer_not_alone_spans: Vec<Span>,
@@ -2860,12 +2860,12 @@ impl<'a> LinterFacts<'a> {
         &self.dollar_question_after_command_spans
     }
 
-    pub fn subshell_local_assignment_spans(&self) -> &[Span] {
-        &self.subshell_local_assignment_spans
+    pub fn subshell_assignment_sites(&self) -> &[NamedSpan] {
+        &self.subshell_assignment_sites
     }
 
-    pub fn subshell_side_effect_spans(&self) -> &[Span] {
-        &self.subshell_side_effect_spans
+    pub fn subshell_later_use_sites(&self) -> &[NamedSpan] {
+        &self.subshell_later_use_sites
     }
 
     pub fn unused_heredoc_spans(&self) -> &[Span] {
@@ -3513,9 +3513,8 @@ impl<'a> LinterFactsBuilder<'a> {
             condition_command_substitution_spans,
             backtick_command_name_spans,
             dollar_question_after_command_spans,
-            subshell_local_assignment_spans: nonpersistent_assignment_spans
-                .subshell_local_assignment_spans,
-            subshell_side_effect_spans: nonpersistent_assignment_spans.subshell_side_effect_spans,
+            subshell_assignment_sites: nonpersistent_assignment_spans.subshell_assignment_sites,
+            subshell_later_use_sites: nonpersistent_assignment_spans.subshell_later_use_sites,
             unused_heredoc_spans: heredoc_summary.unused_heredoc_spans,
             heredoc_missing_end_spans: heredoc_summary.heredoc_missing_end_spans,
             heredoc_closer_not_alone_spans: heredoc_summary.heredoc_closer_not_alone_spans,
@@ -7530,11 +7529,12 @@ fn build_nonpersistent_assignment_spans(
     semantic: &SemanticModel,
     commands: &[CommandFact<'_>],
 ) -> NonpersistentAssignmentSpans {
-    let mut candidate_bindings_by_name: FxHashMap<Name, Vec<CandidateSubshellAssignment>> =
+    let mut candidate_bindings_by_scope: FxHashMap<(Name, usize, usize), CandidateSubshellAssignment> =
         FxHashMap::default();
     let mut persistent_reset_offsets_by_name: FxHashMap<Name, Vec<usize>> = FxHashMap::default();
     let mut command_id_query_offsets = Vec::new();
     let mut relevant_references = Vec::new();
+    let mut relevant_synthetic_reads = Vec::new();
 
     for binding in semantic.bindings() {
         if !is_reportable_subshell_assignment(binding.kind, binding.attributes) {
@@ -7550,15 +7550,36 @@ fn build_nonpersistent_assignment_spans(
             continue;
         };
 
-        candidate_bindings_by_name
-            .entry(binding.name.clone())
-            .or_default()
-            .push(CandidateSubshellAssignment {
+        candidate_bindings_by_scope
+            .entry((
+                binding.name.clone(),
+                nonpersistent_scope.span.start.offset,
+                nonpersistent_scope.span.end.offset,
+            ))
+            .or_insert(CandidateSubshellAssignment {
                 binding_id: binding.id,
                 assignment_span: binding.span,
                 subshell_start: nonpersistent_scope.span.start.offset,
                 subshell_end: nonpersistent_scope.span.end.offset,
             });
+    }
+
+    let mut candidate_bindings_by_name: FxHashMap<Name, Vec<CandidateSubshellAssignment>> =
+        FxHashMap::default();
+    for ((name, _, _), candidate) in candidate_bindings_by_scope {
+        candidate_bindings_by_name
+            .entry(name)
+            .or_default()
+            .push(candidate);
+    }
+    for candidates in candidate_bindings_by_name.values_mut() {
+        candidates.sort_by_key(|candidate| {
+            (
+                candidate.subshell_end,
+                candidate.assignment_span.start.offset,
+                candidate.assignment_span.end.offset,
+            )
+        });
     }
 
     for binding in semantic.bindings() {
@@ -7594,6 +7615,16 @@ fn build_nonpersistent_assignment_spans(
         }
     }
 
+    for synthetic_read in semantic.synthetic_reads() {
+        if !is_reportable_nonpersistent_assignment_name(synthetic_read.name()) {
+            continue;
+        }
+        if candidate_bindings_by_name.contains_key(synthetic_read.name()) {
+            command_id_query_offsets.push(synthetic_read.span().start.offset);
+            relevant_synthetic_reads.push(synthetic_read);
+        }
+    }
+
     let innermost_command_ids_by_offset =
         build_innermost_command_ids_by_offset(commands, command_id_query_offsets);
     let command_end_offsets = commands
@@ -7626,8 +7657,8 @@ fn build_nonpersistent_assignment_spans(
             })
             .collect();
 
-    let mut later_use_spans = Vec::new();
-    let mut side_effect_spans = Vec::new();
+    let mut later_use_sites = Vec::new();
+    let mut assignment_sites = Vec::new();
     for reference in relevant_references {
         let Some(candidate_ids) = candidate_bindings_by_name.get(&reference.name) else {
             continue;
@@ -7642,29 +7673,60 @@ fn build_nonpersistent_assignment_spans(
             reference.span.start.offset,
         );
         let resolved = semantic.resolved_binding(reference.id);
-        let mut matched_candidate = false;
-        for candidate in candidate_ids {
-            if reference.span.start.offset <= candidate.subshell_end
-                || has_intervening_persistent_reset(
+        if let Some(candidate) = candidate_ids.iter().rev().find(|candidate| {
+            reference.span.start.offset > candidate.subshell_end
+                && !has_intervening_persistent_reset(
                     reset_offsets,
                     candidate.subshell_end,
                     reference.span.start.offset,
                     event_command_id,
                 )
-                || !resolved.is_none_or(|resolved| {
+                && resolved.is_none_or(|resolved| {
                     resolved.id != candidate.binding_id
                         && resolved.span.start.offset < candidate.subshell_start
                 })
-            {
-                continue;
-            }
-
-            side_effect_spans.push(candidate.assignment_span);
-            matched_candidate = true;
+        }) {
+            assignment_sites.push(NamedSpan {
+                name: reference.name.clone(),
+                span: candidate.assignment_span,
+            });
+            later_use_sites.push(NamedSpan {
+                name: reference.name.clone(),
+                span: reference.span,
+            });
         }
+    }
 
-        if matched_candidate {
-            later_use_spans.push(reference.span);
+    for synthetic_read in relevant_synthetic_reads {
+        let Some(candidate_ids) = candidate_bindings_by_name.get(synthetic_read.name()) else {
+            continue;
+        };
+
+        let reset_offsets = persistent_reset_offsets_by_name
+            .get(synthetic_read.name())
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        let event_command_id = precomputed_command_id_for_offset(
+            &innermost_command_ids_by_offset,
+            synthetic_read.span().start.offset,
+        );
+        if let Some(candidate) = candidate_ids.iter().rev().find(|candidate| {
+            synthetic_read.span().start.offset > candidate.subshell_end
+                && !has_intervening_persistent_reset(
+                    reset_offsets,
+                    candidate.subshell_end,
+                    synthetic_read.span().start.offset,
+                    event_command_id,
+                )
+        }) {
+            assignment_sites.push(NamedSpan {
+                name: synthetic_read.name().clone(),
+                span: candidate.assignment_span,
+            });
+            later_use_sites.push(NamedSpan {
+                name: synthetic_read.name().clone(),
+                span: synthetic_read.span(),
+            });
         }
     }
 
@@ -7684,39 +7746,37 @@ fn build_nonpersistent_assignment_spans(
             .get(&binding.name)
             .map(Vec::as_slice)
             .unwrap_or(&[]);
-        let mut matched_candidate = false;
-        for candidate in candidate_ids {
-            if binding.span.start.offset <= candidate.subshell_end
-                || has_intervening_persistent_reset(
+        if let Some(candidate) = candidate_ids.iter().rev().find(|candidate| {
+            binding.span.start.offset > candidate.subshell_end
+                && !has_intervening_persistent_reset(
                     reset_offsets,
                     candidate.subshell_end,
                     binding.span.start.offset,
                     None,
                 )
-            {
-                continue;
-            }
-
-            side_effect_spans.push(candidate.assignment_span);
-            matched_candidate = true;
-        }
-
-        if matched_candidate {
-            later_use_spans.push(binding.span);
+        }) {
+            assignment_sites.push(NamedSpan {
+                name: binding.name.clone(),
+                span: candidate.assignment_span,
+            });
+            later_use_sites.push(NamedSpan {
+                name: binding.name.clone(),
+                span: binding.span,
+            });
         }
     }
 
     let mut seen = FxHashSet::default();
-    later_use_spans.retain(|span| seen.insert(FactSpan::new(*span)));
-    later_use_spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    later_use_sites.retain(|site| seen.insert((FactSpan::new(site.span), site.name.clone())));
+    later_use_sites.sort_by_key(|site| (site.span.start.offset, site.span.end.offset));
 
     seen.clear();
-    side_effect_spans.retain(|span| seen.insert(FactSpan::new(*span)));
-    side_effect_spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    assignment_sites.retain(|site| seen.insert((FactSpan::new(site.span), site.name.clone())));
+    assignment_sites.sort_by_key(|site| (site.span.start.offset, site.span.end.offset));
 
     NonpersistentAssignmentSpans {
-        subshell_local_assignment_spans: later_use_spans,
-        subshell_side_effect_spans: side_effect_spans,
+        subshell_assignment_sites: assignment_sites,
+        subshell_later_use_sites: later_use_sites,
     }
 }
 
@@ -7783,10 +7843,16 @@ struct NonpersistentScopeSpan {
     span: Span,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NamedSpan {
+    pub name: Name,
+    pub span: Span,
+}
+
 #[derive(Debug, Default)]
 struct NonpersistentAssignmentSpans {
-    subshell_local_assignment_spans: Vec<Span>,
-    subshell_side_effect_spans: Vec<Span>,
+    subshell_assignment_sites: Vec<NamedSpan>,
+    subshell_later_use_sites: Vec<NamedSpan>,
 }
 
 #[derive(Debug, Clone, Copy)]
