@@ -41,6 +41,7 @@ read -p prompt name
 read -\"$mode\" name
 printf -v out '%s' foo
 export -fn greet
+command export -fn greet
 trap -p EXIT
 wait -n
 ulimit -n
@@ -48,13 +49,23 @@ type -P printf
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::WaitOption));
 
-        assert_eq!(diagnostics.len(), 8);
+        assert_eq!(diagnostics.len(), 9);
         assert_eq!(
             diagnostics
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["-p", "-\"$mode\"", "-v", "-fn", "-p", "-n", "-n", "-P"]
+            vec![
+                "-p",
+                "-\"$mode\"",
+                "-v",
+                "-fn",
+                "-fn",
+                "-p",
+                "-n",
+                "-n",
+                "-P"
+            ]
         );
     }
 

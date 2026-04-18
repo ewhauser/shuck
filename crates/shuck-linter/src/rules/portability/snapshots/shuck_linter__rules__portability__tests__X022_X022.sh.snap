@@ -1,6 +1,5 @@
 ---
 source: crates/shuck-linter/src/rules/portability/mod.rs
-assertion_line: 175
 ---
 X022 this builtin option is not portable in `sh` scripts
  --> <source>:2:6
@@ -21,25 +20,31 @@ X022 this builtin option is not portable in `sh` scripts
   |
 
 X022 this builtin option is not portable in `sh` scripts
- --> <source>:5:6
+ --> <source>:5:16
   |
-5 | trap -p EXIT
+5 | command export -fn greet
   |
 
 X022 this builtin option is not portable in `sh` scripts
  --> <source>:6:6
   |
-6 | wait -n
+6 | trap -p EXIT
   |
 
 X022 this builtin option is not portable in `sh` scripts
- --> <source>:7:8
+ --> <source>:7:6
   |
-7 | ulimit -n
+7 | wait -n
   |
 
 X022 this builtin option is not portable in `sh` scripts
- --> <source>:8:6
+ --> <source>:8:8
   |
-8 | type -P printf
+8 | ulimit -n
+  |
+
+X022 this builtin option is not portable in `sh` scripts
+ --> <source>:9:6
+  |
+9 | type -P printf
   |

@@ -13660,14 +13660,23 @@ fn first_nonportable_sh_builtin_option_span(
             .and_then(|declaration| {
                 matches!(declaration.kind, command::DeclarationKind::Export).then(|| ())
             })
-            .and_then(|_| {
-                let operands = normalized
-                    .declaration
-                    .as_ref()
-                    .expect("checked export declaration")
-                    .operands;
-                first_nonportable_sh_export_option_span(operands, source)
-            }),
+            .map_or_else(
+                || {
+                    first_nonportable_sh_option_span_in_words(
+                        normalized.body_args(),
+                        source,
+                        ShBuiltinOptionPolicy::AllowOnly("p"),
+                    )
+                },
+                |_| {
+                    let operands = normalized
+                        .declaration
+                        .as_ref()
+                        .expect("checked export declaration")
+                        .operands;
+                    first_nonportable_sh_export_option_span(operands, source)
+                },
+            ),
         "ulimit" => first_nonportable_sh_option_span_in_words(
             normalized.body_args(),
             source,
@@ -17446,6 +17455,7 @@ printf -v out '%s' foo
 printf -- -v out
 export -p
 export -fn foo
+command export -fn foo
 trap -p EXIT
 trap -- -p EXIT
 wait -n
@@ -17477,6 +17487,7 @@ type -P printf
                         "-p",
                         "-\"$mode\"",
                         "-v",
+                        "-fn",
                         "-fn",
                         "-p",
                         "-n",
