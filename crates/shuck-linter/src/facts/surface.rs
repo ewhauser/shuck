@@ -255,23 +255,22 @@ impl<'a> SurfaceFragmentSink<'a> {
     }
 
     pub(super) fn collect_split_suspect_closing_quote_fragment_in_words(&mut self, words: &[Word]) {
-        let Some(span) = words
+        for span in words
             .iter()
-            .find_map(|word| split_suspect_closing_quote_span(word, self.source))
-        else {
-            return;
-        };
-        if self
-            .facts
-            .suspect_closing_quotes
-            .iter()
-            .any(|fragment| fragment.span() == span)
+            .filter_map(|word| split_suspect_closing_quote_span(word, self.source))
         {
-            return;
+            if self
+                .facts
+                .suspect_closing_quotes
+                .iter()
+                .any(|fragment| fragment.span() == span)
+            {
+                continue;
+            }
+            self.facts
+                .suspect_closing_quotes
+                .push(SuspectClosingQuoteFragmentFact { span });
         }
-        self.facts
-            .suspect_closing_quotes
-            .push(SuspectClosingQuoteFragmentFact { span });
     }
 
     fn collect_single_quoted_fragments_in_heredoc_body_parts(

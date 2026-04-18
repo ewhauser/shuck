@@ -54,4 +54,24 @@ WantedBy=multi-user.target\"
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn reports_each_split_suspicious_closing_quote_in_echo_arguments() {
+        let source = "\
+#!/bin/bash
+echo \"alpha
+\"_beta \"gamma
+\"_delta
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::SuspectClosingQuote));
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start, diagnostics[0].span.end);
+        assert_eq!(diagnostics[1].span.start.line, 4);
+        assert_eq!(diagnostics[1].span.start.column, 1);
+        assert_eq!(diagnostics[1].span.start, diagnostics[1].span.end);
+    }
 }
