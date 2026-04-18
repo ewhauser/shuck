@@ -8954,7 +8954,7 @@ impl<'a> WordFactCollector<'a> {
                         surface_context
                     };
                     let surface_word_context = if saw_open_double_quote
-                        && !surface::word_has_leading_reopened_double_quote_window(
+                        && !surface::word_has_reopened_double_quote_window(
                             word,
                             self.source,
                             surface_command_name.as_deref(),

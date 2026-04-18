@@ -1333,7 +1333,7 @@ fn suspect_double_quote_spans(
         .collect()
 }
 
-pub(super) fn word_has_leading_reopened_double_quote_window(
+pub(super) fn word_has_reopened_double_quote_window(
     word: &Word,
     source: &str,
     command_name: Option<&str>,
@@ -1350,7 +1350,7 @@ pub(super) fn word_has_leading_reopened_double_quote_window(
             current,
             middle,
             next,
-        ) && (index == 0 || (index == 1 && double_quoted_part_is_empty(&word.parts[0], source)))
+        )
     })
 }
 
