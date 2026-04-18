@@ -1,8 +1,17 @@
 #!/bin/sh
 
-git branch -d `git branch --merged | grep -v '^*' | grep -v master | tr -d '\n'`
-printf '%s\n' prefix`uname`suffix `date`
+grep '*MAINTAINER' "$AUDIT_FILE"
+grep "*ENTRYPOINT" "$AUDIT_FILE"
+grep \*MAINTAINER "$AUDIT_FILE"
+grep *CMD "$AUDIT_FILE"
+grep -e '*LABEL' "$AUDIT_FILE"
+grep --regexp '*EXPOSE' "$AUDIT_FILE"
+grep -v '^*' "$AUDIT_FILE"
 
-printf '%s\n' "`uname`" "$(date)" $(date)
-stamp=`date`
-arr=(`printf '%s\n' one two`)
+grep 'MAINTAINER*' "$AUDIT_FILE"
+grep '.*MAINTAINER' "$AUDIT_FILE"
+grep -F '*MAINTAINER' "$AUDIT_FILE"
+grep -e'*MAINTAINER' "$AUDIT_FILE"
+grep --regexp='*MAINTAINER' "$AUDIT_FILE"
+grep '^*$' "$AUDIT_FILE"
+grep '^*foo' "$AUDIT_FILE"
