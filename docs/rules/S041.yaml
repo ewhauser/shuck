@@ -3,6 +3,7 @@ legacy_name: function-body-without-braces
 new_category: Style
 new_code: S041
 runtime_kind: ast
+shellcheck_code: SC1064
 shells:
   - sh
   - bash

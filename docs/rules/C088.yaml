@@ -3,6 +3,7 @@ legacy_name: mixed-and-or-in-condition
 new_category: Correctness
 new_code: C088
 runtime_kind: ast
+shellcheck_code: SC2077
 shells:
   - sh
   - bash

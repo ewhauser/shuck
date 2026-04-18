@@ -3,6 +3,7 @@ legacy_name: variable-as-command-name
 new_category: Correctness
 new_code: C131
 runtime_kind: ast
+shellcheck_code: SC2090
 shells:
   - sh
   - bash

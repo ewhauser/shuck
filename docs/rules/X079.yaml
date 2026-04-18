@@ -3,6 +3,7 @@ legacy_name: zsh-parameter-index-flag
 new_category: Portability
 new_code: X079
 runtime_kind: ast
+shellcheck_code: SC2301
 shells:
   - sh
   - bash

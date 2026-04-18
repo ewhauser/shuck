@@ -3,6 +3,7 @@ legacy_name: backslash-before-command
 new_category: Style
 new_code: S040
 runtime_kind: ast
+shellcheck_code: SC1012
 shells:
   - sh
   - bash
