@@ -13297,19 +13297,45 @@ fn collect_file_operand_words_after_prefix<'a>(
 }
 
 fn jq_file_operand_words<'a>(args: &[&'a Word], source: &str) -> Vec<&'a Word> {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum PendingOptionArgs {
+        Skip(usize),
+        NamedFileSource { seen_name: bool },
+    }
+
     let mut operands = Vec::new();
     let mut index = 0usize;
     let mut options_open = true;
-    let mut pending_args = 0usize;
+    let mut pending_args: Option<PendingOptionArgs> = None;
     let mut filter_from_file = false;
     let mut null_input = false;
     let mut consumed_filter = false;
+    let mut positional_args_mode = false;
 
     while let Some(word) = args.get(index) {
-        if pending_args > 0 {
-            pending_args -= 1;
-            index += 1;
-            continue;
+        if let Some(pending) = pending_args {
+            match pending {
+                PendingOptionArgs::Skip(remaining) => {
+                    if remaining > 1 {
+                        pending_args = Some(PendingOptionArgs::Skip(remaining - 1));
+                    } else {
+                        pending_args = None;
+                    }
+                    index += 1;
+                    continue;
+                }
+                PendingOptionArgs::NamedFileSource { seen_name: false } => {
+                    pending_args = Some(PendingOptionArgs::NamedFileSource { seen_name: true });
+                    index += 1;
+                    continue;
+                }
+                PendingOptionArgs::NamedFileSource { seen_name: true } => {
+                    operands.push(*word);
+                    pending_args = None;
+                    index += 1;
+                    continue;
+                }
+            }
         }
 
         let Some(text) = static_word_text(word, source) else {
@@ -13325,7 +13351,7 @@ fn jq_file_operand_words<'a>(args: &[&'a Word], source: &str) -> Vec<&'a Word> {
                 continue;
             }
 
-            if !null_input {
+            if !null_input && !positional_args_mode {
                 operands.push(*word);
             }
             index += 1;
@@ -13346,13 +13372,19 @@ fn jq_file_operand_words<'a>(args: &[&'a Word], source: &str) -> Vec<&'a Word> {
                 "-f" | "--from-file" => {
                     filter_from_file = true;
                     consumed_filter = true;
-                    pending_args = 1;
+                    pending_args = Some(PendingOptionArgs::Skip(1));
                 }
-                "--arg" | "--argjson" | "--rawfile" | "--slurpfile" | "--argfile" => {
-                    pending_args = 2;
+                "--arg" | "--argjson" => {
+                    pending_args = Some(PendingOptionArgs::Skip(2));
+                }
+                "--rawfile" | "--slurpfile" | "--argfile" => {
+                    pending_args = Some(PendingOptionArgs::NamedFileSource { seen_name: false });
                 }
                 "-L" | "--library-path" => {
-                    pending_args = 1;
+                    pending_args = Some(PendingOptionArgs::Skip(1));
+                }
+                "--args" | "--jsonargs" => {
+                    positional_args_mode = true;
                 }
                 _ if text.starts_with("--from-file=") => {
                     filter_from_file = true;
@@ -13361,9 +13393,8 @@ fn jq_file_operand_words<'a>(args: &[&'a Word], source: &str) -> Vec<&'a Word> {
                 _ if text.starts_with("--library-path=")
                     || text.starts_with("--arg=")
                     || text.starts_with("--argjson=")
-                    || text.starts_with("--rawfile=")
-                    || text.starts_with("--slurpfile=")
-                    || text.starts_with("--argfile=") => {}
+                    || text.starts_with("--args=")
+                    || text.starts_with("--jsonargs=") => {}
                 _ => {}
             }
             index += 1;
@@ -13377,7 +13408,7 @@ fn jq_file_operand_words<'a>(args: &[&'a Word], source: &str) -> Vec<&'a Word> {
             continue;
         }
 
-        if !null_input {
+        if !null_input && !positional_args_mode {
             operands.push(*word);
         }
         index += 1;
@@ -15642,6 +15673,45 @@ fi
                     .map(|fact| fact.word().span.slice(source))
                     .collect::<Vec<_>>(),
                 vec!["\"$cfg\""]
+            );
+        });
+    }
+
+    #[test]
+    fn parses_jq_input_modes_into_file_operands() {
+        let source = "\
+#!/bin/bash
+jq --args '$ARGS.positional[0]' \"$cfg\"
+jq --jsonargs '$ARGS.positional[0]' \"$cfg\"
+jq --rawfile cfg \"$cfg\" '.dns=$cfg'
+jq --slurpfile cfg \"$cfg\" '.dns=$cfg'
+jq --argfile cfg \"$cfg\" '.dns=$cfg'
+";
+
+        with_facts(source, None, |_, facts| {
+            let jq_commands = facts
+                .structural_commands()
+                .filter(|fact| fact.effective_name_is("jq"))
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                jq_commands
+                    .iter()
+                    .map(|command| {
+                        command
+                            .file_operand_words()
+                            .iter()
+                            .map(|word| word.span.slice(source))
+                            .collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>(),
+                vec![
+                    Vec::<&str>::new(),
+                    Vec::<&str>::new(),
+                    vec!["\"$cfg\""],
+                    vec!["\"$cfg\""],
+                    vec!["\"$cfg\""],
+                ]
             );
         });
     }
