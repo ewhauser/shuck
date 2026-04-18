@@ -309,6 +309,22 @@ greet
     }
 
     #[test]
+    fn quoted_static_calls_with_arguments_still_suppress_zero_arg_reports() {
+        let source = "\
+#!/usr/bin/env bash
+greet() { echo \"$1 $2\"; }
+\"greet\" ok yes
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn nested_set_commands_still_count_as_positional_parameter_resets() {
         let source = "\
 #!/bin/sh

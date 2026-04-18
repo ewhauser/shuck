@@ -1,6 +1,6 @@
 use shuck_ast::{
     Assignment, BuiltinCommand, Command, DeclClause, DeclOperand, Redirect, SimpleCommand, Span,
-    Word, WordPart,
+    Word,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -520,14 +520,7 @@ fn builtin_span(command: &BuiltinCommand) -> Span {
 }
 
 fn static_word_text(word: &Word, source: &str) -> Option<String> {
-    let mut result = String::new();
-    for (part, span) in word.parts_with_spans() {
-        match part {
-            WordPart::Literal(text) => result.push_str(text.as_str(source, span)),
-            _ => return None,
-        }
-    }
-    Some(result)
+    super::word::static_word_text(word, source)
 }
 
 #[cfg(test)]
@@ -664,6 +657,41 @@ mod tests {
             assert_eq!(normalized.wrappers, vec![wrapper], "{source}");
             assert!(normalized.body_words.is_empty(), "{source}");
         }
+    }
+
+    #[test]
+    fn normalize_command_tracks_quoted_static_command_names() {
+        let source = "\"printf\" '%s\\n' hi\n";
+        let command = parse_first_command(source);
+        let normalized = normalize_command(&command, source);
+
+        assert_eq!(normalized.literal_name.as_deref(), Some("printf"));
+        assert_eq!(normalized.effective_name.as_deref(), Some("printf"));
+        assert!(normalized.wrappers.is_empty());
+        assert_eq!(normalized.body_words.len(), 3);
+        assert_eq!(
+            normalized
+                .body_name_word()
+                .map(|word| word.span.slice(source)),
+            Some("\"printf\"")
+        );
+    }
+
+    #[test]
+    fn normalize_command_preserves_wrapper_markers_for_quoted_targets() {
+        let source = "command \"printf\" '%s\\n' hi\n";
+        let command = parse_first_command(source);
+        let normalized = normalize_command(&command, source);
+
+        assert_eq!(normalized.literal_name.as_deref(), Some("command"));
+        assert_eq!(normalized.effective_name.as_deref(), Some("printf"));
+        assert_eq!(normalized.wrappers, vec![WrapperKind::Command]);
+        assert_eq!(
+            normalized
+                .body_name_word()
+                .map(|word| word.span.slice(source)),
+            Some("\"printf\"")
+        );
     }
 
     #[test]
