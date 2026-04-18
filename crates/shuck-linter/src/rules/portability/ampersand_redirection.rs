@@ -1,4 +1,4 @@
-use shuck_ast::{RedirectKind, Span};
+use shuck_ast::RedirectKind;
 
 use crate::{Checker, Rule, ShellDialect, Violation};
 
@@ -25,10 +25,7 @@ pub fn ampersand_redirection(checker: &mut Checker) {
         .iter()
         .flat_map(|fact| fact.redirect_facts().iter())
         .filter(|redirect| redirect.redirect().kind == RedirectKind::OutputBoth)
-        .map(|redirect| {
-            let span = redirect.redirect().span;
-            Span::from_positions(span.start, span.start.advanced_by("&>"))
-        })
+        .map(|redirect| redirect.redirect().span)
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || AmpersandRedirection);
@@ -44,14 +41,16 @@ mod tests {
         let source = "\
 #!/bin/sh
 : &>out
+echo ok &> /dev/null
 ";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::AmpersandRedirection),
         );
 
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.slice(source), "&>");
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.slice(source), "&>out");
+        assert_eq!(diagnostics[1].span.slice(source), "&> /dev/null");
     }
 
     #[test]
