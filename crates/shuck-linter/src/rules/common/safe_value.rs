@@ -231,7 +231,10 @@ impl<'a> SafeValueIndex<'a> {
             self.word_is_safe(word, query)
         } else if let Some(words) = self.loop_bindings.get(&binding_key) {
             let words = words.to_vec();
-            !words.is_empty() && words.into_iter().all(|word| self.word_is_safe(word, query))
+            !words.is_empty()
+                && words.into_iter().all(|word| {
+                    !word_contains_special_parameter_slice(word) && self.word_is_safe(word, query)
+                })
         } else {
             false
         };
@@ -543,6 +546,37 @@ fn safe_numeric_shell_variable(name: &Name) -> bool {
     matches!(name.as_str(), "PPID")
 }
 
+fn word_contains_special_parameter_slice(word: &Word) -> bool {
+    word.parts.iter().any(|part| {
+        part_contains_special_parameter_slice(&part.kind)
+            && !matches!(part.kind, WordPart::DoubleQuoted { .. })
+    })
+}
+
+fn part_contains_special_parameter_slice(part: &WordPart) -> bool {
+    match part {
+        WordPart::DoubleQuoted { parts, .. } => parts
+            .iter()
+            .any(|part| part_contains_special_parameter_slice(&part.kind)),
+        WordPart::Substring { reference, .. } => special_parameter_slice_reference(reference),
+        WordPart::Parameter(parameter) => parameter_contains_special_parameter_slice(parameter),
+        _ => false,
+    }
+}
+
+fn parameter_contains_special_parameter_slice(parameter: &ParameterExpansion) -> bool {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Slice { reference, .. }) => {
+            special_parameter_slice_reference(reference)
+        }
+        ParameterExpansionSyntax::Bourne(_) | ParameterExpansionSyntax::Zsh(_) => false,
+    }
+}
+
+fn special_parameter_slice_reference(reference: &VarRef) -> bool {
+    matches!(reference.name.as_str(), "@" | "*")
+}
+
 #[cfg(test)]
 mod tests {
     use shuck_ast::Command;
@@ -735,6 +769,64 @@ printf '%s\\n' $PPID
         };
 
         assert!(!safe_values.word_is_safe(&command.args[1], SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn loop_bindings_derived_from_at_slices_stay_unsafe() {
+        let source = "\
+#!/bin/bash
+f() {
+  for v in ${@:2}; do
+    del $v
+  done
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "$v"
+            })
+            .expect("expected loop-body command argument");
+
+        assert!(!safe_values.word_is_safe(word_fact.word(), SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn direct_at_slices_do_not_become_safe_value_failures() {
+        let source = "\
+#!/bin/bash
+f() {
+  dns_set ${@:2}
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "${@:2}"
+            })
+            .expect("expected direct slice command argument");
+
+        assert!(safe_values.word_is_safe(word_fact.word(), SafeValueQuery::Argv));
     }
 
     #[test]
