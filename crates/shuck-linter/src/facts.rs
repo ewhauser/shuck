@@ -2285,6 +2285,7 @@ pub struct LinterFacts<'a> {
     compound_assignment_value_word_spans: FxHashSet<FactSpan>,
     words: Vec<WordFact<'a>>,
     word_index: FxHashMap<FactSpan, Vec<usize>>,
+    unquoted_command_argument_use_offsets: FxHashMap<Name, Vec<usize>>,
     array_assignment_split_word_indices: Vec<usize>,
     function_headers: Vec<FunctionHeaderFact<'a>>,
     function_body_without_braces_spans: Vec<Span>,
@@ -2531,6 +2532,18 @@ impl<'a> LinterFacts<'a> {
             .get(&FactSpan::new(span))
             .and_then(|indices| indices.first().copied())
             .map(|index| &self.words[index])
+    }
+
+    pub fn has_later_unquoted_command_argument_use(
+        &self,
+        name: &Name,
+        after_offset: usize,
+    ) -> bool {
+        self.unquoted_command_argument_use_offsets
+            .get(name)
+            .is_some_and(|offsets| {
+                offsets.partition_point(|offset| *offset <= after_offset) < offsets.len()
+            })
     }
 
     pub fn array_assignment_split_word_facts(&self) -> impl Iterator<Item = &WordFact<'a>> + '_ {
@@ -3233,6 +3246,8 @@ impl<'a> LinterFactsBuilder<'a> {
         for (index, fact) in words.iter().enumerate() {
             word_index.entry(fact.key()).or_default().push(index);
         }
+        let unquoted_command_argument_use_offsets =
+            build_unquoted_command_argument_use_offsets(self.semantic, &words);
 
         LinterFacts {
             commands,
@@ -3251,6 +3266,7 @@ impl<'a> LinterFactsBuilder<'a> {
             compound_assignment_value_word_spans,
             words,
             word_index,
+            unquoted_command_argument_use_offsets,
             array_assignment_split_word_indices,
             function_headers,
             function_body_without_braces_spans,
@@ -3340,6 +3356,62 @@ fn build_echo_backslash_escape_word_spans(commands: &[CommandFact<'_>], source: 
     let mut seen = FxHashSet::default();
     spans.retain(|span| seen.insert(FactSpan::new(*span)));
     spans
+}
+
+fn build_unquoted_command_argument_use_offsets(
+    semantic: &SemanticModel,
+    words: &[WordFact<'_>],
+) -> FxHashMap<Name, Vec<usize>> {
+    let unquoted_command_argument_word_spans = words
+        .iter()
+        .filter(|fact| fact.expansion_context() == Some(ExpansionContext::CommandArgument))
+        .filter(|fact| fact.classification().quote == WordQuote::Unquoted)
+        .map(WordFact::span)
+        .collect::<Vec<_>>();
+    if unquoted_command_argument_word_spans.is_empty() {
+        return FxHashMap::default();
+    }
+
+    let references = semantic.references();
+    let mut reference_indices = references
+        .iter()
+        .enumerate()
+        .filter(|(_, reference)| {
+            !matches!(
+                reference.kind,
+                shuck_semantic::ReferenceKind::DeclarationName
+            )
+        })
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    reference_indices.sort_unstable_by_key(|&index| references[index].span.start.offset);
+
+    let mut offsets_by_name = FxHashMap::<Name, Vec<usize>>::default();
+    for word_span in unquoted_command_argument_word_spans {
+        let first_reference = reference_indices
+            .partition_point(|&index| references[index].span.start.offset < word_span.start.offset);
+        for &index in &reference_indices[first_reference..] {
+            let reference = &references[index];
+            if reference.span.start.offset > word_span.end.offset {
+                break;
+            }
+            if !contains_span(word_span, reference.span) {
+                continue;
+            }
+
+            offsets_by_name
+                .entry(reference.name.clone())
+                .or_default()
+                .push(word_span.start.offset);
+        }
+    }
+
+    for offsets in offsets_by_name.values_mut() {
+        offsets.sort_unstable();
+        offsets.dedup();
+    }
+
+    offsets_by_name
 }
 
 fn echo_uses_escape_interpreting_flag(command: &CommandFact<'_>) -> bool {
