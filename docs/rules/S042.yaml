@@ -3,7 +3,7 @@ legacy_name: ifs-equals-ambiguity
 new_category: Style
 new_code: S042
 runtime_kind: ast
-shellcheck_code: SC2280
+shellcheck_code: SC1097
 shells:
   - sh
   - bash

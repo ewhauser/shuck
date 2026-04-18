@@ -3,7 +3,7 @@ legacy_name: array-to-string-conversion
 new_category: Correctness
 new_code: C133
 runtime_kind: ast
-shellcheck_code: SC2381
+shellcheck_code: SC2178
 shells:
   - sh
   - bash

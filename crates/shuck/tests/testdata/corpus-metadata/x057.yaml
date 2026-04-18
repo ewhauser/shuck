@@ -1,3 +1,0 @@
-comparison_target_notes:
-  - current_shellcheck_code: "SC3064"
-    reason: "The nix-provided ShellCheck in this workspace reports legacy `$[...]` arithmetic portability findings as SC3007, while SC3064 is not the compatibility target for this oracle build."

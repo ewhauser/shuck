@@ -3,7 +3,6 @@ legacy_name: if-elif-bash-test
 new_category: Portability
 new_code: X033
 runtime_kind: ast
-shellcheck_code: SC3011
 shells:
   - sh
   - bash

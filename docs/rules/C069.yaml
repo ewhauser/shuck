@@ -3,7 +3,7 @@ legacy_name: backslash-before-closing-backtick
 new_category: Correctness
 new_code: C069
 runtime_kind: ast
-shellcheck_code: SC2281
+shellcheck_code: SC1101
 shells:
   - sh
   - bash

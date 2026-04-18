@@ -1,3 +1,0 @@
-comparison_target_notes:
-  - current_shellcheck_code: "SC2318"
-    reason: "The authored duplicate-shebang compatibility code conflicts with LocalCrossReference in the repo's primary mapping, while the nix-pinned ShellCheck oracle currently reports duplicate shebang flags as SC2096."

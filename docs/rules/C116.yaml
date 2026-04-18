@@ -3,7 +3,7 @@ legacy_name: assignment-to-numeric-variable
 new_category: Correctness
 new_code: C116
 runtime_kind: ast
-shellcheck_code: SC2353
+shellcheck_code: SC2270
 shells:
   - sh
   - bash

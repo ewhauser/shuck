@@ -3,7 +3,7 @@ legacy_name: extglob-case
 new_category: Portability
 new_code: X037
 runtime_kind: ast
-shellcheck_code: SC1075
+shellcheck_code: SC1074
 shells:
   - sh
   - bash

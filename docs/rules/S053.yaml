@@ -3,7 +3,7 @@ legacy_name: duplicate-shebang-flag
 new_category: Style
 new_code: S053
 runtime_kind: ast
-shellcheck_code: SC2318
+shellcheck_code: SC2096
 shells:
   - sh
   - bash

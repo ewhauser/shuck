@@ -1,3 +1,0 @@
-comparison_target_notes:
-  - current_shellcheck_code: "SC3078"
-    reason: "The nix-provided ShellCheck oracle in this workspace reports `${!arr[*]}` portability findings as SC3055. SC3078 is not emitted by this oracle build, so X071 corpus comparison should target SC3055."

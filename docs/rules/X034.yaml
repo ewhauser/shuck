@@ -3,7 +3,6 @@ legacy_name: extended-glob-in-test
 new_category: Portability
 new_code: X034
 runtime_kind: ast
-shellcheck_code: SC2221
 shells:
   - sh
   - bash

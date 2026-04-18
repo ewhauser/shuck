@@ -3,7 +3,7 @@ legacy_name: zsh-flag-expansion
 new_category: Portability
 new_code: X043
 runtime_kind: ast
-shellcheck_code: SC2251
+shellcheck_code: SC2296
 shells:
   - sh
   - bash

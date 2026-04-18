@@ -3,7 +3,7 @@ legacy_name: trailing-directive
 new_category: Style
 new_code: S031
 runtime_kind: ast
-shellcheck_code: SC1113
+shellcheck_code: SC1126
 shells:
   - sh
   - bash

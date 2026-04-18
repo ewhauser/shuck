@@ -3,7 +3,7 @@ legacy_name: regex-match-in-sh
 new_category: Portability
 new_code: X059
 runtime_kind: ast
-shellcheck_code: SC3066
+shellcheck_code: SC3015
 shells:
   - sh
   - dash

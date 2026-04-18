@@ -3,7 +3,7 @@ legacy_name: zsh-parameter-flag
 new_category: Portability
 new_code: X076
 runtime_kind: ast
-shellcheck_code: SC2359
+shellcheck_code: SC2300
 shells:
   - sh
   - bash

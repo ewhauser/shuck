@@ -3,7 +3,7 @@ legacy_name: quoted-bash-source
 new_category: Correctness
 new_code: C100
 runtime_kind: ast
-shellcheck_code: SC2327
+shellcheck_code: SC2128
 shells:
   - sh
   - bash

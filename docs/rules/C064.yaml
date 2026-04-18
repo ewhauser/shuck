@@ -3,7 +3,7 @@ legacy_name: test-missing-then
 new_category: Correctness
 new_code: C064
 runtime_kind: ast
-shellcheck_code: SC2270
+shellcheck_code: SC1049
 shells:
   - sh
   - bash

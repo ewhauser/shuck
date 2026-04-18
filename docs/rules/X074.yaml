@@ -3,7 +3,7 @@ legacy_name: sticky-bit-test-in-sh
 new_category: Portability
 new_code: X074
 runtime_kind: ast
-shellcheck_code: SC3081
+shellcheck_code: SC3065
 shells:
   - sh
 description: "The `-k` sticky-bit test is used in POSIX sh."

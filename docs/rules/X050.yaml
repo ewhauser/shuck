@@ -3,7 +3,7 @@ legacy_name: csh-syntax-in-sh
 new_category: Portability
 new_code: X050
 runtime_kind: ast
-shellcheck_code: SC2279
+shellcheck_code: SC1088
 shells:
   - sh
   - bash

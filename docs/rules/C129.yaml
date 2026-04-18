@@ -3,7 +3,7 @@ legacy_name: case-default-before-glob
 new_category: Correctness
 new_code: C129
 runtime_kind: ast
-shellcheck_code: SC2374
+shellcheck_code: SC2222
 shells:
   - sh
   - bash

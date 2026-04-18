@@ -3,7 +3,7 @@ legacy_name: unquoted-word-between-quotes
 new_category: Style
 new_code: S050
 runtime_kind: ast
-shellcheck_code: SC2300
+shellcheck_code: SC2026
 shells:
   - sh
   - bash

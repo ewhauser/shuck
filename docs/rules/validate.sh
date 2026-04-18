@@ -94,6 +94,63 @@ check_unique_field() {
   return "${failed}"
 }
 
+check_unique_optional_field() {
+  local field=$1
+  local label=$2
+  shift 2
+
+  local tmp
+  local file
+  local basename
+  local value
+  local failed=0
+
+  tmp=$(mktemp)
+  trap 'rm -f "${tmp}"' RETURN
+
+  for file in "$@"; do
+    basename=$(basename "${file}")
+    value=$(yq -r "${field}" "${file}")
+
+    if [[ -z "${value}" || "${value}" == "null" ]]; then
+      continue
+    fi
+
+    printf '%s\t%s\n' "${value}" "${basename}" >> "${tmp}"
+  done
+
+  while IFS=$'\t' read -r value basenames; do
+    [[ -n "${value}" ]] || continue
+    printf 'ERROR duplicate %s %s in %s\n' "${label}" "${value}" "${basenames}" >&2
+    failed=1
+  done < <(
+    sort -k1,1 "${tmp}" |
+      awk -F '\t' '
+        {
+          if ($1 == current) {
+            files = files ", " $2
+          } else {
+            if (count > 1) {
+              print current "\t" files
+            }
+            current = $1
+            files = $2
+            count = 1
+            next
+          }
+          count++
+        }
+        END {
+          if (count > 1) {
+            print current "\t" files
+          }
+        }
+      '
+  )
+
+  return "${failed}"
+}
+
 validate_file() {
   local file=$1
   local basename stem legacy_code rule_path example_path doc_shells source_shells failed=0
@@ -123,7 +180,7 @@ validate_file() {
   if ! check_yq "${file}" '.runtime_kind == "token" or .runtime_kind == "logical_line" or .runtime_kind == "ast" or .runtime_kind == "physical_line"' "runtime_kind must be one of token, logical_line, ast, or physical_line"; then
     failed=1
   fi
-  if ! check_yq "${file}" '((.shellcheck_code | type) == "!!str") and (.shellcheck_code | test("^SC[0-9]+$"))' "shellcheck_code must look like SC2086"; then
+  if ! check_yq "${file}" '(.shellcheck_code == null) or (((.shellcheck_code | type) == "!!str") and (.shellcheck_code | test("^SC[0-9]+$")))' "shellcheck_code must be absent or look like SC2086"; then
     failed=1
   fi
   if ! check_yq "${file}" '((.shells | type) == "!!seq") and ((.shells | length) > 0) and ([.shells[] | (((type == "!!str") and (length > 0)))] | all)' "shells must be a non-empty list of strings"; then
@@ -230,7 +287,7 @@ main() {
     failed=1
   fi
 
-  if ! check_unique_field '.shellcheck_code' 'shellcheck_code' "${all_rule_files[@]}"; then
+  if ! check_unique_optional_field '.shellcheck_code' 'shellcheck_code' "${all_rule_files[@]}"; then
     failed=1
   fi
 

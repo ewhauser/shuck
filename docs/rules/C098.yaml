@@ -3,7 +3,7 @@ legacy_name: set-flags-without-dashes
 new_category: Correctness
 new_code: C098
 runtime_kind: ast
-shellcheck_code: SC2324
+shellcheck_code: SC2121
 shells:
   - sh
   - bash

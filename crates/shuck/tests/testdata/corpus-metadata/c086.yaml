@@ -1,3 +1,0 @@
-comparison_target_notes:
-  - current_shellcheck_code: "SC2308"
-    reason: "The pinned ShellCheck oracle currently reports bracket-test `>` redirection mistakes as SC2073, so C086 compares against that active code instead of the older SC2308 metadata."

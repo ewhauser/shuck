@@ -1,3 +1,0 @@
-comparison_target_notes:
-  - current_shellcheck_code: "SC2326"
-    reason: "In the current oracle environment, unquoted glob assignment warnings for this behavior surface as SC2125 instead of the authored SC2326 code."

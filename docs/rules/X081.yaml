@@ -3,7 +3,6 @@ legacy_name: star-glob-removal-in-sh
 new_category: Portability
 new_code: X081
 runtime_kind: ast
-shellcheck_code: SC3085
 shells:
   - sh
   - dash

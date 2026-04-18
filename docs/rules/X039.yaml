@@ -3,7 +3,7 @@ legacy_name: zsh-always-block
 new_category: Portability
 new_code: X039
 runtime_kind: ast
-shellcheck_code: SC1130
+shellcheck_code: SC1141
 shells:
   - sh
   - bash

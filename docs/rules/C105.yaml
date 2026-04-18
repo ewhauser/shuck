@@ -3,7 +3,7 @@ legacy_name: export-with-positional-params
 new_category: Correctness
 new_code: C105
 runtime_kind: ast
-shellcheck_code: SC2334
+shellcheck_code: SC2163
 shells:
   - sh
   - bash

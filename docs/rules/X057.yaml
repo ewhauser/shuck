@@ -3,7 +3,7 @@ legacy_name: legacy-arithmetic-in-sh
 new_category: Portability
 new_code: X057
 runtime_kind: ast
-shellcheck_code: SC3064
+shellcheck_code: SC3007
 shells:
   - sh
   - dash

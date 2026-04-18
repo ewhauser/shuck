@@ -3,7 +3,7 @@ legacy_name: case-glob-reachability
 new_category: Correctness
 new_code: C128
 runtime_kind: ast
-shellcheck_code: SC2373
+shellcheck_code: SC2221
 shells:
   - sh
   - bash

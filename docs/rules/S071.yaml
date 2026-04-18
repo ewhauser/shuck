@@ -3,7 +3,6 @@ legacy_name: env-prefix-quoting
 new_category: Style
 new_code: S071
 runtime_kind: ast
-shellcheck_code: SC2379
 shells:
   - sh
   - bash

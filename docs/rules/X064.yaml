@@ -3,7 +3,6 @@ legacy_name: plus-equals-in-sh
 new_category: Portability
 new_code: X064
 runtime_kind: ast
-shellcheck_code: SC3071
 shells:
   - sh
   - dash

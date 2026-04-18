@@ -1,3 +1,0 @@
-comparison_target_notes:
-  - current_shellcheck_code: "SC3074"
-    reason: "The nix-provided ShellCheck in this workspace currently reports `function my-func` portability findings as SC3033, so large-corpus validation should compare X067 against that oracle code instead of the authored SC3074 mapping."

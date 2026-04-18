@@ -3,7 +3,6 @@ legacy_name: literal-backslash-in-single-quotes
 new_category: Style
 new_code: S039
 runtime_kind: ast
-shellcheck_code: SC2267
 shells:
   - sh
   - bash

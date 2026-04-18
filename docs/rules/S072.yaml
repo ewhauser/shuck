@@ -3,7 +3,7 @@ legacy_name: linebreak-before-and
 new_category: Style
 new_code: S072
 runtime_kind: ast
-shellcheck_code: SC2392
+shellcheck_code: SC1133
 shells:
   - sh
   - bash

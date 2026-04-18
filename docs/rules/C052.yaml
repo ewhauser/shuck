@@ -3,7 +3,6 @@ legacy_name: assign-special-zero
 new_category: Correctness
 new_code: C052
 runtime_kind: ast
-shellcheck_code: SC2246
 shells:
   - sh
 description: Assigning to the script-name parameter is rejected.

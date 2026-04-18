@@ -3,7 +3,7 @@ legacy_name: glob-in-find-substitution
 new_category: Correctness
 new_code: C083
 runtime_kind: ast
-shellcheck_code: SC2304
+shellcheck_code: SC2061
 shells:
   - sh
   - bash

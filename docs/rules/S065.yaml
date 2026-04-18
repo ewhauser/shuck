@@ -3,7 +3,7 @@ legacy_name: x-prefix-in-test
 new_category: Style
 new_code: S065
 runtime_kind: ast
-shellcheck_code: SC2351
+shellcheck_code: SC2268
 shells:
   - sh
   - bash

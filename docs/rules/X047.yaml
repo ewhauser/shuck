@@ -3,7 +3,7 @@ legacy_name: multi-var-for-loop
 new_category: Portability
 new_code: X047
 runtime_kind: ast
-shellcheck_code: SC2275
+shellcheck_code: SC1058
 shells:
   - sh
   - bash

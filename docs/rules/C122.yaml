@@ -3,7 +3,7 @@ legacy_name: a-flag-in-double-bracket
 new_category: Correctness
 new_code: C122
 runtime_kind: ast
-shellcheck_code: SC2363
+shellcheck_code: SC2331
 shells:
   - sh
   - bash

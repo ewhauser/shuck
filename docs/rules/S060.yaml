@@ -3,7 +3,7 @@ legacy_name: egrep-deprecated
 new_category: Style
 new_code: S060
 runtime_kind: ast
-shellcheck_code: SC2342
+shellcheck_code: SC2196
 shells:
   - sh
   - bash

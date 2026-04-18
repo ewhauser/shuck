@@ -1,3 +1,0 @@
-comparison_target_notes:
-  - current_shellcheck_code: "SC3024"
-    reason: "The nix-provided ShellCheck oracle in this workspace reports bash file-slurp substitutions (`$(< file)`) as SC3034. SC3024 is used for a different portability family (`+=` assignment), so corpus comparison for X026 must target SC3034."

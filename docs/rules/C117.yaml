@@ -3,7 +3,7 @@ legacy_name: plus-prefix-in-assignment
 new_category: Correctness
 new_code: C117
 runtime_kind: ast
-shellcheck_code: SC2354
+shellcheck_code: SC2276
 shells:
   - sh
   - bash

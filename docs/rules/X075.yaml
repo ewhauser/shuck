@@ -3,7 +3,7 @@ legacy_name: ownership-test-in-sh
 new_category: Portability
 new_code: X075
 runtime_kind: ast
-shellcheck_code: SC3082
+shellcheck_code: SC3067
 shells:
   - sh
 description: "The `-O` ownership test is used in a POSIX sh script."

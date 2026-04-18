@@ -3,7 +3,7 @@ legacy_name: glob-in-string-comparison
 new_category: Correctness
 new_code: C081
 runtime_kind: ast
-shellcheck_code: SC2301
+shellcheck_code: SC2053
 shells:
   - sh
   - bash

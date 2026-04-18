@@ -3,7 +3,6 @@ legacy_name: find-output-in-loop
 new_category: Correctness
 new_code: C113
 runtime_kind: ast
-shellcheck_code: SC2348
 shells:
   - sh
   - bash

@@ -3,7 +3,7 @@ legacy_name: standalone-arithmetic
 new_category: Portability
 new_code: X008
 runtime_kind: ast
-shellcheck_code: SC3018
+shellcheck_code: SC3006
 shells:
   - sh
   - dash

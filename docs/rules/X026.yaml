@@ -3,7 +3,7 @@ legacy_name: bash-file-slurp
 new_category: Portability
 new_code: X026
 runtime_kind: ast
-shellcheck_code: SC3024
+shellcheck_code: SC3034
 shells:
   - sh
   - dash

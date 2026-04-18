@@ -3,7 +3,7 @@ legacy_name: option-test-in-sh
 new_category: Portability
 new_code: X073
 runtime_kind: ast
-shellcheck_code: SC3080
+shellcheck_code: SC3062
 shells:
   - sh
   - dash

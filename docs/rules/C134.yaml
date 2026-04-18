@@ -3,7 +3,7 @@ legacy_name: getopts-option-not-in-case
 new_category: Correctness
 new_code: C134
 runtime_kind: ast
-shellcheck_code: SC2382
+shellcheck_code: SC2213
 shells:
   - sh
   - bash

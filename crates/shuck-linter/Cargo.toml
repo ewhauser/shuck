@@ -22,3 +22,9 @@ insta = { workspace = true }
 test-case = { workspace = true }
 anyhow = { workspace = true }
 tempfile = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+
+[build-dependencies]
+serde = { workspace = true }
+serde_yaml = { workspace = true }

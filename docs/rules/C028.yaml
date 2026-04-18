@@ -3,7 +3,6 @@ legacy_name: spaced-assignment
 new_category: Correctness
 new_code: C028
 runtime_kind: ast
-shellcheck_code: SC1066
 shells:
   - sh
   - bash

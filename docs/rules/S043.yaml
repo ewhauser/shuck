@@ -3,7 +3,7 @@ legacy_name: missing-shebang-line
 new_category: Style
 new_code: S043
 runtime_kind: ast
-shellcheck_code: SC2285
+shellcheck_code: SC2148
 shells:
   - sh
   - bash

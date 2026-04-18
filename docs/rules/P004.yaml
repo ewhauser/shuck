@@ -3,7 +3,7 @@ legacy_name: subshell-test-group
 new_category: Performance
 new_code: P004
 runtime_kind: ast
-shellcheck_code: SC2259
+shellcheck_code: SC2235
 shells:
   - sh
   - bash

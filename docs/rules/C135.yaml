@@ -3,7 +3,7 @@ legacy_name: case-arm-not-in-getopts
 new_category: Correctness
 new_code: C135
 runtime_kind: ast
-shellcheck_code: SC2383
+shellcheck_code: SC2214
 shells:
   - sh
   - bash

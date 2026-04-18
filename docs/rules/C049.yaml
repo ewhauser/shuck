@@ -3,7 +3,6 @@ legacy_name: tautology-chain
 new_category: Correctness
 new_code: C049
 runtime_kind: ast
-shellcheck_code: SC2243
 shells:
   - sh
   - bash
