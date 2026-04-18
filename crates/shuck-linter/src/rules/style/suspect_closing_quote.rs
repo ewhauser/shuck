@@ -20,7 +20,7 @@ pub fn suspect_closing_quote(checker: &mut Checker) {
         .map(|fragment| fragment.span())
         .collect::<Vec<_>>();
 
-    checker.report_all(spans, || SuspectClosingQuote);
+    checker.report_all_dedup(spans, || SuspectClosingQuote);
 }
 
 #[cfg(test)]
@@ -38,5 +38,20 @@ mod tests {
         assert_eq!(diagnostics[0].span.start.line, 3);
         assert_eq!(diagnostics[0].span.start.column, 7);
         assert_eq!(diagnostics[0].span.start, diagnostics[0].span.end);
+    }
+
+    #[test]
+    fn ignores_sc2140_style_multiline_quote_joins() {
+        let source = "\
+#!/bin/bash
+echo \"[Unit]
+Description=Heimdall
+ExecStart=\"/usr/bin/php\" artisan serve
+WantedBy=multi-user.target\"
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::SuspectClosingQuote));
+
+        assert!(diagnostics.is_empty());
     }
 }

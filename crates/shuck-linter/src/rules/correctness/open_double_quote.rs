@@ -46,4 +46,18 @@ mod tests {
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn ignores_sc2140_style_multiline_quote_joins() {
+        let source = "\
+#!/bin/bash
+echo \"[Unit]
+Description=Heimdall
+ExecStart=\"/usr/bin/php\" artisan serve
+WantedBy=multi-user.target\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::OpenDoubleQuote));
+
+        assert!(diagnostics.is_empty());
+    }
 }

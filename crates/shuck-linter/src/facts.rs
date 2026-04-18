@@ -8759,6 +8759,8 @@ impl<'a> WordFactCollector<'a> {
                         self.surface.record_unset_array_target_word(word);
                     }
                 }
+                self.surface
+                    .collect_split_suspect_closing_quote_fragment_in_words(&command.args);
                 for word in &command.args {
                     let surface_word_context = if variable_set_operand
                         .is_some_and(|operand| std::ptr::eq(word, operand))
