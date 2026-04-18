@@ -8790,6 +8790,16 @@ struct StaticCasePatternMatcher {
     start_states: Box<[usize]>,
 }
 
+#[derive(Debug, Clone)]
+struct StaticCasePatternSummary {
+    min_len: usize,
+    max_len: Option<usize>,
+    literal_prefix: Box<str>,
+    literal_suffix: Box<str>,
+    literal_symbols: Box<[char]>,
+    start_states: Box<[usize]>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CasePatternToken {
     Literal(char),
@@ -8815,8 +8825,14 @@ impl StaticCasePatternMatcher {
 
         let mut tokens = Vec::new();
         collect_static_case_pattern_tokens(pattern.span.slice(source), &mut tokens)?;
-        let (min_len, max_len, literal_prefix, literal_suffix, literal_symbols, start_states) =
-            summarize_static_case_pattern_tokens(&tokens);
+        let StaticCasePatternSummary {
+            min_len,
+            max_len,
+            literal_prefix,
+            literal_suffix,
+            literal_symbols,
+            start_states,
+        } = summarize_static_case_pattern_tokens(&tokens);
         Some(Self {
             tokens,
             min_len,
@@ -8926,14 +8942,7 @@ impl StaticCasePatternMatcher {
 
 fn summarize_static_case_pattern_tokens(
     tokens: &[CasePatternToken],
-) -> (
-    usize,
-    Option<usize>,
-    Box<str>,
-    Box<str>,
-    Box<[char]>,
-    Box<[usize]>,
-) {
+) -> StaticCasePatternSummary {
     let mut min_len = 0usize;
     let mut max_len = Some(0usize);
     let mut literal_prefix = String::new();
@@ -8984,18 +8993,18 @@ fn summarize_static_case_pattern_tokens(
     literal_symbols.sort_unstable();
     literal_symbols.dedup();
 
-    (
+    StaticCasePatternSummary {
         min_len,
         max_len,
-        literal_prefix.into_boxed_str(),
-        literal_suffix_reversed
+        literal_prefix: literal_prefix.into_boxed_str(),
+        literal_suffix: literal_suffix_reversed
             .chars()
             .rev()
             .collect::<String>()
             .into_boxed_str(),
-        literal_symbols.into_boxed_slice(),
-        case_pattern_epsilon_closure(tokens, [0]).into_boxed_slice(),
-    )
+        literal_symbols: literal_symbols.into_boxed_slice(),
+        start_states: case_pattern_epsilon_closure(tokens, [0]).into_boxed_slice(),
+    }
 }
 
 fn case_pattern_epsilon_closure(
