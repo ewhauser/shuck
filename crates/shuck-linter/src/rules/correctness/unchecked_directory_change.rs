@@ -1,6 +1,6 @@
 use crate::{Checker, Rule, ShellDialect, Violation};
 use shuck_ast::{Command, Span};
-use shuck_semantic::{ScopeId, ScopeKind};
+use shuck_semantic::ScopeKind;
 
 pub struct UncheckedDirectoryChange {
     pub command: &'static str,
@@ -24,25 +24,12 @@ pub fn unchecked_directory_change(checker: &mut Checker) {
         return;
     }
 
-    for (command, span) in unchecked_directory_change_impl(checker, false) {
+    for (command, span) in unchecked_directory_change_spans(checker) {
         checker.report(UncheckedDirectoryChange { command }, span);
     }
 }
 
-pub(crate) fn unchecked_directory_change_in_function_spans(
-    checker: &mut Checker,
-) -> Vec<(&'static str, Span)> {
-    if !supports_directory_change_rules(checker.shell()) {
-        return Vec::new();
-    }
-
-    unchecked_directory_change_impl(checker, true)
-}
-
-fn unchecked_directory_change_impl(
-    checker: &mut Checker,
-    inside_function_only: bool,
-) -> Vec<(&'static str, Span)> {
+pub(crate) fn unchecked_directory_change_spans(checker: &mut Checker) -> Vec<(&'static str, Span)> {
     let semantic = checker.semantic();
     let source = checker.source();
     let errexit_enabled_somewhere = checker.facts().errexit_enabled_anywhere();
@@ -59,16 +46,6 @@ fn unchecked_directory_change_impl(
             }
 
             let directory_change = fact.options().directory_change()?;
-            let inside_function = direct_function_scope(semantic, scope).is_some();
-            if inside_function_only && !inside_function {
-                return None;
-            }
-            if !inside_function_only
-                && inside_function
-                && checker.is_rule_enabled(Rule::UncheckedDirectoryChangeInFunction)
-            {
-                return None;
-            }
             let unchecked = semantic
                 .flow_context_at(&fact.stmt().span)
                 .map(|context| !context.exit_status_checked)
@@ -82,7 +59,7 @@ fn unchecked_directory_change_impl(
         .collect::<Vec<_>>()
 }
 
-fn report_span(fact: &crate::facts::CommandFact<'_>, source: &str) -> Span {
+pub(crate) fn report_span(fact: &crate::facts::CommandFact<'_>, source: &str) -> Span {
     match fact.command() {
         Command::Simple(command) => {
             let mut start = command.name.span.start;
@@ -103,27 +80,7 @@ fn report_span(fact: &crate::facts::CommandFact<'_>, source: &str) -> Span {
     }
 }
 
-fn direct_function_scope(
-    semantic: &shuck_semantic::SemanticModel,
-    mut scope: ScopeId,
-) -> Option<ScopeId> {
-    loop {
-        let current = semantic
-            .scopes()
-            .iter()
-            .find(|candidate| candidate.id == scope)?;
-        match &current.kind {
-            ScopeKind::Function(_) => return Some(scope),
-            ScopeKind::CommandSubstitution | ScopeKind::Subshell => return None,
-            _ => match current.parent {
-                Some(parent) => scope = parent,
-                None => return None,
-            },
-        }
-    }
-}
-
-fn supports_directory_change_rules(shell: ShellDialect) -> bool {
+pub(crate) fn supports_directory_change_rules(shell: ShellDialect) -> bool {
     matches!(
         shell,
         ShellDialect::Unknown
@@ -391,6 +348,35 @@ f() {
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UncheckedDirectoryChange);
         assert_eq!(diagnostics[0].span.slice(source), "cd /tmp");
+    }
+
+    #[test]
+    fn still_reports_function_scoped_directory_changes_when_c125_is_enabled() {
+        let source = "\
+#!/bin/sh
+f() {
+\tcd /tmp
+\tcd ..
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rules([
+                Rule::UncheckedDirectoryChange,
+                Rule::UncheckedDirectoryChangeInFunction,
+            ]),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| (diagnostic.rule, diagnostic.span.slice(source)))
+                .collect::<Vec<_>>(),
+            vec![
+                (Rule::UncheckedDirectoryChange, "cd /tmp"),
+                (Rule::UncheckedDirectoryChangeInFunction, "cd ..")
+            ]
+        );
     }
 
     #[test]
