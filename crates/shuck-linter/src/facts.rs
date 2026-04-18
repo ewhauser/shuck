@@ -2140,6 +2140,7 @@ pub struct CommandFact<'a> {
     substitution_facts: Box<[SubstitutionFact]>,
     options: CommandOptionFacts<'a>,
     scope_read_source_words: Box<[PathWordFact<'a>]>,
+    glued_closing_bracket_operand_span: Option<Span>,
     simple_test: Option<SimpleTestFact<'a>>,
     conditional: Option<ConditionalFact<'a>>,
 }
@@ -2199,6 +2200,10 @@ impl<'a> CommandFact<'a> {
 
     pub fn scope_read_source_words(&self) -> &[PathWordFact<'a>] {
         &self.scope_read_source_words
+    }
+
+    pub fn glued_closing_bracket_operand_span(&self) -> Option<Span> {
+        self.glued_closing_bracket_operand_span
     }
 
     pub fn simple_test(&self) -> Option<&SimpleTestFact<'a>> {
@@ -2983,6 +2988,8 @@ impl<'a> LinterFactsBuilder<'a> {
             let redirect_facts =
                 build_redirect_facts(visit.redirects, self.source, command_zsh_options.as_ref());
             let options = CommandOptionFacts::build(visit.command, &normalized, self.source);
+            let glued_closing_bracket_operand_span =
+                build_glued_closing_bracket_operand_span(visit.command, self.source);
             let simple_test =
                 build_simple_test_fact(visit.command, self.source, self._file_context);
             let conditional = build_conditional_fact(visit.command, self.source);
@@ -2997,6 +3004,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 substitution_facts: Vec::new().into_boxed_slice(),
                 options,
                 scope_read_source_words: Vec::new().into_boxed_slice(),
+                glued_closing_bracket_operand_span,
                 simple_test,
                 conditional,
             });
@@ -10513,6 +10521,48 @@ fn build_simple_test_fact<'a>(
     })
 }
 
+fn build_glued_closing_bracket_operand_span(command: &Command, source: &str) -> Option<Span> {
+    let Command::Simple(command) = command else {
+        return None;
+    };
+    if static_word_text(&command.name, source).as_deref() != Some("[") {
+        return None;
+    }
+
+    let args = command.args.iter().collect::<Vec<_>>();
+    let last = args.last()?;
+    let text = last.span.slice(source);
+    if text == "]" || !text.ends_with(']') || text.ends_with("\\]") {
+        return None;
+    }
+
+    glued_closing_bracket_unary_operand_span(&args, source)
+}
+
+fn glued_closing_bracket_unary_operand_span(args: &[&Word], source: &str) -> Option<Span> {
+    let [first, second] = args else {
+        let [bang, operator, operand] = args else {
+            return None;
+        };
+        return (bang.span.slice(source) == "!"
+            && simple_test_is_unary_operator(operator.span.slice(source))
+            && operand
+                .span
+                .slice(source)
+                .strip_suffix(']')
+                .is_some_and(|prefix| !prefix.is_empty()))
+        .then_some(Span::from_positions(operand.span.start, operand.span.start));
+    };
+
+    (simple_test_is_unary_operator(first.span.slice(source))
+        && second
+            .span
+            .slice(source)
+            .strip_suffix(']')
+            .is_some_and(|prefix| !prefix.is_empty()))
+    .then_some(Span::from_positions(second.span.start, second.span.start))
+}
+
 fn simple_test_shape(operand_count: usize) -> SimpleTestShape {
     match operand_count {
         0 => SimpleTestShape::Empty,
@@ -10565,6 +10615,37 @@ fn simple_test_is_binary_operator(operator: &str) -> bool {
             | "-ef"
             | "-a"
             | "-o"
+    )
+}
+
+fn simple_test_is_unary_operator(operator: &str) -> bool {
+    matches!(
+        operator,
+        "-e" | "-a"
+            | "-f"
+            | "-d"
+            | "-c"
+            | "-b"
+            | "-p"
+            | "-S"
+            | "-L"
+            | "-h"
+            | "-k"
+            | "-g"
+            | "-u"
+            | "-G"
+            | "-O"
+            | "-N"
+            | "-r"
+            | "-w"
+            | "-x"
+            | "-s"
+            | "-t"
+            | "-z"
+            | "-n"
+            | "-o"
+            | "-v"
+            | "-R"
     )
 }
 
@@ -16548,6 +16629,37 @@ test
                 .find(|(text, _)| text == "[ missing")
                 .map(|(_, fact)| fact.simple_test());
             assert!(matches!(missing_closer, Some(None)));
+        });
+    }
+
+    #[test]
+    fn records_glued_closing_bracket_operand_spans_for_unary_tests() {
+        let source = "\
+#!/bin/sh
+[ -d /tmp]
+[ ! -a /tmp]
+[ \"$dir\" = /tmp]
+[ -d /tmp ]
+";
+
+        with_facts(source, None, |_, facts| {
+            let commands = facts.structural_commands().collect::<Vec<_>>();
+            assert_eq!(commands.len(), 4);
+
+            assert_eq!(
+                commands[0]
+                    .glued_closing_bracket_operand_span()
+                    .map(|span| (span.start.line, span.start.column)),
+                Some((2, 6))
+            );
+            assert_eq!(
+                commands[1]
+                    .glued_closing_bracket_operand_span()
+                    .map(|span| (span.start.line, span.start.column)),
+                Some((3, 8))
+            );
+            assert_eq!(commands[2].glued_closing_bracket_operand_span(), None);
+            assert_eq!(commands[3].glued_closing_bracket_operand_span(), None);
         });
     }
 

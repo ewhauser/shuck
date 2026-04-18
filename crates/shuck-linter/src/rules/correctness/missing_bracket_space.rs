@@ -1,7 +1,6 @@
-use shuck_ast::Span;
 use std::collections::HashSet;
 
-use crate::{Checker, CommandFact, Rule, Violation};
+use crate::{Checker, Rule, Violation};
 
 pub struct MissingBracketSpace;
 
@@ -16,87 +15,16 @@ impl Violation for MissingBracketSpace {
 }
 
 pub fn missing_bracket_space(checker: &mut Checker) {
-    let source = checker.source();
     let mut seen_lines = HashSet::new();
     let spans = checker
         .facts()
         .commands()
         .iter()
-        .filter_map(|fact| missing_bracket_space_span(fact, source))
+        .filter_map(|fact| fact.glued_closing_bracket_operand_span())
         .filter(|span| seen_lines.insert(span.start.line))
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || MissingBracketSpace);
-}
-
-fn missing_bracket_space_span(fact: &CommandFact<'_>, source: &str) -> Option<Span> {
-    if !fact.static_utility_name_is("[") {
-        return None;
-    }
-
-    let args = fact.body_args();
-    let last = args.last()?;
-    let text = last.span.slice(source);
-    if text == "]" || !text.ends_with(']') || text.ends_with("\\]") {
-        return None;
-    }
-
-    unary_glued_test(args, source)
-}
-
-fn unary_glued_test(args: &[&shuck_ast::Word], source: &str) -> Option<Span> {
-    let [first, second] = args else {
-        let [bang, operator, operand] = args else {
-            return None;
-        };
-        return (bang.span.slice(source) == "!"
-            && is_unary_test_operator(operator.span.slice(source))
-            && operand
-                .span
-                .slice(source)
-                .strip_suffix(']')
-                .is_some_and(|prefix| !prefix.is_empty()))
-        .then_some(Span::from_positions(operand.span.start, operand.span.start));
-    };
-
-    (is_unary_test_operator(first.span.slice(source))
-        && second
-            .span
-            .slice(source)
-            .strip_suffix(']')
-            .is_some_and(|prefix| !prefix.is_empty()))
-    .then_some(Span::from_positions(second.span.start, second.span.start))
-}
-
-fn is_unary_test_operator(text: &str) -> bool {
-    matches!(
-        text,
-        "-e" | "-a"
-            | "-f"
-            | "-d"
-            | "-b"
-            | "-c"
-            | "-p"
-            | "-S"
-            | "-L"
-            | "-h"
-            | "-g"
-            | "-k"
-            | "-u"
-            | "-G"
-            | "-O"
-            | "-N"
-            | "-r"
-            | "-v"
-            | "-w"
-            | "-x"
-            | "-s"
-            | "-t"
-            | "-z"
-            | "-n"
-            | "-o"
-            | "-R"
-    )
 }
 
 #[cfg(test)]
