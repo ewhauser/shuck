@@ -2957,6 +2957,7 @@ pub struct LinterFacts<'a> {
     select_headers: Vec<SelectHeaderFact<'a>>,
     case_items: Vec<CaseItemFact<'a>>,
     case_pattern_shadows: Vec<CasePatternShadowFact>,
+    case_pattern_impossible_spans: Vec<Span>,
     case_pattern_expansion_spans: Vec<Span>,
     getopts_cases: Vec<GetoptsCaseFact>,
     pipelines: Vec<PipelineFact<'a>>,
@@ -3254,6 +3255,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn case_pattern_shadows(&self) -> &[CasePatternShadowFact] {
         &self.case_pattern_shadows
+    }
+
+    pub fn case_pattern_impossible_spans(&self) -> &[Span] {
+        &self.case_pattern_impossible_spans
     }
 
     pub fn case_pattern_expansion_spans(&self) -> &[Span] {
@@ -3849,6 +3854,8 @@ impl<'a> LinterFactsBuilder<'a> {
             build_select_header_facts(&commands, &command_ids_by_span, self.source);
         let case_items = build_case_item_facts(&commands);
         let case_pattern_shadows = build_case_pattern_shadow_facts(&commands, self.source);
+        let case_pattern_impossible_spans =
+            build_case_pattern_impossible_spans(&commands, self.source);
         let pipelines = build_pipeline_facts(&commands, &command_ids_by_span);
         let scope_read_source_words =
             build_scope_read_source_words(&commands, &pipelines, &if_condition_command_ids);
@@ -4009,6 +4016,7 @@ impl<'a> LinterFactsBuilder<'a> {
             select_headers,
             case_items,
             case_pattern_shadows,
+            case_pattern_impossible_spans,
             case_pattern_expansion_spans,
             getopts_cases,
             pipelines,
@@ -12285,6 +12293,33 @@ impl StaticCasePatternMatcher {
         })
     }
 
+    fn from_case_subject(word: &Word, source: &str) -> Option<Self> {
+        let mut tokens = Vec::new();
+        let mut saw_dynamic = false;
+        collect_static_case_subject_tokens(&word.parts, source, &mut tokens, &mut saw_dynamic)?;
+        if !saw_dynamic {
+            return None;
+        }
+
+        let StaticCasePatternSummary {
+            min_len,
+            max_len,
+            literal_prefix,
+            literal_suffix,
+            literal_symbols,
+            start_states,
+        } = summarize_static_case_pattern_tokens(&tokens);
+        Some(Self {
+            tokens,
+            min_len,
+            max_len,
+            literal_prefix,
+            literal_suffix,
+            literal_symbols,
+            start_states,
+        })
+    }
+
     fn subsumes(&self, other: &Self) -> bool {
         if !self.could_subsume(other) {
             return false;
@@ -12319,6 +12354,42 @@ impl StaticCasePatternMatcher {
         }
 
         true
+    }
+
+    fn intersects(&self, other: &Self) -> bool {
+        let symbols = merged_case_pattern_symbols(
+            self.literal_symbols.as_ref(),
+            other.literal_symbols.as_ref(),
+        );
+
+        let start = (self.start_states.to_vec(), other.start_states.to_vec());
+        let mut seen = FxHashSet::default();
+        let mut worklist = vec![start.clone()];
+        seen.insert(start);
+
+        while let Some((left, right)) = worklist.pop() {
+            if self.is_accepting(&left) && other.is_accepting(&right) {
+                return true;
+            }
+
+            for symbol in symbols.iter().copied() {
+                let next_left = self.advance(&left, symbol);
+                if next_left.is_empty() {
+                    continue;
+                }
+
+                let next_right = other.advance(&right, symbol);
+                if next_right.is_empty() {
+                    continue;
+                }
+
+                if seen.insert((next_left.clone(), next_right.clone())) {
+                    worklist.push((next_left, next_right));
+                }
+            }
+        }
+
+        false
     }
 
     fn could_subsume(&self, other: &Self) -> bool {
@@ -12585,6 +12656,52 @@ fn collect_static_case_pattern_tokens(
     Some(())
 }
 
+fn collect_static_case_subject_tokens(
+    parts: &[WordPartNode],
+    source: &str,
+    out: &mut Vec<CasePatternToken>,
+    saw_dynamic: &mut bool,
+) -> Option<()> {
+    for part in parts {
+        match &part.kind {
+            WordPart::Literal(text) => {
+                for ch in text.as_str(source, part.span).chars() {
+                    push_case_pattern_literal_tokens_char(ch, out);
+                }
+            }
+            WordPart::SingleQuoted { value, .. } => {
+                for ch in value.slice(source).chars() {
+                    push_case_pattern_literal_tokens_char(ch, out);
+                }
+            }
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_static_case_subject_tokens(parts, source, out, saw_dynamic)?;
+            }
+            WordPart::Variable(_)
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::Parameter(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::Transformation { .. } => {
+                *saw_dynamic = true;
+                push_case_pattern_token(out, CasePatternToken::AnyString);
+            }
+            WordPart::ZshQualifiedGlob(_) => return None,
+        }
+    }
+
+    Some(())
+}
+
 fn push_case_pattern_literal_tokens_char(ch: char, out: &mut Vec<CasePatternToken>) {
     out.push(CasePatternToken::Literal(ch));
 }
@@ -12663,6 +12780,37 @@ fn build_case_pattern_shadow_facts(
     }
 
     shadows
+}
+
+fn build_case_pattern_impossible_spans(commands: &[CommandFact<'_>], source: &str) -> Vec<Span> {
+    let mut spans = Vec::new();
+
+    for fact in commands {
+        let Command::Compound(CompoundCommand::Case(command)) = fact.command() else {
+            continue;
+        };
+
+        let Some(subject_matcher) =
+            StaticCasePatternMatcher::from_case_subject(&command.word, source)
+        else {
+            continue;
+        };
+
+        for item in &command.cases {
+            for pattern in &item.patterns {
+                let Some(pattern_matcher) = StaticCasePatternMatcher::from_pattern(pattern, source)
+                else {
+                    continue;
+                };
+
+                if !subject_matcher.intersects(&pattern_matcher) {
+                    spans.push(pattern.span);
+                }
+            }
+        }
+    }
+
+    spans
 }
 
 #[derive(Debug, Clone)]
@@ -25262,6 +25410,39 @@ printf '%s\\n' prefix${name}suffix ${items[@]}
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
                 vec!["${items[@]}"]
+            );
+        });
+    }
+
+    #[test]
+    fn builds_impossible_case_pattern_spans_from_subject_shape() {
+        let source = "\
+#!/bin/sh
+case \"$words[1]\" in
+  install) : ;;
+  *\"[1]\") : ;;
+esac
+case \" $oldobjs \" in
+  \" \") : ;;
+  \"  \") : ;;
+esac
+case foo in
+  bar) : ;;
+esac
+case \"x${val}z\" in
+  y*) : ;;
+  *z) : ;;
+esac
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .case_pattern_impossible_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["install", "\" \"", "y*"]
             );
         });
     }

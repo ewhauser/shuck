@@ -1,5 +1,3 @@
-use shuck_ast::Span;
-
 use super::targets_non_zsh_shell;
 use crate::{Checker, Rule, Violation};
 
@@ -11,7 +9,7 @@ impl Violation for ZshArraySubscriptInCase {
     }
 
     fn message(&self) -> String {
-        "zsh-style array subscripts in case subjects are not portable to this shell".to_owned()
+        "this case pattern cannot match the case subject in this shell".to_owned()
     }
 }
 
@@ -20,91 +18,10 @@ pub fn zsh_array_subscript_in_case(checker: &mut Checker) {
         return;
     }
 
-    let spans = checker
-        .facts()
-        .case_subject_facts()
-        .flat_map(|fact| {
-            case_subscript_spans(fact.word().span.slice(checker.source()), fact.word().span)
-        })
-        .collect::<Vec<_>>();
-
-    checker.report_all_dedup(spans, || ZshArraySubscriptInCase);
-}
-
-fn case_subscript_spans(text: &str, span: Span) -> Vec<Span> {
-    let bytes = text.as_bytes();
-    let mut spans = Vec::new();
-    let mut index = 0usize;
-    let mut in_single = false;
-    let mut in_double = false;
-
-    while index < bytes.len() {
-        if in_single {
-            if bytes[index] == b'\'' {
-                in_single = false;
-            }
-            index += 1;
-            continue;
-        }
-
-        if bytes[index] == b'\\' {
-            index += usize::from(index + 1 < bytes.len()) + 1;
-            continue;
-        }
-
-        if bytes[index] == b'\'' && !in_double {
-            in_single = true;
-            index += 1;
-            continue;
-        }
-
-        if bytes[index] == b'"' {
-            in_double = !in_double;
-            index += 1;
-            continue;
-        }
-
-        if bytes[index] != b'$' || bytes.get(index + 1) == Some(&b'{') {
-            index += 1;
-            continue;
-        }
-
-        let name_start = index + 1;
-        let Some(&first) = bytes.get(name_start) else {
-            break;
-        };
-        if !(first == b'_' || first.is_ascii_alphabetic()) {
-            index += 1;
-            continue;
-        }
-
-        let mut cursor = name_start + 1;
-        while bytes
-            .get(cursor)
-            .is_some_and(|byte| *byte == b'_' || byte.is_ascii_alphanumeric())
-        {
-            cursor += 1;
-        }
-
-        if bytes.get(cursor) != Some(&b'[') {
-            index = cursor;
-            continue;
-        }
-        let Some(relative_end) = text[cursor + 1..].find(']') else {
-            index = cursor + 1;
-            continue;
-        };
-
-        let bracket_offset = cursor;
-        let bracket_start = span.start.advanced_by(&text[..bracket_offset]);
-        spans.push(Span::from_positions(
-            bracket_start,
-            bracket_start.advanced_by("["),
-        ));
-        index = cursor + relative_end + 2;
-    }
-
-    spans
+    checker.report_all_dedup(
+        checker.facts().case_pattern_impossible_spans().to_vec(),
+        || ZshArraySubscriptInCase,
+    );
 }
 
 #[cfg(test)]
@@ -113,19 +30,25 @@ mod tests {
     use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
-    fn ignores_braced_parameter_expansions() {
-        let source = "#!/bin/sh\ncase \"${words[1]}\" in\n  install) : ;;\nesac\n";
+    fn reports_unbraced_array_style_subjects_as_impossible_patterns() {
+        let source = "#!/bin/sh\ncase \"$words[1]\" in\n  install) : ;;\nesac\n";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::ZshArraySubscriptInCase),
         );
 
-        assert!(diagnostics.is_empty());
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["install"]
+        );
     }
 
     #[test]
     fn ignores_zsh_scripts() {
-        let source = "#!/bin/zsh\ncase \"$words[1]\" in\n  install) : ;;\nesac\n";
+        let source = "#!/bin/zsh\ncase \" $oldobjs \" in\n  \" \") : ;;\nesac\n";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::ZshArraySubscriptInCase).with_shell(ShellDialect::Zsh),
@@ -135,8 +58,25 @@ mod tests {
     }
 
     #[test]
-    fn ignores_single_quoted_case_subject_literals() {
-        let source = "#!/bin/sh\ncase '$words[1]' in\n  install) : ;;\nesac\n";
+    fn reports_literal_padding_that_rules_out_a_pattern() {
+        let source = "#!/bin/sh\ncase \" $oldobjs \" in\n  \" \") : ;;\n  \"  \") : ;;\nesac\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ZshArraySubscriptInCase),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["\" \""]
+        );
+    }
+
+    #[test]
+    fn ignores_reachable_patterns_on_dynamic_subjects() {
+        let source = "#!/bin/sh\ncase \"prefix${value}suffix\" in\n  *suffix) : ;;\n  prefix*suffix) : ;;\nesac\n";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::ZshArraySubscriptInCase),
@@ -146,8 +86,16 @@ mod tests {
     }
 
     #[test]
-    fn ignores_escaped_dollar_case_subject_literals() {
-        let source = "#!/bin/sh\ncase \"\\$words[1]\" in\n  install) : ;;\nesac\n";
+    fn ignores_braced_and_fully_fixed_subjects() {
+        let source = "\
+#!/bin/sh
+case \"${words[1]}\" in
+  install) : ;;
+esac
+case foo in
+  bar) : ;;
+esac
+";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::ZshArraySubscriptInCase),
