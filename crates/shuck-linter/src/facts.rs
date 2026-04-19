@@ -48,6 +48,7 @@ use crate::rules::common::{
         classify_contextual_operand, classify_word, static_word_text,
     },
 };
+use crate::suppression::shellcheck_directive_can_apply_to_following_command;
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue,
@@ -7521,7 +7522,9 @@ fn build_trailing_directive_comment_spans(
             if case_item_label_comment(case_items, line, comment_start) {
                 return None;
             }
-            if directive_can_apply_to_following_command(&source[line_start..comment_start]) {
+            if shellcheck_directive_can_apply_to_following_command(
+                &source[line_start..comment_start],
+            ) {
                 return None;
             }
 
@@ -9132,16 +9135,6 @@ fn collect_raw_escaped_parameter_exclusions(
     }
 }
 
-fn directive_can_apply_to_following_command(prefix: &str) -> bool {
-    let trimmed = prefix.trim_end();
-    trimmed.ends_with(';')
-        || trimmed.ends_with('{')
-        || trimmed.ends_with('(')
-        || ends_with_keyword(trimmed, "then")
-        || ends_with_keyword(trimmed, "do")
-        || ends_with_keyword(trimmed, "else")
-}
-
 fn is_inline_shellcheck_directive(comment_text: &str) -> bool {
     let body = comment_text
         .trim_start()
@@ -9177,14 +9170,6 @@ fn is_inline_shellcheck_directive(comment_text: &str) -> bool {
                 .is_some_and(|value| !value.trim().is_empty())
         })
     })
-}
-
-fn ends_with_keyword(text: &str, keyword: &str) -> bool {
-    text == keyword
-        || text
-            .strip_suffix(keyword)
-            .and_then(|prefix| prefix.chars().last())
-            .is_some_and(|ch| ch.is_ascii_whitespace())
 }
 
 fn strip_prefix_ignore_ascii_case<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {

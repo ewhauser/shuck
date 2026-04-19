@@ -60,6 +60,14 @@ mod tests {
     }
 
     #[test]
+    fn ignores_directive_after_brace_group_opener() {
+        let source = "#!/bin/sh\n{ # shellcheck disable=SC2164\n  cd /tmp\n}\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrailingDirective));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn ignores_directive_after_semicolon_separator() {
         let source = "#!/bin/sh\ntrue; # shellcheck disable=SC2317\nfalse\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrailingDirective));
@@ -74,5 +82,22 @@ mod tests {
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrailingDirective));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_directive_after_control_flow_headers() {
+        let sources = [
+            "#!/bin/sh\nif # shellcheck disable=SC2086\n  echo $foo\nthen\n  :\nfi\n",
+            "#!/bin/sh\nif true; then # shellcheck disable=SC2086\n  echo $foo\nfi\n",
+            "#!/bin/sh\nif false; then\n  :\nelse # shellcheck disable=SC2086\n  echo $foo\nfi\n",
+            "#!/bin/sh\nwhile # shellcheck disable=SC2086\n  echo $foo\ndo\n  :\ndone\n",
+            "#!/bin/sh\nuntil # shellcheck disable=SC2086\n  echo $foo\ndo\n  :\ndone\n",
+        ];
+
+        for source in sources {
+            let diagnostics =
+                test_snippet(source, &LinterSettings::for_rule(Rule::TrailingDirective));
+            assert!(diagnostics.is_empty(), "{source}");
+        }
     }
 }

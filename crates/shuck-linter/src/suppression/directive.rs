@@ -70,6 +70,7 @@ pub fn parse_directives(
 #[derive(Debug, Clone, Copy)]
 struct NormalizedComment<'a> {
     text: &'a str,
+    line_prefix: &'a str,
     range: TextRange,
     line: u32,
     is_own_line: bool,
@@ -93,6 +94,7 @@ fn normalized_comment<'a>(
 
     Some(NormalizedComment {
         text: &source[comment_start..line_end],
+        line_prefix: &source[line_start..comment_start],
         range: TextRange::new(
             TextSize::new(comment_start as u32),
             TextSize::new(line_end as u32),
@@ -145,7 +147,10 @@ fn parse_shellcheck_directive(
     file: &File,
     shellcheck_map: &ShellCheckCodeMap,
 ) -> Option<SuppressionDirective> {
-    if !comment.is_own_line && !is_case_label_directive(comment, file) {
+    if !comment.is_own_line
+        && !shellcheck_directive_can_apply_to_following_command(comment.line_prefix)
+        && !is_case_label_directive(comment, file)
+    {
         return None;
     }
 
@@ -185,6 +190,16 @@ fn parse_shellcheck_directive(
         range: comment.range,
         line: comment.line,
     })
+}
+
+pub(crate) fn shellcheck_directive_can_apply_to_following_command(prefix: &str) -> bool {
+    let trimmed = prefix.trim_end();
+    trimmed.ends_with(';')
+        || trimmed.ends_with('{')
+        || trimmed.ends_with('(')
+        || ["if", "elif", "while", "until", "then", "do", "else"]
+            .into_iter()
+            .any(|keyword| ends_with_keyword(trimmed, keyword))
 }
 
 fn is_case_label_directive(comment: &NormalizedComment<'_>, file: &File) -> bool {
@@ -233,6 +248,14 @@ fn strip_prefix_ignore_ascii_case<'a>(text: &'a str, prefix: &str) -> Option<&'a
     candidate
         .eq_ignore_ascii_case(prefix)
         .then(|| &text[prefix.len()..])
+}
+
+fn ends_with_keyword(text: &str, keyword: &str) -> bool {
+    text == keyword
+        || text
+            .strip_suffix(keyword)
+            .and_then(|prefix| prefix.chars().last())
+            .is_some_and(|ch| ch.is_ascii_whitespace())
 }
 
 fn parse_shuck_action(value: &str) -> Option<SuppressionAction> {
@@ -357,6 +380,46 @@ esac
         let directives = directives(source);
 
         assert!(directives.is_empty());
+    }
+
+    #[test]
+    fn parses_shellcheck_directives_after_control_flow_headers_and_group_openers() {
+        let source = "\
+if # shellcheck disable=SC2086
+  echo $foo
+then # shellcheck disable=SC2086
+  echo $foo
+elif # shellcheck disable=SC2086
+  echo $bar
+then
+  :
+else # shellcheck disable=SC2086
+  echo $baz
+fi
+while # shellcheck disable=SC2086
+  echo $foo
+do # shellcheck disable=SC2086
+  echo $foo
+done
+until # shellcheck disable=SC2086
+  echo $foo
+do
+  :
+done
+{ # shellcheck disable=SC2086
+  echo $foo
+}
+( # shellcheck disable=SC2086
+  echo $foo
+)
+";
+        let directives = directives(source);
+
+        assert_eq!(directives.len(), 9);
+        assert!(directives.iter().all(|directive| {
+            directive.source == SuppressionSource::ShellCheck
+                && directive.codes == vec![Rule::UnquotedExpansion]
+        }));
     }
 
     #[test]
