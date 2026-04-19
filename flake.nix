@@ -19,6 +19,7 @@
             pkgs.python3
             pkgs.shellcheck
             pkgs.shfmt
+            pkgs.zsh
             pkgs.cargo-fuzz
             pkgs.cargo-udeps
             pkgs.yq
