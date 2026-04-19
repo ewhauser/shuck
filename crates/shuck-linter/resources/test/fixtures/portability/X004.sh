@@ -6,7 +6,7 @@ function plain
   :
 }
 
-# Should trigger: function keyword with trailing parens is also non-portable in sh
+# Should not trigger: function keyword with trailing parens belongs to X052
 function paren() { :; }
 
 # Should not trigger: portable function definition

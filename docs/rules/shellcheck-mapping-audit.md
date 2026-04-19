@@ -6,7 +6,7 @@ This note tracks the follow-up work that still remains from the original audit p
 
 Remaining work:
 
-- 6 rules become clean once stale `shellcheck_code` metadata on already-mapped rules is refreshed.
+- 5 rules become clean once stale `shellcheck_code` metadata on already-mapped rules is refreshed.
 - 2 still need a cleaner example before a mapping decision is safe.
 
 Completed since the original audit:
@@ -26,7 +26,6 @@ Important context:
 | `C053` | `SC2283` | `C071` currently claims `SC2283`, but its example now emits `SC1105`. |
 | `C089` | `SC2078` | `C020` currently claims `SC2078`, but its example now emits `SC2161`. |
 | `C126` | `SC2104` | `C018` currently claims `SC2104`, but its example now emits `SC2105`. |
-| `X052` | `SC2112` | `X004` currently claims `SC2112`, but its example now emits `SC2113`. |
 | `X053` | `SC2277` | `X048` currently claims `SC2277`, but its example now emits `SC1085`. |
 
 ## Rewrite Or Manual Review

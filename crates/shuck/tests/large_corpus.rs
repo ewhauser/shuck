@@ -3774,12 +3774,12 @@ mod tests {
     }
 
     #[test]
-    fn selected_rule_shellcheck_filters_do_not_add_extra_aliases() {
+    fn selected_rule_shellcheck_filters_include_active_rule_codes_without_aliases() {
         let selected_rules =
             shuck_linter::RuleSet::from_iter([shuck_linter::Rule::FunctionKeywordInSh]);
         let codes = build_selected_shellcheck_codes(&selected_rules);
 
-        assert!(codes.is_empty());
+        assert_eq!(codes, HashSet::from([2112]));
     }
 
     #[test]

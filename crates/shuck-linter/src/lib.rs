@@ -1666,13 +1666,12 @@ f
     }
 
     #[test]
-    fn function_keyword_with_parens_is_flagged() {
+    fn function_keyword_with_parens_is_not_flagged_by_x004() {
         let diagnostics = lint(
             "#!/bin/sh\nfunction f() { :; }\n",
             &LinterSettings::for_rule(Rule::FunctionKeyword),
         );
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].rule, Rule::FunctionKeyword);
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
@@ -3367,7 +3366,7 @@ f
     fn function_keyword_suppressed_by_shellcheck_directive() {
         let source = "\
 #!/bin/sh
-# shellcheck disable=SC2112
+# shellcheck disable=SC2113
 function f { :; }
 ";
         let output = Parser::new(source).parse().unwrap();
@@ -3547,7 +3546,7 @@ source ./helpers.sh
     fn function_keyword_with_parens_suppressed_by_shellcheck_directive() {
         let source = "\
 #!/bin/sh
-# shellcheck disable=SC2321
+# shellcheck disable=SC2112
 function f() { :; }
 ";
         let output = Parser::new(source).parse().unwrap();
