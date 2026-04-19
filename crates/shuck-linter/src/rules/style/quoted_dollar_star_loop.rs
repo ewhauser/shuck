@@ -21,21 +21,23 @@ pub fn quoted_dollar_star_loop(checker: &mut Checker) {
         .facts()
         .for_headers()
         .iter()
-        .flat_map(|header| {
-            header.words().iter().filter_map(|word| {
-                let classification = word.classification();
-                if classification.quote != WordQuote::FullyQuoted
-                    || classification.is_fixed_literal()
-                    || !all_elements_array_expansion_part_spans(word.word(), source).is_empty()
-                {
-                    return None;
-                }
+        .filter_map(|header| {
+            let [word] = header.words() else {
+                return None;
+            };
 
-                (classification.has_command_substitution()
-                    || !word_double_quoted_scalar_only_expansion_spans(word.word()).is_empty()
-                    || !word_quoted_star_splat_spans(word.word()).is_empty())
-                .then_some(word.span())
-            })
+            let classification = word.classification();
+            if classification.quote != WordQuote::FullyQuoted
+                || classification.is_fixed_literal()
+                || !all_elements_array_expansion_part_spans(word.word(), source).is_empty()
+            {
+                return None;
+            }
+
+            (classification.has_command_substitution()
+                || !word_double_quoted_scalar_only_expansion_spans(word.word()).is_empty()
+                || !word_quoted_star_splat_spans(word.word()).is_empty())
+            .then_some(word.span())
         })
         .collect::<Vec<_>>();
 
@@ -52,9 +54,15 @@ mod tests {
         let source = "\
 #!/bin/bash
 arr=(a b)
-for item in \"$var\" \"${var}\" \"$(printf x)\" \"$*\" \"${*}\" \"${*:1}\" \"${arr[*]}\" \"x$*y\"; do
-  :
-done
+for item in \"$var\"; do :; done
+for item in \"${var}\"; do :; done
+for item in \"${!name}\"; do :; done
+for item in \"$(printf x)\"; do :; done
+for item in \"$*\"; do :; done
+for item in \"${*}\"; do :; done
+for item in \"${*:1}\"; do :; done
+for item in \"${arr[*]}\"; do :; done
+for item in \"x$*y\"; do :; done
 ";
         let diagnostics = test_snippet(
             source,
@@ -69,6 +77,7 @@ done
             vec![
                 "\"$var\"",
                 "\"${var}\"",
+                "\"${!name}\"",
                 "\"$(printf x)\"",
                 "\"$*\"",
                 "\"${*}\"",
@@ -80,7 +89,7 @@ done
     }
 
     #[test]
-    fn reports_problematic_words_in_mixed_loop_lists() {
+    fn ignores_mixed_loop_lists_with_explicit_items() {
         let source = "\
 #!/bin/bash
 for item in \"$var\" literal \"$@\" \"$*\"; do
@@ -92,13 +101,7 @@ done
             &LinterSettings::for_rule(Rule::QuotedDollarStarLoop),
         );
 
-        assert_eq!(
-            diagnostics
-                .iter()
-                .map(|diagnostic| diagnostic.span.slice(source))
-                .collect::<Vec<_>>(),
-            vec!["\"$var\"", "\"$*\""]
-        );
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
     #[test]
@@ -106,7 +109,9 @@ done
         let source = "\
 #!/bin/bash
 arr=(a b)
-for item in \"$@\" \"${arr[@]}\" \"${arr[@]:1}\" \"${arr[@]:-fallback}\" \"x$@y\" \"x${arr[@]}y\" ${arr[*]}; do
+cfg_one=1
+cfg_two=2
+for item in \"$@\" \"${arr[@]}\" \"${arr[@]:1}\" \"${arr[@]:-fallback}\" \"${!arr[@]}\" \"${!cfg@}\" \"x$@y\" \"x${arr[@]}y\" ${arr[*]}; do
   printf '%s\\n' \"$item\"
 done
 select item in \"$*\"; do
