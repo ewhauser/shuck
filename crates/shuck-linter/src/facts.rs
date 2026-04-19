@@ -12924,12 +12924,17 @@ fn parse_ssh_command(args: &[&Word], source: &str) -> Option<SshCommandFacts> {
 
 fn parse_su_command(args: &[&Word], source: &str) -> SuCommandFacts {
     let mut pending_option_arg = false;
+    let mut saw_user = false;
     let mut index = 0usize;
 
     while let Some(word) = args.get(index) {
         let Some(text) = static_word_text(word, source) else {
             if pending_option_arg {
                 pending_option_arg = false;
+            } else if saw_user {
+                break;
+            } else {
+                saw_user = true;
             }
             index += 1;
             continue;
@@ -12978,6 +12983,10 @@ fn parse_su_command(args: &[&Word], source: &str) -> SuCommandFacts {
         }
 
         if !text.starts_with('-') {
+            if saw_user {
+                break;
+            }
+            saw_user = true;
             index += 1;
             continue;
         }
@@ -18572,6 +18581,28 @@ su --command
         let source = "\
 #!/bin/bash
 su -- root echo -c hi
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let su_flags = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("su"))
+            .map(|fact| fact.options().su().map(|su| su.has_login_or_command_flag()))
+            .collect::<Vec<_>>();
+
+        assert_eq!(su_flags, vec![Some(false)]);
+    }
+
+    #[test]
+    fn stops_treating_su_forwarded_command_args_as_flags() {
+        let source = "\
+#!/bin/bash
+su root bash -c 'id'
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);

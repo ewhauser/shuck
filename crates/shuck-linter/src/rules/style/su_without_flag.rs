@@ -42,6 +42,7 @@ su librenms
 su -c
 su --command
 su -- root echo -c hi
+su root bash -c 'id'
 command su librenms
 sudo su librenms
 ";
@@ -56,7 +57,8 @@ sudo su librenms
                 "su librenms",
                 "su -c",
                 "su --command",
-                "su -- root echo -c hi"
+                "su -- root echo -c hi",
+                "su root bash -c 'id'"
             ]
         );
     }
