@@ -66,3 +66,32 @@ reviewed_divergences:
       - helper-library
       - project-closure
     reason: "ShellCheck aborts on earlier syntax errors in this helper, so the later declaration-assignment warnings are not stable comparison targets."
+  - side: shuck-only
+    path_suffix: "alpinelinux__aports__community__dnscrypt-proxy__dnscrypt-proxy.setup"
+    line: 53
+    reason: "The pinned ShellCheck run aborts on a malformed test later in this setup script and never surfaces SC2155 for these sanitized export assignments. Shuck still reports the declaration-assignment combination on the live sites."
+  - side: shuck-only
+    path_suffix: "alpinelinux__aports__community__dnscrypt-proxy__dnscrypt-proxy.setup"
+    line: 86
+    reason: "The pinned ShellCheck run aborts on a malformed test later in this setup script and never surfaces SC2155 for these sanitized export assignments. Shuck still reports the declaration-assignment combination on the live sites."
+  - side: shuck-only
+    path_suffix: "alpinelinux__aports__community__dnscrypt-proxy__dnscrypt-proxy.setup"
+    line: 112
+    reason: "The pinned ShellCheck run aborts on a malformed test later in this setup script and never surfaces SC2155 for these sanitized export assignments. Shuck still reports the declaration-assignment combination on the live sites."
+  - side: shuck-only
+    path_suffix: "alpinelinux__aports__community__dnscrypt-proxy__dnscrypt-proxy.setup"
+    line: 258
+    reason: "The pinned ShellCheck run aborts on a malformed test later in this setup script and never surfaces SC2155 for these sanitized export assignments. Shuck still reports the declaration-assignment combination on the live sites."
+  - side: shuck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__www__cgi-bin-status.sh"
+    line: 69
+    labels:
+      - project-closure
+    reason: "This CGI helper is compared through a project-closure path, and the pinned ShellCheck run does not surface SC2155 for the `local mult_list` aggregation in that closure context. Shuck still reports the declaration-assignment combination on the helper itself."
+  - side: shuck-only
+    path_suffix: "paulirish__dotfiles__.git-completion.bash"
+    labels:
+      - directive-handling
+      - helper-library
+      - shell-collapse
+    reason: "This Git completion helper carries a file-wide `shellcheck disable=all`, so the pinned oracle stays silent on SC2155 throughout the shell-collapsed helper-library copy. Shuck still reports the live declaration assignments there."
