@@ -301,50 +301,39 @@ mod tests {
     }
 
     #[test]
-    fn reports_single_quoted_literals_inside_heredoc_bodies() {
+    fn ignores_single_quoted_sequences_inside_expanding_heredoc_bodies() {
         assert_eq!(
             c005("cat <<EOF\n'$HOME should expand but does not'\nEOF\n",),
-            1
+            0
         );
     }
 
     #[test]
-    fn reports_multiple_single_quoted_literals_inside_heredoc_bodies() {
-        let source = "cat <<EOF\n'$HOME' and '$(pwd)'\nEOF\n";
-        let diagnostics = c005_diagnostics(source);
+    fn ignores_multiple_single_quoted_sequences_inside_expanding_heredoc_bodies() {
+        assert_eq!(c005("cat <<EOF\n'$HOME' and '$(pwd)'\nEOF\n"), 0);
+    }
 
+    #[test]
+    fn ignores_single_quoted_sequences_inside_tab_stripped_heredoc_bodies() {
+        assert_eq!(c005("cat <<-EOF\n\t'$HOME'\nEOF\n"), 0);
+    }
+
+    #[test]
+    fn ignores_realistic_config_template_payloads_in_heredocs() {
         assert_eq!(
-            diagnostics
-                .iter()
-                .map(|diagnostic| diagnostic.span.slice(source))
-                .collect::<Vec<_>>(),
-            vec!["'$HOME'", "'$(pwd)'"]
+            c005("cat <<EOF > .cargo/config\ndirectory = '$(pwd)/vendor'\nEOF\n"),
+            0
         );
     }
 
     #[test]
-    fn reports_single_quoted_literals_inside_tab_stripped_heredoc_bodies() {
-        assert_eq!(c005("cat <<-EOF\n\t'$HOME'\nEOF\n"), 1);
-    }
-
-    #[test]
-    fn ignores_unmatched_single_quotes_inside_heredoc_bodies() {
-        assert_eq!(c005("cat <<EOF\n'$HOME\nEOF\n"), 0);
-    }
-
-    #[test]
-    fn ignores_escaped_single_quotes_inside_heredoc_bodies() {
-        assert_eq!(c005("cat <<EOF\n\\'$HOME\\'\nEOF\n"), 0);
-    }
-
-    #[test]
-    fn ignores_escaped_single_quotes_inside_tab_stripped_heredoc_bodies() {
-        assert_eq!(c005("cat <<-EOF\n\t\\'$HOME\\'\nEOF\n"), 0);
-    }
-
-    #[test]
-    fn ignores_single_quotes_paired_across_heredoc_newlines() {
-        assert_eq!(c005("cat <<EOF\n'$HOME\nstill here'\nEOF\n"), 0);
+    fn ignores_single_quoted_here_strings_passed_to_shell_commands() {
+        assert_eq!(
+            c005(
+                "bash --init-file \"${BASH_IT?}/bash_it.sh\" -i <<< '_bash-it-flash-term \"${#BASH_IT_THEME}\" \"${BASH_IT_THEME}\"'\n",
+            ),
+            0
+        );
     }
 
     #[test]

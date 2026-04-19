@@ -273,7 +273,6 @@ impl<'a> SurfaceFragmentSink<'a> {
         body: &HeredocBody,
         context: SurfaceScanContext<'_>,
     ) {
-        self.collect_single_quoted_fragments_in_heredoc_body_parts(&body.parts, context);
         self.collect_heredoc_body_parts(&body.parts, context);
     }
 
@@ -311,61 +310,6 @@ impl<'a> SurfaceFragmentSink<'a> {
                 self.facts
                     .suspect_closing_quotes
                     .push(SuspectClosingQuoteFragmentFact { span });
-            }
-        }
-    }
-
-    fn collect_single_quoted_fragments_in_heredoc_body_parts(
-        &mut self,
-        parts: &[HeredocBodyPartNode],
-        context: SurfaceScanContext<'_>,
-    ) {
-        let mut open_quote = None;
-
-        for part in parts {
-            match &part.kind {
-                HeredocBodyPart::Literal(text) => {
-                    let text = text.as_str(self.source, part.span);
-
-                    for (quote_offset, ch) in text.char_indices() {
-                        match ch {
-                            '\n' => open_quote = None,
-                            '\'' => {
-                                let quote_start =
-                                    part.span.start.advanced_by(&text[..quote_offset]);
-                                if heredoc_single_quote_is_escaped(text, quote_offset) {
-                                    continue;
-                                }
-                                let quote_end = quote_start.advanced_by("'");
-
-                                if let Some(open_start) = open_quote.take() {
-                                    self.facts.single_quoted.push(SingleQuotedFragmentFact {
-                                        span: Span::from_positions(open_start, quote_end),
-                                        dollar_quoted: false,
-                                        command_name: context
-                                            .command_name
-                                            .map(str::to_owned)
-                                            .map(String::into_boxed_str),
-                                        assignment_target: context
-                                            .assignment_target
-                                            .map(str::to_owned)
-                                            .map(String::into_boxed_str),
-                                        variable_set_operand: context.variable_set_operand,
-                                        literal_backslash_in_single_quotes_span: None,
-                                    });
-                                } else {
-                                    open_quote = Some(quote_start);
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-                _ => {
-                    if part.span.start.line != part.span.end.line {
-                        open_quote = None;
-                    }
-                }
             }
         }
     }
@@ -1291,23 +1235,6 @@ fn backtick_substitution_len(text: &str) -> Option<usize> {
     }
 
     None
-}
-
-fn heredoc_single_quote_is_escaped(text: &str, quote_offset: usize) -> bool {
-    let mut backslash_count = 0usize;
-    let mut cursor = quote_offset;
-    while cursor > 0 {
-        match text.as_bytes()[cursor - 1] {
-            b'\\' => {
-                backslash_count += 1;
-                cursor -= 1;
-            }
-            b'\n' => break,
-            _ => break,
-        }
-    }
-
-    !backslash_count.is_multiple_of(2)
 }
 
 fn parameter_expansion_guards_unset_reference(parameter: &shuck_ast::ParameterExpansion) -> bool {
