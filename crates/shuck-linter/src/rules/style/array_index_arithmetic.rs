@@ -41,8 +41,8 @@ mod tests {
     }
 
     #[test]
-    fn reports_arithmetic_expansions_inside_array_keys() {
-        let source = "#!/bin/bash\ndeclare -A map=([foo[$((1+1))]]=x)\n";
+    fn reports_arithmetic_expansions_inside_declaration_subscripts() {
+        let source = "#!/bin/bash\ndeclare arr[$((1+1))]=x\n";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::ArrayIndexArithmetic),
@@ -54,6 +54,25 @@ mod tests {
     #[test]
     fn ignores_plain_arithmetic_subscripts_without_expansion() {
         let source = "#!/bin/bash\narr[1+1]=x\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayIndexArithmetic),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_associative_and_non_lvalue_subscript_contexts() {
+        let source = "\
+#!/bin/bash
+declare -A map
+map[$((assoc+1))]=x
+map[temp_$((mixed+1))]=y
+map=([$((compound+1))]=z)
+printf '%s\\n' \"${map[$((read+1))]}\"
+[[ -v map[$((check+1))] ]]
+";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::ArrayIndexArithmetic),

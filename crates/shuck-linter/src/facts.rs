@@ -10956,6 +10956,7 @@ fn extend_surface_fragment_facts(target: &mut SurfaceFragmentFacts, source: Surf
 
 struct WordFactCollector<'a> {
     source: &'a str,
+    semantic: &'a SemanticModel,
     command_id: CommandId,
     nested_word_command: bool,
     surface_command_name: Option<Box<str>>,
@@ -10981,6 +10982,7 @@ impl<'a> WordFactCollector<'a> {
     ) -> Self {
         Self {
             source,
+            semantic,
             command_id,
             nested_word_command,
             surface_command_name: normalized
@@ -11360,6 +11362,10 @@ impl<'a> WordFactCollector<'a> {
             match operand {
                 DeclOperand::Name(reference) => {
                     self.surface.record_var_ref_subscript(reference);
+                    let indexed_semantics = self.subscript_uses_index_arithmetic_semantics(
+                        Some(&reference.name),
+                        reference.subscript.as_ref(),
+                    );
                     query::visit_var_ref_subscript_words_with_source(
                         reference,
                         self.source,
@@ -11368,6 +11374,9 @@ impl<'a> WordFactCollector<'a> {
                                 word,
                                 SurfaceScanContext::new(None, self.nested_word_command),
                             );
+                            if indexed_semantics {
+                                self.collect_array_index_arithmetic_spans(word);
+                            }
                             self.push_owned_word(
                                 word.clone(),
                                 WordFactContext::Expansion(
@@ -11397,11 +11406,18 @@ impl<'a> WordFactCollector<'a> {
         let surface_context = SurfaceScanContext::new(None, self.nested_word_command)
             .with_assignment_target(assignment.target.name.as_str());
         self.surface.record_var_ref_subscript(&assignment.target);
+        let indexed_semantics = self.subscript_uses_index_arithmetic_semantics(
+            Some(&assignment.target.name),
+            assignment.target.subscript.as_ref(),
+        );
         query::visit_var_ref_subscript_words_with_source(
             &assignment.target,
             self.source,
             &mut |word| {
                 self.surface.collect_word(word, surface_context);
+                if indexed_semantics {
+                    self.collect_array_index_arithmetic_spans(word);
+                }
                 self.push_owned_word(
                     word.clone(),
                     context,
@@ -11827,17 +11843,6 @@ impl<'a> WordFactCollector<'a> {
         context: WordFactContext,
         host_kind: WordFactHostKind,
     ) {
-        if matches!(
-            host_kind,
-            WordFactHostKind::AssignmentTargetSubscript
-                | WordFactHostKind::DeclarationNameSubscript
-                | WordFactHostKind::ArrayKeySubscript
-                | WordFactHostKind::ConditionalVarRefSubscript
-        ) {
-            self.arithmetic
-                .array_index_arithmetic_spans
-                .extend(span::arithmetic_expansion_part_spans(word));
-        }
         if host_kind == WordFactHostKind::Direct
             && matches!(
                 context,
@@ -11868,6 +11873,37 @@ impl<'a> WordFactCollector<'a> {
                 &mut self.arithmetic.arithmetic_command_substitution_spans,
             );
         }
+    }
+
+    fn subscript_uses_index_arithmetic_semantics(
+        &self,
+        owner_name: Option<&Name>,
+        subscript: Option<&Subscript>,
+    ) -> bool {
+        let Some(subscript) = subscript else {
+            return false;
+        };
+        if subscript.selector().is_some() {
+            return false;
+        }
+        if matches!(
+            subscript.interpretation,
+            shuck_ast::SubscriptInterpretation::Associative
+        ) {
+            return false;
+        }
+
+        !owner_name.is_some_and(|name| {
+            self.semantic
+                .visible_binding(name, subscript.span())
+                .is_some_and(|binding| binding.attributes.contains(BindingAttributes::ASSOC))
+        })
+    }
+
+    fn collect_array_index_arithmetic_spans(&mut self, word: &Word) {
+        self.arithmetic
+            .array_index_arithmetic_spans
+            .extend(span::arithmetic_expansion_part_spans(word));
     }
 }
 
@@ -24696,6 +24732,32 @@ case x in *[!a-zA-Z0-9._/+\\-]*) continue ;; esac
 
         assert!(facts.is_subscript_index_reference(idx_reference.span));
         assert!(!facts.is_subscript_index_reference(free_reference.span));
+    }
+
+    #[test]
+    fn collects_array_index_arithmetic_spans_only_for_indexed_lvalues() {
+        let source = "\
+#!/bin/bash
+arr[$((indexed+1))]=x
+declare named[$((declared+1))]=y
+declare -A map
+map[$((assoc+1))]=z
+map[temp_$((mixed+1))]=q
+map=([$((compound+1))]=w)
+printf '%s\\n' \"${arr[$((read+1))]}\"
+[[ -v arr[$((check+1))] ]]
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .array_index_arithmetic_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["$((indexed+1))", "$((declared+1))"]
+            );
+        });
     }
 
     #[test]
