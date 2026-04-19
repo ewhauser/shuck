@@ -2042,7 +2042,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     ReferenceKind::ArithmeticRead,
                     arithmetic_name_span(expr.span, name),
                 );
-                self.visit_arithmetic_expr_into(index, flow, nested_regions);
+                self.visit_arithmetic_index_into(name, index, flow, nested_regions);
             }
             ArithmeticExpr::ShellWord(word) => {
                 self.visit_word_into(word, WordVisitKind::Expansion, flow, nested_regions);
@@ -2089,6 +2089,117 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
+    fn visit_arithmetic_index_into(
+        &mut self,
+        owner_name: &Name,
+        index: &ArithmeticExprNode,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        if self
+            .arithmetic_index_uses_associative_word_semantics(owner_name, index.span.start.offset)
+        {
+            self.visit_associative_arithmetic_key_into(index, flow, nested_regions);
+            return;
+        }
+
+        self.visit_arithmetic_expr_into(index, flow, nested_regions);
+    }
+
+    fn arithmetic_index_uses_associative_word_semantics(
+        &self,
+        owner_name: &Name,
+        offset: usize,
+    ) -> bool {
+        self.visible_binding_is_assoc(owner_name, offset)
+    }
+
+    fn visible_binding_is_assoc(&self, name: &Name, offset: usize) -> bool {
+        self.resolve_reference(name, self.current_scope(), offset)
+            .map(|binding_id| {
+                self.bindings[binding_id.index()]
+                    .attributes
+                    .contains(BindingAttributes::ASSOC)
+            })
+            .unwrap_or(false)
+    }
+
+    fn arithmetic_binding_attributes(
+        &self,
+        target: &ArithmeticLvalue,
+        target_offset: usize,
+    ) -> BindingAttributes {
+        let mut attributes = match target {
+            ArithmeticLvalue::Variable(_) => BindingAttributes::empty(),
+            ArithmeticLvalue::Indexed { .. } => BindingAttributes::ARRAY,
+        };
+
+        if let ArithmeticLvalue::Indexed { name, .. } = target
+            && self.visible_binding_is_assoc(name, target_offset)
+        {
+            attributes |= BindingAttributes::ASSOC;
+        }
+
+        attributes
+    }
+
+    fn visit_associative_arithmetic_key_into(
+        &mut self,
+        expr: &ArithmeticExprNode,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        match &expr.kind {
+            ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_) => {}
+            ArithmeticExpr::Indexed { index, .. } => {
+                self.visit_associative_arithmetic_key_into(index, flow, nested_regions);
+            }
+            ArithmeticExpr::ShellWord(word) => {
+                self.visit_word_into(word, WordVisitKind::Expansion, flow, nested_regions);
+            }
+            ArithmeticExpr::Parenthesized { expression } => {
+                self.visit_associative_arithmetic_key_into(expression, flow, nested_regions);
+            }
+            ArithmeticExpr::Unary { expr: inner, .. } => {
+                self.visit_associative_arithmetic_key_into(inner, flow, nested_regions);
+            }
+            ArithmeticExpr::Postfix { expr: inner, .. } => {
+                self.visit_associative_arithmetic_key_into(inner, flow, nested_regions);
+            }
+            ArithmeticExpr::Binary { left, right, .. } => {
+                self.visit_associative_arithmetic_key_into(left, flow, nested_regions);
+                self.visit_associative_arithmetic_key_into(right, flow, nested_regions);
+            }
+            ArithmeticExpr::Conditional {
+                condition,
+                then_expr,
+                else_expr,
+            } => {
+                self.visit_associative_arithmetic_key_into(condition, flow, nested_regions);
+                self.visit_associative_arithmetic_key_into(then_expr, flow, nested_regions);
+                self.visit_associative_arithmetic_key_into(else_expr, flow, nested_regions);
+            }
+            ArithmeticExpr::Assignment { target, value, .. } => {
+                self.visit_associative_arithmetic_lvalue_into(target, flow, nested_regions);
+                self.visit_associative_arithmetic_key_into(value, flow, nested_regions);
+            }
+        }
+    }
+
+    fn visit_associative_arithmetic_lvalue_into(
+        &mut self,
+        target: &ArithmeticLvalue,
+        flow: FlowState,
+        nested_regions: &mut Vec<IsolatedRegion>,
+    ) {
+        match target {
+            ArithmeticLvalue::Variable(_) => {}
+            ArithmeticLvalue::Indexed { index, .. } => {
+                self.visit_associative_arithmetic_key_into(index, flow, nested_regions);
+            }
+        }
+    }
+
     fn visit_arithmetic_update_into(
         &mut self,
         expr: &ArithmeticExprNode,
@@ -2110,7 +2221,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 );
             }
             ArithmeticExpr::Indexed { name, index } => {
-                self.visit_arithmetic_expr_into(index, flow, nested_regions);
+                self.visit_arithmetic_index_into(name, index, flow, nested_regions);
                 let span = arithmetic_name_span(expr.span, name);
                 self.add_reference(name, ReferenceKind::ArithmeticRead, span);
                 self.add_binding(
@@ -2121,7 +2232,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     BindingOrigin::ArithmeticAssignment {
                         definition_span: span,
                     },
-                    BindingAttributes::ARRAY,
+                    self.arithmetic_binding_attributes(
+                        &ArithmeticLvalue::Indexed {
+                            name: name.clone(),
+                            index: index.clone(),
+                        },
+                        span.start.offset,
+                    ),
                 );
             }
             _ => {}
@@ -2138,9 +2255,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
         self.visit_arithmetic_lvalue_indices_into(target, flow, nested_regions);
-        let (name, attributes) = match target {
-            ArithmeticLvalue::Variable(name) => (name, BindingAttributes::empty()),
-            ArithmeticLvalue::Indexed { name, .. } => (name, BindingAttributes::ARRAY),
+        let attributes = self.arithmetic_binding_attributes(target, target_span.start.offset);
+        let name = match target {
+            ArithmeticLvalue::Variable(name) | ArithmeticLvalue::Indexed { name, .. } => name,
         };
         let name_span = arithmetic_name_span(target_span, name);
         if !matches!(op, ArithmeticAssignOp::Assign) {
@@ -2167,8 +2284,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     ) {
         match target {
             ArithmeticLvalue::Variable(_) => {}
-            ArithmeticLvalue::Indexed { index, .. } => {
-                self.visit_arithmetic_expr_into(index, flow, nested_regions);
+            ArithmeticLvalue::Indexed { name, index } => {
+                self.visit_arithmetic_index_into(name, index, flow, nested_regions);
             }
         }
     }
