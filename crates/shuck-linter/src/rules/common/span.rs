@@ -1093,6 +1093,12 @@ fn normalize_nested_direct_all_elements_array_expansion_span(
         let byte = bytes[index];
 
         if byte == b'\\' {
+            if index + 2 < bytes.len() && bytes[index + 1] == b'$' && bytes[index + 2] == b'{' {
+                nested_braced_depth += 1;
+                index += 3;
+                continue;
+            }
+
             index += usize::from(index + 1 < bytes.len()) + 1;
             continue;
         }
@@ -3753,6 +3759,26 @@ printf '%s\\n' \"$@\" \"${arr[@]}\" \"${arr[@]:1}\" \"${arr[@]:-fallback}\" \"${
             matches,
             vec![true, true, true, true, false, false, false, false, false]
         );
+    }
+
+    #[test]
+    fn word_has_direct_all_elements_array_expansion_ignores_escaped_parameter_nesting() {
+        let source = "\
+printf '%s\\n' \"\\${1+'\\\"$@\\\"'}\" \"$@\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let matches = command
+            .args
+            .iter()
+            .skip(1)
+            .map(|word| word_has_direct_all_elements_array_expansion_in_source(word, source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(matches, vec![false, true]);
     }
 
     #[test]

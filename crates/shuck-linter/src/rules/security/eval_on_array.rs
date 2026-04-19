@@ -124,6 +124,17 @@ eval \"${args[@]:+ok}\"
     }
 
     #[test]
+    fn ignores_nested_positional_splats_inside_escaped_parameter_text() {
+        let source = "\
+#!/bin/bash
+eval \"\\${1+'\\\"$@\\\"'}\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::EvalOnArray));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn reports_direct_positional_splats_after_escaped_parameter_text_in_eval_strings() {
         let source = "\
 #!/bin/bash
