@@ -41,6 +41,7 @@ mod tests {
 su librenms
 su -c
 su --command
+su -- root echo -c hi
 command su librenms
 sudo su librenms
 ";
@@ -51,7 +52,12 @@ sudo su librenms
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["su librenms", "su -c", "su --command"]
+            vec![
+                "su librenms",
+                "su -c",
+                "su --command",
+                "su -- root echo -c hi"
+            ]
         );
     }
 
@@ -69,7 +75,6 @@ su --command id root
 su - root
 su root -c id
 su alice -
-su alice -- -
 su \"$user\" -c \"$cmd\"
 su \"$user\" -s /bin/sh -c \"$cmd\"
 bundle_dir=$(su \"$user\" -s \"$SHELL\" -c \"echo ~/.bundle\")
@@ -85,6 +90,7 @@ bundle_dir=$(su \"$user\" -s \"$SHELL\" -c \"echo ~/.bundle\")
 #!/bin/bash
 su -m root
 su -s /bin/sh root
+su alice -- -
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SuWithoutFlag));
 
@@ -93,7 +99,7 @@ su -s /bin/sh root
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["su -m root", "su -s /bin/sh root"]
+            vec!["su -m root", "su -s /bin/sh root", "su alice -- -"]
         );
     }
 }
