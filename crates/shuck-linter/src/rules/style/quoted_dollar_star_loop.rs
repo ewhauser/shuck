@@ -1,4 +1,7 @@
-use crate::{Checker, ExpansionContext, Rule, Violation, word_quoted_star_splat_spans};
+use crate::{
+    Checker, Rule, Violation, WordQuote, all_elements_array_expansion_part_spans,
+    word_double_quoted_scalar_only_expansion_spans, word_quoted_star_splat_spans,
+};
 
 pub struct QuotedDollarStarLoop;
 
@@ -8,16 +11,38 @@ impl Violation for QuotedDollarStarLoop {
     }
 
     fn message(&self) -> String {
-        "quoted star-splat loop items collapse into one value".to_owned()
+        "fully quoted loop-list expansions collapse into one value".to_owned()
     }
 }
 
 pub fn quoted_dollar_star_loop(checker: &mut Checker) {
+    let source = checker.source();
     let spans = checker
         .facts()
-        .expansion_word_facts(ExpansionContext::ForList)
-        .filter(|fact| !word_quoted_star_splat_spans(fact.word()).is_empty())
-        .map(|fact| fact.span())
+        .for_headers()
+        .iter()
+        .filter(|header| {
+            header.words().iter().all(|word| {
+                let classification = word.classification();
+                if classification.quote != WordQuote::FullyQuoted
+                    || classification.is_fixed_literal()
+                    || !all_elements_array_expansion_part_spans(word.word(), source).is_empty()
+                {
+                    return false;
+                }
+
+                classification.has_command_substitution()
+                    || !word_double_quoted_scalar_only_expansion_spans(word.word()).is_empty()
+                    || !word_quoted_star_splat_spans(word.word()).is_empty()
+            })
+        })
+        .flat_map(|header| {
+            header
+                .words()
+                .iter()
+                .map(|word| word.span())
+                .collect::<Vec<_>>()
+        })
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || QuotedDollarStarLoop);
@@ -29,11 +54,11 @@ mod tests {
     use crate::{LinterSettings, Rule};
 
     #[test]
-    fn reports_quoted_star_splats_in_for_lists() {
+    fn reports_fully_quoted_loop_list_expansions() {
         let source = "\
 #!/bin/bash
 arr=(a b)
-for item in \"$*\" \"${*}\" \"${*:1}\" \"${arr[*]}\" \"x$*y\"; do
+for item in \"$var\" \"${var}\" \"$(printf x)\" \"$*\" \"${*}\" \"${*:1}\" \"${arr[*]}\" \"x$*y\"; do
   :
 done
 ";
@@ -48,6 +73,9 @@ done
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec![
+                "\"$var\"",
+                "\"${var}\"",
+                "\"$(printf x)\"",
                 "\"$*\"",
                 "\"${*}\"",
                 "\"${*:1}\"",
@@ -58,14 +86,15 @@ done
     }
 
     #[test]
-    fn ignores_non_loop_and_non_star_splats() {
+    fn ignores_nonproblematic_for_list_expansions() {
         let source = "\
 #!/bin/bash
 arr=(a b)
-for item in \"$@\" \"${arr[@]}\" \"${arr[@]:1}\" ${arr[*]}; do
-  :
+for item in \"$@\" \"${arr[@]}\" \"${arr[@]:1}\" \"${arr[@]:-fallback}\" \"x$@y\" \"x${arr[@]}y\" ${arr[*]}; do
+  printf '%s\\n' \"$item\"
 done
 select item in \"$*\"; do
+  printf '%s\\n' \"$item\"
   break
 done
 printf '%s\\n' \"$*\" \"${arr[*]}\"
@@ -75,6 +104,6 @@ printf '%s\\n' \"$*\" \"${arr[*]}\"
             &LinterSettings::for_rule(Rule::QuotedDollarStarLoop),
         );
 
-        assert!(diagnostics.is_empty());
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 }

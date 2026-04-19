@@ -44,7 +44,8 @@ pub use rules::common::expansion::{ExpansionContext, WordQuote};
 pub use rules::common::query::CommandSubstitutionKind;
 pub use rules::common::safe_value::{SafeValueIndex, SafeValueQuery};
 pub use rules::common::span::{
-    assignment_name_span, case_item_suspicious_bracket_glob_spans, command_substitution_part_spans,
+    all_elements_array_expansion_part_spans, assignment_name_span,
+    case_item_suspicious_bracket_glob_spans, command_substitution_part_spans,
     conditional_array_subscript_span, conditional_extglob_span,
     conditional_suspicious_bracket_glob_spans, double_quoted_scalar_affix_span,
     unescaped_backtick_command_substitution_span, word_all_elements_array_slice_span_in_source,
