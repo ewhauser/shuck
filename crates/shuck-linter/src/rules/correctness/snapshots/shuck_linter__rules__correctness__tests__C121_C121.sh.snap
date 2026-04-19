@@ -1,14 +1,20 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
 ---
-C121 this comparison uses `-eq` with a string value
- --> <source>:2:9
+C121 this numeric comparison uses text instead of a number
+ --> <source>:2:13
   |
 2 | [[ $VER -eq "latest" ]]
   |
 
-C121 this comparison uses `-eq` with a string value
- --> <source>:3:8
+C121 this numeric comparison uses text instead of a number
+ --> <source>:3:4
   |
-3 | [ $VER -eq "latest" ]
+3 | [[ foo -ne 3 ]]
+  |
+
+C121 this numeric comparison uses text instead of a number
+ --> <source>:4:10
+  |
+4 | [[ 3 -eq bar ]]
   |

@@ -115,6 +115,60 @@ pub fn text_looks_like_nontrivial_arithmetic_expression(text: &str) -> bool {
     })
 }
 
+pub fn text_is_self_contained_arithmetic_expression(text: &str) -> bool {
+    let text = text.trim();
+    if text.is_empty() {
+        return false;
+    }
+
+    let source = format!("(( {text} ))");
+    let file = Parser::new(&source).parse();
+    if file.is_err() {
+        return false;
+    }
+
+    let Some(statement) = file.file.body.first() else {
+        return false;
+    };
+
+    let Command::Compound(CompoundCommand::Arithmetic(command)) = &statement.command else {
+        return false;
+    };
+
+    command
+        .expr_ast
+        .as_ref()
+        .is_some_and(arithmetic_expr_is_self_contained)
+}
+
+fn arithmetic_expr_is_self_contained(expr: &shuck_ast::ArithmeticExprNode) -> bool {
+    match &expr.kind {
+        ArithmeticExpr::Number(_) => true,
+        ArithmeticExpr::Variable(_)
+        | ArithmeticExpr::Indexed { .. }
+        | ArithmeticExpr::ShellWord(_)
+        | ArithmeticExpr::Assignment { .. } => false,
+        ArithmeticExpr::Parenthesized { expression } => {
+            arithmetic_expr_is_self_contained(expression)
+        }
+        ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
+            arithmetic_expr_is_self_contained(expr)
+        }
+        ArithmeticExpr::Binary { left, right, .. } => {
+            arithmetic_expr_is_self_contained(left) && arithmetic_expr_is_self_contained(right)
+        }
+        ArithmeticExpr::Conditional {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
+            arithmetic_expr_is_self_contained(condition)
+                && arithmetic_expr_is_self_contained(then_expr)
+                && arithmetic_expr_is_self_contained(else_expr)
+        }
+    }
+}
+
 pub fn conditional_binary_op_is_string_match(op: ConditionalBinaryOp) -> bool {
     matches!(
         op,
@@ -272,6 +326,7 @@ mod tests {
         ExpansionContext, TestOperandClass, WordExpansionKind, WordLiteralness, WordQuote,
         WordSubstitutionShape, classify_conditional_operand, classify_contextual_operand,
         classify_word, is_shell_variable_name, static_word_text,
+        text_is_self_contained_arithmetic_expression,
         text_looks_like_nontrivial_arithmetic_expression, word_is_standalone_status_capture,
     };
 
@@ -405,6 +460,18 @@ echo \"\\\"$BUILDSCRIPT\\\" --library $(test \"${PKG_DIR%/*}\" = \"gpkg\" && ech
         assert!(!text_looks_like_nontrivial_arithmetic_expression("123"));
         assert!(!text_looks_like_nontrivial_arithmetic_expression("name"));
         assert!(!text_looks_like_nontrivial_arithmetic_expression(
+            "latest value"
+        ));
+    }
+
+    #[test]
+    fn arithmetic_text_helper_distinguishes_self_contained_expressions() {
+        assert!(text_is_self_contained_arithmetic_expression("1 + 2"));
+        assert!(text_is_self_contained_arithmetic_expression("(1 + 2)"));
+        assert!(!text_is_self_contained_arithmetic_expression("name"));
+        assert!(!text_is_self_contained_arithmetic_expression("arr[1]"));
+        assert!(!text_is_self_contained_arithmetic_expression("foo + 1"));
+        assert!(!text_is_self_contained_arithmetic_expression(
             "latest value"
         ));
     }
