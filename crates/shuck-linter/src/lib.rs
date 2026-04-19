@@ -151,6 +151,33 @@ pub fn analyze_file_at_path_with_resolver(
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> AnalysisResult {
     let shell = resolve_shell(settings, source, source_path);
+    let first_parse_error = parse_error_position(&parse_for_lint(source, shell));
+
+    analyze_file_at_path_with_resolver_and_shell(
+        file,
+        source,
+        indexer,
+        settings,
+        suppression_index,
+        source_path,
+        source_path_resolver,
+        shell,
+        first_parse_error,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn analyze_file_at_path_with_resolver_and_shell(
+    file: &File,
+    source: &str,
+    indexer: &Indexer,
+    settings: &LinterSettings,
+    suppression_index: Option<&SuppressionIndex>,
+    source_path: Option<&Path>,
+    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+    shell: ShellDialect,
+    first_parse_error: Option<(usize, usize)>,
+) -> AnalysisResult {
     let file_context = classify_file_context(source, source_path, shell);
     let file_entry_contract =
         ambient_contracts::file_entry_contract(source, source_path, shell, &file_context);
@@ -184,6 +211,7 @@ pub fn analyze_file_at_path_with_resolver(
         &settings.rules,
         shell,
         &file_context,
+        first_parse_error,
     );
     let mut diagnostics = observer.into_diagnostics();
     diagnostics.extend(checker.check());
@@ -231,6 +259,13 @@ fn parse_for_lint(source: &str, shell: ShellDialect) -> ParseResult {
     Parser::with_profile(source, inferred_shell_profile(shell)).parse()
 }
 
+fn parse_error_position(parse_result: &ParseResult) -> Option<(usize, usize)> {
+    parse_result.is_err().then(|| {
+        let shuck_parser::Error::Parse { line, column, .. } = parse_result.strict_error();
+        (line, column)
+    })
+}
+
 pub fn lint_file(
     file: &File,
     source: &str,
@@ -272,7 +307,7 @@ pub fn lint_file_at_path_with_resolver(
     let shell = resolve_shell(settings, source, source_path);
     let parse_result = parse_for_lint(source, shell);
 
-    let mut diagnostics = analyze_file_at_path_with_resolver(
+    let mut diagnostics = analyze_file_at_path_with_resolver_and_shell(
         file,
         source,
         indexer,
@@ -280,6 +315,8 @@ pub fn lint_file_at_path_with_resolver(
         None,
         source_path,
         source_path_resolver,
+        shell,
+        parse_error_position(&parse_result),
     )
     .diagnostics;
 
@@ -319,7 +356,7 @@ pub fn lint_file_at_path_with_resolver_and_parse_result(
 ) -> Vec<Diagnostic> {
     let shell = resolve_shell(settings, source, source_path);
 
-    let mut diagnostics = analyze_file_at_path_with_resolver(
+    let mut diagnostics = analyze_file_at_path_with_resolver_and_shell(
         &parse_result.file,
         source,
         indexer,
@@ -327,6 +364,8 @@ pub fn lint_file_at_path_with_resolver_and_parse_result(
         None,
         source_path,
         source_path_resolver,
+        shell,
+        parse_error_position(parse_result),
     )
     .diagnostics;
 
