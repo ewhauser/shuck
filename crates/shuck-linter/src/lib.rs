@@ -44,14 +44,16 @@ pub use rules::common::expansion::{ExpansionContext, WordQuote};
 pub use rules::common::query::CommandSubstitutionKind;
 pub use rules::common::safe_value::{SafeValueIndex, SafeValueQuery};
 pub use rules::common::span::{
-    assignment_name_span, conditional_array_subscript_span, conditional_extglob_span,
-    double_quoted_scalar_affix_span, unescaped_backtick_command_substitution_span,
-    word_all_elements_array_slice_span_in_source, word_all_elements_array_slice_spans,
-    word_array_subscript_span, word_double_quoted_scalar_only_expansion_spans, word_extglob_span,
+    assignment_name_span, command_substitution_part_spans, conditional_array_subscript_span,
+    conditional_extglob_span, double_quoted_scalar_affix_span,
+    unescaped_backtick_command_substitution_span, word_all_elements_array_slice_span_in_source,
+    word_all_elements_array_slice_spans, word_array_subscript_span,
+    word_double_quoted_scalar_only_expansion_spans, word_extglob_span,
     word_folded_positional_at_splat_span, word_folded_positional_at_splat_span_in_source,
-    word_has_folded_positional_at_splat, word_has_quoted_all_elements_array_slice,
-    word_has_single_literal_part, word_has_unquoted_brace_expansion,
-    word_is_pure_positional_at_splat, word_literal_part_spans_excluding_parameter_operator_tails,
+    word_has_direct_all_elements_array_expansion_in_source, word_has_folded_positional_at_splat,
+    word_has_quoted_all_elements_array_slice, word_has_single_literal_part,
+    word_has_unquoted_brace_expansion, word_is_pure_positional_at_splat,
+    word_literal_part_spans_excluding_parameter_operator_tails,
     word_literal_scan_segments_excluding_expansions, word_nested_dynamic_double_quote_spans,
     word_nested_zsh_substitution_spans, word_positional_at_splat_span_in_source,
     word_positional_at_splat_spans, word_quoted_all_elements_array_slice_spans,

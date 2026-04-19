@@ -10581,9 +10581,15 @@ impl<'a> WordFactCollector<'a> {
                     WordFactHostKind::Direct,
                 );
             }
-            ConditionalExpr::Pattern(pattern) => self
-                .surface
-                .collect_pattern(pattern, surface_context.with_pattern_charclass_scan()),
+            ConditionalExpr::Pattern(pattern) => {
+                let pattern_context = surface_context.with_pattern_charclass_scan();
+                self.surface.collect_pattern(pattern, pattern_context);
+                self.collect_pattern_context_words(
+                    pattern,
+                    WordFactContext::Expansion(ExpansionContext::ConditionalPattern),
+                    WordFactHostKind::Direct,
+                );
+            }
             ConditionalExpr::VarRef(reference) => {
                 self.surface.record_var_ref_subscript(reference);
                 query::visit_var_ref_subscript_words_with_source(
@@ -22475,6 +22481,29 @@ eval \"${shims[@]}\"
                 vec!["${shims[@]}"],
                 "parts: {:?}",
                 fact.word().parts
+            );
+        });
+    }
+
+    #[test]
+    fn builds_word_facts_for_conditional_patterns() {
+        let source = "\
+#!/bin/bash
+if [[ x == *${shims[@]}* ]]; then :; fi
+";
+
+        with_facts(source, None, |_, facts| {
+            let fact = facts
+                .expansion_word_facts(ExpansionContext::ConditionalPattern)
+                .find(|fact| fact.span().slice(source) == "${shims[@]}")
+                .expect("expected conditional pattern word fact");
+
+            assert_eq!(
+                fact.all_elements_array_expansion_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["${shims[@]}"]
             );
         });
     }
