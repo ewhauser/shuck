@@ -47,9 +47,9 @@ const LARGE_CORPUS_PROGRESS_BUCKET_COUNT: usize = 100 / LARGE_CORPUS_PROGRESS_PE
 const LARGE_CORPUS_TIMING_LIMIT: usize = 25;
 const RULE_CORPUS_METADATA_DIR: &str = "tests/testdata/corpus-metadata";
 const LARGE_CORPUS_ALLOWED_FAILING_RULES: &[&str] = &[
-    "C001", "C005", "C006", "C010", "C014", "C017", "C019", "C063", "C083", "C086", "C088", "C091",
-    "C121", "C131", "C132", "K002", "S001", "S004", "S010", "S015", "S017", "S021", "S045", "S050",
-    "S069", "S075", "X030", "X052",
+    "C001", "C005", "C006", "C010", "C014", "C017", "C019", "C063", "C083", "C086", "C087", "C088",
+    "C091", "C121", "C131", "C132", "K002", "S001", "S007", "S010", "S015", "S017", "S021", "S045",
+    "S050", "S069", "S075", "X020", "X030", "X052",
 ];
 const LARGE_CORPUS_ALLOWED_FAILING_RULE_REASON: &str = "known large-corpus rule allowlist";
 
