@@ -1,4 +1,5 @@
 pub mod ampersand_semicolon;
+pub mod brace_variable_before_bracket;
 pub mod arithmetic_score_line;
 pub mod array_index_arithmetic;
 pub mod avoid_let_builtin;
@@ -110,6 +111,7 @@ mod tests {
     #[test_case(Rule::DoubleQuoteNesting, Path::new("S070.sh"))]
     #[test_case(Rule::EnvPrefixCommandOnly, Path::new("S071.sh"))]
     #[test_case(Rule::MixedQuoteWord, Path::new("S076.sh"))]
+    #[test_case(Rule::BraceVariableBeforeBracket, Path::new("S077.sh"))]
     #[test_case(Rule::FunctionInAlias, Path::new("S057.sh"))]
     #[test_case(Rule::FunctionBodyWithoutBraces, Path::new("S041.sh"))]
     #[test_case(Rule::LocalDeclareCombined, Path::new("S066.sh"))]

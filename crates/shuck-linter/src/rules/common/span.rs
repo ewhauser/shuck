@@ -236,6 +236,13 @@ pub fn word_unquoted_escaped_pipe_or_brace_spans_in_source(word: &Word, source: 
     collect_unquoted_escaped_pipe_or_brace_spans(&word.parts, source, false, &mut spans);
     spans
 }
+
+pub fn word_unbraced_variable_before_bracket_spans(word: &Word, source: &str) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_unbraced_variable_before_bracket_spans(&word.parts, source, &mut spans);
+    spans
+}
+
 pub fn word_standalone_literal_backslash_span(word: &Word, source: &str) -> Option<Span> {
     let [part] = word.parts.as_slice() else {
         return None;
@@ -1595,6 +1602,80 @@ fn word_array_subscript_span_from_parts(parts: &[WordPartNode], source: &str) ->
     }
 
     None
+}
+
+fn collect_unbraced_variable_before_bracket_spans(
+    parts: &[WordPartNode],
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    let mut pending_variable = None;
+
+    for part in parts {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts: inner, .. } => {
+                collect_unbraced_variable_before_bracket_spans(inner, source, spans);
+                pending_variable = None;
+            }
+            WordPart::SingleQuoted { .. }
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::ProcessSubstitution { .. } => {
+                pending_variable = None;
+            }
+            WordPart::Variable(name)
+                if is_named_shell_variable(name.as_str())
+                    && !variable_part_uses_braces(part, source) =>
+            {
+                pending_variable = Some(unbraced_variable_dollar_span(part, source));
+            }
+            WordPart::Literal(text) => {
+                if text.as_str(source, part.span).starts_with('[')
+                    && let Some(variable_span) = pending_variable
+                {
+                    spans.push(variable_span);
+                }
+                pending_variable = None;
+            }
+            WordPart::Variable(_)
+            | WordPart::Parameter(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::Transformation { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::ZshQualifiedGlob(_) => {
+                pending_variable = None;
+            }
+        }
+    }
+}
+
+fn is_named_shell_variable(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    let Some((&first, rest)) = bytes.split_first() else {
+        return false;
+    };
+
+    is_name_start(first) && rest.iter().copied().all(is_name_continue)
+}
+
+fn unbraced_variable_dollar_span(part: &WordPartNode, source: &str) -> Span {
+    let raw = part.span.slice(source);
+    let dollar_offset = raw.find('$').unwrap_or(0);
+    Span::at(part.span.start.advanced_by(&raw[..dollar_offset]))
+}
+
+fn variable_part_uses_braces(part: &WordPartNode, source: &str) -> bool {
+    let raw = part.span.slice(source);
+    raw.find('$')
+        .and_then(|offset| raw.as_bytes().get(offset + 1))
+        .is_some_and(|next| *next == b'{')
 }
 
 fn parameter_array_subscript_span(parameter: &ParameterExpansion) -> Option<Span> {

@@ -1,0 +1,109 @@
+use crate::{
+    Checker, Rule, Violation, WordFactHostKind, word_unbraced_variable_before_bracket_spans,
+};
+
+pub struct BraceVariableBeforeBracket;
+
+impl Violation for BraceVariableBeforeBracket {
+    fn rule() -> Rule {
+        Rule::BraceVariableBeforeBracket
+    }
+
+    fn message(&self) -> String {
+        "brace variable expansions before adjacent `[` text".to_owned()
+    }
+}
+
+pub fn brace_variable_before_bracket(checker: &mut Checker) {
+    let source = checker.source();
+    let spans = checker
+        .facts()
+        .word_facts()
+        .iter()
+        .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
+        .filter(|fact| !fact.is_arithmetic_command())
+        .flat_map(|fact| word_unbraced_variable_before_bracket_spans(fact.word(), source))
+        .collect::<Vec<_>>();
+
+    checker.report_all_dedup(spans, || BraceVariableBeforeBracket);
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test::test_snippet;
+    use crate::{LinterSettings, Rule};
+
+    #[test]
+    fn reports_unbraced_variables_before_bracket_text() {
+        let source = "\
+#!/bin/sh
+echo \"$foo[0]\"
+echo \"$key[[:space:]]\"
+echo game$game[0]
+echo \"$foo[\"
+$cmd[0] arg
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::BraceVariableBeforeBracket),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.start.column))
+                .collect::<Vec<_>>(),
+            vec![(2, 7), (3, 7), (4, 10), (5, 7), (6, 1)]
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.span.start == diagnostic.span.end)
+        );
+    }
+
+    #[test]
+    fn ignores_braced_special_and_quote_split_forms() {
+        let source = "\
+#!/bin/sh
+echo \"${foo}[0]\"
+echo \"${foo}[[:space:]]\"
+echo \"$foo\"\"[0]\"
+echo \"$foo\"'[0]'
+echo \"$foo\\[0]\"
+echo \"$1[0]\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::BraceVariableBeforeBracket),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_corpus_style_regex_suffix_forms() {
+        let source = "\
+#!/bin/bash
+check() {
+  local cmd=\"$1\"
+  command git grep -E \"^[^#]*\\\\<$cmd[[:space:]]+\"
+}
+sed_var() {
+  sed -i \"/\\\\$symon['$1']/s|=.*|='$2';|\" setup.inc
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::BraceVariableBeforeBracket),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.start.column))
+                .collect::<Vec<_>>(),
+            vec![(4, 33), (7, 14)]
+        );
+    }
+}

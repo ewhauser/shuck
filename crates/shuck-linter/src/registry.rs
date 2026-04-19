@@ -623,6 +623,12 @@ declare_rules! {
     ("S070", Category::Style, Severity::Warning, DoubleQuoteNesting),
     ("S071", Category::Style, Severity::Warning, EnvPrefixCommandOnly),
     ("S076", Category::Style, Severity::Warning, MixedQuoteWord),
+    (
+        "S077",
+        Category::Style,
+        Severity::Warning,
+        BraceVariableBeforeBracket
+    ),
     ("S049", Category::Style, Severity::Warning, UnquotedTrRange),
     ("S046", Category::Style, Severity::Warning, LsPipedToXargs),
     ("S047", Category::Style, Severity::Warning, LsInSubstitution),
@@ -780,6 +786,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-306" => Some(Rule::DoubleQuoteNesting),
         "SH-309" => Some(Rule::EnvPrefixCommandOnly),
         "SH-350" => Some(Rule::MixedQuoteWord),
+        "SH-354" => Some(Rule::BraceVariableBeforeBracket),
         "SH-071" => Some(Rule::GrepOutputInTest),
         "SH-076" => Some(Rule::SingleIterationLoop),
         "SH-128" => Some(Rule::BareCommandNameAssignment),
@@ -1026,6 +1033,14 @@ mod tests {
         assert_eq!(code_to_rule("SH-309"), Some(Rule::EnvPrefixCommandOnly));
         assert_eq!(code_to_rule("S076"), Some(Rule::MixedQuoteWord));
         assert_eq!(code_to_rule("SH-350"), Some(Rule::MixedQuoteWord));
+        assert_eq!(
+            code_to_rule("S077"),
+            Some(Rule::BraceVariableBeforeBracket)
+        );
+        assert_eq!(
+            code_to_rule("SH-354"),
+            Some(Rule::BraceVariableBeforeBracket)
+        );
         assert_eq!(code_to_rule("S021"), Some(Rule::PositionalArgsInString));
         assert_eq!(code_to_rule("SH-077"), Some(Rule::PositionalArgsInString));
         assert_eq!(code_to_rule("S020"), Some(Rule::SingleIterationLoop));
