@@ -244,6 +244,33 @@ pub fn word_unquoted_glob_pattern_spans(word: &Word, source: &str) -> Vec<Span> 
     spans
 }
 
+pub fn word_unquoted_glob_pattern_spans_outside_brace_expansion(
+    word: &Word,
+    source: &str,
+) -> Vec<Span> {
+    let active_brace_spans = word
+        .brace_syntax()
+        .iter()
+        .copied()
+        .filter(|brace| brace.expands())
+        .map(|brace| brace.span)
+        .collect::<Vec<_>>();
+
+    if active_brace_spans.is_empty() {
+        return word_unquoted_glob_pattern_spans(word, source);
+    }
+
+    word_unquoted_glob_pattern_spans(word, source)
+        .into_iter()
+        .filter(|glob_span| {
+            !active_brace_spans.iter().any(|brace_span| {
+                brace_span.start.offset <= glob_span.start.offset
+                    && glob_span.end.offset <= brace_span.end.offset
+            })
+        })
+        .collect()
+}
+
 pub fn word_suspicious_bracket_glob_spans(word: &Word, source: &str) -> Vec<Span> {
     word_unquoted_glob_pattern_spans(word, source)
         .into_iter()
@@ -2846,6 +2873,7 @@ mod tests {
         word_quoted_star_splat_spans, word_quoted_unindexed_bash_source_span_in_source,
         word_suspicious_bracket_glob_spans, word_unquoted_assign_default_spans,
         word_unquoted_escaped_pipe_or_brace_spans_in_source, word_unquoted_glob_pattern_spans,
+        word_unquoted_glob_pattern_spans_outside_brace_expansion,
         word_unquoted_scalar_between_double_quoted_segments_spans, word_unquoted_star_splat_spans,
         word_unquoted_word_between_single_quoted_segments_spans,
     };
@@ -3099,6 +3127,40 @@ mod tests {
         assert!(
             word_unquoted_glob_pattern_spans(&command.args[2], source).is_empty(),
             "parameter longest-prefix operator tails should not be reported as pathname globs"
+        );
+    }
+
+    #[test]
+    fn word_unquoted_glob_pattern_spans_outside_brace_expansion_ignore_brace_local_globs() {
+        let source = "\
+echo $DIR/{1..3}*.txt \
+$DIR/setjmp-aarch64/{setjmp.S,private-*.h} \
+$PKG/usr/man/{ja/,}*/*-8.?.?.gz
+";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        assert_eq!(
+            word_unquoted_glob_pattern_spans_outside_brace_expansion(&command.args[0], source)
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["*"]
+        );
+        assert!(
+            word_unquoted_glob_pattern_spans_outside_brace_expansion(&command.args[1], source)
+                .is_empty(),
+            "globs nested inside brace alternatives should stay excluded"
+        );
+        assert_eq!(
+            word_unquoted_glob_pattern_spans_outside_brace_expansion(&command.args[2], source)
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["*", "*", "?", "?"]
         );
     }
 

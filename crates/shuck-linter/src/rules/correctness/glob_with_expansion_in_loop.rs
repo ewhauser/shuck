@@ -1,6 +1,6 @@
 use crate::{
-    Checker, ExpansionContext, Rule, Violation, WordFact, word_has_unquoted_brace_expansion,
-    word_unquoted_glob_pattern_spans,
+    Checker, ExpansionContext, Rule, Violation, WordFact,
+    word_unquoted_glob_pattern_spans_outside_brace_expansion,
 };
 use shuck_ast::Span;
 
@@ -21,8 +21,10 @@ pub fn glob_with_expansion_in_loop(checker: &mut Checker) {
     let spans = checker
         .facts()
         .expansion_word_facts(ExpansionContext::ForList)
-        .filter(|fact| !word_has_unquoted_brace_expansion(fact.word(), source))
-        .filter(|fact| !word_unquoted_glob_pattern_spans(fact.word(), source).is_empty())
+        .filter(|fact| {
+            !word_unquoted_glob_pattern_spans_outside_brace_expansion(fact.word(), source)
+                .is_empty()
+        })
         .flat_map(unquoted_expansion_prefix_spans)
         .collect::<Vec<_>>();
 
@@ -53,6 +55,10 @@ mod tests {
 for i in $CWD/file.*pattern*; do :; done
 for i in ${CWD}/file.*pattern*; do :; done
 for i in $(pwd)/file.*pattern*; do :; done
+for i in $DIR/{1..3}*.txt; do :; done
+for i in $dir/{exec,grom,ecs}.{rom,bin,int}*; do :; done
+for i in $PKG/usr/man/{ja/,}*/*-8.?.?.gz; do :; done
+for file in $BINARY_SAMPLES_V2/{linux,windows}/*_DWARF*/*; do :; done
 ";
         let diagnostics = test_snippet(
             source,
@@ -64,7 +70,15 @@ for i in $(pwd)/file.*pattern*; do :; done
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$CWD", "${CWD}", "$(pwd)"]
+            vec![
+                "$CWD",
+                "${CWD}",
+                "$(pwd)",
+                "$DIR",
+                "$dir",
+                "$PKG",
+                "$BINARY_SAMPLES_V2",
+            ]
         );
     }
 
@@ -76,7 +90,6 @@ for i in \"$CWD\"/file.*pattern*; do :; done
 for i in file.*pattern*; do :; done
 for i in \"$CWD\"/*.txt; do :; done
 for i in $CWD/file.txt; do :; done
-for i in $DIR/{1..3}*.txt; do :; done
 for i in $DIR/setjmp-aarch64/{setjmp.S,private-*.h}; do :; done
 ";
         let diagnostics = test_snippet(
