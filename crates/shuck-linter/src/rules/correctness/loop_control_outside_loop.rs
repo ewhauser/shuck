@@ -53,14 +53,18 @@ pub(crate) fn loop_control_violations(
                     ScopeKind::Function(_)
                 )
             });
+            let in_subshell = checker
+                .semantic()
+                .flow_context_at(command_span)
+                .map(|context| context.in_subshell)
+                .unwrap_or(false);
             if inside_function_only && !inside_function {
                 return false;
             }
-            if !inside_function_only
-                && inside_function
-                && *keyword == "continue"
-                && checker.is_rule_enabled(Rule::ContinueOutsideLoopInFunction)
-            {
+            if inside_function_only && in_subshell {
+                return false;
+            }
+            if !inside_function_only && inside_function && *keyword == "continue" && !in_subshell {
                 return false;
             }
             checker
@@ -118,11 +122,29 @@ done
     }
 
     #[test]
-    fn reports_continue_inside_functions_when_the_specific_rule_is_disabled() {
+    fn ignores_continue_inside_functions() {
         let source = "\
 #!/bin/sh
 f() {
 \tcontinue
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::LoopControlOutsideLoop),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn reports_continue_inside_function_subshells() {
+        let source = "\
+#!/bin/sh
+f() {
+\t(
+\t\tcontinue
+\t)
 }
 ";
         let diagnostics = test_snippet(

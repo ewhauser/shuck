@@ -3,6 +3,7 @@ legacy_name: continue-outside-loop-in-func
 new_category: Correctness
 new_code: C126
 runtime_kind: ast
+shellcheck_code: SC2104
 shells:
   - sh
   - bash
