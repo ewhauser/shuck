@@ -391,10 +391,12 @@ fn bracket_v_name_spans(
                 .semantic()
                 .bindings_for(&Name::from(name.as_str()))
                 .iter()
-                .rev()
-                .find(|binding_id| {
+                .filter(|binding_id| {
                     checker.semantic().binding(**binding_id).span.start.offset
                         <= operand.span.start.offset
+                })
+                .max_by_key(|binding_id| {
+                    checker.semantic().binding(**binding_id).span.start.offset
                 })?;
             let roots = root_bindings_for_binding(
                 *binding_id,

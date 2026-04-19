@@ -21,7 +21,11 @@ pub fn variable_as_command_name(checker: &mut Checker) {
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
+    use std::fs;
+
+    use tempfile::tempdir;
+
+    use crate::test::{test_snippet, test_snippet_at_path};
     use crate::{LinterSettings, Rule};
 
     #[test]
@@ -213,6 +217,32 @@ args=safe
         );
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn sourced_safe_bindings_do_not_hide_later_unsafe_bracket_v_bindings() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        let source = "\
+#!/bin/bash
+. ./helper.sh
+args='--name \"hello world\"'
+[ -v args ]
+";
+
+        fs::write(&main, source).unwrap();
+        fs::write(&helper, "args=safe\n").unwrap();
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::VariableAsCommandName)
+                .with_analyzed_paths([main.clone(), helper.clone()]),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "args");
     }
 
     #[test]
