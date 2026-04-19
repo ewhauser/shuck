@@ -2699,12 +2699,12 @@ impl<'a> CommandOptionFacts<'a> {
             unset: normalized
                 .effective_name_is("unset")
                 .then(|| parse_unset_command(normalized.body_args(), source)),
-            find: normalized
-                .effective_name_is("find")
-                .then(|| {
+            find: (normalized.effective_name_is("find")
+                || normalized.literal_name.as_deref() == Some("find"))
+            .then(|| {
                     let args = find_command_args(command, normalized, source);
                     parse_find_command(args.as_slice(), source)
-                }),
+            }),
             find_exec: (normalized.has_wrapper(WrapperKind::FindExec)
                 || normalized.has_wrapper(WrapperKind::FindExecDir))
             .then(|| FindExecCommandFacts {
