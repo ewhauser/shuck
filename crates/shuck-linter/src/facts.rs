@@ -6519,8 +6519,7 @@ fn build_commented_continuation_comment_spans(source: &str, indexer: &Indexer) -
                 return None;
             }
             let comment_text = &source[comment_start..line_end];
-            let trimmed_comment_text =
-                comment_text.trim_end_matches(|ch| matches!(ch, ' ' | '\t' | '\r'));
+            let trimmed_comment_text = comment_text.trim_end_matches([' ', '\t', '\r']);
             if !trimmed_comment_text.ends_with('\\') {
                 return None;
             }
