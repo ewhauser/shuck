@@ -1090,6 +1090,25 @@ fn test_parse_arithmetic_command_with_nested_parens_before_outer_close() {
 }
 
 #[test]
+fn test_parse_arithmetic_command_with_grouped_term_before_logical_and() {
+    let input = "((threads>(cpu_height-3)*3 && tty_width>=200))\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let (compound, redirects) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Arithmetic(command) = compound else {
+        panic!("expected arithmetic compound command");
+    };
+
+    assert!(redirects.is_empty());
+    assert_eq!(command.left_paren_span.slice(input), "((");
+    assert_eq!(command.right_paren_span.slice(input), "))");
+    assert_eq!(
+        command.expr_span.unwrap().slice(input),
+        "threads>(cpu_height-3)*3 && tty_width>=200"
+    );
+}
+
+#[test]
 fn test_parse_arithmetic_command_with_nested_double_parens_and_grouping() {
     let input = "(( x = ((1 + 2) * (3 - 4)) ))\n";
     let script = Parser::new(input).parse().unwrap().file;

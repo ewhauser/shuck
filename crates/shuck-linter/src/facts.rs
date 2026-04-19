@@ -8926,31 +8926,39 @@ fn find_operator_span(expression_span: Span, source: &str, operator: &str, first
 
 fn double_paren_grouping_anchor(span: Span, source: &str) -> Option<Span> {
     let text = span.slice(source);
-    let body_start = if let Some(stripped) = text.strip_prefix("((") {
-        (text.len() - stripped.len()) + stripped.find(|char: char| !char.is_whitespace())?
+    let anchor_start = if let Some(stripped) = text.strip_prefix("((") {
+        let body_start =
+            (text.len() - stripped.len()) + stripped.find(|char: char| !char.is_whitespace())?;
+        let body = &text[body_start..];
+        let has_grouping_operator =
+            body.contains("||") || body.contains("&&") || body.contains('|') || body.contains(';');
+        if !has_grouping_operator {
+            return None;
+        }
+        span.start
     } else if text.starts_with('(')
         && span.start.offset > 0
         && source.as_bytes().get(span.start.offset - 1) == Some(&b'(')
     {
         let stripped = text.strip_prefix('(')?;
-        (text.len() - stripped.len()) + stripped.find(|char: char| !char.is_whitespace())?
+        let body_start =
+            (text.len() - stripped.len()) + stripped.find(|char: char| !char.is_whitespace())?;
+        let body = &text[body_start..];
+        let has_grouping_operator =
+            body.contains("||") || body.contains("&&") || body.contains('|') || body.contains(';');
+        if !has_grouping_operator {
+            return None;
+        }
+        Position {
+            line: span.start.line,
+            column: span.start.column - 1,
+            offset: span.start.offset - 1,
+        }
     } else {
         return None;
     };
 
-    let body = &text[body_start..];
-    let has_grouping_operator =
-        body.contains("||") || body.contains("&&") || body.contains('|') || body.contains(';');
-    if !has_grouping_operator {
-        return None;
-    }
-
-    let command_offset = body.find(|char: char| char == '_' || char.is_ascii_alphabetic())?;
-    let command_start = span.start.advanced_by(&text[..body_start + command_offset]);
-    let head = &body[command_offset..];
-    let first_char_len = head.chars().next()?.len_utf8();
-    let command_end = command_start.advanced_by(&head[..first_char_len]);
-    Some(Span::from_positions(command_start, command_end))
+    Some(Span::at(anchor_start))
 }
 
 fn has_header_shellcheck_shell_directive(source: &str) -> bool {
@@ -24262,14 +24270,20 @@ then \"install\" later
 ";
 
         with_facts(source, None, |_, facts| {
-            assert_eq!(
-                facts
-                    .double_paren_grouping_spans()
-                    .iter()
-                    .map(|span| span.slice(source))
-                    .collect::<Vec<_>>(),
-                vec!["p"]
-            );
+            let anchors = facts
+                .double_paren_grouping_spans()
+                .iter()
+                .map(|span| {
+                    (
+                        span.start.line,
+                        span.start.column,
+                        span.end.line,
+                        span.end.column,
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(anchors, vec![(2, 1, 2, 1)]);
         });
     }
 

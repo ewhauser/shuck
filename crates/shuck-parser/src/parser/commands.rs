@@ -606,6 +606,16 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn suspicious_double_paren_is_command_style(
+        &mut self,
+        checkpoint: &ParserCheckpoint<'a>,
+    ) -> bool {
+        self.restore(checkpoint.clone());
+        let parses_as_arithmetic = self.parse_arithmetic_command().is_ok();
+        self.restore(checkpoint.clone());
+        !parses_as_arithmetic
+    }
+
     fn looks_like_command_style_double_paren(&mut self) -> bool {
         if self.current_token_kind != Some(TokenKind::DoubleLeftParen) {
             return false;
@@ -643,8 +653,7 @@ impl<'a> Parser<'a> {
                 }
                 Some(TokenKind::RightParen) => {
                     if paren_depth == 0 {
-                        self.restore(checkpoint);
-                        return true;
+                        return self.suspicious_double_paren_is_command_style(&checkpoint);
                     }
                     paren_depth -= 1;
                     previous_top_level_operand = false;
@@ -666,8 +675,7 @@ impl<'a> Parser<'a> {
                             .is_some_and(Self::is_operand_like_double_paren_token) =>
                 {
                     if previous_top_level_operand {
-                        self.restore(checkpoint);
-                        return true;
+                        return self.suspicious_double_paren_is_command_style(&checkpoint);
                     }
                     previous_top_level_operand = true;
                     self.advance();
