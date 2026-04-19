@@ -1,0 +1,3 @@
+reviewed_divergences:
+  - side: shuck-only
+    reason: "Shuck intentionally keeps X065 hits inside POSIX parameter-trimming and replacement patterns. The current oracle does not surface SC3026 for those parameter-pattern contexts and, for replacement operators, only emits the broader SC3060 portability warning."
