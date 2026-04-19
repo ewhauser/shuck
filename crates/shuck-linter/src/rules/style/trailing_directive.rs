@@ -89,7 +89,9 @@ mod tests {
         let sources = [
             "#!/bin/sh\nif # shellcheck disable=SC2086\n  echo $foo\nthen\n  :\nfi\n",
             "#!/bin/sh\nif true; then # shellcheck disable=SC2086\n  echo $foo\nfi\n",
+            "#!/bin/sh\nif false; then\n  :\nelif true; then # shellcheck disable=SC2086\n  echo $foo\nfi\n",
             "#!/bin/sh\nif false; then\n  :\nelse # shellcheck disable=SC2086\n  echo $foo\nfi\n",
+            "#!/bin/sh\nfor item in 1; do # shellcheck disable=SC2086\n  echo $foo\ndone\n",
             "#!/bin/sh\nwhile # shellcheck disable=SC2086\n  echo $foo\ndo\n  :\ndone\n",
             "#!/bin/sh\nuntil # shellcheck disable=SC2086\n  echo $foo\ndo\n  :\ndone\n",
         ];

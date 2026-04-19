@@ -224,19 +224,20 @@ pub(crate) fn shellcheck_directive_can_apply_to_following_command(
                     )
             });
 
-            let then_header = match command.syntax {
-                IfSyntax::ThenFi { then_span, .. } => {
-                    command.then_branch.first().is_some_and(|stmt| {
-                        next_command_starts_after_comment_line(stmt.span.start.offset, &context)
-                            && span_precedes_comment_on_same_line(then_span, &context)
-                    })
-                }
-                IfSyntax::Brace { .. } => false,
-            };
+            let then_header = matches!(command.syntax, IfSyntax::ThenFi { .. })
+                && body_header_matches(
+                    source,
+                    command.condition.span.end.offset,
+                    &command.then_branch,
+                    &context,
+                    "then",
+                );
 
             let mut previous_branch_end = command.then_branch.span.end.offset;
-            let elif_header = command.elif_branches.iter().any(|(condition, branch)| {
-                let matches = condition.first().is_some_and(|stmt| {
+            let mut elif_header = false;
+            let mut elif_then_header = false;
+            for (condition, branch) in &command.elif_branches {
+                elif_header |= condition.first().is_some_and(|stmt| {
                     next_command_starts_after_comment_line(stmt.span.start.offset, &context)
                         && gap_segment_ends_with_keyword(
                             source,
@@ -245,9 +246,15 @@ pub(crate) fn shellcheck_directive_can_apply_to_following_command(
                             "elif",
                         )
                 });
+                elif_then_header |= body_header_matches(
+                    source,
+                    condition.span.end.offset,
+                    branch,
+                    &context,
+                    "then",
+                );
                 previous_branch_end = branch.span.end.offset;
-                matches
-            });
+            }
 
             let else_header = command.else_branch.as_ref().is_some_and(|branch| {
                 branch.first().is_some_and(|stmt| {
@@ -261,7 +268,19 @@ pub(crate) fn shellcheck_directive_can_apply_to_following_command(
                 })
             });
 
-            if_header || then_header || elif_header || else_header
+            if_header || then_header || elif_header || elif_then_header || else_header
+        }
+        Command::Compound(CompoundCommand::For(command)) => {
+            body_header_matches(source, visit.stmt.span.start.offset, &command.body, &context, "do")
+        }
+        Command::Compound(CompoundCommand::Repeat(command)) => {
+            body_header_matches(source, visit.stmt.span.start.offset, &command.body, &context, "do")
+        }
+        Command::Compound(CompoundCommand::Foreach(command)) => {
+            body_header_matches(source, visit.stmt.span.start.offset, &command.body, &context, "do")
+        }
+        Command::Compound(CompoundCommand::ArithmeticFor(command)) => {
+            body_header_matches(source, visit.stmt.span.start.offset, &command.body, &context, "do")
         }
         Command::Compound(CompoundCommand::While(command)) => {
             loop_header_matches(
@@ -270,7 +289,13 @@ pub(crate) fn shellcheck_directive_can_apply_to_following_command(
                 &command.condition,
                 context,
                 "while",
-            ) || loop_body_matches(source, &command.condition, &command.body, &context)
+            ) || body_header_matches(
+                source,
+                command.condition.span.end.offset,
+                &command.body,
+                &context,
+                "do",
+            )
         }
         Command::Compound(CompoundCommand::Until(command)) => {
             loop_header_matches(
@@ -279,7 +304,16 @@ pub(crate) fn shellcheck_directive_can_apply_to_following_command(
                 &command.condition,
                 context,
                 "until",
-            ) || loop_body_matches(source, &command.condition, &command.body, &context)
+            ) || body_header_matches(
+                source,
+                command.condition.span.end.offset,
+                &command.body,
+                &context,
+                "do",
+            )
+        }
+        Command::Compound(CompoundCommand::Select(command)) => {
+            body_header_matches(source, visit.stmt.span.start.offset, &command.body, &context, "do")
         }
         Command::Compound(CompoundCommand::Subshell(body)) => body.first().is_some_and(|stmt| {
             next_command_starts_after_comment_line(stmt.span.start.offset, &context)
@@ -344,7 +378,6 @@ fn strip_prefix_ignore_ascii_case<'a>(text: &'a str, prefix: &str) -> Option<&'a
 #[derive(Debug, Clone, Copy)]
 struct InlineDirectiveContext<'a> {
     prefix: &'a str,
-    line_start: usize,
     line_end: usize,
     comment_start: usize,
 }
@@ -363,7 +396,6 @@ fn inline_directive_context<'a>(
 
     Some(InlineDirectiveContext {
         prefix: &source[line_start..comment_start],
-        line_start,
         line_end,
         comment_start,
     })
@@ -409,13 +441,6 @@ fn segment_ends_with_keyword(source: &str, start: usize, end: usize, keyword: &s
         .is_none_or(|ch| !(ch.is_ascii_alphanumeric() || ch == '_'))
 }
 
-fn span_precedes_comment_on_same_line(
-    span: shuck_ast::Span,
-    context: &InlineDirectiveContext<'_>,
-) -> bool {
-    span.end.offset <= context.comment_start && span.end.offset >= context.line_start
-}
-
 fn loop_header_matches(
     source: &str,
     command_start: usize,
@@ -429,20 +454,16 @@ fn loop_header_matches(
     })
 }
 
-fn loop_body_matches(
+fn body_header_matches(
     source: &str,
-    condition: &StmtSeq,
+    header_end: usize,
     body: &StmtSeq,
     context: &InlineDirectiveContext<'_>,
+    keyword: &str,
 ) -> bool {
     body.first().is_some_and(|stmt| {
         next_command_starts_after_comment_line(stmt.span.start.offset, context)
-            && gap_segment_ends_with_keyword(
-                source,
-                condition.span.end.offset,
-                context.comment_start,
-                "do",
-            )
+            && gap_segment_ends_with_keyword(source, header_end, context.comment_start, keyword)
     })
 }
 
@@ -621,6 +642,38 @@ done
             directive.source == SuppressionSource::ShellCheck
                 && directive.codes == vec![Rule::UnquotedExpansion]
         }));
+    }
+
+    #[test]
+    fn parses_shellcheck_directives_after_elif_then_header() {
+        let source = "\
+if false; then
+  :
+elif true; then # shellcheck disable=SC2086
+  echo $foo
+fi
+";
+        let directives = directives(source);
+
+        assert_eq!(directives.len(), 1);
+        assert_eq!(directives[0].source, SuppressionSource::ShellCheck);
+        assert_eq!(directives[0].codes, vec![Rule::UnquotedExpansion]);
+        assert_eq!(directives[0].line, 3);
+    }
+
+    #[test]
+    fn parses_shellcheck_directives_after_for_do_header() {
+        let source = "\
+for item in 1; do # shellcheck disable=SC2086
+  echo $foo
+done
+";
+        let directives = directives(source);
+
+        assert_eq!(directives.len(), 1);
+        assert_eq!(directives[0].source, SuppressionSource::ShellCheck);
+        assert_eq!(directives[0].codes, vec![Rule::UnquotedExpansion]);
+        assert_eq!(directives[0].line, 1);
     }
 
     #[test]

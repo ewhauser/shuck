@@ -678,6 +678,38 @@ echo $foo
     }
 
     #[test]
+    fn scopes_shellcheck_disable_after_elif_then_header_to_the_next_command() {
+        let source = "\
+foo='a b'
+if false; then
+  :
+elif true; then # shellcheck disable=SC2086
+  echo $foo
+fi
+echo $foo
+";
+        let index = suppression_index(source);
+
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 5));
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 7));
+    }
+
+    #[test]
+    fn scopes_shellcheck_disable_after_for_do_header_to_the_next_command() {
+        let source = "\
+foo='a b'
+for item in 1; do # shellcheck disable=SC2086
+  echo $foo
+done
+echo $foo
+";
+        let index = suppression_index(source);
+
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 3));
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 5));
+    }
+
+    #[test]
     fn scopes_shellcheck_disable_after_brace_group_opener_to_the_next_command() {
         let source = "\
 foo='a b'
