@@ -33,26 +33,26 @@ fn redirect_spans_for_pipeline(checker: &Checker<'_>, pipeline: &PipelineFact<'_
         .filter(|(_, operator)| operator.op() == BinaryOp::Pipe)
         .flat_map(|(segment, _)| {
             let fact = checker.facts().command(segment.command_id());
-            let redirects = fact.redirect_facts();
-            if has_explicit_output_dup_redirect(redirects, checker.source()) {
-                return Vec::new();
-            }
-
-            redirects
+            fact.redirect_facts()
                 .iter()
-                .filter_map(|redirect| stdout_redirect_span_before_pipe(redirect, checker.source()))
+                .enumerate()
+                .filter_map(|(index, redirect)| {
+                    stdout_redirect_span_before_pipe(redirect, checker.source()).filter(|_| {
+                        !has_prior_stderr_to_stdout_dup(&fact.redirect_facts()[..index])
+                    })
+                })
                 .collect::<Vec<_>>()
         })
         .collect()
 }
 
-fn has_explicit_output_dup_redirect(redirects: &[crate::RedirectFact<'_>], source: &str) -> bool {
+fn has_prior_stderr_to_stdout_dup(redirects: &[crate::RedirectFact<'_>]) -> bool {
     redirects.iter().any(|redirect| {
         redirect.redirect().kind == RedirectKind::DupOutput
+            && redirect.redirect().fd == Some(2)
             && redirect
                 .analysis()
-                .is_some_and(|analysis| analysis.numeric_descriptor_target.is_some())
-            && redirect.redirect().span.slice(source).contains(">&")
+                .is_some_and(|analysis| analysis.numeric_descriptor_target == Some(1))
     })
 }
 
@@ -130,17 +130,14 @@ cmd 1>out | next
     }
 
     #[test]
-    fn ignores_commands_with_descriptor_dups_and_pipeall() {
+    fn ignores_stderr_only_descriptor_dups_and_pipeall() {
         let source = "\
 #!/bin/sh
 2>/dev/null | next
 cmd | next >/dev/null
 cmd >/dev/null |& next
 cmd 1>&2 | next
-cmd >out 1>&2 | next
-cmd >out 2>&1 | next
 cmd 2>&1 1>/dev/null | next
-cmd >out 3>&1 | next
 cmd <>file | next
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::RedirectBeforePipe));
@@ -163,6 +160,25 @@ cmd &>>out | next
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec![">", ">>"]
+        );
+    }
+
+    #[test]
+    fn reports_output_redirects_with_late_or_unrelated_dup_redirects() {
+        let source = "\
+#!/bin/sh
+cmd >out 1>&2 | next
+cmd >out 2>&1 | next
+cmd >out 3>&1 | next
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::RedirectBeforePipe));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![">", ">", ">"]
         );
     }
 }
