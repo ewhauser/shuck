@@ -1555,7 +1555,7 @@ fn suspicious_bracket_glob_text(text: &str) -> bool {
         return false;
     }
 
-    let mut seen = [false; 256];
+    let mut seen = std::collections::HashSet::new();
     let start = usize::from(matches!(bytes[1], b'!' | b'^')) + 1;
     let mut index = start;
     let end = bytes.len() - 1;
@@ -1574,21 +1574,25 @@ fn suspicious_bracket_glob_text(text: &str) -> bool {
             if index + 1 >= end {
                 break;
             }
-            let escaped = bytes[index + 1];
-            if seen[escaped as usize] {
+            let escaped = text[index + 1..end]
+                .chars()
+                .next()
+                .expect("escape should be followed by a character");
+            if !seen.insert(escaped) {
                 return true;
             }
-            seen[escaped as usize] = true;
-            index += 2;
+            index += 1 + escaped.len_utf8();
             continue;
         }
 
-        let byte = bytes[index];
-        if seen[byte as usize] {
+        let character = text[index..end]
+            .chars()
+            .next()
+            .expect("bracket glob member should be a character");
+        if !seen.insert(character) {
             return true;
         }
-        seen[byte as usize] = true;
-        index += 1;
+        index += character.len_utf8();
     }
 
     false
@@ -3068,6 +3072,25 @@ echo [appname] [1,2,3] [foo-bar] foo[aba]bar [start\\|stop\\|restart] \"$dir\"/[
                 "[appname]"
             ]
         );
+    }
+
+    #[test]
+    fn word_suspicious_bracket_glob_spans_treat_utf8_members_as_characters() {
+        let source = "echo [ÅÄ] [ÅÅ] [éç] [éé]\n";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let spans = command
+            .args
+            .iter()
+            .flat_map(|word| word_suspicious_bracket_glob_spans(word, source))
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(spans, vec!["[ÅÅ]", "[éé]"]);
     }
 
     #[test]
