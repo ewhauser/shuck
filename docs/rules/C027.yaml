@@ -3,13 +3,14 @@ legacy_name: bare-done-word
 new_category: Correctness
 new_code: C027
 runtime_kind: ast
+shellcheck_code: SC1010
 shells:
   - sh
   - bash
   - dash
   - ksh
-description: A reserved word is being passed as a literal argument.
-rationale: Quote it if it is text, or place it where the shell expects a keyword.
+description: A loop-closing `done` is missing a separator before it.
+rationale: "Insert a semicolon or newline before `done`, or quote it if it is meant literally."
 source:
   shell_checks_rule: rules/SH-091.yaml
   shell_checks_example: examples/091.sh

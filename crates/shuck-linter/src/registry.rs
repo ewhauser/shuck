@@ -523,7 +523,6 @@ declare_rules! {
     ("X031", Category::Portability, Severity::Warning, SourceBuiltinInSh),
     ("X032", Category::Portability, Severity::Warning, PrintfQFormatInSh),
     ("X033", Category::Portability, Severity::Warning, IfElifBashTest),
-    ("X034", Category::Portability, Severity::Warning, ExtendedGlobInTest),
     ("X035", Category::Portability, Severity::Warning, FunctionParamsInSh),
     ("X037", Category::Portability, Severity::Warning, ExtglobCase),
     ("X048", Category::Portability, Severity::Warning, ExtglobInCasePattern),
@@ -547,7 +546,6 @@ declare_rules! {
     ("X055", Category::Portability, Severity::Warning, DollarStringInSh),
     ("X057", Category::Portability, Severity::Warning, LegacyArithmeticInSh),
     ("X062", Category::Portability, Severity::Warning, CStyleForArithmeticInSh),
-    ("X064", Category::Portability, Severity::Warning, PlusEqualsInSh),
     ("X071", Category::Portability, Severity::Warning, ArrayKeysInSh),
     ("X081", Category::Portability, Severity::Warning, StarGlobRemovalInSh),
     ("X076", Category::Portability, Severity::Warning, ZshParameterFlag),
@@ -928,7 +926,6 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-006" => Some(Rule::DoubleBracketInSh),
         "SH-007" => Some(Rule::TestEqualityOperator),
         "SH-093" => Some(Rule::IfElifBashTest),
-        "SH-101" => Some(Rule::ExtendedGlobInTest),
         "SH-108" => Some(Rule::ZshRedirPipe),
         "SH-124" => Some(Rule::ZshBraceIf),
         "SH-125" => Some(Rule::ZshAlwaysBlock),
@@ -946,7 +943,6 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-263" => Some(Rule::CStyleForInSh),
         "SH-264" => Some(Rule::LegacyArithmeticInSh),
         "SH-269" => Some(Rule::CStyleForArithmeticInSh),
-        "SH-271" => Some(Rule::PlusEqualsInSh),
         "SH-278" => Some(Rule::ArrayKeysInSh),
         "SH-305" => Some(Rule::StarGlobRemovalInSh),
         "SH-286" => Some(Rule::ZshParameterFlag),
@@ -1444,8 +1440,6 @@ mod tests {
         assert_eq!(code_to_rule("SH-264"), Some(Rule::LegacyArithmeticInSh));
         assert_eq!(code_to_rule("X062"), Some(Rule::CStyleForArithmeticInSh));
         assert_eq!(code_to_rule("SH-269"), Some(Rule::CStyleForArithmeticInSh));
-        assert_eq!(code_to_rule("X064"), Some(Rule::PlusEqualsInSh));
-        assert_eq!(code_to_rule("SH-271"), Some(Rule::PlusEqualsInSh));
         assert_eq!(code_to_rule("X071"), Some(Rule::ArrayKeysInSh));
         assert_eq!(code_to_rule("SH-278"), Some(Rule::ArrayKeysInSh));
         assert_eq!(code_to_rule("X081"), Some(Rule::StarGlobRemovalInSh));

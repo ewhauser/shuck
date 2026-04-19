@@ -3,7 +3,6 @@ use crate::{Checker, Rule, ShellDialect, Violation};
 pub struct DoubleBracketInSh;
 pub struct TestEqualityOperator;
 pub struct IfElifBashTest;
-pub struct ExtendedGlobInTest;
 pub struct ExtglobInSh;
 pub struct CaretNegationInBracket;
 pub struct ArraySubscriptTest;
@@ -44,16 +43,6 @@ impl Violation for IfElifBashTest {
 
     fn message(&self) -> String {
         "`elif` uses `[[ ... ]]`, which is not available in POSIX sh".to_owned()
-    }
-}
-
-impl Violation for ExtendedGlobInTest {
-    fn rule() -> Rule {
-        Rule::ExtendedGlobInTest
-    }
-
-    fn message(&self) -> String {
-        "extended glob patterns in `[[` matches are not portable to POSIX sh".to_owned()
     }
 }
 
@@ -209,11 +198,6 @@ cached_portability_rule!(
     TestEqualityOperator
 );
 cached_portability_rule!(if_elif_bash_test, if_elif_bash_test, IfElifBashTest);
-cached_portability_rule!(
-    extended_glob_in_test,
-    extended_glob_in_test,
-    ExtendedGlobInTest
-);
 cached_portability_rule!(extglob_in_sh, extglob_in_sh, ExtglobInSh);
 cached_portability_rule!(
     caret_negation_in_bracket,
@@ -230,7 +214,18 @@ cached_portability_rule!(
     array_subscript_condition,
     ArraySubscriptCondition
 );
-cached_portability_rule!(extglob_in_test, extglob_in_test, ExtglobInTest);
+pub fn extglob_in_test(checker: &mut Checker) {
+    if !is_posix_sh_shell(checker.shell()) {
+        return;
+    }
+
+    let spans = checker
+        .facts()
+        .conditional_portability()
+        .extglob_in_test()
+        .to_vec();
+    checker.report_all_dedup(spans, || ExtglobInTest);
+}
 cached_portability_rule!(
     greater_than_in_double_bracket,
     greater_than_in_double_bracket,
@@ -437,7 +432,6 @@ fi
                 Rule::DoubleBracketInSh,
                 Rule::TestEqualityOperator,
                 Rule::IfElifBashTest,
-                Rule::ExtendedGlobInTest,
                 Rule::ExtglobInSh,
                 Rule::CaretNegationInBracket,
                 Rule::ArraySubscriptTest,

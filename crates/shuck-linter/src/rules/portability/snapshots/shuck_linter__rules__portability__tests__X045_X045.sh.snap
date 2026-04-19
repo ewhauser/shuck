@@ -24,3 +24,21 @@ X045 `+=` assignment is not portable in `sh` scripts
    |
 14 | index[1+2]+=3
    |
+
+X045 `+=` assignment is not portable in `sh` scripts
+  --> <source>:17:1
+   |
+17 | x+="hello"
+   |
+
+X045 `+=` assignment is not portable in `sh` scripts
+  --> <source>:18:10
+   |
+18 | readonly quoted+="suffix"
+   |
+
+X045 `+=` assignment is not portable in `sh` scripts
+  --> <source>:19:1
+   |
+19 | index[1+2]+="world"
+   |

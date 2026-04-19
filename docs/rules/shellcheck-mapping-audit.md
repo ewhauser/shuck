@@ -7,8 +7,11 @@ This note tracks the follow-up work that still remains from the original audit p
 Remaining work:
 
 - 6 rules become clean once stale `shellcheck_code` metadata on already-mapped rules is refreshed.
-- 7 look like duplicates and should be collapsed instead of getting a new mapping.
 - 2 still need a cleaner example before a mapping decision is safe.
+
+Completed since the original audit:
+
+- The 7 duplicate-rule candidates have been collapsed into `C024`, `C027`, `X045`, and `X046`.
 
 Important context:
 
@@ -26,18 +29,6 @@ Important context:
 | `X052` | `SC2112` | `X004` currently claims `SC2112`, but its example now emits `SC2113`. |
 | `X053` | `SC2277` | `X048` currently claims `SC2277`, but its example now emits `SC1085`. |
 
-## Collapse Candidates
-
-| Rule | Current `SC` | Recommendation |
-| --- | --- | --- |
-| `C024` | `SC1007` | Keep one canonical `SC1007` assignment-spacing rule. |
-| `C026` | `SC1007` | Collapse into the same canonical `SC1007` assignment-spacing rule as `C024`. |
-| `C028` | `SC1007` | Collapse into the same canonical `SC1007` assignment-spacing rule as `C024`. |
-| `C027` | `SC1010` | Keep one canonical bare-`done` / missing-separator rule. |
-| `C029` | `SC1010` | Collapse into the same canonical `SC1010` rule as `C027`. |
-| `X034` | `SC1036` | Collapse into `X046`; both currently describe the same invalid `(` in test-pattern context. |
-| `X064` | `SC3024` | Collapse into `X045`; both are the same POSIX `+=` portability warning. |
-
 ## Rewrite Or Manual Review
 
 | Rule | Current `SC` | Why it still needs help |
@@ -48,5 +39,4 @@ Important context:
 ## Suggested Next Pass
 
 1. Refresh the remaining stale mapped codes called out above so the uniqueness constraints are accurate again.
-2. Collapse the duplicate families instead of assigning the same `SC` code to multiple Shuck rules.
-3. Rewrite `X033` and `X041` examples to isolate the intended behavior before assigning a code.
+2. Rewrite `X033` and `X041` examples to isolate the intended behavior before assigning a code.

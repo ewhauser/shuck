@@ -1,10 +1,11 @@
 #!/bin/sh
+if [[ $term == @(xterm|screen)* ]]; then :; fi
+[ "$x" = @(foo|bar) ]
 [ "$x" = (foo|bar)* ]
 [ "$x" = @(foo) ]
 [ "$x" = !(name) ]
 [ "$x" = '(foo|bar)*' ]
 [ "$x" = foo ]
-[ "$x" = @(foo|bar) ]
 [ "$x" = '@(foo|bar)' ]
 [ "$x" = $((a|b)) ]
 [ "$x" = $(printf '%s' '@(foo)') ]

@@ -20,7 +20,6 @@ pub struct ConditionalPortabilityFacts {
     double_bracket_in_sh: Vec<Span>,
     test_equality_operator: Vec<Span>,
     if_elif_bash_test: Vec<Span>,
-    extended_glob_in_test: Vec<Span>,
     extglob_in_sh: Vec<Span>,
     caret_negation_in_bracket: Vec<Span>,
     array_subscript_test: Vec<Span>,
@@ -46,10 +45,6 @@ impl ConditionalPortabilityFacts {
 
     pub fn if_elif_bash_test(&self) -> &[Span] {
         &self.if_elif_bash_test
-    }
-
-    pub fn extended_glob_in_test(&self) -> &[Span] {
-        &self.extended_glob_in_test
     }
 
     pub fn extglob_in_sh(&self) -> &[Span] {
@@ -121,7 +116,7 @@ pub(super) fn build_conditional_portability_facts<'a>(
             }
 
             if let Some(span) = conditional_extglob_span(conditional.expression(), source) {
-                facts.extended_glob_in_test.push(span);
+                facts.extglob_in_test.push(span);
             }
 
             if let Some(span) = conditional_array_subscript_span(conditional.expression(), source) {
