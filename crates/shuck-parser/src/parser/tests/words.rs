@@ -1959,6 +1959,29 @@ fn test_arithmetic_expansion_inside_double_quotes_preserves_legacy_and_modern_sy
 }
 
 #[test]
+fn test_word_part_spans_track_unquoted_legacy_arithmetic_expansion() {
+    let input = "i=$[ $i - 1 ]\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    assert!(command.args.is_empty());
+    let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+        panic!("expected scalar assignment");
+    };
+    let WordPart::ArithmeticExpansion {
+        syntax, expression, ..
+    } = &word.parts[0].kind
+    else {
+        panic!("expected arithmetic expansion");
+    };
+    assert_eq!(*syntax, ArithmeticExpansionSyntax::LegacyBracket);
+    assert!(expression.is_source_backed());
+    assert_eq!(word.parts[0].span.slice(input), "$[ $i - 1 ]");
+}
+
+#[test]
 fn test_parameter_expansion_operand_stays_source_backed() {
     let input = "echo ${var:-$(pwd)}\n";
     let script = Parser::new(input).parse().unwrap().file;
