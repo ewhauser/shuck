@@ -23525,6 +23525,25 @@ for entry in $(find . -type f); do :; done
     }
 
     #[test]
+    fn builds_loop_header_find_substitution_detection_for_find_exec_forms() {
+        let source = "\
+#!/bin/bash
+for entry in $(find . -type f -exec grep -Pl '\\r$' {} \\;); do :; done
+for entry in $(command find . -type f -exec basename {} \\;); do :; done
+";
+
+        with_facts(source, None, |_, facts| {
+            let first = facts.for_headers()[0].words();
+            assert!(first[0].has_unquoted_command_substitution());
+            assert!(first[0].contains_find_substitution());
+
+            let second = facts.for_headers()[1].words();
+            assert!(second[0].has_unquoted_command_substitution());
+            assert!(second[0].contains_find_substitution());
+        });
+    }
+
+    #[test]
     fn zsh_for_headers_only_track_iteration_words() {
         let source = "\
 #!/usr/bin/env zsh

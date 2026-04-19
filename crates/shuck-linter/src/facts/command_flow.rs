@@ -2184,7 +2184,7 @@ fn substitution_body_is_find<'a>(
     commands: &[CommandFact<'a>],
     command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
-    matches!(body.as_slice(), [stmt] if stmt_effective_name_is(stmt, "find", commands, command_ids_by_span))
+    matches!(body.as_slice(), [stmt] if stmt_invokes_find(stmt, commands, command_ids_by_span))
 }
 
 fn substitution_body_is_pgrep_lookup<'a>(
@@ -2219,15 +2219,24 @@ fn substitution_body_is_simple_command_named<'a>(
     matches!(body.as_slice(), [stmt] if stmt_literal_name_is(stmt, name, commands, command_ids_by_span))
 }
 
-fn stmt_effective_name_is<'a>(
+fn stmt_invokes_find<'a>(
     stmt: &'a Stmt,
-    name: &str,
     commands: &[CommandFact<'a>],
     command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
     command_fact_for_stmt(stmt, commands, command_ids_by_span)
-        .map(|fact| fact.effective_name_is(name))
-        .unwrap_or(false)
+        .is_some_and(command_fact_invokes_find)
+}
+
+fn command_fact_invokes_find(fact: &CommandFact<'_>) -> bool {
+    command_name_matches_basename(fact.literal_name(), "find")
+        || command_name_matches_basename(fact.effective_name(), "find")
+        || fact.has_wrapper(WrapperKind::FindExec)
+        || fact.has_wrapper(WrapperKind::FindExecDir)
+}
+
+fn command_name_matches_basename(name: Option<&str>, expected: &str) -> bool {
+    name.is_some_and(|name| name == expected || name.rsplit('/').next() == Some(expected))
 }
 
 fn stmt_literal_name_is<'a>(
