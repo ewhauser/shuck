@@ -66,6 +66,17 @@ printf '%s\n' \"${!name}\" \"${!name:-fallback}\" \"${!build_option_@}\" \"${!ar
     }
 
     #[test]
+    fn ignores_braced_bang_special_parameter() {
+        let source = "printf '%s\n' \"${!}\"\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::IndirectExpansion).with_shell(ShellDialect::Sh),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn still_reports_broader_indirect_expansion_for_array_keys_when_x071_is_enabled() {
         let source = "\
 #!/bin/sh

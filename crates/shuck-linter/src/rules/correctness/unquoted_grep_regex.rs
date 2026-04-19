@@ -95,4 +95,23 @@ grep -F \"foo*bar\" out.txt
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
+
+    #[test]
+    fn reports_nested_grep_patterns_with_split_literal_bracket_globs() {
+        let source = "\
+#!/bin/sh
+for file in $(ls /tmp | grep -v [/$] | grep -v ' '); do
+    :
+done
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedGrepRegex));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["[/$]"]
+        );
+    }
 }

@@ -3039,6 +3039,7 @@ impl<'a> Parser<'a> {
                 let mut content = (!source_backed).then(String::new);
                 let mut content_end = content_start;
                 let mut escaped = false;
+                let mut command_substitution_depth = 0usize;
                 let mut closed = false;
 
                 while let Some(c) = Self::next_word_char(&mut chars, &mut cursor) {
@@ -3051,25 +3052,46 @@ impl<'a> Parser<'a> {
                         continue;
                     }
 
-                    match c {
-                        '\\' => {
-                            if let Some(content) = content.as_mut() {
-                                content.push(c);
-                            }
-                            content_end = cursor;
-                            escaped = true;
+                    if c == '\\' {
+                        if let Some(content) = content.as_mut() {
+                            content.push(c);
                         }
-                        '"' => {
-                            closed = true;
-                            break;
-                        }
-                        _ => {
-                            if let Some(content) = content.as_mut() {
-                                content.push(c);
-                            }
-                            content_end = cursor;
-                        }
+                        content_end = cursor;
+                        escaped = true;
+                        continue;
                     }
+
+                    if c == '$' && chars.peek() == Some(&'(') {
+                        if let Some(content) = content.as_mut() {
+                            content.push(c);
+                        }
+                        let open = Self::next_word_char_unwrap(&mut chars, &mut cursor);
+                        if let Some(content) = content.as_mut() {
+                            content.push(open);
+                        }
+                        content_end = cursor;
+                        command_substitution_depth += 1;
+                        continue;
+                    }
+
+                    if c == ')' && command_substitution_depth > 0 {
+                        if let Some(content) = content.as_mut() {
+                            content.push(c);
+                        }
+                        content_end = cursor;
+                        command_substitution_depth -= 1;
+                        continue;
+                    }
+
+                    if c == '"' && command_substitution_depth == 0 {
+                        closed = true;
+                        break;
+                    }
+
+                    if let Some(content) = content.as_mut() {
+                        content.push(c);
+                    }
+                    content_end = cursor;
                 }
 
                 if !closed {
@@ -3481,40 +3503,62 @@ impl<'a> Parser<'a> {
                     );
                 } else {
                     let inner_start = cursor;
+                    let had_prefix = current_start != part_start;
+                    let nested_source_base = if source_backed
+                        && Span::from_positions(current_start, part_start)
+                            .slice(self.input)
+                            .chars()
+                            .any(|c| c == '"')
+                    {
+                        inner_start.advanced_by("(")
+                    } else {
+                        inner_start
+                    };
                     let body = if source_backed {
                         let remaining_word_text = chars.clone().collect::<String>();
-                        let consumed =
-                            lexer::scan_command_substitution_body_len(&remaining_word_text);
-                        let inner_end = if let Some(consumed) = consumed {
+                        if let Some(consumed) =
+                            lexer::scan_command_substitution_body_len(&remaining_word_text)
+                        {
                             let consumed_text = &remaining_word_text[..consumed];
                             for _ in consumed_text.chars() {
                                 Self::next_word_char_unwrap(&mut chars, &mut cursor);
                             }
                             let inner_text = consumed_text.strip_suffix(')').unwrap_or_default();
-                            inner_start.advanced_by(inner_text)
+                            if had_prefix {
+                                self.nested_stmt_seq_from_source(inner_text, nested_source_base)
+                            } else {
+                                let inner_end = inner_start.advanced_by(inner_text);
+                                self.nested_stmt_seq_from_current_input(inner_start, inner_end)
+                            }
                         } else {
+                            let mut cmd_str = String::new();
                             let mut depth = 1;
-                            let mut inner_end = inner_start;
                             while chars.peek().is_some() {
                                 let c = Self::next_word_char_unwrap(&mut chars, &mut cursor);
                                 match c {
                                     '(' => {
                                         depth += 1;
-                                        inner_end = cursor;
+                                        cmd_str.push(c);
                                     }
                                     ')' => {
                                         depth -= 1;
                                         if depth == 0 {
                                             break;
                                         }
-                                        inner_end = cursor;
+                                        cmd_str.push(c);
                                     }
-                                    _ => inner_end = cursor,
+                                    _ => cmd_str.push(c),
                                 }
                             }
-                            inner_end
-                        };
-                        self.nested_stmt_seq_from_current_input(inner_start, inner_end)
+                            if had_prefix {
+                                self.nested_stmt_seq_from_source(&cmd_str, nested_source_base)
+                            } else {
+                                self.nested_stmt_seq_from_current_input(
+                                    inner_start,
+                                    inner_start.advanced_by(&cmd_str),
+                                )
+                            }
+                        }
                     } else {
                         let mut cmd_str = String::new();
                         let mut depth = 1;
@@ -3532,7 +3576,14 @@ impl<'a> Parser<'a> {
                                 cmd_str.push(c);
                             }
                         }
-                        self.nested_stmt_seq_from_source(&cmd_str, inner_start)
+                        if had_prefix {
+                            self.nested_stmt_seq_from_source(&cmd_str, inner_start)
+                        } else {
+                            self.nested_stmt_seq_from_current_input(
+                                inner_start,
+                                inner_start.advanced_by(&cmd_str),
+                            )
+                        }
                     };
                     Self::push_word_part(
                         parts,
@@ -3708,6 +3759,18 @@ impl<'a> Parser<'a> {
                 }
 
                 if Self::consume_word_char_if(&mut chars, &mut cursor, '!') {
+                    if Self::consume_word_char_if(&mut chars, &mut cursor, '}') {
+                        let part = self.parameter_word_part_from_legacy(
+                            WordPart::Variable("!".into()),
+                            part_start,
+                            cursor,
+                            source_backed,
+                        );
+                        Self::push_word_part(parts, part, part_start, cursor);
+                        current_start = cursor;
+                        continue;
+                    }
+
                     let var_name = Self::read_word_while(&mut chars, &mut cursor, |c| {
                         !matches!(
                             c,
@@ -4789,21 +4852,39 @@ impl<'a> Parser<'a> {
             let mut end = *cursor;
             let mut has_escaped_slash = false;
             let mut nested_parameter_depth = 0usize;
+            let mut escaped = false;
 
             while let Some(&ch) = chars.peek() {
-                if nested_parameter_depth == 0 && (ch == '/' || ch == '}') {
+                if !escaped && nested_parameter_depth == 0 && (ch == '/' || ch == '}') {
                     end = *cursor;
                     break;
                 }
 
-                if ch == '\\' {
+                if ch == '\x00' {
                     Self::next_word_char_unwrap(chars, cursor);
-                    if let Some(&next) = chars.peek()
-                        && next == '/'
-                    {
-                        has_escaped_slash = true;
+                    if let Some(&literal) = chars.peek() {
+                        if literal == '/' {
+                            has_escaped_slash = true;
+                        }
                         Self::next_word_char_unwrap(chars, cursor);
                     }
+                    end = *cursor;
+                    continue;
+                }
+
+                if escaped {
+                    if ch == '/' {
+                        has_escaped_slash = true;
+                    }
+                    Self::next_word_char_unwrap(chars, cursor);
+                    escaped = false;
+                    end = *cursor;
+                    continue;
+                }
+
+                if ch == '\\' {
+                    Self::next_word_char_unwrap(chars, cursor);
+                    escaped = true;
                     end = *cursor;
                     continue;
                 }
@@ -4841,21 +4922,35 @@ impl<'a> Parser<'a> {
             let mut pattern = String::new();
             let mut end = *cursor;
             let mut nested_parameter_depth = 0usize;
+            let mut escaped = false;
             while let Some(&ch) = chars.peek() {
-                if nested_parameter_depth == 0 && (ch == '/' || ch == '}') {
+                if !escaped && nested_parameter_depth == 0 && (ch == '/' || ch == '}') {
                     end = *cursor;
                     break;
                 }
+                if ch == '\x00' {
+                    Self::next_word_char_unwrap(chars, cursor);
+                    if chars.peek().is_some() {
+                        pattern.push(Self::next_word_char_unwrap(chars, cursor));
+                    }
+                    end = *cursor;
+                    continue;
+                }
+                if escaped {
+                    let consumed = Self::next_word_char_unwrap(chars, cursor);
+                    if consumed == '/' {
+                        pattern.push('/');
+                    } else {
+                        pattern.push('\\');
+                        pattern.push(consumed);
+                    }
+                    escaped = false;
+                    end = *cursor;
+                    continue;
+                }
                 if ch == '\\' {
                     Self::next_word_char_unwrap(chars, cursor);
-                    if let Some(&next) = chars.peek()
-                        && next == '/'
-                    {
-                        pattern.push(Self::next_word_char_unwrap(chars, cursor));
-                        end = *cursor;
-                        continue;
-                    }
-                    pattern.push('\\');
+                    escaped = true;
                     end = *cursor;
                     continue;
                 }
@@ -4878,6 +4973,9 @@ impl<'a> Parser<'a> {
                 }
                 pattern.push(Self::next_word_char_unwrap(chars, cursor));
                 end = *cursor;
+            }
+            if escaped {
+                pattern.push('\\');
             }
             self.source_text(pattern, start, end)
         }
@@ -5279,6 +5377,17 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
+            if c == '\x00' {
+                Self::next_word_char_unwrap(chars, cursor);
+                if chars.peek().is_some() {
+                    let ch = Self::next_word_char_unwrap(chars, cursor);
+                    if let Some(operand) = operand.as_mut() {
+                        operand.push(ch);
+                    }
+                }
+                continue;
+            }
+
             match c {
                 '\\' if !in_single => {
                     escaped = true;
@@ -5377,6 +5486,11 @@ impl<'a> Parser<'a> {
         let mut escaped = false;
 
         while let Some(ch) = chars.next() {
+            if ch == '\x00' {
+                chars.next();
+                continue;
+            }
+
             if escaped {
                 escaped = false;
                 continue;

@@ -1,7 +1,10 @@
-use shuck_ast::{TextRange, TextSize};
+use shuck_ast::{CaseItem, Command, CompoundCommand, File, TextRange, TextSize};
 use shuck_indexer::{CommentIndex, IndexedComment};
 
-use crate::{Rule, code_to_rule};
+use crate::{
+    Rule, code_to_rule,
+    rules::common::query::{CommandWalkOptions, iter_commands},
+};
 
 use super::ShellCheckCodeMap;
 
@@ -36,6 +39,7 @@ pub enum SuppressionSource {
 /// Parse all suppression directives from a file's comments.
 pub fn parse_directives(
     source: &str,
+    file: &File,
     comment_index: &CommentIndex,
     shellcheck_map: &ShellCheckCodeMap,
 ) -> Vec<SuppressionDirective> {
@@ -48,7 +52,7 @@ pub fn parse_directives(
 
         if let Some(directive) = parse_shuck_directive(&comment) {
             directives.push(directive);
-        } else if let Some(directive) = parse_shellcheck_directive(&comment, shellcheck_map) {
+        } else if let Some(directive) = parse_shellcheck_directive(&comment, file, shellcheck_map) {
             directives.push(directive);
         }
     }
@@ -138,9 +142,10 @@ fn parse_shuck_directive(comment: &NormalizedComment<'_>) -> Option<SuppressionD
 
 fn parse_shellcheck_directive(
     comment: &NormalizedComment<'_>,
+    file: &File,
     shellcheck_map: &ShellCheckCodeMap,
 ) -> Option<SuppressionDirective> {
-    if !comment.is_own_line {
+    if !comment.is_own_line && !is_case_label_directive(comment, file) {
         return None;
     }
 
@@ -180,6 +185,43 @@ fn parse_shellcheck_directive(
         range: comment.range,
         line: comment.line,
     })
+}
+
+fn is_case_label_directive(comment: &NormalizedComment<'_>, file: &File) -> bool {
+    iter_commands(
+        &file.body,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+    )
+    .any(|visit| {
+        let Command::Compound(CompoundCommand::Case(command)) = visit.command else {
+            return false;
+        };
+
+        command
+            .cases
+            .iter()
+            .any(|case| case_label_directive(case, comment))
+    })
+}
+
+fn case_label_directive(case: &CaseItem, comment: &NormalizedComment<'_>) -> bool {
+    let Some(pattern) = case.patterns.last() else {
+        return false;
+    };
+
+    let Some(pattern_line) = u32::try_from(pattern.span.end.line).ok() else {
+        return false;
+    };
+    if pattern_line != comment.line || usize::from(comment.range.start()) <= pattern.span.end.offset
+    {
+        return false;
+    }
+
+    case.body
+        .first()
+        .is_none_or(|stmt| u32::try_from(stmt.span.start.line).ok() != Some(comment.line))
 }
 
 fn strip_comment_prefix(text: &str) -> &str {
@@ -234,6 +276,7 @@ mod tests {
         let indexer = Indexer::new(source, &output);
         parse_directives(
             source,
+            &output.file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         )
@@ -268,21 +311,52 @@ mod tests {
     }
 
     #[test]
-    fn parses_own_line_shellcheck_directives_only() {
+    fn parses_shellcheck_directives_on_own_line_and_after_code() {
         let source = "\
 # shellcheck disable=SC2086 disable=SC2034 disable=SC7777
 echo $foo
-value=1 # shellcheck disable=SC2034
+case $x in
+  on) # shellcheck disable=SC2034
+    value=1
+    ;;
+esac
 ";
         let directives = directives(source);
 
-        assert_eq!(directives.len(), 1);
+        assert_eq!(directives.len(), 2);
         assert_eq!(directives[0].action, SuppressionAction::Disable);
         assert_eq!(directives[0].source, SuppressionSource::ShellCheck);
         assert_eq!(
             directives[0].codes,
             vec![Rule::UnquotedExpansion, Rule::UnusedAssignment]
         );
+        assert_eq!(directives[1].action, SuppressionAction::Disable);
+        assert_eq!(directives[1].source, SuppressionSource::ShellCheck);
+        assert_eq!(directives[1].codes, vec![Rule::UnusedAssignment]);
+    }
+
+    #[test]
+    fn rejects_shellcheck_directives_after_regular_code() {
+        let source = "\
+value=1 # shellcheck disable=SC2086
+echo $foo
+";
+        let directives = directives(source);
+
+        assert!(directives.is_empty());
+    }
+
+    #[test]
+    fn rejects_case_label_directives_after_same_line_commands() {
+        let source = "\
+case $x in
+  on) echo \"$x\" # shellcheck disable=SC2086
+      ;;
+esac
+";
+        let directives = directives(source);
+
+        assert!(directives.is_empty());
     }
 
     #[test]
@@ -324,5 +398,23 @@ value=\"$(
         assert_eq!(directives[0].source, SuppressionSource::ShellCheck);
         assert_eq!(directives[0].codes, vec![Rule::UnquotedExpansion]);
         assert_eq!(directives[0].line, 2);
+    }
+
+    #[test]
+    fn parses_case_label_directives_inside_command_substitution_arguments() {
+        let source = "\
+printf '%s\\n' \"$(
+  case $x in
+    on) # shellcheck disable=SC2086
+      echo $foo
+      ;;
+  esac
+)\"\n";
+        let directives = directives(source);
+
+        assert_eq!(directives.len(), 1);
+        assert_eq!(directives[0].source, SuppressionSource::ShellCheck);
+        assert_eq!(directives[0].codes, vec![Rule::UnquotedExpansion]);
+        assert_eq!(directives[0].line, 3);
     }
 }

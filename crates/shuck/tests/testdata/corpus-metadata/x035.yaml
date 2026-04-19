@@ -1,0 +1,17 @@
+reviewed_divergences:
+  - side: shellcheck-only
+    path_suffix: "aristocratos__bashtop__bashtop"
+    line: 5287
+    end_line: 5287
+    labels:
+      - directive-handling
+      - project-closure
+    reason: "This helper uses bash `coproc` syntax in a file that is compared through the project-closure harness. The oracle collapses that path into a false X035 report on the process-coprocess call, but Shuck correctly leaves the bash construct alone."
+  - side: shellcheck-only
+    path_suffix: "aristocratos__bashtop__bashtop"
+    line: 5302
+    end_line: 5302
+    labels:
+      - directive-handling
+      - project-closure
+    reason: "This later `coproc` invocation is the same bash-only construct in the same project-closure fixture, and the current oracle still turns it into a false X035 hit. Shuck correctly accepts the bash syntax here."

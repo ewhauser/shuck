@@ -15,7 +15,8 @@ impl Violation for ReadWithoutRaw {
 pub fn read_without_raw(checker: &mut Checker) {
     let spans = checker
         .facts()
-        .structural_commands()
+        .commands()
+        .iter()
         .filter(|fact| fact.effective_name_is("read"))
         .filter(|fact| {
             fact.options()
@@ -26,4 +27,46 @@ pub fn read_without_raw(checker: &mut Checker) {
         .collect::<Vec<_>>();
 
     checker.report_all(spans, || ReadWithoutRaw);
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test::test_snippet;
+    use crate::{LinterSettings, Rule, ShellDialect};
+
+    #[test]
+    fn reports_plain_reads_and_nested_reads_without_raw_input() {
+        let source = "\
+#!/bin/sh
+read line
+command read line
+builtin read line
+printf '%s\\n' x | while read line; do :; done
+value=\"$(read name)\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ReadWithoutRaw));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["read", "read", "read", "read", "read"]
+        );
+    }
+
+    #[test]
+    fn ignores_reads_with_raw_input() {
+        let source = "\
+#!/bin/bash
+command read -r line
+builtin read -r line
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ReadWithoutRaw).with_shell(ShellDialect::Bash),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
 }

@@ -501,6 +501,7 @@ mod tests {
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
+            &output.file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
@@ -628,5 +629,52 @@ printf \"$later\" value
 
         assert!(index.is_suppressed(Rule::PrintfFormatVariable, 3));
         assert!(index.is_suppressed(Rule::PrintfFormatVariable, 5));
+    }
+
+    #[test]
+    fn scopes_shellcheck_disable_after_case_label_to_the_next_command() {
+        let source = "\
+case $x in
+  on) # shellcheck disable=SC2086
+    echo $foo
+    ;;
+esac
+";
+        let index = suppression_index(source);
+
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 3));
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 5));
+    }
+
+    #[test]
+    fn ignores_case_label_directives_after_same_line_body_commands() {
+        let source = "\
+case $x in
+  on) echo $foo # shellcheck disable=SC2086
+    echo $bar
+    ;;
+esac
+";
+        let index = suppression_index(source);
+
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 2));
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 3));
+    }
+
+    #[test]
+    fn scopes_case_label_directives_inside_command_substitution_arguments() {
+        let source = "\
+printf '%s\\n' \"$(
+  case $x in
+    on) # shellcheck disable=SC2086
+      echo $foo
+      ;;
+  esac
+  echo $bar
+)\"\n";
+        let index = suppression_index(source);
+
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 4));
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 7));
     }
 }

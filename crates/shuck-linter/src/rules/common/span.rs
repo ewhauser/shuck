@@ -1368,16 +1368,36 @@ fn collect_unquoted_glob_pattern_spans(
     in_double_quotes: bool,
     spans: &mut Vec<Span>,
 ) {
+    let mut literal_run_start = None::<usize>;
+    let mut literal_run_end = None::<usize>;
+
+    let flush_literal_run = |literal_run_start: &mut Option<usize>,
+                             literal_run_end: &mut Option<usize>,
+                             spans: &mut Vec<Span>| {
+        let Some(start_index) = literal_run_start.take() else {
+            return;
+        };
+        let Some(end_index) = literal_run_end.take() else {
+            return;
+        };
+        let start = parts[start_index].span.start;
+        let end = parts[end_index].span.end;
+        let combined_span = Span::from_positions(start, end);
+        spans.extend(literal_glob_pattern_spans(combined_span, source));
+    };
+
     for (index, part) in parts.iter().enumerate() {
         match &part.kind {
             WordPart::DoubleQuoted { parts, .. } => {
+                flush_literal_run(&mut literal_run_start, &mut literal_run_end, spans);
                 collect_unquoted_glob_pattern_spans(parts, source, true, spans)
             }
             WordPart::Literal(_)
                 if !in_double_quotes
                     && !literal_part_is_parameter_operator_tail(parts, index, source) =>
             {
-                spans.extend(literal_glob_pattern_spans(part.span, source));
+                literal_run_start.get_or_insert(index);
+                literal_run_end = Some(index);
             }
             WordPart::Literal(_)
             | WordPart::CommandSubstitution { .. }
@@ -1396,9 +1416,13 @@ fn collect_unquoted_glob_pattern_spans(
             | WordPart::IndirectExpansion { .. }
             | WordPart::PrefixMatch { .. }
             | WordPart::Transformation { .. }
-            | WordPart::ZshQualifiedGlob(_) => {}
+            | WordPart::ZshQualifiedGlob(_) => {
+                flush_literal_run(&mut literal_run_start, &mut literal_run_end, spans);
+            }
         }
     }
+
+    flush_literal_run(&mut literal_run_start, &mut literal_run_end, spans);
 }
 
 fn parts_have_unquoted_brace_expansion(
@@ -3017,6 +3041,24 @@ mod tests {
         assert!(
             word_unquoted_glob_pattern_spans(&command.args[6], source).is_empty(),
             "escaped bracket expression should not be reported"
+        );
+    }
+
+    #[test]
+    fn word_unquoted_glob_pattern_spans_join_adjacent_literal_parts() {
+        let source = "echo [/$]\n";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        assert_eq!(
+            word_unquoted_glob_pattern_spans(&command.args[0], source)
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["[/$]"]
         );
     }
 

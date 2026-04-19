@@ -28,6 +28,7 @@ mod tests {
 #!/bin/sh
 if (test -f /etc/passwd); then :; fi
 if (test -f /etc/passwd) >/dev/null 2>&1; then :; fi
+if (test -f /etc/passwd || test -f /etc/hosts); then :; fi
 while ([ -f /etc/passwd ]); do :; done
 until (command test -f /etc/passwd); do :; done
 ";
@@ -41,6 +42,7 @@ until (command test -f /etc/passwd); do :; done
             vec![
                 "(test -f /etc/passwd)",
                 "(test -f /etc/passwd)",
+                "(test -f /etc/passwd || test -f /etc/hosts)",
                 "([ -f /etc/passwd ])",
                 "(command test -f /etc/passwd)",
             ]

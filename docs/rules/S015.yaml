@@ -9,8 +9,8 @@ shells:
   - bash
   - dash
   - ksh
-description: Using "$*" as the loop list makes the loop iterate once over one combined string instead of once per positional parameter.
-rationale: Use "$@" or the implicit for item; do ...; done form when the loop should visit each positional parameter separately.
+description: Putting a fully quoted expansion in a `for` list turns it into a single item instead of a list of fields.
+rationale: Leave the expansion unquoted when you want field splitting, or use the `@` form when you need one item per array element or positional parameter.
 source:
   shell_checks_rule: rules/SH-063.yaml
   shell_checks_example: examples/063.sh

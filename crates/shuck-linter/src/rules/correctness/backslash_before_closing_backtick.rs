@@ -46,8 +46,7 @@ fn backslash_before_closing_backtick_span(span: Span, source: &str) -> Option<Sp
 
     let prefix = &text[..1 + backslash_index];
     let start = span.start.advanced_by(prefix);
-    let end = start.advanced_by("\\");
-    Some(Span::from_positions(start, end))
+    Some(Span::at(start))
 }
 
 #[cfg(test)]
@@ -71,9 +70,14 @@ echo \"$ARCH\"
         assert_eq!(
             diagnostics
                 .iter()
-                .map(|diagnostic| diagnostic.span.slice(source))
+                .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.start.column))
                 .collect::<Vec<_>>(),
-            vec!["\\"]
+            vec![(3, 29)]
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.span.start == diagnostic.span.end)
         );
     }
 

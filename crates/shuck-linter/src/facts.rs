@@ -490,7 +490,17 @@ fn simple_test_effective_operand_text(
         return None;
     }
 
-    static_word_text(word, source)
+    let mut text = static_word_text(word, source)?;
+    if classify_word(word, source).quote == WordQuote::Unquoted {
+        match text.as_str() {
+            r"\(" => text = "(".to_owned(),
+            r"\)" => text = ")".to_owned(),
+            r"\!" => text = "!".to_owned(),
+            _ => {}
+        }
+    }
+
+    Some(text)
 }
 
 fn simple_test_effective_unquoted_operand_text(
@@ -808,6 +818,7 @@ impl<'a> ConditionalFact<'a> {
 pub struct RedirectFact<'a> {
     redirect: &'a Redirect,
     target_span: Option<Span>,
+    arithmetic_update_operator_spans: Box<[Span]>,
     analysis: Option<RedirectTargetAnalysis>,
 }
 
@@ -818,6 +829,10 @@ impl<'a> RedirectFact<'a> {
 
     pub fn target_span(&self) -> Option<Span> {
         self.target_span
+    }
+
+    pub fn arithmetic_update_operator_spans(&self) -> &[Span] {
+        &self.arithmetic_update_operator_spans
     }
 
     pub fn analysis(&self) -> Option<RedirectTargetAnalysis> {
@@ -1073,6 +1088,7 @@ pub struct WordFact<'a> {
     contains_shell_quoting_literals: bool,
     scalar_expansion_spans: Box<[Span]>,
     unquoted_scalar_expansion_spans: Box<[Span]>,
+    array_assignment_split_scalar_expansion_spans: Box<[Span]>,
     array_expansion_spans: Box<[Span]>,
     all_elements_array_expansion_spans: Box<[Span]>,
     unquoted_all_elements_array_expansion_spans: Box<[Span]>,
@@ -1166,6 +1182,17 @@ impl<'a> WordFact<'a> {
 
     pub fn unquoted_scalar_expansion_spans(&self) -> &[Span] {
         &self.unquoted_scalar_expansion_spans
+    }
+
+    pub fn array_assignment_split_scalar_expansion_spans(&self) -> &[Span] {
+        if self
+            .array_assignment_split_scalar_expansion_spans
+            .is_empty()
+        {
+            self.unquoted_scalar_expansion_spans()
+        } else {
+            &self.array_assignment_split_scalar_expansion_spans
+        }
     }
 
     pub fn array_expansion_spans(&self) -> &[Span] {
@@ -2041,20 +2068,7 @@ impl<'a> UnsetOperandFact<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct UnsetArraySubscriptFact {
-    name: Name,
-    key_contains_quote: bool,
-}
-
-impl UnsetArraySubscriptFact {
-    pub(crate) fn name(&self) -> &Name {
-        &self.name
-    }
-
-    pub(crate) fn key_contains_quote(&self) -> bool {
-        self.key_contains_quote
-    }
-}
+pub(crate) struct UnsetArraySubscriptFact;
 
 #[derive(Debug, Clone)]
 pub struct RmCommandFacts {
@@ -3687,7 +3701,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let commented_continuation_comment_spans =
             build_commented_continuation_comment_spans(self.source, self._indexer);
         let trailing_directive_comment_spans =
-            build_trailing_directive_comment_spans(self.source, self._indexer);
+            build_trailing_directive_comment_spans(&case_items, self.source, self._indexer);
         let backtick_command_name_spans = build_backtick_command_name_spans(&commands);
         let dollar_question_after_command_spans =
             build_dollar_question_after_command_spans(&self.file.body, self.source);
@@ -5326,10 +5340,13 @@ fn word_parts_contain_echo_backslash_escape(
             } else {
                 part.span.slice(source)
             };
-            let quote_like_text = text.as_str(source, part.span);
 
             text_contains_echo_backslash_escape(core_text, echo_escape_is_core_family)
-                || text_contains_echo_backslash_escape(quote_like_text, echo_escape_is_quote_like)
+                || (in_double_quotes
+                    && text_contains_echo_backslash_escape(
+                        text.as_str(source, part.span),
+                        echo_escape_is_quote_like,
+                    ))
         }
         WordPart::SingleQuoted { value, .. } => {
             text_contains_echo_backslash_escape(value.slice(source), echo_escape_is_core_family)
@@ -5525,26 +5542,20 @@ fn heredoc_end_space_span(
     strip_tabs: bool,
     source: &str,
 ) -> Option<Span> {
-    let mut line_start_offset = body_span.start.offset;
-    for raw_line in body_span.slice(source).split_inclusive('\n') {
-        let (candidate_line, tab_prefix_len) = normalized_heredoc_line(raw_line, strip_tabs);
-        let Some(trailing) = candidate_line.strip_prefix(delimiter) else {
-            line_start_offset += raw_line.len();
-            continue;
-        };
-        if trailing.is_empty() || !trailing.chars().all(|ch| matches!(ch, ' ' | '\t')) {
-            line_start_offset += raw_line.len();
-            continue;
-        }
-
-        let trailing_start_offset = line_start_offset + tab_prefix_len + delimiter.len();
-        let trailing_end_offset = trailing_start_offset + trailing.len();
-        let start = position_at_offset(source, trailing_start_offset)?;
-        let end = position_at_offset(source, trailing_end_offset)?;
-        return Some(Span::from_positions(start, end));
+    let line_start_offset = body_span.end.offset;
+    let remainder = source.get(line_start_offset..)?;
+    let raw_line = remainder.split_inclusive('\n').next().unwrap_or(remainder);
+    let (candidate_line, tab_prefix_len) = normalized_heredoc_line(raw_line, strip_tabs);
+    let trailing = candidate_line.strip_prefix(delimiter)?;
+    if trailing.is_empty() || !trailing.chars().all(|ch| matches!(ch, ' ' | '\t')) {
+        return None;
     }
 
-    None
+    let trailing_start_offset = line_start_offset + tab_prefix_len + delimiter.len();
+    let trailing_end_offset = trailing_start_offset + trailing.len();
+    let start = position_at_offset(source, trailing_start_offset)?;
+    let end = position_at_offset(source, trailing_end_offset)?;
+    Some(Span::from_positions(start, end))
 }
 
 fn spaced_tabstrip_close_spans(body_span: Span, delimiter: &str, source: &str) -> Vec<Span> {
@@ -6969,7 +6980,11 @@ fn build_commented_continuation_comment_spans(source: &str, indexer: &Indexer) -
         .collect()
 }
 
-fn build_trailing_directive_comment_spans(source: &str, indexer: &Indexer) -> Vec<Span> {
+fn build_trailing_directive_comment_spans(
+    case_items: &[CaseItemFact<'_>],
+    source: &str,
+    indexer: &Indexer,
+) -> Vec<Span> {
     let line_index = indexer.line_index();
 
     indexer
@@ -6989,6 +7004,9 @@ fn build_trailing_directive_comment_spans(source: &str, indexer: &Indexer) -> Ve
                 .min(line_end)
                 .min(source.len());
             if comment_start < line_start || comment_start >= comment_end {
+                return None;
+            }
+            if case_item_label_comment(case_items, line, comment_start) {
                 return None;
             }
             if directive_can_apply_to_following_command(&source[line_start..comment_start]) {
@@ -7012,6 +7030,28 @@ fn build_trailing_directive_comment_spans(source: &str, indexer: &Indexer) -> Ve
         .collect()
 }
 
+fn case_item_label_comment(
+    case_items: &[CaseItemFact<'_>],
+    line: usize,
+    comment_start: usize,
+) -> bool {
+    case_items.iter().any(|case_item| {
+        let Some(pattern) = case_item.item().patterns.last() else {
+            return false;
+        };
+
+        if pattern.span.end.line != line || comment_start < pattern.span.end.offset {
+            return false;
+        }
+
+        let Some(stmt) = case_item.item().body.first() else {
+            return true;
+        };
+
+        stmt.span.start.line != line
+    })
+}
+
 fn build_literal_brace_spans(
     words: &[WordFact<'_>],
     commands: &[CommandFact<'_>],
@@ -7033,6 +7073,7 @@ fn build_literal_brace_spans(
             .iter()
             .copied()
             .filter(|brace| brace.quote_context == BraceQuoteContext::Unquoted)
+            .filter(|brace| !literal_brace_syntax_looks_like_active_expansion(*brace, source))
             .filter(|brace| {
                 matches!(
                     brace.kind,
@@ -7049,6 +7090,10 @@ fn build_literal_brace_spans(
             .filter(|span| {
                 !span_inside_nested_escaped_parameter_template(fact.word(), *span, source)
             })
+            .filter(|span| {
+                !brace_span_is_plain_parameter_expansion_edge(fact.word(), *span, source)
+            })
+            .filter(|span| !word_span_is_inside_command_substitution(fact, *span))
             .collect::<Vec<_>>();
         spans.extend(direct_spans);
 
@@ -7058,6 +7103,10 @@ fn build_literal_brace_spans(
                 .filter(|span| {
                     !span_inside_nested_escaped_parameter_template(fact.word(), *span, source)
                 })
+                .filter(|span| {
+                    !brace_span_is_plain_parameter_expansion_edge(fact.word(), *span, source)
+                })
+                .filter(|span| !word_span_is_inside_command_substitution(fact, *span))
                 .collect::<Vec<_>>();
             spans.extend(unclassified);
             let escaped = escaped_parameter_expansion_brace_edge_spans(fact.word(), source)
@@ -7065,6 +7114,10 @@ fn build_literal_brace_spans(
                 .filter(|span| {
                     !span_inside_nested_escaped_parameter_template(fact.word(), *span, source)
                 })
+                .filter(|span| {
+                    !brace_span_is_plain_parameter_expansion_edge(fact.word(), *span, source)
+                })
+                .filter(|span| !word_span_is_inside_command_substitution(fact, *span))
                 .collect::<Vec<_>>();
             spans.extend(escaped);
         }
@@ -7080,7 +7133,117 @@ fn build_literal_brace_spans(
         source,
         heredoc_ranges,
     ));
+    spans.retain(|span| !span_is_plain_parameter_expansion_edge_in_source(*span, source));
+    spans.retain(|span| !span_is_active_brace_expansion_edge_in_source(*span, source));
     spans
+}
+
+fn word_span_is_inside_command_substitution(fact: &WordFact<'_>, span: Span) -> bool {
+    fact.command_substitution_spans()
+        .iter()
+        .copied()
+        .any(|substitution| contains_span(substitution, span))
+}
+
+fn brace_span_is_plain_parameter_expansion_edge(word: &Word, span: Span, source: &str) -> bool {
+    if span.start.offset < word.span.start.offset || span.start.offset >= word.span.end.offset {
+        return false;
+    }
+
+    let text = word.span.slice(source);
+    let relative_offset = span.start.offset - word.span.start.offset;
+    let mut index = 0usize;
+
+    while index < text.len() {
+        if text[index..].starts_with("${")
+            && !has_odd_backslash_run_before(text, index)
+            && let Some(end_offset) = find_runtime_parameter_closing_brace(text, index)
+        {
+            let open_brace_offset = index + '$'.len_utf8();
+            let close_brace_offset = end_offset.saturating_sub('}'.len_utf8());
+            if relative_offset == open_brace_offset || relative_offset == close_brace_offset {
+                return true;
+            }
+            index = end_offset;
+            continue;
+        }
+
+        let Some(ch) = text[index..].chars().next() else {
+            break;
+        };
+        let ch_len = ch.len_utf8();
+        if ch == '\\' {
+            index += ch_len;
+            if let Some(escaped) = text[index..].chars().next() {
+                index += escaped.len_utf8();
+            }
+            continue;
+        }
+
+        index += ch_len;
+    }
+
+    false
+}
+
+fn span_is_plain_parameter_expansion_edge_in_source(span: Span, source: &str) -> bool {
+    let target_offset = span.start.offset;
+    let mut index = 0usize;
+
+    while index < source.len() {
+        if source[index..].starts_with("${")
+            && !has_odd_backslash_run_before(source, index)
+            && let Some(end_offset) = find_runtime_parameter_closing_brace(source, index)
+        {
+            let open_brace_offset = index + '$'.len_utf8();
+            let close_brace_offset = end_offset.saturating_sub('}'.len_utf8());
+            if target_offset == open_brace_offset || target_offset == close_brace_offset {
+                return true;
+            }
+            index = end_offset;
+            continue;
+        }
+
+        let Some(ch) = source[index..].chars().next() else {
+            break;
+        };
+        let ch_len = ch.len_utf8();
+        if ch == '\\' {
+            index += ch_len;
+            if let Some(escaped) = source[index..].chars().next() {
+                index += escaped.len_utf8();
+            }
+            continue;
+        }
+
+        index += ch_len;
+    }
+
+    false
+}
+
+fn span_is_active_brace_expansion_edge_in_source(span: Span, source: &str) -> bool {
+    let offset = span.start.offset;
+    let Some(ch) = source[offset..].chars().next() else {
+        return false;
+    };
+
+    let candidate = match ch {
+        '{' => source[offset..]
+            .find('}')
+            .map(|relative_end| &source[offset..=offset + relative_end]),
+        '}' => source[..offset]
+            .rfind('{')
+            .map(|start| &source[start..=offset]),
+        _ => None,
+    };
+
+    candidate.is_some_and(|text| {
+        brace_text_has_unescaped_comma_or_sequence(text)
+            && text[1..text.len() - 1]
+                .chars()
+                .all(|candidate| !candidate.is_whitespace())
+    })
 }
 
 fn is_find_exec_placeholder_word(
@@ -7674,14 +7837,16 @@ fn raw_literal_brace_spans(
 }
 
 fn raw_literal_brace_spans_without_exclusions(
-    container_span: Span,
+    _container_span: Span,
     scan_start: usize,
     scan_end: usize,
     source: &str,
     mode: RawLiteralBraceScanMode,
     unmatched_opens: &mut Vec<Span>,
 ) -> Vec<Span> {
-    let text = &source[scan_start..scan_end];
+    let Some(text) = source.get(scan_start..scan_end) else {
+        return Vec::new();
+    };
     if text.is_empty() {
         return Vec::new();
     }
@@ -7772,10 +7937,10 @@ fn raw_literal_brace_spans_without_exclusions(
                 continue;
             }
 
-            let absolute_offset = scan_start + index;
-            let position = container_span
-                .start
-                .advanced_by(&source[container_span.start.offset..absolute_offset]);
+            let Some(position) = position_at_offset(source, scan_start + index) else {
+                index += ch_len;
+                continue;
+            };
             let span = Span::from_positions(position, position);
             match mode {
                 RawLiteralBraceScanMode::All => spans.push(span),
@@ -7801,6 +7966,48 @@ fn brace_at_command_start(text: &str, index: usize, ch: char) -> bool {
         '}' => closing_brace_ends_shell_group(text, index),
         _ => false,
     }
+}
+
+fn literal_brace_syntax_looks_like_active_expansion(
+    brace: shuck_ast::BraceSyntax,
+    source: &str,
+) -> bool {
+    if !matches!(brace.kind, BraceSyntaxKind::Literal) {
+        return false;
+    }
+
+    let text = brace.span.slice(source);
+    brace_text_has_unescaped_comma_or_sequence(text) && !text.chars().any(char::is_whitespace)
+}
+
+fn brace_text_has_unescaped_comma_or_sequence(text: &str) -> bool {
+    let Some(inner) = text
+        .strip_prefix('{')
+        .and_then(|rest| rest.strip_suffix('}'))
+    else {
+        return false;
+    };
+
+    let mut chars = inner.chars().peekable();
+    let mut previous = None;
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            chars.next();
+            previous = None;
+            continue;
+        }
+
+        if ch == ',' {
+            return true;
+        }
+        if ch == '.' && previous == Some('.') {
+            return true;
+        }
+
+        previous = Some(ch);
+    }
+
+    false
 }
 
 fn opening_brace_starts_shell_group(text: &str, index: usize) -> bool {
@@ -8116,7 +8323,15 @@ fn collect_dynamic_brace_exclusions(
                     kind: DynamicBraceExcludedSpanKind::Quoted,
                 });
             }
-            WordPart::DoubleQuoted { .. } => {}
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_dynamic_brace_exclusions(
+                    parts,
+                    word_base_offset,
+                    word_end_offset,
+                    source,
+                    out,
+                );
+            }
             WordPart::SingleQuoted { .. } => {
                 out.push(DynamicBraceExcludedSpan {
                     start_offset: part.span.start.offset - word_base_offset,
@@ -10326,6 +10541,18 @@ fn build_redirect_facts<'a>(
         .map(|redirect| RedirectFact {
             redirect,
             target_span: redirect.word_target().map(|word| word.span),
+            arithmetic_update_operator_spans: redirect
+                .word_target()
+                .map_or_else(Vec::new, |word| {
+                    let mut spans = Vec::new();
+                    collect_arithmetic_update_operator_spans_from_parts(
+                        &word.parts,
+                        source,
+                        &mut spans,
+                    );
+                    spans
+                })
+                .into_boxed_slice(),
             analysis: analyze_redirect_target(redirect, source, zsh_options),
         })
         .collect::<Vec<_>>()
@@ -10363,6 +10590,45 @@ fn build_word_facts_for_command<'a>(
     );
     collector.collect_command(visit.command, visit.redirects);
     collector.finish()
+}
+
+fn collect_array_assignment_nested_scalar_expansion_spans(word: &Word, source: &str) -> Vec<Span> {
+    let mut spans = Vec::new();
+
+    query::walk_commands_in_word(
+        word,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+        &mut |visit, context| {
+            let normalized = command::normalize_command(visit.command, source);
+            let mut collector = WordFactCollector {
+                source,
+                command_id: CommandId::new(0),
+                nested_word_command: context.nested_word_command,
+                surface_command_name: normalized
+                    .effective_or_literal_name()
+                    .map(str::to_owned)
+                    .map(String::into_boxed_str),
+                command_zsh_options: None,
+                facts: Vec::new(),
+                array_assignment_split_word_indices: Vec::new(),
+                seen: FxHashSet::default(),
+                compound_assignment_value_word_spans: FxHashSet::default(),
+                pattern_literal_spans: Vec::new(),
+                pattern_charclass_spans: Vec::new(),
+                arithmetic: ArithmeticFactSummary::default(),
+                surface: SurfaceFragmentSink::new(source),
+            };
+            collector.collect_command(visit.command, visit.redirects);
+            for fact in collector.finish().facts {
+                spans.extend(fact.scalar_expansion_spans().iter().copied());
+            }
+        },
+    );
+
+    sort_and_dedup_spans(&mut spans);
+    spans
 }
 
 struct CollectedWordFacts<'a> {
@@ -10894,6 +11160,18 @@ impl<'a> WordFactCollector<'a> {
                             if let Some(index) =
                                 self.push_word(word, context, WordFactHostKind::Direct)
                             {
+                                let fact = &mut self.facts[index];
+                                let mut split_sensitive_spans =
+                                    fact.unquoted_scalar_expansion_spans().to_vec();
+                                split_sensitive_spans.extend(
+                                    collect_array_assignment_nested_scalar_expansion_spans(
+                                        word,
+                                        self.source,
+                                    ),
+                                );
+                                sort_and_dedup_spans(&mut split_sensitive_spans);
+                                fact.array_assignment_split_scalar_expansion_spans =
+                                    split_sensitive_spans.into_boxed_slice();
                                 self.array_assignment_split_word_indices.push(index);
                             }
                         }
@@ -11185,6 +11463,7 @@ impl<'a> WordFactCollector<'a> {
                 self.source,
             )
             .into_boxed_slice(),
+            array_assignment_split_scalar_expansion_spans: Box::default(),
             array_expansion_spans: span::array_expansion_part_spans(word_ref, self.source)
                 .into_boxed_slice(),
             all_elements_array_expansion_spans: span::all_elements_array_expansion_part_spans(
@@ -12770,6 +13049,242 @@ fn collect_arithmetic_expansion_spans_from_parts(
             | WordPart::ProcessSubstitution { .. }
             | WordPart::ZshQualifiedGlob(_) => {}
         }
+    }
+}
+
+fn collect_arithmetic_update_operator_spans_from_parts(
+    parts: &[WordPartNode],
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_arithmetic_update_operator_spans_from_parts(parts, source, spans)
+            }
+            WordPart::ArithmeticExpansion {
+                expression_ast,
+                expression_word_ast,
+                ..
+            } => {
+                if let Some(expression) = expression_ast {
+                    collect_arithmetic_update_operator_spans(Some(expression), source, spans);
+                } else {
+                    collect_arithmetic_update_operator_spans_from_parts(
+                        &expression_word_ast.parts,
+                        source,
+                        spans,
+                    );
+                }
+            }
+            WordPart::Parameter(parameter) => {
+                collect_arithmetic_update_operator_spans_in_parameter_expansion(
+                    parameter, source, spans,
+                )
+            }
+            WordPart::ParameterExpansion {
+                reference,
+                operator,
+                ..
+            } => {
+                collect_arithmetic_update_operator_spans_in_var_ref(reference, source, spans);
+                collect_arithmetic_update_operator_spans_in_parameter_operator(
+                    operator, source, spans,
+                );
+            }
+            WordPart::Length(reference)
+            | WordPart::ArrayAccess(reference)
+            | WordPart::ArrayLength(reference)
+            | WordPart::ArrayIndices(reference)
+            | WordPart::IndirectExpansion { reference, .. }
+            | WordPart::Transformation { reference, .. } => {
+                collect_arithmetic_update_operator_spans_in_var_ref(reference, source, spans)
+            }
+            WordPart::Substring {
+                reference,
+                offset_ast,
+                offset_word_ast,
+                length_ast,
+                length_word_ast,
+                ..
+            }
+            | WordPart::ArraySlice {
+                reference,
+                offset_ast,
+                offset_word_ast,
+                length_ast,
+                length_word_ast,
+                ..
+            } => {
+                collect_arithmetic_update_operator_spans_in_var_ref(reference, source, spans);
+                if let Some(expression) = offset_ast {
+                    collect_arithmetic_update_operator_spans(Some(expression), source, spans);
+                } else {
+                    collect_arithmetic_update_operator_spans_from_parts(
+                        &offset_word_ast.parts,
+                        source,
+                        spans,
+                    );
+                }
+                if let Some(expression) = length_ast {
+                    collect_arithmetic_update_operator_spans(Some(expression), source, spans);
+                } else if let Some(length_word_ast) = length_word_ast {
+                    collect_arithmetic_update_operator_spans_from_parts(
+                        &length_word_ast.parts,
+                        source,
+                        spans,
+                    );
+                }
+            }
+            WordPart::Literal(_)
+            | WordPart::SingleQuoted { .. }
+            | WordPart::Variable(_)
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::ZshQualifiedGlob(_) => {}
+        }
+    }
+}
+
+fn collect_arithmetic_update_operator_spans_in_var_ref(
+    reference: &VarRef,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    query::visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
+        collect_arithmetic_update_operator_spans_from_parts(&word.parts, source, spans);
+    });
+}
+
+fn collect_arithmetic_update_operator_spans_in_parameter_expansion(
+    parameter: &ParameterExpansion,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+            BourneParameterExpansion::Access { reference }
+            | BourneParameterExpansion::Length { reference }
+            | BourneParameterExpansion::Indices { reference }
+            | BourneParameterExpansion::Transformation { reference, .. } => {
+                collect_arithmetic_update_operator_spans_in_var_ref(reference, source, spans);
+            }
+            BourneParameterExpansion::Indirect {
+                reference,
+                operator,
+                operand_word_ast,
+                ..
+            } => {
+                collect_arithmetic_update_operator_spans_in_var_ref(reference, source, spans);
+                if let Some(operator) = operator.as_ref() {
+                    collect_arithmetic_update_operator_spans_in_parameter_operator(
+                        operator, source, spans,
+                    );
+                }
+                if let Some(operand_word_ast) = operand_word_ast.as_ref() {
+                    collect_arithmetic_update_operator_spans_from_parts(
+                        &operand_word_ast.parts,
+                        source,
+                        spans,
+                    );
+                }
+            }
+            BourneParameterExpansion::Operation {
+                reference,
+                operator,
+                operand_word_ast,
+                ..
+            } => {
+                collect_arithmetic_update_operator_spans_in_var_ref(reference, source, spans);
+                collect_arithmetic_update_operator_spans_in_parameter_operator(
+                    operator, source, spans,
+                );
+                if let Some(operand_word_ast) = operand_word_ast.as_ref() {
+                    collect_arithmetic_update_operator_spans_from_parts(
+                        &operand_word_ast.parts,
+                        source,
+                        spans,
+                    );
+                }
+            }
+            BourneParameterExpansion::Slice {
+                reference,
+                offset_ast,
+                offset_word_ast,
+                length_ast,
+                length_word_ast,
+                ..
+            } => {
+                collect_arithmetic_update_operator_spans_in_var_ref(reference, source, spans);
+                if let Some(expression) = offset_ast {
+                    collect_arithmetic_update_operator_spans(Some(expression), source, spans);
+                } else {
+                    collect_arithmetic_update_operator_spans_from_parts(
+                        &offset_word_ast.parts,
+                        source,
+                        spans,
+                    );
+                }
+                if let Some(expression) = length_ast {
+                    collect_arithmetic_update_operator_spans(Some(expression), source, spans);
+                } else if let Some(length_word_ast) = length_word_ast {
+                    collect_arithmetic_update_operator_spans_from_parts(
+                        &length_word_ast.parts,
+                        source,
+                        spans,
+                    );
+                }
+            }
+            BourneParameterExpansion::PrefixMatch { .. } => {}
+        },
+        ParameterExpansionSyntax::Zsh(syntax) => match &syntax.target {
+            ZshExpansionTarget::Reference(reference) => {
+                collect_arithmetic_update_operator_spans_in_var_ref(reference, source, spans);
+            }
+            ZshExpansionTarget::Nested(parameter) => {
+                collect_arithmetic_update_operator_spans_in_parameter_expansion(
+                    parameter, source, spans,
+                );
+            }
+            ZshExpansionTarget::Word(word) => {
+                collect_arithmetic_update_operator_spans_from_parts(&word.parts, source, spans);
+            }
+            ZshExpansionTarget::Empty => {}
+        },
+    }
+}
+
+fn collect_arithmetic_update_operator_spans_in_parameter_operator(
+    operator: &ParameterOp,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match operator {
+        ParameterOp::ReplaceFirst {
+            replacement_word_ast,
+            ..
+        }
+        | ParameterOp::ReplaceAll {
+            replacement_word_ast,
+            ..
+        } => collect_arithmetic_update_operator_spans_from_parts(
+            &replacement_word_ast.parts,
+            source,
+            spans,
+        ),
+        ParameterOp::UseDefault
+        | ParameterOp::AssignDefault
+        | ParameterOp::UseReplacement
+        | ParameterOp::Error
+        | ParameterOp::RemovePrefixShort { .. }
+        | ParameterOp::RemovePrefixLong { .. }
+        | ParameterOp::RemoveSuffixShort { .. }
+        | ParameterOp::RemoveSuffixLong { .. }
+        | ParameterOp::UpperFirst
+        | ParameterOp::UpperAll
+        | ParameterOp::LowerFirst
+        | ParameterOp::LowerAll => {}
     }
 }
 
@@ -15234,7 +15749,7 @@ fn grep_prefixed_pattern_fact<'a>(
     prefix_len: usize,
     source_kind: GrepPatternSourceKind,
 ) -> GrepPatternFact<'a> {
-    let static_text = static_word_text(word, source)
+    let static_text = cooked_static_word_text(word, source)
         .and_then(|text| text.get(prefix_len..).map(str::to_owned))
         .map(String::into_boxed_str);
     let starts_with_glob_style_star = static_text
@@ -15246,6 +15761,91 @@ fn grep_prefixed_pattern_fact<'a>(
         static_text,
         source_kind,
         starts_with_glob_style_star,
+    }
+}
+
+fn cooked_static_word_text(word: &Word, source: &str) -> Option<String> {
+    let mut cooked = String::new();
+    collect_cooked_static_word_text_parts(&word.parts, source, false, &mut cooked).then_some(cooked)
+}
+
+fn collect_cooked_static_word_text_parts(
+    parts: &[WordPartNode],
+    source: &str,
+    in_double_quotes: bool,
+    out: &mut String,
+) -> bool {
+    for part in parts {
+        match &part.kind {
+            WordPart::Literal(text) => {
+                let slice = text.as_str(source, part.span);
+                if in_double_quotes {
+                    push_cooked_double_quoted_literal_text(slice, out);
+                } else {
+                    push_cooked_unquoted_literal_text(slice, out);
+                }
+            }
+            WordPart::SingleQuoted { value, .. } => out.push_str(value.slice(source)),
+            WordPart::DoubleQuoted { parts, .. } => {
+                if !collect_cooked_static_word_text_parts(parts, source, true, out) {
+                    return false;
+                }
+            }
+            WordPart::Variable(_)
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::Parameter(_)
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::Transformation { .. }
+            | WordPart::ZshQualifiedGlob(_) => return false,
+        }
+    }
+
+    true
+}
+
+fn push_cooked_unquoted_literal_text(text: &str, out: &mut String) {
+    let mut chars = text.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            if let Some(escaped) = chars.next()
+                && escaped != '\n'
+            {
+                out.push(escaped);
+            }
+            continue;
+        }
+
+        out.push(ch);
+    }
+}
+
+fn push_cooked_double_quoted_literal_text(text: &str, out: &mut String) {
+    let mut chars = text.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            out.push(ch);
+            continue;
+        }
+
+        match chars.next() {
+            Some(escaped @ ('$' | '"' | '\\' | '`')) => out.push(escaped),
+            Some('\n') => {}
+            Some(other) => {
+                out.push('\\');
+                out.push(other);
+            }
+            None => out.push('\\'),
+        }
     }
 }
 
@@ -15771,11 +16371,8 @@ fn parse_unset_operand_fact<'a>(word: &'a Word, source: &str) -> UnsetOperandFac
 
 fn parse_unset_array_subscript(text: &str) -> Option<UnsetArraySubscriptFact> {
     let (name, key_with_bracket) = text.split_once('[')?;
-    let key = key_with_bracket.strip_suffix(']')?;
-    is_shell_variable_name(name).then(|| UnsetArraySubscriptFact {
-        name: Name::from(name),
-        key_contains_quote: key.chars().any(|ch| ch == '\'' || ch == '"'),
-    })
+    key_with_bracket.strip_suffix(']')?;
+    is_shell_variable_name(name).then_some(UnsetArraySubscriptFact)
 }
 
 fn collect_word_prefix_match_spans(word: &Word, spans: &mut Vec<Span>) {
@@ -17220,6 +17817,9 @@ fn ifs_literal_backslash_assignment_value_span(
     let AssignmentValue::Scalar(word) = &assignment.value else {
         return None;
     };
+    if word.span.slice(source).starts_with("$'") || word.span.slice(source).starts_with("$\"") {
+        return None;
+    }
 
     static_word_text(word, source)
         .is_some_and(|text| text.contains('\\'))
@@ -19331,6 +19931,56 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
     }
 
     #[test]
+    fn builds_tr_facts_inside_escaped_quoted_command_substitutions() {
+        let source = "#!/bin/sh\necho -n \"\\\"adp_$(echo $var | tr A-Z a-z)\\\": [\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let tr = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_name_is("tr"))
+            .and_then(|fact| fact.options().tr())
+            .expect("expected escaped quoted command substitution tr facts");
+        assert_eq!(
+            tr.operand_words()
+                .iter()
+                .map(|word| word.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["A-Z", "a-z"]
+        );
+    }
+
+    #[test]
+    fn builds_tr_facts_inside_piped_command_substitutions_with_quoted_operands() {
+        let source = "#!/bin/sh\nATLAS_SHARED=$(echo \"$ATLAS_SHARED\"|cut -b 1|tr a-z A-Z)\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let tr = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_name_is("tr"))
+            .expect("expected tr command fact");
+        assert!(tr.wrappers().is_empty());
+        let tr_options = tr.options().tr().expect("expected tr options");
+        assert_eq!(
+            tr_options
+                .operand_words()
+                .iter()
+                .map(|word| word.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["a-z", "A-Z"]
+        );
+    }
+
+    #[test]
     fn tracks_printf_formats_with_and_without_literal_percents() {
         let source = "printf \"$fmt\" value\nprintf \"${left}${right}\" value\nprintf \"${fmt:-%s}\" value\nprintf \"$(echo %s)\" value\nprintf \"pre$foo\" value\nprintf \"%${width}s\\n\" value\nprintf \"${color}%s${reset}\" value\nprintf \"$fmt%s\" value\nprintf '%s\\n' value\n";
         let output = Parser::new(source).parse().unwrap();
@@ -19560,25 +20210,15 @@ unset parts[\"$key\"] plain \"parts[safe]\" 'parts[also_safe]' nums[1]
             .operand_facts()
             .iter()
             .map(|operand| {
-                operand.array_subscript().map(|subscript| {
-                    (
-                        operand.word().span.slice(source),
-                        subscript.name().as_str().to_owned(),
-                        subscript.key_contains_quote(),
-                    )
-                })
+                operand
+                    .array_subscript()
+                    .map(|_| operand.word().span.slice(source))
             })
             .collect::<Vec<_>>();
 
         assert_eq!(
             operand_subscripts,
-            vec![
-                Some(("parts[\"$key\"]", "parts".to_owned(), true)),
-                None,
-                None,
-                None,
-                Some(("nums[1]", "nums".to_owned(), false)),
-            ]
+            vec![Some("parts[\"$key\"]"), None, None, None, Some("nums[1]"),]
         );
     }
 
@@ -20928,7 +21568,8 @@ rm -rf $PKG/opt/$PRGNAM/bin
 
     #[test]
     fn builds_redirect_facts_with_cached_target_analysis() {
-        let source = "#!/bin/bash\necho hi 2>&3 >/dev/null >> \"$((i++))\"\n";
+        let source =
+            "#!/bin/bash\necho hi 2>&3 >/dev/null >> \"$((i++))\"\necho hi > \"$((i + 1))\"\n";
 
         with_facts(source, None, |_, facts| {
             let command = facts
@@ -20973,6 +21614,27 @@ rm -rf $PKG/opt/$PRGNAM/bin
                     .analysis()
                     .is_some_and(|analysis| { analysis.expansion.hazards.arithmetic_expansion })
             );
+            assert_eq!(
+                arithmetic
+                    .arithmetic_update_operator_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["++"]
+            );
+
+            let pure_arithmetic = facts
+                .structural_commands()
+                .filter(|fact| fact.effective_name_is("echo"))
+                .nth(1)
+                .expect("expected second echo fact");
+            let pure_redirect = &pure_arithmetic.redirect_facts()[0];
+            assert!(
+                pure_redirect
+                    .analysis()
+                    .is_some_and(|analysis| { analysis.expansion.hazards.arithmetic_expansion })
+            );
+            assert!(pure_redirect.arithmetic_update_operator_spans().is_empty());
         });
     }
 
@@ -22847,6 +23509,25 @@ if [[ \"$@\" =~ x ]]; then :; fi
     }
 
     #[test]
+    fn builds_nested_legacy_arithmetic_fragments_from_surface_words() {
+        let source = "\
+#!/bin/bash
+echo $[$[1 + 2] + 3]
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .legacy_arithmetic_fragments()
+                    .iter()
+                    .map(|fragment| fragment.span().slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["$[$[1 + 2] + 3]", "$[1 + 2]"]
+            );
+        });
+    }
+
+    #[test]
     fn open_double_quote_surface_facts_track_live_expansion_gaps() {
         let source = "\
 #!/bin/bash
@@ -23763,7 +24444,7 @@ arr+=($tail)
             let unquoted_scalar = facts
                 .array_assignment_split_word_facts()
                 .flat_map(|fact| {
-                    fact.unquoted_scalar_expansion_spans()
+                    fact.array_assignment_split_scalar_expansion_spans()
                         .iter()
                         .map(|span| span.slice(source).to_owned())
                         .collect::<Vec<_>>()
@@ -23809,7 +24490,7 @@ arr=(\"$(printf '%s\\n' \"$x\")\")
                 vec!["$(printf '%s\\n' \"$x\")"]
             );
             assert_eq!(
-                fact.unquoted_scalar_expansion_spans()
+                fact.array_assignment_split_scalar_expansion_spans()
                     .iter()
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
@@ -23950,6 +24631,27 @@ EOF
                     .map(|fragment| fragment.span().slice(source))
                     .collect::<Vec<_>>(),
                 vec!["${name^^pattern}"]
+            );
+        });
+    }
+
+    #[test]
+    fn surface_facts_cover_replacement_expansions_with_escaped_backslashes() {
+        let source = "\
+#!/bin/sh
+local crypt=$(grep \"^root:\" /etc/shadow | cut -f 2 -d :)
+crypt=${crypt//\\\\/\\\\\\\\}
+crypt=${crypt//\\//\\\\\\/}
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .replacement_expansion_fragments()
+                    .iter()
+                    .map(|fragment| fragment.span().slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["${crypt//\\\\/\\\\\\\\}", "${crypt//\\//\\\\\\/}"]
             );
         });
     }

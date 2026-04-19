@@ -1799,7 +1799,9 @@ fn single_test_subshell_span<'a>(
     }
 
     let body_fact = command_fact_for_stmt(body_stmt, commands, command_ids_by_span)?;
-    if !is_test_like_command(body_fact) {
+    if !is_test_like_command(body_fact)
+        && !is_test_condition_command(body_fact.command(), commands, command_ids_by_span)
+    {
         return None;
     }
 
@@ -1816,6 +1818,21 @@ fn is_test_like_command(fact: &CommandFact<'_>) -> bool {
                 fact.command(),
                 Command::Compound(CompoundCommand::Conditional(_))
             ))
+}
+
+fn is_test_condition_command<'a>(
+    command: &'a Command,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+) -> bool {
+    match command {
+        Command::Binary(binary) if matches!(binary.op, BinaryOp::And | BinaryOp::Or) => {
+            is_test_condition_command(&binary.left.command, commands, command_ids_by_span)
+                && is_test_condition_command(&binary.right.command, commands, command_ids_by_span)
+        }
+        _ => command_fact_for_command(command, commands, command_ids_by_span)
+            .is_some_and(is_test_like_command),
+    }
 }
 
 fn subshell_test_group_span<'a>(

@@ -114,7 +114,7 @@ fn normalize_simple_command<'a>(command: &'a SimpleCommand, source: &str) -> Nor
     let words = std::iter::once(&command.name)
         .chain(command.args.iter())
         .collect::<Vec<_>>();
-    let literal_name = static_word_text(&command.name, source);
+    let literal_name = static_command_name_text(&command.name, source);
     let mut normalized = NormalizedCommand {
         literal_name: literal_name.clone(),
         effective_name: literal_name.clone(),
@@ -159,7 +159,7 @@ fn normalize_simple_command<'a>(command: &'a SimpleCommand, source: &str) -> Nor
                 normalized.body_span = words[target_index].span;
                 normalized.body_word_span = Some(words[target_index].span);
                 normalized.body_words = words[target_index..].to_vec();
-                normalized.effective_name = static_word_text(words[target_index], source);
+                normalized.effective_name = static_command_name_text(words[target_index], source);
                 current_index = target_index;
 
                 if normalized.effective_name.is_none() {
@@ -519,6 +519,11 @@ fn builtin_span(command: &BuiltinCommand) -> Span {
     }
 }
 
+fn static_command_name_text(word: &Word, source: &str) -> Option<String> {
+    static_word_text(word, source)
+        .map(|text| text.strip_prefix('\\').map_or(text.clone(), str::to_owned))
+}
+
 fn static_word_text(word: &Word, source: &str) -> Option<String> {
     super::word::static_word_text(word, source)
 }
@@ -692,6 +697,36 @@ mod tests {
                 .map(|word| word.span.slice(source)),
             Some("\"printf\"")
         );
+    }
+
+    #[test]
+    fn normalize_command_canonicalizes_escaped_static_names() {
+        for (source, expected) in [
+            ("\\cd /tmp\n", "cd"),
+            ("\\grep foo input.txt\n", "grep"),
+            ("\\. /dev/stdin yes\n", "."),
+        ] {
+            let command = parse_first_command(source);
+            let normalized = normalize_command(&command, source);
+
+            assert_eq!(
+                normalized.literal_name.as_deref(),
+                Some(expected),
+                "{source}"
+            );
+            assert_eq!(
+                normalized.effective_name.as_deref(),
+                Some(expected),
+                "{source}"
+            );
+            assert_eq!(
+                normalized
+                    .body_name_word()
+                    .map(|word| word.span.slice(source)),
+                Some(source.lines().next().unwrap().split(' ').next().unwrap()),
+                "{source}"
+            );
+        }
     }
 
     #[test]

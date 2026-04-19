@@ -150,6 +150,10 @@ impl<'a> LexedWordSegment<'a> {
         self.text.as_str()
     }
 
+    pub(crate) const fn text_is_source_backed(&self) -> bool {
+        matches!(self.text, TokenText::Borrowed(_) | TokenText::Shared { .. })
+    }
+
     pub const fn kind(&self) -> LexedWordSegmentKind {
         self.kind
     }
@@ -1462,6 +1466,7 @@ impl<'a> Lexer<'a> {
                     self.peek_char(),
                     Some(next)
                         if Self::is_word_char(next)
+                            || next == '$'
                             || matches!(next, '\'' | '"')
                             || next == '{'
                             || (next == '('
@@ -1546,8 +1551,14 @@ impl<'a> Lexer<'a> {
 
                 Self::push_capture_char(&mut word, ch); // push the '$'
 
-                // Check for $( - command substitution or arithmetic
-                if self.peek_char() == Some('(') {
+                // Check for $[ / $( / ${ forms before falling back to variable text.
+                if self.peek_char() == Some('[') {
+                    Self::push_capture_char(&mut word, '[');
+                    self.advance();
+                    if !self.read_legacy_arithmetic_into(&mut word, start) {
+                        return Err(LexerErrorKind::CommandSubstitution);
+                    }
+                } else if self.peek_char() == Some('(') {
                     if self.second_char() == Some('(') {
                         if !self.read_arithmetic_expansion_into(&mut word) {
                             return Err(LexerErrorKind::CommandSubstitution);
@@ -2501,6 +2512,122 @@ impl<'a> Lexer<'a> {
                     depth -= 1;
                     if depth == 0 {
                         return true;
+                    }
+                }
+                _ => {
+                    Self::push_capture_char(content, c);
+                    self.advance();
+                }
+            }
+        }
+
+        false
+    }
+
+    fn read_legacy_arithmetic_into(
+        &mut self,
+        content: &mut Option<String>,
+        segment_start: Position,
+    ) -> bool {
+        let mut bracket_depth = 1;
+
+        while let Some(c) = self.peek_char() {
+            match c {
+                '\\' => {
+                    Self::push_capture_char(content, c);
+                    self.advance();
+                    if let Some(next) = self.peek_char() {
+                        Self::push_capture_char(content, next);
+                        self.advance();
+                    }
+                }
+                '\'' => {
+                    Self::push_capture_char(content, c);
+                    self.advance();
+                    while let Some(quoted) = self.peek_char() {
+                        Self::push_capture_char(content, quoted);
+                        self.advance();
+                        if quoted == '\'' {
+                            break;
+                        }
+                    }
+                }
+                '"' => {
+                    let mut escaped = false;
+                    Self::push_capture_char(content, c);
+                    self.advance();
+                    while let Some(quoted) = self.peek_char() {
+                        Self::push_capture_char(content, quoted);
+                        self.advance();
+                        if escaped {
+                            escaped = false;
+                            continue;
+                        }
+                        match quoted {
+                            '\\' => escaped = true,
+                            '"' => break,
+                            _ => {}
+                        }
+                    }
+                }
+                '`' => {
+                    let mut escaped = false;
+                    Self::push_capture_char(content, c);
+                    self.advance();
+                    while let Some(quoted) = self.peek_char() {
+                        Self::push_capture_char(content, quoted);
+                        self.advance();
+                        if escaped {
+                            escaped = false;
+                            continue;
+                        }
+                        match quoted {
+                            '\\' => escaped = true,
+                            '`' => break,
+                            _ => {}
+                        }
+                    }
+                }
+                '[' => {
+                    Self::push_capture_char(content, c);
+                    self.advance();
+                    bracket_depth += 1;
+                }
+                ']' => {
+                    Self::push_capture_char(content, c);
+                    self.advance();
+                    bracket_depth -= 1;
+                    if bracket_depth == 0 {
+                        return true;
+                    }
+                }
+                '$' => {
+                    Self::push_capture_char(content, c);
+                    self.advance();
+                    if self.peek_char() == Some('(') {
+                        if self.second_char() == Some('(') {
+                            if !self.read_arithmetic_expansion_into(content) {
+                                return false;
+                            }
+                        } else {
+                            Self::push_capture_char(content, '(');
+                            self.advance();
+                            if !self.read_command_subst_into(content) {
+                                return false;
+                            }
+                        }
+                    } else if self.peek_char() == Some('{') {
+                        Self::push_capture_char(content, '{');
+                        self.advance();
+                        if !self.read_param_expansion_into(content, segment_start) {
+                            return false;
+                        }
+                    } else if self.peek_char() == Some('[') {
+                        Self::push_capture_char(content, '[');
+                        self.advance();
+                        if !self.read_legacy_arithmetic_into(content, segment_start) {
+                            return false;
+                        }
                     }
                 }
                 _ => {
@@ -3684,11 +3811,21 @@ impl<'a> Lexer<'a> {
 }
 
 fn heredoc_line_matches_delimiter(line: &str, delimiter: &str, strip_tabs: bool) -> bool {
-    if strip_tabs {
-        line.trim_start_matches('\t') == delimiter
+    let line = if strip_tabs {
+        line.trim_start_matches('\t')
     } else {
-        line == delimiter
+        line
+    };
+
+    if line == delimiter {
+        return true;
     }
+
+    let Some(trailing) = line.strip_prefix(delimiter) else {
+        return false;
+    };
+
+    trailing.chars().all(|ch| matches!(ch, ' ' | '\t'))
 }
 
 fn next_char_boundary(input: &str, index: usize) -> Option<(char, usize)> {
@@ -4817,6 +4954,34 @@ mod tests {
     }
 
     #[test]
+    fn test_scan_command_substitution_body_len_handles_escaped_quotes_before_substitution_tail() {
+        let source = "echo -n \"\\\"adp_$(echo $var | tr A-Z a-z)\\\": [\"";
+        let start = source.find("$(").expect("expected command substitution") + 2;
+        let consumed =
+            scan_command_substitution_body_len(&source[start..]).expect("expected match");
+        assert_eq!(&source[start..start + consumed], "echo $var | tr A-Z a-z)");
+    }
+
+    #[test]
+    fn test_scan_command_substitution_body_len_keeps_nested_command_names() {
+        let source = "echo $(echo $(basename $filename .fuzz))";
+        let start = source.find("$(").expect("expected command substitution") + 2;
+        let consumed =
+            scan_command_substitution_body_len(&source[start..]).expect("expected match");
+        assert_eq!(
+            &source[start..start + consumed],
+            "echo $(basename $filename .fuzz))"
+        );
+    }
+
+    #[test]
+    fn test_scan_command_substitution_body_len_keeps_quoted_nested_control_command() {
+        let source = "\n       [[ \"$config_file\" == *\"$theme.cfg\" ]] && echo \"$(basename \"$config_file\")\"\n    )";
+        let consumed = scan_command_substitution_body_len(source).expect("expected match");
+        assert_eq!(consumed, source.len());
+    }
+
+    #[test]
     fn test_single_quoted_prefix_keeps_plain_continuation_segment() {
         let source = "'foo'bar";
         let mut lexer = Lexer::new(source);
@@ -4963,6 +5128,23 @@ EOF
         assert_next_token(&mut lexer, TokenKind::LiteralWord, Some("EOF"));
         assert_next_token(&mut lexer, TokenKind::RedirectOut, None);
         assert_next_token(&mut lexer, TokenKind::QuotedWord, Some("${pywrapper}"));
+    }
+
+    #[test]
+    fn test_parameter_expansion_replacement_with_escaped_backslashes_stays_single_token() {
+        let source = "crypt=${crypt//\\\\/\\\\\\\\}\n";
+        let mut lexer = Lexer::new(source);
+
+        let token = lexer.next_lexed_token().unwrap();
+        assert_eq!(token.kind, TokenKind::Word);
+        assert_eq!(token.span.slice(source), "crypt=${crypt//\\\\/\\\\\\\\}");
+        assert!(token.source_slice(source).is_none());
+        assert_eq!(
+            token.word_string().as_deref(),
+            Some("crypt=${crypt//\\/\\\\}")
+        );
+        assert_next_token(&mut lexer, TokenKind::Newline, None);
+        assert!(lexer.next_lexed_token().is_none());
     }
 
     #[test]

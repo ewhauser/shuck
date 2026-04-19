@@ -48,6 +48,23 @@ tr 0-9 a-z < foo
     }
 
     #[test]
+    fn reports_lowercase_ranges_inside_command_substitutions() {
+        let source = "\
+#!/bin/sh
+printf '%s' \"<!-- $( echo $1 | sed 's/-//g' | tr 'A-Z' 'a-z' ) -->\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrLowerRange));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["'a-z'"]
+        );
+    }
+
+    #[test]
     fn ignores_bracketed_and_lookalike_ranges_or_wrapped_tr() {
         let source = "\
 #!/bin/sh

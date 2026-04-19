@@ -1366,7 +1366,7 @@ impl ShellDialect {
                 double_bracket: false,
                 arithmetic_command: false,
                 arithmetic_for: false,
-                function_keyword: false,
+                function_keyword: true,
                 select_loop: false,
                 coproc_keyword: false,
                 zsh_repeat_loop: false,
@@ -2274,14 +2274,23 @@ impl<'a> Parser<'a> {
     ) -> Option<(usize, BraceSyntaxKind)> {
         text.get(start..).filter(|rest| rest.starts_with('{'))?;
 
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        enum QuoteState {
+            Single,
+            Double,
+        }
+
         let mut index = start + '{'.len_utf8();
         let mut depth = 1usize;
         let mut has_comma = false;
         let mut has_dot_dot = false;
+        let mut saw_unquoted_whitespace = false;
         let mut prev_char = None;
+        let mut quote_state = None;
 
         while index < text.len() {
             if matches!(quote_context, BraceQuoteContext::Unquoted)
+                && quote_state.is_none()
                 && text[index..].starts_with('\\')
             {
                 index += 1;
@@ -2295,24 +2304,77 @@ impl<'a> Parser<'a> {
             let ch = text[index..].chars().next()?;
             index += ch.len_utf8();
 
-            match ch {
-                '{' => depth += 1,
-                '}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        let kind = if has_comma {
-                            BraceSyntaxKind::Expansion(BraceExpansionKind::CommaList)
-                        } else if has_dot_dot {
-                            BraceSyntaxKind::Expansion(BraceExpansionKind::Sequence)
-                        } else {
-                            BraceSyntaxKind::Literal
-                        };
-                        return Some((index - start, kind));
+            if matches!(quote_context, BraceQuoteContext::Unquoted) {
+                match quote_state {
+                    None => match ch {
+                        '\'' => {
+                            quote_state = Some(QuoteState::Single);
+                            prev_char = None;
+                            continue;
+                        }
+                        '"' => {
+                            quote_state = Some(QuoteState::Double);
+                            prev_char = None;
+                            continue;
+                        }
+                        '{' => depth += 1,
+                        '}' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                let kind = if saw_unquoted_whitespace {
+                                    BraceSyntaxKind::Literal
+                                } else if has_comma {
+                                    BraceSyntaxKind::Expansion(BraceExpansionKind::CommaList)
+                                } else if has_dot_dot {
+                                    BraceSyntaxKind::Expansion(BraceExpansionKind::Sequence)
+                                } else {
+                                    BraceSyntaxKind::Literal
+                                };
+                                return Some((index - start, kind));
+                            }
+                        }
+                        ',' if depth == 1 => has_comma = true,
+                        '.' if depth == 1 && prev_char == Some('.') => has_dot_dot = true,
+                        c if c.is_whitespace() => saw_unquoted_whitespace = true,
+                        _ => {}
+                    },
+                    Some(QuoteState::Single) => {
+                        if ch == '\'' {
+                            quote_state = None;
+                        }
                     }
+                    Some(QuoteState::Double) => match ch {
+                        '\\' => {
+                            if let Some(next) = text[index..].chars().next() {
+                                index += next.len_utf8();
+                            }
+                            prev_char = None;
+                            continue;
+                        }
+                        '"' => quote_state = None,
+                        _ => {}
+                    },
                 }
-                ',' if depth == 1 => has_comma = true,
-                '.' if depth == 1 && prev_char == Some('.') => has_dot_dot = true,
-                _ => {}
+            } else {
+                match ch {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            let kind = if has_comma {
+                                BraceSyntaxKind::Expansion(BraceExpansionKind::CommaList)
+                            } else if has_dot_dot {
+                                BraceSyntaxKind::Expansion(BraceExpansionKind::Sequence)
+                            } else {
+                                BraceSyntaxKind::Literal
+                            };
+                            return Some((index - start, kind));
+                        }
+                    }
+                    ',' if depth == 1 => has_comma = true,
+                    '.' if depth == 1 && prev_char == Some('.') => has_dot_dot = true,
+                    _ => {}
+                }
             }
 
             prev_char = Some(ch);
@@ -2719,7 +2781,7 @@ impl<'a> Parser<'a> {
             && let Some(word) = self.maybe_parse_zsh_qualified_glob_word(
                 segment.as_str(),
                 span,
-                segment.span().is_some() && source_backed,
+                segment.span().is_some() && source_backed && segment.text_is_source_backed(),
             )
         {
             return Some(word);
@@ -2727,8 +2789,23 @@ impl<'a> Parser<'a> {
         let mut parts = Vec::new();
 
         for segment in word.segments() {
-            let text = segment.as_str();
             let source_backed = segment.span().is_some() && !token.flags.is_synthetic();
+            let content_span = Self::segment_content_span(segment, span);
+            let raw_text = segment.as_str();
+            let use_source_slice = source_backed
+                && match segment.kind() {
+                    LexedWordSegmentKind::Plain => {
+                        segment.text_is_source_backed()
+                            || raw_text.contains("${") && raw_text.contains('/')
+                            || !raw_text.contains("$(")
+                    }
+                    _ => segment.text_is_source_backed(),
+                };
+            let text = if use_source_slice {
+                content_span.slice(self.input)
+            } else {
+                raw_text
+            };
             match segment.kind() {
                 LexedWordSegmentKind::Plain
                 | LexedWordSegmentKind::DoubleQuoted
@@ -2745,7 +2822,6 @@ impl<'a> Parser<'a> {
                 LexedWordSegmentKind::Composite => return None,
             }
 
-            let content_span = Self::segment_content_span(segment, span);
             let wrapper_span = Self::segment_wrapper_span(segment, span);
             let part = match segment.kind() {
                 LexedWordSegmentKind::Plain => {
@@ -2843,12 +2919,25 @@ impl<'a> Parser<'a> {
         let word = token.word()?;
 
         if let Some(segment) = word.single_segment() {
-            let text = segment.as_str();
             let content_span = Self::segment_content_span(segment, span);
             let wrapper_span = Self::segment_wrapper_span(segment, span);
             let source_backed = segment.span().is_some() && !token.flags.is_synthetic();
-            let preserve_escaped_expansion_literals =
-                source_backed && self.source_matches(content_span, text);
+            let raw_text = segment.as_str();
+            let use_source_slice = source_backed
+                && match segment.kind() {
+                    LexedWordSegmentKind::Plain => {
+                        segment.text_is_source_backed()
+                            || raw_text.contains("${") && raw_text.contains('/')
+                            || !raw_text.contains("$(")
+                    }
+                    _ => segment.text_is_source_backed(),
+                };
+            let text = if use_source_slice {
+                content_span.slice(self.input)
+            } else {
+                raw_text
+            };
+            let preserve_escaped_expansion_literals = source_backed;
 
             return match segment.kind() {
                 LexedWordSegmentKind::SingleQuoted => Some(self.word_with_parts(
@@ -2928,20 +3017,33 @@ impl<'a> Parser<'a> {
         let mut cursor = span.start;
 
         for segment in word.segments() {
-            let text = segment.as_str();
+            let raw_text = segment.as_str();
             let content_span = if let Some(segment_span) = segment.span() {
                 cursor = segment_span.end;
                 segment_span
             } else {
                 let start = cursor;
-                let end = start.advanced_by(text);
+                let end = start.advanced_by(raw_text);
                 cursor = end;
                 Span::from_positions(start, end)
             };
             let wrapper_span = segment.wrapper_span().unwrap_or(content_span);
             let source_backed = segment.span().is_some() && !token.flags.is_synthetic();
-            let preserve_escaped_expansion_literals =
-                source_backed && self.source_matches(content_span, text);
+            let use_source_slice = source_backed
+                && match segment.kind() {
+                    LexedWordSegmentKind::Plain => {
+                        segment.text_is_source_backed()
+                            || raw_text.contains("${") && raw_text.contains('/')
+                            || !raw_text.contains("$(")
+                    }
+                    _ => segment.text_is_source_backed(),
+                };
+            let text = if use_source_slice {
+                content_span.slice(self.input)
+            } else {
+                raw_text
+            };
+            let preserve_escaped_expansion_literals = source_backed;
 
             match segment.kind() {
                 LexedWordSegmentKind::SingleQuoted => parts.push(
@@ -3219,6 +3321,11 @@ impl<'a> Parser<'a> {
         token
             .source_slice(self.input)
             .map(Cow::Borrowed)
+            .or_else(|| {
+                (token.span.start.offset <= token.span.end.offset
+                    && token.span.end.offset <= self.input.len())
+                .then(|| Cow::Borrowed(&self.input[token.span.start.offset..token.span.end.offset]))
+            })
             .or_else(|| token.word_string().map(Cow::Owned))
     }
 

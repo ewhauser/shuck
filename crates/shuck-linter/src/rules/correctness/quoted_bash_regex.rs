@@ -23,14 +23,18 @@ pub fn quoted_bash_regex(checker: &mut Checker) {
         .filter_map(|regex| {
             let right = regex.right();
             let word = right.word()?;
+            let static_text = static_word_text(word, source);
             if right.quote() != Some(WordQuote::FullyQuoted) {
                 return None;
             }
 
             let should_report = match right.class() {
-                TestOperandClass::RuntimeSensitive => true,
-                TestOperandClass::FixedLiteral => static_word_text(word, source)
-                    .is_some_and(|text| literal_uses_regex_significance(&text)),
+                TestOperandClass::RuntimeSensitive => static_text
+                    .as_deref()
+                    .is_none_or(literal_uses_regex_significance),
+                TestOperandClass::FixedLiteral => static_text
+                    .as_deref()
+                    .is_some_and(literal_uses_regex_significance),
             };
 
             should_report.then_some(word.span)
@@ -43,27 +47,24 @@ pub fn quoted_bash_regex(checker: &mut Checker) {
 }
 
 fn literal_uses_regex_significance(text: &str) -> bool {
-    let mut escaped = false;
+    let mut chars = text.chars().peekable();
 
-    for char in text.chars() {
-        if escaped {
+    while let Some(char) = chars.next() {
+        if matches!(char, '.' | '[' | ']' | '(' | ')' | '*' | '+' | '|' | '$') {
             return true;
         }
 
-        if char == '\\' {
-            escaped = true;
-            continue;
-        }
-
-        if matches!(
-            char,
-            '.' | '[' | ']' | '(' | ')' | '{' | '}' | '*' | '+' | '?' | '|' | '^' | '$'
-        ) {
+        if char == '\\'
+            && matches!(
+                chars.peek(),
+                Some('.' | '[' | ']' | '(' | ')' | '*' | '+' | '|' | '$')
+            )
+        {
             return true;
         }
     }
 
-    escaped
+    false
 }
 
 #[cfg(test)]
@@ -77,6 +78,8 @@ mod tests {
 #!/bin/bash
 [[ \"$output\" =~ \"Error: No available formula\" ]]
 [[ \"$output\" =~ \"~user\" ]]
+[[ \"$output\" =~ \"{\" ]]
+[[ \"$output\" =~ $'\\n' ]]
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashRegex));
 

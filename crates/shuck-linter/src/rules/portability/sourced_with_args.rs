@@ -27,7 +27,7 @@ pub fn sourced_with_args(checker: &mut Checker) {
         .iter()
         .filter(|fact| {
             fact.body_name_word()
-                .and_then(|word| static_word_text(word, checker.source()))
+                .and_then(|word| static_command_name_text(word, checker.source()))
                 .as_deref()
                 == Some(".")
         })
@@ -40,6 +40,11 @@ pub fn sourced_with_args(checker: &mut Checker) {
 
 fn targets_posix_dot_shell(shell: ShellDialect) -> bool {
     matches!(shell, ShellDialect::Sh | ShellDialect::Dash)
+}
+
+fn static_command_name_text(word: &shuck_ast::Word, source: &str) -> Option<String> {
+    static_word_text(word, source)
+        .map(|text| text.strip_prefix('\\').map_or(text.clone(), str::to_owned))
 }
 
 #[cfg(test)]

@@ -10,6 +10,7 @@ const SUPPRESSION_ALIAS_CODES: &[(u32, Rule)] = &[
     (2316, Rule::BacktickInCommandPosition),
     (2316, Rule::LocalDeclareCombined),
     (2321, Rule::FunctionKeywordInSh),
+    (2234, Rule::SingleTestSubshell),
     (2351, Rule::XPrefixInTest),
     (3084, Rule::SourceInsideFunctionInSh),
 ];
@@ -149,6 +150,7 @@ mod tests {
             map.resolve_all("SC2321"),
             vec![Rule::ArrayIndexArithmetic, Rule::FunctionKeywordInSh]
         );
+        assert_eq!(map.resolve_all("SC2234"), vec![Rule::SingleTestSubshell]);
         assert_eq!(
             map.resolve_all("SC3084"),
             vec![Rule::SourceInsideFunctionInSh]

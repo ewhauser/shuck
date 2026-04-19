@@ -1,3 +1,4 @@
+use rustc_hash::FxHashSet;
 use shuck_ast::{Assignment, AssignmentValue, BuiltinCommand, Command, DeclOperand, Span};
 
 use crate::{
@@ -18,17 +19,28 @@ impl Violation for AssignmentLooksLikeComparison {
 
 pub fn assignment_looks_like_comparison(checker: &mut Checker) {
     let source = checker.source();
+    let known_names = checker
+        .semantic()
+        .bindings()
+        .iter()
+        .map(|binding| binding.name.as_str().to_owned())
+        .collect::<FxHashSet<_>>();
     let spans = checker
         .facts()
         .commands()
         .iter()
-        .flat_map(|fact| command_assignment_spans(checker, fact.command(), source))
+        .flat_map(|fact| command_assignment_spans(checker, fact.command(), source, &known_names))
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || AssignmentLooksLikeComparison);
 }
 
-fn command_assignment_spans(checker: &Checker<'_>, command: &Command, source: &str) -> Vec<Span> {
+fn command_assignment_spans(
+    checker: &Checker<'_>,
+    command: &Command,
+    source: &str,
+    known_names: &FxHashSet<String>,
+) -> Vec<Span> {
     match command {
         Command::Simple(command) => command
             .assignments
@@ -38,6 +50,7 @@ fn command_assignment_spans(checker: &Checker<'_>, command: &Command, source: &s
                     checker,
                     assignment,
                     source,
+                    known_names,
                     WordFactContext::Expansion(ExpansionContext::AssignmentValue),
                 )
             })
@@ -49,6 +62,7 @@ fn command_assignment_spans(checker: &Checker<'_>, command: &Command, source: &s
                     checker,
                     assignment,
                     source,
+                    known_names,
                     WordFactContext::Expansion(ExpansionContext::AssignmentValue),
                 )
             })
@@ -65,6 +79,7 @@ fn command_assignment_spans(checker: &Checker<'_>, command: &Command, source: &s
                     checker,
                     assignment,
                     source,
+                    known_names,
                     WordFactContext::Expansion(ExpansionContext::DeclarationAssignmentValue),
                 )
             })
@@ -89,6 +104,7 @@ fn assignment_value_looks_like_comparison(
     checker: &Checker<'_>,
     assignment: &Assignment,
     source: &str,
+    known_names: &FxHashSet<String>,
     context: WordFactContext,
 ) -> Option<Span> {
     let AssignmentValue::Scalar(word) = &assignment.value else {
@@ -102,12 +118,16 @@ fn assignment_value_looks_like_comparison(
 
     let target = assignment.target.name.as_str();
     let value = static_word_text(word, source)?;
-    let remainder = value.strip_prefix(target)?;
-    if !remainder.starts_with('-') || remainder == "-" {
+    let (prefix, remainder) = value.split_once('-')?;
+    if remainder.is_empty() {
         return None;
     }
 
-    Some(word.span)
+    if prefix.eq_ignore_ascii_case(target) || known_names.contains(prefix) {
+        Some(word.span)
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -152,5 +172,26 @@ foo=(foo-bar)
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_values_that_start_with_another_known_name() {
+        let source = "\
+#!/bin/bash
+schedule=1
+BASE_IMAGE_JOB_TOPIC=schedule-base-image-build
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::AssignmentLooksLikeComparison),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["schedule-base-image-build"]
+        );
     }
 }

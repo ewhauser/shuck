@@ -45,6 +45,18 @@ mod tests {
     }
 
     #[test]
+    fn anchors_on_spaced_legacy_arithmetic_fragment() {
+        let source = "#!/bin/sh\ni=$[ $i - 1 ]\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::LegacyArithmeticInSh),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "$[ $i - 1 ]");
+    }
+
+    #[test]
     fn ignores_bash_scripts() {
         let source = "#!/bin/bash\ni=$[$i+1]\n";
         let diagnostics = test_snippet(

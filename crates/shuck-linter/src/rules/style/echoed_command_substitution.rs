@@ -128,4 +128,21 @@ value=$(echo $(printf '%s\n' one; printf '%s\n' two) | tr -d ' ')
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn reports_echoes_inside_prefixed_nested_command_substitutions() {
+        let source = "cp -v $filename $OUT/$(echo $(basename $filename .fuzz))\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::EchoedCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$(basename $filename .fuzz)"]
+        );
+    }
 }

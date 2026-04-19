@@ -21,7 +21,7 @@ pub fn unquoted_array_split(checker: &mut Checker) {
         .array_assignment_split_word_facts()
         .flat_map(|fact| {
             let candidate_spans = fact
-                .unquoted_scalar_expansion_spans()
+                .array_assignment_split_scalar_expansion_spans()
                 .iter()
                 .copied()
                 .chain(fact.unquoted_array_expansion_spans().iter().copied())

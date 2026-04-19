@@ -226,6 +226,7 @@ fn test_parse_mixed_quoted_and_cooked_plain_continuation_keeps_variable_live() {
         panic!("expected simple command");
     };
     let word = &command.args[0];
+    dbg!(&word.parts);
 
     assert!(matches!(
         word.parts.as_slice(),
@@ -330,6 +331,72 @@ fn test_parse_escaped_literal_before_command_substitution_keeps_following_substi
 }
 
 #[test]
+fn test_parse_escaped_quotes_before_command_substitution_keep_nested_pipeline_live() {
+    let input = "#!/bin/sh\necho -n \"\\\"adp_$(echo $var | tr A-Z a-z)\\\": [\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let word = &command.args[1];
+    let WordPart::DoubleQuoted { parts, .. } = &word.parts[0].kind else {
+        panic!("expected double-quoted word");
+    };
+    let WordPart::CommandSubstitution { body, .. } = &parts[1].kind else {
+        panic!("expected command substitution");
+    };
+
+    let AstCommand::Binary(binary) = &body[0].command else {
+        panic!("expected piped command");
+    };
+    let first = expect_simple(&binary.left);
+    assert_eq!(first.name.render(input), "echo");
+    assert_eq!(first.args[0].render(input), "$var");
+
+    let second = expect_simple(&binary.right);
+    assert_eq!(second.name.render(input), "tr");
+    assert_eq!(second.args[0].render(input), "A-Z");
+    assert_eq!(second.args[1].render(input), "a-z");
+}
+
+#[test]
+fn test_parse_command_substitution_with_piped_tr_after_quoted_variable_keeps_nested_pipeline_live()
+{
+    let input = "ATLAS_SHARED=$(echo \"$ATLAS_SHARED\"|cut -b 1|tr a-z A-Z)\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+        panic!("expected scalar assignment");
+    };
+    let WordPart::CommandSubstitution { body, .. } = &word.parts[0].kind else {
+        panic!("expected command substitution");
+    };
+
+    let AstCommand::Binary(pipeline) = &body[0].command else {
+        panic!("expected piped command");
+    };
+    let AstCommand::Binary(prefix) = &pipeline.left.command else {
+        panic!("expected nested pipeline");
+    };
+    let first = expect_simple(&prefix.left);
+    assert_eq!(first.name.render(input), "echo");
+    assert_eq!(first.args[0].render(input), "$ATLAS_SHARED");
+
+    let middle = expect_simple(&prefix.right);
+    assert_eq!(middle.name.render(input), "cut");
+    assert_eq!(middle.args[0].render(input), "-b");
+    assert_eq!(middle.args[1].render(input), "1");
+
+    let tr_command = expect_simple(&pipeline.right);
+    assert_eq!(tr_command.name.render(input), "tr");
+    assert_eq!(tr_command.args[0].render(input), "a-z");
+    assert_eq!(tr_command.args[1].render(input), "A-Z");
+}
+
+#[test]
 fn test_parse_positional_parameters() {
     let parser = Parser::new("echo $@ $*");
     let script = parser.parse().unwrap().file;
@@ -347,6 +414,34 @@ fn test_parse_positional_parameters() {
 fn test_function_keyword_without_parens_preserves_surface_form() {
     let input = "function inc { :; }\n";
     let script = Parser::new(input).parse().unwrap().file;
+
+    let function = expect_function(&script.body[0]);
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group function body");
+    };
+
+    assert!(function.uses_function_keyword());
+    assert!(!function.has_name_parens());
+    assert_eq!(
+        function
+            .header
+            .function_keyword_span
+            .map(|span| span.slice(input)),
+        Some("function")
+    );
+    assert_eq!(function.header.trailing_parens_span, None);
+    assert!(redirects.is_empty());
+    assert_eq!(body.len(), 1);
+}
+
+#[test]
+fn test_posix_function_keyword_without_parens_preserves_surface_form() {
+    let input = "function inc { :; }\n";
+    let script = Parser::with_dialect(input, ShellDialect::Posix)
+        .parse()
+        .unwrap()
+        .file;
 
     let function = expect_function(&script.body[0]);
     let (compound, redirects) = expect_compound(function.body.as_ref());
@@ -808,7 +903,7 @@ fn test_parameter_forms_preserve_selector_kinds() {
 
 #[test]
 fn test_braced_special_parameters_parse_as_parameter_accesses() {
-    let input = "echo ${#} ${$}\n";
+    let input = "echo ${#} ${$} ${!}\n";
     let script = Parser::new(input).parse().unwrap().file;
     let command = expect_simple(&script.body[0]);
 
@@ -819,6 +914,10 @@ fn test_braced_special_parameters_parse_as_parameter_accesses() {
     let pid = expect_array_access(&command.args[1]);
     assert_eq!(pid.name.as_str(), "$");
     assert_eq!(pid.name_span.slice(input), "$");
+
+    let bang = expect_array_access(&command.args[2]);
+    assert_eq!(bang.name.as_str(), "!");
+    assert_eq!(bang.name_span.slice(input), "!");
 }
 
 #[test]
@@ -1356,6 +1455,68 @@ fn test_dollar_paren_command_substitution_inside_double_quotes_preserves_nested_
 }
 
 #[test]
+fn test_dollar_paren_command_substitution_inside_double_quotes_with_prefix_keeps_nested_spans_absolute()
+ {
+    let input = "echo \"pre $(echo hi) post\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let word = &command.args[0];
+    let WordPart::DoubleQuoted { parts, .. } = &word.parts[0].kind else {
+        panic!("expected double-quoted word");
+    };
+    let WordPart::CommandSubstitution { body, syntax } = &parts[1].kind else {
+        panic!("expected command substitution");
+    };
+    assert_eq!(*syntax, CommandSubstitutionSyntax::DollarParen);
+
+    let inner = expect_simple(&body[0]);
+    assert_eq!(inner.name.render(input), "echo");
+    assert_eq!(inner.name.span.slice(input), "echo");
+    assert_eq!(inner.args[0].render(input), "hi");
+}
+
+#[test]
+fn test_dollar_paren_command_substitution_inside_quoted_prefix_with_pipeline_keeps_nested_spans_absolute()
+ {
+    let input = "echo -n \"\\\"adp_$(echo $var | tr A-Z a-z)\\\": [\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    assert_eq!(command.name.render(input), "echo");
+    assert_eq!(command.args[0].render(input), "-n");
+    let word = &command.args[1];
+    let WordPart::DoubleQuoted { parts, .. } = &word.parts[0].kind else {
+        panic!("expected double-quoted word");
+    };
+    let WordPart::Literal(text) = &parts[0].kind else {
+        panic!("expected literal prefix");
+    };
+    assert_eq!(text.as_str(input, parts[0].span), "\"adp_");
+    let WordPart::CommandSubstitution { body, syntax } = &parts[1].kind else {
+        panic!("expected command substitution");
+    };
+    assert_eq!(*syntax, CommandSubstitutionSyntax::DollarParen);
+
+    let AstCommand::Binary(binary) = &body[0].command else {
+        panic!("expected pipeline");
+    };
+    let left = expect_simple(&binary.left);
+    assert_eq!(left.name.render(input), "echo");
+    assert_eq!(left.args[0].render(input), "$var");
+
+    let right = expect_simple(&binary.right);
+    assert_eq!(right.name.render(input), "tr");
+    assert_eq!(right.name.span.slice(input), "tr");
+    assert_eq!(right.args[0].render(input), "A-Z");
+    assert_eq!(right.args[1].render(input), "a-z");
+}
+
+#[test]
 fn test_dollar_paren_command_substitution_inside_double_quotes_handles_nested_arithmetic_with_quoted_right_paren()
  {
     let input = "echo \"$(echo \"$(( $(printf ')') + 1 ))\")\"\n";
@@ -1672,6 +1833,21 @@ fn test_brace_syntax_marks_literal_and_quoted_brace_forms() {
 }
 
 #[test]
+fn test_brace_syntax_treats_whitespace_and_quoted_lists_as_literal() {
+    for input in ["{443, 8443}", "{tcp, udp}"] {
+        let word = Parser::parse_word_string(input);
+        assert_eq!(brace_slices(&word, input), vec![input]);
+        assert_eq!(word.brace_syntax()[0].kind, BraceSyntaxKind::Literal);
+        assert!(word.brace_syntax()[0].treated_literally());
+        assert!(!word.has_active_brace_expansion());
+    }
+
+    let quoted_assembly = Parser::parse_word_string(r#"{"$mix_port, $redir_port, $tproxy_port"}"#);
+    assert!(quoted_assembly.brace_syntax().is_empty());
+    assert!(!quoted_assembly.has_active_brace_expansion());
+}
+
+#[test]
 fn test_brace_syntax_preserves_brace_expansion_suffix_forms() {
     for input in [
         "{a,b}}",
@@ -1956,6 +2132,29 @@ fn test_arithmetic_expansion_inside_double_quotes_preserves_legacy_and_modern_sy
     assert_eq!(*op, ArithmeticBinaryOp::Add);
     expect_number(left, input, "3");
     expect_number(right, input, "4");
+}
+
+#[test]
+fn test_word_part_spans_track_unquoted_legacy_arithmetic_expansion() {
+    let input = "i=$[ $i - 1 ]\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    assert!(command.args.is_empty());
+    let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+        panic!("expected scalar assignment");
+    };
+    let WordPart::ArithmeticExpansion {
+        syntax, expression, ..
+    } = &word.parts[0].kind
+    else {
+        panic!("expected arithmetic expansion");
+    };
+    assert_eq!(*syntax, ArithmeticExpansionSyntax::LegacyBracket);
+    assert!(expression.is_source_backed());
+    assert_eq!(word.parts[0].span.slice(input), "$[ $i - 1 ]");
 }
 
 #[test]
@@ -2650,6 +2849,49 @@ echo ${dest_dir//\\'/\\'\\\\\\'\\'} ${TERMUX_PKG_VERSION_EDITED//${INCORRECT_SYM
 }
 
 #[test]
+fn test_assignment_replacement_expansion_span_keeps_escaped_backslashes() {
+    let input = "crypt=${crypt//\\\\/\\\\\\\\}\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+        panic!("expected scalar assignment");
+    };
+
+    let (_, operator, _) = expect_parameter_operation_part(&word.parts[0].kind);
+    let ParameterOp::ReplaceAll {
+        pattern,
+        replacement,
+        replacement_word_ast,
+    } = operator
+    else {
+        panic!("expected replace-all operator");
+    };
+    assert_eq!(pattern.span.slice(input), "\\\\");
+    assert_eq!(replacement.slice(input), "\\\\\\\\");
+    assert_eq!(replacement_word_ast.span.slice(input), "\\\\\\\\");
+    assert_eq!(
+        top_level_part_slices(word, input),
+        vec!["${crypt//\\\\/\\\\\\\\}"]
+    );
+}
+
+#[test]
+fn test_read_replacement_pattern_stops_before_unescaped_delimiter() {
+    let input = "crypt=${crypt//\\\\/\\\\\\\\}\n";
+    let parser = Parser::new(input);
+    let offset = input.find("//").expect("expected replacement operator") + 2;
+    let mut chars = input[offset..].chars().peekable();
+    let mut cursor = Position::new().advanced_by(&input[..offset]);
+
+    let pattern = parser.read_replacement_pattern(&mut chars, &mut cursor, true);
+    assert_eq!(pattern.slice(input), "\\\\");
+    assert_eq!(cursor.offset, offset + 2);
+}
+
+#[test]
 fn test_decode_cooked_word_keeps_variable_after_literal_backslash() {
     let cooked = r#"\$HOME"#;
     let span = Span::from_positions(Position::new(), Position::new().advanced_by(cooked));
@@ -3226,6 +3468,82 @@ fn test_command_substitution_spans_are_absolute() {
     assert_eq!(inner.name.span.start.column, 3);
     assert_eq!(inner.args[0].span.start.line, 2);
     assert_eq!(inner.args[1].span.start.column, 17);
+}
+
+#[test]
+fn test_prefixed_nested_command_substitution_keeps_command_names() {
+    let input = "cp -v $filename $OUT/$(echo $(basename $filename .fuzz))\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+
+    let echo_body = command.args[2]
+        .parts
+        .iter()
+        .find_map(|part| match &part.kind {
+            WordPart::CommandSubstitution { body, .. } => Some(body),
+            _ => None,
+        })
+        .expect("expected outer command substitution");
+    let echo = expect_simple(&echo_body[0]);
+    assert_eq!(echo.name.render(input), "echo");
+
+    let basename_body = echo.args[0]
+        .parts
+        .iter()
+        .find_map(|part| match &part.kind {
+            WordPart::CommandSubstitution { body, .. } => Some(body),
+            _ => None,
+        })
+        .expect("expected nested basename command substitution");
+    let basename = expect_simple(&basename_body[0]);
+    assert_eq!(basename.name.render(input), "basename");
+}
+
+#[test]
+fn test_prefixed_nested_quoted_command_substitution_keeps_command_names() {
+    let input = "\
+value=\"$(\n\
+       [[ \"$config_file\" == *\"$theme.cfg\" ]] && echo \"$(basename \"$config_file\")\"\n\
+    )\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+        panic!("expected scalar assignment");
+    };
+    let WordPart::DoubleQuoted { parts, .. } = &word.parts[0].kind else {
+        panic!("expected quoted assignment value");
+    };
+    let WordPart::CommandSubstitution { body, .. } = &parts[0].kind else {
+        panic!("expected outer command substitution");
+    };
+    let AstCommand::Binary(binary) = &body[0].command else {
+        panic!("expected binary command");
+    };
+
+    let echo = expect_simple(&binary.right);
+    assert_eq!(echo.name.render(input), "echo");
+
+    let WordPart::DoubleQuoted {
+        parts: echo_parts, ..
+    } = &echo.args[0].parts[0].kind
+    else {
+        panic!("expected quoted echo argument");
+    };
+    let WordPart::CommandSubstitution {
+        body: basename_body,
+        ..
+    } = &echo_parts[0].kind
+    else {
+        panic!("expected nested basename substitution");
+    };
+    let basename = expect_simple(&basename_body[0]);
+    assert_eq!(basename.name.render(input), "basename");
 }
 
 #[test]

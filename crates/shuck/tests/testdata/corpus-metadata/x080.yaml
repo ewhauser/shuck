@@ -1,5 +1,3 @@
 reviewed_divergences:
   - side: shuck-only
-    labels:
-      - project-closure
-    reason: "Shuck intentionally keeps the function-local `source` portability warning even when the sourced path participates in project-closure analysis, because the non-POSIX builtin still appears inside the function body."
+    reason: "This rule intentionally keeps the dedicated function-local `source` portability split, but the current ShellCheck comparison target only exposes the broader `source` portability family on these sites, so X080 reports are reviewed divergence noise for corpus parity."

@@ -18,16 +18,13 @@ pub fn arithmetic_redirection_target(checker: &mut Checker) {
         .commands()
         .iter()
         .flat_map(|fact| {
-            fact.redirect_facts().iter().filter_map(|redirect| {
-                redirect
-                    .analysis()
-                    .filter(|analysis| analysis.expansion.hazards.arithmetic_expansion)
-                    .and_then(|_| redirect.target_span())
-            })
+            fact.redirect_facts()
+                .iter()
+                .flat_map(|redirect| redirect.arithmetic_update_operator_spans().iter().copied())
         })
         .collect::<Vec<_>>();
 
-    checker.report_all(spans, || ArithmeticRedirectionTarget);
+    checker.report_all_dedup(spans, || ArithmeticRedirectionTarget);
 }
 
 #[cfg(test)]
@@ -40,6 +37,7 @@ mod tests {
         let source = "\
 #!/bin/bash
 echo hi > \"$((i++))\"
+echo hi > \"$((i + 1))\"
 echo hi > \"$target\"
 echo hi > out.txt
 ";
@@ -55,5 +53,6 @@ echo hi > out.txt
                 .collect::<Vec<_>>(),
             vec![2]
         );
+        assert_eq!(diagnostics[0].span.slice(source), "++");
     }
 }
