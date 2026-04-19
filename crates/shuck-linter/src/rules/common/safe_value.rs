@@ -747,7 +747,9 @@ fn source_text_literal_value(text: &str) -> Option<SourceTextLiteral<'_>> {
         return Some(SourceTextLiteral::Bare(text));
     }
 
-    if let Some(inner) = text.strip_prefix('"').and_then(|text| text.strip_suffix('"'))
+    if let Some(inner) = text
+        .strip_prefix('"')
+        .and_then(|text| text.strip_suffix('"'))
         && !inner
             .chars()
             .any(|character| matches!(character, '$' | '`' | '\\' | '"'))
@@ -755,7 +757,9 @@ fn source_text_literal_value(text: &str) -> Option<SourceTextLiteral<'_>> {
         return Some(SourceTextLiteral::Quoted(inner));
     }
 
-    if let Some(inner) = text.strip_prefix('\'').and_then(|text| text.strip_suffix('\''))
+    if let Some(inner) = text
+        .strip_prefix('\'')
+        .and_then(|text| text.strip_suffix('\''))
         && !inner.contains('\'')
     {
         return Some(SourceTextLiteral::Quoted(inner));
