@@ -219,6 +219,23 @@ value=$(cut -d} -f1)
     }
 
     #[test]
+    fn ignores_balanced_brace_groups_split_by_heredocs_in_command_substitutions() {
+        let source = "\
+#!/bin/bash
+value=$(
+  {
+    cat <<'EOF'
+literal text
+EOF
+  }
+)
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LiteralBraces));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn ignores_even_backslash_runs_before_parameter_expansions() {
         let source = "\
 #!/bin/bash

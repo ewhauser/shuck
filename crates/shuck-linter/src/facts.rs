@@ -7190,6 +7190,7 @@ fn raw_literal_brace_spans(
     relevant_excluded.sort_unstable_by_key(|&(start, end)| (start, end));
 
     let mut spans = Vec::new();
+    let mut unmatched_opens = Vec::new();
     let mut cursor = scan_start;
     for (start, end) in relevant_excluded {
         if start > cursor {
@@ -7199,6 +7200,7 @@ fn raw_literal_brace_spans(
                 start,
                 source,
                 mode,
+                &mut unmatched_opens,
             ));
         }
         cursor = cursor.max(end);
@@ -7211,7 +7213,12 @@ fn raw_literal_brace_spans(
             scan_end,
             source,
             mode,
+            &mut unmatched_opens,
         ));
+    }
+
+    if mode == RawLiteralBraceScanMode::UnmatchedOnly {
+        spans.extend(unmatched_opens);
     }
 
     spans
@@ -7223,6 +7230,7 @@ fn raw_literal_brace_spans_without_exclusions(
     scan_end: usize,
     source: &str,
     mode: RawLiteralBraceScanMode,
+    unmatched_opens: &mut Vec<Span>,
 ) -> Vec<Span> {
     let text = &source[scan_start..scan_end];
     if text.is_empty() {
@@ -7230,7 +7238,6 @@ fn raw_literal_brace_spans_without_exclusions(
     }
 
     let mut spans = Vec::new();
-    let mut unmatched_opens = Vec::new();
     let mut index = 0usize;
     let mut quote_state = None;
     let mut in_comment = false;
@@ -7329,10 +7336,6 @@ fn raw_literal_brace_spans_without_exclusions(
         index += ch_len;
     }
 
-    if mode == RawLiteralBraceScanMode::UnmatchedOnly {
-        spans.extend(unmatched_opens);
-    }
-
     spans
 }
 
@@ -7353,33 +7356,10 @@ fn unmatched_command_substitution_brace_spans(
             continue;
         };
 
-        let mut covered = commands
-            .iter()
-            .flat_map(|command| command.redirects())
-            .filter_map(|redirect| redirect.heredoc().map(|heredoc| heredoc.body.span))
-            .filter(|span| span.start.offset >= body_start && span.end.offset <= body_end)
-            .collect::<Vec<_>>();
-        covered.sort_by_key(|span| (span.start.offset, span.end.offset));
-
-        let mut cursor = body_start;
-        for span in covered {
-            if span.start.offset > cursor {
-                spans.extend(raw_literal_brace_spans(
-                    container_span,
-                    cursor,
-                    span.start.offset,
-                    source,
-                    RawLiteralBraceScanMode::UnmatchedOnly,
-                    heredoc_ranges,
-                ));
-            }
-            cursor = cursor.max(span.end.offset);
-        }
-
-        if body_end > cursor {
+        if body_end > body_start {
             spans.extend(raw_literal_brace_spans(
                 container_span,
-                cursor,
+                body_start,
                 body_end,
                 source,
                 RawLiteralBraceScanMode::UnmatchedOnly,
