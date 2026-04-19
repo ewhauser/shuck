@@ -60,10 +60,10 @@ echo \"$(( x ? $1 : y ))\"
     }
 
     #[test]
-    fn reports_concatenated_positional_parameters_in_valid_arithmetic_words() {
+    fn reports_identifier_prefixed_positional_parameters_in_arithmetic_words() {
         let source = "\
 #!/bin/sh
-echo \"$(( value + $1suffix ))\"
+echo \"$(( value + prefix$1 ))\"
 ";
         let diagnostics = test_snippet(
             source,
@@ -77,12 +77,13 @@ echo \"$(( value + $1suffix ))\"
     }
 
     #[test]
-    fn ignores_non_positional_parameter_expansions_in_arithmetic() {
+    fn ignores_suffix_only_and_expansion_led_arithmetic_words() {
         let source = "\
 #!/bin/sh
-echo \"$(( $_value ))\"
-echo \"$(( ${name} ))\"
-echo \"$(( ${#1} ))\"
+base=8#
+echo \"$(( $1suffix ))\"
+echo \"$(( ${1}suffix ))\"
+echo \"$(( ${base}$1 ))\"
 ";
         let diagnostics = test_snippet(
             source,
@@ -96,7 +97,25 @@ echo \"$(( ${#1} ))\"
     fn ignores_base_prefixed_literals_that_use_positional_parameters() {
         let source = "\
 #!/bin/sh
+echo \"$(( 0x$1 ))\"
+echo \"$(( 0x${1}${2} ^ 0x200 ))\"
 echo \"$(( 16#$1 ))\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PositionalParamAsOperator),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_other_non_positional_parameter_expansions_in_arithmetic() {
+        let source = "\
+#!/bin/sh
+echo \"$(( $_value ))\"
+echo \"$(( ${name} ))\"
+echo \"$(( ${#1} ))\"
 ";
         let diagnostics = test_snippet(
             source,
