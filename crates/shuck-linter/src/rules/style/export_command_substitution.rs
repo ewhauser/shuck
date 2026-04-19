@@ -1,10 +1,6 @@
-use shuck_ast::AssignmentValue;
 use shuck_semantic::ScopeKind;
 
-use crate::{
-    Checker, DeclarationKind, ExpansionContext, Rule, Violation, WordFactContext,
-    assignment_name_span,
-};
+use crate::{Checker, DeclarationKind, Rule, Violation, WordFactContext};
 
 pub struct ExportCommandSubstitution {
     pub name: String,
@@ -21,40 +17,31 @@ impl Violation for ExportCommandSubstitution {
 }
 
 pub fn export_command_substitution(checker: &mut Checker) {
-    let findings = checker
-        .facts()
-        .structural_commands()
-        .filter_map(|fact| {
-            let declaration = fact.declaration()?;
-            should_report_s010_declaration(
-                checker,
-                &declaration.kind,
-                declaration.readonly_flag,
-                fact.span(),
-            )
-            .then_some(declaration)
-        })
-        .flat_map(|declaration| declaration.assignment_operands.iter().copied())
-        .filter_map(|assignment| {
-            let AssignmentValue::Scalar(word) = &assignment.value else {
-                return None;
-            };
+    let mut findings = Vec::new();
 
-            checker
+    for fact in checker.facts().structural_commands() {
+        for probe in fact.declaration_assignment_probes() {
+            if !should_report_s010_declaration(
+                checker,
+                probe.kind(),
+                probe.readonly_flag(),
+                fact.span(),
+            ) {
+                continue;
+            }
+
+            if checker
                 .facts()
                 .word_fact(
-                    word.span,
-                    WordFactContext::Expansion(ExpansionContext::DeclarationAssignmentValue),
+                    probe.word_span(),
+                    WordFactContext::Expansion(probe.expansion_context()),
                 )
-                .filter(|fact| fact.classification().has_command_substitution())
-                .map(|_| {
-                    (
-                        assignment.target.name.to_string(),
-                        assignment_name_span(assignment),
-                    )
-                })
-        })
-        .collect::<Vec<_>>();
+                .is_some_and(|fact| fact.classification().has_command_substitution())
+            {
+                findings.push((probe.target_name().to_owned(), probe.target_name_span()));
+            }
+        }
+    }
 
     for (name, span) in findings {
         checker.report_dedup(ExportCommandSubstitution { name }, span);
@@ -205,5 +192,55 @@ readonly n_version=\"$(./bin/n --version)\"
                 .collect::<Vec<_>>(),
             vec!["archive_dir_create", "n_version"]
         );
+    }
+
+    #[test]
+    fn reports_escaped_declaration_builtins_with_command_substitution() {
+        let source = "\
+#!/bin/bash
+export_path() {
+  \\local local_name=\"$(date)\"
+  \\declare declared_name=$(pwd)
+  \\typeset typed_name=\"$(mktemp)\"
+  \\readonly kept_name=$(date)
+}
+\\export exported_name=\"$(printf '%s' hi)\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ExportCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "local_name",
+                "declared_name",
+                "typed_name",
+                "kept_name",
+                "exported_name",
+            ]
+        );
+    }
+
+    #[test]
+    fn ignores_escaped_function_local_readonly_modifier_declarations() {
+        let source = "\
+#!/bin/bash
+demo() {
+  \\local -r temp=\"$(date)\"
+  \\declare -r other=$(date)
+  \\typeset -r home=$(pwd)
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ExportCommandSubstitution),
+        );
+
+        assert!(diagnostics.is_empty());
     }
 }

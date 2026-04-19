@@ -955,6 +955,42 @@ impl<'a> PathWordFact<'a> {
 }
 
 #[derive(Debug, Clone)]
+pub struct DeclarationAssignmentProbe {
+    kind: command::DeclarationKind,
+    readonly_flag: bool,
+    target_name: Box<str>,
+    target_name_span: Span,
+    word_span: Span,
+    expansion_context: ExpansionContext,
+}
+
+impl DeclarationAssignmentProbe {
+    pub fn kind(&self) -> &command::DeclarationKind {
+        &self.kind
+    }
+
+    pub fn readonly_flag(&self) -> bool {
+        self.readonly_flag
+    }
+
+    pub fn target_name(&self) -> &str {
+        &self.target_name
+    }
+
+    pub fn target_name_span(&self) -> Span {
+        self.target_name_span
+    }
+
+    pub fn word_span(&self) -> Span {
+        self.word_span
+    }
+
+    pub fn expansion_context(&self) -> ExpansionContext {
+        self.expansion_context
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct SingleQuotedFragmentFact {
     span: Span,
     dollar_quoted: bool,
@@ -2816,6 +2852,7 @@ pub struct CommandFact<'a> {
     substitution_facts: Box<[SubstitutionFact]>,
     options: CommandOptionFacts<'a>,
     scope_read_source_words: Box<[PathWordFact<'a>]>,
+    declaration_assignment_probes: Box<[DeclarationAssignmentProbe]>,
     glued_closing_bracket_operand_span: Option<Span>,
     simple_test: Option<SimpleTestFact<'a>>,
     conditional: Option<ConditionalFact<'a>>,
@@ -2876,6 +2913,10 @@ impl<'a> CommandFact<'a> {
 
     pub fn scope_read_source_words(&self) -> &[PathWordFact<'a>] {
         &self.scope_read_source_words
+    }
+
+    pub fn declaration_assignment_probes(&self) -> &[DeclarationAssignmentProbe] {
+        &self.declaration_assignment_probes
     }
 
     pub fn glued_closing_bracket_operand_span(&self) -> Option<Span> {
@@ -3714,6 +3755,8 @@ impl<'a> LinterFactsBuilder<'a> {
             let redirect_facts =
                 build_redirect_facts(visit.redirects, self.source, command_zsh_options.as_ref());
             let options = CommandOptionFacts::build(visit.command, &normalized, self.source);
+            let declaration_assignment_probes =
+                build_declaration_assignment_probes(visit.command, &normalized, self.source);
             let glued_closing_bracket_operand_span =
                 build_glued_closing_bracket_operand_span(visit.command, self.source);
             let simple_test =
@@ -3730,6 +3773,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 substitution_facts: Vec::new().into_boxed_slice(),
                 options,
                 scope_read_source_words: Vec::new().into_boxed_slice(),
+                declaration_assignment_probes,
                 glued_closing_bracket_operand_span,
                 simple_test,
                 conditional,
@@ -11202,6 +11246,166 @@ fn brace_fd_gap_allows_attachment(gap: &str) -> bool {
     true
 }
 
+fn build_declaration_assignment_probes<'a>(
+    command: &'a Command,
+    normalized: &NormalizedCommand<'a>,
+    source: &str,
+) -> Box<[DeclarationAssignmentProbe]> {
+    if let Some(declaration) = normalized.declaration.as_ref() {
+        return declaration
+            .assignment_operands
+            .iter()
+            .filter_map(|assignment| {
+                let AssignmentValue::Scalar(word) = &assignment.value else {
+                    return None;
+                };
+
+                Some(DeclarationAssignmentProbe {
+                    kind: declaration.kind.clone(),
+                    readonly_flag: declaration.readonly_flag,
+                    target_name: assignment.target.name.as_str().into(),
+                    target_name_span: assignment.target.name_span,
+                    word_span: word.span,
+                    expansion_context: ExpansionContext::DeclarationAssignmentValue,
+                })
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+    }
+
+    build_simple_command_declaration_assignment_probes(command, normalized, source)
+}
+
+fn build_simple_command_declaration_assignment_probes<'a>(
+    command: &'a Command,
+    normalized: &NormalizedCommand<'a>,
+    source: &str,
+) -> Box<[DeclarationAssignmentProbe]> {
+    let Command::Simple(_) = command else {
+        return Vec::new().into_boxed_slice();
+    };
+
+    if !normalized.wrappers.is_empty() {
+        return Vec::new().into_boxed_slice();
+    }
+
+    let Some(kind) = simple_command_declaration_kind(normalized.effective_or_literal_name()) else {
+        return Vec::new().into_boxed_slice();
+    };
+    let readonly_flag = matches!(
+        kind,
+        command::DeclarationKind::Local
+            | command::DeclarationKind::Declare
+            | command::DeclarationKind::Typeset
+    ) && normalized
+        .body_args()
+        .iter()
+        .any(|word| declaration_flag_sets_readonly(word, source));
+
+    normalized
+        .body_args()
+        .iter()
+        .filter_map(|word| {
+            let name = assignment_word_name(word.span.slice(source))?;
+            Some(DeclarationAssignmentProbe {
+                kind: kind.clone(),
+                readonly_flag,
+                target_name: name.into(),
+                target_name_span: Span::from_positions(
+                    word.span.start,
+                    word.span.start.advanced_by(name),
+                ),
+                word_span: word.span,
+                expansion_context: ExpansionContext::CommandArgument,
+            })
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice()
+}
+
+fn simple_command_declaration_kind(name: Option<&str>) -> Option<command::DeclarationKind> {
+    match name? {
+        "export" => Some(command::DeclarationKind::Export),
+        "local" => Some(command::DeclarationKind::Local),
+        "declare" => Some(command::DeclarationKind::Declare),
+        "typeset" => Some(command::DeclarationKind::Typeset),
+        "readonly" => Some(command::DeclarationKind::Other("readonly".to_owned())),
+        _ => None,
+    }
+}
+
+fn declaration_flag_sets_readonly(word: &Word, source: &str) -> bool {
+    static_word_text(word, source).is_some_and(|text| text.starts_with('-') && text.contains('r'))
+}
+
+fn assignment_word_name(word: &str) -> Option<&str> {
+    if !word.contains('=') {
+        return None;
+    }
+
+    let mut chars = word.char_indices();
+    let (_, first) = chars.next()?;
+    if !first.is_ascii_alphabetic() && first != '_' {
+        return None;
+    }
+
+    let mut ident_end = first.len_utf8();
+    for (index, ch) in chars {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            ident_end = index + ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+
+    let name = &word[..ident_end];
+    let mut cursor = ident_end;
+
+    if word[cursor..].starts_with('[') {
+        let mut close_index = None;
+        let mut bracket_depth = 0_i32;
+        let mut brace_depth = 0_i32;
+        let mut paren_depth = 0_i32;
+        let mut in_single = false;
+        let mut in_double = false;
+        let mut escaped = false;
+
+        for (relative, ch) in word[cursor + 1..].char_indices() {
+            let absolute = cursor + 1 + relative;
+            if escaped {
+                escaped = false;
+                continue;
+            }
+
+            match ch {
+                '\\' if !in_single => escaped = true,
+                '\'' if !in_double => in_single = !in_single,
+                '"' if !in_single => in_double = !in_double,
+                '[' if !in_single && !in_double => bracket_depth += 1,
+                ']' if !in_single && !in_double => {
+                    if bracket_depth == 0 && brace_depth == 0 && paren_depth == 0 {
+                        close_index = Some(absolute);
+                        break;
+                    }
+                    bracket_depth -= 1;
+                }
+                '{' if !in_single && !in_double => brace_depth += 1,
+                '}' if !in_single && !in_double && brace_depth > 0 => brace_depth -= 1,
+                '(' if !in_single && !in_double => paren_depth += 1,
+                ')' if !in_single && !in_double && paren_depth > 0 => paren_depth -= 1,
+                _ => {}
+            }
+        }
+
+        cursor = close_index? + 1;
+    }
+
+    if word[cursor..].starts_with("+=") || word[cursor..].starts_with('=') {
+        Some(name)
+    } else {
+        None
+    }
+}
 fn redirect_operator_span(redirect: &Redirect) -> Span {
     let operator_start = redirect
         .fd_var_span
