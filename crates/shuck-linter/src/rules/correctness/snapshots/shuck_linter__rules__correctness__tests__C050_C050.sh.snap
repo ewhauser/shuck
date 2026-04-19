@@ -2,13 +2,7 @@
 source: crates/shuck-linter/src/rules/correctness/mod.rs
 ---
 C050 redirection targets should not use arithmetic expansion
- --> <source>:6:11
+ --> <source>:6:16
   |
 6 | echo hi > "$((i++))"
-  |
-
-C050 redirection targets should not use arithmetic expansion
- --> <source>:9:21
-  |
-9 | printf '%s\n' ok >> "$((i + 1))"
   |

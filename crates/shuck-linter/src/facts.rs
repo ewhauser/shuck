@@ -808,6 +808,7 @@ impl<'a> ConditionalFact<'a> {
 pub struct RedirectFact<'a> {
     redirect: &'a Redirect,
     target_span: Option<Span>,
+    arithmetic_update_operator_spans: Box<[Span]>,
     analysis: Option<RedirectTargetAnalysis>,
 }
 
@@ -818,6 +819,10 @@ impl<'a> RedirectFact<'a> {
 
     pub fn target_span(&self) -> Option<Span> {
         self.target_span
+    }
+
+    pub fn arithmetic_update_operator_spans(&self) -> &[Span] {
+        &self.arithmetic_update_operator_spans
     }
 
     pub fn analysis(&self) -> Option<RedirectTargetAnalysis> {
@@ -10290,6 +10295,18 @@ fn build_redirect_facts<'a>(
         .map(|redirect| RedirectFact {
             redirect,
             target_span: redirect.word_target().map(|word| word.span),
+            arithmetic_update_operator_spans: redirect
+                .word_target()
+                .map_or_else(Vec::new, |word| {
+                    let mut spans = Vec::new();
+                    collect_arithmetic_update_operator_spans_from_parts(
+                        &word.parts,
+                        source,
+                        &mut spans,
+                    );
+                    spans
+                })
+                .into_boxed_slice(),
             analysis: analyze_redirect_target(redirect, source, zsh_options),
         })
         .collect::<Vec<_>>()
@@ -12734,6 +12751,242 @@ fn collect_arithmetic_expansion_spans_from_parts(
             | WordPart::ProcessSubstitution { .. }
             | WordPart::ZshQualifiedGlob(_) => {}
         }
+    }
+}
+
+fn collect_arithmetic_update_operator_spans_from_parts(
+    parts: &[WordPartNode],
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_arithmetic_update_operator_spans_from_parts(parts, source, spans)
+            }
+            WordPart::ArithmeticExpansion {
+                expression_ast,
+                expression_word_ast,
+                ..
+            } => {
+                if let Some(expression) = expression_ast {
+                    collect_arithmetic_update_operator_spans(Some(expression), source, spans);
+                } else {
+                    collect_arithmetic_update_operator_spans_from_parts(
+                        &expression_word_ast.parts,
+                        source,
+                        spans,
+                    );
+                }
+            }
+            WordPart::Parameter(parameter) => {
+                collect_arithmetic_update_operator_spans_in_parameter_expansion(
+                    parameter, source, spans,
+                )
+            }
+            WordPart::ParameterExpansion {
+                reference,
+                operator,
+                ..
+            } => {
+                collect_arithmetic_update_operator_spans_in_var_ref(reference, source, spans);
+                collect_arithmetic_update_operator_spans_in_parameter_operator(
+                    operator, source, spans,
+                );
+            }
+            WordPart::Length(reference)
+            | WordPart::ArrayAccess(reference)
+            | WordPart::ArrayLength(reference)
+            | WordPart::ArrayIndices(reference)
+            | WordPart::IndirectExpansion { reference, .. }
+            | WordPart::Transformation { reference, .. } => {
+                collect_arithmetic_update_operator_spans_in_var_ref(reference, source, spans)
+            }
+            WordPart::Substring {
+                reference,
+                offset_ast,
+                offset_word_ast,
+                length_ast,
+                length_word_ast,
+                ..
+            }
+            | WordPart::ArraySlice {
+                reference,
+                offset_ast,
+                offset_word_ast,
+                length_ast,
+                length_word_ast,
+                ..
+            } => {
+                collect_arithmetic_update_operator_spans_in_var_ref(reference, source, spans);
+                if let Some(expression) = offset_ast {
+                    collect_arithmetic_update_operator_spans(Some(expression), source, spans);
+                } else {
+                    collect_arithmetic_update_operator_spans_from_parts(
+                        &offset_word_ast.parts,
+                        source,
+                        spans,
+                    );
+                }
+                if let Some(expression) = length_ast {
+                    collect_arithmetic_update_operator_spans(Some(expression), source, spans);
+                } else if let Some(length_word_ast) = length_word_ast {
+                    collect_arithmetic_update_operator_spans_from_parts(
+                        &length_word_ast.parts,
+                        source,
+                        spans,
+                    );
+                }
+            }
+            WordPart::Literal(_)
+            | WordPart::SingleQuoted { .. }
+            | WordPart::Variable(_)
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::ZshQualifiedGlob(_) => {}
+        }
+    }
+}
+
+fn collect_arithmetic_update_operator_spans_in_var_ref(
+    reference: &VarRef,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    query::visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
+        collect_arithmetic_update_operator_spans_from_parts(&word.parts, source, spans);
+    });
+}
+
+fn collect_arithmetic_update_operator_spans_in_parameter_expansion(
+    parameter: &ParameterExpansion,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+            BourneParameterExpansion::Access { reference }
+            | BourneParameterExpansion::Length { reference }
+            | BourneParameterExpansion::Indices { reference }
+            | BourneParameterExpansion::Transformation { reference, .. } => {
+                collect_arithmetic_update_operator_spans_in_var_ref(reference, source, spans);
+            }
+            BourneParameterExpansion::Indirect {
+                reference,
+                operator,
+                operand_word_ast,
+                ..
+            } => {
+                collect_arithmetic_update_operator_spans_in_var_ref(reference, source, spans);
+                if let Some(operator) = operator.as_ref() {
+                    collect_arithmetic_update_operator_spans_in_parameter_operator(
+                        operator, source, spans,
+                    );
+                }
+                if let Some(operand_word_ast) = operand_word_ast.as_ref() {
+                    collect_arithmetic_update_operator_spans_from_parts(
+                        &operand_word_ast.parts,
+                        source,
+                        spans,
+                    );
+                }
+            }
+            BourneParameterExpansion::Operation {
+                reference,
+                operator,
+                operand_word_ast,
+                ..
+            } => {
+                collect_arithmetic_update_operator_spans_in_var_ref(reference, source, spans);
+                collect_arithmetic_update_operator_spans_in_parameter_operator(
+                    operator, source, spans,
+                );
+                if let Some(operand_word_ast) = operand_word_ast.as_ref() {
+                    collect_arithmetic_update_operator_spans_from_parts(
+                        &operand_word_ast.parts,
+                        source,
+                        spans,
+                    );
+                }
+            }
+            BourneParameterExpansion::Slice {
+                reference,
+                offset_ast,
+                offset_word_ast,
+                length_ast,
+                length_word_ast,
+                ..
+            } => {
+                collect_arithmetic_update_operator_spans_in_var_ref(reference, source, spans);
+                if let Some(expression) = offset_ast {
+                    collect_arithmetic_update_operator_spans(Some(expression), source, spans);
+                } else {
+                    collect_arithmetic_update_operator_spans_from_parts(
+                        &offset_word_ast.parts,
+                        source,
+                        spans,
+                    );
+                }
+                if let Some(expression) = length_ast {
+                    collect_arithmetic_update_operator_spans(Some(expression), source, spans);
+                } else if let Some(length_word_ast) = length_word_ast {
+                    collect_arithmetic_update_operator_spans_from_parts(
+                        &length_word_ast.parts,
+                        source,
+                        spans,
+                    );
+                }
+            }
+            BourneParameterExpansion::PrefixMatch { .. } => {}
+        },
+        ParameterExpansionSyntax::Zsh(syntax) => match &syntax.target {
+            ZshExpansionTarget::Reference(reference) => {
+                collect_arithmetic_update_operator_spans_in_var_ref(reference, source, spans);
+            }
+            ZshExpansionTarget::Nested(parameter) => {
+                collect_arithmetic_update_operator_spans_in_parameter_expansion(
+                    parameter, source, spans,
+                );
+            }
+            ZshExpansionTarget::Word(word) => {
+                collect_arithmetic_update_operator_spans_from_parts(&word.parts, source, spans);
+            }
+            ZshExpansionTarget::Empty => {}
+        },
+    }
+}
+
+fn collect_arithmetic_update_operator_spans_in_parameter_operator(
+    operator: &ParameterOp,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match operator {
+        ParameterOp::ReplaceFirst {
+            replacement_word_ast,
+            ..
+        }
+        | ParameterOp::ReplaceAll {
+            replacement_word_ast,
+            ..
+        } => collect_arithmetic_update_operator_spans_from_parts(
+            &replacement_word_ast.parts,
+            source,
+            spans,
+        ),
+        ParameterOp::UseDefault
+        | ParameterOp::AssignDefault
+        | ParameterOp::UseReplacement
+        | ParameterOp::Error
+        | ParameterOp::RemovePrefixShort { .. }
+        | ParameterOp::RemovePrefixLong { .. }
+        | ParameterOp::RemoveSuffixShort { .. }
+        | ParameterOp::RemoveSuffixLong { .. }
+        | ParameterOp::UpperFirst
+        | ParameterOp::UpperAll
+        | ParameterOp::LowerFirst
+        | ParameterOp::LowerAll => {}
     }
 }
 
@@ -20439,7 +20692,8 @@ xargs -a inputs -iX echo X
 
     #[test]
     fn builds_redirect_facts_with_cached_target_analysis() {
-        let source = "#!/bin/bash\necho hi 2>&3 >/dev/null >> \"$((i++))\"\n";
+        let source =
+            "#!/bin/bash\necho hi 2>&3 >/dev/null >> \"$((i++))\"\necho hi > \"$((i + 1))\"\n";
 
         with_facts(source, None, |_, facts| {
             let command = facts
@@ -20484,6 +20738,27 @@ xargs -a inputs -iX echo X
                     .analysis()
                     .is_some_and(|analysis| { analysis.expansion.hazards.arithmetic_expansion })
             );
+            assert_eq!(
+                arithmetic
+                    .arithmetic_update_operator_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["++"]
+            );
+
+            let pure_arithmetic = facts
+                .structural_commands()
+                .filter(|fact| fact.effective_name_is("echo"))
+                .nth(1)
+                .expect("expected second echo fact");
+            let pure_redirect = &pure_arithmetic.redirect_facts()[0];
+            assert!(
+                pure_redirect
+                    .analysis()
+                    .is_some_and(|analysis| { analysis.expansion.hazards.arithmetic_expansion })
+            );
+            assert!(pure_redirect.arithmetic_update_operator_spans().is_empty());
         });
     }
 
