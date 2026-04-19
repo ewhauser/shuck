@@ -3466,6 +3466,82 @@ fn test_command_substitution_spans_are_absolute() {
 }
 
 #[test]
+fn test_prefixed_nested_command_substitution_keeps_command_names() {
+    let input = "cp -v $filename $OUT/$(echo $(basename $filename .fuzz))\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+
+    let echo_body = command.args[2]
+        .parts
+        .iter()
+        .find_map(|part| match &part.kind {
+            WordPart::CommandSubstitution { body, .. } => Some(body),
+            _ => None,
+        })
+        .expect("expected outer command substitution");
+    let echo = expect_simple(&echo_body[0]);
+    assert_eq!(echo.name.render(input), "echo");
+
+    let basename_body = echo.args[0]
+        .parts
+        .iter()
+        .find_map(|part| match &part.kind {
+            WordPart::CommandSubstitution { body, .. } => Some(body),
+            _ => None,
+        })
+        .expect("expected nested basename command substitution");
+    let basename = expect_simple(&basename_body[0]);
+    assert_eq!(basename.name.render(input), "basename");
+}
+
+#[test]
+fn test_prefixed_nested_quoted_command_substitution_keeps_command_names() {
+    let input = "\
+value=\"$(\n\
+       [[ \"$config_file\" == *\"$theme.cfg\" ]] && echo \"$(basename \"$config_file\")\"\n\
+    )\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+        panic!("expected scalar assignment");
+    };
+    let WordPart::DoubleQuoted { parts, .. } = &word.parts[0].kind else {
+        panic!("expected quoted assignment value");
+    };
+    let WordPart::CommandSubstitution { body, .. } = &parts[0].kind else {
+        panic!("expected outer command substitution");
+    };
+    let AstCommand::Binary(binary) = &body[0].command else {
+        panic!("expected binary command");
+    };
+
+    let echo = expect_simple(&binary.right);
+    assert_eq!(echo.name.render(input), "echo");
+
+    let WordPart::DoubleQuoted {
+        parts: echo_parts, ..
+    } = &echo.args[0].parts[0].kind
+    else {
+        panic!("expected quoted echo argument");
+    };
+    let WordPart::CommandSubstitution {
+        body: basename_body,
+        ..
+    } = &echo_parts[0].kind
+    else {
+        panic!("expected nested basename substitution");
+    };
+    let basename = expect_simple(&basename_body[0]);
+    assert_eq!(basename.name.render(input), "basename");
+}
+
+#[test]
 fn test_parse_command_substitution_with_open_paren_inside_double_quotes() {
     Parser::new("x=$(echo \"(\")\n").parse().unwrap();
 }

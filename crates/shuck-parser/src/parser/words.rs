@@ -3039,6 +3039,7 @@ impl<'a> Parser<'a> {
                 let mut content = (!source_backed).then(String::new);
                 let mut content_end = content_start;
                 let mut escaped = false;
+                let mut command_substitution_depth = 0usize;
                 let mut closed = false;
 
                 while let Some(c) = Self::next_word_char(&mut chars, &mut cursor) {
@@ -3051,25 +3052,46 @@ impl<'a> Parser<'a> {
                         continue;
                     }
 
-                    match c {
-                        '\\' => {
-                            if let Some(content) = content.as_mut() {
-                                content.push(c);
-                            }
-                            content_end = cursor;
-                            escaped = true;
+                    if c == '\\' {
+                        if let Some(content) = content.as_mut() {
+                            content.push(c);
                         }
-                        '"' => {
-                            closed = true;
-                            break;
-                        }
-                        _ => {
-                            if let Some(content) = content.as_mut() {
-                                content.push(c);
-                            }
-                            content_end = cursor;
-                        }
+                        content_end = cursor;
+                        escaped = true;
+                        continue;
                     }
+
+                    if c == '$' && chars.peek() == Some(&'(') {
+                        if let Some(content) = content.as_mut() {
+                            content.push(c);
+                        }
+                        let open = Self::next_word_char_unwrap(&mut chars, &mut cursor);
+                        if let Some(content) = content.as_mut() {
+                            content.push(open);
+                        }
+                        content_end = cursor;
+                        command_substitution_depth += 1;
+                        continue;
+                    }
+
+                    if c == ')' && command_substitution_depth > 0 {
+                        if let Some(content) = content.as_mut() {
+                            content.push(c);
+                        }
+                        content_end = cursor;
+                        command_substitution_depth -= 1;
+                        continue;
+                    }
+
+                    if c == '"' && command_substitution_depth == 0 {
+                        closed = true;
+                        break;
+                    }
+
+                    if let Some(content) = content.as_mut() {
+                        content.push(c);
+                    }
+                    content_end = cursor;
                 }
 
                 if !closed {
@@ -3493,12 +3515,16 @@ impl<'a> Parser<'a> {
                                 Self::next_word_char_unwrap(&mut chars, &mut cursor);
                             }
                             let inner_text = consumed_text.strip_suffix(')').unwrap_or_default();
-                            let body_start =
-                                if inner_text.chars().next().is_some_and(char::is_whitespace) {
-                                    inner_start
-                                } else {
-                                    body_start
-                                };
+                            let quoted_prefix = source_backed
+                                && Span::from_positions(current_start, part_start)
+                                    .slice(self.input)
+                                    .chars()
+                                    .any(|c| matches!(c, '"' | '\\'));
+                            let body_start = if quoted_prefix {
+                                body_start
+                            } else {
+                                inner_start
+                            };
                             if had_prefix {
                                 self.nested_stmt_seq_from_source(inner_text, body_start)
                             } else {
