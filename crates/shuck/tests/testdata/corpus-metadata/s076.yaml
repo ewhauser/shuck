@@ -28,6 +28,13 @@ reviewed_divergences:
     end_column: 47
     reason: "S076 intentionally warns when a quoted fragment is spliced into a constructed export-assignment word, even though current ShellCheck leaves this dynamic assignment-name form unreported."
   - side: shuck-only
+    path_suffix: "scripts/termux__termux-packages__packages__golang__build.sh"
+    line: 46
+    column: 26
+    end_line: 46
+    end_column: 44
+    reason: "This Termux install path joins a quoted root, a bare slash, and a brace expansion in one argument. Shuck keeps that mixed-fragment readability warning, while the project-closure oracle for this file only reports the portability-side brace expansion."
+  - side: shuck-only
     path_suffix: "scripts/termux__termux-packages__scripts__updates__api__termux_github_api_get_tag.sh"
     line: 48
     column: 7
