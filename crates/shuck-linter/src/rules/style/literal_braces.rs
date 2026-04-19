@@ -207,6 +207,18 @@ echo [0-9a-f]{$HASHLEN}
     }
 
     #[test]
+    fn reports_lone_closing_braces_inside_command_substitutions() {
+        let source = "\
+#!/bin/bash
+value=$(cut -d} -f1)
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LiteralBraces));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.column, 15);
+    }
+
+    #[test]
     fn ignores_even_backslash_runs_before_parameter_expansions() {
         let source = "\
 #!/bin/bash
@@ -327,6 +339,33 @@ fi
 __rvm_find \"${rvm_bin_path:=$rvm_path/bin}\" -name \\*${ruby_at_gemset} -exec rm -rf '{}' \\;
 exec {IPC_FIFO_FD}<>\"$IPC_FIFO\"
 exec {IPC_FIFO_FD}>&-
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LiteralBraces));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_escaped_double_brace_templates_in_sed_scripts() {
+        let source = "\
+#!/bin/bash
+sed -e s/\\{\\{DEVICE_MODEL\\}\\}/\"${DEVICE_MODEL}\"/g \\
+  -e s/\\{\\{KERNEL_ARGS\\}\\}/\"${KERNEL_ARGS:-}\"/g
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LiteralBraces));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_parameter_expansions_inside_command_substitutions() {
+        let source = "\
+#!/bin/sh
+srcnam=$(tr \\. _ <<<${PRGNAM#python3-*})
+v=$(echo ${TERMUX_PKG_VERSION#*:} | cut -d . -f 1)
+if [ \"`echo ${x##*/} | awk '{ print toupper($1) }'`\" = \"`echo ${command} | awk '{ print toupper($1) }'`\" ]; then
+  :
+fi
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LiteralBraces));
 

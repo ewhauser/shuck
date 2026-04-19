@@ -111,3 +111,171 @@ reviewed_divergences:
     column: 44
     end_column: 44
     reason: "This later configure probe keeps an escaped parameter template inside an `eval` cache check, and the remaining closing-brace hit is treated as project-closure corpus drift."
+  - side: shellcheck-only
+    path_suffix: "alpinelinux__aports__community__pdns__pdns-backend-pgsql.post-upgrade"
+    line: 44
+    end_line: 44
+    column: 20
+    end_column: 20
+    reason: "This post-upgrade helper intentionally builds an escaped `\\${PG...}` template for later `eval` expansion. The remaining opening-brace anchor is tracked as a reviewed escaped-template divergence."
+  - side: shellcheck-only
+    path_suffix: "alpinelinux__aports__community__pdns__pdns-backend-pgsql.post-upgrade"
+    line: 44
+    end_line: 44
+    column: 28
+    end_column: 28
+    reason: "This post-upgrade helper intentionally builds an escaped `\\${PG...}` template for later `eval` expansion. The remaining closing-brace anchor is tracked as a reviewed escaped-template divergence."
+  - side: shellcheck-only
+    path_suffix: "megastep__makeself__test__variabletest"
+    line: 15
+    end_line: 15
+    column: 55
+    end_column: 55
+    reason: "This harness fixture serializes a variable reference through an escaped nested template inside a project-closure test case, so the remaining opening-brace hit is reviewed as harness-specific divergence."
+  - side: shellcheck-only
+    path_suffix: "megastep__makeself__test__variabletest"
+    line: 15
+    end_line: 15
+    column: 60
+    end_column: 60
+    reason: "This harness fixture serializes a variable reference through an escaped nested template inside a project-closure test case, so the remaining closing-brace hit is reviewed as harness-specific divergence."
+  - side: shuck-only
+    path_suffix: "ohmyzsh__ohmyzsh__plugins__alias-finder__tests__test_run.sh"
+    line: 15
+    end_line: 15
+    column: 41
+    end_column: 41
+    reason: "After the non-shell `@test ... {` opener, this zunit harness keeps later `${#lines[@]}` assertions in a framework-specific context that Shuck currently reinterprets as plain shell text."
+  - side: shuck-only
+    path_suffix: "ohmyzsh__ohmyzsh__plugins__alias-finder__tests__test_run.sh"
+    line: 24
+    end_line: 24
+    column: 66
+    end_column: 66
+    reason: "After the non-shell `@test ... {` opener, this zunit harness keeps later `${#lines[@]}` assertions in a framework-specific context that Shuck currently reinterprets as plain shell text."
+  - side: shuck-only
+    path_suffix: "ohmyzsh__ohmyzsh__plugins__alias-finder__tests__test_run.sh"
+    line: 33
+    end_line: 33
+    column: 50
+    end_column: 50
+    reason: "After the non-shell `@test ... {` opener, this zunit harness keeps later `${#lines[@]}` assertions in a framework-specific context that Shuck currently reinterprets as plain shell text."
+  - side: shuck-only
+    path_suffix: "ohmyzsh__ohmyzsh__plugins__alias-finder__tests__test_run.sh"
+    line: 44
+    end_line: 44
+    column: 75
+    end_column: 75
+    reason: "After the non-shell `@test ... {` opener, this zunit harness keeps later `${#lines[@]}` assertions in a framework-specific context that Shuck currently reinterprets as plain shell text."
+  - side: shuck-only
+    path_suffix: "ohmyzsh__ohmyzsh__plugins__alias-finder__tests__test_run.sh"
+    line: 53
+    end_line: 53
+    column: 90
+    end_column: 90
+    reason: "After the non-shell `@test ... {` opener, this zunit harness keeps later `${#lines[@]}` assertions in a framework-specific context that Shuck currently reinterprets as plain shell text."
+  - side: shuck-only
+    path_suffix: "ohmyzsh__ohmyzsh__plugins__alias-finder__tests__test_run.sh"
+    line: 62
+    end_line: 62
+    column: 91
+    end_column: 91
+    reason: "After the non-shell `@test ... {` opener, this zunit harness keeps later `${#lines[@]}` assertions in a framework-specific context that Shuck currently reinterprets as plain shell text."
+  - side: shuck-only
+    path_suffix: "ohmyzsh__ohmyzsh__plugins__alias-finder__tests__test_run.sh"
+    line: 74
+    end_line: 74
+    column: 106
+    end_column: 106
+    reason: "After the non-shell `@test ... {` opener, this zunit harness keeps later `${#lines[@]}` assertions in a framework-specific context that Shuck currently reinterprets as plain shell text."
+  - side: shuck-only
+    path_suffix: "ohmyzsh__ohmyzsh__plugins__alias-finder__tests__test_run.sh"
+    line: 84
+    end_line: 84
+    column: 62
+    end_column: 62
+    reason: "After the non-shell `@test ... {` opener, this zunit harness keeps later `${#lines[@]}` assertions in a framework-specific context that Shuck currently reinterprets as plain shell text."
+  - side: shuck-only
+    path_suffix: "ohmyzsh__ohmyzsh__plugins__alias-finder__tests__test_run.sh"
+    line: 97
+    end_line: 97
+    column: 89
+    end_column: 89
+    reason: "After the non-shell `@test ... {` opener, this zunit harness keeps later `${#lines[@]}` assertions in a framework-specific context that Shuck currently reinterprets as plain shell text."
+  - side: shuck-only
+    path_suffix: "scop__bash-completion__completions-core__tmux.bash"
+    line: 59
+    end_line: 59
+    column: 49
+    end_column: 49
+    reason: "This completion helper trims a literal `[`/`]` wrapper with `${words[i]#\"[\"}` and `${words[i + 1]%\"]\"}`. The surviving brace hit is reviewed as a shell-collapse helper-library mismatch rather than a live S029 bug."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__updates__api__termux_github_api_get_tag.sh"
+    line: 49
+    end_line: 49
+    column: 70
+    end_column: 70
+    reason: "This GraphQL request body is data inside a heredoc nested under command substitution. Shuck still surfaces these JSON braces as shell text in this nested-heredoc shape, so the bucket is reviewed as a known parser/index limitation."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__updates__api__termux_github_api_get_tag.sh"
+    line: 50
+    end_line: 50
+    column: 59
+    end_column: 59
+    reason: "This GraphQL request body is data inside a heredoc nested under command substitution. Shuck still surfaces these JSON braces as shell text in this nested-heredoc shape, so the bucket is reviewed as a known parser/index limitation."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__updates__api__termux_github_api_get_tag.sh"
+    line: 52
+    end_line: 52
+    column: 8
+    end_column: 8
+    reason: "This GraphQL request body is data inside a heredoc nested under command substitution. Shuck still surfaces these JSON braces as shell text in this nested-heredoc shape, so the bucket is reviewed as a known parser/index limitation."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__updates__api__termux_github_api_get_tag.sh"
+    line: 53
+    end_line: 53
+    column: 8
+    end_column: 8
+    reason: "This GraphQL request body is data inside a heredoc nested under command substitution. Shuck still surfaces these JSON braces as shell text in this nested-heredoc shape, so the bucket is reviewed as a known parser/index limitation."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__updates__api__termux_github_api_get_tag.sh"
+    line: 54
+    end_line: 54
+    column: 15
+    end_column: 15
+    reason: "This GraphQL request body is data inside a heredoc nested under command substitution. Shuck still surfaces these JSON braces as shell text in this nested-heredoc shape, so the bucket is reviewed as a known parser/index limitation."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__updates__api__termux_github_api_get_tag.sh"
+    line: 55
+    end_line: 55
+    column: 15
+    end_column: 15
+    reason: "This GraphQL request body is data inside a heredoc nested under command substitution. Shuck still surfaces these JSON braces as shell text in this nested-heredoc shape, so the bucket is reviewed as a known parser/index limitation."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__updates__api__termux_github_api_get_tag.sh"
+    line: 57
+    end_line: 57
+    column: 10
+    end_column: 10
+    reason: "This GraphQL request body is data inside a heredoc nested under command substitution. Shuck still surfaces these JSON braces as shell text in this nested-heredoc shape, so the bucket is reviewed as a known parser/index limitation."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__updates__api__termux_github_api_get_tag.sh"
+    line: 58
+    end_line: 58
+    column: 9
+    end_column: 9
+    reason: "This GraphQL request body is data inside a heredoc nested under command substitution. Shuck still surfaces these JSON braces as shell text in this nested-heredoc shape, so the bucket is reviewed as a known parser/index limitation."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__updates__api__termux_github_api_get_tag.sh"
+    line: 59
+    end_line: 59
+    column: 8
+    end_column: 8
+    reason: "This GraphQL request body is data inside a heredoc nested under command substitution. Shuck still surfaces these JSON braces as shell text in this nested-heredoc shape, so the bucket is reviewed as a known parser/index limitation."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__updates__api__termux_github_api_get_tag.sh"
+    line: 60
+    end_line: 60
+    column: 7
+    end_column: 7
+    reason: "This GraphQL request body is data inside a heredoc nested under command substitution. Shuck still surfaces these JSON braces as shell text in this nested-heredoc shape, so the bucket is reviewed as a known parser/index limitation."
