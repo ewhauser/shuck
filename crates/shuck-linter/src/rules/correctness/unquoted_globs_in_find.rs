@@ -170,6 +170,18 @@ find . -exec echo '\\;' *.tmp {} \\;
     }
 
     #[test]
+    fn ignores_outer_find_words_after_quoted_semicolon_terminator() {
+        let source = "\
+#!/bin/bash
+find . -exec echo {} ';' -name *.cfg
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedGlobsInFind));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn ignores_outer_find_words_after_plus_terminated_exec() {
         let source = "\
 #!/bin/bash

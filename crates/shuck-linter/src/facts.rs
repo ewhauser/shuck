@@ -15678,7 +15678,7 @@ fn parse_find_exec_argument_word_spans(command: &Command, source: &str) -> Vec<S
 fn find_exec_terminator_index(args: &[&Word], source: &str) -> Option<usize> {
     let semicolon_terminator_index = args
         .iter()
-        .position(|word| is_unquoted_find_exec_semicolon_terminator(word, source));
+        .position(|word| is_find_exec_semicolon_terminator(word, source));
     let plus_terminator_index = args
         .iter()
         .enumerate()
@@ -15697,9 +15697,12 @@ fn find_exec_terminator_index(args: &[&Word], source: &str) -> Option<usize> {
     }
 }
 
-fn is_unquoted_find_exec_semicolon_terminator(word: &Word, source: &str) -> bool {
-    classify_word(word, source).quote == WordQuote::Unquoted
-        && matches!(static_word_text(word, source).as_deref(), Some(";" | "\\;"))
+fn is_find_exec_semicolon_terminator(word: &Word, source: &str) -> bool {
+    match static_word_text(word, source).as_deref() {
+        Some(";") => true,
+        Some("\\;") => classify_word(word, source).quote == WordQuote::Unquoted,
+        _ => false,
+    }
 }
 
 fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
@@ -20005,6 +20008,31 @@ find . -execdir sh -c 'printf \"%s\\n\" {}' {} \\;
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
                 vec!["echo", "'\\;'", "*.tmp", "{}"]
+            );
+        });
+    }
+
+    #[test]
+    fn treats_quoted_semicolon_as_find_exec_terminator() {
+        let source = "#!/bin/sh\nfind . -exec echo {} ';' -name *.cfg\n";
+
+        with_facts(source, None, |_, facts| {
+            let find_exec = facts
+                .commands()
+                .iter()
+                .find(|fact| fact.has_wrapper(WrapperKind::FindExec))
+                .expect("expected find -exec fact");
+
+            assert_eq!(
+                find_exec
+                    .options()
+                    .find_exec()
+                    .expect("expected find -exec facts")
+                    .argument_word_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["echo", "{}"]
             );
         });
     }
