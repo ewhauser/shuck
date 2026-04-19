@@ -18,9 +18,9 @@ pub fn glob_in_find_substitution(checker: &mut Checker) {
         .commands()
         .iter()
         .filter(|fact| {
-            fact.wrappers().iter().all(|wrapper| {
-                matches!(wrapper, WrapperKind::FindExec | WrapperKind::FindExecDir)
-            })
+            fact.wrappers()
+                .iter()
+                .all(|wrapper| matches!(wrapper, WrapperKind::FindExec | WrapperKind::FindExecDir))
         })
         .filter_map(|fact| fact.options().find())
         .flat_map(|find| find.glob_pattern_operand_spans().iter().copied())
