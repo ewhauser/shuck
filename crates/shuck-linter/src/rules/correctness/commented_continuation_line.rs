@@ -37,8 +37,12 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.start.line, 3);
-        assert_eq!(diagnostics[0].span.start.column, 3);
-        assert_eq!(diagnostics[0].span.slice(source), "#");
+        assert_eq!(diagnostics[0].span.start.column, 11);
+        assert_eq!(diagnostics[0].span.start, diagnostics[0].span.end);
+        assert_eq!(
+            &source[diagnostics[0].span.start.offset - 1..diagnostics[0].span.start.offset],
+            "\\"
+        );
     }
 
     #[test]
@@ -64,15 +68,14 @@ mod tests {
     }
 
     #[test]
-    fn reports_comment_line_without_its_own_backslash() {
+    fn ignores_comment_line_without_its_own_backslash() {
         let source = "#!/bin/bash\necho hello \\\n  #world\n  foo\n";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::CommentedContinuationLine),
         );
 
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
