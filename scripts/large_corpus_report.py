@@ -49,6 +49,7 @@ WORKER_PANIC_RE = re.compile(
     r"thread '<unnamed>' .*? panicked at (?P<location>[^\n]+):\n(?P<message>[^\n]+)",
     re.DOTALL,
 )
+KNOWN_LARGE_CORPUS_RULE_ALLOWLIST_REASON = "known large-corpus rule allowlist"
 
 
 @dataclass
@@ -246,6 +247,36 @@ def parse_rule_summaries(section: str | None, repo_root: Path) -> list[RuleSumma
     return sorted(summaries.values(), key=lambda summary: summary.mismatches, reverse=True)
 
 
+def combine_sections(*sections: str | None) -> str | None:
+    present = [section for section in sections if section]
+    if not present:
+        return None
+    return "\n\n".join(present)
+
+
+def filter_reviewed_divergence_section_for_known_failures(section: str | None) -> str | None:
+    if not section:
+        return None
+
+    kept_entries: list[str] = []
+    for fixture_path, lines in parse_fixture_entries(section):
+        kept_lines: list[str] = []
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if f" reason={KNOWN_LARGE_CORPUS_RULE_ALLOWLIST_REASON}" not in stripped:
+                continue
+            kept_lines.append(line)
+
+        if kept_lines:
+            kept_entries.append("\n".join([fixture_path, *kept_lines]))
+
+    if not kept_entries:
+        return None
+    return "\n\n".join(kept_entries)
+
+
 def ordered_unique(values: Iterable[str]) -> tuple[str, ...]:
     seen: set[str] = set()
     ordered: list[str] = []
@@ -285,6 +316,8 @@ def parse_fixture_entries(section: str | None) -> list[tuple[str, list[str]]]:
 def default_blocker_reason(bucket: str) -> str:
     if bucket == "Implementation Diff":
         return "Direct implementation mismatch with no comparison-target override."
+    if bucket == "Known Failure":
+        return "This mismatch is covered by the known large-corpus rule allowlist."
     if bucket == "Harness Warning":
         return "Harness execution hit a non-blocking timeout or warning for this fixture."
     if bucket == "Harness Failure":
@@ -440,7 +473,7 @@ def render_html(
     main_fixture_entries: int,
     unsupported_shells: int,
     main_processed_fixtures: int,
-    implementation_mismatches: int,
+    rule_records: int,
     shellcheck_only: int,
     shuck_only: int,
     mapping_issues: int,
@@ -480,7 +513,7 @@ def render_html(
                 <div class="rule-code"><span class="badge">{rule_code}</span><span>{shellcheck_code}</span></div>
                 <p class="rule-desc">{description}</p>
               </td>
-              <td><p class="metric">{mismatches}</p><p class="metric-label">implementation records</p></td>
+              <td><p class="metric">{mismatches}</p><p class="metric-label">rule-coded records</p></td>
               <td><p class="metric">{fixtures}</p><p class="metric-label">{fixture_label}</p></td>
               <td>
                 <ul class="reason-list">
@@ -989,11 +1022,12 @@ def render_html(
   <main class="page">
     <section class="hero">
       <div class="eyebrow">Large Corpus Conformance Snapshot</div>
-      <h1>Rule Failure Counts With Grouped Failure Reasons</h1>
+      <h1>Rule Record Counts With Grouped Failure Reasons</h1>
       <p class="lede">
         This page summarizes a large-corpus run for Shuck and folds the raw compatibility log into a
-        per-rule table. Counts below are implementation-diff records, not failing fixtures, so a
-        single fixture can contribute more than one mismatch to the same rule.
+        per-rule table. Counts below cover implementation-diff records plus allowlisted known
+        failures, not failing fixtures, so a single fixture can contribute more than one displayed
+        record to the same rule.
       </p>
       <div class="meta">
         <div class="pill">Generated: <code>{html.escape(generated_label)}</code></div>
@@ -1007,9 +1041,9 @@ def render_html(
           <p class="note">Main compatibility run reached the highest observed fixture count in the log.</p>
         </article>
         <article class="card">
-          <p class="kicker">Implementation mismatches</p>
-          <p class="value">{format_number(implementation_mismatches)}</p>
-          <p class="note">{len(rule_summaries)} distinct rules showed implementation deltas.</p>
+          <p class="kicker">Rule-coded records</p>
+          <p class="value">{format_number(rule_records)}</p>
+          <p class="note">{len(rule_summaries)} distinct rules appeared across implementation diffs and allowlisted known failures.</p>
         </article>
         <article class="card">
           <p class="kicker">SC-only records</p>
@@ -1045,8 +1079,8 @@ def render_html(
       <div class="legend">
         <div class="legend-item"><span class="sc-only">SC-only</span> = ShellCheck reported it, Shuck did not.</div>
         <div class="legend-item"><span class="shuck-only">Shuck-only</span> = Shuck reported it, ShellCheck did not.</div>
-        <div class="legend-item">Top 5 rules account for {top_five_share:.1f}% of all implementation mismatches.</div>
-        <div class="legend-item">Grouped reasons show the top three buckets per rule plus a rolled-up remainder.</div>
+        <div class="legend-item">Top 5 rules account for {top_five_share:.1f}% of all rule-coded records.</div>
+        <div class="legend-item">Only hard-coded allowlisted known failures are pulled in from reviewed divergences.</div>
       </div>
       <div class="table-wrap">
         <table>
@@ -1068,7 +1102,7 @@ def render_html(
     <section class="section">
       <h2>Other Issue Buckets</h2>
       <p>
-        Outside the implementation-diff table, this log also reported {format_number(mapping_issues)}
+        The rule table above covers implementation diffs plus allowlisted known failures. This log also reported {format_number(mapping_issues)}
         mapping issues, {format_number(reviewed_divergences)} reviewed divergences,
         {format_number(corpus_noise)} corpus-noise parse failures,
         {format_number(main_harness_warnings)} main harness warnings,
@@ -1076,9 +1110,9 @@ def render_html(
       </p>
       <p class="note">
         The table below stays fixture-focused on main-run issue entries. When the log includes
-        fixture-level detail, it includes implementation diffs, mapping issues, harness warnings,
-        and harness failures even when some of those buckets are intentionally excluded from the
-        rule-mismatch table above or no longer counted as blocking.
+        fixture-level detail, it includes implementation diffs, allowlisted known failures,
+        mapping issues, harness warnings, and harness failures. Other reviewed divergences stay in
+        the aggregate counts above but are intentionally omitted from the detailed tables.
       </p>
       {timeout_note_html}
       <div class="table-wrap">
@@ -1124,6 +1158,9 @@ def main() -> int:
     implementation_section = sections.get("Implementation Diffs")
     mapping_section = sections.get("Mapping Issues")
     reviewed_section = sections.get("Reviewed Divergence")
+    known_failure_section = filter_reviewed_divergence_section_for_known_failures(
+        reviewed_section
+    )
     corpus_noise_section = sections.get("Corpus Noise")
     harness_warning_section = sections.get("Harness Warnings")
     main_harness_section = sections.get("Harness Failures")
@@ -1139,21 +1176,23 @@ def main() -> int:
     if main_counts_match is None:
         raise SystemExit("could not determine the main compatibility counts from the log")
 
-    rule_summaries = parse_rule_summaries(implementation_section, repo_root)
+    rule_record_section = combine_sections(implementation_section, known_failure_section)
+    rule_summaries = parse_rule_summaries(rule_record_section, repo_root)
     blocker_entries = (
         parse_blocker_entries("Implementation Diff", implementation_section)
+        + parse_blocker_entries("Known Failure", known_failure_section)
         + parse_blocker_entries("Mapping Issue", mapping_section)
         + parse_blocker_entries("Harness Warning", harness_warning_section)
         + parse_blocker_entries("Harness Failure", main_harness_section)
     )
-    implementation_mismatches = sum(summary.mismatches for summary in rule_summaries)
+    rule_records = sum(summary.mismatches for summary in rule_summaries)
     shellcheck_only = sum(
         count
         for summary in rule_summaries
         for (side, _labels), count in summary.grouped_reasons.items()
         if side == "shellcheck-only"
     )
-    shuck_only = implementation_mismatches - shellcheck_only
+    shuck_only = rule_records - shellcheck_only
     main_blocking = int(main_counts_match.group("blocking"))
     main_fixture_entries = int(main_counts_match.group("fixtures"))
     unsupported_shells = int(main_counts_match.group("skipped") or "0")
@@ -1192,7 +1231,7 @@ def main() -> int:
         main_fixture_entries=main_fixture_entries,
         unsupported_shells=unsupported_shells,
         main_processed_fixtures=main_fixture_total(text),
-        implementation_mismatches=implementation_mismatches,
+        rule_records=rule_records,
         shellcheck_only=shellcheck_only,
         shuck_only=shuck_only,
         mapping_issues=mapping_issue_count,

@@ -111,6 +111,84 @@ test large_corpus_conforms_with_shellcheck ... FAILED
         self.assertIn("5 corpus-noise parse failures,", html)
         self.assertIn("6 main harness warnings,", html)
 
+    def test_reviewed_divergence_filter_keeps_only_known_failures(self) -> None:
+        section = """/tmp/keep.sh
+  shuck-only C001/SC2034 3:1-3:5 warning reason=known large-corpus rule allowlist
+
+/tmp/drop.sh
+  shuck-only C003/SC1091 4:1-4:5 warning reason=metadata-backed reviewed divergence
+"""
+
+        filtered = MODULE.filter_reviewed_divergence_section_for_known_failures(section)
+
+        self.assertIsNotNone(filtered)
+        self.assertIn("/tmp/keep.sh", filtered)
+        self.assertNotIn("/tmp/drop.sh", filtered)
+
+    def test_reviewed_divergence_only_run_still_populates_rule_and_fixture_tables(self) -> None:
+        log = """large corpus compatibility summary: blocking=0 warnings=2 fixtures=1 unsupported_shells=0 implementation_diffs=0 mapping_issues=0 reviewed_divergences=2 corpus_noise=0 harness_warnings=0 harness_failures=0
+Reviewed Divergence:
+/tmp/main-fixture.sh
+  shuck-only C001/SC2034 3:1-3:5 warning reason=known large-corpus rule allowlist
+  shuck-only C001/SC2034 4:1-4:5 warning reason=known large-corpus rule allowlist
+test large_corpus_conforms_with_shellcheck ... ok
+"""
+
+        with tempfile.TemporaryDirectory() as tempdir:
+            log_path = Path(tempdir) / "large-corpus.log"
+            output_path = Path(tempdir) / "report.html"
+            log_path.write_text(log, encoding="utf-8")
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT_PATH),
+                    "--log",
+                    str(log_path),
+                    "--output",
+                    str(output_path),
+                ],
+                check=True,
+            )
+
+            html = output_path.read_text(encoding="utf-8")
+
+        self.assertIn("Top 5 rules account for 100.0% of all rule-coded records.", html)
+        self.assertIn('<span class="badge">C001</span>', html)
+        self.assertIn("Known Failure", html)
+        self.assertIn("known large-corpus rule allowlist", html)
+
+    def test_metadata_backed_reviewed_divergence_stays_out_of_detailed_tables(self) -> None:
+        log = """large corpus compatibility summary: blocking=0 warnings=1 fixtures=1 unsupported_shells=0 implementation_diffs=0 mapping_issues=0 reviewed_divergences=1 corpus_noise=0 harness_warnings=0 harness_failures=0
+Reviewed Divergence:
+/tmp/main-fixture.sh
+  shuck-only C003/SC1091 3:1-3:5 warning reason=metadata-backed reviewed divergence
+test large_corpus_conforms_with_shellcheck ... ok
+"""
+
+        with tempfile.TemporaryDirectory() as tempdir:
+            log_path = Path(tempdir) / "large-corpus.log"
+            output_path = Path(tempdir) / "report.html"
+            log_path.write_text(log, encoding="utf-8")
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT_PATH),
+                    "--log",
+                    str(log_path),
+                    "--output",
+                    str(output_path),
+                ],
+                check=True,
+            )
+
+            html = output_path.read_text(encoding="utf-8")
+
+        self.assertNotIn('<span class="badge">C003</span>', html)
+        self.assertNotIn("metadata-backed reviewed divergence", html)
+        self.assertIn("1 reviewed divergences", html)
+
     def test_main_timeout_cap_note_is_rendered(self) -> None:
         log = """large corpus compatibility summary: blocking=0 warnings=5 fixtures=1 unsupported_shells=0 implementation_diffs=0 mapping_issues=0 reviewed_divergences=0 corpus_noise=0 harness_warnings=5 harness_failures=0
 large corpus compatibility note: only the first 5 fixture timeouts were recorded as harness warnings; additional timeout fixtures were omitted.
