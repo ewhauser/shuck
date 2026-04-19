@@ -1,0 +1,13 @@
+reviewed_divergences:
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__office__smoffice2018__presentations18"
+    line: 3
+    reason: "X081 is intentionally limited to longest-suffix trimming on `$*`. This package helper uses long-prefix trimming on `$@`, which the current SC3058 oracle groups into the same bucket even though it is a different positional-parameter string operation."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__office__smoffice2021__presentations21"
+    line: 3
+    reason: "X081 is intentionally limited to longest-suffix trimming on `$*`. This package helper uses long-prefix trimming on `$@`, which the current SC3058 oracle groups into the same bucket even though it is a different positional-parameter string operation."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__office__smoffice2024__presentations24"
+    line: 3
+    reason: "X081 is intentionally limited to longest-suffix trimming on `$*`. This package helper uses long-prefix trimming on `$@`, which the current SC3058 oracle groups into the same bucket even though it is a different positional-parameter string operation."
