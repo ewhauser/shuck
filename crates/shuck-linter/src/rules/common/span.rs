@@ -1078,6 +1078,13 @@ fn normalize_nested_direct_all_elements_array_expansion_span(
     span: Span,
     source: &str,
 ) -> Option<Span> {
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum QuoteState {
+        None,
+        Single,
+        Double,
+    }
+
     let text = span.slice(source);
     if !text.contains('$') {
         return None;
@@ -1087,10 +1094,44 @@ fn normalize_nested_direct_all_elements_array_expansion_span(
     let bytes = text.as_bytes();
     let mut index = 0usize;
     let mut nested_braced_depth = 0usize;
+    let mut quote_state = QuoteState::None;
 
     while index < bytes.len() {
         let absolute_start = base_offset + index;
         let byte = bytes[index];
+
+        match quote_state {
+            QuoteState::Single if nested_braced_depth > 0 => {
+                if byte == b'\'' {
+                    quote_state = QuoteState::None;
+                }
+                index += 1;
+                continue;
+            }
+            QuoteState::Double if nested_braced_depth > 0 => {
+                if byte == b'\\' {
+                    index += usize::from(index + 1 < bytes.len()) + 1;
+                    continue;
+                }
+                if byte == b'"' {
+                    quote_state = QuoteState::None;
+                }
+                index += 1;
+                continue;
+            }
+            QuoteState::None if nested_braced_depth > 0 && byte == b'\'' => {
+                quote_state = QuoteState::Single;
+                index += 1;
+                continue;
+            }
+            QuoteState::None if nested_braced_depth > 0 && byte == b'"' => {
+                quote_state = QuoteState::Double;
+                index += 1;
+                continue;
+            }
+            QuoteState::None => {}
+            QuoteState::Single | QuoteState::Double => {}
+        }
 
         if byte == b'\\' {
             if index + 2 < bytes.len() && bytes[index + 1] == b'$' && bytes[index + 2] == b'{' {
@@ -3765,6 +3806,26 @@ printf '%s\\n' \"$@\" \"${arr[@]}\" \"${arr[@]:1}\" \"${arr[@]:-fallback}\" \"${
     fn word_has_direct_all_elements_array_expansion_ignores_escaped_parameter_nesting() {
         let source = "\
 printf '%s\\n' \"\\${1+'\\\"$@\\\"'}\" \"$@\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let matches = command
+            .args
+            .iter()
+            .skip(1)
+            .map(|word| word_has_direct_all_elements_array_expansion_in_source(word, source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(matches, vec![false, true]);
+    }
+
+    #[test]
+    fn word_has_direct_all_elements_array_expansion_ignores_quoted_braces_in_escaped_text() {
+        let source = "\
+printf '%s\\n' \"\\${1+'} \\\"$@\\\"'}\" \"$@\"\n";
         let output = Parser::new(source).parse().unwrap();
         let command = &output.file.body[0].command;
         let shuck_ast::Command::Simple(command) = command else {
