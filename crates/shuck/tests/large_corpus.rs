@@ -1086,7 +1086,6 @@ fn large_corpus_worker_count(fixtures_len: usize) -> usize {
 
 fn clamp_large_corpus_worker_count(available_parallelism: usize, fixtures_len: usize) -> usize {
     available_parallelism
-        .max(1)
         .min(LARGE_CORPUS_MAX_WORKER_COUNT)
         .min(fixtures_len)
 }
