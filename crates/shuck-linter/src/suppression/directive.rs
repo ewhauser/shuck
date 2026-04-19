@@ -1,4 +1,4 @@
-use shuck_ast::{CaseItem, Command, CompoundCommand, File, IfSyntax, StmtSeq, TextRange, TextSize};
+use shuck_ast::{CaseItem, Command, CompoundCommand, File, StmtSeq, TextRange, TextSize};
 use shuck_indexer::{CommentIndex, IndexedComment};
 
 use crate::{
@@ -218,18 +218,23 @@ pub(crate) fn shellcheck_directive_can_apply_to_following_command(
                     )
             });
 
-            let then_header = matches!(command.syntax, IfSyntax::ThenFi { .. })
-                && body_header_matches(
-                    source,
-                    command.condition.span.end.offset,
-                    &command.then_branch,
-                    &context,
-                    "then",
-                );
+            let then_header = body_header_matches(
+                source,
+                command.condition.span.end.offset,
+                &command.then_branch,
+                &context,
+                "then",
+            ) || body_opener_matches(
+                source,
+                command.condition.span.end.offset,
+                &command.then_branch,
+                &context,
+                '{',
+            );
 
             let mut previous_branch_end = command.then_branch.span.end.offset;
             let mut elif_header = false;
-            let mut elif_then_header = false;
+            let mut elif_body_header = false;
             for (condition, branch) in &command.elif_branches {
                 elif_header |= condition.first().is_some_and(|stmt| {
                     next_command_starts_after_comment_line(stmt.span.start.offset, &context)
@@ -240,12 +245,18 @@ pub(crate) fn shellcheck_directive_can_apply_to_following_command(
                             "elif",
                         )
                 });
-                elif_then_header |= body_header_matches(
+                elif_body_header |= body_header_matches(
                     source,
                     condition.span.end.offset,
                     branch,
                     &context,
                     "then",
+                ) || body_opener_matches(
+                    source,
+                    condition.span.end.offset,
+                    branch,
+                    &context,
+                    '{',
                 );
                 previous_branch_end = branch.span.end.offset;
             }
@@ -253,45 +264,82 @@ pub(crate) fn shellcheck_directive_can_apply_to_following_command(
             let else_header = command.else_branch.as_ref().is_some_and(|branch| {
                 branch.first().is_some_and(|stmt| {
                     next_command_starts_after_comment_line(stmt.span.start.offset, &context)
-                        && gap_segment_ends_with_keyword(
+                        && (gap_segment_ends_with_keyword(
                             source,
                             previous_branch_end,
                             context.comment_start,
                             "else",
-                        )
+                        ) || gap_segment_ends_with_char(
+                            source,
+                            previous_branch_end,
+                            context.comment_start,
+                            '{',
+                        ))
                 })
             });
 
-            if_header || then_header || elif_header || elif_then_header || else_header
+            if_header || then_header || elif_header || elif_body_header || else_header
         }
-        Command::Compound(CompoundCommand::For(command)) => body_header_matches(
-            source,
-            visit.stmt.span.start.offset,
-            &command.body,
-            &context,
-            "do",
-        ),
-        Command::Compound(CompoundCommand::Repeat(command)) => body_header_matches(
-            source,
-            visit.stmt.span.start.offset,
-            &command.body,
-            &context,
-            "do",
-        ),
-        Command::Compound(CompoundCommand::Foreach(command)) => body_header_matches(
-            source,
-            visit.stmt.span.start.offset,
-            &command.body,
-            &context,
-            "do",
-        ),
-        Command::Compound(CompoundCommand::ArithmeticFor(command)) => body_header_matches(
-            source,
-            visit.stmt.span.start.offset,
-            &command.body,
-            &context,
-            "do",
-        ),
+        Command::Compound(CompoundCommand::For(command)) => {
+            body_header_matches(
+                source,
+                visit.stmt.span.start.offset,
+                &command.body,
+                &context,
+                "do",
+            ) || body_opener_matches(
+                source,
+                visit.stmt.span.start.offset,
+                &command.body,
+                &context,
+                '{',
+            )
+        }
+        Command::Compound(CompoundCommand::Repeat(command)) => {
+            body_header_matches(
+                source,
+                visit.stmt.span.start.offset,
+                &command.body,
+                &context,
+                "do",
+            ) || body_opener_matches(
+                source,
+                visit.stmt.span.start.offset,
+                &command.body,
+                &context,
+                '{',
+            )
+        }
+        Command::Compound(CompoundCommand::Foreach(command)) => {
+            body_header_matches(
+                source,
+                visit.stmt.span.start.offset,
+                &command.body,
+                &context,
+                "do",
+            ) || body_opener_matches(
+                source,
+                visit.stmt.span.start.offset,
+                &command.body,
+                &context,
+                '{',
+            )
+        }
+        Command::Compound(CompoundCommand::ArithmeticFor(command)) => {
+            body_header_matches(
+                source,
+                visit.stmt.span.start.offset,
+                &command.body,
+                &context,
+                "do",
+            ) || body_opener_matches(
+                source,
+                visit.stmt.span.start.offset,
+                &command.body,
+                &context,
+                '{',
+            )
+        }
         Command::Compound(CompoundCommand::While(command)) => {
             loop_header_matches(
                 source,
@@ -305,6 +353,12 @@ pub(crate) fn shellcheck_directive_can_apply_to_following_command(
                 &command.body,
                 &context,
                 "do",
+            ) || body_opener_matches(
+                source,
+                command.condition.span.end.offset,
+                &command.body,
+                &context,
+                '{',
             )
         }
         Command::Compound(CompoundCommand::Until(command)) => {
@@ -320,15 +374,29 @@ pub(crate) fn shellcheck_directive_can_apply_to_following_command(
                 &command.body,
                 &context,
                 "do",
+            ) || body_opener_matches(
+                source,
+                command.condition.span.end.offset,
+                &command.body,
+                &context,
+                '{',
             )
         }
-        Command::Compound(CompoundCommand::Select(command)) => body_header_matches(
-            source,
-            visit.stmt.span.start.offset,
-            &command.body,
-            &context,
-            "do",
-        ),
+        Command::Compound(CompoundCommand::Select(command)) => {
+            body_header_matches(
+                source,
+                visit.stmt.span.start.offset,
+                &command.body,
+                &context,
+                "do",
+            ) || body_opener_matches(
+                source,
+                visit.stmt.span.start.offset,
+                &command.body,
+                &context,
+                '{',
+            )
+        }
         Command::Compound(CompoundCommand::Subshell(body)) => body.first().is_some_and(|stmt| {
             next_command_starts_after_comment_line(stmt.span.start.offset, &context)
                 && context.prefix.trim_end().ends_with('(')
@@ -451,6 +519,15 @@ fn gap_segment_ends_with_keyword(
     segment_ends_with_keyword(source, gap_start.min(comment_start), comment_start, keyword)
 }
 
+fn gap_segment_ends_with_char(
+    source: &str,
+    gap_start: usize,
+    comment_start: usize,
+    ch: char,
+) -> bool {
+    segment_ends_with_char(source, gap_start.min(comment_start), comment_start, ch)
+}
+
 fn segment_ends_with_keyword(source: &str, start: usize, end: usize, keyword: &str) -> bool {
     let Some(segment) = source.get(start.min(end)..end) else {
         return false;
@@ -464,6 +541,14 @@ fn segment_ends_with_keyword(source: &str, start: usize, end: usize, keyword: &s
         .chars()
         .next_back()
         .is_none_or(|ch| ch.is_ascii_whitespace())
+}
+
+fn segment_ends_with_char(source: &str, start: usize, end: usize, ch: char) -> bool {
+    let Some(segment) = source.get(start.min(end)..end) else {
+        return false;
+    };
+
+    segment.trim_end_matches([' ', '\t', '\r']).ends_with(ch)
 }
 
 fn loop_header_matches(
@@ -489,6 +574,19 @@ fn body_header_matches(
     body.first().is_some_and(|stmt| {
         next_command_starts_after_comment_line(stmt.span.start.offset, context)
             && gap_segment_ends_with_keyword(source, header_end, context.comment_start, keyword)
+    })
+}
+
+fn body_opener_matches(
+    source: &str,
+    header_end: usize,
+    body: &StmtSeq,
+    context: &InlineDirectiveContext<'_>,
+    opener: char,
+) -> bool {
+    body.first().is_some_and(|stmt| {
+        next_command_starts_after_comment_line(stmt.span.start.offset, context)
+            && gap_segment_ends_with_char(source, header_end, context.comment_start, opener)
     })
 }
 
@@ -524,12 +622,16 @@ fn resolve_rule_code(code: &str) -> Option<Rule> {
 #[cfg(test)]
 mod tests {
     use shuck_indexer::Indexer;
-    use shuck_parser::parser::Parser;
+    use shuck_parser::parser::{Parser, ShellDialect};
 
     use super::*;
 
     fn directives(source: &str) -> Vec<SuppressionDirective> {
-        let output = Parser::new(source).parse().unwrap();
+        directives_with_dialect(source, ShellDialect::Bash)
+    }
+
+    fn directives_with_dialect(source: &str, dialect: ShellDialect) -> Vec<SuppressionDirective> {
+        let output = Parser::with_dialect(source, dialect).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         parse_directives(
             source,
@@ -727,6 +829,48 @@ if true; then ( # shellcheck disable=SC2086
         let directives = directives(source);
 
         assert_eq!(directives.len(), 2);
+        assert!(directives.iter().all(|directive| {
+            directive.source == SuppressionSource::ShellCheck
+                && directive.codes == vec![Rule::UnquotedExpansion]
+        }));
+    }
+
+    #[test]
+    fn parses_shellcheck_directives_after_zsh_brace_if_headers() {
+        let source = "\
+if [[ -n $foo ]] { # shellcheck disable=SC2086
+  echo $foo
+} elif [[ -n $bar ]] { # shellcheck disable=SC2086
+  echo $bar
+} else { # shellcheck disable=SC2086
+  echo $baz
+}
+";
+        let directives = directives_with_dialect(source, ShellDialect::Zsh);
+
+        assert_eq!(directives.len(), 3);
+        assert!(directives.iter().all(|directive| {
+            directive.source == SuppressionSource::ShellCheck
+                && directive.codes == vec![Rule::UnquotedExpansion]
+        }));
+    }
+
+    #[test]
+    fn parses_shellcheck_directives_after_zsh_brace_loop_headers() {
+        let source = "\
+for item in 1; { # shellcheck disable=SC2086
+  echo $foo
+}
+repeat 2 { # shellcheck disable=SC2086
+  echo $bar
+}
+foreach item (1 2) { # shellcheck disable=SC2086
+  echo $baz
+}
+";
+        let directives = directives_with_dialect(source, ShellDialect::Zsh);
+
+        assert_eq!(directives.len(), 3);
         assert!(directives.iter().all(|directive| {
             directive.source == SuppressionSource::ShellCheck
                 && directive.codes == vec![Rule::UnquotedExpansion]
