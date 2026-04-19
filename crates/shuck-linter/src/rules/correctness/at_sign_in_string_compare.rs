@@ -1,7 +1,6 @@
-use crate::{
-    Checker, Rule, SimpleTestOperatorFamily, SimpleTestShape, Violation,
-    word_positional_at_splat_span_in_source,
-};
+use shuck_ast::Span;
+
+use crate::{Checker, Rule, Violation, word_positional_at_splat_span_in_source};
 
 pub struct AtSignInStringCompare;
 
@@ -11,37 +10,28 @@ impl Violation for AtSignInStringCompare {
     }
 
     fn message(&self) -> String {
-        "positional-parameter at-splats fold arguments in string comparisons".to_owned()
+        "positional-parameter at-splats fold arguments when used as test operands".to_owned()
     }
 }
 
 pub fn at_sign_in_string_compare(checker: &mut Checker) {
+    let source = checker.source();
     let spans = checker
         .facts()
         .commands()
         .iter()
         .filter_map(|fact| fact.simple_test())
-        .filter_map(|simple_test| simple_test_span(simple_test, checker.source()))
+        .flat_map(|simple_test| simple_test_spans(simple_test, source))
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || AtSignInStringCompare);
 }
 
-fn simple_test_span(fact: &crate::SimpleTestFact<'_>, source: &str) -> Option<shuck_ast::Span> {
-    if fact.shape() != SimpleTestShape::Binary
-        || fact.operator_family() != SimpleTestOperatorFamily::StringBinary
-    {
-        return None;
-    }
-
-    fact.operands()
-        .first()
-        .and_then(|word| word_positional_at_splat_span_in_source(word, source))
-        .or_else(|| {
-            fact.operands()
-                .get(2)
-                .and_then(|word| word_positional_at_splat_span_in_source(word, source))
-        })
+fn simple_test_spans(fact: &crate::SimpleTestFact<'_>, source: &str) -> Vec<Span> {
+    fact.operator_expression_operand_words(source)
+        .into_iter()
+        .filter_map(|word| word_positional_at_splat_span_in_source(word, source).map(|_| word.span))
+        .collect()
 }
 
 #[cfg(test)]
@@ -50,12 +40,17 @@ mod tests {
     use crate::{LinterSettings, Rule};
 
     #[test]
-    fn reports_positional_at_splats_in_string_comparisons() {
+    fn reports_positional_at_splats_in_test_operands() {
         let source = "\
 #!/bin/bash
+if [ -z \"$@\" ]; then :; fi
+if test -n \"${@:-fallback}\"; then :; fi
+if [ -d \"$@\" ]; then :; fi
 if [ \"_$@\" = \"_--version\" ]; then :; fi
 if [ \"$@\" = \"--version\" ]; then :; fi
-if [ \"${@:-fallback}\" = \"--version\" ]; then :; fi
+if [ ! \"$@\" = \"x\" ]; then :; fi
+if [ -n foo -a \"${@:-lhs}\" = \"${@:-rhs}\" ]; then :; fi
+if [ -d \"$@\" -o \"${@:-fallback}\" = \"x\" ]; then :; fi
 ";
         let diagnostics = test_snippet(
             source,
@@ -67,18 +62,32 @@ if [ \"${@:-fallback}\" = \"--version\" ]; then :; fi
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$@", "$@", "${@:-fallback}"]
+            vec![
+                "\"$@\"",
+                "\"${@:-fallback}\"",
+                "\"$@\"",
+                "\"_$@\"",
+                "\"$@\"",
+                "\"$@\"",
+                "\"${@:-lhs}\"",
+                "\"${@:-rhs}\"",
+                "\"$@\"",
+                "\"${@:-fallback}\"",
+            ]
         );
     }
 
     #[test]
-    fn ignores_non_positional_double_bracket_and_escaped_comparisons() {
+    fn ignores_non_positional_truthy_double_bracket_and_escaped_tests() {
         let source = "\
 #!/bin/bash
+if [ \"$@\" ]; then :; fi
+if test \"${@:-fallback}\"; then :; fi
 if [ \"_${arr[@]}\" = \"_x\" ]; then :; fi
 if [ \"_${arr[@]:1}\" = \"_x\" ]; then :; fi
 if [ \"\\$@\" = \"x\" ]; then :; fi
 if [[ \"_$@\" == \"_x\" ]]; then :; fi
+if [ ! \"\\$@\" = \"x\" ]; then :; fi
 if [ \"_$*\" = \"_--version\" ]; then :; fi
 ";
         let diagnostics = test_snippet(

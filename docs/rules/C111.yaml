@@ -9,8 +9,8 @@ shells:
   - bash
   - dash
   - ksh
-description: "Quoting `$@` inside a string comparison folds all arguments together."
-rationale: Use a loop or check individual parameters.
+description: "Quoting `$@` as a `[ ... ]` or `test` operand folds all arguments together."
+rationale: Use a loop or inspect the arguments one at a time instead.
 source:
   shell_checks_rule: rules/SH-249.yaml
   shell_checks_example: examples/249.sh
@@ -20,4 +20,6 @@ examples:
     code: |
       #!/bin/sh
       # shellcheck disable=2145
+      if [ -z "$@" ]; then echo missing; fi
+      if [ -d "$@" ]; then echo found; fi
       if [ "_$@" = "_--version" ]; then echo v1; fi

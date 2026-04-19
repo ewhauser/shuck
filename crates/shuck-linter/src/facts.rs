@@ -287,6 +287,10 @@ impl<'a> SimpleTestFact<'a> {
             .collect()
     }
 
+    pub fn operator_expression_operand_words(&'a self, source: &str) -> Vec<&'a Word> {
+        simple_test_operator_expression_operand_words(self, source)
+    }
+
     pub fn string_unary_expression_words(&'a self, source: &str) -> Vec<(&'a Word, &'a Word)> {
         simple_test_expressions(self, source)
             .into_iter()
@@ -385,6 +389,89 @@ fn simple_test_expressions<'a>(
     }
 
     expressions
+}
+
+fn simple_test_operator_expression_operand_words<'a>(
+    simple_test: &'a SimpleTestFact<'a>,
+    source: &str,
+) -> Vec<&'a Word> {
+    let operands = simple_test.effective_operands();
+    let mut expression_operands = Vec::new();
+    let mut segment_start = 0;
+
+    for index in 0..=operands.len() {
+        let is_connector = index < operands.len()
+            && simple_test_effective_operand_text(simple_test, index, source)
+                .as_deref()
+                .is_some_and(simple_test_is_logical_connector);
+        let splits_segment = is_connector
+            && simple_test_segment_is_expression(simple_test, segment_start, index, source);
+        if !splits_segment && index != operands.len() {
+            continue;
+        }
+
+        collect_simple_test_operator_expression_operand_words(
+            simple_test,
+            segment_start,
+            index,
+            source,
+            &mut expression_operands,
+        );
+
+        segment_start = index + 1;
+    }
+
+    expression_operands
+}
+
+fn collect_simple_test_operator_expression_operand_words<'a>(
+    simple_test: &'a SimpleTestFact<'a>,
+    start: usize,
+    end: usize,
+    source: &str,
+    expression_operands: &mut Vec<&'a Word>,
+) {
+    if start >= end {
+        return;
+    }
+
+    let segment = &simple_test.effective_operands()[start..end];
+    let mut expression_start = 0;
+    while expression_start + 1 < segment.len()
+        && simple_test_effective_operand_text(simple_test, start + expression_start, source)
+            .as_deref()
+            == Some("!")
+    {
+        expression_start += 1;
+    }
+
+    let expression = &segment[expression_start..];
+    match expression {
+        [operator, operand]
+            if simple_test_effective_operand_text(
+                simple_test,
+                start + expression_start,
+                source,
+            )
+            .as_deref()
+            .is_some_and(simple_test_is_unary_operator) =>
+        {
+            expression_operands.push(operand);
+        }
+        [left, operator, right]
+            if simple_test_effective_operand_text(
+                simple_test,
+                start + expression_start + 1,
+                source,
+            )
+            .as_deref()
+            .is_some_and(simple_test_is_nonlogical_binary_operator) =>
+        {
+            expression_operands.push(left);
+            expression_operands.push(right);
+        }
+        [..] => {}
+    }
 }
 
 fn simple_test_segment_is_expression(
@@ -23146,6 +23233,88 @@ test
                     })
                     .collect::<Vec<_>>(),
                 vec![("-z".to_owned(), "baz".to_owned())]
+            );
+        });
+    }
+
+    #[test]
+    fn simple_test_fact_tracks_operator_expression_operands() {
+        let source = "\
+#!/bin/sh
+[ foo ]
+[ -d dir ]
+[ lhs -eq rhs ]
+[ -d one -o two = three ]
+[ ! -e four -a five -nt six ]
+";
+
+        with_facts(source, None, |_, facts| {
+            let commands = facts
+                .structural_commands()
+                .map(|fact| (fact.span().slice(source).trim_end().to_owned(), fact))
+                .collect::<Vec<_>>();
+
+            let truthy = commands
+                .iter()
+                .find(|(text, _)| text == "[ foo ]")
+                .and_then(|(_, fact)| fact.simple_test())
+                .expect("expected truthy test fact");
+            assert!(truthy.operator_expression_operand_words(source).is_empty());
+
+            let unary = commands
+                .iter()
+                .find(|(text, _)| text == "[ -d dir ]")
+                .and_then(|(_, fact)| fact.simple_test())
+                .expect("expected unary test fact");
+            assert_eq!(
+                unary
+                    .operator_expression_operand_words(source)
+                    .into_iter()
+                    .map(|word| word.span.slice(source).to_owned())
+                    .collect::<Vec<_>>(),
+                vec!["dir"]
+            );
+
+            let binary = commands
+                .iter()
+                .find(|(text, _)| text == "[ lhs -eq rhs ]")
+                .and_then(|(_, fact)| fact.simple_test())
+                .expect("expected binary test fact");
+            assert_eq!(
+                binary
+                    .operator_expression_operand_words(source)
+                    .into_iter()
+                    .map(|word| word.span.slice(source).to_owned())
+                    .collect::<Vec<_>>(),
+                vec!["lhs", "rhs"]
+            );
+
+            let compound = commands
+                .iter()
+                .find(|(text, _)| text == "[ -d one -o two = three ]")
+                .and_then(|(_, fact)| fact.simple_test())
+                .expect("expected compound test fact");
+            assert_eq!(
+                compound
+                    .operator_expression_operand_words(source)
+                    .into_iter()
+                    .map(|word| word.span.slice(source).to_owned())
+                    .collect::<Vec<_>>(),
+                vec!["one", "two", "three"]
+            );
+
+            let negated_compound = commands
+                .iter()
+                .find(|(text, _)| text == "[ ! -e four -a five -nt six ]")
+                .and_then(|(_, fact)| fact.simple_test())
+                .expect("expected negated compound test fact");
+            assert_eq!(
+                negated_compound
+                    .operator_expression_operand_words(source)
+                    .into_iter()
+                    .map(|word| word.span.slice(source).to_owned())
+                    .collect::<Vec<_>>(),
+                vec!["four", "five", "six"]
             );
         });
     }
