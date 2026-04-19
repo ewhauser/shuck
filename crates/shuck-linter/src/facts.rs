@@ -1836,6 +1836,17 @@ pub struct ReadCommandFacts {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct SuCommandFacts {
+    has_login_or_command_flag: bool,
+}
+
+impl SuCommandFacts {
+    pub fn has_login_or_command_flag(self) -> bool {
+        self.has_login_or_command_flag
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct EchoCommandFacts<'a> {
     portability_flag_word: Option<&'a Word>,
     uses_escape_interpreting_flag: bool,
@@ -2267,6 +2278,7 @@ pub struct CommandOptionFacts<'a> {
     rm: Option<RmCommandFacts>,
     ssh: Option<SshCommandFacts>,
     read: Option<ReadCommandFacts>,
+    su: Option<SuCommandFacts>,
     echo: Option<EchoCommandFacts<'a>>,
     sed: Option<SedCommandFacts>,
     tr: Option<TrCommandFacts<'a>>,
@@ -2301,6 +2313,10 @@ impl<'a> CommandOptionFacts<'a> {
 
     pub fn read(&self) -> Option<&ReadCommandFacts> {
         self.read.as_ref()
+    }
+
+    pub fn su(&self) -> Option<&SuCommandFacts> {
+        self.su.as_ref()
     }
 
     pub fn echo(&self) -> Option<&EchoCommandFacts<'a>> {
@@ -2403,6 +2419,9 @@ impl<'a> CommandOptionFacts<'a> {
                 .then(|| ReadCommandFacts {
                     uses_raw_input: read_uses_raw_input(normalized.body_args(), source),
                 }),
+            su: normalized
+                .effective_name_is("su")
+                .then(|| parse_su_command(normalized.body_args(), source)),
             echo: normalized
                 .effective_name_is("echo")
                 .then(|| parse_echo_command(normalized.body_args(), source)),
@@ -13073,6 +13092,119 @@ fn parse_ssh_command(args: &[&Word], source: &str) -> Option<SshCommandFacts> {
     })
 }
 
+fn parse_su_command(args: &[&Word], source: &str) -> SuCommandFacts {
+    let mut pending_option_arg = false;
+    let mut saw_user = false;
+    let mut index = 0usize;
+
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            if pending_option_arg {
+                pending_option_arg = false;
+            } else if saw_user {
+                break;
+            } else {
+                saw_user = true;
+            }
+            index += 1;
+            continue;
+        };
+
+        if pending_option_arg {
+            pending_option_arg = false;
+            index += 1;
+            continue;
+        }
+
+        match text.as_str() {
+            "-" | "-l" | "--login" => {
+                return SuCommandFacts {
+                    has_login_or_command_flag: true,
+                };
+            }
+            "--" => {
+                break;
+            }
+            "--command" => {
+                if args.get(index + 1).is_some() {
+                    return SuCommandFacts {
+                        has_login_or_command_flag: true,
+                    };
+                }
+            }
+            _ if text.starts_with("--command=") => {
+                if text.len() > "--command=".len() {
+                    return SuCommandFacts {
+                        has_login_or_command_flag: true,
+                    };
+                }
+            }
+            _ if su_long_option_takes_argument(text.as_str()) => {
+                pending_option_arg = true;
+                index += 1;
+                continue;
+            }
+            _ => {}
+        }
+
+        if text.starts_with("--") {
+            index += 1;
+            continue;
+        }
+
+        if !text.starts_with('-') {
+            if saw_user {
+                break;
+            }
+            saw_user = true;
+            index += 1;
+            continue;
+        }
+
+        let mut flags = text[1..].chars().peekable();
+        while let Some(flag) = flags.next() {
+            match flag {
+                'l' => {
+                    return SuCommandFacts {
+                        has_login_or_command_flag: true,
+                    };
+                }
+                'c' => {
+                    if flags.peek().is_some() || args.get(index + 1).is_some() {
+                        return SuCommandFacts {
+                            has_login_or_command_flag: true,
+                        };
+                    }
+                }
+                flag if su_short_option_takes_argument(flag) => {
+                    if flags.peek().is_none() {
+                        pending_option_arg = true;
+                    }
+                    break;
+                }
+                _ => {}
+            }
+        }
+
+        index += 1;
+    }
+
+    SuCommandFacts {
+        has_login_or_command_flag: false,
+    }
+}
+
+fn su_long_option_takes_argument(text: &str) -> bool {
+    matches!(
+        text,
+        "--group" | "--supp-group" | "--shell" | "--whitelist-environment"
+    )
+}
+
+fn su_short_option_takes_argument(flag: char) -> bool {
+    matches!(flag, 'C' | 'g' | 'G' | 's' | 'w')
+}
+
 fn ssh_remote_args<'a>(args: &'a [&'a Word], source: &str) -> Option<&'a [&'a Word]> {
     let mut index = 0usize;
 
@@ -19024,6 +19156,110 @@ find . -execdir sh -ec 'mv {} \"$target\"' \\;
             read.options().read().map(|read| read.uses_raw_input),
             Some(false)
         );
+    }
+
+    #[test]
+    fn summarizes_su_login_and_command_forms() {
+        let source = "\
+#!/bin/bash
+su root
+su root -c id
+su \"$user\" -s /bin/sh -c \"$cmd\"
+su -s /bin/sh root
+su -
+su --login root
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let su_flags = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("su"))
+            .map(|fact| fact.options().su().map(|su| su.has_login_or_command_flag()))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            su_flags,
+            vec![
+                Some(false),
+                Some(true),
+                Some(true),
+                Some(false),
+                Some(true),
+                Some(true)
+            ]
+        );
+    }
+
+    #[test]
+    fn keeps_incomplete_su_command_flags_unsafe() {
+        let source = "\
+#!/bin/bash
+su -c
+su --command
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let su_flags = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("su"))
+            .map(|fact| fact.options().su().map(|su| su.has_login_or_command_flag()))
+            .collect::<Vec<_>>();
+
+        assert_eq!(su_flags, vec![Some(false), Some(false)]);
+    }
+
+    #[test]
+    fn stops_treating_su_args_after_double_dash_as_flags() {
+        let source = "\
+#!/bin/bash
+su -- root echo -c hi
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let su_flags = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("su"))
+            .map(|fact| fact.options().su().map(|su| su.has_login_or_command_flag()))
+            .collect::<Vec<_>>();
+
+        assert_eq!(su_flags, vec![Some(false)]);
+    }
+
+    #[test]
+    fn stops_treating_su_forwarded_command_args_as_flags() {
+        let source = "\
+#!/bin/bash
+su root bash -c 'id'
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let su_flags = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("su"))
+            .map(|fact| fact.options().su().map(|su| su.has_login_or_command_flag()))
+            .collect::<Vec<_>>();
+
+        assert_eq!(su_flags, vec![Some(false)]);
     }
 
     #[test]
