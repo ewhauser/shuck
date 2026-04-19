@@ -3688,15 +3688,37 @@ impl<'a> Lexer<'a> {
         let rest_of_line_start = self.current_position();
         let mut in_double_quote = false;
         let mut in_single_quote = false;
+        let mut in_comment = false;
         let mut saw_non_whitespace_tail = false;
         let mut consecutive_backslashes = 0usize;
+        let mut previous_tail_char = None;
         while let Some(ch) = self.peek_char() {
             self.advance();
+            if in_comment {
+                if ch == '\n' {
+                    break;
+                }
+                rest_of_line.push(ch);
+                previous_tail_char = Some(ch);
+                continue;
+            }
+            if ch == '#'
+                && !in_single_quote
+                && !in_double_quote
+                && self.comments_enabled()
+                && heredoc_tail_hash_starts_comment(previous_tail_char)
+            {
+                in_comment = true;
+                rest_of_line.push(ch);
+                previous_tail_char = Some(ch);
+                consecutive_backslashes = 0;
+                continue;
+            }
             let backslash_continues_line = ch == '\\'
                 && !in_single_quote
                 && self.peek_char() == Some('\n')
                 && saw_non_whitespace_tail
-                && consecutive_backslashes % 2 == 0;
+                && consecutive_backslashes.is_multiple_of(2);
             if backslash_continues_line {
                 rest_of_line.push(ch);
                 rest_of_line.push('\n');
@@ -3729,6 +3751,7 @@ impl<'a> Lexer<'a> {
             } else {
                 consecutive_backslashes = 0;
             }
+            previous_tail_char = Some(ch);
         }
 
         // If we just drained a heredoc replay buffer (for example when multiple
@@ -3848,6 +3871,11 @@ fn heredoc_line_matches_delimiter(line: &str, delimiter: &str, strip_tabs: bool)
     };
 
     trailing.chars().all(|ch| matches!(ch, ' ' | '\t'))
+}
+
+fn heredoc_tail_hash_starts_comment(previous_tail_char: Option<char>) -> bool {
+    previous_tail_char
+        .is_none_or(|prev| prev.is_whitespace() || matches!(prev, ';' | '|' | '&' | '<' | '>'))
 }
 
 fn next_char_boundary(input: &str, index: usize) -> Option<(char, usize)> {
@@ -5548,6 +5576,19 @@ EOF
     #[test]
     fn test_read_heredoc_escaped_backslash_before_newline_does_not_continue_tail() {
         let source = "cat <<EOF foo\\\\\nbody\nEOF\n";
+        let mut lexer = Lexer::new(source);
+
+        assert_next_token(&mut lexer, TokenKind::Word, Some("cat"));
+        assert_next_token(&mut lexer, TokenKind::HereDoc, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("EOF"));
+
+        let heredoc = lexer.read_heredoc("EOF", false);
+        assert_eq!(heredoc.content, "body\n");
+    }
+
+    #[test]
+    fn test_read_heredoc_comment_backslash_does_not_continue_tail() {
+        let source = "cat <<EOF # note \\\nbody\nEOF\n";
         let mut lexer = Lexer::new(source);
 
         assert_next_token(&mut lexer, TokenKind::Word, Some("cat"));
