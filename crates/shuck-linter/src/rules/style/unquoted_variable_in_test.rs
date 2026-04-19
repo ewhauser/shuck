@@ -1,5 +1,6 @@
 use crate::{
-    Checker, ExpansionContext, Rule, SimpleTestShape, Violation, WordFactContext, static_word_text,
+    Checker, ExpansionContext, Rule, SimpleTestShape, SimpleTestSyntax, Violation,
+    WordFactContext, static_word_text,
 };
 
 pub struct UnquotedVariableInTest;
@@ -23,6 +24,9 @@ pub fn unquoted_variable_in_test(checker: &mut Checker) {
             let Some(simple_test) = fact.simple_test() else {
                 return Vec::new();
             };
+            if simple_test.syntax() != SimpleTestSyntax::Bracket {
+                return Vec::new();
+            }
             if simple_test.shape() != SimpleTestShape::Unary || simple_test.operands().len() != 2 {
                 return Vec::new();
             }
@@ -57,9 +61,9 @@ mod tests {
         let source = "\
 #!/bin/sh
 [ -n $foo ]
-test -n ${bar}
 [ -n prefix$baz ]
-test -n ${qux:-fallback}
+[ -n ${bar} ]
+[ -n ${qux:-fallback} ]
 ";
         let diagnostics = test_snippet(
             source,
@@ -71,7 +75,7 @@ test -n ${qux:-fallback}
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$foo", "${bar}", "$baz", "${qux:-fallback}"]
+            vec!["$foo", "$baz", "${bar}", "${qux:-fallback}"]
         );
     }
 
@@ -79,11 +83,13 @@ test -n ${qux:-fallback}
     fn ignores_quoted_and_non_n_unary_tests() {
         let source = "\
 #!/bin/sh
+[ -n ${arr[*]} ]
 [ -n \"$foo\" ]
+test -n $foo
 test -z $foo
 [ -n literal ]
 test -n $(printf '%s\\n' \"$foo\")
-[ -n ${arr[*]} ]
+test -n ${qux:-fallback}
 ";
         let diagnostics = test_snippet(
             source,
