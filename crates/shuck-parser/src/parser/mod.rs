@@ -3413,6 +3413,7 @@ impl<'a> Parser<'a> {
             Parser::with_limits_and_profile(source, remaining_depth, self.fuel, nested_profile);
         let mut output = inner_parser.parse();
         if output.is_ok() {
+            Self::materialize_stmt_seq_source_backing(&mut output.file.body, source);
             Self::rebase_file(&mut output.file, base);
             output.file.body
         } else {
@@ -3898,6 +3899,89 @@ impl<'a> Parser<'a> {
                 command.span = command.span.rebased(base);
                 Self::rebase_stmt_seq(&mut command.body, base);
                 Self::rebase_stmt_seq(&mut command.always_body, base);
+            }
+        }
+    }
+
+    fn materialize_stmt_seq_source_backing(sequence: &mut StmtSeq, source: &str) {
+        for stmt in &mut sequence.stmts {
+            Self::materialize_stmt_source_backing(stmt, source);
+        }
+    }
+
+    fn materialize_stmt_source_backing(stmt: &mut Stmt, source: &str) {
+        Self::materialize_ast_command_source_backing(&mut stmt.command, source);
+    }
+
+    fn materialize_ast_command_source_backing(command: &mut AstCommand, source: &str) {
+        match command {
+            AstCommand::Simple(simple) => {
+                Self::materialize_word_source_backing(&mut simple.name, source);
+            }
+            AstCommand::Builtin(_) | AstCommand::Decl(_) => {}
+            AstCommand::Binary(binary) => {
+                Self::materialize_stmt_source_backing(binary.left.as_mut(), source);
+                Self::materialize_stmt_source_backing(binary.right.as_mut(), source);
+            }
+            AstCommand::Compound(compound) => {
+                Self::materialize_compound_source_backing(compound, source);
+            }
+            AstCommand::Function(function) => {
+                Self::materialize_stmt_source_backing(function.body.as_mut(), source);
+            }
+            AstCommand::AnonymousFunction(function) => {
+                Self::materialize_stmt_source_backing(function.body.as_mut(), source);
+            }
+        }
+    }
+
+    fn materialize_compound_source_backing(compound: &mut CompoundCommand, source: &str) {
+        match compound {
+            CompoundCommand::If(command) => {
+                Self::materialize_stmt_seq_source_backing(&mut command.condition, source);
+                Self::materialize_stmt_seq_source_backing(&mut command.then_branch, source);
+                for (condition, body) in &mut command.elif_branches {
+                    Self::materialize_stmt_seq_source_backing(condition, source);
+                    Self::materialize_stmt_seq_source_backing(body, source);
+                }
+                if let Some(else_branch) = &mut command.else_branch {
+                    Self::materialize_stmt_seq_source_backing(else_branch, source);
+                }
+            }
+            CompoundCommand::For(command) => Self::materialize_stmt_seq_source_backing(&mut command.body, source),
+            CompoundCommand::Repeat(command) => Self::materialize_stmt_seq_source_backing(&mut command.body, source),
+            CompoundCommand::Foreach(command) => Self::materialize_stmt_seq_source_backing(&mut command.body, source),
+            CompoundCommand::ArithmeticFor(command) => Self::materialize_stmt_seq_source_backing(&mut command.body, source),
+            CompoundCommand::While(command) => {
+                Self::materialize_stmt_seq_source_backing(&mut command.condition, source);
+                Self::materialize_stmt_seq_source_backing(&mut command.body, source);
+            }
+            CompoundCommand::Until(command) => {
+                Self::materialize_stmt_seq_source_backing(&mut command.condition, source);
+                Self::materialize_stmt_seq_source_backing(&mut command.body, source);
+            }
+            CompoundCommand::Case(command) => {
+                for case in &mut command.cases {
+                    Self::materialize_stmt_seq_source_backing(&mut case.body, source);
+                }
+            }
+            CompoundCommand::Select(command) => Self::materialize_stmt_seq_source_backing(&mut command.body, source),
+            CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
+                Self::materialize_stmt_seq_source_backing(commands, source);
+            }
+            CompoundCommand::Arithmetic(_) => {}
+            CompoundCommand::Time(command) => {
+                if let Some(inner) = &mut command.command {
+                    Self::materialize_stmt_source_backing(inner.as_mut(), source);
+                }
+            }
+            CompoundCommand::Conditional(_) => {}
+            CompoundCommand::Coproc(command) => {
+                Self::materialize_stmt_source_backing(command.body.as_mut(), source);
+            }
+            CompoundCommand::Always(command) => {
+                Self::materialize_stmt_seq_source_backing(&mut command.body, source);
+                Self::materialize_stmt_seq_source_backing(&mut command.always_body, source);
             }
         }
     }
