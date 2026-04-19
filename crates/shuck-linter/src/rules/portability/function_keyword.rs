@@ -21,7 +21,7 @@ pub fn function_keyword(checker: &mut Checker) {
         .facts()
         .function_headers()
         .iter()
-        .filter(|header| header.uses_function_keyword())
+        .filter(|header| header.uses_function_keyword() && !header.has_trailing_parens())
         .map(|header| header.span_in_source(checker.source()))
         .collect::<Vec<_>>();
 

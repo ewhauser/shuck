@@ -469,7 +469,6 @@ declare_rules! {
     ),
     ("C145", Category::Correctness, Severity::Warning, MisquotedHeredocClose),
     ("C146", Category::Correctness, Severity::Error, UntilMissingDo),
-    ("C147", Category::Correctness, Severity::Warning, KeywordFunctionName),
     ("C148", Category::Correctness, Severity::Warning, BrokenAssocKey),
     (
         "C150",
@@ -759,7 +758,6 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-296" => Some(Rule::ContinueOutsideLoopInFunction),
         "SH-308" => Some(Rule::VariableAsCommandName),
         "SH-311" => Some(Rule::ArrayToStringConversion),
-        "SH-336" => Some(Rule::KeywordFunctionName),
         "SH-337" => Some(Rule::BrokenAssocKey),
         "SH-347" => Some(Rule::SubshellSideEffect),
         "SH-340" => Some(Rule::CommaArrayElements),
@@ -1380,8 +1378,6 @@ mod tests {
         assert_eq!(code_to_rule("SH-310"), Some(Rule::MisspelledOptionName));
         assert_eq!(code_to_rule("C133"), Some(Rule::ArrayToStringConversion));
         assert_eq!(code_to_rule("SH-311"), Some(Rule::ArrayToStringConversion));
-        assert_eq!(code_to_rule("C147"), Some(Rule::KeywordFunctionName));
-        assert_eq!(code_to_rule("SH-336"), Some(Rule::KeywordFunctionName));
         assert_eq!(code_to_rule("C148"), Some(Rule::BrokenAssocKey));
         assert_eq!(code_to_rule("SH-337"), Some(Rule::BrokenAssocKey));
         assert_eq!(code_to_rule("SH-347"), Some(Rule::SubshellSideEffect));

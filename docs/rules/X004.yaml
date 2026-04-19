@@ -3,11 +3,11 @@ legacy_name: function-keyword
 new_category: Portability
 new_code: X004
 runtime_kind: ast
-shellcheck_code: SC2112
+shellcheck_code: SC2113
 shells:
   - sh
   - dash
-description: The script uses the `function` keyword, which is not part of portable `sh` syntax.
+description: The script uses the `function` keyword without trailing `()`, which is not part of portable `sh` syntax.
 rationale: Define shell functions with the plain `name() { ...; }` form when portability matters.
 source:
   shell_checks_rule: rules/SH-009.yaml

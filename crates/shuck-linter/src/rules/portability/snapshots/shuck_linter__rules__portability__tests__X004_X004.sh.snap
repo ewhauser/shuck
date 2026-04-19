@@ -6,9 +6,3 @@ X004 `function` is not portable in `sh` scripts
   |
 4 | function plain
   |
-
-X004 `function` is not portable in `sh` scripts
-  --> <source>:10:1
-   |
-10 | function paren() { :; }
-   |
