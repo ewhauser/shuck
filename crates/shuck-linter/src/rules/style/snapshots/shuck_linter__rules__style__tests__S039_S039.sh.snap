@@ -1,5 +1,26 @@
 ---
 source: crates/shuck-linter/src/rules/style/mod.rs
-assertion_line: 50
 ---
+S039 a backslash inside single quotes stays literal
+ --> <source>:3:15
+  |
+3 | grep ^start'\s'end file.txt
+  |
 
+S039 a backslash inside single quotes stays literal
+ --> <source>:4:18
+  |
+4 | printf '%s\n' '\n'foo
+  |
+
+S039 a backslash inside single quotes stays literal
+ --> <source>:5:20
+  |
+5 | printf '%s\n' 'ab\n'c
+  |
+
+S039 a backslash inside single quotes stays literal
+ --> <source>:6:19
+  |
+6 | printf '%s\n' '\\n'foo
+  |
