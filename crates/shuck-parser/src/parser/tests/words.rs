@@ -1828,6 +1828,21 @@ fn test_brace_syntax_marks_literal_and_quoted_brace_forms() {
 }
 
 #[test]
+fn test_brace_syntax_treats_whitespace_and_quoted_lists_as_literal() {
+    for input in ["{443, 8443}", "{tcp, udp}"] {
+        let word = Parser::parse_word_string(input);
+        assert_eq!(brace_slices(&word, input), vec![input]);
+        assert_eq!(word.brace_syntax()[0].kind, BraceSyntaxKind::Literal);
+        assert!(word.brace_syntax()[0].treated_literally());
+        assert!(!word.has_active_brace_expansion());
+    }
+
+    let quoted_assembly = Parser::parse_word_string(r#"{"$mix_port, $redir_port, $tproxy_port"}"#);
+    assert!(quoted_assembly.brace_syntax().is_empty());
+    assert!(!quoted_assembly.has_active_brace_expansion());
+}
+
+#[test]
 fn test_brace_syntax_preserves_brace_expansion_suffix_forms() {
     for input in [
         "{a,b}}",

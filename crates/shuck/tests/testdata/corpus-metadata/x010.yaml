@@ -17,3 +17,17 @@ reviewed_divergences:
     line: 10
     end_line: 10
     reason: "This remaining mismatch is a span-only delta on the same reviewed brace list inside a sourced build helper."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__build__termux_step_massage.sh"
+    line: 243
+    end_line: 243
+    column: 33
+    end_column: 77
+    reason: "This brace fragment is part of command-substitution string assembly in a package helper, and the comparison oracle does not surface the same portability warning on this fixture."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__scripts__build__termux_step_massage.sh"
+    line: 244
+    end_line: 244
+    column: 75
+    end_column: 83
+    reason: "This second brace fragment is the same fixture-specific string-building pattern, so we record it with the same oracle divergence."

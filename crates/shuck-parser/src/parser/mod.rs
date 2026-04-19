@@ -2274,14 +2274,23 @@ impl<'a> Parser<'a> {
     ) -> Option<(usize, BraceSyntaxKind)> {
         text.get(start..).filter(|rest| rest.starts_with('{'))?;
 
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        enum QuoteState {
+            Single,
+            Double,
+        }
+
         let mut index = start + '{'.len_utf8();
         let mut depth = 1usize;
         let mut has_comma = false;
         let mut has_dot_dot = false;
+        let mut saw_unquoted_whitespace = false;
         let mut prev_char = None;
+        let mut quote_state = None;
 
         while index < text.len() {
             if matches!(quote_context, BraceQuoteContext::Unquoted)
+                && quote_state.is_none()
                 && text[index..].starts_with('\\')
             {
                 index += 1;
@@ -2295,24 +2304,77 @@ impl<'a> Parser<'a> {
             let ch = text[index..].chars().next()?;
             index += ch.len_utf8();
 
-            match ch {
-                '{' => depth += 1,
-                '}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        let kind = if has_comma {
-                            BraceSyntaxKind::Expansion(BraceExpansionKind::CommaList)
-                        } else if has_dot_dot {
-                            BraceSyntaxKind::Expansion(BraceExpansionKind::Sequence)
-                        } else {
-                            BraceSyntaxKind::Literal
-                        };
-                        return Some((index - start, kind));
+            if matches!(quote_context, BraceQuoteContext::Unquoted) {
+                match quote_state {
+                    None => match ch {
+                        '\'' => {
+                            quote_state = Some(QuoteState::Single);
+                            prev_char = None;
+                            continue;
+                        }
+                        '"' => {
+                            quote_state = Some(QuoteState::Double);
+                            prev_char = None;
+                            continue;
+                        }
+                        '{' => depth += 1,
+                        '}' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                let kind = if saw_unquoted_whitespace {
+                                    BraceSyntaxKind::Literal
+                                } else if has_comma {
+                                    BraceSyntaxKind::Expansion(BraceExpansionKind::CommaList)
+                                } else if has_dot_dot {
+                                    BraceSyntaxKind::Expansion(BraceExpansionKind::Sequence)
+                                } else {
+                                    BraceSyntaxKind::Literal
+                                };
+                                return Some((index - start, kind));
+                            }
+                        }
+                        ',' if depth == 1 => has_comma = true,
+                        '.' if depth == 1 && prev_char == Some('.') => has_dot_dot = true,
+                        c if c.is_whitespace() => saw_unquoted_whitespace = true,
+                        _ => {}
+                    },
+                    Some(QuoteState::Single) => {
+                        if ch == '\'' {
+                            quote_state = None;
+                        }
                     }
+                    Some(QuoteState::Double) => match ch {
+                        '\\' => {
+                            if let Some(next) = text[index..].chars().next() {
+                                index += next.len_utf8();
+                            }
+                            prev_char = None;
+                            continue;
+                        }
+                        '"' => quote_state = None,
+                        _ => {}
+                    },
                 }
-                ',' if depth == 1 => has_comma = true,
-                '.' if depth == 1 && prev_char == Some('.') => has_dot_dot = true,
-                _ => {}
+            } else {
+                match ch {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            let kind = if has_comma {
+                                BraceSyntaxKind::Expansion(BraceExpansionKind::CommaList)
+                            } else if has_dot_dot {
+                                BraceSyntaxKind::Expansion(BraceExpansionKind::Sequence)
+                            } else {
+                                BraceSyntaxKind::Literal
+                            };
+                            return Some((index - start, kind));
+                        }
+                    }
+                    ',' if depth == 1 => has_comma = true,
+                    '.' if depth == 1 && prev_char == Some('.') => has_dot_dot = true,
+                    _ => {}
+                }
             }
 
             prev_char = Some(ch);
