@@ -31,3 +31,33 @@ reviewed_divergences:
     path_suffix: "void-linux__void-packages__srcpkgs__m1n1__files__kernel.d__m1n1.post-install"
     line: 12
     reason: "This post-install hook only sources a host-side defaults file when a runtime root directory variable points at it. We review that deployment-specific path convention instead of widening C003 around installer-root heuristics."
+  - side: shuck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__www__cgi-bin-status.sh"
+    line: 2
+    reason: "This CGI helper bootstraps through an absolute `/tmp/loader` path that depends on host-local setup outside the checked project tree. We keep the missing-loader dependency visible in Shuck rather than trusting a corpus-specific temporary file."
+  - side: shuck-only
+    path_suffix: "dylanaraps__pure-bash-bible__test.sh"
+    line: 233
+    reason: "This test harness generates `readme_code` earlier in the same script before sourcing it. ShellCheck stays silent on that ephemeral test artifact, while Shuck keeps the not-provided helper dependency visible."
+  - side: shuck-only
+    path_suffix: "leebaird__discover__passive.sh"
+    line: 254
+    reason: "This helper activates a virtualenv that is created by the preceding `uv sync` workflow rather than being part of the checked inputs. ShellCheck treats that generated environment file as outside its missing-input warning path, while Shuck keeps the dependency visible."
+  - side: shuck-only
+    path_suffix: "ohmyzsh__ohmyzsh__oh-my-zsh.sh"
+    line: 71
+    labels:
+      - project-closure
+      - shell-collapse
+    reason: "This shell-collapsed Oh My Zsh entrypoint loads internal helpers through the repo-root `$ZSH/...` library path. The current oracle run stays silent on those shell-collapse library loads, while Shuck keeps the not-provided helper dependencies visible."
+  - side: shuck-only
+    path_suffix: "ohmyzsh__ohmyzsh__oh-my-zsh.sh"
+    line: 125
+    labels:
+      - project-closure
+      - shell-collapse
+    reason: "This shell-collapsed Oh My Zsh entrypoint loads internal helpers through the repo-root `$ZSH/...` library path. The current oracle run stays silent on those shell-collapse library loads, while Shuck keeps the not-provided helper dependencies visible."
+  - side: shuck-only
+    path_suffix: "romkatv__powerlevel10k__gitstatus__install"
+    line: 158
+    reason: "This installer sources `build.info` from a dynamic gitstatus directory, and standalone ShellCheck 0.11.0 still emits SC1091 for that shape. The large-corpus oracle stays silent on this full-file fixture, so we record it as a narrow reviewed divergence instead of weakening C003."

@@ -30,7 +30,7 @@ pub use declaration::{Declaration, DeclarationBuiltin, DeclarationOperand};
 pub use reference::{Reference, ReferenceId, ReferenceKind};
 pub use scope::{FunctionScopeKind, Scope, ScopeId, ScopeKind};
 pub use shuck_parser::{OptionValue, ShellProfile, ZshEmulationMode, ZshOptionState};
-pub use source_ref::{SourceRef, SourceRefKind, SourceRefResolution};
+pub use source_ref::{SourceRef, SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution};
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{Command, File, Name, Span};
@@ -713,11 +713,13 @@ impl SemanticModel {
         imported_bindings: Vec<ImportedBindingContractSite>,
         source_ref_resolutions: Vec<SourceRefResolution>,
         source_ref_explicitness: Vec<bool>,
+        source_ref_diagnostic_classes: Vec<SourceRefDiagnosticClass>,
     ) {
         if synthetic_reads.is_empty()
             && imported_bindings.is_empty()
             && source_ref_resolutions.is_empty()
             && source_ref_explicitness.is_empty()
+            && source_ref_diagnostic_classes.is_empty()
         {
             return;
         }
@@ -744,6 +746,16 @@ impl SemanticModel {
                 .zip(source_ref_explicitness.into_iter())
             {
                 source_ref.explicitly_provided = explicitly_provided;
+            }
+        }
+        if !source_ref_diagnostic_classes.is_empty() {
+            debug_assert_eq!(source_ref_diagnostic_classes.len(), self.source_refs.len());
+            for (source_ref, diagnostic_class) in self
+                .source_refs
+                .iter_mut()
+                .zip(source_ref_diagnostic_classes.into_iter())
+            {
+                source_ref.diagnostic_class = diagnostic_class;
             }
         }
 
@@ -1229,20 +1241,26 @@ fn build_semantic_model(
         model.apply_file_entry_contract(contract, file);
     }
     if let Some(source_path) = options.source_path {
-        let (synthetic_reads, imported_bindings, source_ref_resolutions, source_ref_explicitness) =
-            source_closure::collect_source_closure_contracts(
-                &model,
-                file,
-                source,
-                source_path,
-                options.source_path_resolver,
-                options.analyzed_paths,
-            );
+        let (
+            synthetic_reads,
+            imported_bindings,
+            source_ref_resolutions,
+            source_ref_explicitness,
+            source_ref_diagnostic_classes,
+        ) = source_closure::collect_source_closure_contracts(
+            &model,
+            file,
+            source,
+            source_path,
+            options.source_path_resolver,
+            options.analyzed_paths,
+        );
         model.apply_source_contracts(
             synthetic_reads,
             imported_bindings,
             source_ref_resolutions,
             source_ref_explicitness,
+            source_ref_diagnostic_classes,
         );
     }
     model

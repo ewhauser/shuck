@@ -1,5 +1,6 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 286
 ---
 C002 source path is built at runtime
  --> <source>:6:3
@@ -12,3 +13,9 @@ C002 source path is built at runtime
   |
 9 | . "$lib".generated
   |
+
+C002 source path is built at runtime
+  --> <source>:12:3
+   |
+12 | . ~/.bashrc
+   |

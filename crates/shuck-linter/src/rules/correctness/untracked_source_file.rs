@@ -1,4 +1,4 @@
-use shuck_semantic::{SourceRefKind, SourceRefResolution};
+use shuck_semantic::{SourceRefDiagnosticClass, SourceRefKind};
 
 use crate::{Checker, Rule, Violation};
 
@@ -20,18 +20,15 @@ pub fn untracked_source_file(checker: &mut Checker) {
             continue;
         }
 
-        let report = match (&source_ref.kind, source_ref.resolution) {
-            (SourceRefKind::DirectiveDevNull, _) => false,
-            (_, SourceRefResolution::Resolved) => true,
-            (SourceRefKind::Literal(_) | SourceRefKind::Directive(_), _) => true,
-            _ => false,
-        };
-
-        if !report {
+        if matches!(source_ref.kind, SourceRefKind::DirectiveDevNull) {
             continue;
         }
-
-        checker.report(UntrackedSourceFile, source_ref.path_span);
+        if matches!(
+            source_ref.diagnostic_class,
+            SourceRefDiagnosticClass::UntrackedFile
+        ) {
+            checker.report(UntrackedSourceFile, source_ref.path_span);
+        }
     }
 }
 
@@ -109,6 +106,156 @@ mod tests {
             &main,
             source,
             &LinterSettings::for_rule(Rule::UntrackedSourceFile),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_current_user_tilde_sources_that_belong_to_c002() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let source = "#!/bin/sh\n. ~/.bashrc\n";
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::UntrackedSourceFile),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn reports_single_variable_path_tail_without_a_resolver() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let source = "#!/bin/sh\n. \"$CRASHDIR/starts/start_legacy.sh\"\n";
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::UntrackedSourceFile),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "\"$CRASHDIR/starts/start_legacy.sh\""
+        );
+    }
+
+    #[test]
+    fn reports_bash_source_dir_templates_that_belong_to_c003() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let source = "#!/bin/bash\n. \"$(dirname \"${BASH_SOURCE[0]}\")/helper.sh\"\n";
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::UntrackedSourceFile),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "\"$(dirname \"${BASH_SOURCE[0]}\")/helper.sh\""
+        );
+    }
+
+    #[test]
+    fn reports_parameter_expansion_roots_with_static_path_tails() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let source = "#!/bin/sh\n. ${BUILD_ROOT}/sh/functions.sh\n";
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::UntrackedSourceFile),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "${BUILD_ROOT}/sh/functions.sh"
+        );
+    }
+
+    #[test]
+    fn reports_negated_parameter_expansion_roots_with_static_path_tails() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let source = "\
+#!/bin/sh
+if [ ! -f ${BUILD_ROOT}/sh/functions.sh ]; then
+  exit 1
+elif ! . ${BUILD_ROOT}/sh/functions.sh; then
+  exit 1
+fi
+";
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::UntrackedSourceFile),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "${BUILD_ROOT}/sh/functions.sh"
+        );
+    }
+
+    #[test]
+    fn ignores_single_variable_leaf_tail_that_belongs_to_c002() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let source = "#!/bin/sh\n. \"$helper\".generated\n";
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::UntrackedSourceFile),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_resolved_multi_dynamic_templates_that_belong_to_c002() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("tests/main.sh");
+        let helper = temp.path().join("src/helper.sh");
+        fs::create_dir_all(main.parent().unwrap()).unwrap();
+        fs::create_dir_all(helper.parent().unwrap()).unwrap();
+        let source = "#!/bin/sh\nload() { . \"$ROOT/src/$1\"; }\nload helper.sh\n";
+        fs::write(&main, source).unwrap();
+        fs::write(&helper, "echo helper\n").unwrap();
+
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+
+        let main_path = main.clone();
+        let helper_path = helper.clone();
+        let resolver = move |source_path: &Path, _candidate: &str| {
+            if source_path == main_path.as_path() {
+                vec![helper_path.clone()]
+            } else {
+                Vec::new()
+            }
+        };
+
+        let diagnostics = lint_file_at_path_with_resolver(
+            &output.file,
+            source,
+            &indexer,
+            &LinterSettings::for_rule(Rule::UntrackedSourceFile),
+            None,
+            Some(&main),
+            Some(&resolver),
         );
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");

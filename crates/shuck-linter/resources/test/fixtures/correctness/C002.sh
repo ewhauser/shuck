@@ -8,6 +8,9 @@ lib=./lib.sh
 # Invalid: a variable plus a static suffix is still dynamic.
 . "$lib".generated
 
+# Invalid: a current-user home shortcut still expands at runtime.
+. ~/.bashrc
+
 # Valid: literal paths are analyzable.
 . "./lib.sh"
 

@@ -1,4 +1,4 @@
-use shuck_semantic::SourceRefKind;
+use shuck_semantic::{SourceRefDiagnosticClass, SourceRefKind};
 
 use crate::{Checker, Rule, Violation};
 
@@ -16,9 +16,12 @@ impl Violation for DynamicSourcePath {
 
 pub fn dynamic_source_path(checker: &mut Checker) {
     for source_ref in checker.semantic().source_refs() {
+        if matches!(source_ref.kind, SourceRefKind::DirectiveDevNull) {
+            continue;
+        }
         if matches!(
-            source_ref.kind,
-            SourceRefKind::Dynamic | SourceRefKind::SingleVariableStaticTail { .. }
+            source_ref.diagnostic_class,
+            SourceRefDiagnosticClass::DynamicPath
         ) {
             checker.report(DynamicSourcePath, source_ref.path_span);
         }

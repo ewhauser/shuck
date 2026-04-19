@@ -26,7 +26,10 @@ use crate::declaration::{Declaration, DeclarationBuiltin, DeclarationOperand};
 use crate::reference::{Reference, ReferenceKind};
 use crate::runtime::RuntimePrelude;
 use crate::source_closure::source_path_template;
-use crate::source_ref::{SourceRef, SourceRefKind, SourceRefResolution};
+use crate::source_ref::{
+    SourceRef, SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution,
+    default_diagnostic_class,
+};
 use crate::{
     BindingId, FunctionScopeKind, IndirectTargetHint, ReferenceId, Scope, ScopeId, ScopeKind,
     SourceDirectiveOverride, SpanKey, TraversalObserver,
@@ -2251,9 +2254,16 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             }
             "source" | "." => {
                 if let Some(argument) = command.args.first() {
+                    let source_span = self.command_stack.last().copied().unwrap_or(command.span);
+                    let kind = self.classify_source_ref(command.span.line(), argument);
                     self.source_refs.push(SourceRef {
-                        kind: self.classify_source_ref(command.span.line(), argument),
-                        span: command.span,
+                        diagnostic_class: classify_source_ref_diagnostic_class(
+                            argument,
+                            self.source,
+                            &kind,
+                        ),
+                        kind,
+                        span: source_span,
                         path_span: argument.span,
                         resolution: SourceRefResolution::Unchecked,
                         explicitly_provided: false,
@@ -3397,6 +3407,49 @@ fn classify_dynamic_source_word(word: &Word, source: &str) -> SourceRefKind {
     }
 
     SourceRefKind::Dynamic
+}
+
+fn classify_source_ref_diagnostic_class(
+    word: &Word,
+    source: &str,
+    kind: &SourceRefKind,
+) -> SourceRefDiagnosticClass {
+    match kind {
+        SourceRefKind::Dynamic if dynamic_root_with_slash_tail(word, source) => {
+            SourceRefDiagnosticClass::UntrackedFile
+        }
+        _ => default_diagnostic_class(kind),
+    }
+}
+
+fn dynamic_root_with_slash_tail(word: &Word, source: &str) -> bool {
+    let Some((root, tail)) = word.parts.split_first() else {
+        return false;
+    };
+
+    root_word_part_is_dynamic_root(&root.kind)
+        && !tail.is_empty()
+        && static_parts_text(tail, source).is_some_and(|text| text.starts_with('/'))
+}
+
+fn root_word_part_is_dynamic_root(part: &WordPart) -> bool {
+    match part {
+        WordPart::Variable(_) | WordPart::ArrayAccess(_) => true,
+        WordPart::Parameter(parameter) => matches!(
+            parameter.syntax,
+            ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { .. })
+        ),
+        WordPart::DoubleQuoted { parts, .. } => matches!(
+            parts.as_slice(),
+            [part] if root_word_part_is_dynamic_root(&part.kind)
+        ),
+        _ => false,
+    }
+}
+
+fn static_parts_text(parts: &[WordPartNode], source: &str) -> Option<String> {
+    let mut result = String::new();
+    collect_static_word_text(parts, source, &mut result).then_some(result)
 }
 
 fn parse_source_directives(
