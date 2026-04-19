@@ -210,4 +210,23 @@ find . -exec echo {} + -exec rm *.tmp {} +
             vec!["*"]
         );
     }
+
+    #[test]
+    fn reports_expansions_in_find_exec_command_position() {
+        let source = "\
+#!/bin/bash
+find . -exec *.tool {} +
+find . -exec $(pick_cmd) {} \\;
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedGlobsInFind));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["*", "$(pick_cmd)"]
+        );
+    }
 }

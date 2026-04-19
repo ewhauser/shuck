@@ -15658,7 +15658,7 @@ fn parse_find_exec_argument_word_spans(command: &Command, source: &str) -> Vec<S
         let Some(command_name_index) = words.get(index + 1).map(|_| index + 1) else {
             break;
         };
-        let argument_start = command_name_index + 1;
+        let argument_start = command_name_index;
         let terminator_index = find_exec_terminator_index(&words[argument_start..], source)
             .map(|offset| argument_start + offset);
         let argument_end = terminator_index.unwrap_or(words.len());
@@ -19884,7 +19884,7 @@ find . -execdir sh -c 'printf \"%s\\n\" {}' {} \\;
                     .iter()
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
-                vec!["\"$prefix\"*.tmp", "{}"]
+                vec!["echo", "\"$prefix\"*.tmp", "{}"]
             );
 
             let nested_find_exec = facts
@@ -19905,7 +19905,7 @@ find . -execdir sh -c 'printf \"%s\\n\" {}' {} \\;
                     .iter()
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
-                vec!["$(readlink -f {})"]
+                vec!["dirname", "$(readlink -f {})"]
             );
 
             let plus_argument_find_exec = facts
@@ -19932,7 +19932,7 @@ find . -execdir sh -c 'printf \"%s\\n\" {}' {} \\;
                     .iter()
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
-                vec!["\"$prefix\"*.tmp", "{}"]
+                vec!["echo", "\"$prefix\"*.tmp", "{}"]
             );
 
             let find_execdir = facts
@@ -19949,7 +19949,7 @@ find . -execdir sh -c 'printf \"%s\\n\" {}' {} \\;
                     .iter()
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
-                vec!["-c", "'printf \"%s\\n\" {}'", "{}"]
+                vec!["sh", "-c", "'printf \"%s\\n\" {}'", "{}"]
             );
         });
     }
@@ -19974,7 +19974,7 @@ find . -execdir sh -c 'printf \"%s\\n\" {}' {} \\;
                     .iter()
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
-                vec!["+", "*.tmp", "{}"]
+                vec!["echo", "+", "*.tmp", "{}"]
             );
         });
     }
@@ -20001,7 +20001,7 @@ find . -execdir sh -c 'printf \"%s\\n\" {}' {} \\;
                     .iter()
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
-                vec!["{}"]
+                vec!["echo", "{}", "rm", "{}"]
             );
         });
     }
@@ -20028,7 +20028,7 @@ find . -execdir sh -c 'printf \"%s\\n\" {}' {} \\;
                     .iter()
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
-                vec!["{}"]
+                vec!["echo", "{}", "rm", "{}"]
             );
         });
     }
@@ -20054,7 +20054,7 @@ find . -execdir sh -c 'printf \"%s\\n\" {}' {} \\;
                     .iter()
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
-                vec!["*.tmp", "{}"]
+                vec!["\"$tool\"", "*.tmp", "{}"]
             );
         });
     }
@@ -20081,7 +20081,7 @@ find . -execdir sh -c 'printf \"%s\\n\" {}' {} \\;
                     .iter()
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
-                vec!["{}", "*.tmp", "{}"]
+                vec!["echo", "{}", "rm", "*.tmp", "{}"]
             );
         });
     }
