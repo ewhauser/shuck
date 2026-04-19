@@ -6,8 +6,8 @@ runtime_kind: ast
 shellcheck_code: SC3012
 shells:
   - sh
-description: "The `>` operator is used inside `[[ ]]` in a POSIX sh script."
-rationale: "Use `-gt` for numeric comparison."
+description: "A `<` or `>` operator is used inside `[[ ]]` in a POSIX sh script."
+rationale: "Use `-lt`/`-gt` for numeric comparisons, or another portable form for string ordering."
 source:
   shell_checks_rule: rules/SH-265.yaml
   shell_checks_example: examples/265.sh
@@ -17,4 +17,4 @@ examples:
     code: |
       #!/bin/sh
       # shellcheck disable=3010,2154,2071
-      if [[ $# > 1 ]]; then echo many; fi
+      if [[ "$BASH_VERSION" < 4 ]]; then echo old; fi

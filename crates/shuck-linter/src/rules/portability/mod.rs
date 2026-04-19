@@ -148,7 +148,7 @@ mod tests {
     #[test_case(Rule::ArraySubscriptCondition, Path::new("X041.sh"))]
     #[test_case(Rule::ExtglobInTest, Path::new("X046.sh"))]
     #[test_case(Rule::FunctionKeywordInSh, Path::new("X052.sh"))]
-    #[test_case(Rule::GreaterThanInDoubleBracket, Path::new("X058.sh"))]
+    #[test_case(Rule::LexicalComparisonInDoubleBracket, Path::new("X058.sh"))]
     #[test_case(Rule::RegexMatchInSh, Path::new("X059.sh"))]
     #[test_case(Rule::VTestInSh, Path::new("X060.sh"))]
     #[test_case(Rule::ATestInSh, Path::new("X061.sh"))]

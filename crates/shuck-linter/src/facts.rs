@@ -24268,6 +24268,7 @@ fi
 [ \"$x\" = @(foo|bar) ]
 [[ $words[2] = */ ]]
 [ $tools[kops] ]
+[[ $x < z ]]
 [[ $x > y ]]
 [[ $x =~ y ]]
 [[ -v assoc[$key] ]]
@@ -24280,7 +24281,7 @@ test -O \"$file\"
         with_facts(source, None, |_, facts| {
             let portability = facts.conditional_portability();
 
-            assert_eq!(portability.double_bracket_in_sh().len(), 8);
+            assert_eq!(portability.double_bracket_in_sh().len(), 9);
             assert_eq!(
                 portability
                     .if_elif_bash_test()
@@ -24323,11 +24324,11 @@ test -O \"$file\"
             );
             assert_eq!(
                 portability
-                    .greater_than_in_double_bracket()
+                    .lexical_comparison_in_double_bracket()
                     .iter()
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
-                vec![">"]
+                vec!["<", ">"]
             );
             assert_eq!(
                 portability

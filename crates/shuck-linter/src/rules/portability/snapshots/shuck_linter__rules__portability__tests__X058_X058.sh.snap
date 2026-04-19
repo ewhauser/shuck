@@ -2,8 +2,14 @@
 source: crates/shuck-linter/src/rules/portability/mod.rs
 assertion_line: 32
 ---
-X058 `>` inside `[[ ... ]]` is not a POSIX sh test operator
+X058 lexicographical `<` and `>` inside `[[ ... ]]` are not POSIX sh test operators
  --> <source>:2:10
   |
 2 | if [[ $# > 1 ]]; then :; fi
+  |
+
+X058 lexicographical `<` and `>` inside `[[ ... ]]` are not POSIX sh test operators
+ --> <source>:4:10
+  |
+4 | if [[ $# < 1 ]]; then :; fi
   |

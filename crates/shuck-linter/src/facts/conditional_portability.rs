@@ -25,7 +25,7 @@ pub struct ConditionalPortabilityFacts {
     array_subscript_test: Vec<Span>,
     array_subscript_condition: Vec<Span>,
     extglob_in_test: Vec<Span>,
-    greater_than_in_double_bracket: Vec<Span>,
+    lexical_comparison_in_double_bracket: Vec<Span>,
     regex_match_in_sh: Vec<Span>,
     v_test_in_sh: Vec<Span>,
     a_test_in_sh: Vec<Span>,
@@ -67,8 +67,8 @@ impl ConditionalPortabilityFacts {
         &self.extglob_in_test
     }
 
-    pub fn greater_than_in_double_bracket(&self) -> &[Span] {
-        &self.greater_than_in_double_bracket
+    pub fn lexical_comparison_in_double_bracket(&self) -> &[Span] {
+        &self.lexical_comparison_in_double_bracket
     }
 
     pub fn regex_match_in_sh(&self) -> &[Span] {
@@ -183,9 +183,9 @@ fn collect_conditional_portability_spans(
                 ConditionalBinaryOp::PatternEq => {
                     facts.test_equality_operator.push(binary.operator_span());
                 }
-                ConditionalBinaryOp::LexicalAfter => {
+                ConditionalBinaryOp::LexicalBefore | ConditionalBinaryOp::LexicalAfter => {
                     facts
-                        .greater_than_in_double_bracket
+                        .lexical_comparison_in_double_bracket
                         .push(binary.operator_span());
                 }
                 ConditionalBinaryOp::RegexMatch => {
