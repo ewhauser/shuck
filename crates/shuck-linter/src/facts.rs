@@ -2944,6 +2944,7 @@ pub struct LinterFacts<'a> {
     brace_variable_before_bracket_spans: Vec<Span>,
     function_headers: Vec<FunctionHeaderFact<'a>>,
     function_in_alias_spans: Vec<Span>,
+    alias_definition_expansion_spans: Vec<Span>,
     function_body_without_braces_spans: Vec<Span>,
     function_parameter_fallback_spans: Vec<Span>,
     redundant_return_status_spans: Vec<Span>,
@@ -3216,6 +3217,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn function_in_alias_spans(&self) -> &[Span] {
         &self.function_in_alias_spans
+    }
+
+    pub fn alias_definition_expansion_spans(&self) -> &[Span] {
+        &self.alias_definition_expansion_spans
     }
 
     pub fn function_body_without_braces_spans(&self) -> &[Span] {
@@ -3966,6 +3971,8 @@ impl<'a> LinterFactsBuilder<'a> {
             build_unquoted_command_argument_use_offsets(self.semantic, &words);
         let brace_variable_before_bracket_spans =
             build_brace_variable_before_bracket_spans(&words, self.source);
+        let alias_definition_expansion_spans =
+            build_alias_definition_expansion_spans(&commands, &words, &word_index, self.source);
 
         LinterFacts {
             commands,
@@ -3989,6 +3996,7 @@ impl<'a> LinterFactsBuilder<'a> {
             brace_variable_before_bracket_spans,
             function_headers,
             function_in_alias_spans,
+            alias_definition_expansion_spans,
             function_body_without_braces_spans,
             function_parameter_fallback_spans,
             redundant_return_status_spans,
@@ -4081,30 +4089,62 @@ fn build_function_in_alias_spans(commands: &[CommandFact<'_>], source: &str) -> 
     let mut spans = commands
         .iter()
         .filter(|fact| fact.effective_name_is("alias"))
-        .flat_map(|fact| function_in_alias_spans_for_command(fact, source))
+        .flat_map(|fact| alias_definition_word_groups_for_command(fact, source).into_iter())
+        .filter_map(|definition_words| function_in_alias_definition_span(definition_words, source))
         .collect::<Vec<_>>();
     sort_and_dedup_spans(&mut spans);
     spans
 }
 
-fn function_in_alias_spans_for_command(command: &CommandFact<'_>, source: &str) -> Vec<Span> {
+fn build_alias_definition_expansion_spans(
+    commands: &[CommandFact<'_>],
+    words: &[WordFact<'_>],
+    word_index: &FxHashMap<FactSpan, Vec<usize>>,
+    source: &str,
+) -> Vec<Span> {
+    let mut spans = commands
+        .iter()
+        .filter(|fact| fact.effective_name_is("alias"))
+        .flat_map(|fact| alias_definition_word_groups_for_command(fact, source).into_iter())
+        .filter_map(|definition_words| {
+            definition_words
+                .iter()
+                .flat_map(|candidate| {
+                    word_index
+                        .get(&FactSpan::new(candidate.span))
+                        .into_iter()
+                        .flat_map(|indices| indices.iter().copied())
+                        .map(|index| &words[index])
+                        .filter(move |fact| {
+                            fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                                && fact.span() == candidate.span
+                        })
+                })
+                .flat_map(|fact| fact.active_expansion_spans().iter().copied())
+                .min_by_key(|span| (span.start.offset, span.end.offset))
+        })
+        .collect::<Vec<_>>();
+    sort_and_dedup_spans(&mut spans);
+    spans
+}
+
+fn alias_definition_word_groups_for_command<'a>(
+    command: &'a CommandFact<'a>,
+    source: &str,
+) -> Vec<&'a [&'a Word]> {
     let body_args = command.body_args();
-    let mut spans = Vec::new();
+    let mut definition_words = Vec::new();
     let mut index = 0usize;
 
     while let Some(word) = body_args.get(index).copied() {
-        let Some(text) = static_word_text(word, source) else {
-            index += 1;
-            continue;
-        };
-        if !text.contains('=') {
+        if !word_contains_literal_equals(word, source) {
             index += 1;
             continue;
         }
 
         let mut last_word = word;
         let mut definition_len = 1usize;
-        while last_word.span.slice(source).ends_with('=')
+        while word_ends_with_literal_equals(last_word, source)
             && let Some(next_word) = body_args.get(index + definition_len).copied()
             && last_word.span.end.offset == next_word.span.start.offset
         {
@@ -4112,15 +4152,46 @@ fn function_in_alias_spans_for_command(command: &CommandFact<'_>, source: &str) 
             definition_len += 1;
         }
 
-        let definition_words = &body_args[index..index + definition_len];
-        if let Some(span) = function_in_alias_definition_span(definition_words, source) {
-            spans.push(span);
-        }
-
+        definition_words.push(&body_args[index..index + definition_len]);
         index += definition_len;
     }
 
-    spans
+    definition_words
+}
+
+fn word_contains_literal_equals(word: &Word, source: &str) -> bool {
+    word_chars_outside_expansions(word, source).any(|(_, ch)| ch == '=')
+}
+
+fn word_ends_with_literal_equals(word: &Word, source: &str) -> bool {
+    word_chars_outside_expansions(word, source)
+        .last()
+        .is_some_and(|(_, ch)| ch == '=')
+}
+
+fn word_chars_outside_expansions<'a>(
+    word: &'a Word,
+    source: &'a str,
+) -> impl Iterator<Item = (usize, char)> + 'a {
+    let text = word.span.slice(source);
+    let mut excluded = expansion_part_spans(word);
+    excluded.sort_by_key(|span| span.start.offset);
+    let mut excluded = excluded.into_iter().peekable();
+
+    text.char_indices().filter(move |(offset, _)| {
+        let absolute_offset = word.span.start.offset + offset;
+        while matches!(
+            excluded.peek(),
+            Some(span) if absolute_offset >= span.end.offset
+        ) {
+            excluded.next();
+        }
+
+        !matches!(
+            excluded.peek(),
+            Some(span) if absolute_offset >= span.start.offset && absolute_offset < span.end.offset
+        )
+    })
 }
 
 fn function_in_alias_definition_span(words: &[&Word], source: &str) -> Option<Span> {
@@ -25669,6 +25740,27 @@ alias runtime=$BAR
                     "gtl='gtl(){ git tag --sort=-v:refname -n -l \"${1}*\" }; noglob gtl'",
                     "hello='function hello { echo hi; }'",
                 ]
+            );
+        });
+    }
+
+    #[test]
+    fn builds_alias_definition_expansion_spans_without_matching_alias_lookups() {
+        let source = "\
+#!/bin/bash
+alias \"${cur%=}\" 2>/dev/null
+alias home=$HOME
+alias \"$a=$b\"
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .alias_definition_expansion_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["$HOME", "$a"]
             );
         });
     }
