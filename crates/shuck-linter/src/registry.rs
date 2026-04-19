@@ -1033,10 +1033,7 @@ mod tests {
         assert_eq!(code_to_rule("SH-309"), Some(Rule::EnvPrefixCommandOnly));
         assert_eq!(code_to_rule("S076"), Some(Rule::MixedQuoteWord));
         assert_eq!(code_to_rule("SH-350"), Some(Rule::MixedQuoteWord));
-        assert_eq!(
-            code_to_rule("S077"),
-            Some(Rule::BraceVariableBeforeBracket)
-        );
+        assert_eq!(code_to_rule("S077"), Some(Rule::BraceVariableBeforeBracket));
         assert_eq!(
             code_to_rule("SH-354"),
             Some(Rule::BraceVariableBeforeBracket)

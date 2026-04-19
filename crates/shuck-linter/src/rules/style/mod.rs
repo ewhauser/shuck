@@ -1,11 +1,11 @@
 pub mod ampersand_semicolon;
-pub mod brace_variable_before_bracket;
 pub mod arithmetic_score_line;
 pub mod array_index_arithmetic;
 pub mod avoid_let_builtin;
 pub mod backslash_before_command;
 pub mod bare_command_name_assignment;
 pub mod bare_read;
+pub mod brace_variable_before_bracket;
 pub mod combine_appends;
 pub mod command_output_array_split;
 pub mod command_substitution_in_alias;
