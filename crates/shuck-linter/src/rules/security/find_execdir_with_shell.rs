@@ -65,4 +65,17 @@ mod tests {
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
+
+    #[test]
+    fn reports_later_exec_shell_interpolation_after_non_shell_exec() {
+        let source = "#!/bin/sh\nfind . -exec echo {} + -name '*.cfg' -exec sh -c 'printf \"%s\\n\" {}' \\;\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FindExecDirWithShell),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::FindExecDirWithShell);
+        assert_eq!(diagnostics[0].span.slice(source), "'printf \"%s\\n\" {}'");
+    }
 }
