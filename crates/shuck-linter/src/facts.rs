@@ -24200,6 +24200,20 @@ echo 'hello ‘world’'
     }
 
     #[test]
+    fn ignores_unicode_smart_quotes_in_heredoc_payloads() {
+        let source = "\
+#!/bin/sh
+cat <<EOF
+q { quotes: \"“\" \"”\" \"‘\" \"’\"; }
+EOF
+";
+
+        with_facts(source, None, |_, facts| {
+            assert!(facts.unicode_smart_quote_spans().is_empty());
+        });
+    }
+
+    #[test]
     fn traces_case_pattern_spans_for_escaped_char_classes() {
         let source = "\
 #!/bin/sh

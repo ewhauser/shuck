@@ -243,11 +243,6 @@ impl<'a> SurfaceFragmentSink<'a> {
         context: SurfaceScanContext<'_>,
     ) {
         self.collect_single_quoted_fragments_in_heredoc_body_parts(&body.parts, context);
-        collect_unicode_smart_quote_spans_in_heredoc_body_parts(
-            &body.parts,
-            self.source,
-            &mut self.facts.unicode_smart_quote_spans,
-        );
         self.collect_heredoc_body_parts(&body.parts, context);
     }
 
@@ -1729,26 +1724,6 @@ fn collect_unicode_smart_quote_spans_in_word_parts(
                 collect_unicode_smart_quote_spans_in_word_parts(parts, source, true, spans)
             }
             _ => {}
-        }
-    }
-}
-
-fn collect_unicode_smart_quote_spans_in_heredoc_body_parts(
-    parts: &[HeredocBodyPartNode],
-    source: &str,
-    spans: &mut Vec<Span>,
-) {
-    for part in parts {
-        if let HeredocBodyPart::Literal(text) = &part.kind {
-            let literal = text.as_str(source, part.span);
-            for (offset, char) in literal.char_indices() {
-                if !is_unicode_smart_quote(char) {
-                    continue;
-                }
-                let start = part.span.start.advanced_by(&literal[..offset]);
-                let end = start.advanced_by(char.encode_utf8(&mut [0; 4]));
-                spans.push(Span::from_positions(start, end));
-            }
         }
     }
 }
