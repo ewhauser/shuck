@@ -389,7 +389,7 @@ fn strip_prefix_ignore_ascii_case<'a>(text: &'a str, prefix: &str) -> Option<&'a
         .then(|| &text[prefix.len()..])
 }
 
-fn shellcheck_comment_remainder<'a>(comment_text: &'a str) -> Option<&'a str> {
+fn shellcheck_comment_remainder(comment_text: &str) -> Option<&str> {
     let body = strip_comment_prefix(comment_text);
     let remainder = strip_prefix_ignore_ascii_case(body, "shellcheck")?;
     if let Some(first) = remainder.chars().next()
