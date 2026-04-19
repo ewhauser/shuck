@@ -4116,6 +4116,7 @@ fn mixed_quote_shell_fragment_balance_delta(
     let mut chars = text.chars().peekable();
     let mut escaped = false;
     let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
     let mut in_comment = false;
     let mut previous_char = None;
 
@@ -4142,8 +4143,14 @@ fn mixed_quote_shell_fragment_balance_delta(
             continue;
         }
 
-        if ch == '\'' {
+        if ch == '\'' && !in_double_quotes {
             in_single_quotes = true;
+            previous_char = Some(ch);
+            continue;
+        }
+
+        if ch == '"' {
+            in_double_quotes = !in_double_quotes;
             previous_char = Some(ch);
             continue;
         }
@@ -4155,6 +4162,7 @@ fn mixed_quote_shell_fragment_balance_delta(
         }
 
         if ch == '#'
+            && !in_double_quotes
             && mixed_quote_shell_comment_can_start(
                 command_delta,
                 allow_top_level_command_comments,
@@ -22906,6 +22914,28 @@ echo $(echo x # $(
 #!/bin/bash
 echo `echo x # $(
 `\"foo\"bar\"baz\"
+";
+
+        with_facts(source, None, |_, facts| {
+            let spans = facts
+                .expansion_word_facts(ExpansionContext::CommandArgument)
+                .flat_map(|fact| {
+                    fact.unquoted_literal_between_double_quoted_segments_spans()
+                        .iter()
+                        .map(|span| span.slice(source).to_owned())
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(spans, vec!["bar"]);
+        });
+    }
+
+    #[test]
+    fn builds_word_facts_ignore_hashes_inside_nested_double_quotes() {
+        let source = "\
+#!/bin/bash
+echo $(printf \"%s\" \"x # $(printf y)\")\"foo\"bar\"baz\"
 ";
 
         with_facts(source, None, |_, facts| {
