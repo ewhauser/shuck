@@ -114,16 +114,24 @@ fn normalize_simple_command<'a>(command: &'a SimpleCommand, source: &str) -> Nor
     let words = std::iter::once(&command.name)
         .chain(command.args.iter())
         .collect::<Vec<_>>();
-    let literal_name = static_command_name_text(&command.name, source);
+    normalize_command_words(words.as_slice(), source).expect("simple commands always have a name")
+}
+
+pub(crate) fn normalize_command_words<'a>(
+    words: &[&'a Word],
+    source: &str,
+) -> Option<NormalizedCommand<'a>> {
+    let first_word = words.first().copied()?;
+    let literal_name = static_command_name_text(first_word, source);
     let mut normalized = NormalizedCommand {
         literal_name: literal_name.clone(),
         effective_name: literal_name.clone(),
         wrappers: Vec::new(),
-        body_span: command.name.span,
-        body_word_span: Some(command.name.span),
+        body_span: first_word.span,
+        body_word_span: Some(first_word.span),
         body_words: literal_name
             .as_ref()
-            .map_or_else(Vec::new, |_| words.clone()),
+            .map_or_else(Vec::new, |_| words.to_vec()),
         declaration: None,
     };
     let mut current_index = 0usize;
@@ -170,7 +178,7 @@ fn normalize_simple_command<'a>(command: &'a SimpleCommand, source: &str) -> Nor
         }
     }
 
-    normalized
+    Some(normalized)
 }
 
 fn normalize_decl_command<'a>(command: &'a DeclClause, source: &str) -> NormalizedCommand<'a> {

@@ -78,4 +78,19 @@ mod tests {
         assert_eq!(diagnostics[0].rule, Rule::FindExecDirWithShell);
         assert_eq!(diagnostics[0].span.slice(source), "'printf \"%s\\n\" {}'");
     }
+
+    #[test]
+    fn reports_wrapped_exec_shell_interpolation() {
+        let source = "#!/bin/sh\nfind . -exec busybox sh -c 'printf \"%s\\n\" {}' \\;\nfind . -exec sudo sh -c 'printf \"%s\\n\" {}' \\;\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FindExecDirWithShell),
+        );
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].rule, Rule::FindExecDirWithShell);
+        assert_eq!(diagnostics[1].rule, Rule::FindExecDirWithShell);
+        assert_eq!(diagnostics[0].span.slice(source), "'printf \"%s\\n\" {}'");
+        assert_eq!(diagnostics[1].span.slice(source), "'printf \"%s\\n\" {}'");
+    }
 }

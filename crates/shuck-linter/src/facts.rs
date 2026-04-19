@@ -17369,18 +17369,22 @@ fn parse_find_exec_shell_command(
 }
 
 fn find_exec_shell_command_spans(args: &[&Word], source: &str) -> Vec<Span> {
-    let Some(shell_name) = args
-        .first()
-        .and_then(|word| static_word_text(word, source))
-        .map(|name| name.rsplit('/').next().unwrap_or(name.as_str()).to_owned())
+    let Some(normalized) = command::normalize_command_words(args, source) else {
+        return Vec::new();
+    };
+    let Some(shell_name) = normalized
+        .effective_name
+        .as_deref()
+        .map(|name| name.rsplit('/').next().unwrap_or(name))
     else {
         return Vec::new();
     };
-    if !matches!(shell_name.as_str(), "sh" | "bash" | "dash" | "ksh") {
+    if !matches!(shell_name, "sh" | "bash" | "dash" | "ksh") {
         return Vec::new();
     }
 
-    args[1..]
+    normalized
+        .body_args()
         .windows(2)
         .filter_map(|pair| {
             let flag = static_word_text(pair[0], source)?;
@@ -22001,6 +22005,31 @@ find . -exec echo {} + -name '*.cfg' -exec sh -c 'printf \"%s\\n\" {}' \\;
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
                 vec!["'printf \"%s\\n\" {}'"]
+            );
+        });
+    }
+
+    #[test]
+    fn builds_find_exec_shell_command_facts_for_wrapped_shell_targets() {
+        let source = "\
+#!/bin/sh
+find . -exec busybox sh -c 'printf \"%s\\n\" {}' \\;
+find . -exec sudo sh -c 'printf \"%s\\n\" {}' \\;
+";
+
+        with_facts(source, None, |_, facts| {
+            let shell_spans = facts
+                .commands()
+                .iter()
+                .filter(|fact| fact.has_wrapper(WrapperKind::FindExec))
+                .filter_map(|fact| fact.options().find_exec_shell())
+                .flat_map(|find_exec_shell| find_exec_shell.shell_command_spans().iter())
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                shell_spans,
+                vec!["'printf \"%s\\n\" {}'", "'printf \"%s\\n\" {}'"]
             );
         });
     }
