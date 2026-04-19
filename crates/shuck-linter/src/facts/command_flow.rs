@@ -1893,11 +1893,16 @@ fn single_test_subshell_span<'a>(
         return None;
     }
 
-    if !simple_test && !is_test_condition_command(body_fact.command(), commands, command_ids_by_span) {
+    if !simple_test
+        && !is_test_condition_command(body_fact.command(), commands, command_ids_by_span)
+    {
         return None;
     }
 
-    Some(subshell_anchor_span(condition_fact.span_in_source(source), source))
+    Some(subshell_anchor_span(
+        condition_fact.span_in_source(source),
+        source,
+    ))
 }
 
 fn is_test_like_command(fact: &CommandFact<'_>) -> bool {
