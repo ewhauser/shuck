@@ -70,4 +70,39 @@ mod tests {
         assert_eq!(diagnostics[0].rule, Rule::RmGlobOnVariablePath);
         assert_eq!(diagnostics[0].span.slice(source), "\"${!root_ref}\"/*");
     }
+
+    #[test]
+    fn reports_variable_paths_that_collapse_into_system_subtrees() {
+        let source = "#!/bin/bash\nPKG=/pkg\nPRGNAM=demo\nDESTDIR=/dest\nPYDIR=/py\nrm -rf $PKG/usr\nrm -rf $PKG/usr/share/$PRGNAM\nrm -rf \"$DESTDIR\"/usr\nrm -rf $PKG/usr/{bin,include,libexec,man,share}\nrm -rf \"$PKG/$PYDIR/usr\"\nrm -rf $PKG/$PYDIR/*\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::RmGlobOnVariablePath),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "$PKG/usr",
+                "$PKG/usr/share/$PRGNAM",
+                "\"$DESTDIR\"/usr",
+                "$PKG/usr/{bin,include,libexec,man,share}",
+                "\"$PKG/$PYDIR/usr\"",
+                "$PKG/$PYDIR/*",
+            ]
+        );
+    }
+
+    #[test]
+    fn ignores_component_globs_that_do_not_target_known_system_roots() {
+        let source = "#!/bin/bash\nPKG=/pkg\nPYDIR=/py\nDESTDIR=/dest\nPRGNAM=demo\nLIBDIRSUFFIX=64\nrm -rf $PKG/$PYDIR/lib*\nrm -rf \"$DESTDIR\"/lib*\nrm -rf $PKG/usr/share/doc\nrm -rf $PKG/usr/share/icons\nrm -rf $PKG/usr/doc/$PRGNAM\nrm -rf $PKG/usr/lib${LIBDIRSUFFIX}/*.la\nrm -rf $PKG/usr/share/$PRGNAM/icons\nrm -rf $PKG/opt/$PRGNAM/bin\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::RmGlobOnVariablePath),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
 }

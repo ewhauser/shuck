@@ -13948,42 +13948,22 @@ fn ssh_option_is_flag(flag: u8) -> bool {
 
 fn rm_path_is_dangerous(word: &Word, source: &str) -> bool {
     let segments = rm_path_segments(word, source);
-    if segments.is_empty() || !segments[0].has_unsafe_param {
+    if segments.is_empty() || !rm_path_segment_is_pure_unsafe_parameter(&segments[0]) {
         return false;
     }
 
     let brace_expansion_active = word.has_active_brace_expansion();
-    let mut saw_literal_barrier = false;
-    let mut saw_pure_unsafe = false;
-    let mut tail_start = 1usize;
+    let tail_start = segments
+        .iter()
+        .take_while(|segment| rm_path_segment_is_pure_unsafe_parameter(segment))
+        .count();
+    let tail = rm_path_tail_text(&segments[tail_start..]);
 
-    for (index, segment) in segments.iter().enumerate().skip(1) {
-        if rm_path_segment_is_pure_unsafe_parameter(segment) {
-            if saw_literal_barrier {
-                return false;
-            }
-            saw_pure_unsafe = true;
-            tail_start = index + 1;
-            continue;
-        }
-
-        if segment.has_literal_text || segment.has_other_dynamic || segment.has_unsafe_param {
-            if saw_pure_unsafe {
-                let tail = rm_path_tail_text(&segments[index..]);
-                return rm_path_tail_is_dangerous(&tail, brace_expansion_active);
-            }
-
-            saw_literal_barrier = true;
-        }
+    if tail.is_empty() {
+        return tail_start > 1;
     }
 
-    if saw_pure_unsafe {
-        let tail = rm_path_tail_text(&segments[tail_start..]);
-        return tail.is_empty() || rm_path_tail_is_dangerous(&tail, brace_expansion_active);
-    }
-
-    let tail = rm_path_tail_text(&segments[1..]);
-    !tail.is_empty() && rm_path_tail_is_dangerous(&tail, brace_expansion_active)
+    rm_path_tail_is_dangerous(&tail, brace_expansion_active)
 }
 
 #[derive(Debug, Default)]
@@ -14117,9 +14097,24 @@ fn rm_path_segment_is_pure_unsafe_parameter(segment: &RmPathSegment) -> bool {
 fn rm_path_tail_text(segments: &[RmPathSegment]) -> String {
     segments
         .iter()
-        .map(|segment| segment.text.as_str())
+        .map(rm_path_segment_tail_pattern)
         .collect::<Vec<_>>()
         .join("/")
+}
+
+const RM_PURE_DYNAMIC_TAIL_COMPONENT: &str = "\u{1f}";
+const RM_MIXED_DYNAMIC_TAIL_PREFIX: &str = "\u{1e}";
+
+fn rm_path_segment_tail_pattern(segment: &RmPathSegment) -> String {
+    if segment.has_unsafe_param || segment.has_other_dynamic {
+        if segment.text.is_empty() {
+            RM_PURE_DYNAMIC_TAIL_COMPONENT.to_owned()
+        } else {
+            format!("{RM_MIXED_DYNAMIC_TAIL_PREFIX}{}", segment.text)
+        }
+    } else {
+        segment.text.clone()
+    }
 }
 
 const RM_DANGEROUS_LITERAL_SUFFIXES: &[&str] = &[
@@ -14129,7 +14124,7 @@ const RM_DANGEROUS_LITERAL_SUFFIXES: &[&str] = &[
     "etc",
     "home",
     "lib",
-    "opt",
+    "usr",
     "usr/bin",
     "usr/local",
     "usr/share",
@@ -14145,17 +14140,74 @@ fn rm_path_tail_is_dangerous(tail: &str, brace_expansion_active: bool) -> bool {
             });
     }
 
-    let tail = tail.trim_start_matches('/');
+    let tail = tail.trim_matches('/');
     if tail.is_empty() {
         return false;
     }
 
-    if let Some(prefix) = tail.strip_suffix('*') {
-        let prefix = prefix.trim_end_matches('/');
-        return prefix.is_empty() || RM_DANGEROUS_LITERAL_SUFFIXES.contains(&prefix);
+    let components = tail
+        .split('/')
+        .filter(|component| !component.is_empty())
+        .map(rm_path_tail_component)
+        .collect::<Vec<_>>();
+
+    RM_DANGEROUS_LITERAL_SUFFIXES
+        .iter()
+        .any(|dangerous_prefix| {
+            let dangerous_components = dangerous_prefix.split('/').collect::<Vec<_>>();
+            rm_path_matches_exact_dangerous_prefix(&components, &dangerous_components)
+                || rm_path_matches_dangerous_prefix_with_final_dynamic_or_glob(
+                    &components,
+                    &dangerous_components,
+                )
+        })
+        || matches!(components.as_slice(), [RmTailComponent::Literal("*")])
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RmTailComponent<'a> {
+    Literal(&'a str),
+    MixedDynamic(&'a str),
+    PureDynamic,
+}
+
+fn rm_path_tail_component(component: &str) -> RmTailComponent<'_> {
+    if component == RM_PURE_DYNAMIC_TAIL_COMPONENT {
+        return RmTailComponent::PureDynamic;
     }
 
-    RM_DANGEROUS_LITERAL_SUFFIXES.contains(&tail)
+    if let Some(literal_suffix) = component.strip_prefix(RM_MIXED_DYNAMIC_TAIL_PREFIX) {
+        return RmTailComponent::MixedDynamic(literal_suffix);
+    }
+
+    RmTailComponent::Literal(component)
+}
+
+fn rm_path_matches_exact_dangerous_prefix(
+    components: &[RmTailComponent<'_>],
+    dangerous_components: &[&str],
+) -> bool {
+    components.len() == dangerous_components.len()
+        && components
+            .iter()
+            .zip(dangerous_components.iter())
+            .all(|(component, expected)| matches!(component, RmTailComponent::Literal(actual) if actual == expected))
+}
+
+fn rm_path_matches_dangerous_prefix_with_final_dynamic_or_glob(
+    components: &[RmTailComponent<'_>],
+    dangerous_components: &[&str],
+) -> bool {
+    components.len() == dangerous_components.len() + 1
+        && components
+            .iter()
+            .take(dangerous_components.len())
+            .zip(dangerous_components.iter())
+            .all(|(component, expected)| matches!(component, RmTailComponent::Literal(actual) if actual == expected))
+        && matches!(
+            components.last(),
+            Some(RmTailComponent::PureDynamic | RmTailComponent::Literal("*"))
+        )
 }
 
 fn split_brace_expansion(text: &str) -> Option<(&str, &str, &str)> {
@@ -20298,6 +20350,54 @@ xargs -a inputs -iX echo X
                 .collect::<Vec<_>>(),
             vec!["-iX"]
         );
+    }
+
+    #[test]
+    fn rm_command_facts_track_shellcheck_style_variable_path_hazards() {
+        let source = "\
+#!/bin/bash
+PKG=/pkg
+PRGNAM=demo
+DESTDIR=/dest
+PYDIR=/py
+LIBDIRSUFFIX=64
+rm -rf $PKG/usr
+rm -rf $PKG/usr/share/$PRGNAM
+rm -rf \"$DESTDIR\"/usr
+rm -rf $PKG/usr/{bin,include,libexec,man,share}
+rm -rf \"$PKG/$PYDIR/usr\"
+rm -rf $PKG/$PYDIR/*
+rm -rf $PKG/$PYDIR/lib*
+rm -rf \"$DESTDIR\"/lib*
+rm -rf $PKG/usr/share/doc
+rm -rf $PKG/usr/share/icons
+rm -rf $PKG/usr/doc/$PRGNAM
+rm -rf $PKG/usr/lib${LIBDIRSUFFIX}/*.la
+rm -rf $PKG/usr/share/$PRGNAM/icons
+rm -rf $PKG/opt/$PRGNAM/bin
+";
+
+        with_facts(source, None, |_, facts| {
+            let rm_spans = facts
+                .commands()
+                .iter()
+                .filter_map(|fact| fact.options().rm())
+                .flat_map(|rm| rm.dangerous_path_spans().iter().copied())
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                rm_spans,
+                vec![
+                    "$PKG/usr",
+                    "$PKG/usr/share/$PRGNAM",
+                    "\"$DESTDIR\"/usr",
+                    "$PKG/usr/{bin,include,libexec,man,share}",
+                    "\"$PKG/$PYDIR/usr\"",
+                    "$PKG/$PYDIR/*",
+                ]
+            );
+        });
     }
 
     #[test]
