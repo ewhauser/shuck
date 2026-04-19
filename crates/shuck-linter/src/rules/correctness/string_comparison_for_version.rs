@@ -11,7 +11,7 @@ impl Violation for StringComparisonForVersion {
     }
 
     fn message(&self) -> String {
-        "this `[[ ... < ... ]]` comparison orders version-like values lexicographically".to_owned()
+        "this `[[ ... ]]` comparison orders version-like values lexicographically".to_owned()
     }
 }
 
@@ -36,7 +36,10 @@ fn report_span(node: &ConditionalNodeFact<'_>, source: &str) -> Option<Span> {
     let ConditionalNodeFact::Binary(binary) = node else {
         return None;
     };
-    if binary.op() != ConditionalBinaryOp::LexicalBefore {
+    if !matches!(
+        binary.op(),
+        ConditionalBinaryOp::LexicalBefore | ConditionalBinaryOp::LexicalAfter
+    ) {
         return None;
     }
 
@@ -103,6 +106,8 @@ mod tests {
 [[ $ver < 1.27 ]]
 [[ 1.2 < $ver ]]
 [[ 1.2.3 < 2.0 ]]
+[[ $ver > 1.27 ]]
+[[ 1.2 > $ver ]]
 [[ $ver < 1.27 && -n $x ]]
 ";
         let diagnostics = test_snippet(
@@ -115,7 +120,7 @@ mod tests {
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["1.27", "1.2", "2.0", "1.27"]
+            vec!["1.27", "1.2", "2.0", "1.27", "1.2", "1.27"]
         );
     }
 
@@ -141,7 +146,6 @@ mod tests {
 [[ $count < 10 ]]
 [[ foo < bar ]]
 [[ $tag < v1.2 ]]
-[[ $tag > 1.2 ]]
 [ \"$ver\" \\< 1.27 ]
 ";
         let diagnostics = test_snippet(

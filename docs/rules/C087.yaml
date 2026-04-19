@@ -8,7 +8,7 @@ shells:
   - sh
   - bash
   - dash
-description: "A `<` operator inside `[[ ]]` compares lexicographically, not numerically."
+description: "A `<` or `>` operator inside `[[ ]]` compares lexicographically, not numerically."
 rationale: "Use `-lt` for numeric comparison or a version-aware tool."
 source:
   shell_checks_rule: rules/SH-214.yaml
@@ -20,3 +20,9 @@ examples:
       #!/bin/bash
       # shellcheck disable=2154
       if [[ $ver < 1.27 ]]; then echo old; fi
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      if [[ "$actual" > "0.8" ]]; then
+        echo new
+      fi
