@@ -333,4 +333,25 @@ demo() {
             vec!["arr"]
         );
     }
+
+    #[test]
+    fn reports_escaped_declarations_with_parameter_expansion_parens_inside_command_subscripts() {
+        let source = "\
+#!/bin/bash
+shopt -s extglob
+\\declare arr[$(printf %s ${x//@(a)/b})]=$(date)
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ExportCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["arr"]
+        );
+    }
 }

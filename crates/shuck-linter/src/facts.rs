@@ -13910,6 +13910,7 @@ fn is_unescaped_dollar(bytes: &[u8], index: usize) -> bool {
 }
 
 fn find_command_substitution_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let text = std::str::from_utf8(bytes).ok()?;
     let mut paren_depth = 0usize;
     let mut cursor = start + 2;
 
@@ -13936,6 +13937,14 @@ fn find_command_substitution_end(bytes: &[u8], start: usize) -> Option<usize> {
             continue;
         }
 
+        if cursor + 1 < bytes.len()
+            && is_unescaped_dollar(bytes, cursor)
+            && bytes[cursor + 1] == b'{'
+        {
+            cursor = find_runtime_parameter_closing_brace(text, cursor)?;
+            continue;
+        }
+
         match bytes[cursor] {
             b'\'' => cursor = skip_single_quoted(bytes, cursor + 1)?,
             b'"' => cursor = skip_double_quoted(bytes, cursor + 1)?,
@@ -13957,6 +13966,7 @@ fn find_command_substitution_end(bytes: &[u8], start: usize) -> Option<usize> {
 }
 
 fn find_wrapped_arithmetic_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let text = std::str::from_utf8(bytes).ok()?;
     let mut paren_depth = 0usize;
     let mut cursor = start + 3;
 
@@ -13980,6 +13990,14 @@ fn find_wrapped_arithmetic_end(bytes: &[u8], start: usize) -> Option<usize> {
             && bytes[cursor + 1] == b'('
         {
             cursor = find_command_substitution_end(bytes, cursor)?;
+            continue;
+        }
+
+        if cursor + 1 < bytes.len()
+            && is_unescaped_dollar(bytes, cursor)
+            && bytes[cursor + 1] == b'{'
+        {
+            cursor = find_runtime_parameter_closing_brace(text, cursor)?;
             continue;
         }
 
