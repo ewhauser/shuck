@@ -17,9 +17,7 @@ pub fn command_substitution_in_alias(checker: &mut Checker) {
         checker
             .facts()
             .alias_definition_expansion_spans()
-            .iter()
-            .copied()
-            .collect(),
+            .to_vec(),
         || CommandSubstitutionInAlias,
     );
 }
