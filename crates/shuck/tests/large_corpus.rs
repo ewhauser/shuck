@@ -2386,17 +2386,16 @@ fn resolve_shell(path: &Path, src: &[u8]) -> String {
         return "zsh".into();
     }
 
-    if let Some(unsupported_shell) = unsupported_large_corpus_shebang_shell(&trimmed_first_line) {
-        return unsupported_shell.to_ascii_lowercase();
-    }
-
     match shuck_linter::ShellDialect::infer(source, Some(path)) {
         shuck_linter::ShellDialect::Bash => "bash".into(),
         shuck_linter::ShellDialect::Ksh | shuck_linter::ShellDialect::Mksh => "ksh".into(),
         shuck_linter::ShellDialect::Zsh => "zsh".into(),
-        shuck_linter::ShellDialect::Unknown
-        | shuck_linter::ShellDialect::Sh
-        | shuck_linter::ShellDialect::Dash => "sh".into(),
+        shuck_linter::ShellDialect::Sh | shuck_linter::ShellDialect::Dash => "sh".into(),
+        shuck_linter::ShellDialect::Unknown => {
+            unsupported_large_corpus_shebang_shell(&trimmed_first_line)
+                .map(|shell| shell.to_ascii_lowercase())
+                .unwrap_or_else(|| "sh".into())
+        }
     }
 }
 
@@ -3152,6 +3151,17 @@ mod tests {
     #[test]
     fn resolve_shell_csh_shebang_stays_unsupported() {
         assert_eq!(resolve_shell(Path::new("script"), b"#!/bin/csh\n"), "csh");
+    }
+
+    #[test]
+    fn resolve_shell_respects_shellcheck_header_over_unsupported_shebang() {
+        assert_eq!(
+            resolve_shell(
+                Path::new("script"),
+                b"#!/usr/bin/env fish\n# shellcheck shell=bash\necho hi\n",
+            ),
+            "bash"
+        );
     }
 
     #[test]
