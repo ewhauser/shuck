@@ -3569,10 +3569,13 @@ impl<'a> Parser<'a> {
                 } else {
                     let inner_start = cursor;
                     let had_prefix = current_start != part_start;
+                    let prefix = Span::from_positions(current_start, part_start).slice(self.input);
                     let nested_source_base = if source_backed
-                        && source_prefix_ends_inside_double_quotes(
-                            Span::from_positions(current_start, part_start).slice(self.input),
-                        ) {
+                        && (source_prefix_ends_inside_double_quotes(prefix)
+                            || (!options.preserve_quote_fragments
+                                && source_prefix_has_same_line_escaped_double_quote_fragment(
+                                    prefix,
+                                ))) {
                         inner_start.advanced_by("(")
                     } else {
                         inner_start
@@ -5611,4 +5614,20 @@ fn source_prefix_ends_inside_double_quotes(prefix: &str) -> bool {
     }
 
     in_double
+}
+
+fn source_prefix_has_same_line_escaped_double_quote_fragment(prefix: &str) -> bool {
+    let line = prefix.rsplit('\n').next().unwrap_or(prefix);
+    let mut chars = line.trim_end_matches('\r').chars().peekable();
+    let mut in_single = false;
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\\' if !in_single && chars.peek() == Some(&'"') => return true,
+            '\'' => in_single = !in_single,
+            _ => {}
+        }
+    }
+
+    false
 }

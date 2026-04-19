@@ -2330,6 +2330,82 @@ fn test_parameter_expansion_operand_stays_source_backed() {
 }
 
 #[test]
+fn test_parameter_default_operand_keeps_nested_command_substitution_spans() {
+    let input = "NUMJOBS=${NUMJOBS:-\\\" -j $(expr $(nproc) + 1) \\\"}\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+        panic!("expected scalar assignment");
+    };
+
+    let parameter = expect_parameter(word);
+    let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
+        operand_word_ast: Some(operand_word_ast),
+        ..
+    }) = &parameter.syntax
+    else {
+        panic!("expected parameter operation");
+    };
+    let body = operand_word_ast
+        .parts
+        .iter()
+        .find_map(|part| match &part.kind {
+            WordPart::CommandSubstitution { body, .. } => Some(body),
+            _ => None,
+        })
+        .expect("expected outer command substitution");
+    let expr = expect_simple(&body[0]);
+    assert_eq!(expr.name.render(input), "expr");
+
+    let WordPart::CommandSubstitution { .. } = &expr.args[0].parts[0].kind else {
+        panic!("expected nested command substitution");
+    };
+    assert_eq!(expr.args[0].parts[0].span.slice(input), "$(nproc)");
+}
+
+#[test]
+fn test_parameter_quoted_default_operand_keeps_nested_command_substitution_spans() {
+    let input = "NUMJOBS=${NUMJOBS:-\" -j $(expr $(nproc) + 1) \"}\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+        panic!("expected scalar assignment");
+    };
+
+    let parameter = expect_parameter(word);
+    let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
+        operand_word_ast: Some(operand_word_ast),
+        ..
+    }) = &parameter.syntax
+    else {
+        panic!("expected parameter operation");
+    };
+    let WordPart::DoubleQuoted { parts, .. } = &operand_word_ast.parts[0].kind else {
+        panic!("expected quoted default operand");
+    };
+    let body = parts
+        .iter()
+        .find_map(|part| match &part.kind {
+            WordPart::CommandSubstitution { body, .. } => Some(body),
+            _ => None,
+        })
+        .expect("expected outer command substitution");
+    let expr = expect_simple(&body[0]);
+    assert_eq!(expr.name.render(input), "expr");
+
+    let WordPart::CommandSubstitution { .. } = &expr.args[0].parts[0].kind else {
+        panic!("expected nested command substitution");
+    };
+    assert_eq!(expr.args[0].parts[0].span.slice(input), "$(nproc)");
+}
+
+#[test]
 fn test_parameter_default_operand_does_not_absorb_later_double_quoted_expansion() {
     let input = "echo \"${home:-\"${default}\"}'${foo}'\"\n";
     let script = Parser::new(input).parse().unwrap().file;
@@ -3689,6 +3765,37 @@ value=\"$(\n\
     };
     let basename = expect_simple(&basename_body[0]);
     assert_eq!(basename.name.render(input), "basename");
+}
+
+#[test]
+fn test_prefixed_nested_escaped_quoted_command_substitution_keeps_command_names() {
+    let input = "#!/bin/sh\necho -n \"\\\"adp_$(echo $var | tr A-Z a-z)\\\": [\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let WordPart::DoubleQuoted { parts, .. } = &command.args[1].parts[0].kind else {
+        panic!("expected quoted echo argument");
+    };
+    let body = parts
+        .iter()
+        .find_map(|part| match &part.kind {
+            WordPart::CommandSubstitution { body, .. } => Some(body),
+            _ => None,
+        })
+        .expect("expected nested command substitution");
+
+    let AstCommand::Binary(pipeline) = &body[0].command else {
+        panic!("expected piped command");
+    };
+    let echo = expect_simple(&pipeline.left);
+    assert_eq!(echo.name.render(input), "echo");
+
+    let tr_command = expect_simple(&pipeline.right);
+    assert_eq!(tr_command.name.render(input), "tr");
+    assert_eq!(tr_command.args[0].render(input), "A-Z");
+    assert_eq!(tr_command.args[1].render(input), "a-z");
 }
 
 #[test]
