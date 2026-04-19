@@ -6,9 +6,3 @@ S008 quote array expansions to preserve element boundaries
   |
 4 | printf '%s\n' ${arr[@]}
   |
-
-S008 quote array expansions to preserve element boundaries
- --> <source>:5:15
-  |
-5 | printf '%s\n' ${arr[*]}
-  |

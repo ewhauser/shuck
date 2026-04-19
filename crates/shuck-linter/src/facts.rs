@@ -968,6 +968,7 @@ pub struct WordFact<'a> {
     unquoted_scalar_expansion_spans: Box<[Span]>,
     array_expansion_spans: Box<[Span]>,
     all_elements_array_expansion_spans: Box<[Span]>,
+    unquoted_all_elements_array_expansion_spans: Box<[Span]>,
     unquoted_array_expansion_spans: Box<[Span]>,
     command_substitution_spans: Box<[Span]>,
     unquoted_command_substitution_spans: Box<[Span]>,
@@ -1065,6 +1066,10 @@ impl<'a> WordFact<'a> {
 
     pub fn all_elements_array_expansion_spans(&self) -> &[Span] {
         &self.all_elements_array_expansion_spans
+    }
+
+    pub fn unquoted_all_elements_array_expansion_spans(&self) -> &[Span] {
+        &self.unquoted_all_elements_array_expansion_spans
     }
 
     pub fn unquoted_array_expansion_spans(&self) -> &[Span] {
@@ -10287,6 +10292,9 @@ impl<'a> WordFactCollector<'a> {
                 self.source,
             )
             .into_boxed_slice(),
+            unquoted_all_elements_array_expansion_spans:
+                span::unquoted_all_elements_array_expansion_part_spans(word_ref, self.source)
+                    .into_boxed_slice(),
             unquoted_array_expansion_spans: span::unquoted_array_expansion_part_spans(
                 word_ref,
                 self.source,
@@ -21516,6 +21524,40 @@ eval \"conda_shim() { case \\\"\\${1##*/}\\\" in ${shims[@]} *) return 1;; esac 
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
                 vec!["${shims[@]}"]
+            );
+        });
+    }
+
+    #[test]
+    fn builds_word_facts_for_unquoted_all_elements_array_expansions() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' $@ ${@:2} ${items[@]} ${items[@]:1} ${!items[@]} ${items[@]/#/#} ${items[@]@Q} ${items[@]:-fallback} ${items[@]:+fallback} \"$@\" \"${items[@]}\" $* ${items[*]} ${1+\"$@\"}
+";
+
+        with_facts(source, None, |_, facts| {
+            let spans = facts
+                .expansion_word_facts(ExpansionContext::CommandArgument)
+                .flat_map(|fact| {
+                    fact.unquoted_all_elements_array_expansion_spans()
+                        .iter()
+                        .map(|span| span.slice(source).to_owned())
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                spans,
+                vec![
+                    "$@",
+                    "${@:2}",
+                    "${items[@]}",
+                    "${items[@]:1}",
+                    "${!items[@]}",
+                    "${items[@]/#/#}",
+                    "${items[@]@Q}",
+                    "${items[@]:-fallback}"
+                ]
             );
         });
     }
