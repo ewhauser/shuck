@@ -1449,7 +1449,7 @@ fn filter_shellcheck_run(
 
     run.diagnostics
         .retain(|diag| shellcheck_filter_codes.contains(&diag.code));
-    run.parse_aborted = shellcheck_parse_aborted(&run.diagnostics);
+    run.parse_aborted |= shellcheck_parse_aborted(&run.diagnostics);
     run
 }
 
@@ -3757,7 +3757,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(codes, vec![2034, 2086]);
-        assert!(!filtered.parse_aborted);
+        assert!(filtered.parse_aborted);
     }
 
     #[test]

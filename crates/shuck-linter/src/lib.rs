@@ -3268,6 +3268,35 @@ f() {
     }
 
     #[test]
+    fn compound_test_operator_suppressed_by_shellcheck_disable_all() {
+        let source = "\
+#!/bin/bash
+# shellcheck disable=all
+[ \"$a\" = 1 -a \"$b\" = 2 ]
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let directives = parse_directives(
+            source,
+            indexer.comment_index(),
+            &ShellCheckCodeMap::default(),
+        );
+        let suppressions = SuppressionIndex::new(
+            &directives,
+            &output.file,
+            first_statement_line(&output.file).unwrap_or(u32::MAX),
+        );
+        let diagnostics = lint_file(
+            &output.file,
+            source,
+            &indexer,
+            &LinterSettings::for_rule(Rule::CompoundTestOperator),
+            Some(&suppressions),
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn local_in_sh_suppressed_by_shellcheck_directive() {
         let source = "\
 #!/bin/sh

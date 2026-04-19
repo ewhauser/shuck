@@ -262,47 +262,13 @@ impl<'a> SimpleTestFact<'a> {
     }
 
     pub fn compound_operator_spans(&self, source: &str) -> Vec<Span> {
-        match self.effective_shape {
-            SimpleTestShape::Binary => {
-                return self
-                    .effective_operator_word()
-                    .into_iter()
-                    .filter(|word| {
-                        self.effective_operand_class(1)
-                            .is_some_and(|class| class.is_fixed_literal())
-                            && classify_word(word, source).quote == WordQuote::Unquoted
-                    })
-                    .filter_map(|word| {
-                        static_word_text(word, source)
-                            .is_some_and(|text| matches!(text.as_str(), "-a" | "-o"))
-                            .then_some(word.span)
-                    })
-                    .collect();
-            }
-            SimpleTestShape::Other => {}
-            SimpleTestShape::Empty | SimpleTestShape::Truthy | SimpleTestShape::Unary => {
-                return Vec::new();
-            }
-        }
+        let Some((end, spans)) = simple_test_parse_logical_expression(self, 0, source) else {
+            return Vec::new();
+        };
 
-        self.effective_operands()
-            .iter()
-            .enumerate()
-            .filter(|(index, _word)| {
-                self.effective_operand_class(*index)
-                    .is_some_and(|class| class.is_fixed_literal())
-            })
-            .map(|(_index, word)| (word, classify_word(word, source)))
-            .filter_map(|(word, classification)| {
-                (classification.quote == WordQuote::Unquoted)
-                    .then_some(word)
-                    .and_then(|word| {
-                        static_word_text(word, source)
-                            .is_some_and(|text| matches!(text.as_str(), "-a" | "-o"))
-                            .then_some(word.span)
-                    })
-            })
-            .collect()
+        (end == self.effective_operands().len())
+            .then_some(spans)
+            .unwrap_or_default()
     }
 
     pub fn truthy_expression_words(&'a self, source: &str) -> Vec<&'a Word> {
@@ -522,6 +488,17 @@ fn simple_test_effective_operand_text(
     static_word_text(word, source)
 }
 
+fn simple_test_effective_unquoted_operand_text(
+    simple_test: &SimpleTestFact<'_>,
+    index: usize,
+    source: &str,
+) -> Option<String> {
+    let word = simple_test.effective_operands().get(index).copied()?;
+    (classify_word(word, source).quote == WordQuote::Unquoted)
+        .then(|| simple_test_effective_operand_text(simple_test, index, source))
+        .flatten()
+}
+
 fn simple_test_is_logical_connector(text: &str) -> bool {
     matches!(text, "-a" | "-o")
 }
@@ -532,6 +509,99 @@ fn simple_test_is_string_unary_operator(text: &str) -> bool {
 
 fn simple_test_is_string_binary_operator(text: &str) -> bool {
     matches!(text, "=" | "==" | "!=" | "<" | ">")
+}
+
+fn simple_test_parse_logical_expression(
+    simple_test: &SimpleTestFact<'_>,
+    start: usize,
+    source: &str,
+) -> Option<(usize, Vec<Span>)> {
+    let (mut index, mut spans) = simple_test_parse_logical_term(simple_test, start, source)?;
+
+    loop {
+        let Some(connector_span) = simple_test_logical_connector_span(simple_test, index, source)
+        else {
+            break;
+        };
+        let (next_index, next_spans) =
+            simple_test_parse_logical_term(simple_test, index + 1, source)?;
+        spans.push(connector_span);
+        spans.extend(next_spans);
+        index = next_index;
+    }
+
+    Some((index, spans))
+}
+
+fn simple_test_parse_logical_term(
+    simple_test: &SimpleTestFact<'_>,
+    start: usize,
+    source: &str,
+) -> Option<(usize, Vec<Span>)> {
+    let mut index = start;
+
+    while index + 1 < simple_test.effective_operands().len()
+        && simple_test_effective_unquoted_operand_text(simple_test, index, source).as_deref()
+            == Some("!")
+    {
+        index += 1;
+    }
+
+    simple_test_parse_logical_primary(simple_test, index, source)
+}
+
+fn simple_test_parse_logical_primary(
+    simple_test: &SimpleTestFact<'_>,
+    index: usize,
+    source: &str,
+) -> Option<(usize, Vec<Span>)> {
+    if simple_test_effective_operand_text(simple_test, index, source).as_deref() == Some("(") {
+        if let Some((end, spans)) =
+            simple_test_parse_logical_expression(simple_test, index + 1, source)
+        {
+            if simple_test_effective_operand_text(simple_test, end, source).as_deref() == Some(")")
+            {
+                return Some((end + 1, spans));
+            }
+        }
+    }
+
+    if simple_test_effective_operand_text(simple_test, index, source)
+        .as_deref()
+        .is_some_and(simple_test_is_unary_operator)
+        && simple_test.effective_operands().get(index + 1).is_some()
+    {
+        return Some((index + 2, Vec::new()));
+    }
+
+    if simple_test_effective_operand_text(simple_test, index + 1, source)
+        .as_deref()
+        .is_some_and(simple_test_is_nonlogical_binary_operator)
+        && simple_test.effective_operands().get(index + 2).is_some()
+    {
+        return Some((index + 3, Vec::new()));
+    }
+
+    simple_test
+        .effective_operands()
+        .get(index)
+        .map(|_| (index + 1, Vec::new()))
+}
+
+fn simple_test_logical_connector_span(
+    simple_test: &SimpleTestFact<'_>,
+    index: usize,
+    source: &str,
+) -> Option<Span> {
+    let word = simple_test.effective_operands().get(index).copied()?;
+    simple_test_effective_unquoted_operand_text(simple_test, index, source)
+        .as_deref()
+        .is_some_and(simple_test_is_logical_connector)
+        .then_some(word.span)
+}
+
+fn simple_test_is_nonlogical_binary_operator(text: &str) -> bool {
+    simple_test_is_binary_operator(text) && !simple_test_is_logical_connector(text)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20543,6 +20613,57 @@ test
                     .collect::<Vec<_>>(),
                 vec![("-z".to_owned(), "baz".to_owned())]
             );
+        });
+    }
+
+    #[test]
+    fn collects_compound_operator_spans_for_grouped_bracket_tests() {
+        let source = "\
+#!/bin/sh
+[ ! '(' -f \"$left\" -o -f \"$right\" ')' ]
+[ \"$a\" = 1 -a \\( \"$b\" = 2 -o \"$c\" = 3 \\) ]
+";
+
+        with_facts(source, None, |_, facts| {
+            let tests = facts
+                .structural_commands()
+                .filter_map(|fact| fact.simple_test())
+                .collect::<Vec<_>>();
+
+            assert_eq!(tests.len(), 2);
+            assert_eq!(
+                tests[0]
+                    .compound_operator_spans(source)
+                    .into_iter()
+                    .map(|span| span.slice(source).to_owned())
+                    .collect::<Vec<_>>(),
+                vec!["-o".to_owned()]
+            );
+            assert_eq!(
+                tests[1]
+                    .compound_operator_spans(source)
+                    .into_iter()
+                    .map(|span| span.slice(source).to_owned())
+                    .collect::<Vec<_>>(),
+                vec!["-a".to_owned(), "-o".to_owned()]
+            );
+        });
+    }
+
+    #[test]
+    fn skips_compound_operator_spans_for_malformed_grouped_bracket_tests() {
+        let source = "\
+#!/bin/sh
+[ -n \"${TMPDIR-}\" -a '(' '(' -d \"${TMPDIR-}\" -a -w \"${TMPDIR-}\" ')' -o '!' '(' -d /tmp -a -w /tmp ')' ')' ]
+";
+
+        with_facts(source, None, |_, facts| {
+            let test = facts
+                .structural_commands()
+                .find_map(|fact| fact.simple_test())
+                .expect("expected malformed simple test fact");
+
+            assert!(test.compound_operator_spans(source).is_empty());
         });
     }
 
