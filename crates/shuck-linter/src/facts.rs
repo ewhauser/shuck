@@ -266,9 +266,11 @@ impl<'a> SimpleTestFact<'a> {
             return Vec::new();
         };
 
-        (end == self.effective_operands().len())
-            .then_some(spans)
-            .unwrap_or_default()
+        if end == self.effective_operands().len() {
+            spans
+        } else {
+            Vec::new()
+        }
     }
 
     pub fn truthy_expression_words(&'a self, source: &str) -> Vec<&'a Word> {
@@ -555,15 +557,12 @@ fn simple_test_parse_logical_primary(
     index: usize,
     source: &str,
 ) -> Option<(usize, Vec<Span>)> {
-    if simple_test_effective_operand_text(simple_test, index, source).as_deref() == Some("(") {
-        if let Some((end, spans)) =
+    if simple_test_effective_operand_text(simple_test, index, source).as_deref() == Some("(")
+        && let Some((end, spans)) =
             simple_test_parse_logical_expression(simple_test, index + 1, source)
-        {
-            if simple_test_effective_operand_text(simple_test, end, source).as_deref() == Some(")")
-            {
-                return Some((end + 1, spans));
-            }
-        }
+        && simple_test_effective_operand_text(simple_test, end, source).as_deref() == Some(")")
+    {
+        return Some((end + 1, spans));
     }
 
     if simple_test_effective_operand_text(simple_test, index, source)
