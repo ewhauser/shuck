@@ -44,4 +44,21 @@ mod tests {
             vec!["$[1 + 2]", "$[3 + 4]"]
         );
     }
+
+    #[test]
+    fn reports_nested_legacy_arithmetic_fragments() {
+        let source = "#!/bin/bash\necho $[$[1 + 2] + 3]\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::LegacyArithmeticExpansion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$[$[1 + 2] + 3]", "$[1 + 2]"]
+        );
+    }
 }

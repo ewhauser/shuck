@@ -393,6 +393,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                 WordPart::ArithmeticExpansion {
                     expression,
                     syntax: ArithmeticExpansionSyntax::LegacyBracket,
+                    expression_word_ast,
                     expression_ast,
                     ..
                 } => {
@@ -410,10 +411,13 @@ impl<'a> SurfaceFragmentSink<'a> {
                         query::visit_arithmetic_words(expression_ast, &mut |word| {
                             self.collect_word(word, context);
                         });
+                    } else {
+                        self.collect_word(expression_word_ast, context);
                     }
                 }
                 WordPart::ArithmeticExpansion {
                     expression,
+                    expression_word_ast,
                     expression_ast,
                     ..
                 } => {
@@ -428,6 +432,8 @@ impl<'a> SurfaceFragmentSink<'a> {
                         query::visit_arithmetic_words(expression_ast, &mut |word| {
                             self.collect_word(word, context);
                         });
+                    } else {
+                        self.collect_word(expression_word_ast, context);
                     }
                 }
                 WordPart::CommandSubstitution {
@@ -616,6 +622,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                 HeredocBodyPart::ArithmeticExpansion {
                     expression,
                     syntax: ArithmeticExpansionSyntax::LegacyBracket,
+                    expression_word_ast,
                     expression_ast,
                     ..
                 } => {
@@ -633,10 +640,13 @@ impl<'a> SurfaceFragmentSink<'a> {
                         query::visit_arithmetic_words(expression_ast, &mut |word| {
                             self.collect_word(word, context);
                         });
+                    } else {
+                        self.collect_word(expression_word_ast, context);
                     }
                 }
                 HeredocBodyPart::ArithmeticExpansion {
                     expression,
+                    expression_word_ast,
                     expression_ast,
                     ..
                 } => {
@@ -651,6 +661,8 @@ impl<'a> SurfaceFragmentSink<'a> {
                         query::visit_arithmetic_words(expression_ast, &mut |word| {
                             self.collect_word(word, context);
                         });
+                    } else {
+                        self.collect_word(expression_word_ast, context);
                     }
                 }
                 HeredocBodyPart::Parameter(parameter) => {

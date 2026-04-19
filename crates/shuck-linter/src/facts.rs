@@ -22335,6 +22335,25 @@ if [[ \"$@\" =~ x ]]; then :; fi
     }
 
     #[test]
+    fn builds_nested_legacy_arithmetic_fragments_from_surface_words() {
+        let source = "\
+#!/bin/bash
+echo $[$[1 + 2] + 3]
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .legacy_arithmetic_fragments()
+                    .iter()
+                    .map(|fragment| fragment.span().slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["$[$[1 + 2] + 3]", "$[1 + 2]"]
+            );
+        });
+    }
+
+    #[test]
     fn open_double_quote_surface_facts_track_live_expansion_gaps() {
         let source = "\
 #!/bin/bash
