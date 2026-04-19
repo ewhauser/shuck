@@ -219,6 +219,61 @@ pub fn word_shell_quoting_literal_span(word: &Word, source: &str) -> Option<Span
     })
 }
 
+pub fn word_shell_quoting_literal_run_span_in_source(word: &Word, source: &str) -> Option<Span> {
+    let text = word.span.slice(source);
+    let mut cursor = if word.is_fully_double_quoted() && text.starts_with('"') {
+        1
+    } else {
+        0
+    };
+    let limit = if word.is_fully_double_quoted() && text.ends_with('"') {
+        text.len().saturating_sub(1)
+    } else {
+        text.len()
+    };
+    let mut saw_expansion = false;
+    let mut in_single = false;
+    let mut in_double = word.is_fully_double_quoted() && text.starts_with('"');
+    let mut index = cursor;
+
+    while index < limit {
+        let tail = &text[index..limit];
+        let Some(ch) = tail.chars().next() else {
+            break;
+        };
+        if ch == '\'' && !in_double && !text_position_is_escaped(text, index) {
+            in_single = !in_single;
+            index += ch.len_utf8();
+            continue;
+        }
+        if ch == '"' && !in_single && !text_position_is_escaped(text, index) {
+            in_double = !in_double;
+            index += ch.len_utf8();
+            continue;
+        }
+        if !in_single && matches!(ch, '$' | '`') && !text_position_is_escaped(text, index) {
+            saw_expansion = true;
+            if let Some(span) = word_shell_quoting_segment_span_in_source(word, text, cursor, index)
+            {
+                return Some(span);
+            }
+            index += shell_quoting_expansion_len(tail);
+            cursor = index;
+            continue;
+        }
+        index += ch.len_utf8();
+    }
+
+    if let Some(span) = word_shell_quoting_segment_span_in_source(word, text, cursor, limit) {
+        return Some(span);
+    }
+    if !saw_expansion && text_contains_shell_quoting_literals(&text[..limit]) {
+        return Some(word.span);
+    }
+
+    None
+}
+
 pub fn word_double_quoted_scalar_only_expansion_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_double_quoted_scalar_only_expansion_spans(&word.parts, false, &mut spans)
@@ -1684,6 +1739,21 @@ fn text_contains_shell_quoting_literals(text: &str) -> bool {
 
     false
 }
+
+fn text_position_is_escaped(text: &str, offset: usize) -> bool {
+    let bytes = text.as_bytes();
+    let mut cursor = offset;
+    let mut backslashes = 0usize;
+    while cursor > 0 {
+        cursor -= 1;
+        if bytes[cursor] != b'\\' {
+            break;
+        }
+        backslashes += 1;
+    }
+
+    backslashes % 2 == 1
+}
 fn literal_part_is_parameter_operator_tail(
     parts: &[WordPartNode],
     index: usize,
@@ -2117,6 +2187,154 @@ fn shell_quoting_literal_run_span(
         .unwrap_or(word.span.end);
 
     normalize_shell_quoting_segment_span(word, Span::from_positions(start, end), source)
+}
+
+fn word_shell_quoting_segment_span_in_source(
+    word: &Word,
+    text: &str,
+    start: usize,
+    end: usize,
+) -> Option<Span> {
+    let segment = &text[start..end];
+    if !text_contains_shell_quoting_literals(segment) {
+        return None;
+    }
+
+    let trimmed_start = if let Some(anchor) = first_shell_quoting_escape_anchor(segment) {
+        segment[..anchor]
+            .rfind('\'')
+            .map_or(start, |quote| start + quote + 1)
+    } else {
+        start
+    };
+
+    Some(Span::from_positions(
+        word.span.start.advanced_by(&text[..trimmed_start]),
+        word.span.start.advanced_by(&text[..end]),
+    ))
+}
+
+fn first_shell_quoting_escape_anchor(text: &str) -> Option<usize> {
+    let chars = text.char_indices().collect::<Vec<_>>();
+    for (index, (offset, ch)) in chars.iter().copied().enumerate() {
+        if ch != '\\' {
+            continue;
+        }
+        if let Some((_, next)) = chars.get(index + 1).copied()
+            && (matches!(next, '"' | '\'') || next.is_whitespace())
+        {
+            return Some(offset);
+        }
+    }
+
+    first_shell_quoting_anchor(text)
+}
+
+fn first_shell_quoting_anchor(text: &str) -> Option<usize> {
+    let chars = text.char_indices().collect::<Vec<_>>();
+    for (index, (offset, ch)) in chars.iter().copied().enumerate() {
+        if matches!(ch, '"' | '\'') {
+            return Some(offset);
+        }
+        if ch != '\\' {
+            continue;
+        }
+        if let Some((_, next)) = chars.get(index + 1).copied()
+            && (matches!(next, '"' | '\'') || next.is_whitespace())
+        {
+            return Some(offset);
+        }
+    }
+
+    None
+}
+
+fn shell_quoting_expansion_len(text: &str) -> usize {
+    if text.starts_with('`') {
+        return closing_backtick_offset(text).unwrap_or(1);
+    }
+    if !text.starts_with('$') {
+        return 1;
+    }
+
+    if text.starts_with("${") {
+        return braced_expansion_len(text).unwrap_or(2);
+    }
+    if text.starts_with("$(") {
+        return paren_expansion_len(text).unwrap_or(2);
+    }
+
+    let bytes = text.as_bytes();
+    let Some(&next) = bytes.get(1) else {
+        return 1;
+    };
+    if (next as char).is_ascii_alphabetic() || next == b'_' {
+        let mut end = 2usize;
+        while let Some(byte) = bytes.get(end) {
+            let ch = *byte as char;
+            if ch.is_ascii_alphanumeric() || ch == '_' {
+                end += 1;
+                continue;
+            }
+            break;
+        }
+        return end;
+    }
+    if (next as char).is_ascii_digit() || b"@*#?$!-".contains(&next) {
+        return 2;
+    }
+
+    1
+}
+
+fn closing_backtick_offset(text: &str) -> Option<usize> {
+    let mut chars = text.char_indices();
+    chars.next()?;
+    for (offset, ch) in chars {
+        if ch == '`' && !text_position_is_escaped(text, offset) {
+            return Some(offset + 1);
+        }
+    }
+
+    None
+}
+
+fn braced_expansion_len(text: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    for (offset, ch) in text.char_indices() {
+        match ch {
+            '$' if offset == 0 => {}
+            '{' => depth += 1,
+            '}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return Some(offset + 1);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
+fn paren_expansion_len(text: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    for (offset, ch) in text.char_indices() {
+        match ch {
+            '$' if offset == 0 => {}
+            '(' => depth += 1,
+            ')' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return Some(offset + 1);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
 }
 
 fn spans_share_literal_run(previous: Span, next: Span, source: &str) -> bool {
