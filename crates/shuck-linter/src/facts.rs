@@ -2096,6 +2096,17 @@ impl FindCommandFacts {
 }
 
 #[derive(Debug, Clone)]
+pub struct FindExecCommandFacts {
+    argument_word_spans: Box<[Span]>,
+}
+
+impl FindExecCommandFacts {
+    pub fn argument_word_spans(&self) -> &[Span] {
+        &self.argument_word_spans
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct FindExecDirCommandFacts {
     shell_command_spans: Box<[Span]>,
 }
@@ -2377,6 +2388,7 @@ pub struct CommandOptionFacts<'a> {
     printf: Option<PrintfCommandFacts<'a>>,
     unset: Option<UnsetCommandFacts<'a>>,
     find: Option<FindCommandFacts>,
+    find_exec: Option<FindExecCommandFacts>,
     find_execdir: Option<FindExecDirCommandFacts>,
     mapfile: Option<MapfileCommandFacts>,
     xargs: Option<XargsCommandFacts>,
@@ -2433,6 +2445,10 @@ impl<'a> CommandOptionFacts<'a> {
 
     pub fn find(&self) -> Option<&FindCommandFacts> {
         self.find.as_ref()
+    }
+
+    pub fn find_exec(&self) -> Option<&FindExecCommandFacts> {
+        self.find_exec.as_ref()
     }
 
     pub fn find_execdir(&self) -> Option<&FindExecDirCommandFacts> {
@@ -2538,6 +2554,12 @@ impl<'a> CommandOptionFacts<'a> {
             find: normalized
                 .effective_name_is("find")
                 .then(|| parse_find_command(normalized.body_args(), source)),
+            find_exec: (normalized.has_wrapper(WrapperKind::FindExec)
+                || normalized.has_wrapper(WrapperKind::FindExecDir))
+            .then(|| FindExecCommandFacts {
+                argument_word_spans: parse_find_exec_argument_word_spans(command, source)
+                    .into_boxed_slice(),
+            }),
             find_execdir: normalized
                 .has_wrapper(WrapperKind::FindExecDir)
                 .then(|| {
@@ -15808,6 +15830,75 @@ fn parse_find_execdir_shell_command(
     })
 }
 
+fn parse_find_exec_argument_word_spans(command: &Command, source: &str) -> Vec<Span> {
+    let Command::Simple(command) = command else {
+        return Vec::new();
+    };
+
+    let words = simple_command_body_words(command, source).collect::<Vec<_>>();
+    let mut spans = Vec::new();
+    let mut index = 0usize;
+
+    while index < words.len() {
+        let Some(action) = static_word_text(words[index], source) else {
+            index += 1;
+            continue;
+        };
+        if !matches!(action.as_str(), "-exec" | "-ok" | "-execdir" | "-okdir") {
+            index += 1;
+            continue;
+        }
+
+        let Some(command_name_index) = words.get(index + 1).map(|_| index + 1) else {
+            break;
+        };
+        let argument_start = command_name_index;
+        let terminator_index = find_exec_terminator_index(&words[argument_start..], source)
+            .map(|offset| argument_start + offset);
+        let argument_end = terminator_index.unwrap_or(words.len());
+
+        spans.extend(
+            words[argument_start..argument_end]
+                .iter()
+                .map(|word| word.span),
+        );
+
+        index = terminator_index.map_or(words.len(), |terminator_index| terminator_index + 1);
+    }
+
+    spans
+}
+
+fn find_exec_terminator_index(args: &[&Word], source: &str) -> Option<usize> {
+    let semicolon_terminator_index = args
+        .iter()
+        .position(|word| is_find_exec_semicolon_terminator(word, source));
+    let plus_terminator_index = args
+        .iter()
+        .enumerate()
+        .filter_map(|(index, word)| {
+            (index > 0
+                && static_word_text(word, source).as_deref() == Some("+")
+                && static_word_text(args[index - 1], source).as_deref() == Some("{}"))
+            .then_some(index)
+        })
+        .next();
+    match (semicolon_terminator_index, plus_terminator_index) {
+        (Some(semicolon_index), Some(plus_index)) => Some(semicolon_index.min(plus_index)),
+        (Some(semicolon_index), None) => Some(semicolon_index),
+        (None, Some(plus_index)) => Some(plus_index),
+        (None, None) => None,
+    }
+}
+
+fn is_find_exec_semicolon_terminator(word: &Word, source: &str) -> bool {
+    match static_word_text(word, source).as_deref() {
+        Some(";") => true,
+        Some("\\;") => classify_word(word, source).quote == WordQuote::Unquoted,
+        _ => false,
+    }
+}
+
 fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
     let mut has_print0 = false;
     let mut or_without_grouping_spans = Vec::new();
@@ -19963,6 +20054,286 @@ find $dir -type f -name \"rename*\" -execdir sh -c 'mv {} $(echo {} | sed \"s|re
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
                 vec!["'mv {} $(echo {} | sed \"s|rename|perl-rename|\")'"]
+            );
+        });
+    }
+
+    #[test]
+    fn builds_find_exec_argument_word_spans_for_wrapped_commands() {
+        let source = "\
+#!/bin/sh
+find \"$root\"/*.py -exec echo \"$prefix\"*.tmp {} \\; -name '*.cfg'
+result=$(find . -type d -name fuzz -exec dirname $(readlink -f {}) \\;)
+find . -execdir sh -c 'printf \"%s\\n\" {}' {} \\;
+";
+
+        with_facts(source, None, |_, facts| {
+            let top_level_find_exec = facts
+                .commands()
+                .iter()
+                .find(|fact| {
+                    fact.has_wrapper(WrapperKind::FindExec)
+                        && !fact.is_nested_word_command()
+                        && fact.effective_name_is("echo")
+                })
+                .expect("expected top-level find -exec fact");
+            assert_eq!(
+                top_level_find_exec
+                    .options()
+                    .find_exec()
+                    .expect("expected find -exec facts")
+                    .argument_word_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["echo", "\"$prefix\"*.tmp", "{}"]
+            );
+
+            let nested_find_exec = facts
+                .commands()
+                .iter()
+                .find(|fact| {
+                    fact.has_wrapper(WrapperKind::FindExec)
+                        && fact.is_nested_word_command()
+                        && fact.effective_name_is("dirname")
+                })
+                .expect("expected nested find -exec fact");
+            assert_eq!(
+                nested_find_exec
+                    .options()
+                    .find_exec()
+                    .expect("expected nested find -exec facts")
+                    .argument_word_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["dirname", "$(readlink -f {})"]
+            );
+
+            let plus_argument_find_exec = facts
+                .commands()
+                .iter()
+                .find(|fact| {
+                    fact.has_wrapper(WrapperKind::FindExec)
+                        && !fact.is_nested_word_command()
+                        && fact.effective_name_is("echo")
+                        && fact.options().find_exec().is_some_and(|find_exec| {
+                            find_exec
+                                .argument_word_spans()
+                                .iter()
+                                .any(|span| span.slice(source) == "\"$prefix\"*.tmp")
+                        })
+                })
+                .expect("expected semicolon-terminated find -exec fact");
+            assert_eq!(
+                plus_argument_find_exec
+                    .options()
+                    .find_exec()
+                    .expect("expected find -exec facts")
+                    .argument_word_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["echo", "\"$prefix\"*.tmp", "{}"]
+            );
+
+            let find_execdir = facts
+                .commands()
+                .iter()
+                .find(|fact| fact.has_wrapper(WrapperKind::FindExecDir))
+                .expect("expected find -execdir fact");
+            assert_eq!(
+                find_execdir
+                    .options()
+                    .find_exec()
+                    .expect("expected find -exec facts for execdir wrapper")
+                    .argument_word_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["sh", "-c", "'printf \"%s\\n\" {}'", "{}"]
+            );
+        });
+    }
+
+    #[test]
+    fn keeps_plus_arguments_before_semicolon_terminated_find_exec() {
+        let source = "#!/bin/sh\nfind . -exec echo + *.tmp {} \\;\n";
+
+        with_facts(source, None, |_, facts| {
+            let find_exec = facts
+                .commands()
+                .iter()
+                .find(|fact| fact.has_wrapper(WrapperKind::FindExec))
+                .expect("expected find -exec fact");
+
+            assert_eq!(
+                find_exec
+                    .options()
+                    .find_exec()
+                    .expect("expected find -exec facts")
+                    .argument_word_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["echo", "+", "*.tmp", "{}"]
+            );
+        });
+    }
+
+    #[test]
+    fn keeps_quoted_backslash_semicolon_arguments_before_find_exec_terminator() {
+        let source = "#!/bin/sh\nfind . -exec echo '\\;' *.tmp {} \\;\n";
+
+        with_facts(source, None, |_, facts| {
+            let find_exec = facts
+                .commands()
+                .iter()
+                .find(|fact| fact.has_wrapper(WrapperKind::FindExec))
+                .expect("expected find -exec fact");
+
+            assert_eq!(
+                find_exec
+                    .options()
+                    .find_exec()
+                    .expect("expected find -exec facts")
+                    .argument_word_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["echo", "'\\;'", "*.tmp", "{}"]
+            );
+        });
+    }
+
+    #[test]
+    fn treats_quoted_semicolon_as_find_exec_terminator() {
+        let source = "#!/bin/sh\nfind . -exec echo {} ';' -name *.cfg\n";
+
+        with_facts(source, None, |_, facts| {
+            let find_exec = facts
+                .commands()
+                .iter()
+                .find(|fact| fact.has_wrapper(WrapperKind::FindExec))
+                .expect("expected find -exec fact");
+
+            assert_eq!(
+                find_exec
+                    .options()
+                    .find_exec()
+                    .expect("expected find -exec facts")
+                    .argument_word_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["echo", "{}"]
+            );
+        });
+    }
+
+    #[test]
+    fn stops_at_plus_terminator_before_later_exec_semicolon() {
+        let source = "#!/bin/sh\nfind . -exec echo {} + -name *.cfg -exec rm {} \\;\n";
+
+        with_facts(source, None, |_, facts| {
+            let first_find_exec = facts
+                .commands()
+                .iter()
+                .find(|fact| {
+                    fact.has_wrapper(WrapperKind::FindExec) && fact.effective_name_is("echo")
+                })
+                .expect("expected first find -exec fact");
+
+            assert_eq!(
+                first_find_exec
+                    .options()
+                    .find_exec()
+                    .expect("expected find -exec facts")
+                    .argument_word_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["echo", "{}", "rm", "{}"]
+            );
+        });
+    }
+
+    #[test]
+    fn stops_at_first_plus_terminator_before_later_exec_plus() {
+        let source = "#!/bin/sh\nfind . -exec echo {} + -name *.cfg -exec rm {} +\n";
+
+        with_facts(source, None, |_, facts| {
+            let first_find_exec = facts
+                .commands()
+                .iter()
+                .find(|fact| {
+                    fact.has_wrapper(WrapperKind::FindExec) && fact.effective_name_is("echo")
+                })
+                .expect("expected first find -exec fact");
+
+            assert_eq!(
+                first_find_exec
+                    .options()
+                    .find_exec()
+                    .expect("expected find -exec facts")
+                    .argument_word_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["echo", "{}", "rm", "{}"]
+            );
+        });
+    }
+
+    #[test]
+    fn builds_find_exec_argument_word_spans_for_dynamic_command_names() {
+        let source = "#!/bin/sh\nfind . -exec \"$tool\" *.tmp {} \\;\n";
+
+        with_facts(source, None, |_, facts| {
+            let find_exec = facts
+                .commands()
+                .iter()
+                .find(|fact| fact.has_wrapper(WrapperKind::FindExec))
+                .expect("expected find -exec fact");
+
+            assert_eq!(find_exec.effective_name(), None);
+            assert_eq!(
+                find_exec
+                    .options()
+                    .find_exec()
+                    .expect("expected find -exec facts")
+                    .argument_word_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["\"$tool\"", "*.tmp", "{}"]
+            );
+        });
+    }
+
+    #[test]
+    fn builds_find_exec_argument_word_spans_for_later_exec_clauses() {
+        let source = "#!/bin/sh\nfind . -exec echo {} + -exec rm *.tmp {} +\n";
+
+        with_facts(source, None, |_, facts| {
+            let find_exec = facts
+                .commands()
+                .iter()
+                .find(|fact| {
+                    fact.has_wrapper(WrapperKind::FindExec) && fact.effective_name_is("echo")
+                })
+                .expect("expected find -exec fact");
+
+            assert_eq!(
+                find_exec
+                    .options()
+                    .find_exec()
+                    .expect("expected find -exec facts")
+                    .argument_word_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["echo", "{}", "rm", "*.tmp", "{}"]
             );
         });
     }
