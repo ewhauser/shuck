@@ -22,7 +22,7 @@ pub fn trailing_directive(checker: &mut Checker) {
 #[cfg(test)]
 mod tests {
     use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
     fn reports_inline_disable_directive() {
@@ -89,7 +89,11 @@ mod tests {
         let sources = [
             "#!/bin/sh\nif # shellcheck disable=SC2086\n  echo $foo\nthen\n  :\nfi\n",
             "#!/bin/sh\nif true; then # shellcheck disable=SC2086\n  echo $foo\nfi\n",
+            "#!/bin/sh\nif true; then { # shellcheck disable=SC2086\n  echo $foo\n}; fi\n",
+            "#!/bin/sh\nif true; then ( # shellcheck disable=SC2086\n  echo $foo\n); fi\n",
+            "#!/bin/sh\nif false; then\n  :\nelif true; then # shellcheck disable=SC2086\n  echo $foo\nfi\n",
             "#!/bin/sh\nif false; then\n  :\nelse # shellcheck disable=SC2086\n  echo $foo\nfi\n",
+            "#!/bin/sh\nfor item in 1; do # shellcheck disable=SC2086\n  echo $foo\ndone\n",
             "#!/bin/sh\nwhile # shellcheck disable=SC2086\n  echo $foo\ndo\n  :\ndone\n",
             "#!/bin/sh\nuntil # shellcheck disable=SC2086\n  echo $foo\ndo\n  :\ndone\n",
         ];
@@ -99,5 +103,44 @@ mod tests {
                 test_snippet(source, &LinterSettings::for_rule(Rule::TrailingDirective));
             assert!(diagnostics.is_empty(), "{source}");
         }
+    }
+
+    #[test]
+    fn ignores_directive_after_zsh_brace_control_flow_headers() {
+        let sources = [
+            "#!/bin/zsh\nif [[ -n $foo ]] { # shellcheck disable=SC2086\n  echo $foo\n}\n",
+            "#!/bin/zsh\nif [[ -n $foo ]] { :\n} elif [[ -n $bar ]] { # shellcheck disable=SC2086\n  echo $foo\n}\n",
+            "#!/bin/zsh\nif [[ -n $foo ]] { :\n} else { # shellcheck disable=SC2086\n  echo $foo\n}\n",
+            "#!/bin/zsh\nfor item in 1; { # shellcheck disable=SC2086\n  echo $foo\n}\n",
+            "#!/bin/zsh\nrepeat 2 { # shellcheck disable=SC2086\n  echo $foo\n}\n",
+            "#!/bin/zsh\nforeach item (1 2) { # shellcheck disable=SC2086\n  echo $foo\n}\n",
+        ];
+
+        for source in sources {
+            let diagnostics = test_snippet(
+                source,
+                &LinterSettings::for_rule(Rule::TrailingDirective).with_shell(ShellDialect::Zsh),
+            );
+            assert!(diagnostics.is_empty(), "{source}");
+        }
+    }
+
+    #[test]
+    fn reports_keyword_like_arguments_with_trailing_directives() {
+        let source = "#!/bin/sh\necho if # shellcheck disable=SC2086\necho $foo\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrailingDirective));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+    }
+
+    #[test]
+    fn reports_keyword_suffixes_inside_words_with_trailing_directives() {
+        let source =
+            "#!/bin/sh\nfor item in to-do # shellcheck disable=SC2086\ndo\n  echo $foo\ndone\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrailingDirective));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 2);
     }
 }

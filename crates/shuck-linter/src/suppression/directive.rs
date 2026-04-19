@@ -1,4 +1,4 @@
-use shuck_ast::{CaseItem, Command, CompoundCommand, File, TextRange, TextSize};
+use shuck_ast::{CaseItem, Command, CompoundCommand, File, StmtSeq, TextRange, TextSize};
 use shuck_indexer::{CommentIndex, IndexedComment};
 
 use crate::{
@@ -52,7 +52,9 @@ pub fn parse_directives(
 
         if let Some(directive) = parse_shuck_directive(&comment) {
             directives.push(directive);
-        } else if let Some(directive) = parse_shellcheck_directive(&comment, file, shellcheck_map) {
+        } else if let Some(directive) =
+            parse_shellcheck_directive(source, &comment, file, shellcheck_map)
+        {
             directives.push(directive);
         }
     }
@@ -70,7 +72,6 @@ pub fn parse_directives(
 #[derive(Debug, Clone, Copy)]
 struct NormalizedComment<'a> {
     text: &'a str,
-    line_prefix: &'a str,
     range: TextRange,
     line: u32,
     is_own_line: bool,
@@ -94,7 +95,6 @@ fn normalized_comment<'a>(
 
     Some(NormalizedComment {
         text: &source[comment_start..line_end],
-        line_prefix: &source[line_start..comment_start],
         range: TextRange::new(
             TextSize::new(comment_start as u32),
             TextSize::new(line_end as u32),
@@ -143,24 +143,12 @@ fn parse_shuck_directive(comment: &NormalizedComment<'_>) -> Option<SuppressionD
 }
 
 fn parse_shellcheck_directive(
+    source: &str,
     comment: &NormalizedComment<'_>,
     file: &File,
     shellcheck_map: &ShellCheckCodeMap,
 ) -> Option<SuppressionDirective> {
-    if !comment.is_own_line
-        && !shellcheck_directive_can_apply_to_following_command(comment.line_prefix)
-        && !is_case_label_directive(comment, file)
-    {
-        return None;
-    }
-
-    let body = strip_comment_prefix(comment.text);
-    let remainder = strip_prefix_ignore_ascii_case(body, "shellcheck")?;
-    if let Some(first) = remainder.chars().next()
-        && !first.is_ascii_whitespace()
-    {
-        return None;
-    }
+    let remainder = shellcheck_comment_remainder(comment.text)?;
 
     let mut codes = Vec::new();
     for part in remainder.split_ascii_whitespace() {
@@ -183,6 +171,13 @@ fn parse_shellcheck_directive(
         return None;
     }
 
+    if !comment.is_own_line
+        && !shellcheck_directive_can_apply_to_following_command(source, file, comment.range)
+        && !is_case_label_directive(comment, file)
+    {
+        return None;
+    }
+
     Some(SuppressionDirective {
         action: SuppressionAction::Disable,
         source: SuppressionSource::ShellCheck,
@@ -192,14 +187,226 @@ fn parse_shellcheck_directive(
     })
 }
 
-pub(crate) fn shellcheck_directive_can_apply_to_following_command(prefix: &str) -> bool {
-    let trimmed = prefix.trim_end();
-    trimmed.ends_with(';')
-        || trimmed.ends_with('{')
-        || trimmed.ends_with('(')
-        || ["if", "elif", "while", "until", "then", "do", "else"]
-            .into_iter()
-            .any(|keyword| ends_with_keyword(trimmed, keyword))
+pub(crate) fn shellcheck_directive_can_apply_to_following_command(
+    source: &str,
+    file: &File,
+    comment_range: TextRange,
+) -> bool {
+    let Some(context) = inline_directive_context(source, comment_range) else {
+        return false;
+    };
+
+    if context.prefix.trim_end().ends_with(';') {
+        return true;
+    }
+
+    iter_commands(
+        &file.body,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+    )
+    .any(|visit| match visit.command {
+        Command::Compound(CompoundCommand::If(command)) => {
+            let if_header = command.condition.first().is_some_and(|stmt| {
+                next_command_starts_after_comment_line(stmt.span.start.offset, &context)
+                    && command_start_segment_matches(
+                        source,
+                        visit.stmt.span.start.offset,
+                        context.comment_start,
+                        "if",
+                    )
+            });
+
+            let then_header = body_header_matches(
+                source,
+                command.condition.span.end.offset,
+                &command.then_branch,
+                &context,
+                "then",
+            ) || body_opener_matches(
+                source,
+                command.condition.span.end.offset,
+                &command.then_branch,
+                &context,
+                '{',
+            );
+
+            let mut previous_branch_end = command.then_branch.span.end.offset;
+            let mut elif_header = false;
+            let mut elif_body_header = false;
+            for (condition, branch) in &command.elif_branches {
+                elif_header |= condition.first().is_some_and(|stmt| {
+                    next_command_starts_after_comment_line(stmt.span.start.offset, &context)
+                        && gap_segment_ends_with_keyword(
+                            source,
+                            previous_branch_end,
+                            context.comment_start,
+                            "elif",
+                        )
+                });
+                elif_body_header |= body_header_matches(
+                    source,
+                    condition.span.end.offset,
+                    branch,
+                    &context,
+                    "then",
+                ) || body_opener_matches(
+                    source,
+                    condition.span.end.offset,
+                    branch,
+                    &context,
+                    '{',
+                );
+                previous_branch_end = branch.span.end.offset;
+            }
+
+            let else_header = command.else_branch.as_ref().is_some_and(|branch| {
+                branch.first().is_some_and(|stmt| {
+                    next_command_starts_after_comment_line(stmt.span.start.offset, &context)
+                        && (gap_segment_ends_with_keyword(
+                            source,
+                            previous_branch_end,
+                            context.comment_start,
+                            "else",
+                        ) || gap_segment_ends_with_char(
+                            source,
+                            previous_branch_end,
+                            context.comment_start,
+                            '{',
+                        ))
+                })
+            });
+
+            if_header || then_header || elif_header || elif_body_header || else_header
+        }
+        Command::Compound(CompoundCommand::For(command)) => {
+            body_header_matches(
+                source,
+                visit.stmt.span.start.offset,
+                &command.body,
+                &context,
+                "do",
+            ) || body_opener_matches(
+                source,
+                visit.stmt.span.start.offset,
+                &command.body,
+                &context,
+                '{',
+            )
+        }
+        Command::Compound(CompoundCommand::Repeat(command)) => {
+            body_header_matches(
+                source,
+                visit.stmt.span.start.offset,
+                &command.body,
+                &context,
+                "do",
+            ) || body_opener_matches(
+                source,
+                visit.stmt.span.start.offset,
+                &command.body,
+                &context,
+                '{',
+            )
+        }
+        Command::Compound(CompoundCommand::Foreach(command)) => {
+            body_header_matches(
+                source,
+                visit.stmt.span.start.offset,
+                &command.body,
+                &context,
+                "do",
+            ) || body_opener_matches(
+                source,
+                visit.stmt.span.start.offset,
+                &command.body,
+                &context,
+                '{',
+            )
+        }
+        Command::Compound(CompoundCommand::ArithmeticFor(command)) => {
+            body_header_matches(
+                source,
+                visit.stmt.span.start.offset,
+                &command.body,
+                &context,
+                "do",
+            ) || body_opener_matches(
+                source,
+                visit.stmt.span.start.offset,
+                &command.body,
+                &context,
+                '{',
+            )
+        }
+        Command::Compound(CompoundCommand::While(command)) => {
+            loop_header_matches(
+                source,
+                visit.stmt.span.start.offset,
+                &command.condition,
+                context,
+                "while",
+            ) || body_header_matches(
+                source,
+                command.condition.span.end.offset,
+                &command.body,
+                &context,
+                "do",
+            ) || body_opener_matches(
+                source,
+                command.condition.span.end.offset,
+                &command.body,
+                &context,
+                '{',
+            )
+        }
+        Command::Compound(CompoundCommand::Until(command)) => {
+            loop_header_matches(
+                source,
+                visit.stmt.span.start.offset,
+                &command.condition,
+                context,
+                "until",
+            ) || body_header_matches(
+                source,
+                command.condition.span.end.offset,
+                &command.body,
+                &context,
+                "do",
+            ) || body_opener_matches(
+                source,
+                command.condition.span.end.offset,
+                &command.body,
+                &context,
+                '{',
+            )
+        }
+        Command::Compound(CompoundCommand::Select(command)) => {
+            body_header_matches(
+                source,
+                visit.stmt.span.start.offset,
+                &command.body,
+                &context,
+                "do",
+            ) || body_opener_matches(
+                source,
+                visit.stmt.span.start.offset,
+                &command.body,
+                &context,
+                '{',
+            )
+        }
+        Command::Compound(CompoundCommand::Subshell(body)) => body.first().is_some_and(|stmt| {
+            next_command_starts_after_comment_line(stmt.span.start.offset, &context)
+                && context.prefix.trim_end().ends_with('(')
+        }),
+        Command::Compound(CompoundCommand::BraceGroup(body)) => body.first().is_some_and(|stmt| {
+            next_command_starts_after_comment_line(stmt.span.start.offset, &context)
+                && context.prefix.trim_end().ends_with('{')
+        }),
+        _ => false,
+    })
 }
 
 fn is_case_label_directive(comment: &NormalizedComment<'_>, file: &File) -> bool {
@@ -250,12 +457,137 @@ fn strip_prefix_ignore_ascii_case<'a>(text: &'a str, prefix: &str) -> Option<&'a
         .then(|| &text[prefix.len()..])
 }
 
-fn ends_with_keyword(text: &str, keyword: &str) -> bool {
-    text == keyword
-        || text
-            .strip_suffix(keyword)
-            .and_then(|prefix| prefix.chars().last())
-            .is_some_and(|ch| ch.is_ascii_whitespace())
+fn shellcheck_comment_remainder(comment_text: &str) -> Option<&str> {
+    let body = strip_comment_prefix(comment_text);
+    let remainder = strip_prefix_ignore_ascii_case(body, "shellcheck")?;
+    if let Some(first) = remainder.chars().next()
+        && !first.is_ascii_whitespace()
+    {
+        return None;
+    }
+    Some(remainder)
+}
+
+#[derive(Debug, Clone, Copy)]
+struct InlineDirectiveContext<'a> {
+    prefix: &'a str,
+    line_end: usize,
+    comment_start: usize,
+}
+
+fn inline_directive_context<'a>(
+    source: &'a str,
+    comment_range: TextRange,
+) -> Option<InlineDirectiveContext<'a>> {
+    let comment_start = usize::from(comment_range.start()).min(source.len());
+    let line_start = source[..comment_start]
+        .rfind('\n')
+        .map_or(0, |index| index + 1);
+    let line_end = source[comment_start..]
+        .find('\n')
+        .map_or(source.len(), |index| comment_start + index);
+
+    Some(InlineDirectiveContext {
+        prefix: &source[line_start..comment_start],
+        line_end,
+        comment_start,
+    })
+}
+
+fn next_command_starts_after_comment_line(
+    next_command_start: usize,
+    context: &InlineDirectiveContext<'_>,
+) -> bool {
+    next_command_start >= context.line_end
+}
+
+fn command_start_segment_matches(
+    source: &str,
+    command_start: usize,
+    comment_start: usize,
+    keyword: &str,
+) -> bool {
+    segment_ends_with_keyword(source, command_start, comment_start, keyword)
+}
+
+fn gap_segment_ends_with_keyword(
+    source: &str,
+    gap_start: usize,
+    comment_start: usize,
+    keyword: &str,
+) -> bool {
+    segment_ends_with_keyword(source, gap_start.min(comment_start), comment_start, keyword)
+}
+
+fn gap_segment_ends_with_char(
+    source: &str,
+    gap_start: usize,
+    comment_start: usize,
+    ch: char,
+) -> bool {
+    segment_ends_with_char(source, gap_start.min(comment_start), comment_start, ch)
+}
+
+fn segment_ends_with_keyword(source: &str, start: usize, end: usize, keyword: &str) -> bool {
+    let Some(segment) = source.get(start.min(end)..end) else {
+        return false;
+    };
+    let trimmed = segment.trim_end_matches([' ', '\t', '\r']);
+    let Some(prefix) = trimmed.strip_suffix(keyword) else {
+        return false;
+    };
+
+    prefix
+        .chars()
+        .next_back()
+        .is_none_or(|ch| ch.is_ascii_whitespace())
+}
+
+fn segment_ends_with_char(source: &str, start: usize, end: usize, ch: char) -> bool {
+    let Some(segment) = source.get(start.min(end)..end) else {
+        return false;
+    };
+
+    segment.trim_end_matches([' ', '\t', '\r']).ends_with(ch)
+}
+
+fn loop_header_matches(
+    source: &str,
+    command_start: usize,
+    condition: &StmtSeq,
+    context: InlineDirectiveContext<'_>,
+    keyword: &str,
+) -> bool {
+    condition.first().is_some_and(|stmt| {
+        next_command_starts_after_comment_line(stmt.span.start.offset, &context)
+            && command_start_segment_matches(source, command_start, context.comment_start, keyword)
+    })
+}
+
+fn body_header_matches(
+    source: &str,
+    header_end: usize,
+    body: &StmtSeq,
+    context: &InlineDirectiveContext<'_>,
+    keyword: &str,
+) -> bool {
+    body.first().is_some_and(|stmt| {
+        next_command_starts_after_comment_line(stmt.span.start.offset, context)
+            && gap_segment_ends_with_keyword(source, header_end, context.comment_start, keyword)
+    })
+}
+
+fn body_opener_matches(
+    source: &str,
+    header_end: usize,
+    body: &StmtSeq,
+    context: &InlineDirectiveContext<'_>,
+    opener: char,
+) -> bool {
+    body.first().is_some_and(|stmt| {
+        next_command_starts_after_comment_line(stmt.span.start.offset, context)
+            && gap_segment_ends_with_char(source, header_end, context.comment_start, opener)
+    })
 }
 
 fn parse_shuck_action(value: &str) -> Option<SuppressionAction> {
@@ -290,12 +622,16 @@ fn resolve_rule_code(code: &str) -> Option<Rule> {
 #[cfg(test)]
 mod tests {
     use shuck_indexer::Indexer;
-    use shuck_parser::parser::Parser;
+    use shuck_parser::parser::{Parser, ShellDialect};
 
     use super::*;
 
     fn directives(source: &str) -> Vec<SuppressionDirective> {
-        let output = Parser::new(source).parse().unwrap();
+        directives_with_dialect(source, ShellDialect::Bash)
+    }
+
+    fn directives_with_dialect(source: &str, dialect: ShellDialect) -> Vec<SuppressionDirective> {
+        let output = Parser::with_dialect(source, dialect).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         parse_directives(
             source,
@@ -383,6 +719,19 @@ esac
     }
 
     #[test]
+    fn rejects_shellcheck_directives_after_keyword_like_arguments() {
+        let source = "\
+echo if # shellcheck disable=SC2086
+echo $foo
+echo { # shellcheck disable=SC2086
+echo $bar
+";
+        let directives = directives(source);
+
+        assert!(directives.is_empty());
+    }
+
+    #[test]
     fn parses_shellcheck_directives_after_control_flow_headers_and_group_openers() {
         let source = "\
 if # shellcheck disable=SC2086
@@ -416,6 +765,112 @@ done
         let directives = directives(source);
 
         assert_eq!(directives.len(), 9);
+        assert!(directives.iter().all(|directive| {
+            directive.source == SuppressionSource::ShellCheck
+                && directive.codes == vec![Rule::UnquotedExpansion]
+        }));
+    }
+
+    #[test]
+    fn parses_shellcheck_directives_after_elif_then_header() {
+        let source = "\
+if false; then
+  :
+elif true; then # shellcheck disable=SC2086
+  echo $foo
+fi
+";
+        let directives = directives(source);
+
+        assert_eq!(directives.len(), 1);
+        assert_eq!(directives[0].source, SuppressionSource::ShellCheck);
+        assert_eq!(directives[0].codes, vec![Rule::UnquotedExpansion]);
+        assert_eq!(directives[0].line, 3);
+    }
+
+    #[test]
+    fn parses_shellcheck_directives_after_for_do_header() {
+        let source = "\
+for item in 1; do # shellcheck disable=SC2086
+  echo $foo
+done
+";
+        let directives = directives(source);
+
+        assert_eq!(directives.len(), 1);
+        assert_eq!(directives[0].source, SuppressionSource::ShellCheck);
+        assert_eq!(directives[0].codes, vec![Rule::UnquotedExpansion]);
+        assert_eq!(directives[0].line, 1);
+    }
+
+    #[test]
+    fn rejects_shellcheck_directives_after_keyword_suffixes_inside_words() {
+        let source = "\
+for item in to-do # shellcheck disable=SC2086
+do
+  echo $foo
+done
+";
+        let directives = directives(source);
+
+        assert!(directives.is_empty());
+    }
+
+    #[test]
+    fn parses_shellcheck_directives_after_then_inline_group_openers() {
+        let source = "\
+if true; then { # shellcheck disable=SC2086
+  echo $foo
+}; fi
+if true; then ( # shellcheck disable=SC2086
+  echo $bar
+); fi
+";
+        let directives = directives(source);
+
+        assert_eq!(directives.len(), 2);
+        assert!(directives.iter().all(|directive| {
+            directive.source == SuppressionSource::ShellCheck
+                && directive.codes == vec![Rule::UnquotedExpansion]
+        }));
+    }
+
+    #[test]
+    fn parses_shellcheck_directives_after_zsh_brace_if_headers() {
+        let source = "\
+if [[ -n $foo ]] { # shellcheck disable=SC2086
+  echo $foo
+} elif [[ -n $bar ]] { # shellcheck disable=SC2086
+  echo $bar
+} else { # shellcheck disable=SC2086
+  echo $baz
+}
+";
+        let directives = directives_with_dialect(source, ShellDialect::Zsh);
+
+        assert_eq!(directives.len(), 3);
+        assert!(directives.iter().all(|directive| {
+            directive.source == SuppressionSource::ShellCheck
+                && directive.codes == vec![Rule::UnquotedExpansion]
+        }));
+    }
+
+    #[test]
+    fn parses_shellcheck_directives_after_zsh_brace_loop_headers() {
+        let source = "\
+for item in 1; { # shellcheck disable=SC2086
+  echo $foo
+}
+repeat 2 { # shellcheck disable=SC2086
+  echo $bar
+}
+foreach item (1 2) { # shellcheck disable=SC2086
+  echo $baz
+}
+";
+        let directives = directives_with_dialect(source, ShellDialect::Zsh);
+
+        assert_eq!(directives.len(), 3);
         assert!(directives.iter().all(|directive| {
             directive.source == SuppressionSource::ShellCheck
                 && directive.codes == vec![Rule::UnquotedExpansion]

@@ -491,13 +491,17 @@ where
 #[cfg(test)]
 mod tests {
     use shuck_indexer::Indexer;
-    use shuck_parser::parser::Parser;
+    use shuck_parser::parser::{Parser, ShellDialect};
 
     use super::*;
     use crate::{ShellCheckCodeMap, parse_directives};
 
     fn suppression_index(source: &str) -> SuppressionIndex {
-        let output = Parser::new(source).parse().unwrap();
+        suppression_index_with_dialect(source, ShellDialect::Bash)
+    }
+
+    fn suppression_index_with_dialect(source: &str, dialect: ShellDialect) -> SuppressionIndex {
+        let output = Parser::with_dialect(source, dialect).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
@@ -678,6 +682,38 @@ echo $foo
     }
 
     #[test]
+    fn scopes_shellcheck_disable_after_elif_then_header_to_the_next_command() {
+        let source = "\
+foo='a b'
+if false; then
+  :
+elif true; then # shellcheck disable=SC2086
+  echo $foo
+fi
+echo $foo
+";
+        let index = suppression_index(source);
+
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 5));
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 7));
+    }
+
+    #[test]
+    fn scopes_shellcheck_disable_after_for_do_header_to_the_next_command() {
+        let source = "\
+foo='a b'
+for item in 1; do # shellcheck disable=SC2086
+  echo $foo
+done
+echo $foo
+";
+        let index = suppression_index(source);
+
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 3));
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 5));
+    }
+
+    #[test]
     fn scopes_shellcheck_disable_after_brace_group_opener_to_the_next_command() {
         let source = "\
 foo='a b'
@@ -690,6 +726,107 @@ echo $foo
 
         assert!(index.is_suppressed(Rule::UnquotedExpansion, 3));
         assert!(!index.is_suppressed(Rule::UnquotedExpansion, 5));
+    }
+
+    #[test]
+    fn scopes_shellcheck_disable_after_then_inline_brace_group_opener() {
+        let source = "\
+foo='a b'
+if true; then { # shellcheck disable=SC2086
+  echo $foo
+}; fi
+echo $foo
+";
+        let index = suppression_index(source);
+
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 3));
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 5));
+    }
+
+    #[test]
+    fn scopes_shellcheck_disable_after_then_inline_subshell_opener() {
+        let source = "\
+foo='a b'
+if true; then ( # shellcheck disable=SC2086
+  echo $foo
+); fi
+echo $foo
+";
+        let index = suppression_index(source);
+
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 3));
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 5));
+    }
+
+    #[test]
+    fn scopes_shellcheck_disable_after_zsh_brace_if_headers() {
+        let source = "\
+foo='a b'
+if [[ -n $foo ]] { # shellcheck disable=SC2086
+  echo $foo
+} elif [[ -n $foo ]] { # shellcheck disable=SC2086
+  echo $foo
+} else { # shellcheck disable=SC2086
+  echo $foo
+}
+echo $foo
+";
+        let index = suppression_index_with_dialect(source, ShellDialect::Zsh);
+
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 3));
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 5));
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 7));
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 9));
+    }
+
+    #[test]
+    fn scopes_shellcheck_disable_after_zsh_brace_loop_headers() {
+        let source = "\
+foo='a b'
+for item in 1; { # shellcheck disable=SC2086
+  echo $foo
+}
+repeat 2 { # shellcheck disable=SC2086
+  echo $foo
+}
+foreach item (1 2) { # shellcheck disable=SC2086
+  echo $foo
+}
+echo $foo
+";
+        let index = suppression_index_with_dialect(source, ShellDialect::Zsh);
+
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 3));
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 6));
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 9));
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 11));
+    }
+
+    #[test]
+    fn ignores_shellcheck_directives_after_keyword_like_arguments() {
+        let source = "\
+echo if # shellcheck disable=SC2086
+echo $foo
+";
+        let index = suppression_index(source);
+
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 2));
+    }
+
+    #[test]
+    fn ignores_shellcheck_directives_after_keyword_suffixes_inside_words() {
+        let source = "\
+foo='a b'
+for item in to-do # shellcheck disable=SC2086
+do
+  echo $foo
+done
+echo $foo
+";
+        let index = suppression_index(source);
+
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 4));
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 6));
     }
 
     #[test]
