@@ -131,6 +131,24 @@ export quote
     }
 
     #[test]
+    fn reports_bracket_v_tests_but_not_other_variable_set_forms() {
+        let source = "\
+#!/bin/bash
+args='--name \"hello world\"'
+[ -v args ]
+test -v args
+[[ -v args ]]
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::VariableAsCommandName),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "args");
+    }
+
+    #[test]
     fn reports_unquoted_reuse_of_single_quoted_backslash_newline_values() {
         let source = "\
 #!/bin/sh

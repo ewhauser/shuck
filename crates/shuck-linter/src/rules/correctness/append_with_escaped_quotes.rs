@@ -95,6 +95,26 @@ cat <<< $args\n";
     }
 
     #[test]
+    fn reports_assignments_reused_by_bracket_v_tests() {
+        let source = "\
+#!/bin/bash
+args='--name \"hello world\"'\n\
+[ -v args ]\n\
+test -v args\n\
+[[ -v args ]]\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "'--name \"hello world\"'"
+        );
+    }
+
+    #[test]
     fn anchors_multiline_literal_runs_before_the_next_expansion() {
         let source = "\
 #!/bin/sh
