@@ -3199,6 +3199,27 @@ fn test_parse_conditional_regex_rhs_with_double_left_paren_groups() {
 }
 
 #[test]
+fn test_parse_conditional_regex_rhs_keeps_parameter_pattern_with_literal_paren() {
+    let input = "[[ \"${2}\" =~ ^${__theme%% (*} ]]\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Conditional(command) = compound else {
+        panic!("expected conditional compound command");
+    };
+
+    let ConditionalExpr::Binary(binary) = &command.expression else {
+        panic!("expected binary conditional");
+    };
+    assert_eq!(binary.op, ConditionalBinaryOp::RegexMatch);
+
+    let ConditionalExpr::Regex(word) = binary.right.as_ref() else {
+        panic!("expected regex rhs");
+    };
+    assert_eq!(word.render(input), "^${__theme%% (*}");
+}
+
+#[test]
 fn test_parse_conditional_regex_allows_left_brace_operand() {
     let input = "[[ { =~ \"{\" ]]\n";
     let script = Parser::new(input).parse().unwrap().file;
