@@ -67,7 +67,7 @@ pub use rules::common::span::{
     word_unquoted_escaped_pipe_or_brace_spans_in_source, word_unquoted_glob_pattern_spans,
     word_unquoted_glob_pattern_spans_outside_brace_expansion,
     word_unquoted_scalar_between_double_quoted_segments_spans, word_unquoted_star_parameter_spans,
-    word_unquoted_star_splat_spans, word_unquoted_word_between_single_quoted_segments_spans,
+    word_unquoted_star_splat_spans, word_unquoted_word_after_single_quoted_segment_spans,
     word_zsh_flag_modifier_spans, word_zsh_nested_expansion_spans,
 };
 pub use rules::common::word::{

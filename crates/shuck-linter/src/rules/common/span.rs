@@ -419,38 +419,36 @@ pub fn word_unquoted_assign_default_spans(word: &Word) -> Vec<Span> {
     spans
 }
 
-pub fn word_unquoted_word_between_single_quoted_segments_spans(
+pub fn word_unquoted_word_after_single_quoted_segment_spans(
     word: &Word,
     source: &str,
 ) -> Vec<Span> {
-    if word.parts.len() < 3 {
-        return Vec::new();
+    let mut spans = Vec::new();
+
+    for (index, part) in word.parts.iter().enumerate() {
+        if !is_non_dollar_single_quoted(part) {
+            continue;
+        }
+        if single_quoted_fragment_inner_text(part, source).is_some_and(|text| text.ends_with('\\'))
+        {
+            continue;
+        }
+
+        for next_part in word.parts.iter().skip(index + 1) {
+            if next_part.kind.is_quoted() {
+                break;
+            }
+
+            let WordPart::Literal(text) = &next_part.kind else {
+                continue;
+            };
+            if literal_contains_unquoted_word_chars(text.as_str(source, next_part.span)) {
+                spans.push(next_part.span);
+            }
+        }
     }
 
-    word.parts
-        .windows(3)
-        .filter_map(|window| {
-            let [left, middle, right] = window else {
-                return None;
-            };
-            if !is_non_dollar_single_quoted(left) || !is_non_dollar_single_quoted(right) {
-                return None;
-            }
-            if single_quoted_fragment_inner_text(left, source)
-                .is_some_and(|text| text.ends_with('\\'))
-                || single_quoted_fragment_inner_text(right, source)
-                    .is_some_and(|text| text.starts_with('\\'))
-            {
-                return None;
-            }
-
-            let WordPart::Literal(text) = &middle.kind else {
-                return None;
-            };
-            literal_contains_unquoted_word_chars(text.as_str(source, middle.span))
-                .then_some(middle.span)
-        })
-        .collect()
+    spans
 }
 
 pub fn word_unquoted_scalar_between_double_quoted_segments_spans(
@@ -3308,10 +3306,7 @@ fn single_quoted_fragment_inner_text<'a>(part: &WordPartNode, source: &'a str) -
 
 fn literal_contains_unquoted_word_chars(text: &str) -> bool {
     !text.is_empty()
-        && text
-            .as_bytes()
-            .iter()
-            .all(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+        && text.as_bytes().iter().all(u8::is_ascii_alphanumeric)
         && text.as_bytes().iter().any(u8::is_ascii_alphanumeric)
 }
 
@@ -3470,7 +3465,7 @@ mod tests {
         word_unquoted_assign_default_spans, word_unquoted_escaped_pipe_or_brace_spans_in_source,
         word_unquoted_glob_pattern_spans, word_unquoted_glob_pattern_spans_outside_brace_expansion,
         word_unquoted_scalar_between_double_quoted_segments_spans, word_unquoted_star_splat_spans,
-        word_unquoted_word_between_single_quoted_segments_spans,
+        word_unquoted_word_after_single_quoted_segment_spans,
     };
 
     #[test]
@@ -4329,9 +4324,9 @@ printf '%s\\n' mode\\|verbose token\\{a,b\\} token\\}end \"mode\\|verbose\" 'tok
     }
 
     #[test]
-    fn word_unquoted_word_between_single_quoted_segments_spans_track_literal_middle_words() {
+    fn word_unquoted_word_after_single_quoted_segment_spans_tracks_literal_suffix_words() {
         let source = "\
-printf '%s\\n' 'foo'Default'baz' 'foo'123'baz' 'foo'-'baz' 'foo''baz' 'foo'$bar'baz' $'foo'Default'baz'
+printf '%s\\n' 'foo'Default'baz' 'foo'123'baz' 'foo'-'baz' 'foo''baz' 'foo'$bar'baz' $'foo'Default'baz' '/x/'d ^default'\\s'via 'left'lib$SUFFIX'right' 'left'fuzz_ng_$SUFFIX'right'
 ";
         let output = Parser::new(source).parse().unwrap();
         let command = &output.file.body[0].command;
@@ -4342,15 +4337,15 @@ printf '%s\\n' 'foo'Default'baz' 'foo'123'baz' 'foo'-'baz' 'foo''baz' 'foo'$bar'
         let spans = command
             .args
             .iter()
-            .flat_map(|word| word_unquoted_word_between_single_quoted_segments_spans(word, source))
+            .flat_map(|word| word_unquoted_word_after_single_quoted_segment_spans(word, source))
             .map(|span| span.slice(source))
             .collect::<Vec<_>>();
 
-        assert_eq!(spans, vec!["Default", "123"]);
+        assert_eq!(spans, vec!["Default", "123", "d", "via", "lib"]);
     }
 
     #[test]
-    fn word_unquoted_word_between_single_quoted_segments_ignores_escaped_quote_bridges() {
+    fn word_unquoted_word_after_single_quoted_segment_ignores_escaped_quote_bridges() {
         let source = "\
 printf '%s\\n' 's/foo/'\\''bar'\\''/g' 'foo'Default'baz'
 ";
@@ -4363,7 +4358,7 @@ printf '%s\\n' 's/foo/'\\''bar'\\''/g' 'foo'Default'baz'
         let spans = command
             .args
             .iter()
-            .flat_map(|word| word_unquoted_word_between_single_quoted_segments_spans(word, source))
+            .flat_map(|word| word_unquoted_word_after_single_quoted_segment_spans(word, source))
             .map(|span| span.slice(source))
             .collect::<Vec<_>>();
 

@@ -1,26 +1,45 @@
 ---
 source: crates/shuck-linter/src/rules/style/mod.rs
+assertion_line: 177
 ---
-S050 an unquoted word appears between single-quoted segments
+S050 an unquoted word follows single-quoted text
  --> <source>:2:20
   |
 2 | printf '%s\n' 'foo'Default'baz'
   |
 
-S050 an unquoted word appears between single-quoted segments
+S050 an unquoted word follows single-quoted text
  --> <source>:3:21
   |
 3 | sed -i 's/${title}/'Default'/g' "$file"
   |
 
-S050 an unquoted word appears between single-quoted segments
+S050 an unquoted word follows single-quoted text
  --> <source>:4:6
   |
 4 | x='a'b'c'
   |
 
-S050 an unquoted word appears between single-quoted segments
+S050 an unquoted word follows single-quoted text
  --> <source>:5:9
   |
 5 | arr=('a'123'c')
+  |
+
+S050 an unquoted word follows single-quoted text
+ --> <source>:6:22
+  |
+6 | sed -i '/.*certs\.h/'d dependencies/file.cpp
+  |
+
+S050 an unquoted word follows single-quoted text
+ --> <source>:7:29
+  |
+7 | ip route | grep ^default'\s'via | head -1
+  |
+
+S050 an unquoted word follows single-quoted text
+ --> <source>:8:30
+  |
+8 | sed -i '/install(/s,\<lib\>,'lib$LIBDIRSUFFIX',' CMakeLists.txt
   |
