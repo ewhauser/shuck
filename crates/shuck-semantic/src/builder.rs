@@ -3415,10 +3415,33 @@ fn classify_source_ref_diagnostic_class(
     kind: &SourceRefKind,
 ) -> SourceRefDiagnosticClass {
     match kind {
+        SourceRefKind::Literal(path) if literal_uses_current_user_home_tilde(word, source, path) => {
+            SourceRefDiagnosticClass::DynamicPath
+        }
         SourceRefKind::Dynamic if dynamic_root_with_slash_tail(word, source) => {
             SourceRefDiagnosticClass::UntrackedFile
         }
         _ => default_diagnostic_class(kind),
+    }
+}
+
+fn literal_uses_current_user_home_tilde(word: &Word, source: &str, path: &str) -> bool {
+    if !path.starts_with("~/") {
+        return false;
+    }
+
+    let Some((first, tail)) = word.parts.split_first() else {
+        return false;
+    };
+
+    match &first.kind {
+        WordPart::Literal(text) => {
+            let text = text.as_str(source, first.span);
+            text.starts_with("~/")
+                || (text == "~"
+                    && static_parts_text(tail, source).is_some_and(|tail| tail.starts_with('/')))
+        }
+        _ => false,
     }
 }
 

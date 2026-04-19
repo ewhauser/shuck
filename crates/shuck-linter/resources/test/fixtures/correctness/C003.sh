@@ -7,6 +7,9 @@
 # shellcheck source=missing-directed.sh
 . "$generated_helper"
 
+# Invalid: a quoted current-user tilde stays literal, so this is still C003.
+. "~/.bashrc"
+
 # Valid: a helper that exists next to the script is available to the analysis.
 . ./c003_helper.sh
 

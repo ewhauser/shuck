@@ -37,13 +37,7 @@ pub(crate) fn default_diagnostic_class(kind: &SourceRefKind) -> SourceRefDiagnos
         SourceRefKind::DirectiveDevNull | SourceRefKind::Directive(_) => {
             SourceRefDiagnosticClass::UntrackedFile
         }
-        SourceRefKind::Literal(path) => {
-            if uses_current_user_home_tilde(path) {
-                SourceRefDiagnosticClass::DynamicPath
-            } else {
-                SourceRefDiagnosticClass::UntrackedFile
-            }
-        }
+        SourceRefKind::Literal(_) => SourceRefDiagnosticClass::UntrackedFile,
         SourceRefKind::Dynamic => SourceRefDiagnosticClass::DynamicPath,
         SourceRefKind::SingleVariableStaticTail { tail, .. } => {
             if tail.starts_with('/') {
@@ -53,8 +47,4 @@ pub(crate) fn default_diagnostic_class(kind: &SourceRefKind) -> SourceRefDiagnos
             }
         }
     }
-}
-
-fn uses_current_user_home_tilde(path: &str) -> bool {
-    path.starts_with("~/")
 }
