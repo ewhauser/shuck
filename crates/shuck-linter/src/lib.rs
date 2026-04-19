@@ -260,10 +260,19 @@ fn parse_for_lint(source: &str, shell: ShellDialect) -> ParseResult {
 }
 
 fn parse_error_position(parse_result: &ParseResult) -> Option<(usize, usize)> {
-    parse_result.is_err().then(|| {
-        let shuck_parser::Error::Parse { line, column, .. } = parse_result.strict_error();
-        (line, column)
-    })
+    if !parse_result.is_err() {
+        return None;
+    }
+
+    let shuck_parser::Error::Parse { line, column, .. } = parse_result.strict_error();
+    if line > 0 && column > 0 {
+        return Some((line, column));
+    }
+
+    parse_result
+        .diagnostics
+        .first()
+        .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.start.column))
 }
 
 pub fn lint_file(
@@ -432,8 +441,11 @@ fn filter_suppressed_diagnostics(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shuck_ast::Command;
-    use shuck_parser::parser::{Parser, ShellDialect as ParseDialect};
+    use shuck_ast::{Command, Position, Span};
+    use shuck_parser::Error as ParseError;
+    use shuck_parser::parser::{
+        ParseDiagnostic, ParseStatus, Parser, ShellDialect as ParseDialect, SyntaxFacts,
+    };
     use std::fs;
     use std::path::Path;
     use tempfile::tempdir;
@@ -522,6 +534,28 @@ mod tests {
         assert!(result.diagnostics.is_empty());
         assert!(!result.semantic.scopes().is_empty());
         assert!(!result.semantic.bindings().is_empty());
+    }
+
+    #[test]
+    fn parse_error_position_falls_back_to_first_diagnostic_span() {
+        let file = Parser::new("#!/bin/bash\n").parse().unwrap().file;
+        let diagnostic_start = Position {
+            line: 3,
+            column: 2,
+            offset: 14,
+        };
+        let parse_result = ParseResult {
+            file,
+            diagnostics: vec![ParseDiagnostic {
+                message: "expected command".to_owned(),
+                span: Span::at(diagnostic_start),
+            }],
+            status: ParseStatus::Recovered,
+            terminal_error: Some(ParseError::parse("expected command")),
+            syntax_facts: SyntaxFacts::default(),
+        };
+
+        assert_eq!(parse_error_position(&parse_result), Some((3, 2)));
     }
 
     #[test]
