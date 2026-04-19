@@ -7556,15 +7556,14 @@ fn build_trailing_directive_comment_spans(
             if comment_start < line_start || comment_start >= comment_end {
                 return None;
             }
+            let comment_text = &source[comment_start..comment_end];
+            if !is_inline_shellcheck_directive(comment_text) {
+                return None;
+            }
             if case_item_label_comment(case_items, line, comment_start) {
                 return None;
             }
             if shellcheck_directive_can_apply_to_following_command(source, file, comment.range) {
-                return None;
-            }
-
-            let comment_text = &source[comment_start..comment_end];
-            if !is_inline_shellcheck_directive(comment_text) {
                 return None;
             }
 

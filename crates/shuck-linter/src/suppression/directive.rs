@@ -148,20 +148,7 @@ fn parse_shellcheck_directive(
     file: &File,
     shellcheck_map: &ShellCheckCodeMap,
 ) -> Option<SuppressionDirective> {
-    if !comment.is_own_line
-        && !shellcheck_directive_can_apply_to_following_command(source, file, comment.range)
-        && !is_case_label_directive(comment, file)
-    {
-        return None;
-    }
-
-    let body = strip_comment_prefix(comment.text);
-    let remainder = strip_prefix_ignore_ascii_case(body, "shellcheck")?;
-    if let Some(first) = remainder.chars().next()
-        && !first.is_ascii_whitespace()
-    {
-        return None;
-    }
+    let remainder = shellcheck_comment_remainder(comment.text)?;
 
     let mut codes = Vec::new();
     for part in remainder.split_ascii_whitespace() {
@@ -181,6 +168,13 @@ fn parse_shellcheck_directive(
     }
 
     if codes.is_empty() {
+        return None;
+    }
+
+    if !comment.is_own_line
+        && !shellcheck_directive_can_apply_to_following_command(source, file, comment.range)
+        && !is_case_label_directive(comment, file)
+    {
         return None;
     }
 
@@ -393,6 +387,17 @@ fn strip_prefix_ignore_ascii_case<'a>(text: &'a str, prefix: &str) -> Option<&'a
     candidate
         .eq_ignore_ascii_case(prefix)
         .then(|| &text[prefix.len()..])
+}
+
+fn shellcheck_comment_remainder<'a>(comment_text: &'a str) -> Option<&'a str> {
+    let body = strip_comment_prefix(comment_text);
+    let remainder = strip_prefix_ignore_ascii_case(body, "shellcheck")?;
+    if let Some(first) = remainder.chars().next()
+        && !first.is_ascii_whitespace()
+    {
+        return None;
+    }
+    Some(remainder)
 }
 
 #[derive(Debug, Clone, Copy)]
