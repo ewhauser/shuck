@@ -5682,7 +5682,11 @@ fn word_parts_contain_echo_backslash_escape(
                 };
                 let rendered_text = text.as_str(source, part.span);
                 text_contains_echo_backslash_escape(core_text, echo_escape_is_core_family)
-                    || text_contains_echo_backslash_escape(rendered_text, echo_escape_is_quote_like)
+                    || (in_double_quotes
+                        && text_contains_echo_backslash_escape(
+                            rendered_text,
+                            echo_escape_is_quote_like,
+                        ))
                     || text_contains_echo_double_backslash(rendered_text)
                     || literal_backslash_touches_double_quoted_fragment(parts, index, rendered_text)
             }
@@ -5921,24 +5925,18 @@ fn heredoc_end_space_span(
     strip_tabs: bool,
     source: &str,
 ) -> Option<Span> {
-    let mut line_start_offset = body_span.start.offset;
-    for raw_line in body_span.slice(source).split_inclusive('\n') {
-        let (candidate_line, tab_prefix_len) = normalized_heredoc_line(raw_line, strip_tabs);
-        let Some(trailing) = candidate_line.strip_prefix(delimiter) else {
-            line_start_offset += raw_line.len();
-            continue;
-        };
-        if trailing.is_empty() || !trailing.chars().all(|ch| matches!(ch, ' ' | '\t')) {
-            line_start_offset += raw_line.len();
-            continue;
-        }
-
-        let trailing_start_offset = line_start_offset + tab_prefix_len + delimiter.len();
-        let start = position_at_offset(source, trailing_start_offset)?;
-        return Some(Span::from_positions(start, start));
+    let line_start_offset = body_span.end.offset;
+    let remainder = source.get(line_start_offset..)?;
+    let raw_line = remainder.split_inclusive('\n').next().unwrap_or(remainder);
+    let (candidate_line, tab_prefix_len) = normalized_heredoc_line(raw_line, strip_tabs);
+    let trailing = candidate_line.strip_prefix(delimiter)?;
+    if trailing.is_empty() || !trailing.chars().all(|ch| matches!(ch, ' ' | '\t')) {
+        return None;
     }
 
-    None
+    let trailing_start_offset = line_start_offset + tab_prefix_len + delimiter.len();
+    let start = position_at_offset(source, trailing_start_offset)?;
+    Some(Span::from_positions(start, start))
 }
 
 fn spaced_tabstrip_close_spans(body_span: Span, delimiter: &str, source: &str) -> Vec<Span> {
@@ -11035,7 +11033,11 @@ fn build_word_facts_for_command<'a>(
     collector.finish()
 }
 
-fn collect_array_assignment_nested_scalar_expansion_spans(word: &Word, source: &str) -> Vec<Span> {
+fn collect_array_assignment_nested_scalar_expansion_spans(
+    word: &Word,
+    source: &str,
+    semantic: &SemanticModel,
+) -> Vec<Span> {
     let mut spans = Vec::new();
 
     query::walk_commands_in_word(
@@ -11047,6 +11049,7 @@ fn collect_array_assignment_nested_scalar_expansion_spans(word: &Word, source: &
             let normalized = command::normalize_command(visit.command, source);
             let mut collector = WordFactCollector {
                 source,
+                semantic,
                 command_id: CommandId::new(0),
                 nested_word_command: context.nested_word_command,
                 surface_command_name: normalized
@@ -11058,6 +11061,7 @@ fn collect_array_assignment_nested_scalar_expansion_spans(word: &Word, source: &
                 array_assignment_split_word_indices: Vec::new(),
                 seen: FxHashSet::default(),
                 compound_assignment_value_word_spans: FxHashSet::default(),
+                case_pattern_expansion_spans: Vec::new(),
                 pattern_literal_spans: Vec::new(),
                 pattern_charclass_spans: Vec::new(),
                 arithmetic: ArithmeticFactSummary::default(),
@@ -11627,12 +11631,18 @@ impl<'a> WordFactCollector<'a> {
                                 let fact = &mut self.facts[index];
                                 let mut split_sensitive_spans =
                                     fact.unquoted_scalar_expansion_spans().to_vec();
-                                split_sensitive_spans.extend(
-                                    collect_array_assignment_nested_scalar_expansion_spans(
-                                        word,
-                                        self.source,
-                                    ),
-                                );
+                                if !word_fact_is_double_quoted_command_substitution_only(
+                                    fact,
+                                    self.source,
+                                ) {
+                                    split_sensitive_spans.extend(
+                                        collect_array_assignment_nested_scalar_expansion_spans(
+                                            word,
+                                            self.source,
+                                            self.semantic,
+                                        ),
+                                    );
+                                }
                                 sort_and_dedup_spans(&mut split_sensitive_spans);
                                 fact.array_assignment_split_scalar_expansion_spans =
                                     split_sensitive_spans.into_boxed_slice();
