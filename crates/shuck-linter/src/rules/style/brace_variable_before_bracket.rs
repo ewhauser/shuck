@@ -1,7 +1,4 @@
-use crate::{
-    Checker, Rule, ShellDialect, Violation, WordFactHostKind,
-    word_unbraced_variable_before_bracket_spans,
-};
+use crate::{Checker, Rule, ShellDialect, Violation};
 
 pub struct BraceVariableBeforeBracket;
 
@@ -20,17 +17,13 @@ pub fn brace_variable_before_bracket(checker: &mut Checker) {
         return;
     }
 
-    let source = checker.source();
-    let spans = checker
-        .facts()
-        .word_facts()
-        .iter()
-        .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
-        .filter(|fact| !fact.is_arithmetic_command())
-        .flat_map(|fact| word_unbraced_variable_before_bracket_spans(fact.word(), source))
-        .collect::<Vec<_>>();
-
-    checker.report_all_dedup(spans, || BraceVariableBeforeBracket);
+    checker.report_all_dedup(
+        checker
+            .facts()
+            .brace_variable_before_bracket_spans()
+            .to_vec(),
+        || BraceVariableBeforeBracket,
+    );
 }
 
 #[cfg(test)]
