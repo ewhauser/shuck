@@ -138,7 +138,7 @@ pub(crate) fn normalize_command_words<'a>(
 
     while let Some(current_name) = normalized.effective_name.clone() {
         let Some(resolution) =
-            resolve_command_resolution(&words, current_index, current_name.as_str(), source)
+            resolve_command_resolution(words, current_index, current_name.as_str(), source)
         else {
             break;
         };
