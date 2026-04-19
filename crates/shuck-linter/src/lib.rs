@@ -1144,6 +1144,7 @@ echo $bar
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
+            &output.file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
@@ -3129,6 +3130,7 @@ foo=1
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
+            &output.file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
@@ -3161,6 +3163,7 @@ f() {
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
+            &output.file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
@@ -3191,6 +3194,7 @@ printf '%s\\n' \"$foo\"
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
+            &output.file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
@@ -3223,6 +3227,7 @@ f() {
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
+            &output.file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
@@ -3252,6 +3257,7 @@ f() {
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
+            &output.file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
@@ -3281,6 +3287,7 @@ f() {
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
+            &output.file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
@@ -3314,6 +3321,7 @@ f
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
+            &output.file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
@@ -3343,6 +3351,7 @@ function f { :; }
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
+            &output.file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
@@ -3372,6 +3381,7 @@ function f { :; }
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
+            &output.file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
@@ -3401,6 +3411,7 @@ echo \\n
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
+            &output.file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
@@ -3430,6 +3441,7 @@ let x=1
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
+            &output.file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
@@ -3459,6 +3471,7 @@ declare foo=bar
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
+            &output.file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
@@ -3488,6 +3501,7 @@ source ./helpers.sh
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
+            &output.file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
@@ -3517,6 +3531,7 @@ function f() { :; }
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
+            &output.file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
@@ -3546,6 +3561,7 @@ arr[$((1+1))]=x
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
+            &output.file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );
@@ -3577,6 +3593,7 @@ f() {
         let indexer = Indexer::new(source, &output);
         let directives = parse_directives(
             source,
+            &output.file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         );

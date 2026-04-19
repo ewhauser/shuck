@@ -2487,8 +2487,12 @@ fn lint_large_corpus_output(
 ) -> Vec<shuck_linter::Diagnostic> {
     let indexer = shuck_indexer::Indexer::new(source, parse_result);
     let shellcheck_map = shuck_linter::ShellCheckCodeMap::default();
-    let directives =
-        shuck_linter::parse_directives(source, indexer.comment_index(), &shellcheck_map);
+    let directives = shuck_linter::parse_directives(
+        source,
+        &parse_result.file,
+        indexer.comment_index(),
+        &shellcheck_map,
+    );
     let suppression_index = (!directives.is_empty()).then(|| {
         shuck_linter::SuppressionIndex::new(
             &directives,

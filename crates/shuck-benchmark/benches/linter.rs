@@ -64,7 +64,12 @@ fn lint_source(
 ) -> usize {
     let output = parse_fixture(source);
     let indexer = Indexer::new(source, &output);
-    let directives = parse_directives(source, indexer.comment_index(), shellcheck_map);
+    let directives = parse_directives(
+        source,
+        &output.file,
+        indexer.comment_index(),
+        shellcheck_map,
+    );
     let suppression_index = (!directives.is_empty()).then(|| {
         SuppressionIndex::new(
             &directives,

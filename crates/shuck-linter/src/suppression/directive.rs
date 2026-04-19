@@ -1,4 +1,4 @@
-use shuck_ast::{TextRange, TextSize};
+use shuck_ast::{CaseItem, Command, CompoundCommand, File, Stmt, StmtSeq, TextRange, TextSize};
 use shuck_indexer::{CommentIndex, IndexedComment};
 
 use crate::{Rule, code_to_rule};
@@ -36,6 +36,7 @@ pub enum SuppressionSource {
 /// Parse all suppression directives from a file's comments.
 pub fn parse_directives(
     source: &str,
+    file: &File,
     comment_index: &CommentIndex,
     shellcheck_map: &ShellCheckCodeMap,
 ) -> Vec<SuppressionDirective> {
@@ -48,7 +49,7 @@ pub fn parse_directives(
 
         if let Some(directive) = parse_shuck_directive(&comment) {
             directives.push(directive);
-        } else if let Some(directive) = parse_shellcheck_directive(&comment, shellcheck_map) {
+        } else if let Some(directive) = parse_shellcheck_directive(&comment, file, shellcheck_map) {
             directives.push(directive);
         }
     }
@@ -138,9 +139,10 @@ fn parse_shuck_directive(comment: &NormalizedComment<'_>) -> Option<SuppressionD
 
 fn parse_shellcheck_directive(
     comment: &NormalizedComment<'_>,
+    file: &File,
     shellcheck_map: &ShellCheckCodeMap,
 ) -> Option<SuppressionDirective> {
-    if !comment.is_own_line {
+    if !comment.is_own_line && !is_case_label_directive(comment, file) {
         return None;
     }
 
@@ -180,6 +182,98 @@ fn parse_shellcheck_directive(
         range: comment.range,
         line: comment.line,
     })
+}
+
+fn is_case_label_directive(comment: &NormalizedComment<'_>, file: &File) -> bool {
+    file.body
+        .iter()
+        .any(|stmt| stmt_has_case_label_directive(stmt, comment))
+}
+
+fn stmt_has_case_label_directive(stmt: &Stmt, comment: &NormalizedComment<'_>) -> bool {
+    match &stmt.command {
+        Command::Compound(CompoundCommand::Case(command)) => command
+            .cases
+            .iter()
+            .any(|case| case_label_directive(case, comment)),
+        Command::Binary(command) => {
+            stmt_has_case_label_directive(&command.left, comment)
+                || stmt_has_case_label_directive(&command.right, comment)
+        }
+        Command::Function(function) => {
+            stmt_has_case_label_directive(function.body.as_ref(), comment)
+        }
+        Command::AnonymousFunction(function) => {
+            stmt_has_case_label_directive(function.body.as_ref(), comment)
+        }
+        Command::Compound(CompoundCommand::If(command)) => {
+            stmt_seq_has_case_label_directive(&command.condition, comment)
+                || stmt_seq_has_case_label_directive(&command.then_branch, comment)
+                || command.elif_branches.iter().any(|(condition, body)| {
+                    stmt_seq_has_case_label_directive(condition, comment)
+                        || stmt_seq_has_case_label_directive(body, comment)
+                })
+                || command
+                    .else_branch
+                    .as_ref()
+                    .is_some_and(|seq| stmt_seq_has_case_label_directive(seq, comment))
+        }
+        Command::Compound(CompoundCommand::For(command)) => {
+            stmt_seq_has_case_label_directive(&command.body, comment)
+        }
+        Command::Compound(CompoundCommand::Repeat(command)) => {
+            stmt_seq_has_case_label_directive(&command.body, comment)
+        }
+        Command::Compound(CompoundCommand::Foreach(command)) => {
+            stmt_seq_has_case_label_directive(&command.body, comment)
+        }
+        Command::Compound(CompoundCommand::Select(command)) => {
+            stmt_seq_has_case_label_directive(&command.body, comment)
+        }
+        Command::Compound(CompoundCommand::ArithmeticFor(command)) => {
+            stmt_seq_has_case_label_directive(&command.body, comment)
+        }
+        Command::Compound(CompoundCommand::While(command)) => {
+            stmt_seq_has_case_label_directive(&command.condition, comment)
+                || stmt_seq_has_case_label_directive(&command.body, comment)
+        }
+        Command::Compound(CompoundCommand::Until(command)) => {
+            stmt_seq_has_case_label_directive(&command.condition, comment)
+                || stmt_seq_has_case_label_directive(&command.body, comment)
+        }
+        Command::Compound(CompoundCommand::Subshell(commands))
+        | Command::Compound(CompoundCommand::BraceGroup(commands)) => {
+            stmt_seq_has_case_label_directive(commands, comment)
+        }
+        Command::Compound(CompoundCommand::Always(command)) => {
+            stmt_seq_has_case_label_directive(&command.body, comment)
+                || stmt_seq_has_case_label_directive(&command.always_body, comment)
+        }
+        Command::Compound(CompoundCommand::Time(command)) => command
+            .command
+            .as_ref()
+            .is_some_and(|stmt| stmt_has_case_label_directive(stmt, comment)),
+        Command::Compound(CompoundCommand::Coproc(command)) => {
+            stmt_has_case_label_directive(command.body.as_ref(), comment)
+        }
+        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => false,
+        Command::Compound(CompoundCommand::Arithmetic(_)) => false,
+        Command::Compound(CompoundCommand::Conditional(_)) => false,
+    }
+}
+
+fn stmt_seq_has_case_label_directive(seq: &StmtSeq, comment: &NormalizedComment<'_>) -> bool {
+    seq.iter()
+        .any(|stmt| stmt_has_case_label_directive(stmt, comment))
+}
+
+fn case_label_directive(case: &CaseItem, comment: &NormalizedComment<'_>) -> bool {
+    let Some(pattern) = case.patterns.last() else {
+        return false;
+    };
+
+    u32::try_from(pattern.span.end.line).ok() == Some(comment.line)
+        && usize::from(comment.range.start()) > pattern.span.end.offset
 }
 
 fn strip_comment_prefix(text: &str) -> &str {
@@ -234,6 +328,7 @@ mod tests {
         let indexer = Indexer::new(source, &output);
         parse_directives(
             source,
+            &output.file,
             indexer.comment_index(),
             &ShellCheckCodeMap::default(),
         )
@@ -268,21 +363,39 @@ mod tests {
     }
 
     #[test]
-    fn parses_own_line_shellcheck_directives_only() {
+    fn parses_shellcheck_directives_on_own_line_and_after_code() {
         let source = "\
 # shellcheck disable=SC2086 disable=SC2034 disable=SC7777
 echo $foo
-value=1 # shellcheck disable=SC2034
+case $x in
+  on) # shellcheck disable=SC2034
+    value=1
+    ;;
+esac
 ";
         let directives = directives(source);
 
-        assert_eq!(directives.len(), 1);
+        assert_eq!(directives.len(), 2);
         assert_eq!(directives[0].action, SuppressionAction::Disable);
         assert_eq!(directives[0].source, SuppressionSource::ShellCheck);
         assert_eq!(
             directives[0].codes,
             vec![Rule::UnquotedExpansion, Rule::UnusedAssignment]
         );
+        assert_eq!(directives[1].action, SuppressionAction::Disable);
+        assert_eq!(directives[1].source, SuppressionSource::ShellCheck);
+        assert_eq!(directives[1].codes, vec![Rule::UnusedAssignment]);
+    }
+
+    #[test]
+    fn rejects_shellcheck_directives_after_regular_code() {
+        let source = "\
+value=1 # shellcheck disable=SC2086
+echo $foo
+";
+        let directives = directives(source);
+
+        assert!(directives.is_empty());
     }
 
     #[test]

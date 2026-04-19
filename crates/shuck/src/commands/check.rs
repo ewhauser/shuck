@@ -308,7 +308,12 @@ fn lint_parsed_output(
     include_source: bool,
 ) -> (CheckCacheData, Vec<DisplayedDiagnostic>) {
     let indexer = Indexer::new(source, parse_result);
-    let directives = parse_directives(source, indexer.comment_index(), shellcheck_map);
+    let directives = parse_directives(
+        source,
+        &parse_result.file,
+        indexer.comment_index(),
+        shellcheck_map,
+    );
     let suppression_index = (!directives.is_empty()).then(|| {
         SuppressionIndex::new(
             &directives,
