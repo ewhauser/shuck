@@ -203,6 +203,22 @@ pub fn double_quoted_scalar_affix_span(word: &Word) -> Option<Span> {
         .flatten()
 }
 
+pub fn word_shell_quoting_literal_span(word: &Word, source: &str) -> Option<Span> {
+    let mut excluded = Vec::new();
+    collect_literal_scan_exclusions(&word.parts, &mut excluded);
+
+    merge_adjacent_spans(
+        word_literal_scan_segments_excluding_expansions(word, source),
+        source,
+    )
+    .into_iter()
+    .find_map(|span| {
+        let normalized = normalize_shell_quoting_segment_span(word, span, source);
+        text_contains_shell_quoting_literals(normalized.slice(source))
+            .then(|| shell_quoting_literal_run_span(word, normalized, &excluded, source))
+    })
+}
+
 pub fn word_double_quoted_scalar_only_expansion_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_double_quoted_scalar_only_expansion_spans(&word.parts, false, &mut spans)
@@ -1611,6 +1627,63 @@ fn collect_double_quoted_scalar_only_expansion_spans(
 
     true
 }
+
+fn normalize_shell_quoting_segment_span(word: &Word, span: Span, source: &str) -> Span {
+    let mut start = span.start;
+    let mut end = span.end;
+    let text = span.slice(source);
+    if word.is_fully_double_quoted() {
+        if span.start.offset == word.span.start.offset && text.starts_with('"') {
+            start = start.advanced_by("\"");
+        }
+        if span.end.offset == word.span.end.offset && text.ends_with('"') {
+            end = span.start.advanced_by(&text[..text.len() - 1]);
+        }
+    }
+
+    let normalized = Span::from_positions(start, end);
+    let normalized_text = normalized.slice(source);
+    if normalized_text.ends_with('\\')
+        && let Some(next) = source
+            .get(normalized.end.offset..)
+            .and_then(|tail| tail.chars().next())
+        && matches!(next, '"' | '\'')
+    {
+        let quote = if next == '"' { "\"" } else { "'" };
+        return Span::from_positions(normalized.start, normalized.end.advanced_by(quote));
+    }
+
+    normalized
+}
+
+fn text_contains_shell_quoting_literals(text: &str) -> bool {
+    if text.contains(['"', '\'']) {
+        return true;
+    }
+
+    let chars = text.chars().collect::<Vec<_>>();
+    let mut index = 0usize;
+    while index < chars.len() {
+        if chars[index] != '\\' {
+            index += 1;
+            continue;
+        }
+
+        let mut end = index + 1;
+        while end < chars.len() && chars[end] == '\\' {
+            end += 1;
+        }
+        if chars.get(end).is_some_and(|next| {
+            matches!(next, '"' | '\'') || (next.is_whitespace() && !matches!(next, '\n' | '\r'))
+        }) {
+            return true;
+        }
+
+        index = end;
+    }
+
+    false
+}
 fn literal_part_is_parameter_operator_tail(
     parts: &[WordPartNode],
     index: usize,
@@ -2003,6 +2076,56 @@ fn scan_span_excluding(span: Span, excluded: &[Span], source: &str) -> Vec<Span>
     }
 
     spans
+}
+
+fn merge_adjacent_spans(spans: Vec<Span>, source: &str) -> Vec<Span> {
+    let mut merged: Vec<Span> = Vec::new();
+
+    for span in spans {
+        if let Some(previous) = merged.last_mut()
+            && spans_share_literal_run(*previous, span, source)
+        {
+            *previous = Span::from_positions(previous.start, span.end);
+            continue;
+        }
+
+        merged.push(span);
+    }
+
+    merged
+}
+
+fn shell_quoting_literal_run_span(
+    word: &Word,
+    span: Span,
+    excluded: &[Span],
+    source: &str,
+) -> Span {
+    let start = excluded
+        .iter()
+        .copied()
+        .filter(|excluded_span| excluded_span.start.offset < span.start.offset)
+        .map(|excluded_span| excluded_span.end)
+        .max_by_key(|position| position.offset)
+        .unwrap_or(word.span.start);
+    let end = excluded
+        .iter()
+        .copied()
+        .filter(|excluded_span| excluded_span.start.offset > start.offset)
+        .map(|excluded_span| excluded_span.start)
+        .min_by_key(|position| position.offset)
+        .unwrap_or(word.span.end);
+
+    normalize_shell_quoting_segment_span(word, Span::from_positions(start, end), source)
+}
+
+fn spans_share_literal_run(previous: Span, next: Span, source: &str) -> bool {
+    if previous.end.offset >= next.start.offset {
+        return true;
+    }
+
+    let gap = &source[previous.end.offset..next.start.offset];
+    !gap.contains('$') && !gap.contains('`')
 }
 
 fn scan_span_segment(span: Span, start: usize, end: usize, source: &str) -> Span {
