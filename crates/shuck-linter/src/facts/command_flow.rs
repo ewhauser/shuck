@@ -1877,9 +1877,6 @@ fn single_test_subshell_span<'a>(
     let [stmt] = condition.as_slice() else {
         return None;
     };
-    if stmt.negated {
-        return None;
-    }
 
     let condition_fact = command_fact_for_stmt(stmt, commands, command_ids_by_span)?;
     let Command::Compound(CompoundCommand::Subshell(body)) = condition_fact.command() else {
@@ -1889,18 +1886,23 @@ fn single_test_subshell_span<'a>(
     let [body_stmt] = body.as_slice() else {
         return None;
     };
-    if body_stmt.negated {
+
+    let body_fact = command_fact_for_stmt(body_stmt, commands, command_ids_by_span)?;
+    let simple_test = is_test_like_command(body_fact);
+    if stmt.negated && !simple_test {
         return None;
     }
 
-    let body_fact = command_fact_for_stmt(body_stmt, commands, command_ids_by_span)?;
-    if !is_test_like_command(body_fact)
+    if !simple_test
         && !is_test_condition_command(body_fact.command(), commands, command_ids_by_span)
     {
         return None;
     }
 
-    Some(subshell_anchor_span(stmt.span, source))
+    Some(subshell_anchor_span(
+        condition_fact.span_in_source(source),
+        source,
+    ))
 }
 
 fn is_test_like_command(fact: &CommandFact<'_>) -> bool {
