@@ -1,4 +1,4 @@
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, Rule, ShellDialect, Violation};
 
 pub struct SetFlagsWithoutDashes;
 
@@ -13,6 +13,13 @@ impl Violation for SetFlagsWithoutDashes {
 }
 
 pub fn set_flags_without_dashes(checker: &mut Checker) {
+    if !matches!(
+        checker.shell(),
+        ShellDialect::Sh | ShellDialect::Bash | ShellDialect::Dash | ShellDialect::Ksh
+    ) {
+        return;
+    }
+
     let spans = checker
         .facts()
         .commands()
@@ -28,7 +35,7 @@ pub fn set_flags_without_dashes(checker: &mut Checker) {
 #[cfg(test)]
 mod tests {
     use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
     fn reports_set_flags_without_prefix() {
@@ -38,7 +45,7 @@ set foo bar
 ";
         let diagnostics = test_snippet(
             source,
-            &LinterSettings::for_rule(Rule::SetFlagsWithoutDashes),
+            &LinterSettings::for_rule(Rule::SetFlagsWithoutDashes).with_shell(ShellDialect::Bash),
         );
 
         assert_eq!(diagnostics.len(), 2);
@@ -62,9 +69,36 @@ set n-aliases.conf n-env.conf
 ";
         let diagnostics = test_snippet(
             source,
-            &LinterSettings::for_rule(Rule::SetFlagsWithoutDashes),
+            &LinterSettings::for_rule(Rule::SetFlagsWithoutDashes).with_shell(ShellDialect::Bash),
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_quoted_literals_and_unsupported_shells() {
+        let source = "\
+set \"required\" \"$1\"
+set f\"oo\" bar
+set OFFLINE_PATH \"$PWD\"
+";
+        let bash_diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SetFlagsWithoutDashes).with_shell(ShellDialect::Bash),
+        );
+        assert_eq!(
+            bash_diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["OFFLINE_PATH"]
+        );
+
+        let unknown_shell_diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SetFlagsWithoutDashes)
+                .with_shell(ShellDialect::Unknown),
+        );
+        assert!(unknown_shell_diagnostics.is_empty());
     }
 }

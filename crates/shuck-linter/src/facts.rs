@@ -14997,13 +14997,15 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
     let mut index = 0usize;
 
     if args.len() >= 2
-        && let Some(first_text) = args.first().and_then(|word| static_word_text(word, source))
+        && let Some(first_word) = args.first().copied()
+        && classify_word(first_word, source).quote == WordQuote::Unquoted
+        && let Some(first_text) = static_word_text(first_word, source)
         && first_text != "--"
         && !first_text.starts_with('-')
         && !first_text.starts_with('+')
         && is_shell_variable_name(first_text.as_str())
     {
-        flags_without_prefix_spans.push(args[0].span);
+        flags_without_prefix_spans.push(first_word.span);
     }
 
     while let Some(word) = args.get(index) {
@@ -18438,6 +18440,34 @@ type -P printf
                 );
             },
         );
+    }
+
+    #[test]
+    fn set_command_flags_without_prefix_ignore_quoted_literals() {
+        let source = "\
+set foo bar
+set \"foo\" bar
+set f\"oo\" bar
+set 'foo' bar
+";
+
+        with_facts(source, None, |_, facts| {
+            let set_without_prefix_spans = facts
+                .commands()
+                .iter()
+                .filter(|fact| fact.effective_name_is("set"))
+                .filter_map(|fact| fact.options().set())
+                .flat_map(|set| set.flags_without_prefix_spans().iter().copied())
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                set_without_prefix_spans
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["foo"]
+            );
+        });
     }
 
     #[test]
