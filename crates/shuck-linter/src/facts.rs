@@ -3657,7 +3657,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let commented_continuation_comment_spans =
             build_commented_continuation_comment_spans(self.source, self._indexer);
         let trailing_directive_comment_spans =
-            build_trailing_directive_comment_spans(self.source, self._indexer);
+            build_trailing_directive_comment_spans(&case_items, self.source, self._indexer);
         let backtick_command_name_spans = build_backtick_command_name_spans(&commands);
         let dollar_question_after_command_spans =
             build_dollar_question_after_command_spans(&self.file.body, self.source);
@@ -6939,7 +6939,11 @@ fn build_commented_continuation_comment_spans(source: &str, indexer: &Indexer) -
         .collect()
 }
 
-fn build_trailing_directive_comment_spans(source: &str, indexer: &Indexer) -> Vec<Span> {
+fn build_trailing_directive_comment_spans(
+    case_items: &[CaseItemFact<'_>],
+    source: &str,
+    indexer: &Indexer,
+) -> Vec<Span> {
     let line_index = indexer.line_index();
 
     indexer
@@ -6961,6 +6965,9 @@ fn build_trailing_directive_comment_spans(source: &str, indexer: &Indexer) -> Ve
             if comment_start < line_start || comment_start >= comment_end {
                 return None;
             }
+            if case_item_label_comment(case_items, line, comment_start) {
+                return None;
+            }
             if directive_can_apply_to_following_command(&source[line_start..comment_start]) {
                 return None;
             }
@@ -6980,6 +6987,28 @@ fn build_trailing_directive_comment_spans(source: &str, indexer: &Indexer) -> Ve
             Some(Span::from_positions(start, end))
         })
         .collect()
+}
+
+fn case_item_label_comment(
+    case_items: &[CaseItemFact<'_>],
+    line: usize,
+    comment_start: usize,
+) -> bool {
+    case_items.iter().any(|case_item| {
+        let Some(pattern) = case_item.item().patterns.last() else {
+            return false;
+        };
+
+        if pattern.span.end.line != line || comment_start < pattern.span.end.offset {
+            return false;
+        }
+
+        let Some(stmt) = case_item.item().body.first() else {
+            return true;
+        };
+
+        stmt.span.start.line != line
+    })
 }
 
 fn build_literal_brace_spans(

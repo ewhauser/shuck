@@ -66,4 +66,13 @@ mod tests {
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn ignores_directive_after_case_label() {
+        let source =
+            "#!/bin/sh\ncase $x in\n  on) # shellcheck disable=SC2034\n    :\n    ;;\nesac\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrailingDirective));
+
+        assert!(diagnostics.is_empty());
+    }
 }
