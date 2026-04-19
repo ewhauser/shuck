@@ -86,7 +86,7 @@ fn unsafe_shell_quoting_bindings(
         .iter()
         .filter_map(|binding| {
             let context = binding_assignment_context(binding.kind)?;
-            let word = checker.facts().scalar_binding_value(binding.span)?;
+            let word = checker.facts().binding_value(binding.id)?.scalar_word()?;
             Some((binding.id, word.span, context))
         })
         .collect::<Vec<_>>();

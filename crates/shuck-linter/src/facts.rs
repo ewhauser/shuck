@@ -1687,6 +1687,56 @@ pub enum MixedShortCircuitKind {
 }
 
 #[derive(Debug, Clone)]
+pub struct BindingValueFact<'a> {
+    kind: BindingValueKind<'a>,
+    conditional_assignment_shortcut: bool,
+}
+
+#[derive(Debug, Clone)]
+enum BindingValueKind<'a> {
+    Scalar(&'a Word),
+    Loop(Box<[&'a Word]>),
+}
+
+impl<'a> BindingValueFact<'a> {
+    fn scalar(word: &'a Word) -> Self {
+        Self {
+            kind: BindingValueKind::Scalar(word),
+            conditional_assignment_shortcut: false,
+        }
+    }
+
+    fn from_loop_words(words: Box<[&'a Word]>) -> Self {
+        Self {
+            kind: BindingValueKind::Loop(words),
+            conditional_assignment_shortcut: false,
+        }
+    }
+
+    pub fn scalar_word(&self) -> Option<&'a Word> {
+        match &self.kind {
+            BindingValueKind::Scalar(word) => Some(*word),
+            BindingValueKind::Loop(_) => None,
+        }
+    }
+
+    pub fn loop_words(&self) -> Option<&[&'a Word]> {
+        match &self.kind {
+            BindingValueKind::Scalar(_) => None,
+            BindingValueKind::Loop(words) => Some(words.as_ref()),
+        }
+    }
+
+    pub fn conditional_assignment_shortcut(&self) -> bool {
+        self.conditional_assignment_shortcut
+    }
+
+    fn mark_conditional_assignment_shortcut(&mut self) {
+        self.conditional_assignment_shortcut = true;
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct ListFact<'a> {
     key: FactSpan,
     command: &'a BinaryCommand,
@@ -2546,8 +2596,7 @@ pub struct LinterFacts<'a> {
     command_ids_by_span: CommandLookupIndex,
     if_condition_command_ids: FxHashSet<CommandId>,
     elif_condition_command_ids: FxHashSet<CommandId>,
-    scalar_bindings: FxHashMap<FactSpan, &'a Word>,
-    loop_bindings: FxHashMap<FactSpan, Box<[&'a Word]>>,
+    binding_values: FxHashMap<BindingId, BindingValueFact<'a>>,
     broken_assoc_key_spans: Vec<Span>,
     comma_array_assignment_spans: Vec<Span>,
     ifs_literal_backslash_assignment_value_spans: Vec<Span>,
@@ -2711,22 +2760,12 @@ impl<'a> LinterFacts<'a> {
         command_id_for_command(command, &self.command_ids_by_span)
     }
 
-    pub fn scalar_binding_value(&self, span: Span) -> Option<&'a Word> {
-        self.scalar_bindings.get(&FactSpan::new(span)).copied()
+    pub fn binding_value(&self, binding_id: BindingId) -> Option<&BindingValueFact<'a>> {
+        self.binding_values.get(&binding_id)
     }
 
-    pub(crate) fn scalar_binding_values(&self) -> &FxHashMap<FactSpan, &'a Word> {
-        &self.scalar_bindings
-    }
-
-    pub fn loop_binding_values(&self, span: Span) -> Option<&[&'a Word]> {
-        self.loop_bindings
-            .get(&FactSpan::new(span))
-            .map(Box::as_ref)
-    }
-
-    pub(crate) fn loop_binding_value_sets(&self) -> &FxHashMap<FactSpan, Box<[&'a Word]>> {
-        &self.loop_bindings
+    pub(crate) fn binding_values(&self) -> &FxHashMap<BindingId, BindingValueFact<'a>> {
+        &self.binding_values
     }
 
     pub fn broken_assoc_key_spans(&self) -> &[Span] {
@@ -3162,8 +3201,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut command_ids_by_span = CommandLookupIndex::default();
         let mut if_condition_command_ids = FxHashSet::default();
         let mut elif_condition_command_ids = FxHashSet::default();
-        let mut scalar_bindings = FxHashMap::default();
-        let mut loop_bindings = FxHashMap::default();
+        let mut binding_values = FxHashMap::default();
         let mut broken_assoc_key_spans = Vec::new();
         let mut comma_array_assignment_spans = Vec::new();
         let mut ifs_literal_backslash_assignment_value_spans = Vec::new();
@@ -3208,7 +3246,12 @@ impl<'a> LinterFactsBuilder<'a> {
                 elif_condition_command_ids.insert(id);
             }
 
-            collect_scalar_bindings(visit.command, &mut scalar_bindings, &mut loop_bindings);
+            collect_binding_values(
+                visit.command,
+                self.semantic,
+                self.source,
+                &mut binding_values,
+            );
             collect_broken_assoc_key_spans(visit.command, self.source, &mut broken_assoc_key_spans);
             collect_comma_array_assignment_spans(
                 visit.command,
@@ -3445,6 +3488,7 @@ impl<'a> LinterFactsBuilder<'a> {
             fact.scope_read_source_words = words;
         }
         let lists = build_list_facts(&commands, &command_ids_by_span, self.source);
+        annotate_conditional_assignment_shortcuts(self.semantic, &lists, &mut binding_values);
         let statement_facts =
             build_statement_facts(&commands, &command_ids_by_span, &self.file.body);
         let single_test_subshell_spans =
@@ -3553,8 +3597,7 @@ impl<'a> LinterFactsBuilder<'a> {
             command_ids_by_span,
             if_condition_command_ids,
             elif_condition_command_ids,
-            scalar_bindings,
-            loop_bindings,
+            binding_values,
             broken_assoc_key_spans,
             comma_array_assignment_spans,
             ifs_literal_backslash_assignment_value_spans,
@@ -15627,16 +15670,33 @@ fn trap_action_word<'a>(command: &'a Command, source: &str) -> Option<&'a Word> 
     Some(action)
 }
 
-fn collect_scalar_bindings<'a>(
+fn collect_binding_values<'a>(
     command: &'a Command,
-    scalar_bindings: &mut FxHashMap<FactSpan, &'a Word>,
-    loop_bindings: &mut FxHashMap<FactSpan, Box<[&'a Word]>>,
+    semantic: &SemanticModel,
+    source: &str,
+    binding_values: &mut FxHashMap<BindingId, BindingValueFact<'a>>,
 ) {
-    for assignment in query::command_assignments(command) {
+    let assignments = match command {
+        Command::Simple(simple) if simple.name.span.slice(source).is_empty() => &simple.assignments,
+        Command::Builtin(_) | Command::Decl(_) => query::command_assignments(command),
+        Command::Simple(_)
+        | Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => &[],
+    };
+
+    for assignment in assignments {
         let AssignmentValue::Scalar(word) = &assignment.value else {
             continue;
         };
-        scalar_bindings.insert(FactSpan::new(assignment.target.name_span), word);
+        if let Some(binding_id) = binding_value_definition_id_for_name(
+            semantic,
+            &assignment.target.name,
+            assignment.target.name_span,
+        ) {
+            binding_values.insert(binding_id, BindingValueFact::scalar(word));
+        }
     }
 
     for operand in query::declaration_operands(command) {
@@ -15646,7 +15706,13 @@ fn collect_scalar_bindings<'a>(
         let AssignmentValue::Scalar(word) = &assignment.value else {
             continue;
         };
-        scalar_bindings.insert(FactSpan::new(assignment.target.name_span), word);
+        if let Some(binding_id) = binding_value_definition_id_for_name(
+            semantic,
+            &assignment.target.name,
+            assignment.target.name_span,
+        ) {
+            binding_values.insert(binding_id, BindingValueFact::scalar(word));
+        }
     }
 
     match command {
@@ -15656,18 +15722,96 @@ fn collect_scalar_bindings<'a>(
             };
             let values = words.iter().collect::<Vec<_>>().into_boxed_slice();
             for target in &command.targets {
-                if target.name.is_some() {
-                    loop_bindings.insert(FactSpan::new(target.span), values.clone());
+                if let Some(name) = &target.name
+                    && let Some(binding_id) =
+                        binding_value_definition_id_for_name(semantic, name, target.span)
+                {
+                    binding_values.insert(
+                        binding_id,
+                        BindingValueFact::from_loop_words(values.clone()),
+                    );
                 }
             }
         }
         Command::Compound(CompoundCommand::Foreach(command)) => {
-            loop_bindings.insert(
-                FactSpan::new(command.variable_span),
-                command.words.iter().collect::<Vec<_>>().into_boxed_slice(),
-            );
+            if let Some(binding_id) = binding_value_definition_id_for_name(
+                semantic,
+                &command.variable,
+                command.variable_span,
+            ) {
+                binding_values.insert(
+                    binding_id,
+                    BindingValueFact::from_loop_words(
+                        command.words.iter().collect::<Vec<_>>().into_boxed_slice(),
+                    ),
+                );
+            }
+        }
+        Command::Compound(CompoundCommand::Select(command)) => {
+            if let Some(binding_id) = binding_value_definition_id_for_name(
+                semantic,
+                &command.variable,
+                command.variable_span,
+            ) {
+                binding_values.insert(
+                    binding_id,
+                    BindingValueFact::from_loop_words(
+                        command.words.iter().collect::<Vec<_>>().into_boxed_slice(),
+                    ),
+                );
+            }
         }
         _ => {}
+    }
+}
+
+fn binding_value_definition_id_for_name(
+    semantic: &SemanticModel,
+    name: &Name,
+    span: Span,
+) -> Option<BindingId> {
+    semantic
+        .bindings_for(name)
+        .iter()
+        .rev()
+        .copied()
+        .find(|binding_id| semantic.binding(*binding_id).span == span)
+}
+
+fn binding_value_visible_id_for_name(
+    semantic: &SemanticModel,
+    name: &Name,
+    span: Span,
+) -> Option<BindingId> {
+    semantic
+        .visible_binding(name, span)
+        .map(|binding| binding.id)
+}
+
+fn annotate_conditional_assignment_shortcuts<'a>(
+    semantic: &SemanticModel,
+    lists: &[ListFact<'a>],
+    binding_values: &mut FxHashMap<BindingId, BindingValueFact<'a>>,
+) {
+    for list in lists.iter().filter(|list| {
+        list.mixed_short_circuit_kind() == Some(MixedShortCircuitKind::AssignmentTernary)
+    }) {
+        for segment in list.segments() {
+            let Some(target) = segment.assignment_target() else {
+                continue;
+            };
+            let Some(span) = segment.assignment_span() else {
+                continue;
+            };
+            let Some(binding_id) =
+                binding_value_visible_id_for_name(semantic, &Name::from(target), span)
+            else {
+                continue;
+            };
+            if let Some(binding_value) = binding_values.get_mut(&binding_id) {
+                binding_value.mark_conditional_assignment_shortcut();
+            }
+        }
     }
 }
 
@@ -16001,10 +16145,10 @@ fn compound_span(command: &CompoundCommand) -> Span {
 mod tests {
     use std::path::Path;
 
-    use shuck_ast::{BinaryOp, CommandSubstitutionSyntax, ConditionalBinaryOp};
+    use shuck_ast::{BinaryOp, CommandSubstitutionSyntax, ConditionalBinaryOp, Name};
     use shuck_indexer::Indexer;
     use shuck_parser::parser::{Parser, ShellDialect as ParseShellDialect};
-    use shuck_semantic::SemanticModel;
+    use shuck_semantic::{BindingAttributes, SemanticModel};
 
     use super::{
         CommandId, ConditionalNodeFact, ConditionalOperatorFamily, GrepPatternSourceKind,
@@ -16601,34 +16745,38 @@ done
 
     #[test]
     fn indexes_scalar_bindings_from_assignments_and_declarations() {
-        let source = "#!/bin/bash\nfoo=1 printf '%s\\n' \"$foo\"\nexport bar=2\n";
+        let source = "#!/bin/bash\nfoo=1\nprintf '%s\\n' \"$foo\"\nexport bar=2\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
         let file_context = classify_file_context(source, None, ShellDialect::Bash);
         let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
 
-        let first_binding_span = match &output.file.body[0].command {
-            shuck_ast::Command::Simple(command) => command.assignments[0].target.name_span,
+        match &output.file.body[0].command {
+            shuck_ast::Command::Simple(_) => {}
             _ => panic!("expected simple command"),
         };
+        let first_binding_id = semantic.bindings_for(&Name::from("foo"))[0];
         assert_eq!(
             facts
-                .scalar_binding_value(first_binding_span)
+                .binding_value(first_binding_id)
+                .and_then(|value| value.scalar_word())
                 .map(|word| word.span.slice(source)),
             Some("1")
         );
 
-        let second_binding_span = match &output.file.body[1].command {
+        match &output.file.body[2].command {
             shuck_ast::Command::Decl(command) => match &command.operands[0] {
-                shuck_ast::DeclOperand::Assignment(assignment) => assignment.target.name_span,
+                shuck_ast::DeclOperand::Assignment(_) => {}
                 _ => panic!("expected declaration assignment"),
             },
             _ => panic!("expected declaration command"),
         };
+        let second_binding_id = semantic.bindings_for(&Name::from("bar"))[0];
         assert_eq!(
             facts
-                .scalar_binding_value(second_binding_span)
+                .binding_value(second_binding_id)
+                .and_then(|value| value.scalar_word())
                 .map(|word| word.span.slice(source)),
             Some("2")
         );
@@ -16649,15 +16797,134 @@ done
             }
             _ => panic!("expected for command"),
         };
+        let loop_binding_id = semantic
+            .visible_binding(&Name::from("i"), loop_binding_span)
+            .expect("expected i loop binding")
+            .id;
 
         assert_eq!(
             facts
-                .loop_binding_values(loop_binding_span)
+                .binding_value(loop_binding_id)
+                .and_then(|value| value.loop_words())
                 .expect("expected loop binding values")
                 .iter()
                 .map(|word| word.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["16", "32", "64"]
+        );
+    }
+
+    #[test]
+    fn marks_conditional_assignment_shortcuts_on_binding_values() {
+        let source =
+            "#!/bin/bash\ntrue && w='-w' || w=''\nif true; then flag='-f'; else flag=''; fi\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let shortcut_bindings = semantic
+            .bindings_for(&Name::from("w"))
+            .iter()
+            .copied()
+            .map(|binding_id| {
+                facts
+                    .binding_value(binding_id)
+                    .expect("expected w binding value fact")
+                    .conditional_assignment_shortcut()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(shortcut_bindings, vec![true, true]);
+
+        let flag_bindings = semantic
+            .bindings_for(&Name::from("flag"))
+            .iter()
+            .copied()
+            .map(|binding_id| {
+                facts
+                    .binding_value(binding_id)
+                    .expect("expected flag binding value fact")
+                    .conditional_assignment_shortcut()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(flag_bindings, vec![false, false]);
+    }
+
+    #[test]
+    fn ignores_command_prefix_assignments_when_indexing_binding_values() {
+        let source = "\
+#!/bin/bash
+foo=stable
+foo=ephemeral tool
+printf '%s\\n' \"$foo\"
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let foo_bindings = semantic.bindings_for(&Name::from("foo"));
+        assert_eq!(foo_bindings.len(), 1);
+        assert_eq!(
+            facts
+                .binding_value(foo_bindings[0])
+                .and_then(|value| value.scalar_word())
+                .map(|word| word.span.slice(source)),
+            Some("stable")
+        );
+    }
+
+    #[test]
+    fn declaration_assignment_values_attach_to_the_declared_binding() {
+        let source = "\
+#!/bin/bash
+f() {
+  (
+    value=shadow
+    local value=chosen
+    printf '%s\\n' \"$value\"
+  )
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let shadow_binding = semantic
+            .bindings_for(&Name::from("value"))
+            .iter()
+            .copied()
+            .find(|binding_id| semantic.binding(*binding_id).attributes.is_empty())
+            .expect("expected subshell shadow binding");
+        let local_binding = semantic
+            .bindings_for(&Name::from("value"))
+            .iter()
+            .copied()
+            .find(|binding_id| {
+                semantic
+                    .binding(*binding_id)
+                    .attributes
+                    .contains(BindingAttributes::LOCAL)
+            })
+            .expect("expected local declaration binding");
+
+        assert_eq!(
+            facts
+                .binding_value(shadow_binding)
+                .and_then(|value| value.scalar_word())
+                .map(|word| word.span.slice(source)),
+            Some("shadow")
+        );
+        assert_eq!(
+            facts
+                .binding_value(local_binding)
+                .and_then(|value| value.scalar_word())
+                .map(|word| word.span.slice(source)),
+            Some("chosen")
         );
     }
 

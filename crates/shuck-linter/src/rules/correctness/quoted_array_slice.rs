@@ -19,8 +19,9 @@ impl Violation for QuotedArraySlice {
 pub fn quoted_array_slice(checker: &mut Checker) {
     let scalar_assignment_value_spans = checker
         .facts()
-        .scalar_binding_values()
+        .binding_values()
         .values()
+        .filter_map(|binding_value| binding_value.scalar_word())
         .map(|word| FactSpan::new(word.span))
         .collect::<FxHashSet<_>>();
 

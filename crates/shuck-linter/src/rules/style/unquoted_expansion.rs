@@ -267,6 +267,78 @@ printf '%s\\n' ${name@U}
     }
 
     #[test]
+    fn reports_bindings_derived_from_parameter_operations() {
+        let source = "\
+#!/bin/bash
+PRGNAM=Fennel
+SRCNAM=${PRGNAM,}
+release=1.0.0
+VERSION=${release:-fallback}
+rm -rf $SRCNAM-$VERSION
+printf '%s\\n' ${PRGNAM,} ${release:-fallback}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$SRCNAM", "$VERSION"]
+        );
+    }
+
+    #[test]
+    fn reports_bindings_from_short_circuit_assignment_ternaries() {
+        let source = "\
+#!/bin/bash
+check() { return 0; }
+check && w='-w' || w=''
+if check; then
+  flag='-w'
+else
+  flag=''
+fi
+iptables $w -t nat -N chain
+iptables $flag -t nat -N chain
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$w"]
+        );
+    }
+
+    #[test]
+    fn reports_nested_guarded_short_circuit_assignment_ternaries() {
+        let source = "\
+#!/bin/bash
+f() {
+  [ \"$1\" = iptables ] && {
+    true && w='-w' || w=''
+  }
+  [ \"$1\" = ip6tables ] && {
+    true && w='-w' || w=''
+  }
+  iptables $w -t nat -N chain
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$w"]
+        );
+    }
+
+    #[test]
     fn skips_colon_assign_default_expansions_but_keeps_regular_argument_cases() {
         let source = "\
 #!/bin/bash
@@ -558,6 +630,27 @@ done
     }
 
     #[test]
+    fn reports_loop_variables_derived_from_expanded_values() {
+        let source = "\
+#!/bin/bash
+PRGNAM=neverball
+BONUS=neverputt
+for i in $PRGNAM $BONUS; do
+  install -D ${i}.desktop /tmp/$i.png
+done
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${i}", "$i"]
+        );
+    }
+
+    #[test]
     fn reports_loop_variables_derived_from_at_slices() {
         let source = "\
 #!/bin/bash
@@ -733,7 +826,220 @@ value=\"$(free ${humanreadable} | awk '{print $2}')\"
     }
 
     #[test]
-    fn skips_safe_indirect_and_transformed_bindings() {
+    fn skips_safe_helper_initialized_option_flags_after_intermediate_calls() {
+        let source = "\
+#!/bin/bash
+fn_select_compression() {
+  if command -v zstd >/dev/null 2>&1; then
+    compressflag=--zstd
+  elif command -v pigz >/dev/null 2>&1; then
+    compressflag=--use-compress-program=pigz
+  elif command -v gzip >/dev/null 2>&1; then
+    compressflag=--gzip
+  else
+    compressflag=
+  fi
+}
+
+fn_backup_check_lockfile() { :; }
+fn_backup_create_lockfile() { :; }
+fn_backup_init() { :; }
+fn_backup_stop_server() { :; }
+fn_backup_dir() { :; }
+
+fn_backup_compression() {
+  if [ -n \"${compressflag}\" ]; then
+    tar ${compressflag} -hcf out.tar ./.
+  else
+    tar -hcf out.tar ./.
+  fi
+}
+
+fn_select_compression
+fn_backup_check_lockfile
+fn_backup_create_lockfile
+fn_backup_init
+fn_backup_stop_server
+fn_backup_dir
+fn_backup_compression
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_helper_initialized_bindings_when_other_callers_skip_the_helper() {
+        let source = "\
+#!/bin/bash
+init_flag() {
+  flag=-n
+}
+
+render() {
+  printf '%s\\n' ${flag}
+}
+
+safe_path() {
+  init_flag
+  render
+}
+
+unsafe_path() {
+  render
+}
+
+safe_path
+unsafe_path
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${flag}"]
+        );
+    }
+
+    #[test]
+    fn reports_helper_bindings_when_initializers_are_guarded_by_conditionals() {
+        let source = "\
+#!/bin/bash
+init_flag() {
+  flag=-n
+}
+
+render() {
+  if [ \"$1\" = yes ]; then
+    init_flag
+  fi
+  printf '%s\\n' ${flag}
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${flag}"]
+        );
+    }
+
+    #[test]
+    fn skips_helper_initialized_bindings_when_all_callers_provide_distinct_values() {
+        let source = "\
+#!/bin/bash
+init_flag_a() {
+  flag=-a
+}
+
+init_flag_b() {
+  flag=-b
+}
+
+render() {
+  printf '%s\\n' ${flag}
+}
+
+safe_path_a() {
+  init_flag_a
+  render
+}
+
+safe_path_b() {
+  init_flag_b
+  render
+}
+
+safe_path_a
+safe_path_b
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_ambient_contract_bindings_without_known_values() {
+        let path = Path::new("/tmp/void-packages/common/build-style/example.sh");
+        let source = "\
+#!/bin/sh
+helper() {
+  printf '%s\\n' $wrksrc $pkgname
+}
+";
+        let diagnostics = test_snippet_at_path(
+            path,
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedExpansion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$wrksrc", "$pkgname"]
+        );
+    }
+
+    #[test]
+    fn skips_static_suffix_bindings_in_slackbuild_subshell_paths() {
+        let path = Path::new("/tmp/example.SlackBuild");
+        let source = "\
+#!/bin/bash
+if [ \"$ARCH\" = \"i386\" ]; then
+  MULTILIB=\"NO\"
+  LIBDIRSUFFIX=\"\"
+elif [ \"$ARCH\" = \"i486\" ]; then
+  MULTILIB=\"NO\"
+  LIBDIRSUFFIX=\"\"
+elif [ \"$ARCH\" = \"i586\" ]; then
+  MULTILIB=\"NO\"
+  LIBDIRSUFFIX=\"\"
+elif [ \"$ARCH\" = \"i686\" ]; then
+  MULTILIB=\"NO\"
+  LIBDIRSUFFIX=\"\"
+elif [ \"$ARCH\" = \"x86_64\" ]; then
+  MULTILIB=\"YES\"
+  LIBDIRSUFFIX=\"64\"
+elif [ \"$ARCH\" = \"armv7hl\" ]; then
+  MULTILIB=\"NO\"
+  LIBDIRSUFFIX=\"\"
+elif [ \"$ARCH\" = \"s390\" ]; then
+  MULTILIB=\"NO\"
+  LIBDIRSUFFIX=\"\"
+else
+  MULTILIB=\"NO\"
+  LIBDIRSUFFIX=\"\"
+fi
+
+if [ ${MULTILIB} = \"YES\" ]; then
+  printf '%s\\n' multilib
+fi
+
+(
+  ./configure \
+    --libdir=/usr/lib${LIBDIRSUFFIX} \
+    --with-python-dir=/lib${LIBDIRSUFFIX}/python2.7/site-packages \
+    --with-java-home=/usr/lib${LIBDIRSUFFIX}/jvm/jre
+)
+";
+        let diagnostics = test_snippet_at_path(
+            path,
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedExpansion),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn keeps_safe_indirect_bindings_but_reports_parameter_operator_results() {
         let source = "\
 #!/bin/bash
 base=abc
@@ -745,7 +1051,13 @@ printf '%s\\n' ${!name} $upper $quoted
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 
-        assert!(diagnostics.is_empty());
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$upper", "$quoted"]
+        );
     }
 
     #[test]

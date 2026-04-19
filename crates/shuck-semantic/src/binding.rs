@@ -17,10 +17,73 @@ pub struct Binding {
     pub id: BindingId,
     pub name: Name,
     pub kind: BindingKind,
+    pub origin: BindingOrigin,
     pub scope: ScopeId,
     pub span: Span,
     pub references: Vec<ReferenceId>,
     pub attributes: BindingAttributes,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BindingOrigin {
+    Assignment {
+        definition_span: Span,
+        value: AssignmentValueOrigin,
+    },
+    LoopVariable {
+        definition_span: Span,
+        items: LoopValueOrigin,
+    },
+    ParameterDefaultAssignment {
+        definition_span: Span,
+    },
+    Imported {
+        definition_span: Span,
+    },
+    FunctionDefinition {
+        definition_span: Span,
+    },
+    BuiltinTarget {
+        definition_span: Span,
+        kind: BuiltinBindingTargetKind,
+    },
+    ArithmeticAssignment {
+        definition_span: Span,
+    },
+    Declaration {
+        definition_span: Span,
+    },
+    Nameref {
+        definition_span: Span,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssignmentValueOrigin {
+    PlainScalarAccess,
+    StaticLiteral,
+    ParameterOperator,
+    Transformation,
+    IndirectExpansion,
+    CommandOrProcessSubstitution,
+    MixedDynamic,
+    ArrayOrCompound,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoopValueOrigin {
+    StaticWords,
+    ExpandedWords,
+    ImplicitArgv,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuiltinBindingTargetKind {
+    Read,
+    Mapfile,
+    Printf,
+    Getopts,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
