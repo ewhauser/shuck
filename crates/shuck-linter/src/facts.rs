@@ -24906,6 +24906,32 @@ if [[ \"$@\" =~ x ]]; then :; fi
     }
 
     #[test]
+    fn positional_parameter_surface_facts_ignore_single_digit_suffixes_in_nested_substitutions() {
+        let source = r#"#!/bin/sh
+eval "$(printf '%s\n' x | "$2_rework")"
+eval "$(printf '%s\n' x | "$10_rework")"
+"#;
+
+        with_facts(source, None, |_, facts| {
+            let above_nine = facts
+                .positional_parameter_fragments()
+                .iter()
+                .filter(|fragment| fragment.is_above_nine())
+                .map(|fragment| fragment.span().slice(source))
+                .collect::<Vec<_>>();
+
+            assert_eq!(above_nine.len(), 1, "fragments: {above_nine:?}");
+            assert!(above_nine[0].contains("$10"), "fragments: {above_nine:?}");
+            assert!(
+                !above_nine
+                    .iter()
+                    .any(|fragment| fragment.contains("$2_rework")),
+                "fragments: {above_nine:?}"
+            );
+        });
+    }
+
+    #[test]
     fn builds_nested_legacy_arithmetic_fragments_from_surface_words() {
         let source = "\
 #!/bin/bash
