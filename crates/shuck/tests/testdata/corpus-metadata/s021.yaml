@@ -8,6 +8,12 @@ reviewed_divergences:
       - project-closure
     reason: "This helper-library project-closure fixture folds positional parameters into a quoted sentence; shuck keeps S021 on this callsite even though the oracle does not emit SC2145 here."
   - side: shellcheck-only
+    path_suffix: "moovweb__gvm__scripts__env__pkgset-use"
+    line: 54
+    labels:
+      - project-closure
+    reason: "This project-closure debug trace mixes an escaped '\\$@' literal with the real '$@' in one quoted word; the oracle keeps SC2145 here, but Shuck does not currently retain S021 on this callsite."
+  - side: shellcheck-only
     path_suffix: "RetroPie__RetroPie-Setup__retropie_packages.sh"
     line: 95
     reason: "S021 is scoped to positional-parameter '$@' folding, while this SC2145 finding is for an '__ERRMSGS[@]' array embedded in a console message."
