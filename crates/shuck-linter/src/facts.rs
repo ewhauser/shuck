@@ -2701,7 +2701,10 @@ impl<'a> CommandOptionFacts<'a> {
                 .then(|| parse_unset_command(normalized.body_args(), source)),
             find: normalized
                 .effective_name_is("find")
-                .then(|| parse_find_command(normalized.body_args(), source)),
+                .then(|| {
+                    let args = find_command_args(command, normalized, source);
+                    parse_find_command(args.as_slice(), source)
+                }),
             find_exec: (normalized.has_wrapper(WrapperKind::FindExec)
                 || normalized.has_wrapper(WrapperKind::FindExecDir))
             .then(|| FindExecCommandFacts {
@@ -16938,6 +16941,20 @@ fn is_find_exec_semicolon_terminator(word: &Word, source: &str) -> bool {
     }
 }
 
+fn find_command_args<'a>(
+    command: &'a Command,
+    normalized: &NormalizedCommand<'a>,
+    source: &'a str,
+) -> Vec<&'a Word> {
+    if normalized.literal_name.as_deref() == Some("find")
+        && let Command::Simple(command) = command
+    {
+        return simple_command_body_words(command, source).skip(1).collect();
+    }
+
+    normalized.body_args().to_vec()
+}
+
 fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
     let mut has_print0 = false;
     let mut has_formatted_output_action = false;
@@ -16984,7 +17001,7 @@ fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
                 group_stack
                     .last_mut()
                     .expect("group stack retains the root frame")
-                    .incorporate_group(child, &mut or_without_grouping_spans);
+                    .incorporate_group(child);
             }
             continue;
         }
@@ -17091,12 +17108,11 @@ struct FindGroupState {
     current_branch_has_explicit_and: bool,
     has_any_predicate: bool,
     has_any_action: bool,
-    first_action_span_for_parent: Option<Span>,
 }
 
 impl FindGroupState {
     fn current_branch_can_bind_action(&self) -> bool {
-        !self.current_branch_has_explicit_and && (self.current_branch_has_predicate || self.saw_or)
+        !self.current_branch_has_explicit_and && self.current_branch_has_predicate
     }
 
     fn note_or(&mut self) {
@@ -17123,25 +17139,13 @@ impl FindGroupState {
             spans.push(span);
         }
 
-        if reportable
-            && self.first_action_span_for_parent.is_none()
-            && self.current_branch_can_bind_action()
-        {
-            self.first_action_span_for_parent = Some(span);
-        }
-
         self.saw_action_before_current_branch = true;
         self.has_any_action = true;
     }
 
-    fn incorporate_group(&mut self, child: Self, spans: &mut Vec<Span>) {
+    fn incorporate_group(&mut self, child: Self) {
         if child.has_any_predicate {
             self.note_predicate();
-        }
-
-        if let Some(span) = child.first_action_span_for_parent {
-            self.note_action(span, true, spans);
-            return;
         }
 
         if child.has_any_action {
@@ -20937,6 +20941,32 @@ unset -v \"${!prefix_@}\" x${!prefix_*} \"${!name}\" \"${!arr[@]}\"
             .map(|span| span.slice(source))
             .collect::<Vec<_>>();
         assert_eq!(find_or_without_grouping_spans, vec!["-print"]);
+    }
+
+    #[test]
+    fn tracks_find_exec_or_branches_without_action_only_false_positives() {
+        let source = "\
+#!/bin/bash
+find . -name a -o -name b -exec rm -f {} \\;
+find . -name a -o -name b -o -name c -exec cp {} out \\;
+find . \\( -name a -o \\( -name b -exec rm -f {} \\; \\) \\) -print
+find . -type l -o -print
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let find_or_without_grouping_spans = facts
+            .commands()
+            .iter()
+            .filter_map(|fact| fact.options().find())
+            .flat_map(|find| find.or_without_grouping_spans().iter().copied())
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(find_or_without_grouping_spans, vec!["-exec", "-exec"]);
     }
 
     #[test]

@@ -17,7 +17,6 @@ pub fn find_or_without_grouping(checker: &mut Checker) {
         .facts()
         .commands()
         .iter()
-        .filter(|fact| fact.effective_name_is("find"))
         .filter_map(|fact| fact.options().find())
         .flat_map(|find| find.or_without_grouping_spans().iter().copied())
         .collect::<Vec<_>>();
@@ -43,15 +42,14 @@ mod tests {
     }
 
     #[test]
-    fn reports_ungrouped_or_when_right_branch_is_action_only() {
+    fn ignores_when_right_branch_is_action_only() {
         let source = "find . -name a -o -print\n";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::FindOrWithoutGrouping),
         );
 
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.slice(source), "-print");
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
@@ -79,6 +77,30 @@ mod tests {
     }
 
     #[test]
+    fn reports_ungrouped_or_when_find_exec_branch_has_a_predicate() {
+        let source = "find . -name a -o -name b -exec rm -f {} \\;\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FindOrWithoutGrouping),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "-exec");
+    }
+
+    #[test]
+    fn reports_ungrouped_or_across_multiple_exec_branches() {
+        let source = "find . -name a -o -name b -o -name c -exec rm -f {} \\;\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FindOrWithoutGrouping),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "-exec");
+    }
+
+    #[test]
     fn ignores_grouped_or_and_explicit_and() {
         let source = "\
 find . \\( -name a -o -name b \\) -exec rm -f {} \\;
@@ -95,6 +117,17 @@ find . -name a -o -name b -a -exec rm -f {} \\;
     #[test]
     fn ignores_when_an_earlier_branch_already_has_an_action() {
         let source = "find . -name a -print -o -name b -print\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FindOrWithoutGrouping),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_actions_inside_grouped_right_branches() {
+        let source = "find . \\( -name a -o \\( -name b -exec rm -f {} \\; \\) \\) -print\n";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::FindOrWithoutGrouping),
