@@ -31,10 +31,6 @@ pub(crate) fn file_entry_contract(
 }
 
 fn providers() -> &'static [AmbientContractProvider] {
-    void_packages_providers()
-}
-
-fn void_packages_providers() -> &'static [AmbientContractProvider] {
     &[
         AmbientContractProvider {
             matches: matches_void_packages_build_style_contract,

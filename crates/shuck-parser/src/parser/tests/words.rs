@@ -6593,6 +6593,12 @@ fn test_zsh_if_condition_brace_group_keeps_closing_brace_out_of_arguments() {
 }
 
 #[test]
+fn test_parse_case_arm_with_fd_clobber_redirect() {
+    let source = "case $# in\n  0) shellspec_yield 2>|\"$SHELLSPEC_LEAK_FILE\" ;;\n  *) shellspec_yield \"$@\" 2>|\"$SHELLSPEC_LEAK_FILE\" ;;\nesac\n";
+    Parser::new(source).parse().unwrap();
+}
+
+#[test]
 fn test_zsh_always_and_background_operators_preserve_surface_forms() {
     let source = "\
 { print body; } always { print cleanup; }
