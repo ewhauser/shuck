@@ -1673,6 +1673,7 @@ pub struct GetoptsCaseFact {
     unexpected_case_labels: Box<[GetoptsCaseLabelFact]>,
     invalid_case_pattern_spans: Box<[Span]>,
     has_fallback_pattern: bool,
+    has_unknown_coverage: bool,
     missing_options: Box<[GetoptsOptionSpec]>,
 }
 
@@ -1699,6 +1700,19 @@ impl GetoptsCaseFact {
 
     pub fn has_fallback_pattern(&self) -> bool {
         self.has_fallback_pattern
+    }
+
+    pub fn has_unknown_coverage(&self) -> bool {
+        self.has_unknown_coverage
+    }
+
+    pub fn missing_invalid_flag_handler(&self) -> bool {
+        !self.has_fallback_pattern
+            && !self.has_unknown_coverage
+            && !self
+                .handled_case_labels
+                .iter()
+                .any(|label| label.label == '?')
     }
 
     pub fn missing_options(&self) -> &[GetoptsOptionSpec] {
@@ -13050,6 +13064,7 @@ fn build_getopts_case_fact_for_while(
         unexpected_case_labels: unexpected_case_labels.into_boxed_slice(),
         invalid_case_pattern_spans: invalid_case_pattern_spans.into_boxed_slice(),
         has_fallback_pattern,
+        has_unknown_coverage,
         missing_options: missing_options.into_boxed_slice(),
     })
 }
@@ -20020,6 +20035,56 @@ done
                 vec!['a', 'b']
             );
             assert!(case.missing_options().is_empty());
+        });
+    }
+
+    #[test]
+    fn records_invalid_flag_handler_coverage_for_getopts_cases() {
+        let source = "\
+#!/bin/sh
+while getopts 'a' opt; do
+  case \"$opt\" in
+    a) : ;;
+  esac
+done
+
+while getopts 'a' opt; do
+  case \"$opt\" in
+    a) : ;;
+    \\?) : ;;
+  esac
+done
+
+while getopts 'a' opt; do
+  case \"$opt\" in
+    a) : ;;
+    *) : ;;
+  esac
+done
+
+while getopts 'ab' opt; do
+  case \"$opt\" in
+    [ab]) : ;;
+  esac
+done
+
+while getopts ':a' opt; do
+  case \"$opt\" in
+    a) : ;;
+    :) : ;;
+  esac
+done
+";
+
+        with_facts(source, None, |_, facts| {
+            let cases = facts.getopts_cases();
+            assert_eq!(cases.len(), 5);
+            assert!(cases[0].missing_invalid_flag_handler());
+            assert!(!cases[1].missing_invalid_flag_handler());
+            assert!(!cases[2].missing_invalid_flag_handler());
+            assert!(cases[3].has_unknown_coverage());
+            assert!(!cases[3].missing_invalid_flag_handler());
+            assert!(cases[4].missing_invalid_flag_handler());
         });
     }
 

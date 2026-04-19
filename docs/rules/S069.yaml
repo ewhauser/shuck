@@ -1,5 +1,5 @@
 legacy_code: SH-300
-legacy_name: single-letter-case-label
+legacy_name: getopts-invalid-flag-handler
 new_category: Style
 new_code: S069
 runtime_kind: ast
@@ -9,8 +9,8 @@ shells:
   - bash
   - dash
   - ksh
-description: A bare single letter is used as a case label in a getopts handler.
-rationale: Verify the case labels match the getopts option string.
+description: A getopts case handler has no branch for invalid option flags.
+rationale: Add a catch-all branch or an explicit `\?` arm so unexpected flags do not fall through the getopts dispatch.
 source:
   shell_checks_rule: rules/SH-300.yaml
   shell_checks_example: examples/300.sh
@@ -18,17 +18,10 @@ examples:
   - kind: invalid
     source: shell-checks/examples/300.sh
     code: |
-      #!/bin/bash
-      # shellcheck disable=2213
-      while getopts "hb:c:" opt; do
+      #!/bin/sh
+      while getopts ":a" opt; do
           case "$opt" in
-          h)
-              echo help
-              exit 0
-              ;;
-          b)
-              bg="$OPTARG"
-              ;;
+          a) : ;;
+          :) : ;;
           esac
       done
-      echo "${bg:-}"

@@ -1,28 +1,6 @@
-#!/bin/bash
+#!/bin/sh
 
-# Should trigger: an incomplete getopts handler uses bare single-letter labels.
-while getopts "hb:c:" opt; do
-  case "$opt" in
-    h)
-      echo help
-      exit 0
-      ;;
-    b)
-      bg="$OPTARG"
-      ;;
-  esac
-done
-echo "${bg:-}"
-
-# Should not trigger: quoted labels avoid the bare-label style warning.
-while getopts "hb:c:" opt; do
-  case "$opt" in
-    "h") : ;;
-    "b") : ;;
-  esac
-done
-
-# Should not trigger: complete or fallback-backed handlers are left alone.
+# Should trigger: declared options are handled, but invalid flags still fall through.
 while getopts "ab" opt; do
   case "$opt" in
     a) : ;;
@@ -30,6 +8,23 @@ while getopts "ab" opt; do
   esac
 done
 
+# Should trigger: handling ':' in silent mode still leaves invalid flags uncovered.
+while getopts ":a" opt; do
+  case "$opt" in
+    a) : ;;
+    :) : ;;
+  esac
+done
+
+# Should not trigger: an explicit invalid-option branch is present.
+while getopts "a" opt; do
+  case "$opt" in
+    a) : ;;
+    \?) : ;;
+  esac
+done
+
+# Should not trigger: a catch-all branch covers unexpected flags.
 while getopts "ab" opt; do
   case "$opt" in
     a) : ;;

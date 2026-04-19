@@ -618,7 +618,7 @@ declare_rules! {
     ("S065", Category::Style, Severity::Warning, XPrefixInTest),
     ("S067", Category::Style, Severity::Warning, LeadingGlobInGrepPattern),
     ("S068", Category::Style, Severity::Warning, TrapSignalNumbers),
-    ("S069", Category::Style, Severity::Hint, SingleLetterCaseLabel),
+    ("S069", Category::Style, Severity::Hint, GetoptsInvalidFlagHandler),
     ("S070", Category::Style, Severity::Warning, DoubleQuoteNesting),
     ("S071", Category::Style, Severity::Warning, EnvPrefixCommandOnly),
     ("S076", Category::Style, Severity::Warning, MixedQuoteWord),
@@ -909,7 +909,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-254" => Some(Rule::GlobWithExpansionInLoop),
         "SH-293" => Some(Rule::UnreachableAfterExit),
         "SH-298" => Some(Rule::UnusedHeredoc),
-        "SH-300" => Some(Rule::SingleLetterCaseLabel),
+        "SH-300" => Some(Rule::GetoptsInvalidFlagHandler),
         "SH-301" => Some(Rule::CaseGlobReachability),
         "SH-302" => Some(Rule::CaseDefaultBeforeGlob),
         "SH-312" => Some(Rule::GetoptsOptionNotInCase),
@@ -1025,8 +1025,11 @@ mod tests {
         assert_eq!(code_to_rule("SH-294"), Some(Rule::LeadingGlobInGrepPattern));
         assert_eq!(code_to_rule("S068"), Some(Rule::TrapSignalNumbers));
         assert_eq!(code_to_rule("SH-297"), Some(Rule::TrapSignalNumbers));
-        assert_eq!(code_to_rule("S069"), Some(Rule::SingleLetterCaseLabel));
-        assert_eq!(code_to_rule("SH-300"), Some(Rule::SingleLetterCaseLabel));
+        assert_eq!(code_to_rule("S069"), Some(Rule::GetoptsInvalidFlagHandler));
+        assert_eq!(
+            code_to_rule("SH-300"),
+            Some(Rule::GetoptsInvalidFlagHandler)
+        );
         assert_eq!(code_to_rule("S071"), Some(Rule::EnvPrefixCommandOnly));
         assert_eq!(code_to_rule("SH-309"), Some(Rule::EnvPrefixCommandOnly));
         assert_eq!(code_to_rule("S076"), Some(Rule::MixedQuoteWord));

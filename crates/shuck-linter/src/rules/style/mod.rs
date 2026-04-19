@@ -28,6 +28,7 @@ pub mod export_command_substitution;
 pub mod fgrep_deprecated;
 pub mod function_body_without_braces;
 pub mod function_in_alias;
+pub mod getopts_invalid_flag_handler;
 pub mod glob_assigned_to_variable;
 pub mod grep_output_in_test;
 pub mod heredoc_end_space;
@@ -55,7 +56,6 @@ pub mod redundant_return_status;
 pub mod redundant_spaces_in_echo;
 pub mod relative_symlink_target;
 pub mod single_iteration_loop;
-pub mod single_letter_case_label;
 pub mod single_quote_backslash;
 pub mod spaced_tabstrip_close;
 pub mod su_without_flag;
@@ -113,7 +113,7 @@ mod tests {
     #[test_case(Rule::XPrefixInTest, Path::new("S065.sh"))]
     #[test_case(Rule::LeadingGlobInGrepPattern, Path::new("S067.sh"))]
     #[test_case(Rule::TrapSignalNumbers, Path::new("S068.sh"))]
-    #[test_case(Rule::SingleLetterCaseLabel, Path::new("S069.sh"))]
+    #[test_case(Rule::GetoptsInvalidFlagHandler, Path::new("S069.sh"))]
     #[test_case(Rule::DoubleQuoteNesting, Path::new("S070.sh"))]
     #[test_case(Rule::EnvPrefixCommandOnly, Path::new("S071.sh"))]
     #[test_case(Rule::MixedQuoteWord, Path::new("S076.sh"))]
