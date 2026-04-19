@@ -14,6 +14,14 @@ pub(super) struct EscapeScanContext<'a> {
     pub(super) file_context: &'a FileContext,
 }
 
+pub(super) struct EscapeScanInputs<'a> {
+    pub(super) pattern_literal_spans: &'a [Span],
+    pub(super) pattern_charclass_spans: &'a [Span],
+    pub(super) parameter_pattern_spans: &'a [Span],
+    pub(super) single_quoted_fragments: &'a [SingleQuotedFragmentFact],
+    pub(super) backtick_fragments: &'a [BacktickFragmentFact],
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EscapeScanSourceKind {
     WordLiteralPart,
@@ -21,6 +29,7 @@ pub(crate) enum EscapeScanSourceKind {
     DynamicPathCommandName,
     PatternLiteral,
     PatternCharClass,
+    ParameterPatternCharClass,
     SingleLiteralAssignmentWord,
     BacktickFragment,
 }
@@ -31,6 +40,8 @@ pub(crate) struct EscapeScanMatch {
     escaped_byte: u8,
     source_kind: EscapeScanSourceKind,
     grep_style_argument: bool,
+    tr_operand_argument: bool,
+    #[cfg_attr(not(test), allow(dead_code))]
     host_contains_single_quoted_fragment: bool,
     inside_single_quoted_fragment: bool,
 }
@@ -52,6 +63,11 @@ impl EscapeScanMatch {
         self.grep_style_argument
     }
 
+    pub(crate) fn is_tr_operand_argument(self) -> bool {
+        self.tr_operand_argument
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn host_contains_single_quoted_fragment(self) -> bool {
         self.host_contains_single_quoted_fragment
     }
@@ -61,13 +77,18 @@ impl EscapeScanMatch {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct EscapeScanMatchContext {
+    source_kind: EscapeScanSourceKind,
+    grep_style_argument: bool,
+    tr_operand_argument: bool,
+    host_contains_single_quoted_fragment: bool,
+}
+
 pub(super) fn build_escape_scan_matches(
     commands: &[CommandFact<'_>],
     words: &[WordFact<'_>],
-    pattern_literal_spans: &[Span],
-    pattern_charclass_spans: &[Span],
-    single_quoted_fragments: &[SingleQuotedFragmentFact],
-    backtick_fragments: &[BacktickFragmentFact],
+    inputs: EscapeScanInputs<'_>,
     context: EscapeScanContext<'_>,
 ) -> Vec<EscapeScanMatch> {
     if context.file_context.has_tag(FileContextTag::PatchFile) {
@@ -81,12 +102,13 @@ pub(super) fn build_escape_scan_matches(
         .filter(|fact| is_relevant_word_context(fact.expansion_context()))
     {
         let grep_style_argument = is_grep_style_argument(commands, fact);
+        let tr_operand_argument = is_tr_operand_argument(commands, fact);
         if is_regex_like_context(fact.expansion_context()) {
             continue;
         }
 
         let host_contains_single_quoted_fragment =
-            span_contains_single_quoted_fragment(fact.span(), single_quoted_fragments);
+            span_contains_single_quoted_fragment(fact.span(), inputs.single_quoted_fragments);
 
         for span in
             word_literal_part_spans_excluding_parameter_operator_tails(fact.word(), context.source)
@@ -95,10 +117,13 @@ pub(super) fn build_escape_scan_matches(
                 &mut matches,
                 span,
                 context.source,
-                EscapeScanSourceKind::WordLiteralPart,
-                grep_style_argument,
-                host_contains_single_quoted_fragment,
-                single_quoted_fragments,
+                EscapeScanMatchContext {
+                    source_kind: EscapeScanSourceKind::WordLiteralPart,
+                    grep_style_argument,
+                    tr_operand_argument,
+                    host_contains_single_quoted_fragment,
+                },
+                inputs.single_quoted_fragments,
             );
         }
     }
@@ -115,10 +140,16 @@ pub(super) fn build_escape_scan_matches(
             &mut matches,
             fact.span(),
             context.source,
-            EscapeScanSourceKind::SingleLiteralAssignmentWord,
-            is_grep_style_argument(commands, fact),
-            span_contains_single_quoted_fragment(fact.span(), single_quoted_fragments),
-            single_quoted_fragments,
+            EscapeScanMatchContext {
+                source_kind: EscapeScanSourceKind::SingleLiteralAssignmentWord,
+                grep_style_argument: is_grep_style_argument(commands, fact),
+                tr_operand_argument: is_tr_operand_argument(commands, fact),
+                host_contains_single_quoted_fragment: span_contains_single_quoted_fragment(
+                    fact.span(),
+                    inputs.single_quoted_fragments,
+                ),
+            },
+            inputs.single_quoted_fragments,
         );
     }
 
@@ -129,22 +160,26 @@ pub(super) fn build_escape_scan_matches(
         )
     }) {
         let grep_style_argument = is_grep_style_argument(commands, fact);
+        let tr_operand_argument = is_tr_operand_argument(commands, fact);
         if is_regex_like_context(fact.expansion_context()) {
             continue;
         }
 
         let host_contains_single_quoted_fragment =
-            span_contains_single_quoted_fragment(fact.span(), single_quoted_fragments);
+            span_contains_single_quoted_fragment(fact.span(), inputs.single_quoted_fragments);
 
         for span in word_literal_scan_segments_excluding_expansions(fact.word(), context.source) {
             append_escape_scan_matches(
                 &mut matches,
                 span,
                 context.source,
-                EscapeScanSourceKind::RedirectLiteralSegment,
-                grep_style_argument,
-                host_contains_single_quoted_fragment,
-                single_quoted_fragments,
+                EscapeScanMatchContext {
+                    source_kind: EscapeScanSourceKind::RedirectLiteralSegment,
+                    grep_style_argument,
+                    tr_operand_argument,
+                    host_contains_single_quoted_fragment,
+                },
+                inputs.single_quoted_fragments,
             );
         }
     }
@@ -161,46 +196,75 @@ pub(super) fn build_escape_scan_matches(
             &mut matches,
             span,
             context.source,
-            EscapeScanSourceKind::DynamicPathCommandName,
-            false,
-            span_contains_single_quoted_fragment(span, single_quoted_fragments),
-            single_quoted_fragments,
+            EscapeScanMatchContext {
+                source_kind: EscapeScanSourceKind::DynamicPathCommandName,
+                grep_style_argument: false,
+                tr_operand_argument: false,
+                host_contains_single_quoted_fragment: span_contains_single_quoted_fragment(
+                    span,
+                    inputs.single_quoted_fragments,
+                ),
+            },
+            inputs.single_quoted_fragments,
         );
     }
 
-    for span in pattern_literal_spans {
+    for span in inputs.pattern_literal_spans {
         append_escape_scan_matches(
             &mut matches,
             *span,
             context.source,
-            EscapeScanSourceKind::PatternLiteral,
-            false,
-            span_contains_single_quoted_fragment(*span, single_quoted_fragments),
-            single_quoted_fragments,
+            EscapeScanMatchContext {
+                source_kind: EscapeScanSourceKind::PatternLiteral,
+                grep_style_argument: false,
+                tr_operand_argument: false,
+                host_contains_single_quoted_fragment: span_contains_single_quoted_fragment(
+                    *span,
+                    inputs.single_quoted_fragments,
+                ),
+            },
+            inputs.single_quoted_fragments,
         );
     }
 
-    for span in pattern_charclass_spans {
+    for span in inputs.pattern_charclass_spans {
+        let source_kind = if span_within_any(*span, inputs.parameter_pattern_spans) {
+            EscapeScanSourceKind::ParameterPatternCharClass
+        } else {
+            EscapeScanSourceKind::PatternCharClass
+        };
         append_escape_scan_matches(
             &mut matches,
             *span,
             context.source,
-            EscapeScanSourceKind::PatternCharClass,
-            false,
-            span_contains_single_quoted_fragment(*span, single_quoted_fragments),
-            single_quoted_fragments,
+            EscapeScanMatchContext {
+                source_kind,
+                grep_style_argument: false,
+                tr_operand_argument: false,
+                host_contains_single_quoted_fragment: span_contains_single_quoted_fragment(
+                    *span,
+                    inputs.single_quoted_fragments,
+                ),
+            },
+            inputs.single_quoted_fragments,
         );
     }
 
-    for fragment in backtick_fragments {
+    for fragment in inputs.backtick_fragments {
         append_escape_scan_matches(
             &mut matches,
             fragment.span(),
             context.source,
-            EscapeScanSourceKind::BacktickFragment,
-            false,
-            span_contains_single_quoted_fragment(fragment.span(), single_quoted_fragments),
-            single_quoted_fragments,
+            EscapeScanMatchContext {
+                source_kind: EscapeScanSourceKind::BacktickFragment,
+                grep_style_argument: false,
+                tr_operand_argument: false,
+                host_contains_single_quoted_fragment: span_contains_single_quoted_fragment(
+                    fragment.span(),
+                    inputs.single_quoted_fragments,
+                ),
+            },
+            inputs.single_quoted_fragments,
         );
     }
 
@@ -211,9 +275,7 @@ fn append_escape_scan_matches(
     matches: &mut Vec<EscapeScanMatch>,
     scan_span: Span,
     source: &str,
-    source_kind: EscapeScanSourceKind,
-    grep_style_argument: bool,
-    host_contains_single_quoted_fragment: bool,
+    match_context: EscapeScanMatchContext,
     single_quoted_fragments: &[SingleQuotedFragmentFact],
 ) {
     let text = scan_span.slice(source);
@@ -281,9 +343,11 @@ fn append_escape_scan_matches(
         matches.push(EscapeScanMatch {
             span: report_span,
             escaped_byte,
-            source_kind,
-            grep_style_argument,
-            host_contains_single_quoted_fragment,
+            source_kind: match_context.source_kind,
+            grep_style_argument: match_context.grep_style_argument,
+            tr_operand_argument: match_context.tr_operand_argument,
+            host_contains_single_quoted_fragment: match_context
+                .host_contains_single_quoted_fragment,
             inside_single_quoted_fragment: span_within_single_quoted_fragment(
                 report_span,
                 single_quoted_fragments,
@@ -336,8 +400,14 @@ fn span_within_single_quoted_fragment(span: Span, fragments: &[SingleQuotedFragm
     fragments.iter().any(|fragment| {
         let fragment_span = fragment.span();
         span.start.offset >= fragment_span.start.offset
-            && span.end.offset <= fragment_span.end.offset
+            && span.end.offset < fragment_span.end.offset
     })
+}
+
+fn span_within_any(span: Span, hosts: &[Span]) -> bool {
+    hosts
+        .iter()
+        .any(|host| span.start.offset >= host.start.offset && span.end.offset <= host.end.offset)
 }
 
 fn is_grep_style_argument(commands: &[CommandFact<'_>], fact: &WordFact<'_>) -> bool {
@@ -356,6 +426,21 @@ fn is_grep_style_argument(commands: &[CommandFact<'_>], fact: &WordFact<'_>) -> 
     command
         .effective_or_literal_name()
         .is_some_and(|name| name.contains("grep"))
+}
+
+fn is_tr_operand_argument(commands: &[CommandFact<'_>], fact: &WordFact<'_>) -> bool {
+    if fact.expansion_context() != Some(ExpansionContext::CommandArgument) {
+        return false;
+    }
+
+    commands[fact.command_id().index()]
+        .options()
+        .tr()
+        .is_some_and(|tr| {
+            tr.operand_words()
+                .iter()
+                .any(|word| word.span == fact.span())
+        })
 }
 
 #[cfg(test)]
@@ -442,7 +527,7 @@ case x in [a\-z]) : ;; esac
     }
 
     #[test]
-    fn records_single_quote_metadata_for_nested_command_words() {
+    fn keeps_adjacent_escapes_outside_single_quoted_fragments() {
         let source = r#"#!/bin/bash
 echo "$(printf prefix'quoted'\n)"
 "#;
@@ -463,7 +548,7 @@ echo "$(printf prefix'quoted'\n)"
                     })
                     .expect("expected nested command word match");
 
-                assert!(nested_match.inside_single_quoted_fragment());
+                assert!(!nested_match.inside_single_quoted_fragment());
             },
         );
     }
@@ -502,6 +587,84 @@ echo foo\tbar
                     })
                     .expect("expected ordinary argument match");
                 assert!(!echo_match.is_grep_style_argument());
+            },
+        );
+    }
+
+    #[test]
+    fn marks_tr_operands_without_dropping_the_match() {
+        let source = r#"#!/bin/bash
+printf '%s\n' "$value" | tr \. _
+echo foo\.bar
+"#;
+
+        with_matches(
+            source,
+            None,
+            ParseShellDialect::Bash,
+            ShellDialect::Bash,
+            |matches| {
+                let tr_match = matches
+                    .iter()
+                    .copied()
+                    .find(|escape| {
+                        escape.escaped_byte() == b'.'
+                            && escape.span().start.line == 2
+                            && escape.source_kind() == EscapeScanSourceKind::WordLiteralPart
+                    })
+                    .expect("expected tr operand match");
+                assert!(tr_match.is_tr_operand_argument());
+
+                let echo_match = matches
+                    .iter()
+                    .copied()
+                    .find(|escape| {
+                        escape.escaped_byte() == b'.'
+                            && escape.span().start.line == 3
+                            && escape.source_kind() == EscapeScanSourceKind::WordLiteralPart
+                    })
+                    .expect("expected ordinary word match");
+                assert!(!echo_match.is_tr_operand_argument());
+            },
+        );
+    }
+
+    #[test]
+    fn distinguishes_parameter_expansion_char_classes() {
+        let source = r#"#!/bin/bash
+case "$x" in [a\-z]) : ;; esac
+name="${name//[^a-zA-Z0-9_\-]/}"
+"#;
+
+        with_matches(
+            source,
+            None,
+            ParseShellDialect::Bash,
+            ShellDialect::Bash,
+            |matches| {
+                let conditional_match = matches
+                    .iter()
+                    .copied()
+                    .find(|escape| {
+                        escape.escaped_byte() == b'-'
+                            && escape.span().start.line == 2
+                            && escape.source_kind() == EscapeScanSourceKind::PatternCharClass
+                    })
+                    .expect("expected case-pattern char class match");
+
+                let parameter_match = matches
+                    .iter()
+                    .copied()
+                    .find(|escape| {
+                        escape.escaped_byte() == b'-'
+                            && escape.span().start.line == 3
+                            && escape.source_kind()
+                                == EscapeScanSourceKind::ParameterPatternCharClass
+                    })
+                    .expect("expected parameter-pattern char class match");
+
+                assert_eq!(conditional_match.escaped_byte(), b'-');
+                assert_eq!(parameter_match.escaped_byte(), b'-');
             },
         );
     }

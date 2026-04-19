@@ -20,7 +20,9 @@ use self::{
         build_subshell_test_group_spans, build_substitution_facts,
     },
     conditional_portability::build_conditional_portability_facts,
-    escape_scan::{EscapeScanContext, EscapeScanMatch, build_escape_scan_matches},
+    escape_scan::{
+        EscapeScanContext, EscapeScanInputs, EscapeScanMatch, build_escape_scan_matches,
+    },
     presence::build_presence_tested_names,
     surface::{
         SurfaceFragmentFacts, SurfaceFragmentSink, SurfaceScanContext,
@@ -3690,6 +3692,7 @@ impl<'a> LinterFactsBuilder<'a> {
             unicode_smart_quote_spans,
             pattern_exactly_one_extglob_spans: surface_pattern_exactly_one_extglob_spans,
             pattern_charclass_spans: surface_pattern_charclass_spans,
+            parameter_pattern_spans,
             nested_pattern_charclass_spans,
             nested_parameter_expansions,
             indirect_expansions,
@@ -3717,10 +3720,13 @@ impl<'a> LinterFactsBuilder<'a> {
         let escape_scan_matches = build_escape_scan_matches(
             &commands,
             &words,
-            &pattern_literal_spans,
-            &pattern_charclass_spans,
-            &single_quoted,
-            &backticks,
+            EscapeScanInputs {
+                pattern_literal_spans: &pattern_literal_spans,
+                pattern_charclass_spans: &pattern_charclass_spans,
+                parameter_pattern_spans: &parameter_pattern_spans,
+                single_quoted_fragments: &single_quoted,
+                backtick_fragments: &backticks,
+            },
             EscapeScanContext {
                 source: self.source,
                 file_context: self._file_context,
@@ -10373,6 +10379,9 @@ fn extend_surface_fragment_facts(target: &mut SurfaceFragmentFacts, source: Surf
     target
         .pattern_charclass_spans
         .extend(source.pattern_charclass_spans);
+    target
+        .parameter_pattern_spans
+        .extend(source.parameter_pattern_spans);
     target
         .nested_pattern_charclass_spans
         .extend(source.nested_pattern_charclass_spans);
