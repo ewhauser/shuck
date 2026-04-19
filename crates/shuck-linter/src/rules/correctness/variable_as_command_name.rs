@@ -129,4 +129,20 @@ export quote
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
+
+    #[test]
+    fn reports_unquoted_reuse_of_single_quoted_backslash_newline_values() {
+        let source = "\
+#!/bin/sh
+args='foo\\
+bar'\n\
+printf '%s\\n' $args\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::VariableAsCommandName),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "$args");
+    }
 }
