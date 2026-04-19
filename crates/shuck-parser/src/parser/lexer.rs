@@ -3690,6 +3690,12 @@ impl<'a> Lexer<'a> {
         let mut in_single_quote = false;
         while let Some(ch) = self.peek_char() {
             self.advance();
+            if ch == '\\' && !in_single_quote && self.peek_char() == Some('\n') {
+                rest_of_line.push(ch);
+                rest_of_line.push('\n');
+                self.advance();
+                continue;
+            }
             if ch == '\n' && !in_double_quote && !in_single_quote {
                 break;
             }
@@ -5487,6 +5493,27 @@ EOF
         // The redirect tokens are now available from the lexer
         assert_next_token(&mut lexer, TokenKind::RedirectOut, None);
         assert_next_token(&mut lexer, TokenKind::Word, Some("file.txt"));
+    }
+
+    #[test]
+    fn test_read_heredoc_reinjects_line_continued_pipeline_tail() {
+        let source = "cat <<EOF | grep hello \\\n  | sort \\\n  > out.txt\nhello\nEOF\n";
+        let mut lexer = Lexer::new(source);
+
+        assert_next_token(&mut lexer, TokenKind::Word, Some("cat"));
+        assert_next_token(&mut lexer, TokenKind::HereDoc, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("EOF"));
+
+        let heredoc = lexer.read_heredoc("EOF", false);
+        assert_eq!(heredoc.content, "hello\n");
+
+        assert_next_token(&mut lexer, TokenKind::Pipe, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("grep"));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("hello"));
+        assert_next_token(&mut lexer, TokenKind::Pipe, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("sort"));
+        assert_next_token(&mut lexer, TokenKind::RedirectOut, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("out.txt"));
     }
 
     #[test]
