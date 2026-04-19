@@ -1,0 +1,8 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "alpinelinux__aports__scripts__mkimage.sh"
+    line: 120
+    end_line: 120
+    labels:
+      - project-closure
+    reason: "This mkimage helper uses `[^a-zA-Z0-9]` inside a POSIX parameter-replacement pattern. Shuck intentionally keeps X065 active in that parameter-pattern context, while the current oracle only reports the broader SC3060 portability warning there and does not emit SC3026."

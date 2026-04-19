@@ -3934,6 +3934,96 @@ mod tests {
     }
 
     #[test]
+    fn reviewed_divergence_classification_requires_path_line_and_label_constraints() {
+        let metadata = HashMap::from([(
+            "X065".to_string(),
+            RuleCorpusMetadataDocument {
+                reviewed_divergences: vec![ReviewedDivergenceRecord {
+                    side: CompatibilitySide::ShuckOnly,
+                    path_suffix: Some("alpinelinux__aports__scripts__mkimage.sh".into()),
+                    path_contains: None,
+                    line: Some(120),
+                    end_line: Some(120),
+                    column: None,
+                    end_column: None,
+                    labels: vec!["project-closure".into()],
+                    reason: "scoped reviewed divergence".into(),
+                }],
+            },
+        )]);
+        let matching = CompatibilityRecord {
+            side: CompatibilitySide::ShuckOnly,
+            rule_code: Some("X065".into()),
+            rule_codes: Vec::new(),
+            shellcheck_code: "SC3026".into(),
+            range: DiagnosticRange {
+                line: 120,
+                end_line: 120,
+                column: 22,
+                end_column: 34,
+            },
+            message: "caret negation in bracket expressions is not portable to POSIX sh".into(),
+            labels: vec!["project-closure".into()],
+        };
+        let wrong_path = CompatibilityRecord { ..matching.clone() };
+        let wrong_line = CompatibilityRecord {
+            range: DiagnosticRange {
+                line: 121,
+                end_line: 121,
+                column: 22,
+                end_column: 34,
+            },
+            ..matching.clone()
+        };
+        let missing_label = CompatibilityRecord {
+            labels: Vec::new(),
+            ..matching.clone()
+        };
+
+        let (matching_classification, matching_reason) = classify_compatibility_record(
+            &matching,
+            "alpinelinux__aports__scripts__mkimage.sh",
+            &metadata,
+        );
+        let (wrong_path_classification, wrong_path_reason) =
+            classify_compatibility_record(&wrong_path, "other__repo__script.sh", &metadata);
+        let (wrong_line_classification, wrong_line_reason) = classify_compatibility_record(
+            &wrong_line,
+            "alpinelinux__aports__scripts__mkimage.sh",
+            &metadata,
+        );
+        let (missing_label_classification, missing_label_reason) = classify_compatibility_record(
+            &missing_label,
+            "alpinelinux__aports__scripts__mkimage.sh",
+            &metadata,
+        );
+
+        assert_eq!(
+            matching_classification,
+            CompatibilityClassification::ReviewedDivergence
+        );
+        assert_eq!(
+            matching_reason.as_deref(),
+            Some("scoped reviewed divergence")
+        );
+        assert_eq!(
+            wrong_path_classification,
+            CompatibilityClassification::Implementation
+        );
+        assert!(wrong_path_reason.is_none());
+        assert_eq!(
+            wrong_line_classification,
+            CompatibilityClassification::Implementation
+        );
+        assert!(wrong_line_reason.is_none());
+        assert_eq!(
+            missing_label_classification,
+            CompatibilityClassification::Implementation
+        );
+        assert!(missing_label_reason.is_none());
+    }
+
+    #[test]
     fn reviewed_divergence_classification_matches_path_contains_record() {
         let metadata = HashMap::from([(
             "C999".to_string(),
