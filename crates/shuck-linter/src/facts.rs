@@ -2218,6 +2218,7 @@ pub struct GrepPatternFact<'a> {
     static_text: Option<Box<str>>,
     source_kind: GrepPatternSourceKind,
     starts_with_glob_style_star: bool,
+    has_glob_style_star_confusion: bool,
 }
 
 impl<'a> GrepPatternFact<'a> {
@@ -2239,6 +2240,10 @@ impl<'a> GrepPatternFact<'a> {
 
     pub fn starts_with_glob_style_star(&self) -> bool {
         self.starts_with_glob_style_star
+    }
+
+    pub fn has_glob_style_star_confusion(&self) -> bool {
+        self.has_glob_style_star_confusion
     }
 }
 
@@ -15762,12 +15767,16 @@ fn grep_prefixed_pattern_fact<'a>(
     let starts_with_glob_style_star = static_text
         .as_deref()
         .is_some_and(|text| text.starts_with('*') || text == "^*");
+    let has_glob_style_star_confusion = static_text
+        .as_deref()
+        .is_some_and(grep_pattern_has_glob_style_star_confusion);
 
     GrepPatternFact {
         word,
         static_text,
         source_kind,
         starts_with_glob_style_star,
+        has_glob_style_star_confusion,
     }
 }
 
@@ -15855,7 +15864,89 @@ fn push_cooked_double_quoted_literal_text(text: &str, out: &mut String) {
         }
     }
 }
+fn grep_pattern_has_glob_style_star_confusion(pattern: &str) -> bool {
+    let bytes = pattern.as_bytes();
 
+    if pattern.starts_with('^')
+        || ends_with_unescaped_dollar(bytes)
+        || bytes.contains(&b'[')
+        || bytes.contains(&b'\\')
+        || bytes.contains(&b'+')
+    {
+        return false;
+    }
+
+    if first_unescaped_star_index(bytes).is_some_and(|index| index == 0) {
+        return false;
+    }
+
+    let mut index = 0usize;
+    while let Some(star_index) = next_unescaped_star_index(bytes, index) {
+        let Some(previous) = previous_unescaped_byte(bytes, star_index) else {
+            index = star_index + 1;
+            continue;
+        };
+
+        if matches!(
+            previous,
+            b'.' | b']' | b')' | b'*' | b'?' | b'|' | b'$' | b'{' | b'('
+        ) || previous.is_ascii_whitespace()
+        {
+            index = star_index + 1;
+            continue;
+        }
+
+        return true;
+    }
+
+    false
+}
+
+fn first_unescaped_star_index(bytes: &[u8]) -> Option<usize> {
+    next_unescaped_star_index(bytes, 0)
+}
+
+fn next_unescaped_star_index(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut index = start;
+    while index < bytes.len() {
+        if bytes[index] == b'\\' {
+            index = (index + 2).min(bytes.len());
+            continue;
+        }
+        if bytes[index] == b'*' {
+            return Some(index);
+        }
+        index += 1;
+    }
+    None
+}
+
+fn previous_unescaped_byte(bytes: &[u8], index: usize) -> Option<u8> {
+    let mut candidate = index;
+    while candidate > 0 {
+        candidate -= 1;
+        if !is_escaped(bytes, candidate) {
+            return Some(bytes[candidate]);
+        }
+    }
+    None
+}
+
+fn ends_with_unescaped_dollar(bytes: &[u8]) -> bool {
+    bytes
+        .last()
+        .is_some_and(|byte| *byte == b'$' && !is_escaped(bytes, bytes.len() - 1))
+}
+
+fn is_escaped(bytes: &[u8], index: usize) -> bool {
+    let mut backslashes = 0usize;
+    let mut cursor = index;
+    while cursor > 0 && bytes[cursor - 1] == b'\\' {
+        backslashes += 1;
+        cursor -= 1;
+    }
+    backslashes % 2 == 1
+}
 fn grep_option_takes_argument(flag: char) -> bool {
     matches!(flag, 'A' | 'B' | 'C' | 'D' | 'd' | 'e' | 'f' | 'm')
 }
@@ -20522,6 +20613,52 @@ grep --regexp='*start' data.txt
                 ("'^*'", Some("^*"), true),
                 ("'^*foo'", Some("^*foo"), false),
                 ("--regexp='*start'", Some("*start"), true),
+            ]
+        );
+    }
+
+    #[test]
+    fn grep_pattern_facts_track_glob_style_star_confusion() {
+        let source = "\
+#!/bin/bash
+grep start* data.txt
+grep 'foo*bar' data.txt
+grep '^#* OPTIONS #*$' data.txt
+grep -Eo 'https?://[[:alnum:]./?&!$#%@*;:+~_=-]+' data.txt
+grep '^root:[:!*]' data.txt
+grep -e 'Swarm:*\\sactive\\s*' data.txt
+grep 'foo*bar+' data.txt
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let grep_patterns = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("grep"))
+            .filter_map(|fact| fact.options().grep())
+            .flat_map(|grep| grep.patterns().iter())
+            .map(|pattern| {
+                (
+                    pattern.span().slice(source),
+                    pattern.has_glob_style_star_confusion(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            grep_patterns,
+            vec![
+                ("start*", true),
+                ("'foo*bar'", true),
+                ("'^#* OPTIONS #*$'", false),
+                ("'https?://[[:alnum:]./?&!$#%@*;:+~_=-]+'", false),
+                ("'^root:[:!*]'", false),
+                ("'Swarm:*\\sactive\\s*'", false),
+                ("'foo*bar+'", false),
             ]
         );
     }
