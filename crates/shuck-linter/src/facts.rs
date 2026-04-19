@@ -7659,7 +7659,9 @@ fn raw_literal_brace_spans_without_exclusions(
     mode: RawLiteralBraceScanMode,
     unmatched_opens: &mut Vec<Span>,
 ) -> Vec<Span> {
-    let text = &source[scan_start..scan_end];
+    let Some(text) = source.get(scan_start..scan_end) else {
+        return Vec::new();
+    };
     if text.is_empty() {
         return Vec::new();
     }
@@ -7750,10 +7752,7 @@ fn raw_literal_brace_spans_without_exclusions(
                 continue;
             }
 
-            let absolute_offset = scan_start + index;
-            let position = container_span
-                .start
-                .advanced_by(&source[container_span.start.offset..absolute_offset]);
+            let position = container_span.start.advanced_by(&text[..index]);
             let span = Span::from_positions(position, position);
             match mode {
                 RawLiteralBraceScanMode::All => spans.push(span),
@@ -19157,6 +19156,56 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
             .and_then(|fact| fact.options().sudo_family())
             .expect("expected sudo-family facts");
         assert_eq!(doas.invoker, SudoFamilyInvoker::Doas);
+    }
+
+    #[test]
+    fn builds_tr_facts_inside_escaped_quoted_command_substitutions() {
+        let source = "#!/bin/sh\necho -n \"\\\"adp_$(echo $var | tr A-Z a-z)\\\": [\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let tr = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_name_is("tr"))
+            .and_then(|fact| fact.options().tr())
+            .expect("expected escaped quoted command substitution tr facts");
+        assert_eq!(
+            tr.operand_words()
+                .iter()
+                .map(|word| word.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["A-Z", "a-z"]
+        );
+    }
+
+    #[test]
+    fn builds_tr_facts_inside_piped_command_substitutions_with_quoted_operands() {
+        let source = "#!/bin/sh\nATLAS_SHARED=$(echo \"$ATLAS_SHARED\"|cut -b 1|tr a-z A-Z)\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let tr = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_name_is("tr"))
+            .expect("expected tr command fact");
+        assert!(tr.wrappers().is_empty());
+        let tr_options = tr.options().tr().expect("expected tr options");
+        assert_eq!(
+            tr_options
+                .operand_words()
+                .iter()
+                .map(|word| word.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["a-z", "A-Z"]
+        );
     }
 
     #[test]

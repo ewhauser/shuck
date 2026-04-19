@@ -4950,6 +4950,15 @@ mod tests {
     }
 
     #[test]
+    fn test_scan_command_substitution_body_len_handles_escaped_quotes_before_substitution_tail() {
+        let source = "echo -n \"\\\"adp_$(echo $var | tr A-Z a-z)\\\": [\"";
+        let start = source.find("$(").expect("expected command substitution") + 2;
+        let consumed =
+            scan_command_substitution_body_len(&source[start..]).expect("expected match");
+        assert_eq!(&source[start..start + consumed], "echo $var | tr A-Z a-z)");
+    }
+
+    #[test]
     fn test_single_quoted_prefix_keeps_plain_continuation_segment() {
         let source = "'foo'bar";
         let mut lexer = Lexer::new(source);

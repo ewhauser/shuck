@@ -3481,40 +3481,53 @@ impl<'a> Parser<'a> {
                     );
                 } else {
                     let inner_start = cursor;
+                    let body_start = inner_start.advanced_by("(");
+                    let had_prefix = current_start != part_start;
                     let body = if source_backed {
                         let remaining_word_text = chars.clone().collect::<String>();
-                        let consumed =
-                            lexer::scan_command_substitution_body_len(&remaining_word_text);
-                        let inner_end = if let Some(consumed) = consumed {
+                        if let Some(consumed) =
+                            lexer::scan_command_substitution_body_len(&remaining_word_text)
+                        {
                             let consumed_text = &remaining_word_text[..consumed];
                             for _ in consumed_text.chars() {
                                 Self::next_word_char_unwrap(&mut chars, &mut cursor);
                             }
                             let inner_text = consumed_text.strip_suffix(')').unwrap_or_default();
-                            inner_start.advanced_by(inner_text)
+                            if had_prefix {
+                                self.nested_stmt_seq_from_source(inner_text, body_start)
+                            } else {
+                                let inner_end = inner_start.advanced_by(inner_text);
+                                self.nested_stmt_seq_from_current_input(inner_start, inner_end)
+                            }
                         } else {
+                            let mut cmd_str = String::new();
                             let mut depth = 1;
-                            let mut inner_end = inner_start;
                             while chars.peek().is_some() {
                                 let c = Self::next_word_char_unwrap(&mut chars, &mut cursor);
                                 match c {
                                     '(' => {
                                         depth += 1;
-                                        inner_end = cursor;
+                                        cmd_str.push(c);
                                     }
                                     ')' => {
                                         depth -= 1;
                                         if depth == 0 {
                                             break;
                                         }
-                                        inner_end = cursor;
+                                        cmd_str.push(c);
                                     }
-                                    _ => inner_end = cursor,
+                                    _ => cmd_str.push(c),
                                 }
                             }
-                            inner_end
-                        };
-                        self.nested_stmt_seq_from_current_input(inner_start, inner_end)
+                            if had_prefix {
+                                self.nested_stmt_seq_from_source(&cmd_str, body_start)
+                            } else {
+                                self.nested_stmt_seq_from_current_input(
+                                    inner_start,
+                                    inner_start.advanced_by(&cmd_str),
+                                )
+                            }
+                        }
                     } else {
                         let mut cmd_str = String::new();
                         let mut depth = 1;
@@ -3532,7 +3545,14 @@ impl<'a> Parser<'a> {
                                 cmd_str.push(c);
                             }
                         }
-                        self.nested_stmt_seq_from_source(&cmd_str, inner_start)
+                        if had_prefix {
+                            self.nested_stmt_seq_from_source(&cmd_str, body_start)
+                        } else {
+                            self.nested_stmt_seq_from_current_input(
+                                inner_start,
+                                inner_start.advanced_by(&cmd_str),
+                            )
+                        }
                     };
                     Self::push_word_part(
                         parts,

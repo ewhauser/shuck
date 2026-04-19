@@ -330,6 +330,72 @@ fn test_parse_escaped_literal_before_command_substitution_keeps_following_substi
 }
 
 #[test]
+fn test_parse_escaped_quotes_before_command_substitution_keep_nested_pipeline_live() {
+    let input = "echo -n \"\\\"adp_$(echo $var | tr A-Z a-z)\\\": [\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let word = &command.args[1];
+    let WordPart::DoubleQuoted { parts, .. } = &word.parts[0].kind else {
+        panic!("expected double-quoted word");
+    };
+    let WordPart::CommandSubstitution { body, .. } = &parts[1].kind else {
+        panic!("expected command substitution");
+    };
+
+    let AstCommand::Binary(binary) = &body[0].command else {
+        panic!("expected piped command");
+    };
+    let first = expect_simple(&binary.left);
+    assert_eq!(first.name.render(input), "echo");
+    assert_eq!(first.args[0].render(input), "$var");
+
+    let second = expect_simple(&binary.right);
+    assert_eq!(second.name.render(input), "tr");
+    assert_eq!(second.args[0].render(input), "A-Z");
+    assert_eq!(second.args[1].render(input), "a-z");
+}
+
+#[test]
+fn test_parse_command_substitution_with_piped_tr_after_quoted_variable_keeps_nested_pipeline_live()
+{
+    let input = "ATLAS_SHARED=$(echo \"$ATLAS_SHARED\"|cut -b 1|tr a-z A-Z)\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+        panic!("expected scalar assignment");
+    };
+    let WordPart::CommandSubstitution { body, .. } = &word.parts[0].kind else {
+        panic!("expected command substitution");
+    };
+
+    let AstCommand::Binary(pipeline) = &body[0].command else {
+        panic!("expected piped command");
+    };
+    let AstCommand::Binary(prefix) = &pipeline.left.command else {
+        panic!("expected nested pipeline");
+    };
+    let first = expect_simple(&prefix.left);
+    assert_eq!(first.name.render(input), "echo");
+    assert_eq!(first.args[0].render(input), "$ATLAS_SHARED");
+
+    let middle = expect_simple(&prefix.right);
+    assert_eq!(middle.name.render(input), "cut");
+    assert_eq!(middle.args[0].render(input), "-b");
+    assert_eq!(middle.args[1].render(input), "1");
+
+    let tr_command = expect_simple(&pipeline.right);
+    assert_eq!(tr_command.name.render(input), "tr");
+    assert_eq!(tr_command.args[0].render(input), "a-z");
+    assert_eq!(tr_command.args[1].render(input), "A-Z");
+}
+
+#[test]
 fn test_parse_positional_parameters() {
     let parser = Parser::new("echo $@ $*");
     let script = parser.parse().unwrap().file;
