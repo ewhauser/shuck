@@ -8,9 +8,9 @@ S052 quote variable expansions in -n tests
   |
 
 S052 quote variable expansions in -n tests
- --> <source>:3:9
+ --> <source>:3:6
   |
-3 | test -n ${bar}
+3 | [ -n ${bar} ]
   |
 
 S052 quote variable expansions in -n tests
@@ -20,7 +20,7 @@ S052 quote variable expansions in -n tests
   |
 
 S052 quote variable expansions in -n tests
- --> <source>:5:9
+ --> <source>:5:6
   |
-5 | test -n ${qux:-fallback}
+5 | [ -n ${qux:-fallback} ]
   |
