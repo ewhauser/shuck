@@ -2111,13 +2111,36 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         owner_name: &Name,
         offset: usize,
     ) -> bool {
-        self.resolve_reference(owner_name, self.current_scope(), offset)
+        self.visible_binding_is_assoc(owner_name, offset)
+    }
+
+    fn visible_binding_is_assoc(&self, name: &Name, offset: usize) -> bool {
+        self.resolve_reference(name, self.current_scope(), offset)
             .map(|binding_id| {
                 self.bindings[binding_id.index()]
                     .attributes
                     .contains(BindingAttributes::ASSOC)
             })
             .unwrap_or(false)
+    }
+
+    fn arithmetic_binding_attributes(
+        &self,
+        target: &ArithmeticLvalue,
+        target_offset: usize,
+    ) -> BindingAttributes {
+        let mut attributes = match target {
+            ArithmeticLvalue::Variable(_) => BindingAttributes::empty(),
+            ArithmeticLvalue::Indexed { .. } => BindingAttributes::ARRAY,
+        };
+
+        if let ArithmeticLvalue::Indexed { name, .. } = target
+            && self.visible_binding_is_assoc(name, target_offset)
+        {
+            attributes |= BindingAttributes::ASSOC;
+        }
+
+        attributes
     }
 
     fn visit_associative_arithmetic_key_into(
@@ -2209,7 +2232,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     BindingOrigin::ArithmeticAssignment {
                         definition_span: span,
                     },
-                    BindingAttributes::ARRAY,
+                    self.arithmetic_binding_attributes(
+                        &ArithmeticLvalue::Indexed {
+                            name: name.clone(),
+                            index: index.clone(),
+                        },
+                        span.start.offset,
+                    ),
                 );
             }
             _ => {}
@@ -2226,9 +2255,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
         self.visit_arithmetic_lvalue_indices_into(target, flow, nested_regions);
-        let (name, attributes) = match target {
-            ArithmeticLvalue::Variable(name) => (name, BindingAttributes::empty()),
-            ArithmeticLvalue::Indexed { name, .. } => (name, BindingAttributes::ARRAY),
+        let attributes = self.arithmetic_binding_attributes(target, target_span.start.offset);
+        let name = match target {
+            ArithmeticLvalue::Variable(name) | ArithmeticLvalue::Indexed { name, .. } => name,
         };
         let name_span = arithmetic_name_span(target_span, name);
         if !matches!(op, ArithmeticAssignOp::Assign) {

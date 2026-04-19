@@ -138,4 +138,20 @@ f() {
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn ignores_associative_array_keys_after_arithmetic_writes() {
+        let source = "\
+#!/bin/bash
+f() {
+  declare -A box=([key]=1)
+  (( box[seed] = 1 ))
+  local key=1 value=$((box[key]))
+}
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::LocalCrossReference));
+
+        assert!(diagnostics.is_empty());
+    }
 }
