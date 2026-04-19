@@ -1,0 +1,67 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__academic__IGV__IGV.SlackBuild"
+    line: 33
+    column: 5
+    end_line: 33
+    end_column: 11
+    reason: "This value is a package label, not an arithmetic-style expression."
+  - side: shuck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__academic__fastqc__fastqc.SlackBuild"
+    line: 41
+    column: 6
+    end_line: 41
+    end_column: 20
+    reason: "This value is a package label, not an arithmetic-style expression."
+  - side: shuck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__desktop__recoll__recoll.SlackBuild"
+    line: 99
+    column: 7
+    end_line: 99
+    end_column: 16
+    reason: "This value is a tool name with a version suffix, not an arithmetic-style expression."
+  - side: shuck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__development__gcc5__profile.d__gcc5.sh"
+    line: 2
+    column: 12
+    end_line: 2
+    end_column: 17
+    reason: "This value is a versioned tool label, not an arithmetic-style expression."
+  - side: shuck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__development__openjdk8__openjdk8.SlackBuild"
+    line: 34
+    column: 9
+    end_line: 34
+    end_column: 23
+    reason: "This value is a versioned package label, not an arithmetic-style expression."
+  - side: shuck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__development__tea__tea.SlackBuild"
+    line: 88
+    column: 8
+    end_line: 88
+    end_column: 17
+    reason: "This value is a package label, not an arithmetic-style expression."
+  - side: shuck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__development__tea__tea.SlackBuild"
+    line: 92
+    column: 8
+    end_line: 92
+    end_column: 17
+    reason: "This value is a package label, not an arithmetic-style expression."
+  - side: shuck-only
+    path_suffix: "bin456789__reinstall__reinstall.sh"
+    line: 889
+    column: 14
+    end_line: 889
+    end_column: 19
+    labels:
+      - directive-handling
+      - project-closure
+    reason: "This directive-driven assignment is treated as a known project-specific exception."
+  - side: shuck-only
+    path_suffix: "google__oss-fuzz__projects__llvm__build.sh"
+    line: 89
+    column: 6
+    end_line: 89
+    end_column: 23
+    reason: "This value is a project path label, not an arithmetic-style expression."
