@@ -12368,12 +12368,55 @@ fn build_getopts_case_match(command: &CaseCommand, source: &str) -> GetoptsCaseM
         )
         .collect::<Vec<_>>();
     GetoptsCaseMatch {
-        case_span: command.span,
+        case_span: trim_trailing_case_span(command.span, source),
         handled_case_labels: labels,
         invalid_case_pattern_spans,
         has_fallback_pattern,
         has_unknown_coverage,
     }
+}
+
+fn trim_trailing_case_span(span: Span, source: &str) -> Span {
+    let text = span.slice(source);
+    let mut line_start = 0;
+    let mut last_code_end = 0;
+
+    for line in text.split_inclusive('\n') {
+        let line_end = line_start + line.len();
+        let line_without_newline = line.trim_end_matches(['\r', '\n']);
+        let line_without_comment =
+            trim_case_line_comment(line_without_newline).trim_end_matches([' ', '\t']);
+
+        if !line_without_comment
+            .trim_start_matches([' ', '\t'])
+            .is_empty()
+        {
+            last_code_end = line_start + line_without_comment.len();
+        }
+
+        line_start = line_end;
+    }
+
+    if last_code_end == 0 {
+        return span;
+    }
+
+    Span::from_positions(span.start, span.start.advanced_by(&text[..last_code_end]))
+}
+
+fn trim_case_line_comment(line: &str) -> &str {
+    for (index, ch) in line.char_indices() {
+        if ch == '#'
+            && line[..index]
+                .chars()
+                .next_back()
+                .is_none_or(char::is_whitespace)
+        {
+            return &line[..index];
+        }
+    }
+
+    line
 }
 
 enum GetoptsCasePatternKind {
@@ -19035,7 +19078,7 @@ done
             };
 
             assert_eq!(
-                case.case_span().slice(source).trim_end(),
+                case.case_span().slice(source),
                 "case \"$opt\" in\n    a)\n      ;;\n    b)\n      echo \"$(printf body)\"\n      ;;\n  esac"
             );
             assert_eq!(

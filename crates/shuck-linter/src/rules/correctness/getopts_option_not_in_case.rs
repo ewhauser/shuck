@@ -346,4 +346,47 @@ done
             "getopts option -b is not handled by this case statement"
         );
     }
+
+    #[test]
+    fn anchors_reports_to_the_case_statement_without_the_following_newline() {
+        let source = "\
+while getopts 'ab' opt; do
+  case \"$opt\" in
+    a) : ;;
+  esac
+  printf '%s\\n' \"$opt\"
+done
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::GetoptsOptionNotInCase),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "case \"$opt\" in\n    a) : ;;\n  esac"
+        );
+    }
+
+    #[test]
+    fn excludes_trailing_inline_comments_from_the_case_anchor() {
+        let source = "\
+while getopts 'ab' opt; do
+  case \"$opt\" in
+    a) : ;;
+  esac # trailing comment
+done
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::GetoptsOptionNotInCase),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "case \"$opt\" in\n    a) : ;;\n  esac"
+        );
+    }
 }
