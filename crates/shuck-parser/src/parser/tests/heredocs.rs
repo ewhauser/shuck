@@ -280,6 +280,54 @@ fn test_heredoc_delimiter_preserves_mixed_quoted_raw_and_cooked_value() {
 }
 
 #[test]
+fn tab_stripped_heredoc_nested_command_substitution_keeps_inner_span_source_backed() {
+    let input = "\
+cat <<-EOF > \"${name}\"
+\t#!/bin/sh
+\ttest \"\\$#\" -ge 1 || exit 1
+\techo $(eval echo \\$$(echo cfgtest_${name})) | tr ' ' '\\n' > \\$1
+EOF
+";
+    let script = Parser::new(input).parse().unwrap().file;
+    let stmt = &script.body[0];
+    let redirect = &stmt.redirects[0];
+    let heredoc = redirect_heredoc(redirect);
+
+    let outer = heredoc
+        .body
+        .parts
+        .iter()
+        .find_map(|part| match &part.kind {
+            HeredocBodyPart::CommandSubstitution { body, .. } => Some((part.span, body)),
+            _ => None,
+        })
+        .expect("expected outer heredoc command substitution");
+
+    let inner = outer
+        .1
+        .stmts
+        .iter()
+        .find_map(|stmt| match &stmt.command {
+            AstCommand::Simple(command) => command
+                .args
+                .iter()
+                .flat_map(|word| word.parts.iter())
+                .find(|part| matches!(part.kind, WordPart::CommandSubstitution { .. })),
+            _ => None,
+        })
+        .expect("expected inner command substitution");
+
+    assert_eq!(
+        outer.0.slice(input),
+        "$(eval echo \\$$(echo cfgtest_${name}))"
+    );
+    assert_eq!(inner.span.slice(input), "$(echo cfgtest_${name})");
+    assert_eq!(inner.span.start.line, 4);
+    assert_eq!(inner.span.start.column, 21);
+    assert_eq!(inner.span.end.column, 44);
+}
+
+#[test]
 fn test_backslash_escaped_heredoc_delimiter_is_treated_as_quoted_static_text() {
     let input = "cat <<\\EOF\nhello $name\nEOF\n";
     for dialect in [ShellDialect::Bash, ShellDialect::Posix, ShellDialect::Mksh] {

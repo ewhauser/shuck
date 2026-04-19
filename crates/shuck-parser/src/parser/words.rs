@@ -3570,11 +3570,9 @@ impl<'a> Parser<'a> {
                     let inner_start = cursor;
                     let had_prefix = current_start != part_start;
                     let nested_source_base = if source_backed
-                        && Span::from_positions(current_start, part_start)
-                            .slice(self.input)
-                            .chars()
-                            .any(|c| c == '"')
-                    {
+                        && source_prefix_ends_inside_double_quotes(
+                            Span::from_positions(current_start, part_start).slice(self.input),
+                        ) {
                         inner_start.advanced_by("(")
                     } else {
                         inner_start
@@ -5591,4 +5589,26 @@ impl<'a> Parser<'a> {
 
         false
     }
+}
+
+fn source_prefix_ends_inside_double_quotes(prefix: &str) -> bool {
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+
+    for ch in prefix.chars() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+
+        match ch {
+            '\\' if !in_single => escaped = true,
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            _ => {}
+        }
+    }
+
+    in_double
 }
