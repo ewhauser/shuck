@@ -18,3 +18,9 @@ C003 sourced file is not available to this analysis
    |
 11 | . "~/.bashrc"
    |
+
+C003 sourced file is not available to this analysis
+  --> <source>:14:3
+   |
+14 | . \~/.bashrc
+   |

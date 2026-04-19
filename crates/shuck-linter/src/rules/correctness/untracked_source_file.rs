@@ -143,6 +143,22 @@ mod tests {
     }
 
     #[test]
+    fn reports_escaped_current_user_tilde_sources_as_untracked_files() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let source = "#!/bin/sh\n. \\~/.bashrc\n";
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::UntrackedSourceFile),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "\\~/.bashrc");
+    }
+
+    #[test]
     fn reports_single_variable_path_tail_without_a_resolver() {
         let temp = tempdir().unwrap();
         let main = temp.path().join("main.sh");

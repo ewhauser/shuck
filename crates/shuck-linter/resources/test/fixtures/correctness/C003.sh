@@ -10,6 +10,9 @@
 # Invalid: a quoted current-user tilde stays literal, so this is still C003.
 . "~/.bashrc"
 
+# Invalid: an escaped current-user tilde also stays literal.
+. \~/.bashrc
+
 # Valid: a helper that exists next to the script is available to the analysis.
 . ./c003_helper.sh
 

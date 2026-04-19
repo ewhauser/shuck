@@ -3437,8 +3437,8 @@ fn literal_uses_current_user_home_tilde(word: &Word, source: &str, path: &str) -
     };
 
     match &first.kind {
-        WordPart::Literal(text) => {
-            let text = text.as_str(source, first.span);
+        WordPart::Literal(_) => {
+            let text = first.span.slice(source);
             text.starts_with("~/")
                 || (text == "~"
                     && static_parts_text(tail, source).is_some_and(|tail| tail.starts_with('/')))
