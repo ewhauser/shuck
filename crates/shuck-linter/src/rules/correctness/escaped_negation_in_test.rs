@@ -1,6 +1,8 @@
 use shuck_ast::Span;
 
-use crate::{Checker, Rule, SimpleTestFact, SimpleTestShape, Violation, static_word_text};
+use crate::{
+    Checker, Rule, SimpleTestFact, SimpleTestShape, SimpleTestSyntax, Violation, static_word_text,
+};
 
 pub struct EscapedNegationInTest;
 
@@ -34,7 +36,16 @@ fn report_span(fact: &SimpleTestFact<'_>, source: &str) -> Option<Span> {
         return None;
     }
 
-    escaped_negation_is_operator(fact, source).then_some(leading.span)
+    escaped_negation_is_operator(fact, source).then(|| {
+        if fact.syntax() == SimpleTestSyntax::Bracket && fact.shape() == SimpleTestShape::Binary {
+            fact.operands()
+                .get(1)
+                .copied()
+                .map_or(leading.span, |word| word.span)
+        } else {
+            leading.span
+        }
+    })
 }
 
 fn escaped_negation_is_operator(fact: &SimpleTestFact<'_>, source: &str) -> bool {
@@ -100,7 +111,7 @@ test \\! -n \"$value\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["\\!", "\\!", "\\!"]
+            vec!["-f", "\\!", "\\!"]
         );
     }
 
