@@ -932,8 +932,8 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::ExtglobInTest) {
             rules::portability::conditional_portability::extglob_in_test(self);
         }
-        if self.is_rule_enabled(Rule::GreaterThanInDoubleBracket) {
-            rules::portability::conditional_portability::greater_than_in_double_bracket(self);
+        if self.is_rule_enabled(Rule::LexicalComparisonInDoubleBracket) {
+            rules::portability::conditional_portability::lexical_comparison_in_double_bracket(self);
         }
         if self.is_rule_enabled(Rule::RegexMatchInSh) {
             rules::portability::conditional_portability::regex_match_in_sh(self);

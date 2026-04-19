@@ -8,7 +8,7 @@ pub struct CaretNegationInBracket;
 pub struct ArraySubscriptTest;
 pub struct ArraySubscriptCondition;
 pub struct ExtglobInTest;
-pub struct GreaterThanInDoubleBracket;
+pub struct LexicalComparisonInDoubleBracket;
 pub struct RegexMatchInSh;
 pub struct VTestInSh;
 pub struct ATestInSh;
@@ -96,13 +96,13 @@ impl Violation for ExtglobInTest {
     }
 }
 
-impl Violation for GreaterThanInDoubleBracket {
+impl Violation for LexicalComparisonInDoubleBracket {
     fn rule() -> Rule {
-        Rule::GreaterThanInDoubleBracket
+        Rule::LexicalComparisonInDoubleBracket
     }
 
     fn message(&self) -> String {
-        "`>` inside `[[ ... ]]` is not a POSIX sh test operator".to_owned()
+        "lexicographical `<` and `>` inside `[[ ... ]]` are not POSIX sh test operators".to_owned()
     }
 }
 
@@ -227,9 +227,9 @@ pub fn extglob_in_test(checker: &mut Checker) {
     checker.report_all_dedup(spans, || ExtglobInTest);
 }
 cached_portability_rule!(
-    greater_than_in_double_bracket,
-    greater_than_in_double_bracket,
-    GreaterThanInDoubleBracket
+    lexical_comparison_in_double_bracket,
+    lexical_comparison_in_double_bracket,
+    LexicalComparisonInDoubleBracket
 );
 cached_portability_rule!(regex_match_in_sh, regex_match_in_sh, RegexMatchInSh);
 cached_portability_rule!(v_test_in_sh, v_test_in_sh, VTestInSh);
@@ -419,7 +419,7 @@ printf '%s\n' \"$(
     fn sh_portability_rules_ignore_bash_shells() {
         let source = "\
 #!/bin/bash
-if [[ -v assoc[$key] && $term == @(foo|bar) && $# > 1 ]]; then
+if [[ -v assoc[$key] && $term == @(foo|bar) && $term < z && $# > 1 ]]; then
   :
 fi
 [ \"$1\" == foo ]
@@ -437,7 +437,7 @@ fi
                 Rule::ArraySubscriptTest,
                 Rule::ArraySubscriptCondition,
                 Rule::ExtglobInTest,
-                Rule::GreaterThanInDoubleBracket,
+                Rule::LexicalComparisonInDoubleBracket,
                 Rule::RegexMatchInSh,
                 Rule::VTestInSh,
                 Rule::ATestInSh,
