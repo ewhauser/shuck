@@ -22,7 +22,11 @@ pub fn printf_q_format_in_sh(checker: &mut Checker) {
         .commands()
         .iter()
         .filter(|fact| fact.effective_name_is("printf"))
-        .filter(|fact| fact.options().nonportable_sh_builtin_option_span().is_none())
+        .filter(|fact| {
+            fact.options()
+                .nonportable_sh_builtin_option_span()
+                .is_none()
+        })
         .filter_map(|fact| {
             let printf = fact.options().printf()?;
             printf
