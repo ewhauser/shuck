@@ -1,4 +1,4 @@
-use crate::{Checker, ExpansionContext, Rule, Violation, WordFactContext};
+use crate::{Checker, ExpansionContext, Rule, Violation, WordFactContext, WrapperKind};
 
 pub struct PrintfFormatVariable;
 
@@ -17,6 +17,7 @@ pub fn printf_format_variable(checker: &mut Checker) {
         .facts()
         .commands()
         .iter()
+        .filter(|fact| matches!(fact.wrappers(), [] | [WrapperKind::Builtin]))
         .filter_map(|fact| {
             let printf = fact.options().printf()?;
             (!printf.format_word_has_literal_percent)
@@ -95,6 +96,23 @@ mod tests {
         assert_eq!(
             diagnostics[0].span.slice(source),
             "\"\\\\$(printf '%03o' \"$i\")\""
+        );
+    }
+
+    #[test]
+    fn skips_command_like_wrappers_but_keeps_builtin_and_backslash_forms() {
+        let source = "printf \"$fmt\" value\nbuiltin printf \"$fmt\" value\n\\printf \"$fmt\" value\ncommand printf \"$fmt\" value\ncommand -- printf \"$fmt\" value\nexec printf \"$fmt\" value\nnoglob printf \"$fmt\" value\nsudo printf \"$fmt\" value\nbusybox printf \"$fmt\" value\nfind . -exec printf \"$fmt\" value \\;\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PrintfFormatVariable),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.start.line)
+                .collect::<Vec<_>>(),
+            vec![1, 2, 3]
         );
     }
 }

@@ -18,15 +18,3 @@ S007 keep `printf` format strings literal instead of expanding them from variabl
   |
 6 | nested_output="$(printf "$fmt" value)"
   |
-
-S007 keep `printf` format strings literal instead of expanding them from variables
- --> <source>:7:16
-  |
-7 | command printf "$fmt" value
-  |
-
-S007 keep `printf` format strings literal instead of expanding them from variables
- --> <source>:8:13
-  |
-8 | exec printf "$fmt" value
-  |
