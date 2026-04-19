@@ -11324,19 +11324,23 @@ fn build_simple_command_declaration_assignment_probes<'a>(
         .iter()
         .any(|word| declaration_flag_sets_readonly(word, source));
 
-    normalized
-        .body_args()
+    contiguous_word_groups(normalized.body_args())
         .iter()
-        .filter_map(|word| {
-            let parsed = parse_assignment_word(word.span.slice(source))?;
-            let value_text = &word.span.slice(source)[parsed.value_offset..];
+        .filter_map(|words| {
+            let first = *words.first()?;
+            let text = words
+                .iter()
+                .map(|word| word.span.slice(source))
+                .collect::<String>();
+            let parsed = parse_assignment_word(&text)?;
+            let value_text = &text[parsed.value_offset..];
             Some(DeclarationAssignmentProbe {
                 kind: kind.clone(),
                 readonly_flag,
                 target_name: parsed.name.into(),
                 target_name_span: Span::from_positions(
-                    word.span.start,
-                    word.span.start.advanced_by(parsed.name),
+                    first.span.start,
+                    first.span.start.advanced_by(parsed.name),
                 ),
                 has_command_substitution: parsed_assignment_value_has_command_substitution(
                     value_text,
@@ -11346,6 +11350,25 @@ fn build_simple_command_declaration_assignment_probes<'a>(
         })
         .collect::<Vec<_>>()
         .into_boxed_slice()
+}
+
+fn contiguous_word_groups<'a>(words: &'a [&'a Word]) -> Vec<&'a [&'a Word]> {
+    let mut groups = Vec::new();
+    let mut start = 0usize;
+
+    while start < words.len() {
+        let mut end = start + 1;
+        while let Some(next) = words.get(end).copied() {
+            if words[end - 1].span.end.offset != next.span.start.offset {
+                break;
+            }
+            end += 1;
+        }
+        groups.push(&words[start..end]);
+        start = end;
+    }
+
+    groups
 }
 
 fn simple_command_declaration_kind(name: Option<&str>) -> Option<command::DeclarationKind> {
@@ -11426,6 +11449,14 @@ fn parse_assignment_word(word: &str) -> Option<ParsedAssignmentWord<'_>> {
                 && bytes[index + 1] == b'{'
             {
                 index = find_runtime_parameter_closing_brace(word, index)?;
+                continue;
+            }
+
+            if index + 1 < bytes.len()
+                && matches!(bytes[index], b'<' | b'>')
+                && bytes[index + 1] == b'('
+            {
+                index = find_process_substitution_end(bytes, index)?;
                 continue;
             }
 
@@ -13945,6 +13976,14 @@ fn find_command_substitution_end(bytes: &[u8], start: usize) -> Option<usize> {
             continue;
         }
 
+        if cursor + 1 < bytes.len()
+            && matches!(bytes[cursor], b'<' | b'>')
+            && bytes[cursor + 1] == b'('
+        {
+            cursor = find_process_substitution_end(bytes, cursor)?;
+            continue;
+        }
+
         match bytes[cursor] {
             b'\'' => cursor = skip_single_quoted(bytes, cursor + 1)?,
             b'"' => cursor = skip_double_quoted(bytes, cursor + 1)?,
@@ -14001,6 +14040,14 @@ fn find_wrapped_arithmetic_end(bytes: &[u8], start: usize) -> Option<usize> {
             continue;
         }
 
+        if cursor + 1 < bytes.len()
+            && matches!(bytes[cursor], b'<' | b'>')
+            && bytes[cursor + 1] == b'('
+        {
+            cursor = find_process_substitution_end(bytes, cursor)?;
+            continue;
+        }
+
         match bytes[cursor] {
             b'\'' => cursor = skip_single_quoted(bytes, cursor + 1)?,
             b'"' => cursor = skip_double_quoted(bytes, cursor + 1)?,
@@ -14013,6 +14060,70 @@ fn find_wrapped_arithmetic_end(bytes: &[u8], start: usize) -> Option<usize> {
                 return Some(cursor + 2);
             }
             b')' if paren_depth > 0 => {
+                paren_depth -= 1;
+                cursor += 1;
+            }
+            _ => cursor += 1,
+        }
+    }
+
+    None
+}
+
+fn find_process_substitution_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let text = std::str::from_utf8(bytes).ok()?;
+    let mut paren_depth = 0usize;
+    let mut cursor = start + 2;
+
+    while cursor < bytes.len() {
+        if bytes[cursor] == b'\\' {
+            cursor = (cursor + 2).min(bytes.len());
+            continue;
+        }
+
+        if cursor + 2 < bytes.len()
+            && is_unescaped_dollar(bytes, cursor)
+            && bytes[cursor + 1] == b'('
+            && bytes[cursor + 2] == b'('
+        {
+            cursor = find_wrapped_arithmetic_end(bytes, cursor)?;
+            continue;
+        }
+
+        if cursor + 1 < bytes.len()
+            && is_unescaped_dollar(bytes, cursor)
+            && bytes[cursor + 1] == b'('
+        {
+            cursor = find_command_substitution_end(bytes, cursor)?;
+            continue;
+        }
+
+        if cursor + 1 < bytes.len()
+            && is_unescaped_dollar(bytes, cursor)
+            && bytes[cursor + 1] == b'{'
+        {
+            cursor = find_runtime_parameter_closing_brace(text, cursor)?;
+            continue;
+        }
+
+        if cursor + 1 < bytes.len()
+            && matches!(bytes[cursor], b'<' | b'>')
+            && bytes[cursor + 1] == b'('
+        {
+            cursor = find_process_substitution_end(bytes, cursor)?;
+            continue;
+        }
+
+        match bytes[cursor] {
+            b'\'' => cursor = skip_single_quoted(bytes, cursor + 1)?,
+            b'"' => cursor = skip_double_quoted(bytes, cursor + 1)?,
+            b'`' => cursor = skip_backticks(bytes, cursor + 1)?,
+            b'(' => {
+                paren_depth += 1;
+                cursor += 1;
+            }
+            b')' if paren_depth == 0 => return Some(cursor + 1),
+            b')' => {
                 paren_depth -= 1;
                 cursor += 1;
             }
@@ -27198,5 +27309,32 @@ echo \"Resolve the conflict and run ``${PROGRAM} --continue`` plus `date`.\"
                 vec![("``", true), ("``", true), ("`date`", false)]
             );
         });
+    }
+
+    #[test]
+    fn collects_declaration_assignment_probes_for_process_substitution_subscripts() {
+        let source = "\
+#!/bin/bash
+\\declare -A arr[<(printf \"]\")]=$(date)
+";
+
+        with_facts(source, None, |_, facts| {
+            let probes = facts
+                .structural_commands()
+                .flat_map(|fact| fact.declaration_assignment_probes().iter())
+                .map(|probe| (probe.target_name(), probe.has_command_substitution()))
+                .collect::<Vec<_>>();
+
+            assert_eq!(probes, vec![("arr", true)]);
+        });
+    }
+
+    #[test]
+    fn parses_assignment_words_with_process_substitution_subscripts() {
+        let word = "arr[<(printf \"]\")]=$(date)";
+        let parsed = super::parse_assignment_word(word)
+            .map(|parsed| (parsed.name, &word[parsed.value_offset..]));
+
+        assert_eq!(parsed, Some(("arr", "$(date)")));
     }
 }

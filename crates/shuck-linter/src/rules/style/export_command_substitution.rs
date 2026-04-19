@@ -354,4 +354,24 @@ shopt -s extglob
             vec!["arr"]
         );
     }
+
+    #[test]
+    fn reports_escaped_declarations_with_process_substitution_subscripts() {
+        let source = "\
+#!/bin/bash
+\\declare -A arr[<(printf \"]\")]=$(date)
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ExportCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["arr"]
+        );
+    }
 }
