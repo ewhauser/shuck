@@ -1,5 +1,29 @@
 reviewed_divergences:
   - side: shuck-only
+    path_suffix: "scop__bash-completion__completions-core__7z.bash"
+    line: 95
+    labels:
+      - shell-collapse
+    reason: "This bash-completion helper intentionally falls back from the write-mode archive matcher to the broader archive matcher when the first completion pass returns no candidates. Shuck keeps the mixed short-circuit warning, while the pinned oracle stays silent in this shell-collapsed helper."
+  - side: shuck-only
+    path_suffix: "scop__bash-completion__completions-core__hostname.bash"
+    line: 20
+    labels:
+      - shell-collapse
+    reason: "This bash-completion helper intentionally falls back from help-option completions to the general usage completions when the first generator returns no matches. Shuck keeps the mixed short-circuit warning, while the pinned oracle stays silent in this shell-collapsed helper."
+  - side: shuck-only
+    path_suffix: "scop__bash-completion__completions-core__mussh.bash"
+    line: 37
+    labels:
+      - shell-collapse
+    reason: "This bash-completion helper intentionally falls back from `user@host` completion to the known-host list when the first generator yields no candidates. Shuck keeps the mixed short-circuit warning, while the pinned oracle stays silent in this shell-collapsed helper."
+  - side: shuck-only
+    path_suffix: "scop__bash-completion__completions-core__rcs.bash"
+    line: 35
+    labels:
+      - shell-collapse
+    reason: "This bash-completion helper intentionally falls back from file matches to directory suggestions when the first completion pass returns nothing. Shuck keeps the mixed short-circuit warning, while the pinned oracle stays silent in this shell-collapsed helper."
+  - side: shuck-only
     path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
     labels:
       - helper-library

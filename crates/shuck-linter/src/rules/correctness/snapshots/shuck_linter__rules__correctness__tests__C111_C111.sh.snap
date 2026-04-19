@@ -1,20 +1,57 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 286
 ---
-C111 positional-parameter at-splats fold arguments in string comparisons
- --> <source>:5:8
+C111 positional-parameter at-splats fold arguments when used as test operands
+ --> <source>:5:9
   |
-5 | if [ "_$@" = "_--version" ]; then :; fi
-  |
-
-C111 positional-parameter at-splats fold arguments in string comparisons
- --> <source>:6:7
-  |
-6 | if [ "$@" = "--version" ]; then :; fi
+5 | if [ -z "$@" ]; then :; fi
   |
 
-C111 positional-parameter at-splats fold arguments in string comparisons
- --> <source>:7:7
+C111 positional-parameter at-splats fold arguments when used as test operands
+ --> <source>:6:12
   |
-7 | if [ "${@:-fallback}" = "--version" ]; then :; fi
+6 | if test -n "${@:-fallback}"; then :; fi
   |
+
+C111 positional-parameter at-splats fold arguments when used as test operands
+ --> <source>:7:9
+  |
+7 | if [ -d "$@" ]; then :; fi
+  |
+
+C111 positional-parameter at-splats fold arguments when used as test operands
+ --> <source>:8:6
+  |
+8 | if [ "_$@" = "_--version" ]; then :; fi
+  |
+
+C111 positional-parameter at-splats fold arguments when used as test operands
+ --> <source>:9:6
+  |
+9 | if [ "$@" = "--version" ]; then :; fi
+  |
+
+C111 positional-parameter at-splats fold arguments when used as test operands
+  --> <source>:10:16
+   |
+10 | if [ -n foo -a "${@:-lhs}" = "${@:-rhs}" ]; then :; fi
+   |
+
+C111 positional-parameter at-splats fold arguments when used as test operands
+  --> <source>:10:30
+   |
+10 | if [ -n foo -a "${@:-lhs}" = "${@:-rhs}" ]; then :; fi
+   |
+
+C111 positional-parameter at-splats fold arguments when used as test operands
+  --> <source>:11:9
+   |
+11 | if [ -d "$@" -o "${@:-fallback}" = "x" ]; then :; fi
+   |
+
+C111 positional-parameter at-splats fold arguments when used as test operands
+  --> <source>:11:17
+   |
+11 | if [ -d "$@" -o "${@:-fallback}" = "x" ]; then :; fi
+   |

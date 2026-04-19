@@ -36,7 +36,9 @@ EOF
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.start.line, 4);
         assert_eq!(diagnostics[0].span.start.column, 4);
-        assert_eq!(diagnostics[0].span.slice(source), " ");
+        assert_eq!(diagnostics[0].span.end.line, 4);
+        assert_eq!(diagnostics[0].span.end.column, 4);
+        assert_eq!(diagnostics[0].span.slice(source), "");
     }
 
     #[test]
@@ -46,7 +48,9 @@ EOF
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.start.line, 4);
-        assert_eq!(diagnostics[0].span.slice(source), "\t");
+        assert_eq!(diagnostics[0].span.start.column, 4);
+        assert_eq!(diagnostics[0].span.end.column, 4);
+        assert_eq!(diagnostics[0].span.slice(source), "");
     }
 
     #[test]
@@ -61,7 +65,22 @@ cat <<-EOF
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.start.line, 4);
-        assert_eq!(diagnostics[0].span.slice(source), " ");
+        assert_eq!(diagnostics[0].span.start.column, 5);
+        assert_eq!(diagnostics[0].span.end.column, 5);
+        assert_eq!(diagnostics[0].span.slice(source), "");
+    }
+
+    #[test]
+    fn anchors_at_the_first_trailing_whitespace_character() {
+        let source = "#!/bin/sh\ncat <<EOF\nok\nEOF  \t\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::HeredocEndSpace));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 4);
+        assert_eq!(diagnostics[0].span.start.column, 4);
+        assert_eq!(diagnostics[0].span.end.line, 4);
+        assert_eq!(diagnostics[0].span.end.column, 4);
+        assert_eq!(diagnostics[0].span.slice(source), "");
     }
 
     #[test]
@@ -91,6 +110,8 @@ EOF
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.start.line, 4);
-        assert_eq!(diagnostics[0].span.slice(source), " ");
+        assert_eq!(diagnostics[0].span.start.column, 4);
+        assert_eq!(diagnostics[0].span.end.column, 4);
+        assert_eq!(diagnostics[0].span.slice(source), "");
     }
 }

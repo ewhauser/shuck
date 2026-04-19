@@ -1090,6 +1090,25 @@ fn test_parse_arithmetic_command_with_nested_parens_before_outer_close() {
 }
 
 #[test]
+fn test_parse_arithmetic_command_with_grouped_term_before_logical_and() {
+    let input = "((threads>(cpu_height-3)*3 && tty_width>=200))\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let (compound, redirects) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Arithmetic(command) = compound else {
+        panic!("expected arithmetic compound command");
+    };
+
+    assert!(redirects.is_empty());
+    assert_eq!(command.left_paren_span.slice(input), "((");
+    assert_eq!(command.right_paren_span.slice(input), "))");
+    assert_eq!(
+        command.expr_span.unwrap().slice(input),
+        "threads>(cpu_height-3)*3 && tty_width>=200"
+    );
+}
+
+#[test]
 fn test_parse_arithmetic_command_with_nested_double_parens_and_grouping() {
     let input = "(( x = ((1 + 2) * (3 - 4)) ))\n";
     let script = Parser::new(input).parse().unwrap().file;
@@ -3196,6 +3215,27 @@ fn test_parse_conditional_regex_rhs_with_double_left_paren_groups() {
         panic!("expected regex rhs");
     };
     assert_eq!(word.render(input), "^\\\"\\-1[[:blank:]]((\\?[luds])+).*");
+}
+
+#[test]
+fn test_parse_conditional_regex_rhs_keeps_parameter_pattern_with_literal_paren() {
+    let input = "[[ \"${2}\" =~ ^${__theme%% (*} ]]\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Conditional(command) = compound else {
+        panic!("expected conditional compound command");
+    };
+
+    let ConditionalExpr::Binary(binary) = &command.expression else {
+        panic!("expected binary conditional");
+    };
+    assert_eq!(binary.op, ConditionalBinaryOp::RegexMatch);
+
+    let ConditionalExpr::Regex(word) = binary.right.as_ref() else {
+        panic!("expected regex rhs");
+    };
+    assert_eq!(word.render(input), "^${__theme%% (*}");
 }
 
 #[test]

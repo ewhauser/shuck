@@ -56,4 +56,20 @@ echo 'hello ‘world’'
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn ignores_unicode_smart_quotes_inside_heredoc_payloads() {
+        let source = "\
+#!/bin/sh
+cat <<EOF
+q { quotes: \"“\" \"”\" \"‘\" \"’\"; }
+EOF
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnicodeQuoteInString),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
 }

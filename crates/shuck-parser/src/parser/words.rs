@@ -3052,6 +3052,70 @@ impl<'a> Parser<'a> {
                         continue;
                     }
 
+                    if c == '$' && source_backed {
+                        let relative_offset = cursor.offset.saturating_sub(base.offset);
+                        let remaining = &s[relative_offset..];
+
+                        if chars.peek() == Some(&'(')
+                            && !remaining['('.len_utf8()..].starts_with('(')
+                            && let Some(consumed) = lexer::scan_command_substitution_body_len(
+                                &remaining['('.len_utf8()..],
+                            )
+                        {
+                            if let Some(content) = content.as_mut() {
+                                content.push('$');
+                                content.push_str(&remaining[..'('.len_utf8() + consumed]);
+                            }
+                            for _ in remaining[..'('.len_utf8() + consumed].chars() {
+                                Self::next_word_char_unwrap(&mut chars, &mut cursor);
+                            }
+                            content_end = cursor;
+                            continue;
+                        }
+
+                        if chars.peek() == Some(&'{')
+                            && let Some(consumed) = Self::scan_array_parameter_expansion_len(
+                                &remaining['{'.len_utf8()..],
+                            )
+                        {
+                            if let Some(content) = content.as_mut() {
+                                content.push('$');
+                                content.push_str(&remaining[..'{'.len_utf8() + consumed]);
+                            }
+                            for _ in remaining[..'{'.len_utf8() + consumed].chars() {
+                                Self::next_word_char_unwrap(&mut chars, &mut cursor);
+                            }
+                            content_end = cursor;
+                            continue;
+                        }
+                    }
+
+                    if c == '`' {
+                        if let Some(content) = content.as_mut() {
+                            content.push('`');
+                        }
+                        while let Some(nested) = Self::next_word_char(&mut chars, &mut cursor) {
+                            if let Some(content) = content.as_mut() {
+                                content.push(nested);
+                            }
+                            content_end = cursor;
+                            if nested == '\\' {
+                                if let Some(escaped) = Self::next_word_char(&mut chars, &mut cursor)
+                                {
+                                    if let Some(content) = content.as_mut() {
+                                        content.push(escaped);
+                                    }
+                                    content_end = cursor;
+                                }
+                                continue;
+                            }
+                            if nested == '`' {
+                                break;
+                            }
+                        }
+                        continue;
+                    }
+
                     if c == '\\' {
                         if let Some(content) = content.as_mut() {
                             content.push(c);
@@ -3123,6 +3187,7 @@ impl<'a> Parser<'a> {
                             // double quotes, so nested decoding must not
                             // reactivate dollar-quote parsing here.
                             parse_dollar_quotes: false,
+                            preserve_escaped_expansion_literals: source_backed,
                             parse_process_substitutions: false,
                             ..DecodeWordPartsOptions::default()
                         },
@@ -5079,6 +5144,7 @@ impl<'a> Parser<'a> {
                 // Double-quoted segment contents treat `$'...'` and `$"..."`
                 // as literal text, not nested quote forms.
                 parse_dollar_quotes: false,
+                preserve_escaped_expansion_literals: source_backed,
                 parse_process_substitutions: false,
                 ..DecodeWordPartsOptions::default()
             },
@@ -5117,7 +5183,13 @@ impl<'a> Parser<'a> {
         base: Position,
         source_backed: bool,
     ) -> Word {
-        self.decode_word_text_preserving_quotes_if_needed(s, span, base, source_backed)
+        let (text, source_backed) = if source_backed && !self.source_matches(span, s) {
+            (span.slice(self.input), true)
+        } else {
+            (s, source_backed)
+        };
+
+        self.decode_word_text_preserving_quotes_if_needed(text, span, base, source_backed)
     }
 
     fn arithmetic_expansion_word_part(

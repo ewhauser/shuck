@@ -4654,6 +4654,32 @@ mod tests {
     }
 
     #[test]
+    fn test_double_quoted_token_preserves_inner_quoted_command_substitution_pipeline() {
+        let source = r#""$(echo "$line" | cut -d' ' -f2-)""#;
+        let mut lexer = Lexer::new(source);
+
+        let token = lexer.next_lexed_token().unwrap();
+        assert_eq!(token.kind, TokenKind::QuotedWord);
+        assert_eq!(
+            token.word_text(),
+            Some(r#"$(echo "$line" | cut -d' ' -f2-)"#)
+        );
+    }
+
+    #[test]
+    fn test_double_quoted_token_preserves_braced_param_pipeline_substitution() {
+        let source = r#""$(echo "${@}" | tr -d '[:space:]')""#;
+        let mut lexer = Lexer::new(source);
+
+        let token = lexer.next_lexed_token().unwrap();
+        assert_eq!(token.kind, TokenKind::QuotedWord);
+        assert_eq!(
+            token.word_text(),
+            Some(r#"$(echo "${@}" | tr -d '[:space:]')"#)
+        );
+    }
+
+    #[test]
     fn test_mixed_word_keeps_segment_kinds() {
         let source = r#"foo"bar"'baz'"#;
         let mut lexer = Lexer::new(source);
@@ -4909,6 +4935,26 @@ mod tests {
     #[test]
     fn test_scan_command_substitution_body_len_handles_backticks_with_right_parens_at_eof() {
         let source = "printf %s `echo foo)`; printf %s ok)";
+
+        let consumed = scan_command_substitution_body_len(source).expect("expected match");
+        let body = &source[..consumed];
+
+        assert_eq!(body, source);
+    }
+
+    #[test]
+    fn test_scan_command_substitution_body_len_handles_inner_quotes_in_pipeline_at_eof() {
+        let source = "echo \"$line\" | cut -d' ' -f2-)";
+
+        let consumed = scan_command_substitution_body_len(source).expect("expected match");
+        let body = &source[..consumed];
+
+        assert_eq!(body, source);
+    }
+
+    #[test]
+    fn test_scan_command_substitution_body_len_handles_braced_params_in_pipeline_at_eof() {
+        let source = "echo \"${@}\" | tr -d '[:space:]')";
 
         let consumed = scan_command_substitution_body_len(source).expect("expected match");
         let body = &source[..consumed];
@@ -5583,6 +5629,106 @@ EOF
         assert_next_token(&mut lexer, TokenKind::Newline, None);
         assert_next_token(&mut lexer, TokenKind::Word, Some("echo"));
         assert_next_token(&mut lexer, TokenKind::Word, Some("after"));
+    }
+
+    #[test]
+    fn test_quoted_heredoc_preserves_following_backtick_word_spans() {
+        let source = "\
+cat <<\\_ACEOF
+Use these variables to override the choices made by `configure' or to help
+it to find libraries and programs with nonstandard names/locations.
+_ACEOF
+ac_dir_suffix=/`$as_echo \"$ac_dir\" | sed 's|^\\.[\\\\/]||'`
+ac_top_builddir_sub=`$as_echo \"$ac_dir_suffix\" | sed 's|/[^\\\\/]*|/..|g;s|/||'`
+";
+        let mut lexer = Lexer::new(source);
+
+        assert_next_token_with_comments(&mut lexer, TokenKind::Word, Some("cat"));
+        assert_next_token_with_comments(&mut lexer, TokenKind::HereDoc, None);
+        let delimiter = lexer.next_lexed_token_with_comments().unwrap();
+        assert_eq!(delimiter.kind, TokenKind::Word);
+        assert_eq!(delimiter.span.slice(source), "\\_ACEOF");
+
+        let heredoc = lexer.read_heredoc("_ACEOF", false);
+        assert_eq!(
+            heredoc.content,
+            "Use these variables to override the choices made by `configure' or to help\nit to find libraries and programs with nonstandard names/locations.\n"
+        );
+
+        assert_next_token_with_comments(&mut lexer, TokenKind::Newline, None);
+
+        let first = lexer.next_lexed_token_with_comments().unwrap();
+        assert_eq!(first.kind, TokenKind::Word);
+        assert_eq!(
+            first.span.slice(source),
+            "ac_dir_suffix=/`$as_echo \"$ac_dir\" | sed 's|^\\.[\\\\/]||'`"
+        );
+        let first_segments = first
+            .word()
+            .unwrap()
+            .segments()
+            .map(|segment| {
+                (
+                    segment.kind(),
+                    segment.as_str().to_string(),
+                    segment.span().map(|span| span.slice(source).to_string()),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            first_segments,
+            vec![
+                (
+                    LexedWordSegmentKind::Plain,
+                    "ac_dir_suffix=/".to_string(),
+                    Some("ac_dir_suffix=/".to_string()),
+                ),
+                (
+                    LexedWordSegmentKind::Plain,
+                    "`$as_echo \"$ac_dir\" | sed 's|^\\.[\\\\/]||'`".to_string(),
+                    Some("`$as_echo \"$ac_dir\" | sed 's|^\\.[\\\\/]||'`".to_string()),
+                ),
+            ]
+        );
+
+        assert_next_token_with_comments(&mut lexer, TokenKind::Newline, None);
+
+        let second = lexer.next_lexed_token_with_comments().unwrap();
+        assert_eq!(second.kind, TokenKind::Word);
+        assert_eq!(
+            second.span.slice(source),
+            "ac_top_builddir_sub=`$as_echo \"$ac_dir_suffix\" | sed 's|/[^\\\\/]*|/..|g;s|/||'`"
+        );
+        let second_segments = second
+            .word()
+            .unwrap()
+            .segments()
+            .map(|segment| {
+                (
+                    segment.kind(),
+                    segment.as_str().to_string(),
+                    segment.span().map(|span| span.slice(source).to_string()),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            second_segments,
+            vec![
+                (
+                    LexedWordSegmentKind::Plain,
+                    "ac_top_builddir_sub=".to_string(),
+                    Some("ac_top_builddir_sub=".to_string()),
+                ),
+                (
+                    LexedWordSegmentKind::Plain,
+                    "`$as_echo \"$ac_dir_suffix\" | sed 's|/[^\\\\/]*|/..|g;s|/||'`".to_string(),
+                    Some(
+                        "`$as_echo \"$ac_dir_suffix\" | sed 's|/[^\\\\/]*|/..|g;s|/||'`"
+                            .to_string(),
+                    ),
+                ),
+            ]
+        );
     }
 
     #[test]

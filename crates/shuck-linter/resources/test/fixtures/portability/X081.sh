@@ -8,3 +8,6 @@ echo "${*%dBm*}"
 
 # Should not trigger: longest suffix removal on $@ is outside this rule
 echo "${@%%dBm*}"
+
+# Should not trigger: long prefix removal on $@ is outside this rule
+echo "${@##*.}"

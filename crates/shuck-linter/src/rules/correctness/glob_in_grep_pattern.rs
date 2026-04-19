@@ -21,85 +21,12 @@ pub fn glob_in_grep_pattern(checker: &mut Checker) {
         .filter_map(|fact| fact.options().grep())
         .filter(|grep| !grep.uses_fixed_strings)
         .flat_map(|grep| grep.patterns().iter())
-        .filter(|pattern| {
-            pattern
-                .static_text()
-                .filter(|text| !text.starts_with('*'))
-                .is_some_and(has_glob_style_star_confusion)
-        })
+        .filter(|pattern| !pattern.starts_with_glob_style_star())
+        .filter(|pattern| pattern.has_glob_style_star_confusion())
         .map(|pattern| pattern.span())
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || GlobInGrepPattern);
-}
-
-fn has_glob_style_star_confusion(pattern: &str) -> bool {
-    let bytes = pattern.as_bytes();
-
-    if first_unescaped_star_index(bytes).is_some_and(|index| index == 0) {
-        return false;
-    }
-
-    let mut index = 0usize;
-    while let Some(star_index) = next_unescaped_star_index(bytes, index) {
-        let Some(previous) = previous_unescaped_byte(bytes, star_index) else {
-            index = star_index + 1;
-            continue;
-        };
-
-        if matches!(
-            previous,
-            b'.' | b']' | b')' | b'*' | b'+' | b'?' | b'|' | b'^' | b'$' | b'{' | b'(' | b'\\'
-        ) || previous.is_ascii_whitespace()
-        {
-            index = star_index + 1;
-            continue;
-        }
-
-        return true;
-    }
-
-    false
-}
-
-fn first_unescaped_star_index(bytes: &[u8]) -> Option<usize> {
-    next_unescaped_star_index(bytes, 0)
-}
-
-fn next_unescaped_star_index(bytes: &[u8], start: usize) -> Option<usize> {
-    let mut index = start;
-    while index < bytes.len() {
-        if bytes[index] == b'\\' {
-            index = (index + 2).min(bytes.len());
-            continue;
-        }
-        if bytes[index] == b'*' {
-            return Some(index);
-        }
-        index += 1;
-    }
-    None
-}
-
-fn previous_unescaped_byte(bytes: &[u8], index: usize) -> Option<u8> {
-    let mut candidate = index;
-    while candidate > 0 {
-        candidate -= 1;
-        if !is_escaped(bytes, candidate) {
-            return Some(bytes[candidate]);
-        }
-    }
-    None
-}
-
-fn is_escaped(bytes: &[u8], index: usize) -> bool {
-    let mut backslashes = 0usize;
-    let mut cursor = index;
-    while cursor > 0 && bytes[cursor - 1] == b'\\' {
-        backslashes += 1;
-        cursor -= 1;
-    }
-    backslashes % 2 == 1
 }
 
 #[cfg(test)]
@@ -114,6 +41,7 @@ mod tests {
 grep start* out.txt
 grep \"start*\" out.txt
 grep 'foo*bar' out.txt
+grep 'foo\\*bar*' out.txt
 grep foo*bar out.txt
 grep -efoo* out.txt
 grep --regexp start* out.txt
@@ -137,6 +65,7 @@ grep -E \"foo*bar\" out.txt
                 "start*",
                 "\"start*\"",
                 "'foo*bar'",
+                "'foo\\*bar*'",
                 "foo*bar",
                 "-efoo*",
                 "start*",
@@ -167,6 +96,12 @@ grep --regexp='*start' out.txt
 grep item\\\\* out.txt
 grep '^ *#' out.txt
 grep '\"name\": *\"$x\"' out.txt
+grep '^#* OPTIONS #*$' out.txt
+grep -Eo 'https?://[[:alnum:]./?&!$#%@*;:+~_=-]+' out.txt
+grep '^root:[:!*]' out.txt
+grep -e 'Swarm:*\\sactive\\s*' out.txt
+grep 'foo*bar+' out.txt
+grep '^foo*bar$' out.txt
 grep -F foo*bar out.txt
 grep -F \"foo*bar\" out.txt
 grep --fixed-strings foo*bar out.txt

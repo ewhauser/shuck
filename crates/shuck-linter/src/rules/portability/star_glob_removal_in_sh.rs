@@ -36,7 +36,7 @@ mod tests {
     fn anchors_only_on_star_longest_suffix_removal() {
         let source = "\
 #!/bin/sh
-printf '%s\n' \"${*%%dBm*}\" \"${*%dBm*}\" \"${@%%dBm*}\" \"${name%%dBm*}\"
+printf '%s\n' \"${*%%dBm*}\" \"${*%dBm*}\" \"${@%%dBm*}\" \"${@##*.}\" \"${name%%dBm*}\"
 ";
         let diagnostics =
             test_snippet(source, &LinterSettings::for_rule(Rule::StarGlobRemovalInSh));

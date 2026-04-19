@@ -21,5 +21,16 @@ pipeline=$(echo piped | tr a-z A-Z)
 # Should not trigger: substitutions without echo are fine.
 printf_subst=$(printf '%s\n' value)
 
+# Should not trigger: a single nested command substitution belongs to a different warning family.
+nested_only=$(echo $(basename "$path" .txt))
+quoted_nested_only=$(echo "$(basename "$path" .txt)")
+
+# Should not trigger: echo can still matter when a dynamic prefix can collapse into a dash-led first argument.
+dynamic_dash=$(echo ${prefix}-suffix)
+quoted_dynamic_dash=$(echo "${prefix}-suffix")
+
+# Should not trigger: echo feeding another command in a pipeline is not the final substitution body.
+pipeline_cut=$(echo "$line" | cut -d' ' -f2-)
+
 # Should not trigger: echo outside command substitution is covered elsewhere.
 echo "$(date)"

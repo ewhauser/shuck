@@ -459,34 +459,122 @@ fn classify_redirect_facts(redirects: &[RedirectFact<'_>]) -> RedirectState {
 }
 
 fn substitution_body_contains_echo(body: &StmtSeq, source: &str) -> bool {
-    let mut visits = query::iter_commands(
-        body,
-        CommandWalkOptions {
-            descend_nested_word_commands: false,
-        },
-    );
-    let Some(visit) = visits.next() else {
+    let [stmt] = body.stmts.as_slice() else {
         return false;
     };
-    if visits.next().is_some() {
+
+    if !matches!(
+        stmt.command,
+        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_)
+    ) {
         return false;
     }
 
-    let normalized = command::normalize_command(visit.command, source);
+    let normalized = command::normalize_command(&stmt.command, source);
     if !normalized.effective_name_is("echo") {
         return false;
     }
 
-    if normalized.body_args().first().is_some_and(|word| {
+    let body_args = normalized.body_args();
+    if body_args.first().is_some_and(|word| {
         static_word_text(word, source).is_some_and(|text| text.starts_with('-'))
     }) {
         return false;
     }
 
-    normalized
-        .body_args()
+    if body_args
+        .first()
+        .is_some_and(|word| word_has_leading_dynamic_dash_literal(word, source))
+    {
+        return false;
+    }
+
+    if matches!(body_args, [word] if word_is_command_substitution_only(word)) {
+        return false;
+    }
+
+    body_args
         .iter()
         .all(|word| !word_contains_unquoted_glob_or_brace(word, source))
+}
+
+fn word_is_command_substitution_only(word: &Word) -> bool {
+    match word.parts.as_slice() {
+        [
+            WordPartNode {
+                kind: WordPart::CommandSubstitution { .. },
+                ..
+            },
+        ] => true,
+        [
+            WordPartNode {
+                kind: WordPart::DoubleQuoted { parts, .. },
+                ..
+            },
+        ] => matches!(
+            parts.as_slice(),
+            [WordPartNode {
+                kind: WordPart::CommandSubstitution { .. },
+                ..
+            }]
+        ),
+        _ => false,
+    }
+}
+
+fn word_has_leading_dynamic_dash_literal(word: &Word, source: &str) -> bool {
+    let mut saw_dynamic = false;
+    leading_dynamic_dash_literal_in_parts(&word.parts, source, &mut saw_dynamic).unwrap_or(false)
+}
+
+fn leading_dynamic_dash_literal_in_parts(
+    parts: &[WordPartNode],
+    source: &str,
+    saw_dynamic: &mut bool,
+) -> Option<bool> {
+    for part in parts {
+        match &part.kind {
+            WordPart::Literal(text) => {
+                let text = text.as_str(source, part.span);
+                if !text.is_empty() {
+                    return Some(*saw_dynamic && text.starts_with('-'));
+                }
+            }
+            WordPart::SingleQuoted { value, .. } => {
+                let text = value.slice(source);
+                if !text.is_empty() {
+                    return Some(*saw_dynamic && text.starts_with('-'));
+                }
+            }
+            WordPart::DoubleQuoted { parts, .. } => {
+                if let Some(result) =
+                    leading_dynamic_dash_literal_in_parts(parts, source, saw_dynamic)
+                {
+                    return Some(result);
+                }
+            }
+            WordPart::Variable(_)
+            | WordPart::Parameter(_)
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::Transformation { .. }
+            | WordPart::ZshQualifiedGlob(_) => {
+                *saw_dynamic = true;
+            }
+        }
+    }
+
+    None
 }
 
 fn substitution_body_contains_ls<'a>(
@@ -1619,6 +1707,9 @@ fn collect_list_stmt_segment_facts<'a>(
         .map(|info| info.target)
         .map(str::to_owned)
         .map(String::into_boxed_str);
+    let assignment_is_declaration = assignment_info
+        .as_ref()
+        .is_some_and(|info| info.is_declaration);
 
     segments.push(ListSegmentFact {
         command_id: id,
@@ -1626,6 +1717,7 @@ fn collect_list_stmt_segment_facts<'a>(
         kind: list_segment_kind(fact),
         assignment_target,
         assignment_span: assignment_info.map(|info| info.span),
+        assignment_is_declaration,
     });
     Some(())
 }
@@ -1654,6 +1746,7 @@ fn list_segment_assignment_target<'a>(fact: &'a CommandFact<'a>) -> Option<&'a s
 struct ListSegmentAssignmentInfo<'a> {
     target: &'a str,
     span: Span,
+    is_declaration: bool,
 }
 
 fn list_segment_assignment_info<'a>(
@@ -1678,6 +1771,7 @@ fn single_assignment_info<'a>(
     (assignments.len() == 1).then(|| ListSegmentAssignmentInfo {
         target: assignments[0].target.name.as_str(),
         span: assignments[0].span,
+        is_declaration: false,
     })
 }
 
@@ -1705,6 +1799,7 @@ fn declaration_assignment_info<'a>(
     assignment.map(|assignment| ListSegmentAssignmentInfo {
         target: assignment.target.name.as_str(),
         span: assignment.span,
+        is_declaration: true,
     })
 }
 
@@ -2089,7 +2184,7 @@ fn substitution_body_is_find<'a>(
     commands: &[CommandFact<'a>],
     command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
-    matches!(body.as_slice(), [stmt] if stmt_effective_name_is(stmt, "find", commands, command_ids_by_span))
+    matches!(body.as_slice(), [stmt] if stmt_invokes_find(stmt, commands, command_ids_by_span))
 }
 
 fn substitution_body_is_pgrep_lookup<'a>(
@@ -2124,15 +2219,24 @@ fn substitution_body_is_simple_command_named<'a>(
     matches!(body.as_slice(), [stmt] if stmt_literal_name_is(stmt, name, commands, command_ids_by_span))
 }
 
-fn stmt_effective_name_is<'a>(
+fn stmt_invokes_find<'a>(
     stmt: &'a Stmt,
-    name: &str,
     commands: &[CommandFact<'a>],
     command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
     command_fact_for_stmt(stmt, commands, command_ids_by_span)
-        .map(|fact| fact.effective_name_is(name))
-        .unwrap_or(false)
+        .is_some_and(command_fact_invokes_find)
+}
+
+fn command_fact_invokes_find(fact: &CommandFact<'_>) -> bool {
+    command_name_matches_basename(fact.literal_name(), "find")
+        || command_name_matches_basename(fact.effective_name(), "find")
+        || fact.has_wrapper(WrapperKind::FindExec)
+        || fact.has_wrapper(WrapperKind::FindExecDir)
+}
+
+fn command_name_matches_basename(name: Option<&str>, expected: &str) -> bool {
+    name.is_some_and(|name| name == expected || name.rsplit('/').next() == Some(expected))
 }
 
 fn stmt_literal_name_is<'a>(

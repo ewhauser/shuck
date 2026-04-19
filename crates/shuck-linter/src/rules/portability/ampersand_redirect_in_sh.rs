@@ -57,18 +57,17 @@ fn combined_ampersand_redirect_span(redirect: &RedirectFact<'_>, source: &str) -
     }
     let operator_text = &source[redirect_start..target_start];
     let operator_offset = operator_text.find(">&")?;
+    if !operator_text[..operator_offset]
+        .chars()
+        .all(char::is_whitespace)
+    {
+        return None;
+    }
     if !operator_text[operator_offset..].starts_with(">&") {
         return None;
     }
 
-    let operator_start = redirect_data
-        .span
-        .start
-        .advanced_by(&operator_text[..operator_offset]);
-    Some(Span::from_positions(
-        operator_start,
-        operator_start.advanced_by(">&"),
-    ))
+    Some(redirect_data.span)
 }
 
 #[cfg(test)]
@@ -82,25 +81,26 @@ mod tests {
 #!/bin/sh
 echo test >& /dev/null
 echo test >&+1
-echo test 1>&/tmp/log
 ";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::AmpersandRedirectInSh),
         );
 
-        assert_eq!(diagnostics.len(), 3);
-        assert_eq!(diagnostics[0].span.slice(source), ">&");
-        assert_eq!(diagnostics[1].span.slice(source), ">&");
-        assert_eq!(diagnostics[2].span.slice(source), ">&");
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.slice(source), ">& /dev/null");
+        assert_eq!(diagnostics[1].span.slice(source), ">&+1");
     }
 
     #[test]
-    fn ignores_descriptor_duplication_and_close_forms() {
+    fn ignores_descriptor_duplication_close_and_explicit_fd_forms() {
         let source = "\
 #!/bin/sh
 echo test >&2
 echo test 1>&2
+echo test 1>&+1
+echo test 1>&/tmp/log
+echo test 2>&/tmp/log
 echo test >&\"2\"
 echo test 1>&\"2\"
 echo test >&-

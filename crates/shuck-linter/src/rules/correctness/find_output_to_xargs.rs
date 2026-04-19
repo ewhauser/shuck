@@ -40,6 +40,14 @@ fn unsafe_find_to_xargs_spans(checker: &Checker<'_>, pipeline: &PipelineFact<'_>
                 return None;
             }
 
+            if left
+                .options()
+                .find()
+                .is_some_and(|find| find.has_formatted_output_action())
+            {
+                return None;
+            }
+
             if left.options().find().is_some_and(|find| find.has_print0)
                 && right
                     .options()
@@ -107,5 +115,32 @@ command find . -type f | xargs rm
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.start.line, 2);
         assert_eq!(diagnostics[0].span.slice(source), "find . -type f");
+    }
+
+    #[test]
+    fn reports_parallel_xargs_without_null_delimiters() {
+        let source = "\
+find \"$dir\" \\( -type f -o -type l \\) -and -not -path \"$dir/plugins/*\" | xargs -I % -P10 bash -c '. /tmp/lib.sh && foo %'
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FindOutputToXargs));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "find \"$dir\" \\( -type f -o -type l \\) -and -not -path \"$dir/plugins/*\""
+        );
+    }
+
+    #[test]
+    fn ignores_find_printf_output_actions_but_reports_print0_without_null_xargs() {
+        let source = "\
+find plugins/ -maxdepth 2 -name '__init__.py' -printf '%h\\n' | xargs mv -t \"$dest\"
+find \"$pkg\" -print0 | xargs rm
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FindOutputToXargs));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.slice(source), "find \"$pkg\" -print0");
     }
 }

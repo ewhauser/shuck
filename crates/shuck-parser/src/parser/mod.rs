@@ -2918,6 +2918,13 @@ impl<'a> Parser<'a> {
     fn decode_word_from_token(&mut self, token: &LexedToken<'_>, span: Span) -> Option<Word> {
         let word = token.word()?;
 
+        if word.single_segment().is_none()
+            && !token.flags.is_synthetic()
+            && let Some(source_text) = token.source_slice(self.input)
+        {
+            return Some(self.parse_word_with_context(source_text, span, span.start, true));
+        }
+
         if let Some(segment) = word.single_segment() {
             let content_span = Self::segment_content_span(segment, span);
             let wrapper_span = Self::segment_wrapper_span(segment, span);
@@ -2937,7 +2944,20 @@ impl<'a> Parser<'a> {
             } else {
                 raw_text
             };
-            let preserve_escaped_expansion_literals = source_backed;
+            let decode_text = if source_backed
+                && !self.source_matches(content_span, text)
+                && matches!(
+                    segment.kind(),
+                    LexedWordSegmentKind::DoubleQuoted | LexedWordSegmentKind::DollarDoubleQuoted
+                )
+                && !text.contains("$(")
+            {
+                content_span.slice(self.input)
+            } else {
+                text
+            };
+            let preserve_escaped_expansion_literals =
+                source_backed && self.source_matches(content_span, decode_text);
 
             return match segment.kind() {
                 LexedWordSegmentKind::SingleQuoted => Some(self.word_with_parts(
@@ -2966,7 +2986,7 @@ impl<'a> Parser<'a> {
                     if Self::word_text_needs_parse(text) =>
                 {
                     let inner = self.decode_quoted_segment_text(
-                        text,
+                        decode_text,
                         content_span,
                         content_span.start,
                         source_backed,
@@ -3363,12 +3383,21 @@ impl<'a> Parser<'a> {
 
     fn current_static_token_text(&self) -> Option<(String, bool)> {
         let token = self.current_token.as_ref()?;
-        let text = token.word_string()?;
+        let raw_text = token.word_string()?;
+        let text_had_escape_markers = raw_text.contains('\x00');
+        let text = if text_had_escape_markers {
+            raw_text.replace('\x00', "")
+        } else {
+            raw_text
+        };
 
         match token.kind {
             TokenKind::LiteralWord => Some((text, true)),
             TokenKind::QuotedWord if !Self::word_text_needs_parse(&text) => Some((text, true)),
-            TokenKind::Word if !Self::word_text_needs_parse(&text) => Some((text, false)),
+            TokenKind::Word if !Self::word_text_needs_parse(&text) => Some((
+                text,
+                token.flags.has_cooked_text() || text_had_escape_markers,
+            )),
             _ => None,
         }
     }

@@ -52,14 +52,14 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue,
     ArithmeticPostfixOp, ArithmeticUnaryOp, ArrayElem, ArrayKind, Assignment, AssignmentValue,
-    BinaryCommand, BinaryOp, BourneParameterExpansion, BraceQuoteContext, BraceSyntaxKind,
-    BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command, CommandSubstitutionSyntax,
-    CompoundCommand, ConditionalBinaryOp, ConditionalExpr, ConditionalUnaryOp, DeclClause,
-    DeclOperand, File, ForCommand, FunctionDef, IfCommand, Name, ParameterExpansion,
-    ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Position, Redirect, RedirectKind,
-    SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq, StmtTerminator, Subscript,
-    TextRange, VarRef, WhileCommand, Word, WordPart, WordPartNode, ZshExpansionTarget,
-    ZshGlobSegment, ZshQualifiedGlob,
+    BackgroundOperator, BinaryCommand, BinaryOp, BourneParameterExpansion, BraceQuoteContext,
+    BraceSyntaxKind, BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command,
+    CommandSubstitutionSyntax, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
+    ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, FunctionDef, IfCommand, Name,
+    ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Position,
+    Redirect, RedirectKind, SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq,
+    StmtTerminator, Subscript, TextRange, VarRef, WhileCommand, Word, WordPart, WordPartNode,
+    ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
 };
 use shuck_indexer::Indexer;
 use shuck_semantic::{
@@ -287,6 +287,10 @@ impl<'a> SimpleTestFact<'a> {
             .collect()
     }
 
+    pub fn operator_expression_operand_words(&'a self, source: &str) -> Vec<&'a Word> {
+        simple_test_operator_expression_operand_words(self, source)
+    }
+
     pub fn string_unary_expression_words(&'a self, source: &str) -> Vec<(&'a Word, &'a Word)> {
         simple_test_expressions(self, source)
             .into_iter()
@@ -385,6 +389,89 @@ fn simple_test_expressions<'a>(
     }
 
     expressions
+}
+
+fn simple_test_operator_expression_operand_words<'a>(
+    simple_test: &'a SimpleTestFact<'a>,
+    source: &str,
+) -> Vec<&'a Word> {
+    let operands = simple_test.effective_operands();
+    let mut expression_operands = Vec::new();
+    let mut segment_start = 0;
+
+    for index in 0..=operands.len() {
+        let is_connector = index < operands.len()
+            && simple_test_effective_operand_text(simple_test, index, source)
+                .as_deref()
+                .is_some_and(simple_test_is_logical_connector);
+        let splits_segment = is_connector
+            && simple_test_segment_is_expression(simple_test, segment_start, index, source);
+        if !splits_segment && index != operands.len() {
+            continue;
+        }
+
+        collect_simple_test_operator_expression_operand_words(
+            simple_test,
+            segment_start,
+            index,
+            source,
+            &mut expression_operands,
+        );
+
+        segment_start = index + 1;
+    }
+
+    expression_operands
+}
+
+fn collect_simple_test_operator_expression_operand_words<'a>(
+    simple_test: &'a SimpleTestFact<'a>,
+    start: usize,
+    end: usize,
+    source: &str,
+    expression_operands: &mut Vec<&'a Word>,
+) {
+    if start >= end {
+        return;
+    }
+
+    let segment = &simple_test.effective_operands()[start..end];
+    let mut expression_start = 0;
+    while expression_start + 1 < segment.len()
+        && simple_test_effective_operand_text(simple_test, start + expression_start, source)
+            .as_deref()
+            == Some("!")
+    {
+        expression_start += 1;
+    }
+
+    let expression = &segment[expression_start..];
+    match expression {
+        [operator, operand]
+            if simple_test_effective_operand_text(
+                simple_test,
+                start + expression_start,
+                source,
+            )
+            .as_deref()
+            .is_some_and(simple_test_is_unary_operator) =>
+        {
+            expression_operands.push(operand);
+        }
+        [left, operator, right]
+            if simple_test_effective_operand_text(
+                simple_test,
+                start + expression_start + 1,
+                source,
+            )
+            .as_deref()
+            .is_some_and(simple_test_is_nonlogical_binary_operator) =>
+        {
+            expression_operands.push(left);
+            expression_operands.push(right);
+        }
+        [..] => {}
+    }
 }
 
 fn simple_test_segment_is_expression(
@@ -923,11 +1010,16 @@ impl SuspectClosingQuoteFragmentFact {
 #[derive(Debug, Clone, Copy)]
 pub struct BacktickFragmentFact {
     span: Span,
+    empty: bool,
 }
 
 impl BacktickFragmentFact {
     pub fn span(&self) -> Span {
         self.span
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.empty
     }
 }
 
@@ -1084,8 +1176,10 @@ pub struct WordFact<'a> {
     runtime_literal: RuntimeLiteralAnalysis,
     operand_class: Option<TestOperandClass>,
     static_text: Option<Box<str>>,
+    starts_with_extglob: bool,
     has_literal_affixes: bool,
     contains_shell_quoting_literals: bool,
+    active_expansion_spans: Box<[Span]>,
     scalar_expansion_spans: Box<[Span]>,
     unquoted_scalar_expansion_spans: Box<[Span]>,
     array_assignment_split_scalar_expansion_spans: Box<[Span]>,
@@ -1168,12 +1262,20 @@ impl<'a> WordFact<'a> {
         self.static_text.as_deref()
     }
 
+    pub fn starts_with_extglob(&self) -> bool {
+        self.starts_with_extglob
+    }
+
     pub fn has_literal_affixes(&self) -> bool {
         self.has_literal_affixes
     }
 
     pub fn contains_shell_quoting_literals(&self) -> bool {
         self.contains_shell_quoting_literals
+    }
+
+    pub fn active_expansion_spans(&self) -> &[Span] {
+        &self.active_expansion_spans
     }
 
     pub fn scalar_expansion_spans(&self) -> &[Span] {
@@ -1807,6 +1909,7 @@ pub struct ListSegmentFact {
     kind: ListSegmentKind,
     assignment_target: Option<Box<str>>,
     assignment_span: Option<Span>,
+    assignment_is_declaration: bool,
 }
 
 impl ListSegmentFact {
@@ -1828,6 +1931,10 @@ impl ListSegmentFact {
 
     pub fn assignment_span(&self) -> Option<Span> {
         self.assignment_span
+    }
+
+    pub fn assignment_is_declaration(&self) -> bool {
+        self.assignment_is_declaration
     }
 }
 
@@ -2095,11 +2202,16 @@ impl SshCommandFacts {
 #[derive(Debug, Clone)]
 pub struct FindCommandFacts {
     pub has_print0: bool,
+    has_formatted_output_action: bool,
     or_without_grouping_spans: Box<[Span]>,
     glob_pattern_operand_spans: Box<[Span]>,
 }
 
 impl FindCommandFacts {
+    pub fn has_formatted_output_action(&self) -> bool {
+        self.has_formatted_output_action
+    }
+
     pub fn or_without_grouping_spans(&self) -> &[Span] {
         &self.or_without_grouping_spans
     }
@@ -2213,6 +2325,7 @@ pub struct GrepPatternFact<'a> {
     static_text: Option<Box<str>>,
     source_kind: GrepPatternSourceKind,
     starts_with_glob_style_star: bool,
+    has_glob_style_star_confusion: bool,
 }
 
 impl<'a> GrepPatternFact<'a> {
@@ -2234,6 +2347,10 @@ impl<'a> GrepPatternFact<'a> {
 
     pub fn starts_with_glob_style_star(&self) -> bool {
         self.starts_with_glob_style_star
+    }
+
+    pub fn has_glob_style_star_confusion(&self) -> bool {
+        self.has_glob_style_star_confusion
     }
 }
 
@@ -2349,10 +2466,19 @@ impl FunctionPositionalParameterFacts {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExprStringHelperKind {
+    Length,
+    Index,
+    Match,
+    Substr,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct ExprCommandFacts {
     pub uses_arithmetic_operator: bool,
-    uses_substr_string_form: bool,
+    string_helper_kind: Option<ExprStringHelperKind>,
+    string_helper_span: Option<Span>,
 }
 
 impl ExprCommandFacts {
@@ -2360,8 +2486,16 @@ impl ExprCommandFacts {
         self.uses_arithmetic_operator
     }
 
+    pub fn string_helper_kind(self) -> Option<ExprStringHelperKind> {
+        self.string_helper_kind
+    }
+
+    pub fn string_helper_span(self) -> Option<Span> {
+        self.string_helper_span
+    }
+
     pub fn uses_substr_string_form(self) -> bool {
-        self.uses_substr_string_form
+        self.string_helper_kind == Some(ExprStringHelperKind::Substr)
     }
 }
 
@@ -2565,9 +2699,12 @@ impl<'a> CommandOptionFacts<'a> {
             unset: normalized
                 .effective_name_is("unset")
                 .then(|| parse_unset_command(normalized.body_args(), source)),
-            find: normalized
-                .effective_name_is("find")
-                .then(|| parse_find_command(normalized.body_args(), source)),
+            find: (normalized.effective_name_is("find")
+                || normalized.literal_name.as_deref() == Some("find"))
+            .then(|| {
+                let args = find_command_args(command, normalized, source);
+                parse_find_command(args.as_slice(), source)
+            }),
             find_exec: (normalized.has_wrapper(WrapperKind::FindExec)
                 || normalized.has_wrapper(WrapperKind::FindExecDir))
             .then(|| FindExecCommandFacts {
@@ -2801,6 +2938,7 @@ pub struct LinterFacts<'a> {
     array_assignment_split_word_indices: Vec<usize>,
     brace_variable_before_bracket_spans: Vec<Span>,
     function_headers: Vec<FunctionHeaderFact<'a>>,
+    function_in_alias_spans: Vec<Span>,
     function_body_without_braces_spans: Vec<Span>,
     function_parameter_fallback_spans: Vec<Span>,
     redundant_return_status_spans: Vec<Span>,
@@ -2808,10 +2946,12 @@ pub struct LinterFacts<'a> {
     select_headers: Vec<SelectHeaderFact<'a>>,
     case_items: Vec<CaseItemFact<'a>>,
     case_pattern_shadows: Vec<CasePatternShadowFact>,
+    case_pattern_expansion_spans: Vec<Span>,
     getopts_cases: Vec<GetoptsCaseFact>,
     pipelines: Vec<PipelineFact<'a>>,
     lists: Vec<ListFact<'a>>,
     statement_facts: Vec<StatementFact>,
+    background_semicolon_spans: Vec<Span>,
     single_test_subshell_spans: Vec<Span>,
     subshell_test_group_spans: Vec<Span>,
     indented_shebang_span: Option<Span>,
@@ -3069,6 +3209,10 @@ impl<'a> LinterFacts<'a> {
         &self.function_headers
     }
 
+    pub fn function_in_alias_spans(&self) -> &[Span] {
+        &self.function_in_alias_spans
+    }
+
     pub fn function_body_without_braces_spans(&self) -> &[Span] {
         &self.function_body_without_braces_spans
     }
@@ -3097,6 +3241,10 @@ impl<'a> LinterFacts<'a> {
         &self.case_pattern_shadows
     }
 
+    pub fn case_pattern_expansion_spans(&self) -> &[Span] {
+        &self.case_pattern_expansion_spans
+    }
+
     pub fn getopts_cases(&self) -> &[GetoptsCaseFact] {
         &self.getopts_cases
     }
@@ -3111,6 +3259,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn statement_facts(&self) -> &[StatementFact] {
         &self.statement_facts
+    }
+
+    pub fn background_semicolon_spans(&self) -> &[Span] {
+        &self.background_semicolon_spans
     }
 
     pub fn single_test_subshell_spans(&self) -> &[Span] {
@@ -3404,6 +3556,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut compound_assignment_value_word_spans = FxHashSet::default();
         let mut array_assignment_split_word_indices = Vec::new();
         let mut pattern_exactly_one_extglob_spans = Vec::new();
+        let mut case_pattern_expansion_spans = Vec::new();
         let mut pattern_literal_spans = Vec::new();
         let mut pattern_charclass_spans = Vec::new();
         let mut arithmetic_summary = ArithmeticFactSummary::default();
@@ -3486,6 +3639,7 @@ impl<'a> LinterFactsBuilder<'a> {
                     .map(|index| word_index_offset + *index),
             );
             words.extend(collected_words.facts);
+            case_pattern_expansion_spans.extend(collected_words.case_pattern_expansion_spans);
             pattern_literal_spans.extend(collected_words.pattern_literal_spans);
             pattern_charclass_spans.extend(collected_words.pattern_charclass_spans);
             arithmetic_summary
@@ -3668,6 +3822,8 @@ impl<'a> LinterFactsBuilder<'a> {
             build_function_header_facts(self.semantic, &functions, &commands, self.source);
         sort_and_dedup_spans(&mut condition_status_capture_spans);
         sort_and_dedup_spans(&mut condition_command_substitution_spans);
+        sort_and_dedup_spans(&mut case_pattern_expansion_spans);
+        let function_in_alias_spans = build_function_in_alias_spans(&commands, self.source);
         let function_parameter_fallback_spans = build_function_parameter_fallback_spans(
             &commands,
             &structural_command_ids,
@@ -3688,6 +3844,8 @@ impl<'a> LinterFactsBuilder<'a> {
         annotate_conditional_assignment_shortcuts(self.semantic, &lists, &mut binding_values);
         let statement_facts =
             build_statement_facts(&commands, &command_ids_by_span, &self.file.body);
+        let background_semicolon_spans =
+            build_background_semicolon_spans(&commands, &case_items, self.source);
         let single_test_subshell_spans =
             build_single_test_subshell_spans(&commands, &command_ids_by_span, self.source);
         let subshell_test_group_spans =
@@ -3825,6 +3983,7 @@ impl<'a> LinterFactsBuilder<'a> {
             array_assignment_split_word_indices,
             brace_variable_before_bracket_spans,
             function_headers,
+            function_in_alias_spans,
             function_body_without_braces_spans,
             function_parameter_fallback_spans,
             redundant_return_status_spans,
@@ -3832,10 +3991,12 @@ impl<'a> LinterFactsBuilder<'a> {
             select_headers,
             case_items,
             case_pattern_shadows,
+            case_pattern_expansion_spans,
             getopts_cases,
             pipelines,
             lists,
             statement_facts,
+            background_semicolon_spans,
             single_test_subshell_spans,
             subshell_test_group_spans,
             indented_shebang_span: shebang_header_facts.indented_shebang_span,
@@ -3909,6 +4070,182 @@ fn build_brace_variable_before_bracket_spans(words: &[WordFact<'_>], source: &st
         .collect::<Vec<_>>();
     sort_and_dedup_spans(&mut spans);
     spans
+}
+
+fn build_function_in_alias_spans(commands: &[CommandFact<'_>], source: &str) -> Vec<Span> {
+    let mut spans = commands
+        .iter()
+        .filter(|fact| fact.effective_name_is("alias"))
+        .flat_map(|fact| function_in_alias_spans_for_command(fact, source))
+        .collect::<Vec<_>>();
+    sort_and_dedup_spans(&mut spans);
+    spans
+}
+
+fn function_in_alias_spans_for_command(command: &CommandFact<'_>, source: &str) -> Vec<Span> {
+    let body_args = command.body_args();
+    let mut spans = Vec::new();
+    let mut index = 0usize;
+
+    while let Some(word) = body_args.get(index).copied() {
+        let Some(text) = static_word_text(word, source) else {
+            index += 1;
+            continue;
+        };
+        if !text.contains('=') {
+            index += 1;
+            continue;
+        }
+
+        let mut last_word = word;
+        let mut definition_len = 1usize;
+        while last_word.span.slice(source).ends_with('=')
+            && let Some(next_word) = body_args.get(index + definition_len).copied()
+            && last_word.span.end.offset == next_word.span.start.offset
+        {
+            last_word = next_word;
+            definition_len += 1;
+        }
+
+        let definition_words = &body_args[index..index + definition_len];
+        if let Some(span) = function_in_alias_definition_span(definition_words, source) {
+            spans.push(span);
+        }
+
+        index += definition_len;
+    }
+
+    spans
+}
+
+fn function_in_alias_definition_span(words: &[&Word], source: &str) -> Option<Span> {
+    let definition = static_alias_definition_text(words, source)?;
+    let (_, value) = definition.split_once('=')?;
+    let end = words.last()?.span.end;
+    contains_function_definition(value).then(|| Span::from_positions(words[0].span.start, end))
+}
+
+fn static_alias_definition_text(words: &[&Word], source: &str) -> Option<String> {
+    let mut text = String::new();
+    for word in words {
+        text.push_str(&static_word_text(word, source)?);
+    }
+    Some(text)
+}
+
+fn contains_function_definition(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if starts_with_keyword(value, index, "function")
+            && precedes_definition_start(value, index)
+            && is_definition_after_function_keyword(value, index + "function".len())
+        {
+            return true;
+        }
+        if is_identifier_start(bytes[index])
+            && precedes_definition_start(value, index)
+            && is_definition_after_name(value, index, bytes.len())
+        {
+            return true;
+        }
+        index += 1;
+    }
+    false
+}
+
+fn starts_with_keyword(text: &str, index: usize, keyword: &str) -> bool {
+    let tail = &text[index..];
+    if !tail.starts_with(keyword) {
+        return false;
+    }
+    let before_ok = index == 0 || !is_identifier_char(text.as_bytes()[index - 1]);
+    let after_index = index + keyword.len();
+    let after_ok = after_index >= text.len() || !is_identifier_char(text.as_bytes()[after_index]);
+    before_ok && after_ok
+}
+
+fn precedes_definition_start(text: &str, index: usize) -> bool {
+    if index == 0 {
+        return true;
+    }
+
+    let bytes = text.as_bytes();
+    let mut cursor = index;
+    while cursor > 0 && bytes[cursor - 1].is_ascii_whitespace() {
+        cursor -= 1;
+    }
+
+    cursor == 0 || matches!(bytes[cursor - 1], b';' | b'|' | b'&' | b'(' | b'{' | b'\n')
+}
+
+fn is_definition_after_function_keyword(text: &str, mut index: usize) -> bool {
+    let bytes = text.as_bytes();
+    while index < bytes.len() && bytes[index].is_ascii_whitespace() {
+        index += 1;
+    }
+
+    let Some(end) = parse_identifier(text, index) else {
+        return false;
+    };
+    is_definition_suffix(text, end, false)
+}
+
+fn is_definition_after_name(text: &str, index: usize, len: usize) -> bool {
+    let Some(end) = parse_identifier(text, index) else {
+        return false;
+    };
+    if end >= len {
+        return false;
+    }
+    is_definition_suffix(text, end, true)
+}
+
+fn is_definition_suffix(text: &str, mut index: usize, require_parens: bool) -> bool {
+    let bytes = text.as_bytes();
+    while index < bytes.len() && bytes[index].is_ascii_whitespace() {
+        index += 1;
+    }
+
+    let has_parens = bytes
+        .get(index..)
+        .is_some_and(|rest| rest.starts_with(b"()"));
+    if require_parens && !has_parens {
+        return false;
+    }
+
+    if has_parens {
+        index += 2;
+        while index < bytes.len() && bytes[index].is_ascii_whitespace() {
+            index += 1;
+        }
+    }
+
+    bytes.get(index) == Some(&b'{')
+}
+
+fn parse_identifier(text: &str, index: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let first = bytes.get(index).copied()?;
+    if !is_identifier_start(first) {
+        return None;
+    }
+    let mut end = index + 1;
+    while let Some(byte) = bytes.get(end) {
+        if !is_identifier_char(*byte) {
+            break;
+        }
+        end += 1;
+    }
+    Some(end)
+}
+
+fn is_identifier_start(byte: u8) -> bool {
+    byte.is_ascii_alphabetic() || byte == b'_'
+}
+
+fn is_identifier_char(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
 fn build_echo_backslash_escape_word_spans(commands: &[CommandFact<'_>], source: &str) -> Vec<Span> {
@@ -5333,29 +5670,34 @@ fn word_parts_contain_echo_backslash_escape(
     source: &str,
     in_double_quotes: bool,
 ) -> bool {
-    parts.iter().any(|part| match &part.kind {
-        WordPart::Literal(text) => {
-            let core_text = if in_double_quotes {
-                text.as_str(source, part.span)
-            } else {
-                part.span.slice(source)
-            };
-
-            text_contains_echo_backslash_escape(core_text, echo_escape_is_core_family)
-                || (in_double_quotes
-                    && text_contains_echo_backslash_escape(
-                        text.as_str(source, part.span),
-                        echo_escape_is_quote_like,
-                    ))
-        }
-        WordPart::SingleQuoted { value, .. } => {
-            text_contains_echo_backslash_escape(value.slice(source), echo_escape_is_core_family)
-        }
-        WordPart::DoubleQuoted { parts, .. } => {
-            word_parts_contain_echo_backslash_escape(parts, source, true)
-        }
-        _ => false,
-    })
+    parts
+        .iter()
+        .enumerate()
+        .any(|(index, part)| match &part.kind {
+            WordPart::Literal(text) => {
+                let core_text = if in_double_quotes {
+                    text.as_str(source, part.span)
+                } else {
+                    part.span.slice(source)
+                };
+                let rendered_text = text.as_str(source, part.span);
+                text_contains_echo_backslash_escape(core_text, echo_escape_is_core_family)
+                    || (in_double_quotes
+                        && text_contains_echo_backslash_escape(
+                            rendered_text,
+                            echo_escape_is_quote_like,
+                        ))
+                    || text_contains_echo_double_backslash(rendered_text)
+                    || literal_backslash_touches_double_quoted_fragment(parts, index, rendered_text)
+            }
+            WordPart::SingleQuoted { value, .. } => {
+                text_contains_echo_backslash_escape(value.slice(source), echo_escape_is_core_family)
+            }
+            WordPart::DoubleQuoted { parts, .. } => {
+                word_parts_contain_echo_backslash_escape(parts, source, true)
+            }
+            _ => false,
+        })
 }
 
 fn echo_escape_is_core_family(byte: u8) -> bool {
@@ -5367,6 +5709,47 @@ fn echo_escape_is_core_family(byte: u8) -> bool {
 
 fn echo_escape_is_quote_like(byte: u8) -> bool {
     matches!(byte, b'`' | b'\'')
+}
+
+fn literal_backslash_touches_double_quoted_fragment(
+    parts: &[WordPartNode],
+    index: usize,
+    rendered_text: &str,
+) -> bool {
+    (rendered_text.ends_with('\\')
+        && parts
+            .get(index + 1)
+            .is_some_and(|part| matches!(part.kind, WordPart::DoubleQuoted { .. })))
+        || (rendered_text.starts_with('\\')
+            && index
+                .checked_sub(1)
+                .and_then(|prev| parts.get(prev))
+                .is_some_and(|part| matches!(part.kind, WordPart::DoubleQuoted { .. })))
+}
+
+fn text_contains_echo_double_backslash(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+
+    while index < bytes.len() {
+        if bytes[index] != b'\\' {
+            index += 1;
+            continue;
+        }
+
+        let run_start = index;
+        while index < bytes.len() && bytes[index] == b'\\' {
+            index += 1;
+        }
+
+        if index.saturating_sub(run_start) >= 2
+            && bytes.get(index).is_some_and(|next| *next != b'"')
+        {
+            return true;
+        }
+    }
+
+    false
 }
 
 fn text_contains_echo_backslash_escape(text: &str, is_sensitive: fn(u8) -> bool) -> bool {
@@ -5552,10 +5935,8 @@ fn heredoc_end_space_span(
     }
 
     let trailing_start_offset = line_start_offset + tab_prefix_len + delimiter.len();
-    let trailing_end_offset = trailing_start_offset + trailing.len();
     let start = position_at_offset(source, trailing_start_offset)?;
-    let end = position_at_offset(source, trailing_end_offset)?;
-    Some(Span::from_positions(start, end))
+    Some(Span::from_positions(start, start))
 }
 
 fn spaced_tabstrip_close_spans(body_span: Span, delimiter: &str, source: &str) -> Vec<Span> {
@@ -5621,6 +6002,56 @@ fn position_at_offset(source: &str, target_offset: usize) -> Option<Position> {
         position.advance(ch);
     }
     Some(position)
+}
+
+fn build_background_semicolon_spans(
+    commands: &[CommandFact<'_>],
+    case_items: &[CaseItemFact<'_>],
+    source: &str,
+) -> Vec<Span> {
+    let case_terminator_starts = case_items
+        .iter()
+        .filter_map(CaseItemFact::terminator_span)
+        .map(|span| span.start.offset)
+        .collect::<FxHashSet<_>>();
+    let mut spans = commands
+        .iter()
+        .filter_map(|command| background_semicolon_span(command, &case_terminator_starts, source))
+        .collect::<Vec<_>>();
+    sort_and_dedup_spans(&mut spans);
+    spans
+}
+
+fn background_semicolon_span(
+    command: &CommandFact<'_>,
+    case_terminator_starts: &FxHashSet<usize>,
+    source: &str,
+) -> Option<Span> {
+    if command.stmt().terminator != Some(StmtTerminator::Background(BackgroundOperator::Plain)) {
+        return None;
+    }
+
+    let terminator_span = command.stmt().terminator_span?;
+    if terminator_span.slice(source) != "&" {
+        return None;
+    }
+
+    let semicolon_offset = source[terminator_span.end.offset..]
+        .char_indices()
+        .find_map(|(relative, ch)| match ch {
+            ' ' | '\t' | '\r' => None,
+            '\n' | '#' => Some(None),
+            ';' => Some(Some(terminator_span.end.offset + relative)),
+            _ => Some(None),
+        })??;
+
+    if case_terminator_starts.contains(&semicolon_offset) {
+        return None;
+    }
+
+    let start = position_at_offset(source, semicolon_offset)?;
+    let end = position_at_offset(source, semicolon_offset + 1)?;
+    Some(Span::from_positions(start, end))
 }
 
 fn build_plus_equals_assignment_spans(commands: &[CommandFact<'_>]) -> Vec<Span> {
@@ -8817,31 +9248,39 @@ fn find_operator_span(expression_span: Span, source: &str, operator: &str, first
 
 fn double_paren_grouping_anchor(span: Span, source: &str) -> Option<Span> {
     let text = span.slice(source);
-    let body_start = if let Some(stripped) = text.strip_prefix("((") {
-        (text.len() - stripped.len()) + stripped.find(|char: char| !char.is_whitespace())?
+    let anchor_start = if let Some(stripped) = text.strip_prefix("((") {
+        let body_start =
+            (text.len() - stripped.len()) + stripped.find(|char: char| !char.is_whitespace())?;
+        let body = &text[body_start..];
+        let has_grouping_operator =
+            body.contains("||") || body.contains("&&") || body.contains('|') || body.contains(';');
+        if !has_grouping_operator {
+            return None;
+        }
+        span.start
     } else if text.starts_with('(')
         && span.start.offset > 0
         && source.as_bytes().get(span.start.offset - 1) == Some(&b'(')
     {
         let stripped = text.strip_prefix('(')?;
-        (text.len() - stripped.len()) + stripped.find(|char: char| !char.is_whitespace())?
+        let body_start =
+            (text.len() - stripped.len()) + stripped.find(|char: char| !char.is_whitespace())?;
+        let body = &text[body_start..];
+        let has_grouping_operator =
+            body.contains("||") || body.contains("&&") || body.contains('|') || body.contains(';');
+        if !has_grouping_operator {
+            return None;
+        }
+        Position {
+            line: span.start.line,
+            column: span.start.column - 1,
+            offset: span.start.offset - 1,
+        }
     } else {
         return None;
     };
 
-    let body = &text[body_start..];
-    let has_grouping_operator =
-        body.contains("||") || body.contains("&&") || body.contains('|') || body.contains(';');
-    if !has_grouping_operator {
-        return None;
-    }
-
-    let command_offset = body.find(|char: char| char == '_' || char.is_ascii_alphabetic())?;
-    let command_start = span.start.advanced_by(&text[..body_start + command_offset]);
-    let head = &body[command_offset..];
-    let first_char_len = head.chars().next()?.len_utf8();
-    let command_end = command_start.advanced_by(&head[..first_char_len]);
-    Some(Span::from_positions(command_start, command_end))
+    Some(Span::at(anchor_start))
 }
 
 fn has_header_shellcheck_shell_directive(source: &str) -> bool {
@@ -8917,7 +9356,9 @@ fn collect_terminal_command_substitution_spans_in_command(
 ) {
     match command {
         Command::Simple(command) => {
-            if command_name_is_plain_command_substitution(&command.name, source) {
+            if command.args.is_empty()
+                && command_name_is_plain_command_substitution(&command.name, source)
+            {
                 spans.push(command.name.span);
             }
         }
@@ -10592,7 +11033,11 @@ fn build_word_facts_for_command<'a>(
     collector.finish()
 }
 
-fn collect_array_assignment_nested_scalar_expansion_spans(word: &Word, source: &str) -> Vec<Span> {
+fn collect_array_assignment_nested_scalar_expansion_spans(
+    word: &Word,
+    source: &str,
+    semantic: &SemanticModel,
+) -> Vec<Span> {
     let mut spans = Vec::new();
 
     query::walk_commands_in_word(
@@ -10604,6 +11049,7 @@ fn collect_array_assignment_nested_scalar_expansion_spans(word: &Word, source: &
             let normalized = command::normalize_command(visit.command, source);
             let mut collector = WordFactCollector {
                 source,
+                semantic,
                 command_id: CommandId::new(0),
                 nested_word_command: context.nested_word_command,
                 surface_command_name: normalized
@@ -10615,6 +11061,7 @@ fn collect_array_assignment_nested_scalar_expansion_spans(word: &Word, source: &
                 array_assignment_split_word_indices: Vec::new(),
                 seen: FxHashSet::default(),
                 compound_assignment_value_word_spans: FxHashSet::default(),
+                case_pattern_expansion_spans: Vec::new(),
                 pattern_literal_spans: Vec::new(),
                 pattern_charclass_spans: Vec::new(),
                 arithmetic: ArithmeticFactSummary::default(),
@@ -10635,6 +11082,7 @@ struct CollectedWordFacts<'a> {
     facts: Vec<WordFact<'a>>,
     compound_assignment_value_word_spans: FxHashSet<FactSpan>,
     array_assignment_split_word_indices: Vec<usize>,
+    case_pattern_expansion_spans: Vec<Span>,
     pattern_literal_spans: Vec<Span>,
     pattern_charclass_spans: Vec<Span>,
     arithmetic: ArithmeticFactSummary,
@@ -10695,6 +11143,7 @@ fn extend_surface_fragment_facts(target: &mut SurfaceFragmentFacts, source: Surf
 
 struct WordFactCollector<'a> {
     source: &'a str,
+    semantic: &'a SemanticModel,
     command_id: CommandId,
     nested_word_command: bool,
     surface_command_name: Option<Box<str>>,
@@ -10703,6 +11152,7 @@ struct WordFactCollector<'a> {
     array_assignment_split_word_indices: Vec<usize>,
     seen: FxHashSet<(FactSpan, WordFactContext, WordFactHostKind)>,
     compound_assignment_value_word_spans: FxHashSet<FactSpan>,
+    case_pattern_expansion_spans: Vec<Span>,
     pattern_literal_spans: Vec<Span>,
     pattern_charclass_spans: Vec<Span>,
     arithmetic: ArithmeticFactSummary,
@@ -10719,6 +11169,7 @@ impl<'a> WordFactCollector<'a> {
     ) -> Self {
         Self {
             source,
+            semantic,
             command_id,
             nested_word_command,
             surface_command_name: normalized
@@ -10734,6 +11185,7 @@ impl<'a> WordFactCollector<'a> {
             array_assignment_split_word_indices: Vec::new(),
             seen: FxHashSet::default(),
             compound_assignment_value_word_spans: FxHashSet::default(),
+            case_pattern_expansion_spans: Vec::new(),
             pattern_literal_spans: Vec::new(),
             pattern_charclass_spans: Vec::new(),
             arithmetic: ArithmeticFactSummary::default(),
@@ -10746,6 +11198,7 @@ impl<'a> WordFactCollector<'a> {
             facts: self.facts,
             compound_assignment_value_word_spans: self.compound_assignment_value_word_spans,
             array_assignment_split_word_indices: self.array_assignment_split_word_indices,
+            case_pattern_expansion_spans: self.case_pattern_expansion_spans,
             pattern_literal_spans: self.pattern_literal_spans,
             pattern_charclass_spans: self.pattern_charclass_spans,
             arithmetic: self.arithmetic,
@@ -10816,6 +11269,7 @@ impl<'a> WordFactCollector<'a> {
                                 pattern,
                                 surface_context.with_pattern_charclass_scan(),
                             );
+                            self.collect_case_pattern_expansion_spans(pattern);
                             self.collect_pattern_context_words(
                                 pattern,
                                 WordFactContext::Expansion(ExpansionContext::CasePattern),
@@ -11095,6 +11549,10 @@ impl<'a> WordFactCollector<'a> {
             match operand {
                 DeclOperand::Name(reference) => {
                     self.surface.record_var_ref_subscript(reference);
+                    let indexed_semantics = self.subscript_uses_index_arithmetic_semantics(
+                        Some(&reference.name),
+                        reference.subscript.as_ref(),
+                    );
                     query::visit_var_ref_subscript_words_with_source(
                         reference,
                         self.source,
@@ -11103,6 +11561,9 @@ impl<'a> WordFactCollector<'a> {
                                 word,
                                 SurfaceScanContext::new(None, self.nested_word_command),
                             );
+                            if indexed_semantics {
+                                self.collect_array_index_arithmetic_spans(word);
+                            }
                             self.push_owned_word(
                                 word.clone(),
                                 WordFactContext::Expansion(
@@ -11132,11 +11593,18 @@ impl<'a> WordFactCollector<'a> {
         let surface_context = SurfaceScanContext::new(None, self.nested_word_command)
             .with_assignment_target(assignment.target.name.as_str());
         self.surface.record_var_ref_subscript(&assignment.target);
+        let indexed_semantics = self.subscript_uses_index_arithmetic_semantics(
+            Some(&assignment.target.name),
+            assignment.target.subscript.as_ref(),
+        );
         query::visit_var_ref_subscript_words_with_source(
             &assignment.target,
             self.source,
             &mut |word| {
                 self.surface.collect_word(word, surface_context);
+                if indexed_semantics {
+                    self.collect_array_index_arithmetic_spans(word);
+                }
                 self.push_owned_word(
                     word.clone(),
                     context,
@@ -11163,12 +11631,18 @@ impl<'a> WordFactCollector<'a> {
                                 let fact = &mut self.facts[index];
                                 let mut split_sensitive_spans =
                                     fact.unquoted_scalar_expansion_spans().to_vec();
-                                split_sensitive_spans.extend(
-                                    collect_array_assignment_nested_scalar_expansion_spans(
-                                        word,
-                                        self.source,
-                                    ),
-                                );
+                                if !word_fact_is_double_quoted_command_substitution_only(
+                                    fact,
+                                    self.source,
+                                ) {
+                                    split_sensitive_spans.extend(
+                                        collect_array_assignment_nested_scalar_expansion_spans(
+                                            word,
+                                            self.source,
+                                            self.semantic,
+                                        ),
+                                    );
+                                }
                                 sort_and_dedup_spans(&mut split_sensitive_spans);
                                 fact.array_assignment_split_scalar_expansion_spans =
                                     split_sensitive_spans.into_boxed_slice();
@@ -11229,6 +11703,45 @@ impl<'a> WordFactCollector<'a> {
                 PatternPart::AnyString | PatternPart::AnyChar => {}
                 PatternPart::Literal(_) | PatternPart::CharClass(_) => {}
             }
+        }
+    }
+
+    fn collect_case_pattern_expansion_spans(&mut self, pattern: &Pattern) {
+        let expanded_word_spans = pattern
+            .parts
+            .iter()
+            .filter_map(|part| match &part.kind {
+                PatternPart::Word(word) => {
+                    let analysis =
+                        analyze_word(word, self.source, self.command_zsh_options.as_ref());
+                    (analysis.literalness == WordLiteralness::Expanded
+                        && analysis.quote != WordQuote::FullyQuoted)
+                        .then_some(word.span)
+                }
+                PatternPart::Literal(_)
+                | PatternPart::AnyString
+                | PatternPart::AnyChar
+                | PatternPart::CharClass(_)
+                | PatternPart::Group { .. } => None,
+            })
+            .collect::<Vec<_>>();
+
+        if expanded_word_spans.is_empty() {
+            for part in &pattern.parts {
+                if let PatternPart::Group { patterns, .. } = &part.kind {
+                    for nested in patterns {
+                        self.collect_case_pattern_expansion_spans(nested);
+                    }
+                }
+            }
+            return;
+        }
+
+        if pattern.parts.len() > 1 {
+            self.case_pattern_expansion_spans.push(pattern.span);
+        } else {
+            self.case_pattern_expansion_spans
+                .extend(expanded_word_spans);
         }
     }
 
@@ -11447,15 +11960,19 @@ impl<'a> WordFactCollector<'a> {
             | WordFactContext::CaseSubject
             | WordFactContext::ArithmeticCommand => None,
         };
+        let starts_with_extglob = span::word_starts_with_extglob(word_ref, self.source);
         let index = self.facts.len();
         self.facts.push(WordFact {
             key,
             static_text: static_word_text(word_ref, self.source).map(String::into_boxed_str),
+            starts_with_extglob,
             has_literal_affixes: word_has_literal_affixes(word_ref),
             contains_shell_quoting_literals: word_contains_shell_quoting_literals(
                 word_ref,
                 self.source,
             ),
+            active_expansion_spans: span::active_expansion_spans_in_source(word_ref, self.source)
+                .into_boxed_slice(),
             scalar_expansion_spans: span::scalar_expansion_part_spans(word_ref, self.source)
                 .into_boxed_slice(),
             unquoted_scalar_expansion_spans: span::unquoted_scalar_expansion_part_spans(
@@ -11511,17 +12028,6 @@ impl<'a> WordFactCollector<'a> {
         context: WordFactContext,
         host_kind: WordFactHostKind,
     ) {
-        if matches!(
-            host_kind,
-            WordFactHostKind::AssignmentTargetSubscript
-                | WordFactHostKind::DeclarationNameSubscript
-                | WordFactHostKind::ArrayKeySubscript
-                | WordFactHostKind::ConditionalVarRefSubscript
-        ) {
-            self.arithmetic
-                .array_index_arithmetic_spans
-                .extend(span::arithmetic_expansion_part_spans(word));
-        }
         if host_kind == WordFactHostKind::Direct
             && matches!(
                 context,
@@ -11552,6 +12058,37 @@ impl<'a> WordFactCollector<'a> {
                 &mut self.arithmetic.arithmetic_command_substitution_spans,
             );
         }
+    }
+
+    fn subscript_uses_index_arithmetic_semantics(
+        &self,
+        owner_name: Option<&Name>,
+        subscript: Option<&Subscript>,
+    ) -> bool {
+        let Some(subscript) = subscript else {
+            return false;
+        };
+        if subscript.selector().is_some() {
+            return false;
+        }
+        if matches!(
+            subscript.interpretation,
+            shuck_ast::SubscriptInterpretation::Associative
+        ) {
+            return false;
+        }
+
+        !owner_name.is_some_and(|name| {
+            self.semantic
+                .visible_binding(name, subscript.span())
+                .is_some_and(|binding| binding.attributes.contains(BindingAttributes::ASSOC))
+        })
+    }
+
+    fn collect_array_index_arithmetic_spans(&mut self, word: &Word) {
+        self.arithmetic
+            .array_index_arithmetic_spans
+            .extend(span::arithmetic_expansion_part_spans(word));
     }
 }
 
@@ -12205,12 +12742,55 @@ fn build_getopts_case_match(command: &CaseCommand, source: &str) -> GetoptsCaseM
         )
         .collect::<Vec<_>>();
     GetoptsCaseMatch {
-        case_span: command.span,
+        case_span: trim_trailing_case_span(command.span, source),
         handled_case_labels: labels,
         invalid_case_pattern_spans,
         has_fallback_pattern,
         has_unknown_coverage,
     }
+}
+
+fn trim_trailing_case_span(span: Span, source: &str) -> Span {
+    let text = span.slice(source);
+    let mut line_start = 0;
+    let mut last_code_end = 0;
+
+    for line in text.split_inclusive('\n') {
+        let line_end = line_start + line.len();
+        let line_without_newline = line.trim_end_matches(['\r', '\n']);
+        let line_without_comment =
+            trim_case_line_comment(line_without_newline).trim_end_matches([' ', '\t']);
+
+        if !line_without_comment
+            .trim_start_matches([' ', '\t'])
+            .is_empty()
+        {
+            last_code_end = line_start + line_without_comment.len();
+        }
+
+        line_start = line_end;
+    }
+
+    if last_code_end == 0 {
+        return span;
+    }
+
+    Span::from_positions(span.start, span.start.advanced_by(&text[..last_code_end]))
+}
+
+fn trim_case_line_comment(line: &str) -> &str {
+    for (index, ch) in line.char_indices() {
+        if ch == '#'
+            && line[..index]
+                .chars()
+                .next_back()
+                .is_none_or(char::is_whitespace)
+        {
+            return &line[..index];
+        }
+    }
+
+    line
 }
 
 enum GetoptsCasePatternKind {
@@ -15755,12 +16335,16 @@ fn grep_prefixed_pattern_fact<'a>(
     let starts_with_glob_style_star = static_text
         .as_deref()
         .is_some_and(|text| text.starts_with('*') || text == "^*");
+    let has_glob_style_star_confusion = static_text
+        .as_deref()
+        .is_some_and(grep_pattern_has_glob_style_star_confusion);
 
     GrepPatternFact {
         word,
         static_text,
         source_kind,
         starts_with_glob_style_star,
+        has_glob_style_star_confusion,
     }
 }
 
@@ -15848,7 +16432,93 @@ fn push_cooked_double_quoted_literal_text(text: &str, out: &mut String) {
         }
     }
 }
+fn grep_pattern_has_glob_style_star_confusion(pattern: &str) -> bool {
+    let bytes = pattern.as_bytes();
 
+    if pattern.starts_with('^')
+        || ends_with_unescaped_dollar(bytes)
+        || bytes.contains(&b'[')
+        || bytes.contains(&b'+')
+    {
+        return false;
+    }
+
+    if first_unescaped_star_index(bytes).is_some_and(|index| index == 0) {
+        return false;
+    }
+
+    let mut index = 0usize;
+    while let Some(star_index) = next_unescaped_star_index(bytes, index) {
+        if bytes.get(star_index + 1) == Some(&b'\\') {
+            index = star_index + 1;
+            continue;
+        }
+
+        let Some(previous) = previous_unescaped_byte(bytes, star_index) else {
+            index = star_index + 1;
+            continue;
+        };
+
+        if matches!(
+            previous,
+            b'.' | b']' | b')' | b'*' | b'?' | b'|' | b'$' | b'{' | b'(' | b'\\'
+        ) || previous.is_ascii_whitespace()
+        {
+            index = star_index + 1;
+            continue;
+        }
+
+        return true;
+    }
+
+    false
+}
+
+fn first_unescaped_star_index(bytes: &[u8]) -> Option<usize> {
+    next_unescaped_star_index(bytes, 0)
+}
+
+fn next_unescaped_star_index(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut index = start;
+    while index < bytes.len() {
+        if bytes[index] == b'\\' {
+            index = (index + 2).min(bytes.len());
+            continue;
+        }
+        if bytes[index] == b'*' {
+            return Some(index);
+        }
+        index += 1;
+    }
+    None
+}
+
+fn previous_unescaped_byte(bytes: &[u8], index: usize) -> Option<u8> {
+    let mut candidate = index;
+    while candidate > 0 {
+        candidate -= 1;
+        if !is_escaped(bytes, candidate) {
+            return Some(bytes[candidate]);
+        }
+    }
+    None
+}
+
+fn ends_with_unescaped_dollar(bytes: &[u8]) -> bool {
+    bytes
+        .last()
+        .is_some_and(|byte| *byte == b'$' && !is_escaped(bytes, bytes.len() - 1))
+}
+
+fn is_escaped(bytes: &[u8], index: usize) -> bool {
+    let mut backslashes = 0usize;
+    let mut cursor = index;
+    while cursor > 0 && bytes[cursor - 1] == b'\\' {
+        backslashes += 1;
+        cursor -= 1;
+    }
+    backslashes % 2 == 1
+}
 fn grep_option_takes_argument(flag: char) -> bool {
     matches!(flag, 'A' | 'B' | 'C' | 'D' | 'd' | 'e' | 'f' | 'm')
 }
@@ -16496,8 +17166,23 @@ fn is_find_exec_semicolon_terminator(word: &Word, source: &str) -> bool {
     }
 }
 
+fn find_command_args<'a>(
+    command: &'a Command,
+    normalized: &NormalizedCommand<'a>,
+    source: &'a str,
+) -> Vec<&'a Word> {
+    if normalized.literal_name.as_deref() == Some("find")
+        && let Command::Simple(command) = command
+    {
+        return simple_command_body_words(command, source).skip(1).collect();
+    }
+
+    normalized.body_args().to_vec()
+}
+
 fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
     let mut has_print0 = false;
+    let mut has_formatted_output_action = false;
     let mut or_without_grouping_spans = Vec::new();
     let mut glob_pattern_operand_spans = Vec::new();
     let mut group_stack = vec![FindGroupState::default()];
@@ -16540,7 +17225,7 @@ fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
                 group_stack
                     .last_mut()
                     .expect("group stack retains the root frame")
-                    .incorporate_group(child, &mut or_without_grouping_spans);
+                    .incorporate_group(child);
             }
             continue;
         }
@@ -16560,6 +17245,9 @@ fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
         }
 
         if is_find_branch_action_token(text.as_str()) {
+            if matches!(text.as_str(), "-fprint0" | "-printf" | "-fprintf") {
+                has_formatted_output_action = true;
+            }
             state.note_action(
                 word.span,
                 is_find_reportable_action_token(text.as_str()),
@@ -16577,6 +17265,7 @@ fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
 
     FindCommandFacts {
         has_print0,
+        has_formatted_output_action,
         or_without_grouping_spans: or_without_grouping_spans.into_boxed_slice(),
         glob_pattern_operand_spans: glob_pattern_operand_spans.into_boxed_slice(),
     }
@@ -16643,12 +17332,11 @@ struct FindGroupState {
     current_branch_has_explicit_and: bool,
     has_any_predicate: bool,
     has_any_action: bool,
-    first_action_span_for_parent: Option<Span>,
 }
 
 impl FindGroupState {
     fn current_branch_can_bind_action(&self) -> bool {
-        !self.current_branch_has_explicit_and && (self.current_branch_has_predicate || self.saw_or)
+        !self.current_branch_has_explicit_and && self.current_branch_has_predicate
     }
 
     fn note_or(&mut self) {
@@ -16675,25 +17363,13 @@ impl FindGroupState {
             spans.push(span);
         }
 
-        if reportable
-            && self.first_action_span_for_parent.is_none()
-            && self.current_branch_can_bind_action()
-        {
-            self.first_action_span_for_parent = Some(span);
-        }
-
         self.saw_action_before_current_branch = true;
         self.has_any_action = true;
     }
 
-    fn incorporate_group(&mut self, child: Self, spans: &mut Vec<Span>) {
+    fn incorporate_group(&mut self, child: Self) {
         if child.has_any_predicate {
             self.note_predicate();
-        }
-
-        if let Some(span) = child.first_action_span_for_parent {
-            self.note_action(span, true, spans);
-            return;
         }
 
         if child.has_any_action {
@@ -17384,9 +18060,13 @@ fn xargs_long_option_requires_separate_argument(option: &str) -> bool {
 }
 
 fn parse_expr_command(args: &[&Word], source: &str) -> Option<ExprCommandFacts> {
+    let (string_helper_kind, string_helper_span) = expr_string_helper(args, source)
+        .map_or((None, None), |(kind, span)| (Some(kind), Some(span)));
+
     Some(ExprCommandFacts {
         uses_arithmetic_operator: !expr_uses_string_form(args, source),
-        uses_substr_string_form: expr_uses_substr_string_form(args, source),
+        string_helper_kind,
+        string_helper_span,
     })
 }
 
@@ -17403,11 +18083,17 @@ fn expr_uses_string_form(args: &[&Word], source: &str) -> bool {
         .is_some_and(|text| matches!(text, ":" | "=" | "!=" | "<" | ">" | "<=" | ">=" | "=="))
 }
 
-fn expr_uses_substr_string_form(args: &[&Word], source: &str) -> bool {
-    args.first()
-        .and_then(|word| static_word_text(word, source))
-        .as_deref()
-        == Some("substr")
+fn expr_string_helper(args: &[&Word], source: &str) -> Option<(ExprStringHelperKind, Span)> {
+    let word = args.first()?;
+    let kind = match static_word_text(word, source).as_deref() {
+        Some("length") => ExprStringHelperKind::Length,
+        Some("index") => ExprStringHelperKind::Index,
+        Some("match") => ExprStringHelperKind::Match,
+        Some("substr") => ExprStringHelperKind::Substr,
+        _ => return None,
+    };
+
+    Some((kind, word.span))
 }
 
 fn parse_exit_command<'a>(command: &'a Command, source: &str) -> Option<ExitCommandFacts<'a>> {
@@ -18000,9 +18686,9 @@ mod tests {
     use shuck_semantic::{BindingAttributes, SemanticModel};
 
     use super::{
-        CommandId, ConditionalNodeFact, ConditionalOperatorFamily, GrepPatternSourceKind,
-        LinterFacts, SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax,
-        SubstitutionHostKind, SudoFamilyInvoker, WordFactHostKind,
+        CommandId, ConditionalNodeFact, ConditionalOperatorFamily, ExprStringHelperKind,
+        GrepPatternSourceKind, LinterFacts, SimpleTestOperatorFamily, SimpleTestShape,
+        SimpleTestSyntax, SubstitutionHostKind, SudoFamilyInvoker, WordFactHostKind,
     };
     use crate::facts::PositionalParameterFragmentKind;
     use crate::rules::common::command::WrapperKind;
@@ -18036,6 +18722,38 @@ mod tests {
             ShellDialect::Bash,
             visit,
         );
+    }
+
+    #[test]
+    fn background_semicolon_facts_report_plain_semicolons() {
+        let source = "#!/bin/bash\necho x &;\necho y & ;\n";
+
+        with_facts(source, None, |_, facts| {
+            let spans = facts.background_semicolon_spans();
+
+            assert_eq!(spans.len(), 2);
+            assert_eq!(spans[0].slice(source), ";");
+            assert_eq!(spans[0].start.line, 2);
+            assert_eq!(spans[1].slice(source), ";");
+            assert_eq!(spans[1].start.line, 3);
+        });
+    }
+
+    #[test]
+    fn background_semicolon_facts_ignore_case_item_terminators() {
+        let source = "\
+#!/bin/bash
+case ${1-} in
+  break) printf '%s\\n' ok &;;
+  spaced) printf '%s\\n' ok & ;;
+  fallthrough) printf '%s\\n' ok & ;&
+  continue) printf '%s\\n' ok & ;;&
+esac
+";
+
+        with_facts(source, None, |_, facts| {
+            assert!(facts.background_semicolon_spans().is_empty());
+        });
     }
 
     #[test]
@@ -18643,8 +19361,14 @@ fi
 if $(printf one); then
   :
 fi
+if $(command -v printf) --version >/dev/null 2>&1; then
+  :
+fi
 while $(printf two); do
   :
+done
+until $(command -v printf) --help >/dev/null 2>&1; do
+  break
 done
 ";
 
@@ -18738,7 +19462,7 @@ done
             };
 
             assert_eq!(
-                case.case_span().slice(source).trim_end(),
+                case.case_span().slice(source),
                 "case \"$opt\" in\n    a)\n      ;;\n    b)\n      echo \"$(printf body)\"\n      ;;\n  esac"
             );
             assert_eq!(
@@ -19981,6 +20705,149 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
     }
 
     #[test]
+    fn tracks_quote_like_echo_escapes_inside_double_quotes_from_syntax_text() {
+        let source = "#!/bin/bash\necho \"  echo Remember to run \\\\\\`updatedb\\\\'.\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert_eq!(
+            facts
+                .echo_backslash_escape_word_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["\"  echo Remember to run \\\\\\`updatedb\\\\'.\""]
+        );
+    }
+
+    #[test]
+    fn tracks_echo_backslash_double_quote_escape_shapes() {
+        let source = "#!/bin/bash\necho -DLATEX=\\\\\"$(which latex)\\\\\"\necho \"  .TargetPath = \\\"\\\\\\\\host.lan\\\\Data\\\"\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert_eq!(
+            facts
+                .echo_backslash_escape_word_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "-DLATEX=\\\\\"$(which latex)\\\\\"",
+                "\"  .TargetPath = \\\"\\\\\\\\host.lan\\\\Data\\\"\""
+            ]
+        );
+    }
+
+    #[test]
+    fn ignores_json_like_backslash_quote_wrappers_around_variables() {
+        let source = "#!/bin/bash\necho \"LABEL com.dokku.docker-image-labeler/alternate-tags=[\\\\\\\"$DOCKER_IMAGE\\\\\\\"]\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(facts.echo_backslash_escape_word_spans().is_empty());
+    }
+
+    #[test]
+    fn tracks_find_print0_without_treating_it_as_formatted_output() {
+        let source = "\
+#!/bin/bash
+find . -print0 | xargs rm
+find . -printf '%h\\n' | xargs mv -t dest
+find . -print | xargs rm
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let find_facts = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("find"))
+            .filter_map(|fact| fact.options().find())
+            .collect::<Vec<_>>();
+
+        assert_eq!(find_facts.len(), 3);
+        assert!(find_facts[0].has_print0);
+        assert!(!find_facts[0].has_formatted_output_action());
+        assert!(find_facts[1].has_formatted_output_action());
+        assert!(!find_facts[2].has_formatted_output_action());
+    }
+
+    #[test]
+    fn tracks_expr_string_helper_kinds_and_spans() {
+        let source = "\
+#!/bin/sh
+expr length \"$mode\"
+expr index \"$mode\" w
+expr match \"$mode\" 'w'
+expr substr \"$mode\" 1 1
+expr \"$a\" = \"$b\"
+expr 1 + 2
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let exprs = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("expr"))
+            .filter_map(|fact| fact.options().expr())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            exprs
+                .iter()
+                .map(|expr| expr.string_helper_kind())
+                .collect::<Vec<_>>(),
+            vec![
+                Some(ExprStringHelperKind::Length),
+                Some(ExprStringHelperKind::Index),
+                Some(ExprStringHelperKind::Match),
+                Some(ExprStringHelperKind::Substr),
+                None,
+                None,
+            ]
+        );
+        assert_eq!(
+            exprs
+                .iter()
+                .map(|expr| expr.string_helper_span().map(|span| span.slice(source)))
+                .collect::<Vec<_>>(),
+            vec![
+                Some("length"),
+                Some("index"),
+                Some("match"),
+                Some("substr"),
+                None,
+                None,
+            ]
+        );
+        assert!(exprs[3].uses_substr_string_form());
+        assert_eq!(
+            exprs
+                .iter()
+                .map(|expr| expr.uses_arithmetic_operator())
+                .collect::<Vec<_>>(),
+            vec![false, false, false, false, false, true]
+        );
+    }
+
+    #[test]
     fn tracks_printf_formats_with_and_without_literal_percents() {
         let source = "printf \"$fmt\" value\nprintf \"${left}${right}\" value\nprintf \"${fmt:-%s}\" value\nprintf \"$(echo %s)\" value\nprintf \"pre$foo\" value\nprintf \"%${width}s\\n\" value\nprintf \"${color}%s${reset}\" value\nprintf \"$fmt%s\" value\nprintf '%s\\n' value\n";
         let output = Parser::new(source).parse().unwrap();
@@ -20302,6 +21169,32 @@ unset -v \"${!prefix_@}\" x${!prefix_*} \"${!name}\" \"${!arr[@]}\"
     }
 
     #[test]
+    fn tracks_find_exec_or_branches_without_action_only_false_positives() {
+        let source = "\
+#!/bin/bash
+find . -name a -o -name b -exec rm -f {} \\;
+find . -name a -o -name b -o -name c -exec cp {} out \\;
+find . \\( -name a -o \\( -name b -exec rm -f {} \\; \\) \\) -print
+find . -type l -o -print
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let find_or_without_grouping_spans = facts
+            .commands()
+            .iter()
+            .filter_map(|fact| fact.options().find())
+            .flat_map(|find| find.or_without_grouping_spans().iter().copied())
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(find_or_without_grouping_spans, vec!["-exec", "-exec"]);
+    }
+
+    #[test]
     fn parses_grep_pattern_words_from_flags_and_operands() {
         let source = "\
 #!/bin/bash
@@ -20515,6 +21408,54 @@ grep --regexp='*start' data.txt
                 ("'^*'", Some("^*"), true),
                 ("'^*foo'", Some("^*foo"), false),
                 ("--regexp='*start'", Some("*start"), true),
+            ]
+        );
+    }
+
+    #[test]
+    fn grep_pattern_facts_track_glob_style_star_confusion() {
+        let source = "\
+#!/bin/bash
+grep start* data.txt
+grep 'foo*bar' data.txt
+grep 'foo\\*bar*' data.txt
+grep '^#* OPTIONS #*$' data.txt
+grep -Eo 'https?://[[:alnum:]./?&!$#%@*;:+~_=-]+' data.txt
+grep '^root:[:!*]' data.txt
+grep -e 'Swarm:*\\sactive\\s*' data.txt
+grep 'foo*bar+' data.txt
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let grep_patterns = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("grep"))
+            .filter_map(|fact| fact.options().grep())
+            .flat_map(|grep| grep.patterns().iter())
+            .map(|pattern| {
+                (
+                    pattern.span().slice(source),
+                    pattern.has_glob_style_star_confusion(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            grep_patterns,
+            vec![
+                ("start*", true),
+                ("'foo*bar'", true),
+                ("'foo\\*bar*'", true),
+                ("'^#* OPTIONS #*$'", false),
+                ("'https?://[[:alnum:]./?&!$#%@*;:+~_=-]+'", false),
+                ("'^root:[:!*]'", false),
+                ("'Swarm:*\\sactive\\s*'", false),
+                ("'foo*bar+'", false),
             ]
         );
     }
@@ -21867,6 +22808,13 @@ expanded=$(echo $foo)
 quoted=$(echo \"$foo\")
 var_suffix=$(echo foo$foo)
 command_subst=$(echo foo $(date))
+nested_only=$(echo $(basename \"$f\" .fuzz))
+quoted_nested_only=$(echo \"$(basename \"$f\" .fuzz)\")
+multiple_nested=$(echo $(date) $(pwd))
+dynamic_dash=$(echo ${foo}-bar)
+quoted_dynamic_dash=$(echo \"${foo}-bar\")
+command_subst_dash=$(echo $(date)-bar)
+pipeline_cut=$(echo \"$line\" | cut -d' ' -f2-)
 option_like=$(echo -en \"\\001\")
 glob_like=$(echo O*)
 brace_like=$(echo {a,b})
@@ -21890,9 +22838,57 @@ brace_like=$(echo {a,b})
             assert_eq!(substitutions.get("$(echo \"$foo\")"), Some(&true));
             assert_eq!(substitutions.get("$(echo foo$foo)"), Some(&true));
             assert_eq!(substitutions.get("$(echo foo $(date))"), Some(&true));
+            assert_eq!(
+                substitutions.get("$(echo $(basename \"$f\" .fuzz))"),
+                Some(&false)
+            );
+            assert_eq!(
+                substitutions.get("$(echo \"$(basename \"$f\" .fuzz)\")"),
+                Some(&false)
+            );
+            assert_eq!(substitutions.get("$(echo $(date) $(pwd))"), Some(&true));
+            assert_eq!(substitutions.get("$(echo ${foo}-bar)"), Some(&false));
+            assert_eq!(substitutions.get("$(echo \"${foo}-bar\")"), Some(&false));
+            assert_eq!(substitutions.get("$(echo $(date)-bar)"), Some(&false));
+            assert_eq!(
+                substitutions.get("$(echo \"$line\" | cut -d' ' -f2-)"),
+                Some(&false)
+            );
             assert_eq!(substitutions.get("$(echo -en \"\\001\")"), Some(&false));
             assert_eq!(substitutions.get("$(echo O*)"), Some(&false));
             assert_eq!(substitutions.get("$(echo {a,b})"), Some(&false));
+        });
+    }
+
+    #[test]
+    fn keeps_bash_pipeline_substitution_facts_false_in_pattern_and_array_contexts() {
+        let source = "\
+#!/bin/bash
+if [[ \"${currencyCodes[*]}\" == *\"$(echo \"${@}\" | tr -d '[:space:]')\"* ]]; then :; fi
+CANDIDATES+=(\"$(echo \"$line\" | cut -d' ' -f2-)\")
+";
+
+        with_facts(source, None, |_, facts| {
+            let substitutions = facts
+                .commands()
+                .iter()
+                .flat_map(|fact| fact.substitution_facts().iter().copied())
+                .filter(|fact| fact.span().slice(source).contains("$(echo"))
+                .map(|fact| {
+                    (
+                        fact.span().slice(source).to_owned(),
+                        fact.body_contains_echo(),
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                substitutions,
+                vec![
+                    ("$(echo \"${@}\" | tr -d '[:space:]')".to_owned(), false,),
+                    ("$(echo \"$line\" | cut -d' ' -f2-)".to_owned(), false),
+                ]
+            );
         });
     }
 
@@ -22499,6 +23495,88 @@ test
     }
 
     #[test]
+    fn simple_test_fact_tracks_operator_expression_operands() {
+        let source = "\
+#!/bin/sh
+[ foo ]
+[ -d dir ]
+[ lhs -eq rhs ]
+[ -d one -o two = three ]
+[ ! -e four -a five -nt six ]
+";
+
+        with_facts(source, None, |_, facts| {
+            let commands = facts
+                .structural_commands()
+                .map(|fact| (fact.span().slice(source).trim_end().to_owned(), fact))
+                .collect::<Vec<_>>();
+
+            let truthy = commands
+                .iter()
+                .find(|(text, _)| text == "[ foo ]")
+                .and_then(|(_, fact)| fact.simple_test())
+                .expect("expected truthy test fact");
+            assert!(truthy.operator_expression_operand_words(source).is_empty());
+
+            let unary = commands
+                .iter()
+                .find(|(text, _)| text == "[ -d dir ]")
+                .and_then(|(_, fact)| fact.simple_test())
+                .expect("expected unary test fact");
+            assert_eq!(
+                unary
+                    .operator_expression_operand_words(source)
+                    .into_iter()
+                    .map(|word| word.span.slice(source).to_owned())
+                    .collect::<Vec<_>>(),
+                vec!["dir"]
+            );
+
+            let binary = commands
+                .iter()
+                .find(|(text, _)| text == "[ lhs -eq rhs ]")
+                .and_then(|(_, fact)| fact.simple_test())
+                .expect("expected binary test fact");
+            assert_eq!(
+                binary
+                    .operator_expression_operand_words(source)
+                    .into_iter()
+                    .map(|word| word.span.slice(source).to_owned())
+                    .collect::<Vec<_>>(),
+                vec!["lhs", "rhs"]
+            );
+
+            let compound = commands
+                .iter()
+                .find(|(text, _)| text == "[ -d one -o two = three ]")
+                .and_then(|(_, fact)| fact.simple_test())
+                .expect("expected compound test fact");
+            assert_eq!(
+                compound
+                    .operator_expression_operand_words(source)
+                    .into_iter()
+                    .map(|word| word.span.slice(source).to_owned())
+                    .collect::<Vec<_>>(),
+                vec!["one", "two", "three"]
+            );
+
+            let negated_compound = commands
+                .iter()
+                .find(|(text, _)| text == "[ ! -e four -a five -nt six ]")
+                .and_then(|(_, fact)| fact.simple_test())
+                .expect("expected negated compound test fact");
+            assert_eq!(
+                negated_compound
+                    .operator_expression_operand_words(source)
+                    .into_iter()
+                    .map(|word| word.span.slice(source).to_owned())
+                    .collect::<Vec<_>>(),
+                vec!["four", "five", "six"]
+            );
+        });
+    }
+
+    #[test]
     fn collects_compound_operator_spans_for_grouped_bracket_tests() {
         let source = "\
 #!/bin/sh
@@ -22826,6 +23904,14 @@ true && declare -x flag=1
                     .collect::<Vec<_>>(),
                 vec![None, Some("out"), Some("out")]
             );
+            assert_eq!(
+                ternary
+                    .segments()
+                    .iter()
+                    .map(|segment| segment.assignment_is_declaration())
+                    .collect::<Vec<_>>(),
+                vec![false, true, true]
+            );
 
             let shortcut = &facts.lists()[1];
             assert_eq!(
@@ -22840,6 +23926,7 @@ true && declare -x flag=1
                 ]
             );
             assert_eq!(shortcut.segments()[1].assignment_target(), Some("flag"));
+            assert!(shortcut.segments()[1].assignment_is_declaration());
         });
     }
 
@@ -22864,6 +23951,25 @@ for entry in $(find . -type f); do :; done
             let find_words = facts.for_headers()[2].words();
             assert!(find_words[0].has_unquoted_command_substitution());
             assert!(!find_words[0].contains_ls_substitution());
+        });
+    }
+
+    #[test]
+    fn builds_loop_header_find_substitution_detection_for_find_exec_forms() {
+        let source = "\
+#!/bin/bash
+for entry in $(find . -type f -exec grep -Pl '\\r$' {} \\;); do :; done
+for entry in $(command find . -type f -exec basename {} \\;); do :; done
+";
+
+        with_facts(source, None, |_, facts| {
+            let first = facts.for_headers()[0].words();
+            assert!(first[0].has_unquoted_command_substitution());
+            assert!(first[0].contains_find_substitution());
+
+            let second = facts.for_headers()[1].words();
+            assert!(second[0].has_unquoted_command_substitution());
+            assert!(second[0].contains_find_substitution());
         });
     }
 
@@ -23723,14 +24829,20 @@ then \"install\" later
 ";
 
         with_facts(source, None, |_, facts| {
-            assert_eq!(
-                facts
-                    .double_paren_grouping_spans()
-                    .iter()
-                    .map(|span| span.slice(source))
-                    .collect::<Vec<_>>(),
-                vec!["p"]
-            );
+            let anchors = facts
+                .double_paren_grouping_spans()
+                .iter()
+                .map(|span| {
+                    (
+                        span.start.line,
+                        span.start.column,
+                        span.end.line,
+                        span.end.column,
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(anchors, vec![(2, 1, 2, 1)]);
         });
     }
 
@@ -23752,6 +24864,20 @@ echo 'hello ‘world’'
                     .collect::<Vec<_>>(),
                 vec!["“", "”"]
             );
+        });
+    }
+
+    #[test]
+    fn ignores_unicode_smart_quotes_in_heredoc_payloads() {
+        let source = "\
+#!/bin/sh
+cat <<EOF
+q { quotes: \"“\" \"”\" \"‘\" \"’\"; }
+EOF
+";
+
+        with_facts(source, None, |_, facts| {
+            assert!(facts.unicode_smart_quote_spans().is_empty());
         });
     }
 
@@ -23797,6 +24923,32 @@ case x in *[!a-zA-Z0-9._/+\\-]*) continue ;; esac
 
         assert!(facts.is_subscript_index_reference(idx_reference.span));
         assert!(!facts.is_subscript_index_reference(free_reference.span));
+    }
+
+    #[test]
+    fn collects_array_index_arithmetic_spans_only_for_indexed_lvalues() {
+        let source = "\
+#!/bin/bash
+arr[$((indexed+1))]=x
+declare named[$((declared+1))]=y
+declare -A map
+map[$((assoc+1))]=z
+map[temp_$((mixed+1))]=q
+map=([$((compound+1))]=w)
+printf '%s\\n' \"${arr[$((read+1))]}\"
+[[ -v arr[$((check+1))] ]]
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .array_index_arithmetic_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["$((indexed+1))", "$((declared+1))"]
+            );
+        });
     }
 
     #[test]
@@ -23967,6 +25119,31 @@ printf '%s\\n' prefix${name}suffix ${items[@]}
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
                 vec!["${items[@]}"]
+            );
+        });
+    }
+
+    #[test]
+    fn builds_case_pattern_expansion_spans_for_mixed_and_quoted_patterns() {
+        let source = "\
+#!/bin/sh
+case $value in
+  x$pat) : ;;
+  \"$quoted\") : ;;
+  \"$left\"$right) : ;;
+  x$left@(foo|bar)) : ;;
+  @($nested|\"$ignored\")) : ;;
+esac
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .case_pattern_expansion_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["x$pat", "\"$left\"$right", "x$left@(foo|bar)", "$nested"]
             );
         });
     }
@@ -24409,6 +25586,31 @@ $cmd[0] arg
     }
 
     #[test]
+    fn builds_function_in_alias_spans_from_static_alias_definitions() {
+        let source = "\
+#!/bin/sh
+alias gtl='gtl(){ git tag --sort=-v:refname -n -l \"${1}*\" }; noglob gtl'
+alias hello='function hello { echo hi; }'
+alias positional='${1+\"$@\"}'
+alias runtime=$BAR
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .function_in_alias_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec![
+                    "gtl='gtl(){ git tag --sort=-v:refname -n -l \"${1}*\" }; noglob gtl'",
+                    "hello='function hello { echo hi; }'",
+                ]
+            );
+        });
+    }
+
+    #[test]
     fn builds_array_assignment_split_word_facts() {
         let source = "\
 #!/bin/bash
@@ -24494,7 +25696,7 @@ arr=(\"$(printf '%s\\n' \"$x\")\")
                     .iter()
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
-                vec!["$x"]
+                Vec::<&str>::new()
             );
         });
     }
@@ -24677,6 +25879,25 @@ printf '%s\\n' ${name%$suffix} `printf backtick`
                     .map(|fragment| fragment.span().slice(source))
                     .collect::<Vec<_>>(),
                 vec!["`printf backtick`"]
+            );
+        });
+    }
+
+    #[test]
+    fn backtick_fragments_remember_when_the_substitution_body_is_empty() {
+        let source = "\
+#!/bin/sh
+echo \"Resolve the conflict and run ``${PROGRAM} --continue`` plus `date`.\"
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .backtick_fragments()
+                    .iter()
+                    .map(|fragment| (fragment.span().slice(source), fragment.is_empty()))
+                    .collect::<Vec<_>>(),
+                vec![("``", true), ("``", true), ("`date`", false)]
             );
         });
     }

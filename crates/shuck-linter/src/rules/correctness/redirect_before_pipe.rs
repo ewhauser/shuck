@@ -37,10 +37,11 @@ fn redirect_spans_for_pipeline(checker: &Checker<'_>, pipeline: &PipelineFact<'_
                 .iter()
                 .enumerate()
                 .filter_map(|(index, redirect)| {
-                    stdout_redirect_span_before_pipe(redirect).filter(|_| {
+                    stdout_redirect_span_before_pipe(redirect, checker.source()).filter(|_| {
                         !has_prior_stderr_to_stdout_dup(&fact.redirect_facts()[..index])
                     })
                 })
+                .collect::<Vec<_>>()
         })
         .collect()
 }
@@ -55,7 +56,10 @@ fn has_prior_stderr_to_stdout_dup(redirects: &[crate::RedirectFact<'_>]) -> bool
     })
 }
 
-fn stdout_redirect_span_before_pipe(redirect: &crate::RedirectFact<'_>) -> Option<Span> {
+fn stdout_redirect_span_before_pipe(
+    redirect: &crate::RedirectFact<'_>,
+    source: &str,
+) -> Option<Span> {
     let data = redirect.redirect();
     if data.fd.unwrap_or(1) != 1 {
         return None;
@@ -71,7 +75,31 @@ fn stdout_redirect_span_before_pipe(redirect: &crate::RedirectFact<'_>) -> Optio
         return None;
     }
 
-    redirect.analysis()?.is_file_target().then_some(data.span)
+    redirect
+        .analysis()?
+        .is_file_target()
+        .then(|| redirect_operator_span(redirect, source))
+        .flatten()
+}
+
+fn redirect_operator_span(redirect: &crate::RedirectFact<'_>, source: &str) -> Option<Span> {
+    let target_span = redirect.target_span()?;
+    let operator_slice =
+        source.get(redirect.redirect().span.start.offset..target_span.start.offset)?;
+    let operator_start = operator_slice.find('>')?;
+    let operator_end = operator_slice.rfind(|ch: char| !ch.is_whitespace())? + 1;
+    let operator_start_pos = redirect
+        .redirect()
+        .span
+        .start
+        .advanced_by(&operator_slice[..operator_start]);
+    let operator_end_pos = redirect
+        .redirect()
+        .span
+        .start
+        .advanced_by(&operator_slice[..operator_end]);
+
+    Some(Span::from_positions(operator_start_pos, operator_end_pos))
 }
 
 #[cfg(test)]
@@ -86,8 +114,9 @@ mod tests {
 cmd >/dev/null | next
 cmd >out | next
 left | mid >/dev/null | right
-cmd >out | next |& logger
-cmd |& next >/dev/null | logger
+cmd >>out | next
+cmd >|out | next
+cmd 1>out | next
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::RedirectBeforePipe));
 
@@ -96,7 +125,7 @@ cmd |& next >/dev/null | logger
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec![">/dev/null", ">out", ">/dev/null", ">out", ">/dev/null"]
+            vec![">", ">", ">", ">>", ">|", ">"]
         );
     }
 
@@ -114,5 +143,42 @@ cmd <>file | next
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::RedirectBeforePipe));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn still_reports_bash_both_redirects_without_explicit_dups() {
+        let source = "\
+#!/bin/bash
+cmd &>out | next
+cmd &>>out | next
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::RedirectBeforePipe));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![">", ">>"]
+        );
+    }
+
+    #[test]
+    fn reports_output_redirects_with_late_or_unrelated_dup_redirects() {
+        let source = "\
+#!/bin/sh
+cmd >out 1>&2 | next
+cmd >out 2>&1 | next
+cmd >out 3>&1 | next
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::RedirectBeforePipe));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![">", ">", ">"]
+        );
     }
 }

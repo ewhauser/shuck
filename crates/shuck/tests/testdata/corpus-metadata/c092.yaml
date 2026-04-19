@@ -41,17 +41,24 @@ reviewed_divergences:
     column: 1
     end_column: 57
     reason: "This standalone harness probe runs `$()` in command position and then inspects `$?`; it is outside C092's condition-only scope even though the pinned oracle still reports its broader SC2091 warning here."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__scripts__setup-termux-glibc.sh"
-    line: 10
-    end_line: 10
+  - side: shellcheck-only
+    path_suffix: "alexanderepstein__Bash-Snippets__gist__gist"
+    line: 99
+    end_line: 99
     column: 5
+    end_column: 17
+    reason: "This helper function executes `$()` as a standalone command in an ordinary branch body rather than using it as an `if`, `while`, or `until` condition. C092 stays scoped to condition commands only."
+  - side: shellcheck-only
+    path_suffix: "basecamp__omarchy__bin__omarchy-reinstall-configs"
+    line: 16
+    end_line: 16
+    column: 1
+    end_column: 46
+    reason: "This script runs the command substitution in plain command position during setup, not as a condition command. The broader SC2091 family still reports it, but C092 intentionally does not."
+  - side: shellcheck-only
+    path_suffix: "tmux-plugins__tpm__scripts__helpers__tmux_echo_functions.sh"
+    line: 2
+    end_line: 2
+    column: 2
     end_column: 44
-    reason: "This `if $(pacman-conf ...)` branch still treats command substitution output as the command name for the condition. Shuck keeps warning even though the pinned oracle stays silent on this project-closure fixture."
-  - side: shuck-only
-    path_suffix: "void-linux__void-packages__common__xbps-src__shutils__chroot.sh"
-    line: 50
-    end_line: 50
-    column: 8
-    end_column: 68
-    reason: "This condition executes the stdout from `$(${XBPS_INSTALL_CMD} ...)` as a command, so the command-substitution misuse is still present. Shuck keeps the warning despite the pinned oracle's silence on this project-closure fixture."
+    reason: "This function body executes `$()` directly as a helper command outside any condition form, so it falls outside C092's condition-focused scope even though the pinned oracle still buckets it under SC2091."

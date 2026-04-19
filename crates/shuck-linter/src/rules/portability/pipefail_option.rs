@@ -86,6 +86,17 @@ set -o pipefail
     }
 
     #[test]
+    fn ignores_other_set_o_names_in_sh() {
+        let source = "\
+#!/bin/sh
+set -o posix
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::PipefailOption));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn ignores_positional_pipefail_after_double_dash() {
         let source = "\
 #!/bin/sh

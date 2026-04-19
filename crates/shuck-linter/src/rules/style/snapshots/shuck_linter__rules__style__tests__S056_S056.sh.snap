@@ -1,21 +1,45 @@
 ---
 source: crates/shuck-linter/src/rules/style/mod.rs
-assertion_line: 98
+assertion_line: 177
 ---
-S056 avoid command substitutions in alias definitions
- --> <source>:2:14
+S056 avoid expansions in alias definitions
+ --> <source>:2:12
   |
-2 | alias printf=$(command -v printf)
-  |
-
-S056 avoid command substitutions in alias definitions
- --> <source>:3:9
-  |
-3 | alias a=$(command -v printf) b=$(command -v cat)
+2 | alias home=$HOME
   |
 
-S056 avoid command substitutions in alias definitions
- --> <source>:3:32
+S056 avoid expansions in alias definitions
+ --> <source>:3:19
   |
-3 | alias a=$(command -v printf) b=$(command -v cat)
+3 | alias icloud="cd '$HOME'"
+  |
+
+S056 avoid expansions in alias definitions
+ --> <source>:4:14
+  |
+4 | alias printf=$(command -v printf)
+  |
+
+S056 avoid expansions in alias definitions
+ --> <source>:5:13
+  |
+5 | alias math="$((1+2))"
+  |
+
+S056 avoid expansions in alias definitions
+ --> <source>:6:12
+  |
+6 | alias list=${arr[@]}
+  |
+
+S056 avoid expansions in alias definitions
+ --> <source>:7:12
+  |
+7 | alias proc=<(printf hi)
+  |
+
+S056 avoid expansions in alias definitions
+ --> <source>:8:13
+  |
+8 | alias brace={a,b}
   |

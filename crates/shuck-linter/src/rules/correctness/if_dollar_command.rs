@@ -79,6 +79,8 @@ $(false) && echo x
 if foo; then :; fi
 if \"$(printf '%s' foo)\"; then :; fi
 if [[ \"$pm\" == apt ]] && \"$(printf '%s' missing)\" != installed; then :; fi
+if $(command -v rvm) -v > /dev/null 2>&1; then :; fi
+if $(tc-getSTRIP) --enable-deterministic-archives |& grep -q aarch; then :; fi
 if command $(false); then :; fi
 if env FOO=1 $(false); then :; fi
 if `printf '%s' ok`; then :; fi

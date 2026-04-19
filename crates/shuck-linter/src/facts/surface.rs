@@ -243,11 +243,6 @@ impl<'a> SurfaceFragmentSink<'a> {
         context: SurfaceScanContext<'_>,
     ) {
         self.collect_single_quoted_fragments_in_heredoc_body_parts(&body.parts, context);
-        collect_unicode_smart_quote_spans_in_heredoc_body_parts(
-            &body.parts,
-            self.source,
-            &mut self.facts.unicode_smart_quote_spans,
-        );
         self.collect_heredoc_body_parts(&body.parts, context);
     }
 
@@ -438,15 +433,16 @@ impl<'a> SurfaceFragmentSink<'a> {
                 }
                 WordPart::CommandSubstitution {
                     syntax: CommandSubstitutionSyntax::Backtick,
-                    body: _,
+                    body,
                     ..
                 } => {
                     if self.opening_backtick_is_escaped(part.span) {
                         continue;
                     }
-                    self.facts
-                        .backticks
-                        .push(BacktickFragmentFact { span: part.span });
+                    self.facts.backticks.push(BacktickFragmentFact {
+                        span: part.span,
+                        empty: body.is_empty(),
+                    });
                 }
                 WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => {}
                 WordPart::Parameter(parameter) => {
@@ -609,14 +605,16 @@ impl<'a> SurfaceFragmentSink<'a> {
                 HeredocBodyPart::Literal(_) | HeredocBodyPart::Variable(_) => {}
                 HeredocBodyPart::CommandSubstitution {
                     syntax: CommandSubstitutionSyntax::Backtick,
+                    body,
                     ..
                 } => {
                     if self.opening_backtick_is_escaped(part.span) {
                         continue;
                     }
-                    self.facts
-                        .backticks
-                        .push(BacktickFragmentFact { span: part.span });
+                    self.facts.backticks.push(BacktickFragmentFact {
+                        span: part.span,
+                        empty: body.is_empty(),
+                    });
                 }
                 HeredocBodyPart::CommandSubstitution { .. } => {}
                 HeredocBodyPart::ArithmeticExpansion {
@@ -1141,13 +1139,13 @@ fn collect_positional_parameter_operator_spans_in_arithmetic(
     source: &str,
     spans: &mut Vec<Span>,
 ) {
-    if expression_ast.is_some_and(|expression_ast| {
-        arithmetic_expr_has_positional_parameter_operator(expression_ast, source)
-    }) {
-        spans.push(Span::from_positions(
-            expansion_span.start,
-            expansion_span.start,
-        ));
+    if let Some(expression_ast) = expression_ast {
+        if arithmetic_expr_has_positional_parameter_operator(expression_ast, source) {
+            spans.push(Span::from_positions(
+                expansion_span.start,
+                expansion_span.start,
+            ));
+        }
         return;
     }
 
@@ -1168,6 +1166,25 @@ fn collect_positional_parameter_operator_spans_in_arithmetic(
                     let Some(token_end) = positional_parameter_token_end(text, index) else {
                         continue;
                     };
+
+                    let immediate_prev = text[..index].chars().next_back();
+                    let immediate_next = text[token_end..].chars().next();
+                    let same_word_prefix =
+                        immediate_prev.is_some_and(|ch| !raw_arithmetic_word_boundary(ch));
+                    let same_word_suffix =
+                        immediate_next.is_some_and(|ch| !raw_arithmetic_word_boundary(ch));
+
+                    if same_word_prefix || same_word_suffix {
+                        if same_word_prefix {
+                            let word_start = raw_arithmetic_word_start(text, index);
+                            let prefix = &text[word_start..index];
+                            if prefix_starts_with_identifier_like_text(prefix) {
+                                should_report = true;
+                                break;
+                            }
+                        }
+                        continue;
+                    }
 
                     let prev = text[..index].chars().rev().find(|ch| !ch.is_whitespace());
                     let next = text[token_end..].chars().find(|ch| !ch.is_whitespace());
@@ -1204,6 +1221,43 @@ fn collect_positional_parameter_operator_spans_in_arithmetic(
     }
 }
 
+fn raw_arithmetic_word_start(text: &str, end: usize) -> usize {
+    let mut start = end;
+
+    while let Some((index, ch)) = text[..start].char_indices().next_back() {
+        if raw_arithmetic_word_boundary(ch) {
+            break;
+        }
+        start = index;
+    }
+
+    start
+}
+
+fn raw_arithmetic_word_boundary(ch: char) -> bool {
+    ch.is_whitespace()
+        || matches!(
+            ch,
+            '+' | '-'
+                | '*'
+                | '/'
+                | '%'
+                | '&'
+                | '|'
+                | '^'
+                | '?'
+                | ':'
+                | '<'
+                | '>'
+                | '='
+                | '!'
+                | '~'
+                | ','
+                | '('
+                | '['
+        )
+}
+
 fn arithmetic_expr_has_positional_parameter_operator(
     expression: &ArithmeticExprNode,
     source: &str,
@@ -1220,7 +1274,7 @@ fn arithmetic_expr_has_positional_parameter_operator(
 fn word_has_unquoted_positional_parameter_operator_neighbors(word: &Word, source: &str) -> bool {
     word.parts.iter().enumerate().any(|(index, part)| {
         part_is_unquoted_positional_parameter(&part.kind)
-            && positional_parameter_part_has_operator_neighbor(word, index, source)
+            && positional_parameter_part_has_identifier_like_prefix(word, index, source)
     })
 }
 
@@ -1259,7 +1313,7 @@ fn name_is_positional_parameter(name: &Name) -> bool {
     !name.as_str().is_empty() && name.as_str().bytes().all(|byte| byte.is_ascii_digit())
 }
 
-fn positional_parameter_part_has_operator_neighbor(
+fn positional_parameter_part_has_identifier_like_prefix(
     word: &Word,
     index: usize,
     source: &str,
@@ -1269,11 +1323,15 @@ fn positional_parameter_part_has_operator_neighbor(
     };
 
     let prefix = &source[word.span.start.offset..part.span.start.offset];
-    let suffix = &source[part.span.end.offset..word.span.end.offset];
-    let prev = prefix.chars().rev().find(|ch| !ch.is_whitespace());
-    let next = suffix.chars().find(|ch| !ch.is_whitespace());
+    prefix_starts_with_identifier_like_text(prefix)
+}
 
-    prev.is_some_and(is_left_operand_neighbor) || next.is_some_and(is_right_operand_neighbor)
+fn prefix_starts_with_identifier_like_text(prefix: &str) -> bool {
+    let Some(first_non_whitespace) = prefix.chars().find(|ch| !ch.is_whitespace()) else {
+        return false;
+    };
+
+    first_non_whitespace == '_' || first_non_whitespace.is_ascii_alphabetic()
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -1730,26 +1788,6 @@ fn collect_unicode_smart_quote_spans_in_word_parts(
     }
 }
 
-fn collect_unicode_smart_quote_spans_in_heredoc_body_parts(
-    parts: &[HeredocBodyPartNode],
-    source: &str,
-    spans: &mut Vec<Span>,
-) {
-    for part in parts {
-        if let HeredocBodyPart::Literal(text) = &part.kind {
-            let literal = text.as_str(source, part.span);
-            for (offset, char) in literal.char_indices() {
-                if !is_unicode_smart_quote(char) {
-                    continue;
-                }
-                let start = part.span.start.advanced_by(&literal[..offset]);
-                let end = start.advanced_by(char.encode_utf8(&mut [0; 4]));
-                spans.push(Span::from_positions(start, end));
-            }
-        }
-    }
-}
-
 fn is_unicode_smart_quote(char: char) -> bool {
     matches!(char, '\u{2018}' | '\u{2019}' | '\u{201C}' | '\u{201D}')
 }
@@ -1790,8 +1828,8 @@ mod tests {
     }
 
     #[test]
-    fn detects_operator_like_neighbors_around_positional_parameters_in_arithmetic_words() {
-        for text in ["$1$2", "$1suffix", "prefix$1", "${1}x"] {
+    fn detects_identifier_led_prefixes_before_positional_parameters_in_arithmetic_words() {
+        for text in ["prefix$1", "a${1}", "foo${bar}$1"] {
             let word = Parser::parse_word_string(text);
             assert!(
                 word_has_unquoted_positional_parameter_operator_neighbors(&word, text),
@@ -1801,8 +1839,20 @@ mod tests {
     }
 
     #[test]
-    fn ignores_non_operator_neighbors_around_positional_parameters_in_arithmetic_words() {
-        for text in ["$1", "${1}", "\"$1\"", "'$1'", "16#$1"] {
+    fn ignores_suffixes_and_non_identifier_prefixes_around_positional_parameters() {
+        for text in [
+            "$1",
+            "${1}",
+            "$1suffix",
+            "${1}suffix",
+            "\"$1\"",
+            "'$1'",
+            "16#$1",
+            "0x$1",
+            "0x${1}${2}",
+            "1a$1",
+            "${base}$1",
+        ] {
             let word = Parser::parse_word_string(text);
             assert!(
                 !word_has_unquoted_positional_parameter_operator_neighbors(&word, text),
@@ -1813,7 +1863,7 @@ mod tests {
 
     #[test]
     fn detects_positional_parameter_operator_in_parsed_arithmetic_shell_word() {
-        let source = "#!/bin/sh\necho \"$(( value + $1suffix ))\"\n";
+        let source = "#!/bin/sh\necho \"$(( value + prefix$1 ))\"\n";
         let output = Parser::new(source).parse().unwrap();
         let command = output.file.body.stmts.first().expect("expected command");
         let Command::Simple(command) = &command.command else {

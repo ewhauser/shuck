@@ -9,8 +9,8 @@ shells:
   - bash
   - dash
   - ksh
-description: "The `expr substr` command is used inside a test expression."
-rationale: Use shell parameter expansion for substring extraction.
+description: "An `expr` string helper is used instead of shell string operations."
+rationale: Prefer shell builtins or parameter expansion over `expr` string helpers.
 source:
   shell_checks_rule: rules/SH-287.yaml
   shell_checks_example: examples/287.sh

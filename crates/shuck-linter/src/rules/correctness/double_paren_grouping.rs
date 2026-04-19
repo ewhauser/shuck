@@ -33,7 +33,7 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.start.line, 2);
-        assert_eq!(diagnostics[0].span.start.column, 3);
+        assert_eq!(diagnostics[0].span.start.column, 1);
     }
 
     #[test]
@@ -41,6 +41,18 @@ mod tests {
         let source = "\
 #!/bin/sh
 (( i += 1 ))
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::DoubleParenGrouping));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_grouped_bash_arithmetic_expressions() {
+        let source = "\
+#!/bin/bash
+if ((threads>(cpu_height-3)*3 && tty_width>=200)); then :; fi
 ";
         let diagnostics =
             test_snippet(source, &LinterSettings::for_rule(Rule::DoubleParenGrouping));

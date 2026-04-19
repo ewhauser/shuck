@@ -64,7 +64,8 @@ export -- \"$@\"
         let source = "\
 #!/bin/bash
 arr=(a b)
-export \"prefix$@suffix\" \"$*\" \"${arr[@]}\" \"$1\" foo
+name=HOME
+export \"$name\" ${name} \"prefix$@suffix\" \"$*\" \"${arr[@]}\" \"$1\" foo
 export target=\"$@\"
 local \"$@\"
 ";

@@ -26,8 +26,7 @@ pub fn unicode_single_quote_in_single_quotes(checker: &mut Checker) {
                 }
 
                 let start = fragment.span().start.advanced_by(&text[..offset]);
-                let end = start.advanced_by(char.encode_utf8(&mut [0; 4]));
-                Some(shuck_ast::Span::from_positions(start, end))
+                Some(shuck_ast::Span::from_positions(start, start))
             })
         })
         .collect::<Vec<_>>();
@@ -55,9 +54,20 @@ echo \"hello ‘world’\"
         assert_eq!(
             diagnostics
                 .iter()
-                .map(|diagnostic| diagnostic.span.slice(source))
+                .map(|diagnostic| {
+                    (
+                        diagnostic.span.start.line,
+                        diagnostic.span.start.column,
+                        diagnostic.span.end.line,
+                        diagnostic.span.end.column,
+                        source[diagnostic.span.start.offset..]
+                            .chars()
+                            .next()
+                            .unwrap(),
+                    )
+                })
                 .collect::<Vec<_>>(),
-            vec!["‘", "’"]
+            vec![(2, 13, 2, 13, '‘'), (2, 19, 2, 19, '’')]
         );
     }
 }

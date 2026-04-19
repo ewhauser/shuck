@@ -43,6 +43,18 @@ mod tests {
     }
 
     #[test]
+    fn reports_find_exec_substitutions_in_for_loops() {
+        let source = "for item in $(find . -type f -exec grep -Pl '\\r$' {} \\;); do :; done\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FindOutputLoop));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "$(find . -type f -exec grep -Pl '\\r$' {} \\;)"
+        );
+    }
+
+    #[test]
     fn ignores_non_find_substitutions() {
         let source = "for item in $(command printf '%s\\n' hi); do :; done\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FindOutputLoop));
