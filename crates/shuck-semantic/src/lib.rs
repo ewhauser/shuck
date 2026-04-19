@@ -5745,6 +5745,20 @@ printf '%s\\n' \"${map[swift-cmark]}\" \"${map[$dynamic_key]}\"
     }
 
     #[test]
+    fn associative_arithmetic_subscript_literals_do_not_register_variable_reads() {
+        let source = "\
+#!/bin/bash
+declare -A box
+printf '%s\\n' \"$((box[m_width]))\" \"$((box[$dynamic_key]))\"
+";
+        let model = model(source);
+        let unresolved = unresolved_names(&model);
+
+        assert_names_absent(&["m_width"], &unresolved);
+        assert_names_present(&["dynamic_key"], &unresolved);
+    }
+
+    #[test]
     fn escaped_parameter_replacement_patterns_do_not_register_variable_reads() {
         let source = "\
 #!/bin/bash
