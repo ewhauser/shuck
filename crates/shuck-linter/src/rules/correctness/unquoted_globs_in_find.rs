@@ -152,6 +152,24 @@ find . -exec echo + *.tmp {} \\;
     }
 
     #[test]
+    fn reports_globs_after_quoted_backslash_semicolon_arguments() {
+        let source = "\
+#!/bin/bash
+find . -exec echo '\\;' *.tmp {} \\;
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedGlobsInFind));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["*"]
+        );
+    }
+
+    #[test]
     fn ignores_outer_find_words_after_plus_terminated_exec() {
         let source = "\
 #!/bin/bash

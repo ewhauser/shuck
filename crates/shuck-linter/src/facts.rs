@@ -15678,7 +15678,7 @@ fn parse_find_exec_argument_word_spans(command: &Command, source: &str) -> Vec<S
 fn find_exec_terminator_index(args: &[&Word], source: &str) -> Option<usize> {
     let semicolon_terminator_index = args
         .iter()
-        .position(|word| matches!(static_word_text(word, source).as_deref(), Some(";" | "\\;")));
+        .position(|word| is_unquoted_find_exec_semicolon_terminator(word, source));
     let plus_terminator_index = args
         .iter()
         .enumerate()
@@ -15695,6 +15695,11 @@ fn find_exec_terminator_index(args: &[&Word], source: &str) -> Option<usize> {
         (None, Some(plus_index)) => Some(plus_index),
         (None, None) => None,
     }
+}
+
+fn is_unquoted_find_exec_semicolon_terminator(word: &Word, source: &str) -> bool {
+    classify_word(word, source).quote == WordQuote::Unquoted
+        && matches!(static_word_text(word, source).as_deref(), Some(";" | "\\;"))
 }
 
 fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
@@ -19975,6 +19980,31 @@ find . -execdir sh -c 'printf \"%s\\n\" {}' {} \\;
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
                 vec!["echo", "+", "*.tmp", "{}"]
+            );
+        });
+    }
+
+    #[test]
+    fn keeps_quoted_backslash_semicolon_arguments_before_find_exec_terminator() {
+        let source = "#!/bin/sh\nfind . -exec echo '\\;' *.tmp {} \\;\n";
+
+        with_facts(source, None, |_, facts| {
+            let find_exec = facts
+                .commands()
+                .iter()
+                .find(|fact| fact.has_wrapper(WrapperKind::FindExec))
+                .expect("expected find -exec fact");
+
+            assert_eq!(
+                find_exec
+                    .options()
+                    .find_exec()
+                    .expect("expected find -exec facts")
+                    .argument_word_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["echo", "'\\;'", "*.tmp", "{}"]
             );
         });
     }
