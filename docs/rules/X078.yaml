@@ -9,8 +9,8 @@ shells:
   - bash
   - dash
   - ksh
-description: A zsh-style array subscript is used in a case subject.
-rationale: Use a variable to hold the value before the case statement.
+description: A case pattern cannot match the subject shape produced by this shell.
+rationale: Make the subject and pattern agree on any fixed prefixes or suffixes before matching.
 source:
   shell_checks_rule: rules/SH-299.yaml
   shell_checks_example: examples/299.sh

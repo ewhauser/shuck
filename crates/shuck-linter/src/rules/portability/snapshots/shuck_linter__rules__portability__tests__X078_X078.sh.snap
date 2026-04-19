@@ -1,14 +1,14 @@
 ---
 source: crates/shuck-linter/src/rules/portability/mod.rs
 ---
-X078 zsh-style array subscripts in case subjects are not portable to this shell
- --> <source>:5:13
+X078 this case pattern cannot match the case subject in this shell
+ --> <source>:6:5
   |
-5 | case "$words[1]" in
+6 |     install) echo installing ;;
   |
 
-X078 zsh-style array subscripts in case subjects are not portable to this shell
-  --> <source>:10:11
+X078 this case pattern cannot match the case subject in this shell
+  --> <source>:11:5
    |
-10 | case $line[1] in
+11 |     " ") : ;;
    |
