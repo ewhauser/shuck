@@ -207,14 +207,16 @@ pub fn word_shell_quoting_literal_span(word: &Word, source: &str) -> Option<Span
     let mut excluded = Vec::new();
     collect_literal_scan_exclusions(&word.parts, &mut excluded);
 
-    merge_adjacent_spans(word_literal_scan_segments_excluding_expansions(word, source), source)
-        .into_iter()
-        .find_map(|span| {
-            let normalized = normalize_shell_quoting_segment_span(word, span, source);
-            text_contains_shell_quoting_literals(normalized.slice(source)).then(|| {
-                shell_quoting_literal_run_span(word, normalized, &excluded, source)
-            })
-        })
+    merge_adjacent_spans(
+        word_literal_scan_segments_excluding_expansions(word, source),
+        source,
+    )
+    .into_iter()
+    .find_map(|span| {
+        let normalized = normalize_shell_quoting_segment_span(word, span, source);
+        text_contains_shell_quoting_literals(normalized.slice(source))
+            .then(|| shell_quoting_literal_run_span(word, normalized, &excluded, source))
+    })
 }
 
 pub fn word_double_quoted_scalar_only_expansion_spans(word: &Word) -> Vec<Span> {
@@ -1642,7 +1644,9 @@ fn normalize_shell_quoting_segment_span(word: &Word, span: Span, source: &str) -
     let normalized = Span::from_positions(start, end);
     let normalized_text = normalized.slice(source);
     if normalized_text.ends_with('\\')
-        && let Some(next) = source.get(normalized.end.offset..).and_then(|tail| tail.chars().next())
+        && let Some(next) = source
+            .get(normalized.end.offset..)
+            .and_then(|tail| tail.chars().next())
         && matches!(next, '"' | '\'')
     {
         let quote = if next == '"' { "\"" } else { "'" };
@@ -1669,13 +1673,9 @@ fn text_contains_shell_quoting_literals(text: &str) -> bool {
         while end < chars.len() && chars[end] == '\\' {
             end += 1;
         }
-        if chars
-            .get(end)
-            .is_some_and(|next| {
-                matches!(next, '"' | '\'')
-                    || (next.is_whitespace() && !matches!(next, '\n' | '\r'))
-            })
-        {
+        if chars.get(end).is_some_and(|next| {
+            matches!(next, '"' | '\'') || (next.is_whitespace() && !matches!(next, '\n' | '\r'))
+        }) {
             return true;
         }
 

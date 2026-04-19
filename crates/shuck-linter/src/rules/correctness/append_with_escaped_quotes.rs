@@ -14,9 +14,10 @@ impl Violation for AppendWithEscapedQuotes {
 }
 
 pub fn append_with_escaped_quotes(checker: &mut Checker) {
-    checker.report_all_dedup(analyze_shell_quoting_reuse(checker).assignment_spans, || {
-        AppendWithEscapedQuotes
-    });
+    checker.report_all_dedup(
+        analyze_shell_quoting_reuse(checker).assignment_spans,
+        || AppendWithEscapedQuotes,
+    );
 }
 
 #[cfg(test)]
@@ -42,13 +43,7 @@ $CC $CFLAGS -c test.c -o test.o\n";
             .iter()
             .map(|diagnostic| diagnostic.span.slice(source).to_owned())
             .collect::<Vec<_>>();
-        assert_eq!(
-            spans,
-            vec![
-                "'--name \"hello world\"'",
-                " -DDIR=\\\"",
-            ]
-        );
+        assert_eq!(spans, vec!["'--name \"hello world\"'", " -DDIR=\\\"",]);
     }
 
     #[test]
@@ -93,7 +88,10 @@ cat <<< $args\n";
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.slice(source), "'--name \"hello world\"'");
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "'--name \"hello world\"'"
+        );
     }
 
     #[test]

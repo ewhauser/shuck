@@ -48,7 +48,9 @@ pub(crate) fn analyze_shell_quoting_reuse(checker: &Checker<'_>) -> ShellQuoting
     let direct_unsafe_bindings = scalar_bindings
         .iter()
         .filter_map(|binding| {
-            let fact = checker.facts().word_fact(binding.word.span, binding.context)?;
+            let fact = checker
+                .facts()
+                .word_fact(binding.word.span, binding.context)?;
             fact.contains_shell_quoting_literals().then_some(binding.id)
         })
         .collect::<FxHashSet<_>>();
@@ -385,12 +387,9 @@ fn export_assignment_root_bindings(
                 continue;
             };
 
-            for binding_id in plain_scalar_reference_bindings(
-                word.span,
-                checker,
-                references,
-                reference_indices,
-            ) {
+            for binding_id in
+                plain_scalar_reference_bindings(word.span, checker, references, reference_indices)
+            {
                 roots.extend(root_bindings_for_binding(
                     binding_id,
                     direct_unsafe_bindings,
@@ -431,10 +430,7 @@ fn repeated_export_assignment_targets(checker: &Checker<'_>) -> FxHashSet<String
         .collect()
 }
 
-fn assignment_value_report_span(
-    binding: ScalarBinding<'_>,
-    checker: &Checker<'_>,
-) -> Span {
+fn assignment_value_report_span(binding: ScalarBinding<'_>, checker: &Checker<'_>) -> Span {
     let source = checker.source();
     let word = binding.word;
     let Some(span) = source_shell_quoting_literal_run_span(word, source) else {
@@ -617,13 +613,9 @@ fn source_text_contains_shell_quoting_literals(text: &str) -> bool {
         while end < chars.len() && chars[end] == '\\' {
             end += 1;
         }
-        if chars
-            .get(end)
-            .is_some_and(|next| {
-                matches!(next, '"' | '\'')
-                    || (next.is_whitespace() && !matches!(next, '\n' | '\r'))
-            })
-        {
+        if chars.get(end).is_some_and(|next| {
+            matches!(next, '"' | '\'') || (next.is_whitespace() && !matches!(next, '\n' | '\r'))
+        }) {
             return true;
         }
 
@@ -633,19 +625,16 @@ fn source_text_contains_shell_quoting_literals(text: &str) -> bool {
     false
 }
 
-fn shell_quoting_segment_span(
-    word: &Word,
-    text: &str,
-    start: usize,
-    end: usize,
-) -> Option<Span> {
+fn shell_quoting_segment_span(word: &Word, text: &str, start: usize, end: usize) -> Option<Span> {
     let segment = &text[start..end];
     if !source_text_contains_shell_quoting_literals(segment) {
         return None;
     }
 
     let trimmed_start = if let Some(anchor) = first_escape_anchor(segment) {
-        segment[..anchor].rfind('\'').map_or(start, |quote| start + quote + 1)
+        segment[..anchor]
+            .rfind('\'')
+            .map_or(start, |quote| start + quote + 1)
     } else {
         start
     };
