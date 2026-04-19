@@ -2469,11 +2469,8 @@ impl<'a> CommandOptionFacts<'a> {
             find_exec: (normalized.has_wrapper(WrapperKind::FindExec)
                 || normalized.has_wrapper(WrapperKind::FindExecDir))
             .then(|| FindExecCommandFacts {
-                argument_word_spans: parse_find_exec_argument_word_spans(
-                    normalized.body_args(),
-                    source,
-                )
-                .into_boxed_slice(),
+                argument_word_spans: parse_find_exec_argument_word_spans(command, source)
+                    .into_boxed_slice(),
             }),
             find_execdir: normalized
                 .has_wrapper(WrapperKind::FindExecDir)
@@ -15639,7 +15636,46 @@ fn parse_find_execdir_shell_command(
     })
 }
 
-fn parse_find_exec_argument_word_spans(args: &[&Word], source: &str) -> Vec<Span> {
+fn parse_find_exec_argument_word_spans(command: &Command, source: &str) -> Vec<Span> {
+    let Command::Simple(command) = command else {
+        return Vec::new();
+    };
+
+    let words = simple_command_body_words(command, source).collect::<Vec<_>>();
+    let mut spans = Vec::new();
+    let mut index = 0usize;
+
+    while index < words.len() {
+        let Some(action) = static_word_text(words[index], source) else {
+            index += 1;
+            continue;
+        };
+        if !matches!(action.as_str(), "-exec" | "-ok" | "-execdir" | "-okdir") {
+            index += 1;
+            continue;
+        }
+
+        let Some(command_name_index) = words.get(index + 1).map(|_| index + 1) else {
+            break;
+        };
+        let argument_start = command_name_index + 1;
+        let terminator_index = find_exec_terminator_index(&words[argument_start..], source)
+            .map(|offset| argument_start + offset);
+        let argument_end = terminator_index.unwrap_or(words.len());
+
+        spans.extend(
+            words[argument_start..argument_end]
+                .iter()
+                .map(|word| word.span),
+        );
+
+        index = terminator_index.map_or(words.len(), |terminator_index| terminator_index + 1);
+    }
+
+    spans
+}
+
+fn find_exec_terminator_index(args: &[&Word], source: &str) -> Option<usize> {
     let semicolon_terminator_index = args
         .iter()
         .position(|word| matches!(static_word_text(word, source).as_deref(), Some(";" | "\\;")));
@@ -15653,17 +15689,12 @@ fn parse_find_exec_argument_word_spans(args: &[&Word], source: &str) -> Vec<Span
             .then_some(index)
         })
         .next();
-    let terminator_index = match (semicolon_terminator_index, plus_terminator_index) {
+    match (semicolon_terminator_index, plus_terminator_index) {
         (Some(semicolon_index), Some(plus_index)) => Some(semicolon_index.min(plus_index)),
         (Some(semicolon_index), None) => Some(semicolon_index),
         (None, Some(plus_index)) => Some(plus_index),
         (None, None) => None,
-    };
-
-    args.iter()
-        .take(terminator_index.unwrap_or(args.len()))
-        .map(|word| word.span)
-        .collect()
+    }
 }
 
 fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
@@ -19998,6 +20029,59 @@ find . -execdir sh -c 'printf \"%s\\n\" {}' {} \\;
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
                 vec!["{}"]
+            );
+        });
+    }
+
+    #[test]
+    fn builds_find_exec_argument_word_spans_for_dynamic_command_names() {
+        let source = "#!/bin/sh\nfind . -exec \"$tool\" *.tmp {} \\;\n";
+
+        with_facts(source, None, |_, facts| {
+            let find_exec = facts
+                .commands()
+                .iter()
+                .find(|fact| fact.has_wrapper(WrapperKind::FindExec))
+                .expect("expected find -exec fact");
+
+            assert_eq!(find_exec.effective_name(), None);
+            assert_eq!(
+                find_exec
+                    .options()
+                    .find_exec()
+                    .expect("expected find -exec facts")
+                    .argument_word_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["*.tmp", "{}"]
+            );
+        });
+    }
+
+    #[test]
+    fn builds_find_exec_argument_word_spans_for_later_exec_clauses() {
+        let source = "#!/bin/sh\nfind . -exec echo {} + -exec rm *.tmp {} +\n";
+
+        with_facts(source, None, |_, facts| {
+            let find_exec = facts
+                .commands()
+                .iter()
+                .find(|fact| {
+                    fact.has_wrapper(WrapperKind::FindExec) && fact.effective_name_is("echo")
+                })
+                .expect("expected find -exec fact");
+
+            assert_eq!(
+                find_exec
+                    .options()
+                    .find_exec()
+                    .expect("expected find -exec facts")
+                    .argument_word_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["{}", "*.tmp", "{}"]
             );
         });
     }

@@ -174,4 +174,40 @@ find . -exec echo {} + -name *.cfg -exec rm {} +
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
+
+    #[test]
+    fn reports_globs_after_dynamic_find_exec_command_names() {
+        let source = "\
+#!/bin/bash
+find . -exec \"$tool\" *.tmp {} \\;
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedGlobsInFind));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["*"]
+        );
+    }
+
+    #[test]
+    fn reports_globs_in_later_find_exec_clauses() {
+        let source = "\
+#!/bin/bash
+find . -exec echo {} + -exec rm *.tmp {} +
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedGlobsInFind));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["*"]
+        );
+    }
 }
