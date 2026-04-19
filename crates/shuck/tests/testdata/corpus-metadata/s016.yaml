@@ -23,3 +23,21 @@ reviewed_divergences:
     column: 11
     end_column: 53
     reason: "The corpus fixture resolves through project-closure context that ShellCheck does not follow in the single-file comparison."
+  - side: shuck-only
+    path_suffix: "bitnami__containers__bitnami__zookeeper__3.9__debian-12__rootfs__opt__bitnami__scripts__libzookeeper.sh"
+    line: 420
+    column: 5
+    end_column: 55
+    labels:
+      - directive-handling
+      - project-closure
+    reason: "This Bitnami helper is analyzed through project-closure context that ShellCheck does not follow in the single-file corpus comparison, so shuck still reports the embedded command-substitution cleanup here."
+  - side: shuck-only
+    path_suffix: "bitnami__containers__bitnami__zookeeper__3.9__debian-12__rootfs__opt__bitnami__scripts__libzookeeper.sh"
+    line: 442
+    column: 9
+    end_column: 66
+    labels:
+      - directive-handling
+      - project-closure
+    reason: "This Bitnami helper is analyzed through project-closure context that ShellCheck does not follow in the single-file corpus comparison, so shuck still reports the embedded command-substitution cleanup here."
