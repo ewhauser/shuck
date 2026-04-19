@@ -337,11 +337,11 @@ pub(crate) fn shellcheck_directive_can_apply_to_following_command(
         ),
         Command::Compound(CompoundCommand::Subshell(body)) => body.first().is_some_and(|stmt| {
             next_command_starts_after_comment_line(stmt.span.start.offset, &context)
-                && context.prefix.trim() == "("
+                && context.prefix.trim_end().ends_with('(')
         }),
         Command::Compound(CompoundCommand::BraceGroup(body)) => body.first().is_some_and(|stmt| {
             next_command_starts_after_comment_line(stmt.span.start.offset, &context)
-                && context.prefix.trim() == "{"
+                && context.prefix.trim_end().ends_with('{')
         }),
         _ => false,
     })
@@ -694,6 +694,25 @@ done
         assert_eq!(directives[0].source, SuppressionSource::ShellCheck);
         assert_eq!(directives[0].codes, vec![Rule::UnquotedExpansion]);
         assert_eq!(directives[0].line, 1);
+    }
+
+    #[test]
+    fn parses_shellcheck_directives_after_then_inline_group_openers() {
+        let source = "\
+if true; then { # shellcheck disable=SC2086
+  echo $foo
+}; fi
+if true; then ( # shellcheck disable=SC2086
+  echo $bar
+); fi
+";
+        let directives = directives(source);
+
+        assert_eq!(directives.len(), 2);
+        assert!(directives.iter().all(|directive| {
+            directive.source == SuppressionSource::ShellCheck
+                && directive.codes == vec![Rule::UnquotedExpansion]
+        }));
     }
 
     #[test]

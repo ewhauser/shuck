@@ -725,6 +725,36 @@ echo $foo
     }
 
     #[test]
+    fn scopes_shellcheck_disable_after_then_inline_brace_group_opener() {
+        let source = "\
+foo='a b'
+if true; then { # shellcheck disable=SC2086
+  echo $foo
+}; fi
+echo $foo
+";
+        let index = suppression_index(source);
+
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 3));
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 5));
+    }
+
+    #[test]
+    fn scopes_shellcheck_disable_after_then_inline_subshell_opener() {
+        let source = "\
+foo='a b'
+if true; then ( # shellcheck disable=SC2086
+  echo $foo
+); fi
+echo $foo
+";
+        let index = suppression_index(source);
+
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 3));
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 5));
+    }
+
+    #[test]
     fn ignores_shellcheck_directives_after_keyword_like_arguments() {
         let source = "\
 echo if # shellcheck disable=SC2086
