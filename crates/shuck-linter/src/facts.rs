@@ -14161,7 +14161,9 @@ fn rm_path_tail_is_dangerous(tail: &str, brace_expansion_active: bool) -> bool {
                     &dangerous_components,
                 )
         })
-        || matches!(components.as_slice(), [RmTailComponent::Literal("*")])
+        || components.as_slice().first().is_some_and(|component| {
+            components.len() == 1 && rm_tail_component_is_dangerous_wildcard(component)
+        })
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -14191,7 +14193,9 @@ fn rm_path_matches_exact_dangerous_prefix(
         && components
             .iter()
             .zip(dangerous_components.iter())
-            .all(|(component, expected)| matches!(component, RmTailComponent::Literal(actual) if actual == expected))
+            .all(|(component, expected)| {
+                rm_tail_component_matches_dangerous_literal(component, expected)
+            })
 }
 
 fn rm_path_matches_dangerous_prefix_with_final_dynamic_or_glob(
@@ -14203,7 +14207,9 @@ fn rm_path_matches_dangerous_prefix_with_final_dynamic_or_glob(
             .iter()
             .take(dangerous_components.len())
             .zip(dangerous_components.iter())
-            .all(|(component, expected)| matches!(component, RmTailComponent::Literal(actual) if actual == expected))
+            .all(|(component, expected)| {
+                rm_tail_component_matches_dangerous_literal(component, expected)
+            })
         && matches!(
             components.last(),
             Some(
@@ -14212,6 +14218,24 @@ fn rm_path_matches_dangerous_prefix_with_final_dynamic_or_glob(
                     | RmTailComponent::MixedDynamic("*")
             )
         )
+}
+
+fn rm_tail_component_matches_dangerous_literal(
+    component: &RmTailComponent<'_>,
+    expected: &str,
+) -> bool {
+    matches!(
+        component,
+        RmTailComponent::Literal(actual) | RmTailComponent::MixedDynamic(actual)
+            if *actual == expected
+    )
+}
+
+fn rm_tail_component_is_dangerous_wildcard(component: &RmTailComponent<'_>) -> bool {
+    matches!(
+        component,
+        RmTailComponent::Literal("*") | RmTailComponent::MixedDynamic("*")
+    )
 }
 
 fn split_brace_expansion(text: &str) -> Option<(&str, &str, &str)> {
@@ -20364,6 +20388,7 @@ PKG=/pkg
 PRGNAM=demo
 DESTDIR=/dest
 PYDIR=/py
+SUFFIX=
 LIBDIRSUFFIX=64
 rm -rf $PKG/usr
 rm -rf $PKG/usr/share/$PRGNAM
@@ -20371,6 +20396,9 @@ rm -rf \"$DESTDIR\"/usr
 rm -rf $PKG/usr/{bin,include,libexec,man,share}
 rm -rf \"$PKG/$PYDIR/usr\"
 rm -rf $PKG/$PYDIR/*
+rm -rf \"$DESTDIR\"/${PRGNAM}*
+rm -rf \"$DESTDIR\"/usr${SUFFIX}
+rm -rf \"$DESTDIR\"/usr${SUFFIX}/$PRGNAM
 rm -rf \"$DESTDIR\"/usr/${PRGNAM}*
 rm -rf \"$DESTDIR\"/lib/${PRGNAM}*
 rm -rf $PKG/$PYDIR/lib*
@@ -20401,6 +20429,9 @@ rm -rf $PKG/opt/$PRGNAM/bin
                     "$PKG/usr/{bin,include,libexec,man,share}",
                     "\"$PKG/$PYDIR/usr\"",
                     "$PKG/$PYDIR/*",
+                    "\"$DESTDIR\"/${PRGNAM}*",
+                    "\"$DESTDIR\"/usr${SUFFIX}",
+                    "\"$DESTDIR\"/usr${SUFFIX}/$PRGNAM",
                     "\"$DESTDIR\"/usr/${PRGNAM}*",
                     "\"$DESTDIR\"/lib/${PRGNAM}*",
                 ]

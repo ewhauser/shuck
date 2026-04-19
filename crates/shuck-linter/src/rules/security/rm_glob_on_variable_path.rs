@@ -73,7 +73,7 @@ mod tests {
 
     #[test]
     fn reports_variable_paths_that_collapse_into_system_subtrees() {
-        let source = "#!/bin/bash\nPKG=/pkg\nPRGNAM=demo\nDESTDIR=/dest\nPYDIR=/py\nrm -rf $PKG/usr\nrm -rf $PKG/usr/share/$PRGNAM\nrm -rf \"$DESTDIR\"/usr\nrm -rf $PKG/usr/{bin,include,libexec,man,share}\nrm -rf \"$PKG/$PYDIR/usr\"\nrm -rf $PKG/$PYDIR/*\nrm -rf \"$DESTDIR\"/usr/${PRGNAM}*\nrm -rf \"$DESTDIR\"/lib/${PRGNAM}*\n";
+        let source = "#!/bin/bash\nPKG=/pkg\nPRGNAM=demo\nDESTDIR=/dest\nPYDIR=/py\nSUFFIX=\nrm -rf $PKG/usr\nrm -rf $PKG/usr/share/$PRGNAM\nrm -rf \"$DESTDIR\"/usr\nrm -rf $PKG/usr/{bin,include,libexec,man,share}\nrm -rf \"$PKG/$PYDIR/usr\"\nrm -rf $PKG/$PYDIR/*\nrm -rf \"$DESTDIR\"/${PRGNAM}*\nrm -rf \"$DESTDIR\"/usr${SUFFIX}\nrm -rf \"$DESTDIR\"/usr${SUFFIX}/$PRGNAM\nrm -rf \"$DESTDIR\"/usr/${PRGNAM}*\nrm -rf \"$DESTDIR\"/lib/${PRGNAM}*\n";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::RmGlobOnVariablePath),
@@ -91,6 +91,9 @@ mod tests {
                 "$PKG/usr/{bin,include,libexec,man,share}",
                 "\"$PKG/$PYDIR/usr\"",
                 "$PKG/$PYDIR/*",
+                "\"$DESTDIR\"/${PRGNAM}*",
+                "\"$DESTDIR\"/usr${SUFFIX}",
+                "\"$DESTDIR\"/usr${SUFFIX}/$PRGNAM",
                 "\"$DESTDIR\"/usr/${PRGNAM}*",
                 "\"$DESTDIR\"/lib/${PRGNAM}*",
             ]
