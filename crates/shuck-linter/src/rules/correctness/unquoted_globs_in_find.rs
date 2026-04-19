@@ -162,4 +162,16 @@ find . -exec echo {} + -name *.cfg -exec rm {} \\;
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
+
+    #[test]
+    fn ignores_outer_find_words_between_plus_terminated_exec_clauses() {
+        let source = "\
+#!/bin/bash
+find . -exec echo {} + -name *.cfg -exec rm {} +
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedGlobsInFind));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
 }
