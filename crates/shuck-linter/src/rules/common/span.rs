@@ -203,6 +203,27 @@ pub fn double_quoted_scalar_affix_span(word: &Word) -> Option<Span> {
         .flatten()
 }
 
+pub fn quoted_word_content_span_in_source(word: &Word, source: &str) -> Option<Span> {
+    if !word.is_fully_quoted() {
+        return None;
+    }
+
+    let raw = word.span.slice(source);
+    let quote = raw.chars().next()?;
+    if !matches!(quote, '"' | '\'') {
+        return None;
+    }
+
+    let body = raw.strip_prefix(quote)?.strip_suffix(quote)?;
+    if body.is_empty() {
+        return None;
+    }
+
+    let start = word.span.start.advanced_by(&raw[..quote.len_utf8()]);
+    let end = start.advanced_by(body);
+    Some(Span::from_positions(start, end))
+}
+
 pub fn word_shell_quoting_literal_span(word: &Word, source: &str) -> Option<Span> {
     let mut excluded = Vec::new();
     collect_literal_scan_exclusions(&word.parts, &mut excluded);
