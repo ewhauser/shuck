@@ -76,4 +76,42 @@ foo=\"items: $@\"
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn ignores_general_array_mixes_that_are_out_of_scope() {
+        let source = "\
+#!/bin/bash
+args=(--foo bar)
+errors=(oops nope)
+printf '%s\\n' \"D-Bus calling with: ${args[@]}\"
+printf '%s\\n' \"Errors:\\n${errors[@]}\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PositionalArgsInString),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_folded_positional_splats_even_with_escaped_literals_earlier_in_word() {
+        let source = "\
+#!/bin/bash
+set -- a b
+echo \"gvm_pkgset_use: \\$@   => $@\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PositionalArgsInString),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$@"]
+        );
+    }
 }
