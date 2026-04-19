@@ -216,6 +216,25 @@ mod tests {
     }
 
     #[test]
+    fn reports_quoted_parameter_expansion_roots_with_static_path_tails() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let source = "#!/bin/sh\n. \"${BUILD_ROOT}/sh/functions.sh\"\n";
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::UntrackedSourceFile),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "\"${BUILD_ROOT}/sh/functions.sh\""
+        );
+    }
+
+    #[test]
     fn reports_negated_parameter_expansion_roots_with_static_path_tails() {
         let temp = tempdir().unwrap();
         let main = temp.path().join("main.sh");

@@ -61,3 +61,59 @@ reviewed_divergences:
     path_suffix: "romkatv__powerlevel10k__gitstatus__install"
     line: 158
     reason: "This installer sources `build.info` from a dynamic gitstatus directory, and standalone ShellCheck 0.11.0 still emits SC1091 for that shape. The large-corpus oracle stays silent on this full-file fixture, so we record it as a narrow reviewed divergence instead of weakening C003."
+  - side: shuck-only
+    path_suffix: "dylanaraps__neofetch__neofetch"
+    line: 2591
+    labels:
+      - project-closure
+    reason: "This macOS probe re-sources a cached GPU detail file under a runtime cache directory rather than a checked project input. ShellCheck stays silent on that user-cache helper path in the full fixture, while Shuck keeps the sourced dependency visible."
+  - side: shuck-only
+    path_suffix: "dylanaraps__neofetch__neofetch"
+    line: 4783
+    labels:
+      - directive-handling
+      - project-closure
+    reason: "This config loader conditionally sources a user config file under `XDG_CONFIG_HOME`, which lives outside the analyzed project inputs. ShellCheck stays silent on that full-file user-config path, while Shuck keeps the sourced dependency visible."
+  - side: shuck-only
+    path_suffix: "dylanaraps__neofetch__neofetch"
+    line: 4787
+    labels:
+      - directive-handling
+      - project-closure
+    reason: "This config loader conditionally sources a user config file under `XDG_CONFIG_HOME`, which lives outside the analyzed project inputs. ShellCheck stays silent on that full-file user-config path, while Shuck keeps the sourced dependency visible."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__rvmrc"
+    line: 3
+    labels:
+      - project-closure
+    reason: "This runtime loader sources helper libraries from the tool-managed `rvm_scripts_path` root instead of from the checked project tree. ShellCheck stays silent on those full-file runtime library loads, while Shuck keeps the sourced dependencies visible."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__rvmrc"
+    line: 4
+    labels:
+      - project-closure
+    reason: "This runtime loader sources helper libraries from the tool-managed `rvm_scripts_path` root instead of from the checked project tree. ShellCheck stays silent on those full-file runtime library loads, while Shuck keeps the sourced dependencies visible."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__rvmrc"
+    line: 5
+    labels:
+      - project-closure
+    reason: "This runtime loader sources helper libraries from the tool-managed `rvm_scripts_path` root instead of from the checked project tree. ShellCheck stays silent on those full-file runtime library loads, while Shuck keeps the sourced dependencies visible."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__rvmrc"
+    line: 6
+    labels:
+      - project-closure
+    reason: "This runtime loader sources helper libraries from the tool-managed `rvm_scripts_path` root instead of from the checked project tree. ShellCheck stays silent on those full-file runtime library loads, while Shuck keeps the sourced dependencies visible."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__rvmrc"
+    line: 7
+    labels:
+      - project-closure
+    reason: "This runtime loader sources helper libraries from the tool-managed `rvm_scripts_path` root instead of from the checked project tree. ShellCheck stays silent on those full-file runtime library loads, while Shuck keeps the sourced dependencies visible."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__functions__rvmrc"
+    line: 8
+    labels:
+      - project-closure
+    reason: "This runtime loader sources helper libraries from the tool-managed `rvm_scripts_path` root instead of from the checked project tree. ShellCheck stays silent on those full-file runtime library loads, while Shuck keeps the sourced dependencies visible."

@@ -3452,9 +3452,20 @@ fn dynamic_root_with_slash_tail(word: &Word, source: &str) -> bool {
         return false;
     };
 
-    root_word_part_is_dynamic_root(&root.kind)
-        && !tail.is_empty()
-        && static_parts_text(tail, source).is_some_and(|text| text.starts_with('/'))
+    match &root.kind {
+        WordPart::DoubleQuoted { parts, .. } => {
+            let Some((inner_root, inner_tail)) = parts.split_first() else {
+                return false;
+            };
+
+            root_word_part_is_dynamic_root(&inner_root.kind)
+                && static_tail_text_starts_with_slash(inner_tail, tail, source)
+        }
+        _ => {
+            root_word_part_is_dynamic_root(&root.kind)
+                && static_tail_text_starts_with_slash(tail, &[], source)
+        }
+    }
 }
 
 fn root_word_part_is_dynamic_root(part: &WordPart) -> bool {
@@ -3464,10 +3475,6 @@ fn root_word_part_is_dynamic_root(part: &WordPart) -> bool {
             parameter.syntax,
             ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { .. })
         ),
-        WordPart::DoubleQuoted { parts, .. } => matches!(
-            parts.as_slice(),
-            [part] if root_word_part_is_dynamic_root(&part.kind)
-        ),
         _ => false,
     }
 }
@@ -3475,6 +3482,17 @@ fn root_word_part_is_dynamic_root(part: &WordPart) -> bool {
 fn static_parts_text(parts: &[WordPartNode], source: &str) -> Option<String> {
     let mut result = String::new();
     collect_static_word_text(parts, source, &mut result).then_some(result)
+}
+
+fn static_tail_text_starts_with_slash(
+    parts: &[WordPartNode],
+    trailing: &[WordPartNode],
+    source: &str,
+) -> bool {
+    let mut result = String::new();
+    collect_static_word_text(parts, source, &mut result)
+        && collect_static_word_text(trailing, source, &mut result)
+        && result.starts_with('/')
 }
 
 fn parse_source_directives(
