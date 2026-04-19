@@ -19,6 +19,8 @@ use std::{
     sync::Arc,
 };
 
+use memchr::{memchr, memchr2, memchr3};
+
 pub use lexer::{
     HeredocRead, LexedToken, LexedWord, LexedWordSegment, LexedWordSegmentKind, Lexer,
     LexerErrorKind,
@@ -2010,7 +2012,7 @@ impl<'a> Parser<'a> {
     }
 
     fn word_text_needs_parse(text: &str) -> bool {
-        text.contains(['$', '`', '\x00'])
+        memchr3(b'$', b'`', b'\0', text.as_bytes()).is_some()
     }
 
     fn word_with_parts(&self, parts: Vec<WordPartNode>, span: Span) -> Word {
@@ -2170,54 +2172,63 @@ impl<'a> Parser<'a> {
         quote_context: BraceQuoteContext,
         out: &mut Vec<BraceSyntax>,
     ) {
+        let bytes = text.as_bytes();
         let mut index = 0;
+        let mut position = base;
 
-        while index < text.len() {
-            let rest = &text[index..];
-            let Some(ch) = rest.chars().next() else {
-                break;
+        while index < bytes.len() {
+            let next_special = if matches!(quote_context, BraceQuoteContext::Unquoted) {
+                memchr2(b'{', b'\\', &bytes[index..]).map(|relative| index + relative)
+            } else {
+                memchr(b'{', &bytes[index..]).map(|relative| index + relative)
             };
 
-            if matches!(quote_context, BraceQuoteContext::Unquoted) && ch == '\\' {
-                index += ch.len_utf8();
+            let Some(next_index) = next_special else {
+                return;
+            };
+
+            if next_index > index {
+                position = position.advanced_by(&text[index..next_index]);
+                index = next_index;
+            }
+
+            if matches!(quote_context, BraceQuoteContext::Unquoted) && bytes[index] == b'\\' {
+                let escaped_start = index;
+                index += 1;
                 if let Some(next) = text[index..].chars().next() {
                     index += next.len_utf8();
                 }
+                position = position.advanced_by(&text[escaped_start..index]);
                 continue;
             }
 
-            if ch != '{' {
-                index += ch.len_utf8();
-                continue;
-            }
-
+            let brace_start = position;
             if let Some(len) = Self::template_placeholder_len(text, index, quote_context) {
+                let brace_end = brace_start.advanced_by(&text[index..index + len]);
                 out.push(BraceSyntax {
                     kind: BraceSyntaxKind::TemplatePlaceholder,
-                    span: Span::from_positions(
-                        Self::text_position(base, text, index),
-                        Self::text_position(base, text, index + len),
-                    ),
+                    span: Span::from_positions(brace_start, brace_end),
                     quote_context,
                 });
+                position = brace_end;
                 index += len;
                 continue;
             }
 
             if let Some((len, kind)) = Self::brace_construct_len(text, index, quote_context) {
+                let brace_end = brace_start.advanced_by(&text[index..index + len]);
                 out.push(BraceSyntax {
                     kind,
-                    span: Span::from_positions(
-                        Self::text_position(base, text, index),
-                        Self::text_position(base, text, index + len),
-                    ),
+                    span: Span::from_positions(brace_start, brace_end),
                     quote_context,
                 });
+                position = brace_end;
                 index += len;
                 continue;
             }
 
-            index += ch.len_utf8();
+            position.advance('{');
+            index += '{'.len_utf8();
         }
     }
 
