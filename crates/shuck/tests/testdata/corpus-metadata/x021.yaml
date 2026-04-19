@@ -1,0 +1,28 @@
+reviewed_divergences:
+  - side: shellcheck-only
+    path_suffix: "moovweb__gvm__examples__native__configure"
+    line: 27
+    end_line: 27
+    column: 12
+    end_column: 17
+    labels:
+      - project-closure
+    reason: "X021 is scoped to the non-POSIX `pipefail` toggle. This autoconf helper is using `set -o posix`, and the current SC3040 oracle groups that different option under the same compatibility code during project-closure comparison."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__desktop__gdm__wayland-session"
+    line: 17
+    end_line: 17
+    column: 12
+    end_column: 17
+    labels:
+      - project-closure
+    reason: "X021 is scoped to the non-POSIX `pipefail` toggle. This login helper flips `set +o posix`, and the current SC3040 oracle groups that different option under the same compatibility code during project-closure comparison."
+  - side: shellcheck-only
+    path_suffix: "moovweb__gvm__examples__native__ltmain.sh"
+    line: 96
+    end_line: 96
+    column: 50
+    end_column: 55
+    labels:
+      - shell-collapse
+    reason: "X021 is scoped to the non-POSIX `pipefail` toggle. This libtool helper is using `set -o posix`, and the current SC3040 oracle groups that different option under the same compatibility code when the corpus collapses the shell mode."
