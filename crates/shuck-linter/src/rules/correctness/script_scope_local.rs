@@ -26,13 +26,11 @@ pub fn local_top_level(checker: &mut Checker) {
         .iter()
         .filter(|declaration| declaration.builtin == DeclarationBuiltin::Local)
         .filter(|declaration| {
-            checker
-                .first_parse_error()
-                .is_none_or(|(line, column)| {
-                    declaration.span.start.line < line
-                        || (declaration.span.start.line == line
-                            && declaration.span.start.column < column)
-                })
+            checker.first_parse_error().is_none_or(|(line, column)| {
+                declaration.span.start.line < line
+                    || (declaration.span.start.line == line
+                        && declaration.span.start.column < column)
+            })
         })
         .filter_map(|declaration| {
             let binding_scopes = semantic
@@ -145,7 +143,12 @@ local -n ref=target
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::LocalTopLevel);
-        assert!(diagnostics[0].span.slice(source).starts_with("local -n ref=target"));
+        assert!(
+            diagnostics[0]
+                .span
+                .slice(source)
+                .starts_with("local -n ref=target")
+        );
     }
 
     #[test]
