@@ -243,4 +243,22 @@ echo $(printf \"%s\" \"x # $(printf y)\")\"foo\"bar\"baz\"
             vec!["bar"]
         );
     }
+
+    #[test]
+    fn still_reports_reopened_quotes_after_comment_text_inside_process_substitutions() {
+        let source = "\
+#!/bin/bash
+echo <(echo x # ${
+ )\"foo\"bar\"baz\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::MixedQuoteWord));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["bar"]
+        );
+    }
 }

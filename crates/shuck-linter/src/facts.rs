@@ -4103,6 +4103,9 @@ fn mixed_quote_shell_fragment_balance_delta_for_part(
                 .unwrap_or(text);
             mixed_quote_shell_fragment_balance_delta(body, true)
         }
+        WordPart::ProcessSubstitution { .. } => {
+            mixed_quote_shell_fragment_balance_delta(part.span.slice(source), true)
+        }
         _ => mixed_quote_shell_fragment_balance_delta(part.span.slice(source), false),
     }
 }
@@ -22936,6 +22939,29 @@ echo `echo x # $(
         let source = "\
 #!/bin/bash
 echo $(printf \"%s\" \"x # $(printf y)\")\"foo\"bar\"baz\"
+";
+
+        with_facts(source, None, |_, facts| {
+            let spans = facts
+                .expansion_word_facts(ExpansionContext::CommandArgument)
+                .flat_map(|fact| {
+                    fact.unquoted_literal_between_double_quoted_segments_spans()
+                        .iter()
+                        .map(|span| span.slice(source).to_owned())
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(spans, vec!["bar"]);
+        });
+    }
+
+    #[test]
+    fn builds_word_facts_ignore_comment_text_in_process_substitution_scan() {
+        let source = "\
+#!/bin/bash
+echo <(echo x # ${
+ )\"foo\"bar\"baz\"
 ";
 
         with_facts(source, None, |_, facts| {
