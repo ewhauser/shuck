@@ -31,6 +31,8 @@ mod tests {
 `echo hello` | cat
 if `echo true`; then :; fi
 FOO=1 `echo run`
+`echo run` 2>/dev/null
+true && `echo go` 2>/dev/null
 ";
         let diagnostics = test_snippet(
             source,
@@ -42,18 +44,27 @@ FOO=1 `echo run`
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["`echo hello`", "`echo true`", "`echo run`"]
+            vec![
+                "`echo hello`",
+                "`echo true`",
+                "`echo run`",
+                "`echo run`",
+                "`echo go`",
+            ]
         );
     }
 
     #[test]
-    fn ignores_wrapped_quoted_and_affixed_backticks() {
+    fn ignores_wrapped_quoted_affixed_and_argument_backticks() {
         let source = "\
 #!/bin/sh
 command `echo hello`
 \"`echo hello`\" | cat
 x`echo hello`
 echo `date`
+`echo hello` arg
+true && `echo hello` arg
+`echo hello` arg 2>/dev/null
 ";
         let diagnostics = test_snippet(
             source,

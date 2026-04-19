@@ -9471,7 +9471,9 @@ fn build_backtick_command_name_spans(commands: &[CommandFact<'_>]) -> Vec<Span> 
     let mut spans = commands
         .iter()
         .filter_map(|fact| match fact.command() {
-            Command::Simple(command) => plain_backtick_command_name_span(&command.name),
+            Command::Simple(command) if command.args.is_empty() => {
+                plain_backtick_command_name_span(&command.name)
+            }
             _ => None,
         })
         .collect::<Vec<_>>();
@@ -24426,6 +24428,36 @@ f() {
                     "tool=sh printf '%s\\n' hi",
                     "pager=cat \"$1\" -u perl",
                     "state=sh return 0",
+                ]
+            );
+        });
+    }
+
+    #[test]
+    fn backtick_command_name_spans_skip_argument_forms_but_keep_redirect_only_cases() {
+        let source = "\
+#!/bin/sh
+`echo bare`
+`echo bare` arg
+`echo bare` 2>/dev/null
+`echo bare` arg 2>/dev/null
+true && `echo and_only`
+true && `echo and_arg` arg
+true && `echo and_redirect` 2>/dev/null
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .backtick_command_name_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec![
+                    "`echo bare`",
+                    "`echo bare`",
+                    "`echo and_only`",
+                    "`echo and_redirect`",
                 ]
             );
         });

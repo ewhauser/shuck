@@ -35,10 +35,9 @@ fn redirect_spans_for_pipeline(checker: &Checker<'_>, pipeline: &PipelineFact<'_
             let fact = checker.facts().command(segment.command_id());
             fact.redirect_facts()
                 .iter()
-                .enumerate()
-                .filter_map(|(index, redirect)| {
+                .filter_map(|redirect| {
                     stdout_redirect_span_before_pipe(redirect, checker.source()).filter(|_| {
-                        !has_prior_stderr_to_stdout_dup(&fact.redirect_facts()[..index])
+                        !has_independent_stderr_to_stdout_dup(fact.redirect_facts(), redirect)
                     })
                 })
                 .collect::<Vec<_>>()
@@ -46,14 +45,30 @@ fn redirect_spans_for_pipeline(checker: &Checker<'_>, pipeline: &PipelineFact<'_
         .collect()
 }
 
-fn has_prior_stderr_to_stdout_dup(redirects: &[crate::RedirectFact<'_>]) -> bool {
+fn has_independent_stderr_to_stdout_dup(
+    redirects: &[crate::RedirectFact<'_>],
+    stdout_redirect: &crate::RedirectFact<'_>,
+) -> bool {
     redirects.iter().any(|redirect| {
-        redirect.redirect().kind == RedirectKind::DupOutput
-            && redirect.redirect().fd == Some(2)
-            && redirect
-                .analysis()
-                .is_some_and(|analysis| analysis.numeric_descriptor_target == Some(1))
+        is_stderr_to_stdout_dup(redirect)
+            && !is_synthetic_append_both_dup(redirect, stdout_redirect)
     })
+}
+
+fn is_stderr_to_stdout_dup(redirect: &crate::RedirectFact<'_>) -> bool {
+    redirect.redirect().kind == RedirectKind::DupOutput
+        && redirect.redirect().fd == Some(2)
+        && redirect
+            .analysis()
+            .is_some_and(|analysis| analysis.numeric_descriptor_target == Some(1))
+}
+
+fn is_synthetic_append_both_dup(
+    dup_redirect: &crate::RedirectFact<'_>,
+    stdout_redirect: &crate::RedirectFact<'_>,
+) -> bool {
+    stdout_redirect.redirect().kind == RedirectKind::Append
+        && dup_redirect.redirect().span.start == stdout_redirect.redirect().span.start
 }
 
 fn stdout_redirect_span_before_pipe(
@@ -137,7 +152,9 @@ cmd 1>out | next
 cmd | next >/dev/null
 cmd >/dev/null |& next
 cmd 1>&2 | next
+cmd >/dev/null 2>&1 | next
 cmd 2>&1 1>/dev/null | next
+cmd 2>&1 >/dev/null | next
 cmd <>file | next
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::RedirectBeforePipe));
@@ -164,11 +181,26 @@ cmd &>>out | next
     }
 
     #[test]
-    fn reports_output_redirects_with_late_or_unrelated_dup_redirects() {
+    fn ignores_stdout_redirects_when_stderr_is_duplicated_to_stdout() {
+        let source = "\
+#!/bin/sh
+cmd >out 2>&1 | next
+cmd 2>&1 >out | next
+cmd >>out 2>&1 | next
+cmd 2>&1 >>out | next
+cmd >|out 2>&1 | next
+cmd 2>&1 >|out | next
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::RedirectBeforePipe));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn still_reports_unrelated_descriptor_redirects() {
         let source = "\
 #!/bin/sh
 cmd >out 1>&2 | next
-cmd >out 2>&1 | next
 cmd >out 3>&1 | next
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::RedirectBeforePipe));
@@ -178,7 +210,7 @@ cmd >out 3>&1 | next
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec![">", ">", ">"]
+            vec![">", ">"]
         );
     }
 }
