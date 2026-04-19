@@ -1,4 +1,4 @@
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, Rule, Violation, WrapperKind};
 
 pub struct GlobInFindSubstitution;
 
@@ -17,7 +17,11 @@ pub fn glob_in_find_substitution(checker: &mut Checker) {
         .facts()
         .commands()
         .iter()
-        .filter(|fact| fact.effective_name_is("find") && fact.wrappers().is_empty())
+        .filter(|fact| {
+            fact.wrappers().iter().all(|wrapper| {
+                matches!(wrapper, WrapperKind::FindExec | WrapperKind::FindExecDir)
+            })
+        })
         .filter_map(|fact| fact.options().find())
         .flat_map(|find| find.glob_pattern_operand_spans().iter().copied())
         .collect::<Vec<_>>();
@@ -37,6 +41,8 @@ mod tests {
 find ./ -name *.jar
 find ./ -name \"$prefix\"*.jar
 find ./ -wholename */tmp/*
+find ./ -name *.so -exec chmod 755 {} \\;
+find ./ -name \\*.[15] -exec gzip -9 {} \\;
 for f in $(find ./ -name *.cfg); do :; done
 printf '%s\\n' \"$(find . -path */tmp/*)\"
 ";
@@ -50,7 +56,15 @@ printf '%s\\n' \"$(find . -path */tmp/*)\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["*.jar", "\"$prefix\"*.jar", "*/tmp/*", "*.cfg", "*/tmp/*"]
+            vec![
+                "*.jar",
+                "\"$prefix\"*.jar",
+                "*/tmp/*",
+                "*.so",
+                "\\*.[15]",
+                "*.cfg",
+                "*/tmp/*"
+            ]
         );
     }
 
