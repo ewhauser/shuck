@@ -21,7 +21,7 @@ pub fn echo_flags(checker: &mut Checker) {
         .facts()
         .commands()
         .iter()
-        .filter(|fact| fact.effective_name_is("echo") && fact.wrappers().is_empty())
+        .filter(|fact| fact.wrappers().is_empty())
         .filter_map(|fact| {
             fact.options()
                 .echo()
@@ -48,6 +48,7 @@ echo -E hi
 echo -nn hi
 echo -neE hi
 value=$(echo -en hi)
+value=$(/usr/ucb/echo -n hi)
 echo \"-s\"
 echo '-e'
 ";
@@ -58,7 +59,9 @@ echo '-e'
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["-n", "-e", "-E", "-nn", "-neE", "-en", "\"-s\"", "'-e'"]
+            vec![
+                "-n", "-e", "-E", "-nn", "-neE", "-en", "-n", "\"-s\"", "'-e'",
+            ]
         );
     }
 

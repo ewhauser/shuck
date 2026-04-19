@@ -2701,7 +2701,7 @@ impl<'a> CommandOptionFacts<'a> {
                 .effective_name_is("su")
                 .then(|| parse_su_command(normalized.body_args(), source)),
             echo: normalized
-                .effective_name_is("echo")
+                .effective_basename_is("echo")
                 .then(|| parse_echo_command(normalized.body_args(), source)),
             sed: normalized
                 .effective_name_is("sed")
@@ -20924,6 +20924,29 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
             .and_then(|fact| fact.options().sudo_family())
             .expect("expected sudo-family facts");
         assert_eq!(doas.invoker, SudoFamilyInvoker::Doas);
+    }
+
+    #[test]
+    fn summarizes_echo_options_for_path_qualified_echo() {
+        let source = "#!/bin/sh\nvalue=$(/usr/ucb/echo -n hi)\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let echo = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.literal_name() == Some("/usr/ucb/echo"))
+            .and_then(|fact| fact.options().echo())
+            .expect("expected path-qualified echo facts");
+
+        assert_eq!(
+            echo.portability_flag_word()
+                .map(|word| word.span.slice(source)),
+            Some("-n")
+        );
     }
 
     #[test]

@@ -70,6 +70,12 @@ impl<'a> NormalizedCommand<'a> {
         self.effective_name.as_deref() == Some(name)
     }
 
+    pub fn effective_basename_is(&self, name: &str) -> bool {
+        self.effective_name
+            .as_deref()
+            .is_some_and(|effective_name| command_basename(effective_name) == name)
+    }
+
     pub fn has_wrapper(&self, wrapper: WrapperKind) -> bool {
         self.wrappers.contains(&wrapper)
     }
@@ -522,6 +528,10 @@ fn builtin_span(command: &BuiltinCommand) -> Span {
 fn static_command_name_text(word: &Word, source: &str) -> Option<String> {
     static_word_text(word, source)
         .map(|text| text.strip_prefix('\\').map_or(text.clone(), str::to_owned))
+}
+
+fn command_basename(name: &str) -> &str {
+    name.rsplit('/').next().unwrap_or(name)
 }
 
 fn static_word_text(word: &Word, source: &str) -> Option<String> {
