@@ -2022,7 +2022,11 @@ fn shell_supported_for_large_corpus(
 
     shellcheck_supported_shells
         .map(|supported| supported.contains_key(shell))
-        .unwrap_or(true)
+        .unwrap_or_else(|| default_supported_large_corpus_shell(shell))
+}
+
+fn default_supported_large_corpus_shell(shell: &str) -> bool {
+    matches!(shell, "sh" | "bash" | "dash" | "ksh")
 }
 
 fn effective_large_corpus_shell(fixture: &LargeCorpusFixture) -> &str {
@@ -3536,6 +3540,13 @@ mod tests {
         assert!(!shell_supported_for_large_corpus("zsh", Some(&supported)));
         assert!(shell_supported_for_large_corpus("sh", Some(&supported)));
         assert!(shell_supported_for_large_corpus("bash", Some(&supported)));
+    }
+
+    #[test]
+    fn unsupported_shebang_shells_are_skipped_without_shellcheck_metadata() {
+        assert!(!shell_supported_for_large_corpus("fish", None));
+        assert!(!shell_supported_for_large_corpus("csh", None));
+        assert!(shell_supported_for_large_corpus("sh", None));
     }
 
     #[test]
