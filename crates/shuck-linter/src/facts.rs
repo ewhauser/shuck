@@ -11314,17 +11314,15 @@ fn build_simple_command_declaration_assignment_probes<'a>(
     let Some(kind) = simple_command_declaration_kind(normalized.effective_or_literal_name()) else {
         return Vec::new().into_boxed_slice();
     };
+    let word_groups = contiguous_word_groups(normalized.body_args());
     let readonly_flag = matches!(
         kind,
         command::DeclarationKind::Local
             | command::DeclarationKind::Declare
             | command::DeclarationKind::Typeset
-    ) && normalized
-        .body_args()
-        .iter()
-        .any(|word| declaration_flag_sets_readonly(word, source));
+    ) && simple_command_declaration_readonly_flag(&word_groups, source);
 
-    contiguous_word_groups(normalized.body_args())
+    word_groups
         .iter()
         .filter_map(|words| {
             let first = *words.first()?;
@@ -11382,8 +11380,51 @@ fn simple_command_declaration_kind(name: Option<&str>) -> Option<command::Declar
     }
 }
 
-fn declaration_flag_sets_readonly(word: &Word, source: &str) -> bool {
-    static_word_text(word, source).is_some_and(|text| text.starts_with('-') && text.contains('r'))
+fn simple_command_declaration_readonly_flag(word_groups: &[&[&Word]], source: &str) -> bool {
+    let mut readonly_flag = false;
+
+    for words in word_groups {
+        let [word] = words else {
+            break;
+        };
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+
+        // Bash stops parsing declaration options after the first name[=value] operand,
+        // so later "-r" words must not retroactively mark earlier assignments readonly.
+        if text == "--" {
+            break;
+        }
+
+        if !simple_command_declaration_option_word(&text) {
+            break;
+        }
+
+        if declaration_flag_sets_readonly_text(&text) {
+            readonly_flag = true;
+        }
+    }
+
+    readonly_flag
+}
+
+fn simple_command_declaration_option_word(text: &str) -> bool {
+    let mut chars = text.chars();
+    let Some(prefix) = chars.next() else {
+        return false;
+    };
+
+    if !matches!(prefix, '-' | '+') {
+        return false;
+    }
+
+    let rest = chars.as_str();
+    !rest.is_empty() && rest.chars().all(|ch| ch.is_ascii_alphabetic())
+}
+
+fn declaration_flag_sets_readonly_text(text: &str) -> bool {
+    text.starts_with('-') && text.contains('r')
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -27326,6 +27367,32 @@ echo \"Resolve the conflict and run ``${PROGRAM} --continue`` plus `date`.\"
                 .collect::<Vec<_>>();
 
             assert_eq!(probes, vec![("arr", true)]);
+        });
+    }
+
+    #[test]
+    fn ignores_readonly_like_tokens_after_escaped_declaration_assignments() {
+        let source = "\
+#!/bin/bash
+demo() {
+  \\declare out=$(date) -r
+}
+";
+
+        with_facts(source, None, |_, facts| {
+            let probes = facts
+                .structural_commands()
+                .flat_map(|fact| fact.declaration_assignment_probes().iter())
+                .map(|probe| {
+                    (
+                        probe.target_name(),
+                        probe.readonly_flag(),
+                        probe.has_command_substitution(),
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(probes, vec![("out", false, true)]);
         });
     }
 

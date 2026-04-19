@@ -238,6 +238,28 @@ demo() {
     }
 
     #[test]
+    fn reports_escaped_declarations_when_readonly_tokens_appear_after_assignments() {
+        let source = "\
+#!/bin/bash
+demo() {
+  \\declare out=$(date) -r
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ExportCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["out"]
+        );
+    }
+
+    #[test]
     fn ignores_command_substitutions_in_escaped_assignment_targets() {
         let source = "\
 #!/bin/bash
