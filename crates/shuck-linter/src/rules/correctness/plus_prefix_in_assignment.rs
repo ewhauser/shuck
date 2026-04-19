@@ -1,6 +1,6 @@
 use shuck_ast::{Command, DeclOperand, Span, Word};
 
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, Rule, Violation, leading_literal_word_prefix};
 
 pub struct PlusPrefixInAssignment;
 
@@ -46,12 +46,15 @@ pub fn plus_prefix_in_assignment(checker: &mut Checker) {
 }
 
 fn assignment_like_plus_span(word: &Word, source: &str) -> Option<Span> {
-    let text = word.span.slice(source);
-    let remainder = text.strip_prefix('+')?;
-    let target_end = remainder.find("+=").or_else(|| remainder.find('='))?;
-    let target = &remainder[..target_end];
+    let prefix = leading_literal_word_prefix(word, source);
+    let target_end = prefix.find("+=").or_else(|| prefix.find('='))?;
+    let target = &prefix[..target_end];
 
-    is_valid_identifier(target).then_some(word.span)
+    if let Some(remainder) = target.strip_prefix('+') {
+        is_valid_identifier(remainder).then_some(word.span)
+    } else {
+        (!is_valid_identifier(target)).then_some(word.span)
+    }
 }
 
 fn is_valid_identifier(text: &str) -> bool {
@@ -100,5 +103,29 @@ name+=still_ok
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn anchors_on_invalid_assignment_like_command_names_without_a_leading_plus() {
+        let source = r#"#!/bin/sh
+network.wan.proto='dhcp'
+@VAR@=$(. /etc/profile >/dev/null 2>&1; echo "${@VAR@}")
+"${NINJA:=ninja}"
+"#;
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PlusPrefixInAssignment),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "network.wan.proto='dhcp'",
+                "@VAR@=$(. /etc/profile >/dev/null 2>&1; echo \"${@VAR@}\")"
+            ]
+        );
     }
 }
