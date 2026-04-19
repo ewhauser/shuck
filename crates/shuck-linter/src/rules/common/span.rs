@@ -935,7 +935,9 @@ fn collect_direct_all_elements_array_expansion_spans(
                 collect_direct_all_elements_array_expansion_spans(parts, source, spans)
             }
             _ if part_uses_direct_all_elements_array_expansion(&part.kind) => {
-                if let Some(span) = normalize_all_elements_array_expansion_span(part.span, source) {
+                if let Some(span) =
+                    normalize_direct_all_elements_array_expansion_span(part.span, source)
+                {
                     spans.push(span);
                 }
             }
@@ -1029,6 +1031,49 @@ fn normalize_all_elements_array_expansion_span(span: Span, source: &str) -> Opti
     widen_all_elements_array_expansion_span(span, source)
 }
 
+fn normalize_direct_all_elements_array_expansion_span(span: Span, source: &str) -> Option<Span> {
+    let text = span.slice(source);
+    if !span_is_escaped(span, source)
+        && (text == "$@" || candidate_is_direct_all_elements_array_expansion(text))
+    {
+        return Some(span);
+    }
+
+    let base_offset = span.start.offset;
+    let mut search_from = 0usize;
+
+    while let Some(found) = text[search_from..].find('$') {
+        let relative_start = search_from + found;
+        let absolute_start = base_offset + relative_start;
+        if absolute_start > 0 && source.as_bytes()[absolute_start - 1] == b'\\' {
+            search_from = relative_start + 1;
+            continue;
+        }
+
+        let start = position_at_offset(source, absolute_start)?;
+        let remainder = &source[absolute_start..];
+
+        if remainder.starts_with("$@") {
+            let end = position_at_offset(source, absolute_start + "$@".len())?;
+            return Some(Span::from_positions(start, end));
+        }
+
+        if remainder.starts_with("${")
+            && let Some(relative_end) = remainder.find('}')
+        {
+            let candidate = &remainder[..=relative_end];
+            if candidate_is_direct_all_elements_array_expansion(candidate) {
+                let end = position_at_offset(source, absolute_start + candidate.len())?;
+                return Some(Span::from_positions(start, end));
+            }
+        }
+
+        search_from = relative_start + 1;
+    }
+
+    widen_direct_all_elements_array_expansion_span(span, source)
+}
+
 fn normalize_nested_direct_all_elements_array_expansion_span(
     span: Span,
     source: &str,
@@ -1083,7 +1128,7 @@ fn normalize_nested_direct_all_elements_array_expansion_span(
                 && let Some(relative_end) = remainder.find('}')
             {
                 let candidate = &remainder[..=relative_end];
-                if candidate_is_all_elements_array_expansion(candidate) {
+                if candidate_is_direct_all_elements_array_expansion(candidate) {
                     let start = position_at_offset(source, absolute_start)?;
                     let end = position_at_offset(source, absolute_start + candidate.len())?;
                     return Some(Span::from_positions(start, end));
@@ -1257,6 +1302,29 @@ fn widen_all_elements_array_expansion_span(span: Span, source: &str) -> Option<S
     Some(Span::from_positions(start, end))
 }
 
+fn widen_direct_all_elements_array_expansion_span(span: Span, source: &str) -> Option<Span> {
+    let text = span.slice(source);
+    if !text.contains("[@]") {
+        return None;
+    }
+
+    let start_offset = span.start.offset.checked_sub(2)?;
+    if source.as_bytes().get(start_offset..span.start.offset)? != b"${" {
+        return None;
+    }
+
+    let start = position_at_offset(source, start_offset)?;
+    let remainder = &source[start_offset..];
+    let relative_end = remainder.find('}')?;
+    let candidate = &remainder[..=relative_end];
+    if !candidate_is_direct_all_elements_array_expansion(candidate) {
+        return None;
+    }
+
+    let end = position_at_offset(source, start_offset + candidate.len())?;
+    Some(Span::from_positions(start, end))
+}
+
 fn candidate_is_all_elements_array_expansion(candidate: &str) -> bool {
     let Some(inner) = candidate
         .strip_prefix("${")
@@ -1284,6 +1352,43 @@ fn candidate_is_all_elements_array_expansion(candidate: &str) -> bool {
     }
 
     inner[index..].starts_with("[@]")
+}
+
+fn candidate_is_direct_all_elements_array_expansion(candidate: &str) -> bool {
+    let Some(inner) = candidate
+        .strip_prefix("${")
+        .and_then(|text| text.strip_suffix('}'))
+    else {
+        return false;
+    };
+
+    let suffix = if let Some(stripped) = inner.strip_prefix('@') {
+        stripped
+    } else {
+        let Some(first) = inner.as_bytes().first().copied() else {
+            return false;
+        };
+        if !is_name_start(first) {
+            return false;
+        }
+
+        let bytes = inner.as_bytes();
+        let mut index = 1usize;
+        while index < bytes.len() && is_name_continue(bytes[index]) {
+            index += 1;
+        }
+
+        let Some(stripped) = inner[index..].strip_prefix("[@]") else {
+            return false;
+        };
+        stripped
+    };
+
+    if suffix.starts_with('+') || suffix.starts_with(":+") {
+        return false;
+    }
+
+    true
 }
 
 fn position_at_offset(source: &str, target_offset: usize) -> Option<Position> {
@@ -3630,7 +3735,7 @@ printf '%s\\n' \"${@:2}\" \"x${@:2}y\" \"${arr[@]:1}\" \"${arr[@]:1:2}\" ${@:2} 
     #[test]
     fn word_has_direct_all_elements_array_expansion_ignores_nested_or_scalar_operator_uses() {
         let source = "\
-printf '%s\\n' \"$@\" \"${arr[@]}\" \"${arr[@]:1}\" \"${arr[@]:-fallback}\" \"${target=\"$@\"}\" \"$(echo \"$@\")\" \"${arr[*]}\"\n";
+printf '%s\\n' \"$@\" \"${arr[@]}\" \"${arr[@]:1}\" \"${arr[@]:-fallback}\" \"${@:+ok}\" \"${arr[@]:+ok}\" \"${target=\"$@\"}\" \"$(echo \"$@\")\" \"${arr[*]}\"\n";
         let output = Parser::new(source).parse().unwrap();
         let command = &output.file.body[0].command;
         let shuck_ast::Command::Simple(command) = command else {
@@ -3644,7 +3749,10 @@ printf '%s\\n' \"$@\" \"${arr[@]}\" \"${arr[@]:1}\" \"${arr[@]:-fallback}\" \"${
             .map(|word| word_has_direct_all_elements_array_expansion_in_source(word, source))
             .collect::<Vec<_>>();
 
-        assert_eq!(matches, vec![true, true, true, true, false, false, false]);
+        assert_eq!(
+            matches,
+            vec![true, true, true, true, false, false, false, false, false]
+        );
     }
 
     #[test]

@@ -112,6 +112,18 @@ eval shellspec_join SHELLSPEC_EXPECTATION '\" \"' The ${1+'\"$@\"'}
     }
 
     #[test]
+    fn ignores_replacement_forms_that_do_not_expand_the_positional_splat_itself() {
+        let source = "\
+#!/bin/bash
+eval \"${@:+ok}\"
+eval \"${args[@]:+ok}\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::EvalOnArray));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn reports_direct_positional_splats_after_escaped_parameter_text_in_eval_strings() {
         let source = "\
 #!/bin/bash
