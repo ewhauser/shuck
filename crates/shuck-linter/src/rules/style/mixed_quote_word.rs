@@ -1,7 +1,4 @@
-use crate::{
-    Checker, ExpansionContext, Rule, Violation,
-    word_unquoted_literal_between_double_quoted_segments_spans,
-};
+use crate::{Checker, ExpansionContext, Rule, Violation, WordFactHostKind};
 
 pub struct MixedQuoteWord;
 
@@ -16,7 +13,6 @@ impl Violation for MixedQuoteWord {
 }
 
 pub fn mixed_quote_word(checker: &mut Checker) {
-    let source = checker.source();
     let facts = checker.facts();
     let spans = [
         ExpansionContext::CommandName,
@@ -29,9 +25,11 @@ pub fn mixed_quote_word(checker: &mut Checker) {
     .into_iter()
     .flat_map(|context| facts.expansion_word_facts(context))
     .chain(facts.case_subject_facts())
-    .filter(|fact| !fact.is_nested_word_command())
+    .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
     .flat_map(|fact| {
-        word_unquoted_literal_between_double_quoted_segments_spans(fact.word(), source)
+        fact.unquoted_literal_between_double_quoted_segments_spans()
+            .iter()
+            .copied()
     })
     .collect::<Vec<_>>();
 
@@ -78,5 +76,189 @@ if [[ x =~ \"foo\"bar\"baz\" ]]; then :; fi
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::MixedQuoteWord));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_shellcheck_style_escaped_quote_separator_and_line_join_patterns() {
+        let source = "\
+#!/bin/bash
+echo -e \"\"\\\"\"CDKey\"\\\"\"=\"\\\"\"${CODE}\"\\\"\"\"
+escaped=x
+sed -i /\"${escaped}_START\"/,/\"${escaped}_END\"/d file
+x=\"$AWK '\"\\
+\" {x};\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::MixedQuoteWord));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["\\\"", "\\\"", "\\\"", "\\\"", "/,/", "\\\n"]
+        );
+    }
+
+    #[test]
+    fn ignores_fully_quoted_nested_contexts_that_shellcheck_skips() {
+        let source = "\
+#!/bin/bash
+options+=(U \"${option_msgs[\"U\"]}\")
+result=\"$(regex \"#FFFFFF\" '^(#?([a-fA-F0-9]{6}|[a-fA-F0-9]{3}))$')\"
+args+=(\"--latest\" \"$(is_boolean_yes \"$JENKINS_PLUGINS_LATEST\" && echo \"true\" || echo \"false\")\")
+x=\"${VALUE:-\"false\"}\"
+cmd=(dialog --menu \"Wireless ESSID: \\Zb$(iwgetid -r || echo \"none\")\\ZB\")
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::MixedQuoteWord));
+
+        assert!(
+            diagnostics.is_empty(),
+            "{:?}",
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn still_reports_reopened_quotes_inside_nested_command_words() {
+        let source = "\
+#!/bin/bash
+x=\"$(cmd \"a\".\"b\")\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::MixedQuoteWord));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["."]
+        );
+    }
+
+    #[test]
+    fn still_reports_reopened_quotes_after_complete_command_substitutions() {
+        let source = "\
+#!/bin/bash
+echo \"$(cmd)\"x\"y\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::MixedQuoteWord));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["x"]
+        );
+    }
+
+    #[test]
+    fn reports_escaped_template_fragments_between_reopened_quotes() {
+        let source = "\
+#!/bin/bash
+echo \"#!/bin/bash
+this_dir=\\$(dirname \"\\$0\")
+\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::MixedQuoteWord));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["\\$0"]
+        );
+    }
+
+    #[test]
+    fn still_reports_reopened_quotes_after_quoted_literal_fragment_prefixes() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' '$('\"foo\"parenmid\"baz\" '${'\"foo\"bracemid\"baz\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::MixedQuoteWord));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["parenmid", "bracemid"]
+        );
+    }
+
+    #[test]
+    fn still_reports_reopened_quotes_after_comment_text_inside_command_substitutions() {
+        let source = "\
+#!/bin/bash
+echo $(echo x # $(
+ )\"foo\"bar\"baz\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::MixedQuoteWord));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["bar"]
+        );
+    }
+
+    #[test]
+    fn still_reports_reopened_quotes_after_comment_text_inside_backticks() {
+        let source = "\
+#!/bin/bash
+echo `echo x # $(
+`\"foo\"bar\"baz\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::MixedQuoteWord));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["bar"]
+        );
+    }
+
+    #[test]
+    fn still_reports_reopened_quotes_after_hashes_inside_nested_double_quotes() {
+        let source = "\
+#!/bin/bash
+echo $(printf \"%s\" \"x # $(printf y)\")\"foo\"bar\"baz\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::MixedQuoteWord));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["bar"]
+        );
+    }
+
+    #[test]
+    fn still_reports_reopened_quotes_after_comment_text_inside_process_substitutions() {
+        let source = "\
+#!/bin/bash
+echo <(echo x # ${
+ )\"foo\"bar\"baz\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::MixedQuoteWord));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["bar"]
+        );
     }
 }

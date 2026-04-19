@@ -992,6 +992,7 @@ pub struct WordFact<'a> {
     command_substitution_spans: Box<[Span]>,
     unquoted_command_substitution_spans: Box<[Span]>,
     double_quoted_expansion_spans: Box<[Span]>,
+    unquoted_literal_between_double_quoted_segments_spans: Box<[Span]>,
 }
 
 impl<'a> WordFact<'a> {
@@ -1105,6 +1106,10 @@ impl<'a> WordFact<'a> {
 
     pub fn double_quoted_expansion_spans(&self) -> &[Span] {
         &self.double_quoted_expansion_spans
+    }
+
+    pub fn unquoted_literal_between_double_quoted_segments_spans(&self) -> &[Span] {
+        &self.unquoted_literal_between_double_quoted_segments_spans
     }
 }
 
@@ -3946,6 +3951,297 @@ fn word_fact_is_pure_quoted_dynamic(fact: &WordFact<'_>, source: &str) -> bool {
         || !span::word_quoted_all_elements_array_slice_spans(fact.word()).is_empty()
         || word_fact_is_double_quoted_command_substitution_only(fact, source)
         || word_fact_is_backtick_escaped_double_quoted_dynamic(fact, source)
+}
+
+fn build_unquoted_literal_between_double_quoted_segments_spans(
+    word: &Word,
+    source: &str,
+) -> Vec<Span> {
+    let nested_fragment_parts = mixed_quote_word_parts_inside_nested_shell_fragments(word, source);
+
+    let mut spans = word
+        .parts
+        .windows(3)
+        .enumerate()
+        .filter_map(|(window_index, window)| {
+            let [left, middle, right] = window else {
+                return None;
+            };
+            let WordPart::DoubleQuoted {
+                parts: left_inner, ..
+            } = &left.kind
+            else {
+                return None;
+            };
+            let WordPart::Literal(text) = &middle.kind else {
+                return None;
+            };
+            let WordPart::DoubleQuoted {
+                parts: right_inner, ..
+            } = &right.kind
+            else {
+                return None;
+            };
+
+            let neighbor_has_literal =
+                mixed_quote_double_quoted_parts_contain_literal_content(left_inner)
+                    || mixed_quote_double_quoted_parts_contain_literal_content(right_inner);
+            let middle_is_nested = nested_fragment_parts
+                .get(window_index + 1)
+                .copied()
+                .unwrap_or(false);
+            (neighbor_has_literal
+                && !middle_is_nested
+                && mixed_quote_literal_is_warnable_between_double_quotes(
+                    text.as_str(source, middle.span),
+                ))
+            .then_some(middle.span)
+        })
+        .collect::<Vec<_>>();
+
+    if let Some(span) = mixed_quote_trailing_line_join_between_double_quotes_span(word, source)
+        && !spans.contains(&span)
+    {
+        spans.push(span);
+    }
+
+    spans
+}
+
+fn mixed_quote_double_quoted_parts_contain_literal_content(parts: &[WordPartNode]) -> bool {
+    parts.iter().any(|part| match &part.kind {
+        WordPart::Literal(_) | WordPart::SingleQuoted { .. } => true,
+        WordPart::DoubleQuoted { parts, .. } => {
+            mixed_quote_double_quoted_parts_contain_literal_content(parts)
+        }
+        WordPart::Variable(_)
+        | WordPart::Parameter(_)
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ArithmeticExpansion { .. }
+        | WordPart::ParameterExpansion { .. }
+        | WordPart::Length(_)
+        | WordPart::ArrayAccess(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::Substring { .. }
+        | WordPart::ArraySlice { .. }
+        | WordPart::IndirectExpansion { .. }
+        | WordPart::PrefixMatch { .. }
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::Transformation { .. }
+        | WordPart::ZshQualifiedGlob(_) => false,
+    })
+}
+
+fn mixed_quote_literal_is_warnable_between_double_quotes(text: &str) -> bool {
+    if text.is_empty() {
+        return false;
+    }
+
+    if text == "\"" {
+        return true;
+    }
+
+    if matches!(text, "\\\n" | "\\\r\n") {
+        return true;
+    }
+
+    if text == "/,/" {
+        return true;
+    }
+
+    if text.chars().all(|ch| matches!(ch, '\\' | '"')) && text.contains('\\') {
+        return true;
+    }
+
+    if text.chars().any(|ch| ch.is_ascii_alphanumeric()) {
+        return !text.chars().any(char::is_whitespace);
+    }
+
+    if text.chars().all(|ch| ch == ':') {
+        return text.len() > 1;
+    }
+
+    text.chars().all(|ch| {
+        ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.' | '@' | '+' | '-' | '%' | ':')
+    })
+}
+
+fn mixed_quote_word_parts_inside_nested_shell_fragments(word: &Word, source: &str) -> Vec<bool> {
+    let mut command_depth = 0i32;
+    let mut parameter_depth = 0i32;
+    let mut nested = Vec::with_capacity(word.parts.len());
+
+    for part in &word.parts {
+        nested.push(command_depth > 0 || parameter_depth > 0);
+
+        let (command_delta, parameter_delta) =
+            mixed_quote_shell_fragment_balance_delta_for_part(part, source);
+        command_depth += command_delta;
+        parameter_depth += parameter_delta;
+        command_depth = command_depth.max(0);
+        parameter_depth = parameter_depth.max(0);
+    }
+
+    nested
+}
+
+fn mixed_quote_shell_fragment_balance_delta_for_part(
+    part: &WordPartNode,
+    source: &str,
+) -> (i32, i32) {
+    match &part.kind {
+        WordPart::CommandSubstitution {
+            syntax: CommandSubstitutionSyntax::Backtick,
+            ..
+        } => {
+            let text = part.span.slice(source);
+            let body = text
+                .strip_prefix('`')
+                .and_then(|text| text.strip_suffix('`'))
+                .unwrap_or(text);
+            mixed_quote_shell_fragment_balance_delta(body, true)
+        }
+        WordPart::ProcessSubstitution { .. } => {
+            mixed_quote_shell_fragment_balance_delta(part.span.slice(source), true)
+        }
+        _ => mixed_quote_shell_fragment_balance_delta(part.span.slice(source), false),
+    }
+}
+
+fn mixed_quote_shell_fragment_balance_delta(
+    text: &str,
+    allow_top_level_command_comments: bool,
+) -> (i32, i32) {
+    let mut command_delta = 0i32;
+    let mut parameter_delta = 0i32;
+    let mut chars = text.chars().peekable();
+    let mut escaped = false;
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+    let mut in_comment = false;
+    let mut previous_char = None;
+
+    while let Some(ch) = chars.next() {
+        if in_comment {
+            if ch == '\n' {
+                in_comment = false;
+                previous_char = Some(ch);
+            }
+            continue;
+        }
+
+        if in_single_quotes {
+            if ch == '\'' {
+                in_single_quotes = false;
+            }
+            previous_char = Some(ch);
+            continue;
+        }
+
+        if escaped {
+            escaped = false;
+            previous_char = Some(ch);
+            continue;
+        }
+
+        if ch == '\'' && !in_double_quotes {
+            in_single_quotes = true;
+            previous_char = Some(ch);
+            continue;
+        }
+
+        if ch == '"' {
+            in_double_quotes = !in_double_quotes;
+            previous_char = Some(ch);
+            continue;
+        }
+
+        if ch == '\\' {
+            escaped = true;
+            previous_char = Some(ch);
+            continue;
+        }
+
+        if ch == '#'
+            && !in_double_quotes
+            && mixed_quote_shell_comment_can_start(
+                command_delta,
+                allow_top_level_command_comments,
+                previous_char,
+            )
+        {
+            in_comment = true;
+            continue;
+        }
+
+        if ch == '$' {
+            match chars.peek().copied() {
+                Some('(') => {
+                    command_delta += 1;
+                    chars.next();
+                    previous_char = Some('(');
+                    continue;
+                }
+                Some('{') => {
+                    parameter_delta += 1;
+                    chars.next();
+                    previous_char = Some('{');
+                    continue;
+                }
+                _ => {}
+            }
+        }
+
+        match ch {
+            ')' => command_delta -= 1,
+            '}' => parameter_delta -= 1,
+            _ => {}
+        }
+
+        previous_char = Some(ch);
+    }
+
+    (command_delta, parameter_delta)
+}
+
+fn mixed_quote_shell_comment_can_start(
+    command_depth: i32,
+    allow_top_level_command_comments: bool,
+    previous_char: Option<char>,
+) -> bool {
+    (command_depth > 0 || allow_top_level_command_comments)
+        && previous_char.is_none_or(|ch| {
+            ch.is_ascii_whitespace() || matches!(ch, ';' | '|' | '&' | '(' | ')' | '<' | '>')
+        })
+}
+
+fn mixed_quote_trailing_line_join_between_double_quotes_span(
+    word: &Word,
+    source: &str,
+) -> Option<Span> {
+    if !matches!(
+        word.parts.first().map(|part| &part.kind),
+        Some(WordPart::DoubleQuoted { .. })
+    ) {
+        return None;
+    }
+
+    let text = word.span.slice(source);
+    let (prefix, suffix) = if let Some(prefix) = text.strip_suffix("\\\n") {
+        (prefix, "\\\n")
+    } else if let Some(prefix) = text.strip_suffix("\\\r\n") {
+        (prefix, "\\\r\n")
+    } else {
+        return None;
+    };
+
+    if !source[word.span.end.offset..].starts_with('"') {
+        return None;
+    }
+
+    let start = word.span.start.advanced_by(prefix);
+    Some(Span::from_positions(start, start.advanced_by(suffix)))
 }
 
 fn build_bare_command_name_assignment_spans<'a>(
@@ -10778,6 +11074,9 @@ impl<'a> WordFactCollector<'a> {
                     .into_boxed_slice(),
             double_quoted_expansion_spans: double_quoted_expansion_part_spans(word_ref)
                 .into_boxed_slice(),
+            unquoted_literal_between_double_quoted_segments_spans:
+                build_unquoted_literal_between_double_quoted_segments_spans(word_ref, self.source)
+                    .into_boxed_slice(),
             word,
             command_id: self.command_id,
             nested_word_command: self.nested_word_command,
@@ -22586,6 +22885,120 @@ printf '%s\\n' $@ ${@:2} ${items[@]} ${items[@]:1} ${!items[@]} ${items[@]/#/#} 
                     "${items[@]:-fallback}"
                 ]
             );
+        });
+    }
+
+    #[test]
+    fn builds_word_facts_for_unquoted_literals_between_reopened_double_quotes() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' \"foo\"bar\"baz\" \"foo\"-\"bar\" \"foo\"$(printf '%s' x)\"bar\" \"$left\"-\"$right\" x=\"$(cmd \"a\".\"b\")\" '$('\"foo\"parenmid\"baz\" '${'\"foo\"bracemid\"baz\"
+";
+
+        with_facts(source, None, |_, facts| {
+            let spans = facts
+                .expansion_word_facts(ExpansionContext::CommandArgument)
+                .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
+                .flat_map(|fact| {
+                    fact.unquoted_literal_between_double_quoted_segments_spans()
+                        .iter()
+                        .map(|span| span.slice(source).to_owned())
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(spans, vec!["bar", "-", "parenmid", "bracemid", "."]);
+        });
+    }
+
+    #[test]
+    fn builds_word_facts_ignore_comment_text_in_nested_fragment_scan() {
+        let source = "\
+#!/bin/bash
+echo $(echo x # $(
+ )\"foo\"bar\"baz\"
+";
+
+        with_facts(source, None, |_, facts| {
+            let spans = facts
+                .expansion_word_facts(ExpansionContext::CommandArgument)
+                .flat_map(|fact| {
+                    fact.unquoted_literal_between_double_quoted_segments_spans()
+                        .iter()
+                        .map(|span| span.slice(source).to_owned())
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(spans, vec!["bar"]);
+        });
+    }
+
+    #[test]
+    fn builds_word_facts_ignore_comment_text_in_backtick_fragment_scan() {
+        let source = "\
+#!/bin/bash
+echo `echo x # $(
+`\"foo\"bar\"baz\"
+";
+
+        with_facts(source, None, |_, facts| {
+            let spans = facts
+                .expansion_word_facts(ExpansionContext::CommandArgument)
+                .flat_map(|fact| {
+                    fact.unquoted_literal_between_double_quoted_segments_spans()
+                        .iter()
+                        .map(|span| span.slice(source).to_owned())
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(spans, vec!["bar"]);
+        });
+    }
+
+    #[test]
+    fn builds_word_facts_ignore_hashes_inside_nested_double_quotes() {
+        let source = "\
+#!/bin/bash
+echo $(printf \"%s\" \"x # $(printf y)\")\"foo\"bar\"baz\"
+";
+
+        with_facts(source, None, |_, facts| {
+            let spans = facts
+                .expansion_word_facts(ExpansionContext::CommandArgument)
+                .flat_map(|fact| {
+                    fact.unquoted_literal_between_double_quoted_segments_spans()
+                        .iter()
+                        .map(|span| span.slice(source).to_owned())
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(spans, vec!["bar"]);
+        });
+    }
+
+    #[test]
+    fn builds_word_facts_ignore_comment_text_in_process_substitution_scan() {
+        let source = "\
+#!/bin/bash
+echo <(echo x # ${
+ )\"foo\"bar\"baz\"
+";
+
+        with_facts(source, None, |_, facts| {
+            let spans = facts
+                .expansion_word_facts(ExpansionContext::CommandArgument)
+                .flat_map(|fact| {
+                    fact.unquoted_literal_between_double_quoted_segments_spans()
+                        .iter()
+                        .map(|span| span.slice(source).to_owned())
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(spans, vec!["bar"]);
         });
     }
 
