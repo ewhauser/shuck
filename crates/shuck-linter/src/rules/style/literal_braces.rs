@@ -236,6 +236,23 @@ EOF
     }
 
     #[test]
+    fn reports_literal_closing_braces_inside_grouped_command_substitutions() {
+        let source = "\
+#!/bin/bash
+value=$(
+  {
+    cut -d} -f1
+  }
+)
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LiteralBraces));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 4);
+        assert_eq!(diagnostics[0].span.start.column, 11);
+    }
+
+    #[test]
     fn ignores_even_backslash_runs_before_parameter_expansions() {
         let source = "\
 #!/bin/bash

@@ -7316,6 +7316,13 @@ fn raw_literal_brace_spans_without_exclusions(
         }
 
         if matches!(ch, '{' | '}') {
+            if mode == RawLiteralBraceScanMode::UnmatchedOnly
+                && brace_at_command_start(text, index, ch)
+            {
+                index += ch_len;
+                continue;
+            }
+
             let absolute_offset = scan_start + index;
             let position = container_span
                 .start
@@ -7337,6 +7344,51 @@ fn raw_literal_brace_spans_without_exclusions(
     }
 
     spans
+}
+
+fn brace_at_command_start(text: &str, index: usize, ch: char) -> bool {
+    match ch {
+        '{' => opening_brace_starts_shell_group(text, index),
+        '}' => closing_brace_ends_shell_group(text, index),
+        _ => false,
+    }
+}
+
+fn opening_brace_starts_shell_group(text: &str, index: usize) -> bool {
+    let Some(next) = text[index + '{'.len_utf8()..].chars().next() else {
+        return false;
+    };
+    if !next.is_whitespace() {
+        return false;
+    }
+
+    let prefix = text[..index].trim_end_matches(|candidate| matches!(candidate, ' ' | '\t'));
+    let Some(last) = prefix.chars().next_back() else {
+        return true;
+    };
+
+    match last {
+        '\n' | '&' | '|' | '(' | ')' => true,
+        ';' => prefix.chars().rev().nth(1) != Some('\\'),
+        'o' => prefix.ends_with("do"),
+        'n' => prefix.ends_with("then"),
+        'e' => prefix.ends_with("else"),
+        'f' => prefix.ends_with("elif"),
+        _ => false,
+    }
+}
+
+fn closing_brace_ends_shell_group(text: &str, index: usize) -> bool {
+    let prefix = text[..index].trim_end_matches(|candidate| matches!(candidate, ' ' | '\t'));
+    let Some(last) = prefix.chars().next_back() else {
+        return true;
+    };
+
+    match last {
+        '\n' | '&' | '|' | '(' => true,
+        ';' => prefix.chars().rev().nth(1) != Some('\\'),
+        _ => false,
+    }
 }
 
 fn unmatched_command_substitution_brace_spans(
