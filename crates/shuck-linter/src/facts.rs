@@ -1089,6 +1089,7 @@ pub struct WordFact<'a> {
     runtime_literal: RuntimeLiteralAnalysis,
     operand_class: Option<TestOperandClass>,
     static_text: Option<Box<str>>,
+    starts_with_extglob: bool,
     has_literal_affixes: bool,
     contains_shell_quoting_literals: bool,
     active_expansion_spans: Box<[Span]>,
@@ -1172,6 +1173,10 @@ impl<'a> WordFact<'a> {
 
     pub fn static_text(&self) -> Option<&str> {
         self.static_text.as_deref()
+    }
+
+    pub fn starts_with_extglob(&self) -> bool {
+        self.starts_with_extglob
     }
 
     pub fn has_literal_affixes(&self) -> bool {
@@ -11660,10 +11665,12 @@ impl<'a> WordFactCollector<'a> {
             | WordFactContext::CaseSubject
             | WordFactContext::ArithmeticCommand => None,
         };
+        let starts_with_extglob = span::word_starts_with_extglob(word_ref, self.source);
         let index = self.facts.len();
         self.facts.push(WordFact {
             key,
             static_text: static_word_text(word_ref, self.source).map(String::into_boxed_str),
+            starts_with_extglob,
             has_literal_affixes: word_has_literal_affixes(word_ref),
             contains_shell_quoting_literals: word_contains_shell_quoting_literals(
                 word_ref,

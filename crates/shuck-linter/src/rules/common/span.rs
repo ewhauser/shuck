@@ -567,6 +567,21 @@ pub fn word_extglob_span(word: &Word, source: &str) -> Option<Span> {
     })
 }
 
+pub fn word_starts_with_extglob(word: &Word, source: &str) -> bool {
+    if word_has_only_literal_parts(&word.parts) {
+        return matches!(
+            find_extglob_bounds(word.span.slice(source).as_bytes()),
+            Some((0, _))
+        );
+    }
+
+    let Some((surface, _)) = word_surface_bytes(word, source) else {
+        return false;
+    };
+
+    matches!(find_extglob_bounds(&surface), Some((0, _)))
+}
+
 pub fn word_exactly_one_extglob_span(word: &Word, source: &str) -> Option<Span> {
     word_exactly_one_extglob_span_from_literal_parts(&word.parts, source).or_else(|| {
         if word_has_only_literal_parts(&word.parts) {
@@ -2871,9 +2886,9 @@ mod tests {
         word_nested_dynamic_double_quote_spans, word_positional_at_splat_span_in_source,
         word_positional_at_splat_spans, word_quoted_all_elements_array_slice_spans,
         word_quoted_star_splat_spans, word_quoted_unindexed_bash_source_span_in_source,
-        word_suspicious_bracket_glob_spans, word_unquoted_assign_default_spans,
-        word_unquoted_escaped_pipe_or_brace_spans_in_source, word_unquoted_glob_pattern_spans,
-        word_unquoted_glob_pattern_spans_outside_brace_expansion,
+        word_starts_with_extglob, word_suspicious_bracket_glob_spans,
+        word_unquoted_assign_default_spans, word_unquoted_escaped_pipe_or_brace_spans_in_source,
+        word_unquoted_glob_pattern_spans, word_unquoted_glob_pattern_spans_outside_brace_expansion,
         word_unquoted_scalar_between_double_quoted_segments_spans, word_unquoted_star_splat_spans,
         word_unquoted_word_between_single_quoted_segments_spans,
     };
@@ -3013,6 +3028,19 @@ mod tests {
         };
 
         assert!(word_exactly_one_extglob_span(&command.args[0], source).is_none());
+    }
+
+    #[test]
+    fn word_starts_with_extglob_distinguishes_leading_and_trailing_groups() {
+        let source = "printf '%s\\n' ?(*.txt) *.@(jpg|png)\n";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        assert!(word_starts_with_extglob(&command.args[1], source));
+        assert!(!word_starts_with_extglob(&command.args[2], source));
     }
 
     #[test]

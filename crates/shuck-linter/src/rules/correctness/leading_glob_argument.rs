@@ -42,6 +42,9 @@ fn reportable_glob_span(checker: &Checker<'_>, fact: &crate::facts::WordFact<'_>
     if !matches!(prefix, '*' | '?') {
         return None;
     }
+    if fact.starts_with_extglob() {
+        return None;
+    }
 
     if fact.operand_class()?.is_fixed_literal() {
         return None;
@@ -112,6 +115,29 @@ set -- *
             test_snippet(source, &LinterSettings::for_rule(Rule::LeadingGlobArgument));
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_leading_extglob_patterns() {
+        let source = "\
+shopt -s extglob
+rm ?(*.txt)
+rm *(@.txt)
+rm *.@(jpg|png)
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::LeadingGlobArgument)
+                .with_shell(crate::ShellDialect::Bash),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["*"]
+        );
     }
 
     #[test]
