@@ -2373,9 +2373,11 @@ pub struct PsCommandFacts {
 pub struct SetCommandFacts {
     pub errexit_change: Option<bool>,
     pub errtrace_change: Option<bool>,
+    pub functrace_change: Option<bool>,
     pub pipefail_change: Option<bool>,
     resets_positional_parameters: bool,
-    errtrace_option_spans: Box<[Span]>,
+    errtrace_flag_spans: Box<[Span]>,
+    functrace_flag_spans: Box<[Span]>,
     pipefail_option_spans: Box<[Span]>,
     flags_without_prefix_spans: Box<[Span]>,
 }
@@ -2385,8 +2387,12 @@ impl SetCommandFacts {
         self.resets_positional_parameters
     }
 
-    pub fn errtrace_option_spans(&self) -> &[Span] {
-        &self.errtrace_option_spans
+    pub fn errtrace_flag_spans(&self) -> &[Span] {
+        &self.errtrace_flag_spans
+    }
+
+    pub fn functrace_flag_spans(&self) -> &[Span] {
+        &self.functrace_flag_spans
     }
 
     pub fn pipefail_option_spans(&self) -> &[Span] {
@@ -17780,9 +17786,11 @@ fn shell_short_flag_is_clusterable(flag: u8) -> bool {
 fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
     let mut errexit_change = None;
     let mut errtrace_change = None;
+    let mut functrace_change = None;
     let mut pipefail_change = None;
     let mut resets_positional_parameters = false;
-    let mut errtrace_option_spans = Vec::new();
+    let mut errtrace_flag_spans = Vec::new();
+    let mut functrace_flag_spans = Vec::new();
     let mut pipefail_option_spans = Vec::new();
     let mut flags_without_prefix_spans = Vec::new();
     let mut index = 0usize;
@@ -17827,7 +17835,8 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
                     errexit_change = Some(enable);
                 } else if name == "errtrace" {
                     errtrace_change = Some(enable);
-                    errtrace_option_spans.push(name_word.span);
+                } else if name == "functrace" {
+                    functrace_change = Some(enable);
                 } else if name == "pipefail" {
                     pipefail_change = Some(enable);
                     pipefail_option_spans.push(name_word.span);
@@ -17854,7 +17863,11 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
         }
         if flags.chars().any(|flag| flag == 'E') {
             errtrace_change = Some(text.starts_with('-'));
-            errtrace_option_spans.push(word.span);
+            errtrace_flag_spans.push(word.span);
+        }
+        if flags.chars().any(|flag| flag == 'T') {
+            functrace_change = Some(text.starts_with('-'));
+            functrace_flag_spans.push(word.span);
         }
 
         if flags.chars().any(|flag| flag == 'o') {
@@ -17868,7 +17881,8 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
 
             if name == "errtrace" {
                 errtrace_change = Some(enable);
-                errtrace_option_spans.push(name_word.span);
+            } else if name == "functrace" {
+                functrace_change = Some(enable);
             } else if name == "pipefail" {
                 pipefail_change = Some(enable);
                 pipefail_option_spans.push(name_word.span);
@@ -17883,9 +17897,11 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
     SetCommandFacts {
         errexit_change,
         errtrace_change,
+        functrace_change,
         pipefail_change,
         resets_positional_parameters,
-        errtrace_option_spans: errtrace_option_spans.into_boxed_slice(),
+        errtrace_flag_spans: errtrace_flag_spans.into_boxed_slice(),
+        functrace_flag_spans: functrace_flag_spans.into_boxed_slice(),
         pipefail_option_spans: pipefail_option_spans.into_boxed_slice(),
         flags_without_prefix_spans: flags_without_prefix_spans.into_boxed_slice(),
     }
@@ -20522,7 +20538,7 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
 
     #[test]
     fn summarizes_command_options_and_invokers() {
-        let source = "#!/bin/bash\nread -r name\necho -ne hi\necho '-I' hi\necho \"\\\\n\"\necho \\x41\necho \"prefix $VAR \\\\0 suffix\"\ncommand echo \\n\nsed 's/foo/bar/'\nsed -e 's/foo/bar/'\nsed -e 's:\\([0-9][0-9]*\\)[a-z]*\\$:\\1:'\nsed 's/[]\\[^$.*/]/\\\\&/g'\nsed 's/\\([/&]\\)/\\\\\\1/g'\nsed -n 's/foo/bar/p'\nsed --expression 's/foo/bar/'\nsed -r 's/foo/bar/'\nsed \\\"s/foo/bar/\\\"\ntr -ds a-z A-Z\ntr -- 'a-z' xyz\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -type d -name CVS | xargs -iX rm -rf X\nfind . -type d -name CVS | xargs --replace rm -rf {}\nfind . -name a -o -name b -print\nfind . -name *.cfg\nfind . -name \"$prefix\"*.jar\nfind . -wholename */tmp/*\nfind . -name \\*.ignore\nfind . -type f*\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eEo pipefail\nset euox pipefail\n./configure --with-optmizer=${CFLAGS}\nconfigure \"--enable-optmizer=${CFLAGS}\"\n./configure --with-optimizer=${CFLAGS}\nps -p 1 -o comm=\nps p 123 -o comm=\nps -ef\ndoas printf '%s\\n' hi\n";
+        let source = "#!/bin/bash\nread -r name\necho -ne hi\necho '-I' hi\necho \"\\\\n\"\necho \\x41\necho \"prefix $VAR \\\\0 suffix\"\ncommand echo \\n\nsed 's/foo/bar/'\nsed -e 's/foo/bar/'\nsed -e 's:\\([0-9][0-9]*\\)[a-z]*\\$:\\1:'\nsed 's/[]\\[^$.*/]/\\\\&/g'\nsed 's/\\([/&]\\)/\\\\\\1/g'\nsed -n 's/foo/bar/p'\nsed --expression 's/foo/bar/'\nsed -r 's/foo/bar/'\nsed \\\"s/foo/bar/\\\"\ntr -ds a-z A-Z\ntr -- 'a-z' xyz\nprintf -v out \"$fmt\" value\nprintf '%q\\n' foo\nprintf '%*q\\n' 10 bar\nunset -f curl other\nfind . -print0 | xargs -0 rm\nfind . -type d -name CVS | xargs -iX rm -rf X\nfind . -type d -name CVS | xargs --replace rm -rf {}\nfind . -name a -o -name b -print\nfind . -name *.cfg\nfind . -name \"$prefix\"*.jar\nfind . -wholename */tmp/*\nfind . -name \\*.ignore\nfind . -type f*\nrm -rf \"$dir\"/*\nrm -rf \"$dir\"/sub/*\nrm -rf \"$dir\"/lib\nrm -rf \"$dir\"/*.log\nrm -rf \"$rootdir/$md_type/$to\"\nrm -rf \"$configdir/all/retroarch/$dir\"\nrm -rf \"$md_inst/\"*\nwait -n\nwait -- -n\ngrep -o content file | wc -l\nexit foo\nset -eETo pipefail\nset euox pipefail\n./configure --with-optmizer=${CFLAGS}\nconfigure \"--enable-optmizer=${CFLAGS}\"\n./configure --with-optimizer=${CFLAGS}\nps -p 1 -o comm=\nps p 123 -o comm=\nps -ef\ndoas printf '%s\\n' hi\n";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -20816,13 +20832,21 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
             .expect("expected set facts");
         assert_eq!(set.errexit_change, Some(true));
         assert_eq!(set.errtrace_change, Some(true));
+        assert_eq!(set.functrace_change, Some(true));
         assert_eq!(set.pipefail_change, Some(true));
         assert_eq!(
-            set.errtrace_option_spans()
+            set.errtrace_flag_spans()
                 .iter()
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["-eEo"]
+            vec!["-eETo"]
+        );
+        assert_eq!(
+            set.functrace_flag_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["-eETo"]
         );
         assert_eq!(
             set.pipefail_option_spans()

@@ -1,8 +1,8 @@
 ---
 source: crates/shuck-linter/src/rules/portability/mod.rs
 ---
-X068 `set -E` is not portable in `sh` scripts
+X068 `set` trap inheritance flags are not portable in `sh` scripts
  --> <source>:2:5
   |
-2 | set -eE
+2 | set -T
   |
