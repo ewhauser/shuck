@@ -305,6 +305,22 @@ greet
     }
 
     #[test]
+    fn backtick_substitutions_still_count_as_zero_arg_calls() {
+        let source = "\
+#!/bin/sh
+greet() { printf '%s\n' \"$1 $2\"; }
+value=\"`greet`\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "greet");
+    }
+
+    #[test]
     fn earlier_calls_in_same_scope_still_count_toward_mixed_arity() {
         let source = "\
 #!/bin/sh

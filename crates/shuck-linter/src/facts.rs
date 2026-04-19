@@ -5471,7 +5471,7 @@ fn function_call_arg_count(command: &CommandFact<'_>, source: &str) -> usize {
     }
     if matches!(
         tail.as_bytes().first(),
-        Some(b')' | b';' | b'|' | b'&' | b'<' | b'>' | b'#')
+        Some(b')' | b';' | b'|' | b'&' | b'<' | b'>' | b'#' | b'`')
     ) {
         return 0;
     }
@@ -15816,6 +15816,36 @@ greet
             assert_eq!(header.call_arity().call_count(), 2);
             assert_eq!(header.call_arity().min_arg_count(), Some(0));
             assert_eq!(header.call_arity().max_arg_count(), Some(1));
+            assert_eq!(header.call_arity().zero_arg_call_spans().len(), 1);
+            assert_eq!(
+                header.call_arity().zero_arg_call_spans()[0].slice(source),
+                "greet"
+            );
+        });
+    }
+
+    #[test]
+    fn function_header_fact_tracks_zero_arg_backtick_calls() {
+        let source = "\
+#!/bin/sh
+greet() { printf '%s\n' \"$1\"; }
+value=\"`greet`\"
+";
+
+        with_facts(source, None, |_, facts| {
+            let header = facts
+                .function_headers()
+                .iter()
+                .find(|header| {
+                    header
+                        .static_name_entry()
+                        .is_some_and(|(name, _)| name == "greet")
+                })
+                .expect("expected greet header fact");
+
+            assert_eq!(header.call_arity().call_count(), 1);
+            assert_eq!(header.call_arity().min_arg_count(), Some(0));
+            assert_eq!(header.call_arity().max_arg_count(), Some(0));
             assert_eq!(header.call_arity().zero_arg_call_spans().len(), 1);
             assert_eq!(
                 header.call_arity().zero_arg_call_spans()[0].slice(source),
