@@ -3717,6 +3717,40 @@ fn test_parse_declare_array_preserves_quoted_command_substitution_elements() {
 }
 
 #[test]
+fn test_parse_array_append_preserves_pipeline_command_substitution_span() {
+    let input = "CANDIDATES+=(\"$(echo \"$line\" | cut -d' ' -f2-)\")\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let assignment = match &script.body[0].command {
+        AstCommand::Simple(command) => &command.assignments[0],
+        AstCommand::Decl(command) => match &command.operands[0] {
+            DeclOperand::Assignment(assignment) => assignment,
+            operand => panic!("expected assignment operand, got {operand:#?}"),
+        },
+        command => panic!("expected assignment command, got {command:#?}"),
+    };
+    let AssignmentValue::Compound(array) = &assignment.value else {
+        panic!("expected compound array assignment");
+    };
+    let ArrayElem::Sequential(word) = &array.elements[0] else {
+        panic!("expected sequential array element");
+    };
+
+    let WordPart::DoubleQuoted { parts, .. } = &word.parts[0].kind else {
+        panic!("expected double-quoted array element");
+    };
+    let WordPart::CommandSubstitution { body, .. } = &parts[0].kind else {
+        panic!("expected command substitution");
+    };
+
+    assert_eq!(
+        parts[0].span.slice(input),
+        "$(echo \"$line\" | cut -d' ' -f2-)"
+    );
+    assert!(matches!(&body[0].command, AstCommand::Binary(_)));
+}
+
+#[test]
 fn test_parse_declare_array_preserves_separator_comment_in_quoted_command_substitution() {
     let input = "f() {\n\tlocal -a parts=(\n\t\t\"$(printf '%s' x;# comment with ) and ,\n\t\tprintf '%s' y\n\t\t)\"\n\t)\n}\n";
     let script = Parser::new(input).parse().unwrap().file;

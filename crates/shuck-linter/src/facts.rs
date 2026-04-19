@@ -22011,6 +22011,13 @@ expanded=$(echo $foo)
 quoted=$(echo \"$foo\")
 var_suffix=$(echo foo$foo)
 command_subst=$(echo foo $(date))
+nested_only=$(echo $(basename \"$f\" .fuzz))
+quoted_nested_only=$(echo \"$(basename \"$f\" .fuzz)\")
+multiple_nested=$(echo $(date) $(pwd))
+dynamic_dash=$(echo ${foo}-bar)
+quoted_dynamic_dash=$(echo \"${foo}-bar\")
+command_subst_dash=$(echo $(date)-bar)
+pipeline_cut=$(echo \"$line\" | cut -d' ' -f2-)
 option_like=$(echo -en \"\\001\")
 glob_like=$(echo O*)
 brace_like=$(echo {a,b})
@@ -22034,9 +22041,57 @@ brace_like=$(echo {a,b})
             assert_eq!(substitutions.get("$(echo \"$foo\")"), Some(&true));
             assert_eq!(substitutions.get("$(echo foo$foo)"), Some(&true));
             assert_eq!(substitutions.get("$(echo foo $(date))"), Some(&true));
+            assert_eq!(
+                substitutions.get("$(echo $(basename \"$f\" .fuzz))"),
+                Some(&false)
+            );
+            assert_eq!(
+                substitutions.get("$(echo \"$(basename \"$f\" .fuzz)\")"),
+                Some(&false)
+            );
+            assert_eq!(substitutions.get("$(echo $(date) $(pwd))"), Some(&true));
+            assert_eq!(substitutions.get("$(echo ${foo}-bar)"), Some(&false));
+            assert_eq!(substitutions.get("$(echo \"${foo}-bar\")"), Some(&false));
+            assert_eq!(substitutions.get("$(echo $(date)-bar)"), Some(&false));
+            assert_eq!(
+                substitutions.get("$(echo \"$line\" | cut -d' ' -f2-)"),
+                Some(&false)
+            );
             assert_eq!(substitutions.get("$(echo -en \"\\001\")"), Some(&false));
             assert_eq!(substitutions.get("$(echo O*)"), Some(&false));
             assert_eq!(substitutions.get("$(echo {a,b})"), Some(&false));
+        });
+    }
+
+    #[test]
+    fn keeps_bash_pipeline_substitution_facts_false_in_pattern_and_array_contexts() {
+        let source = "\
+#!/bin/bash
+if [[ \"${currencyCodes[*]}\" == *\"$(echo \"${@}\" | tr -d '[:space:]')\"* ]]; then :; fi
+CANDIDATES+=(\"$(echo \"$line\" | cut -d' ' -f2-)\")
+";
+
+        with_facts(source, None, |_, facts| {
+            let substitutions = facts
+                .commands()
+                .iter()
+                .flat_map(|fact| fact.substitution_facts().iter().copied())
+                .filter(|fact| fact.span().slice(source).contains("$(echo"))
+                .map(|fact| {
+                    (
+                        fact.span().slice(source).to_owned(),
+                        fact.body_contains_echo(),
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                substitutions,
+                vec![
+                    ("$(echo \"${@}\" | tr -d '[:space:]')".to_owned(), false,),
+                    ("$(echo \"$line\" | cut -d' ' -f2-)".to_owned(), false),
+                ]
+            );
         });
     }
 

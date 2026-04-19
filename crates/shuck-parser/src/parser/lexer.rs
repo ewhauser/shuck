@@ -4654,6 +4654,32 @@ mod tests {
     }
 
     #[test]
+    fn test_double_quoted_token_preserves_inner_quoted_command_substitution_pipeline() {
+        let source = r#""$(echo "$line" | cut -d' ' -f2-)""#;
+        let mut lexer = Lexer::new(source);
+
+        let token = lexer.next_lexed_token().unwrap();
+        assert_eq!(token.kind, TokenKind::QuotedWord);
+        assert_eq!(
+            token.word_text(),
+            Some(r#"$(echo "$line" | cut -d' ' -f2-)"#)
+        );
+    }
+
+    #[test]
+    fn test_double_quoted_token_preserves_braced_param_pipeline_substitution() {
+        let source = r#""$(echo "${@}" | tr -d '[:space:]')""#;
+        let mut lexer = Lexer::new(source);
+
+        let token = lexer.next_lexed_token().unwrap();
+        assert_eq!(token.kind, TokenKind::QuotedWord);
+        assert_eq!(
+            token.word_text(),
+            Some(r#"$(echo "${@}" | tr -d '[:space:]')"#)
+        );
+    }
+
+    #[test]
     fn test_mixed_word_keeps_segment_kinds() {
         let source = r#"foo"bar"'baz'"#;
         let mut lexer = Lexer::new(source);
@@ -4909,6 +4935,26 @@ mod tests {
     #[test]
     fn test_scan_command_substitution_body_len_handles_backticks_with_right_parens_at_eof() {
         let source = "printf %s `echo foo)`; printf %s ok)";
+
+        let consumed = scan_command_substitution_body_len(source).expect("expected match");
+        let body = &source[..consumed];
+
+        assert_eq!(body, source);
+    }
+
+    #[test]
+    fn test_scan_command_substitution_body_len_handles_inner_quotes_in_pipeline_at_eof() {
+        let source = "echo \"$line\" | cut -d' ' -f2-)";
+
+        let consumed = scan_command_substitution_body_len(source).expect("expected match");
+        let body = &source[..consumed];
+
+        assert_eq!(body, source);
+    }
+
+    #[test]
+    fn test_scan_command_substitution_body_len_handles_braced_params_in_pipeline_at_eof() {
+        let source = "echo \"${@}\" | tr -d '[:space:]')";
 
         let consumed = scan_command_substitution_body_len(source).expect("expected match");
         let body = &source[..consumed];

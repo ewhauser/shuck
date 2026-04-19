@@ -459,34 +459,122 @@ fn classify_redirect_facts(redirects: &[RedirectFact<'_>]) -> RedirectState {
 }
 
 fn substitution_body_contains_echo(body: &StmtSeq, source: &str) -> bool {
-    let mut visits = query::iter_commands(
-        body,
-        CommandWalkOptions {
-            descend_nested_word_commands: false,
-        },
-    );
-    let Some(visit) = visits.next() else {
+    let [stmt] = body.stmts.as_slice() else {
         return false;
     };
-    if visits.next().is_some() {
+
+    if !matches!(
+        stmt.command,
+        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_)
+    ) {
         return false;
     }
 
-    let normalized = command::normalize_command(visit.command, source);
+    let normalized = command::normalize_command(&stmt.command, source);
     if !normalized.effective_name_is("echo") {
         return false;
     }
 
-    if normalized.body_args().first().is_some_and(|word| {
+    let body_args = normalized.body_args();
+    if body_args.first().is_some_and(|word| {
         static_word_text(word, source).is_some_and(|text| text.starts_with('-'))
     }) {
         return false;
     }
 
-    normalized
-        .body_args()
+    if body_args
+        .first()
+        .is_some_and(|word| word_has_leading_dynamic_dash_literal(word, source))
+    {
+        return false;
+    }
+
+    if matches!(body_args, [word] if word_is_command_substitution_only(word)) {
+        return false;
+    }
+
+    body_args
         .iter()
         .all(|word| !word_contains_unquoted_glob_or_brace(word, source))
+}
+
+fn word_is_command_substitution_only(word: &Word) -> bool {
+    match word.parts.as_slice() {
+        [
+            WordPartNode {
+                kind: WordPart::CommandSubstitution { .. },
+                ..
+            },
+        ] => true,
+        [
+            WordPartNode {
+                kind: WordPart::DoubleQuoted { parts, .. },
+                ..
+            },
+        ] => matches!(
+            parts.as_slice(),
+            [WordPartNode {
+                kind: WordPart::CommandSubstitution { .. },
+                ..
+            }]
+        ),
+        _ => false,
+    }
+}
+
+fn word_has_leading_dynamic_dash_literal(word: &Word, source: &str) -> bool {
+    let mut saw_dynamic = false;
+    leading_dynamic_dash_literal_in_parts(&word.parts, source, &mut saw_dynamic).unwrap_or(false)
+}
+
+fn leading_dynamic_dash_literal_in_parts(
+    parts: &[WordPartNode],
+    source: &str,
+    saw_dynamic: &mut bool,
+) -> Option<bool> {
+    for part in parts {
+        match &part.kind {
+            WordPart::Literal(text) => {
+                let text = text.as_str(source, part.span);
+                if !text.is_empty() {
+                    return Some(*saw_dynamic && text.starts_with('-'));
+                }
+            }
+            WordPart::SingleQuoted { value, .. } => {
+                let text = value.slice(source);
+                if !text.is_empty() {
+                    return Some(*saw_dynamic && text.starts_with('-'));
+                }
+            }
+            WordPart::DoubleQuoted { parts, .. } => {
+                if let Some(result) =
+                    leading_dynamic_dash_literal_in_parts(parts, source, saw_dynamic)
+                {
+                    return Some(result);
+                }
+            }
+            WordPart::Variable(_)
+            | WordPart::Parameter(_)
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::Transformation { .. }
+            | WordPart::ZshQualifiedGlob(_) => {
+                *saw_dynamic = true;
+            }
+        }
+    }
+
+    None
 }
 
 fn substitution_body_contains_ls<'a>(
