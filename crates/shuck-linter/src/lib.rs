@@ -25,7 +25,7 @@ pub use facts::{
     BacktickFragmentFact, CommandFact, CommandOptionFacts, ConditionalBareWordFact,
     ConditionalBinaryFact, ConditionalFact, ConditionalNodeFact, ConditionalOperandFact,
     ConditionalOperatorFamily, ConditionalPortabilityFacts, ConditionalUnaryFact, ExitCommandFacts,
-    FactSpan, FindCommandFacts, FindExecCommandFacts, FindExecDirCommandFacts, ForHeaderFact,
+    FactSpan, FindCommandFacts, FindExecCommandFacts, FindExecShellCommandFacts, ForHeaderFact,
     FunctionCallArityFacts, FunctionHeaderFact, GrepPatternSourceKind,
     LegacyArithmeticFragmentFact, LinterFacts, ListFact, ListOperatorFact, LoopHeaderWordFact,
     PathWordFact, PipelineFact, PipelineOperatorFact, PipelineSegmentFact,
