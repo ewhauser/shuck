@@ -1,3 +1,4 @@
+use rustc_hash::FxHashSet;
 use shuck_ast::RedirectKind;
 
 use crate::{Checker, RedirectFact, Rule, Violation};
@@ -15,9 +16,23 @@ impl Violation for StderrBeforeStdoutRedirect {
 }
 
 pub fn stderr_before_stdout_redirect(checker: &mut Checker) {
+    let pipeline_producer_command_ids = checker
+        .facts()
+        .pipelines()
+        .iter()
+        .flat_map(|pipeline| {
+            pipeline
+                .segments()
+                .split_last()
+                .into_iter()
+                .flat_map(|(_, producers)| producers.iter().map(|segment| segment.command_id()))
+        })
+        .collect::<FxHashSet<_>>();
+
     let spans = checker
         .facts()
         .structural_commands()
+        .filter(|fact| !pipeline_producer_command_ids.contains(&fact.id()))
         .flat_map(|fact| {
             let redirects = fact.redirect_facts();
             redirects
@@ -76,5 +91,21 @@ out=$(bar 2>&1 >/dev/null)
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.start.line, 2);
+    }
+
+    #[test]
+    fn ignores_pipeline_producers_but_keeps_pipeline_tail_reports() {
+        let source = "\
+#!/bin/sh
+foo 2>&1 >/dev/null | sed 's/x/y/'
+echo ok | foo 2>&1 >/dev/null
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::StderrBeforeStdoutRedirect),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 3);
     }
 }
