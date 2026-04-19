@@ -9,8 +9,8 @@ shells:
   - bash
   - dash
   - ksh
-description: A command substitution is used inside an alias definition.
-rationale: Define a function instead or expand the path before aliasing.
+description: An alias definition contains an expansion that resolves while the alias is being declared.
+rationale: Escape the expansion or move the logic into a function so it is evaluated when the alias is used.
 source:
   shell_checks_rule: rules/SH-233.yaml
   shell_checks_example: examples/233.sh
@@ -18,6 +18,5 @@ examples:
   - kind: invalid
     source: shell-checks/examples/233.sh
     code: |
-      #!/bin/sh
-      # shellcheck disable=2034,2046
-      alias printf=$(command -v printf)
+      #!/bin/bash
+      alias icloud="cd '$HOME'"

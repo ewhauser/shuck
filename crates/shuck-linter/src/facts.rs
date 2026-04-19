@@ -1086,6 +1086,7 @@ pub struct WordFact<'a> {
     static_text: Option<Box<str>>,
     has_literal_affixes: bool,
     contains_shell_quoting_literals: bool,
+    active_expansion_spans: Box<[Span]>,
     scalar_expansion_spans: Box<[Span]>,
     unquoted_scalar_expansion_spans: Box<[Span]>,
     array_assignment_split_scalar_expansion_spans: Box<[Span]>,
@@ -1174,6 +1175,10 @@ impl<'a> WordFact<'a> {
 
     pub fn contains_shell_quoting_literals(&self) -> bool {
         self.contains_shell_quoting_literals
+    }
+
+    pub fn active_expansion_spans(&self) -> &[Span] {
+        &self.active_expansion_spans
     }
 
     pub fn scalar_expansion_spans(&self) -> &[Span] {
@@ -11456,6 +11461,8 @@ impl<'a> WordFactCollector<'a> {
                 word_ref,
                 self.source,
             ),
+            active_expansion_spans: span::active_expansion_spans_in_source(word_ref, self.source)
+                .into_boxed_slice(),
             scalar_expansion_spans: span::scalar_expansion_part_spans(word_ref, self.source)
                 .into_boxed_slice(),
             unquoted_scalar_expansion_spans: span::unquoted_scalar_expansion_part_spans(

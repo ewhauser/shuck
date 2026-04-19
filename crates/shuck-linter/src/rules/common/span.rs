@@ -148,6 +148,23 @@ pub fn expansion_part_spans(word: &Word) -> Vec<Span> {
     spans
 }
 
+pub fn active_expansion_spans_in_source(word: &Word, source: &str) -> Vec<Span> {
+    let mut spans = expansion_part_spans(word)
+        .into_iter()
+        .map(|span| normalize_command_substitution_span(span, source))
+        .collect::<Vec<_>>();
+    spans.extend(
+        word.brace_syntax()
+            .iter()
+            .copied()
+            .filter(|brace| brace.expands())
+            .map(|brace| brace.span),
+    );
+    spans.sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
+    spans.dedup();
+    spans
+}
+
 pub fn scalar_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_scalar_expansion_spans(&word.parts, false, false, &mut spans);
