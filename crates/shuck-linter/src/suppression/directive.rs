@@ -463,7 +463,7 @@ fn segment_ends_with_keyword(source: &str, start: usize, end: usize, keyword: &s
     prefix
         .chars()
         .next_back()
-        .is_none_or(|ch| !(ch.is_ascii_alphanumeric() || ch == '_'))
+        .is_none_or(|ch| ch.is_ascii_whitespace())
 }
 
 fn loop_header_matches(
@@ -699,6 +699,19 @@ done
         assert_eq!(directives[0].source, SuppressionSource::ShellCheck);
         assert_eq!(directives[0].codes, vec![Rule::UnquotedExpansion]);
         assert_eq!(directives[0].line, 1);
+    }
+
+    #[test]
+    fn rejects_shellcheck_directives_after_keyword_suffixes_inside_words() {
+        let source = "\
+for item in to-do # shellcheck disable=SC2086
+do
+  echo $foo
+done
+";
+        let directives = directives(source);
+
+        assert!(directives.is_empty());
     }
 
     #[test]

@@ -766,6 +766,22 @@ echo $foo
     }
 
     #[test]
+    fn ignores_shellcheck_directives_after_keyword_suffixes_inside_words() {
+        let source = "\
+foo='a b'
+for item in to-do # shellcheck disable=SC2086
+do
+  echo $foo
+done
+echo $foo
+";
+        let index = suppression_index(source);
+
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 4));
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 6));
+    }
+
+    #[test]
     fn ignores_case_label_directives_after_same_line_body_commands() {
         let source = "\
 case $x in

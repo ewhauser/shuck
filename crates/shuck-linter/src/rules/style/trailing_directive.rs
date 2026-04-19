@@ -113,4 +113,14 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.start.line, 2);
     }
+
+    #[test]
+    fn reports_keyword_suffixes_inside_words_with_trailing_directives() {
+        let source =
+            "#!/bin/sh\nfor item in to-do # shellcheck disable=SC2086\ndo\n  echo $foo\ndone\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrailingDirective));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+    }
 }
