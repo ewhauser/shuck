@@ -9076,7 +9076,9 @@ fn collect_terminal_command_substitution_spans_in_command(
 ) {
     match command {
         Command::Simple(command) => {
-            if command_name_is_plain_command_substitution(&command.name, source) {
+            if command.args.is_empty()
+                && command_name_is_plain_command_substitution(&command.name, source)
+            {
                 spans.push(command.name.span);
             }
         }
@@ -19033,8 +19035,14 @@ fi
 if $(printf one); then
   :
 fi
+if $(command -v printf) --version >/dev/null 2>&1; then
+  :
+fi
 while $(printf two); do
   :
+done
+until $(command -v printf) --help >/dev/null 2>&1; do
+  break
 done
 ";
 
