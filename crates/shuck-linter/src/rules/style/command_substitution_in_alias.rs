@@ -1,4 +1,4 @@
-use crate::{Checker, ExpansionContext, Rule, Violation};
+use crate::{Checker, Rule, Violation};
 
 pub struct CommandSubstitutionInAlias;
 
@@ -13,57 +13,15 @@ impl Violation for CommandSubstitutionInAlias {
 }
 
 pub fn command_substitution_in_alias(checker: &mut Checker) {
-    let source = checker.source();
-    let word_facts = checker.facts().word_facts();
-    let spans = checker
-        .facts()
-        .commands()
-        .iter()
-        .filter(|fact| fact.effective_name_is("alias"))
-        .flat_map(|fact| {
-            let body_args = fact.body_args();
-            let mut definition_spans = Vec::new();
-            let mut index = 0usize;
-
-            while let Some(word) = body_args.get(index).copied() {
-                let text = word.span.slice(source);
-                if !text.contains('=') {
-                    index += 1;
-                    continue;
-                }
-
-                let mut definition_len = 1usize;
-                let mut last_word = word;
-                while last_word.span.slice(source).ends_with('=')
-                    && let Some(next_word) = body_args.get(index + definition_len).copied()
-                    && last_word.span.end.offset == next_word.span.start.offset
-                {
-                    last_word = next_word;
-                    definition_len += 1;
-                }
-
-                let first_expansion = body_args[index..index + definition_len]
-                    .iter()
-                    .filter_map(|candidate| {
-                        word_facts.iter().find(|fact| {
-                            fact.expansion_context() == Some(ExpansionContext::CommandArgument)
-                                && fact.span() == candidate.span
-                        })
-                    })
-                    .flat_map(|fact| fact.active_expansion_spans().iter().copied())
-                    .min_by_key(|span| (span.start.offset, span.end.offset));
-                if let Some(first_expansion) = first_expansion {
-                    definition_spans.push(first_expansion);
-                }
-
-                index += definition_len;
-            }
-
-            definition_spans
-        })
-        .collect::<Vec<_>>();
-
-    checker.report_all_dedup(spans, || CommandSubstitutionInAlias);
+    checker.report_all_dedup(
+        checker
+            .facts()
+            .alias_definition_expansion_spans()
+            .iter()
+            .copied()
+            .collect(),
+        || CommandSubstitutionInAlias,
+    );
 }
 
 #[cfg(test)]
@@ -133,6 +91,20 @@ alias -p
 #!/bin/sh
 X=$(date) alias ll='ls -l'
 FOO=$(date) BAR=$(uname) alias ll='ls -l'
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CommandSubstitutionInAlias),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_alias_lookups_with_equals_only_inside_expansions() {
+        let source = "\
+#!/bin/bash
+alias \"${cur%=}\" 2>/dev/null
 ";
         let diagnostics = test_snippet(
             source,
