@@ -313,4 +313,24 @@ demo() {
             vec!["arr"]
         );
     }
+
+    #[test]
+    fn reports_escaped_declarations_with_nested_parameter_subscript_commands() {
+        let source = "\
+#!/bin/bash
+\\declare arr[${k:-$(printf '}')}]=$(date)
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ExportCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["arr"]
+        );
+    }
 }

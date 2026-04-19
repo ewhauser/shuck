@@ -9058,36 +9058,57 @@ fn find_runtime_parameter_closing_brace(text: &str, start_offset: usize) -> Opti
         return None;
     }
 
+    let bytes = text.as_bytes();
     let mut index = start_offset + "${".len();
     let mut depth = 1usize;
 
-    while index < text.len() {
-        if text[index..].starts_with("${") {
+    while index < bytes.len() {
+        if bytes[index] == b'\\' {
+            index = advance_escaped_char_boundary(text, index);
+            continue;
+        }
+
+        if index + 2 < bytes.len()
+            && is_unescaped_dollar(bytes, index)
+            && bytes[index + 1] == b'('
+            && bytes[index + 2] == b'('
+        {
+            index = find_wrapped_arithmetic_end(bytes, index)?;
+            continue;
+        }
+
+        if index + 1 < bytes.len()
+            && is_unescaped_dollar(bytes, index)
+            && bytes[index + 1] == b'('
+        {
+            index = find_command_substitution_end(bytes, index)?;
+            continue;
+        }
+
+        if index + 1 < bytes.len()
+            && is_unescaped_dollar(bytes, index)
+            && bytes[index + 1] == b'{'
+        {
             depth += 1;
             index += "${".len();
             continue;
         }
 
-        let ch = text[index..].chars().next()?;
-
-        if ch == '\\' {
-            index += ch.len_utf8();
-            if let Some(escaped) = text[index..].chars().next() {
-                index += escaped.len_utf8();
+        match bytes[index] {
+            b'\'' => index = skip_single_quoted(bytes, index + 1)?,
+            b'"' => index = skip_double_quoted(bytes, index + 1)?,
+            b'`' => index = skip_backticks(bytes, index + 1)?,
+            b'}' => {
+                depth -= 1;
+                index += '}'.len_utf8();
+                if depth == 0 {
+                    return Some(index);
+                }
             }
-            continue;
-        }
-
-        if ch == '}' {
-            depth -= 1;
-            index += ch.len_utf8();
-            if depth == 0 {
-                return Some(index);
+            _ => {
+                index += text[index..].chars().next()?.len_utf8();
             }
-            continue;
         }
-
-        index += ch.len_utf8();
     }
 
     None
