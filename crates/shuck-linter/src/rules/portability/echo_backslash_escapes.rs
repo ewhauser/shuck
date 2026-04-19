@@ -47,11 +47,16 @@ echo 'It'\''s just quote plumbing'
 echo "  echo You may need to get \\\`FluidR3_GM.sf2\\' from somewhere"
 echo "sed -e 's|^\\(CertStore=\\).*|\\1X|g'"
 echo "prefix $VAR \\0 suffix"
+echo -DLATEX=\\"$(which latex)\\"
+echo "  .TargetPath = \"\\\\host.lan\\Data\""
 echo -e "\n"
 echo -n -e "\n"
 echo -n "$flag" -e \x41
 echo \c
 echo \u1234
+echo -n "\"${shortname}\""
+echo "include \"$TERMUX_PREFIX/share/nano/*nanorc\""
+echo "  .TargetPath = \"\\host.lan\\Data\""
 command echo \n
 builtin echo \n
 printf '%s\n' \n
@@ -78,6 +83,8 @@ printf '%s\n' \n
                 "\"  echo You may need to get \\\\\\`FluidR3_GM.sf2\\\\' from somewhere\"",
                 "\"sed -e 's|^\\\\(CertStore=\\\\).*|\\\\1X|g'\"",
                 "\"prefix $VAR \\\\0 suffix\"",
+                "-DLATEX=\\\\\"$(which latex)\\\\\"",
+                "\"  .TargetPath = \\\"\\\\\\\\host.lan\\\\Data\\\"\"",
                 "\\x41",
             ]
         );

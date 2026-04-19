@@ -5392,29 +5392,30 @@ fn word_parts_contain_echo_backslash_escape(
     source: &str,
     in_double_quotes: bool,
 ) -> bool {
-    parts.iter().any(|part| match &part.kind {
-        WordPart::Literal(text) => {
-            let core_text = if in_double_quotes {
-                text.as_str(source, part.span)
-            } else {
-                part.span.slice(source)
-            };
-
-            text_contains_echo_backslash_escape(core_text, echo_escape_is_core_family)
-                || (in_double_quotes
-                    && text_contains_echo_backslash_escape(
-                        text.as_str(source, part.span),
-                        echo_escape_is_quote_like,
-                    ))
-        }
-        WordPart::SingleQuoted { value, .. } => {
-            text_contains_echo_backslash_escape(value.slice(source), echo_escape_is_core_family)
-        }
-        WordPart::DoubleQuoted { parts, .. } => {
-            word_parts_contain_echo_backslash_escape(parts, source, true)
-        }
-        _ => false,
-    })
+    parts
+        .iter()
+        .enumerate()
+        .any(|(index, part)| match &part.kind {
+            WordPart::Literal(text) => {
+                let core_text = if in_double_quotes {
+                    text.as_str(source, part.span)
+                } else {
+                    part.span.slice(source)
+                };
+                let rendered_text = text.as_str(source, part.span);
+                text_contains_echo_backslash_escape(core_text, echo_escape_is_core_family)
+                    || text_contains_echo_backslash_escape(rendered_text, echo_escape_is_quote_like)
+                    || text_contains_echo_double_backslash(rendered_text)
+                    || literal_backslash_touches_double_quoted_fragment(parts, index, rendered_text)
+            }
+            WordPart::SingleQuoted { value, .. } => {
+                text_contains_echo_backslash_escape(value.slice(source), echo_escape_is_core_family)
+            }
+            WordPart::DoubleQuoted { parts, .. } => {
+                word_parts_contain_echo_backslash_escape(parts, source, true)
+            }
+            _ => false,
+        })
 }
 
 fn echo_escape_is_core_family(byte: u8) -> bool {
@@ -5426,6 +5427,47 @@ fn echo_escape_is_core_family(byte: u8) -> bool {
 
 fn echo_escape_is_quote_like(byte: u8) -> bool {
     matches!(byte, b'`' | b'\'')
+}
+
+fn literal_backslash_touches_double_quoted_fragment(
+    parts: &[WordPartNode],
+    index: usize,
+    rendered_text: &str,
+) -> bool {
+    (rendered_text.ends_with('\\')
+        && parts
+            .get(index + 1)
+            .is_some_and(|part| matches!(part.kind, WordPart::DoubleQuoted { .. })))
+        || (rendered_text.starts_with('\\')
+            && index
+                .checked_sub(1)
+                .and_then(|prev| parts.get(prev))
+                .is_some_and(|part| matches!(part.kind, WordPart::DoubleQuoted { .. })))
+}
+
+fn text_contains_echo_double_backslash(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+
+    while index < bytes.len() {
+        if bytes[index] != b'\\' {
+            index += 1;
+            continue;
+        }
+
+        let run_start = index;
+        while index < bytes.len() && bytes[index] == b'\\' {
+            index += 1;
+        }
+
+        if index.saturating_sub(run_start) >= 2
+            && bytes.get(index).is_some_and(|next| *next != b'"')
+        {
+            return true;
+        }
+    }
+
+    false
 }
 
 fn text_contains_echo_backslash_escape(text: &str, is_sensitive: fn(u8) -> bool) -> bool {
@@ -20326,6 +20368,59 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
                 .collect::<Vec<_>>(),
             vec!["a-z", "A-Z"]
         );
+    }
+
+    #[test]
+    fn tracks_quote_like_echo_escapes_inside_double_quotes_from_syntax_text() {
+        let source = "#!/bin/bash\necho \"  echo Remember to run \\\\\\`updatedb\\\\'.\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert_eq!(
+            facts
+                .echo_backslash_escape_word_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["\"  echo Remember to run \\\\\\`updatedb\\\\'.\""]
+        );
+    }
+
+    #[test]
+    fn tracks_echo_backslash_double_quote_escape_shapes() {
+        let source = "#!/bin/bash\necho -DLATEX=\\\\\"$(which latex)\\\\\"\necho \"  .TargetPath = \\\"\\\\\\\\host.lan\\\\Data\\\"\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert_eq!(
+            facts
+                .echo_backslash_escape_word_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "-DLATEX=\\\\\"$(which latex)\\\\\"",
+                "\"  .TargetPath = \\\"\\\\\\\\host.lan\\\\Data\\\"\""
+            ]
+        );
+    }
+
+    #[test]
+    fn ignores_json_like_backslash_quote_wrappers_around_variables() {
+        let source = "#!/bin/bash\necho \"LABEL com.dokku.docker-image-labeler/alternate-tags=[\\\\\\\"$DOCKER_IMAGE\\\\\\\"]\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(facts.echo_backslash_escape_word_spans().is_empty());
     }
 
     #[test]

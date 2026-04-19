@@ -1661,6 +1661,28 @@ fn test_escaped_backticks_inside_double_quotes_stay_literal() {
 }
 
 #[test]
+fn test_escaped_backticks_after_escaped_backslashes_inside_double_quotes_stay_literal() {
+    let input = "echo \"  echo Remember to run \\\\\\`updatedb\\\\'.\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let word = &command.args[0];
+
+    assert_eq!(word.render(input), "  echo Remember to run \\`updatedb\\'.");
+
+    let WordPart::DoubleQuoted { parts, .. } = &word.parts[0].kind else {
+        panic!("expected double-quoted word");
+    };
+    assert!(
+        !parts
+            .iter()
+            .any(|part| matches!(part.kind, WordPart::CommandSubstitution { .. }))
+    );
+}
+
+#[test]
 fn test_process_substitution_like_text_inside_double_quotes_stays_literal() {
     let input = "echo \"<(printf hi)\" \" >(printf bye)\"\n";
     let script = Parser::new(input).parse().unwrap().file;

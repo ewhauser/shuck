@@ -3188,6 +3188,7 @@ impl<'a> Parser<'a> {
                             // double quotes, so nested decoding must not
                             // reactivate dollar-quote parsing here.
                             parse_dollar_quotes: false,
+                            preserve_escaped_expansion_literals: source_backed,
                             parse_process_substitutions: false,
                             ..DecodeWordPartsOptions::default()
                         },
@@ -5144,6 +5145,7 @@ impl<'a> Parser<'a> {
                 // Double-quoted segment contents treat `$'...'` and `$"..."`
                 // as literal text, not nested quote forms.
                 parse_dollar_quotes: false,
+                preserve_escaped_expansion_literals: source_backed,
                 parse_process_substitutions: false,
                 ..DecodeWordPartsOptions::default()
             },
