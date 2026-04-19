@@ -1,4 +1,4 @@
-use crate::{Checker, Rule, Violation, word_unquoted_word_between_single_quoted_segments_spans};
+use crate::{Checker, Rule, Violation, word_unquoted_word_after_single_quoted_segment_spans};
 
 pub struct UnquotedWordBetweenQuotes;
 
@@ -8,7 +8,7 @@ impl Violation for UnquotedWordBetweenQuotes {
     }
 
     fn message(&self) -> String {
-        "an unquoted word appears between single-quoted segments".to_owned()
+        "an unquoted word follows single-quoted text".to_owned()
     }
 }
 
@@ -18,9 +18,7 @@ pub fn unquoted_word_between_quotes(checker: &mut Checker) {
         .facts()
         .word_facts()
         .iter()
-        .flat_map(|fact| {
-            word_unquoted_word_between_single_quoted_segments_spans(fact.word(), source)
-        })
+        .flat_map(|fact| word_unquoted_word_after_single_quoted_segment_spans(fact.word(), source))
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || UnquotedWordBetweenQuotes);
@@ -32,13 +30,16 @@ mod tests {
     use crate::{LinterSettings, Rule};
 
     #[test]
-    fn reports_unquoted_words_between_single_quoted_segments() {
+    fn reports_unquoted_words_after_single_quoted_segments() {
         let source = "\
 #!/bin/bash
 printf '%s\\n' 'foo'Default'baz'
 sed -i 's/${title}/'Default'/g' \"$file\"
 x='a'b'c'
 arr=('a'123'c')
+sed -i '/.*certs\\.h/'d dependencies/file.cpp
+ip route | grep ^default'\\s'via | head -1
+sed -i '/install(/s,\\<lib\\>,'lib$LIBDIRSUFFIX',' CMakeLists.txt
 ";
         let diagnostics = test_snippet(
             source,
@@ -50,7 +51,7 @@ arr=('a'123'c')
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["Default", "Default", "b", "123"]
+            vec!["Default", "Default", "b", "123", "d", "via", "lib"]
         );
     }
 
@@ -62,6 +63,8 @@ printf '%s\\n' 'foo'-'baz'
 printf '%s\\n' 'foo''baz'
 printf '%s\\n' 'foo'$bar'baz'
 printf '%s\\n' $'foo'Default'baz'
+sed -i -e 's/^package .*/package 'fuzz_ng_$pkg_flat'/' \"$file\"
+sed -i -e 's/^package .*/package 'foo_bar'/' \"$file\"
 printf '%s\\n' 's/foo/'\\''bar'\\''/g'
 sed -i 's/^\\(\\[binaries\\]\\)$/\\1\\nexe_wrapper = '\\''exe_wrapper'\\''/g' \\
   \"$TERMUX_MESON_CROSSFILE\"

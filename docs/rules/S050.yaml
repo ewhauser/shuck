@@ -9,8 +9,8 @@ shells:
   - bash
   - dash
   - ksh
-description: An unquoted word sits between two single-quoted segments.
-rationale: Merge the segments into one quoted string.
+description: An unquoted word continues immediately after single-quoted text.
+rationale: Keep the intended word inside single quotes instead of reopening it unquoted.
 source:
   shell_checks_rule: rules/SH-205.yaml
   shell_checks_example: examples/205.sh
