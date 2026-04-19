@@ -25952,8 +25952,10 @@ crypt=${crypt//\\//\\\\\\/}
 #!/bin/sh
 printf '%s\\n' ${\"$foo\"[1]}
 printf '%s\\n' ${\"$(printf '%s\\n' \"$PWD\")\"[(w)1]}
+printf '%s\\n' ${\"$(printf \"%s\" \")\")\"[(w)1]}
 printf '%s\\n' ${map[(I)needle]}
 printf '%s\\n' \"${precmd_functions[(r)_z_precmd]}\"
+printf '%s\\n' '${\"$bar\"[1]}'
 ";
 
         with_facts(source, None, |_, facts| {
@@ -25963,7 +25965,11 @@ printf '%s\\n' \"${precmd_functions[(r)_z_precmd]}\"
                     .iter()
                     .map(|fragment| fragment.span().slice(source))
                     .collect::<Vec<_>>(),
-                vec!["${\"$foo\"", "${\"$(printf '%s\\n' \"$PWD\")\""]
+                vec![
+                    "${\"$foo\"",
+                    "${\"$(printf '%s\\n' \"$PWD\")\"",
+                    "${\"$(printf \"%s\" \")\")\"",
+                ]
             );
         });
     }

@@ -77,4 +77,30 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "${\"$foo\"");
     }
+
+    #[test]
+    fn reports_quoted_targets_with_quoted_parens_in_command_substitutions() {
+        let source = "#!/bin/sh\nx=${\"$(printf \"%s\" \")\")\"[(w)1]}\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ZshParameterIndexFlag),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "${\"$(printf \"%s\" \")\")\""
+        );
+    }
+
+    #[test]
+    fn ignores_single_quoted_literal_parameter_text() {
+        let source = "#!/bin/sh\nx='${\"$foo\"[1]}'\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ZshParameterIndexFlag),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
 }
