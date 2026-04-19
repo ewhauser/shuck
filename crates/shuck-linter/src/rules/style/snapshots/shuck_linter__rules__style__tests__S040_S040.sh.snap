@@ -1,15 +1,57 @@
 ---
 source: crates/shuck-linter/src/rules/style/mod.rs
-assertion_line: 52
+assertion_line: 167
 ---
-S040 a leading backslash before command is unnecessary
- --> <source>:3:1
+S040 shell words treat \n, \r, and \t as plain text
+ --> <source>:3:6
   |
-3 | \command echo hi
+3 | echo \n
   |
 
-S040 a leading backslash before command is unnecessary
- --> <source>:4:1
+S040 shell words treat \n, \r, and \t as plain text
+ --> <source>:4:9
   |
-4 | \command \rm tmp.txt || echo fail
+4 | echo foo\nbar
   |
+
+S040 shell words treat \n, \r, and \t as plain text
+ --> <source>:5:8
+  |
+5 | foo=bar\r
+  |
+
+S040 shell words treat \n, \r, and \t as plain text
+ --> <source>:6:14
+  |
+6 | case x in foo\t) : ;; esac
+  |
+
+S040 shell words treat \n, \r, and \t as plain text
+ --> <source>:7:10
+  |
+7 | cat < foo\nbar
+  |
+
+S040 shell words treat \n, \r, and \t as plain text
+ --> <source>:8:7
+  |
+8 | `echo \n`
+  |
+
+S040 shell words treat \n, \r, and \t as plain text
+ --> <source>:9:9
+  |
+9 | command \rm file
+  |
+
+S040 shell words treat \n, \r, and \t as plain text
+  --> <source>:10:6
+   |
+10 | grep \t file
+   |
+
+S040 shell words treat \n, \r, and \t as plain text
+  --> <source>:11:12
+   |
+11 | foo=$(echo \t)
+   |

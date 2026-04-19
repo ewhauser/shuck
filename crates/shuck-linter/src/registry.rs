@@ -643,12 +643,7 @@ declare_rules! {
     ("S023", Category::Style, Severity::Warning, EscapedUnderscore),
     ("S024", Category::Style, Severity::Warning, SingleQuoteBackslash),
     ("S025", Category::Style, Severity::Warning, LiteralBackslash),
-    (
-        "S026",
-        Category::Style,
-        Severity::Warning,
-        NeedlessBackslashUnderscore
-    ),
+    ("SH-173", Category::Style, Severity::Warning, BackslashBeforeCommand),
     ("S028", Category::Style, Severity::Warning, SuspectClosingQuote),
     ("S029", Category::Style, Severity::Warning, LiteralBraces),
     ("S030", Category::Style, Severity::Warning, HeredocEndSpace),
@@ -659,7 +654,7 @@ declare_rules! {
         Severity::Warning,
         LiteralBackslashInSingleQuotes
     ),
-    ("S040", Category::Style, Severity::Warning, BackslashBeforeCommand),
+    ("S040", Category::Style, Severity::Warning, LiteralControlEscape),
     (
         "S041",
         Category::Style,
@@ -746,10 +741,8 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-212" => Some(Rule::UnquotedVariableInTest),
         "SH-087" => Some(Rule::SingleQuoteBackslash),
         "SH-172" => Some(Rule::LiteralBackslashInSingleQuotes),
-        "SH-173" => Some(Rule::BackslashBeforeCommand),
         "SH-185" => Some(Rule::IfsEqualsAmbiguity),
         "SH-088" => Some(Rule::LiteralBackslash),
-        "SH-092" => Some(Rule::NeedlessBackslashUnderscore),
         "SH-258" => Some(Rule::AssignmentToNumericVariable),
         "SH-259" => Some(Rule::PlusPrefixInAssignment),
         "SH-307" => Some(Rule::AppendWithEscapedQuotes),
@@ -1100,7 +1093,9 @@ mod tests {
             code_to_rule("SH-172"),
             Some(Rule::LiteralBackslashInSingleQuotes)
         );
-        assert_eq!(code_to_rule("S040"), Some(Rule::BackslashBeforeCommand));
+        assert_eq!(code_to_rule("S026"), None);
+        assert_eq!(code_to_rule("SH-092"), None);
+        assert_eq!(code_to_rule("S040"), Some(Rule::LiteralControlEscape));
         assert_eq!(code_to_rule("SH-173"), Some(Rule::BackslashBeforeCommand));
         assert_eq!(code_to_rule("S041"), Some(Rule::FunctionBodyWithoutBraces));
         assert_eq!(

@@ -30,7 +30,7 @@ pub(crate) struct EscapeScanMatch {
     span: Span,
     escaped_byte: u8,
     source_kind: EscapeScanSourceKind,
-    nested_word_command: bool,
+    grep_style_argument: bool,
     host_contains_single_quoted_fragment: bool,
     inside_single_quoted_fragment: bool,
 }
@@ -48,8 +48,8 @@ impl EscapeScanMatch {
         self.source_kind
     }
 
-    pub(crate) fn is_nested_word_command(self) -> bool {
-        self.nested_word_command
+    pub(crate) fn is_grep_style_argument(self) -> bool {
+        self.grep_style_argument
     }
 
     pub(crate) fn host_contains_single_quoted_fragment(self) -> bool {
@@ -80,8 +80,8 @@ pub(super) fn build_escape_scan_matches(
         .iter()
         .filter(|fact| is_relevant_word_context(fact.expansion_context()))
     {
-        if is_grep_style_argument(commands, fact) || is_regex_like_context(fact.expansion_context())
-        {
+        let grep_style_argument = is_grep_style_argument(commands, fact);
+        if is_regex_like_context(fact.expansion_context()) {
             continue;
         }
 
@@ -96,7 +96,7 @@ pub(super) fn build_escape_scan_matches(
                 span,
                 context.source,
                 EscapeScanSourceKind::WordLiteralPart,
-                fact.is_nested_word_command(),
+                grep_style_argument,
                 host_contains_single_quoted_fragment,
                 single_quoted_fragments,
             );
@@ -107,7 +107,7 @@ pub(super) fn build_escape_scan_matches(
         .iter()
         .filter(|fact| is_assignment_value_context(fact.expansion_context()))
     {
-        if !word_has_single_literal_part(fact.word()) || is_grep_style_argument(commands, fact) {
+        if !word_has_single_literal_part(fact.word()) {
             continue;
         }
 
@@ -116,7 +116,7 @@ pub(super) fn build_escape_scan_matches(
             fact.span(),
             context.source,
             EscapeScanSourceKind::SingleLiteralAssignmentWord,
-            fact.is_nested_word_command(),
+            is_grep_style_argument(commands, fact),
             span_contains_single_quoted_fragment(fact.span(), single_quoted_fragments),
             single_quoted_fragments,
         );
@@ -128,8 +128,8 @@ pub(super) fn build_escape_scan_matches(
             Some(ExpansionContext::RedirectTarget(_))
         )
     }) {
-        if is_grep_style_argument(commands, fact) || is_regex_like_context(fact.expansion_context())
-        {
+        let grep_style_argument = is_grep_style_argument(commands, fact);
+        if is_regex_like_context(fact.expansion_context()) {
             continue;
         }
 
@@ -142,7 +142,7 @@ pub(super) fn build_escape_scan_matches(
                 span,
                 context.source,
                 EscapeScanSourceKind::RedirectLiteralSegment,
-                fact.is_nested_word_command(),
+                grep_style_argument,
                 host_contains_single_quoted_fragment,
                 single_quoted_fragments,
             );
@@ -162,7 +162,7 @@ pub(super) fn build_escape_scan_matches(
             span,
             context.source,
             EscapeScanSourceKind::DynamicPathCommandName,
-            command.is_nested_word_command(),
+            false,
             span_contains_single_quoted_fragment(span, single_quoted_fragments),
             single_quoted_fragments,
         );
@@ -212,18 +212,55 @@ fn append_escape_scan_matches(
     scan_span: Span,
     source: &str,
     source_kind: EscapeScanSourceKind,
-    nested_word_command: bool,
+    grep_style_argument: bool,
     host_contains_single_quoted_fragment: bool,
     single_quoted_fragments: &[SingleQuotedFragmentFact],
 ) {
     let text = scan_span.slice(source);
     let bytes = text.as_bytes();
     let mut index = 0;
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
 
     while index < bytes.len() {
-        if bytes[index] != b'\\' {
+        if in_single_quotes {
+            if bytes[index] == b'\'' {
+                in_single_quotes = false;
+            }
             index += 1;
             continue;
+        }
+
+        if in_double_quotes {
+            match bytes[index] {
+                b'"' => {
+                    in_double_quotes = false;
+                    index += 1;
+                }
+                b'\\' => {
+                    index += usize::from(index + 1 < bytes.len()) + 1;
+                }
+                _ => index += 1,
+            }
+            continue;
+        }
+
+        match bytes[index] {
+            b'\'' => {
+                in_single_quotes = true;
+                index += 1;
+                continue;
+            }
+            b'"' => {
+                in_double_quotes = true;
+                index += 1;
+                continue;
+            }
+            b'\\' => {}
+            _ => {
+                index += 1;
+                continue;
+            }
         }
 
         let run_start = index;
@@ -245,7 +282,7 @@ fn append_escape_scan_matches(
             span: report_span,
             escaped_byte,
             source_kind,
-            nested_word_command,
+            grep_style_argument,
             host_contains_single_quoted_fragment,
             inside_single_quoted_fragment: span_within_single_quoted_fragment(
                 report_span,
@@ -405,7 +442,7 @@ case x in [a\-z]) : ;; esac
     }
 
     #[test]
-    fn records_nested_word_command_single_quote_metadata() {
+    fn records_single_quote_metadata_for_nested_command_words() {
         let source = r#"#!/bin/bash
 echo "$(printf prefix'quoted'\n)"
 "#;
@@ -422,12 +459,74 @@ echo "$(printf prefix'quoted'\n)"
                     .find(|escape| {
                         escape.escaped_byte() == b'n'
                             && escape.source_kind() == EscapeScanSourceKind::WordLiteralPart
-                            && escape.is_nested_word_command()
                             && escape.host_contains_single_quoted_fragment()
                     })
                     .expect("expected nested command word match");
 
                 assert!(nested_match.inside_single_quoted_fragment());
+            },
+        );
+    }
+
+    #[test]
+    fn marks_grep_style_arguments_without_dropping_the_match() {
+        let source = r#"#!/bin/sh
+grep foo\tbar file
+echo foo\tbar
+"#;
+
+        with_matches(
+            source,
+            None,
+            ParseShellDialect::Posix,
+            ShellDialect::Sh,
+            |matches| {
+                let grep_match = matches
+                    .iter()
+                    .copied()
+                    .find(|escape| {
+                        escape.escaped_byte() == b't'
+                            && escape.span().start.line == 2
+                            && escape.source_kind() == EscapeScanSourceKind::WordLiteralPart
+                    })
+                    .expect("expected grep argument match");
+                assert!(grep_match.is_grep_style_argument());
+
+                let echo_match = matches
+                    .iter()
+                    .copied()
+                    .find(|escape| {
+                        escape.escaped_byte() == b't'
+                            && escape.span().start.line == 3
+                            && escape.source_kind() == EscapeScanSourceKind::WordLiteralPart
+                    })
+                    .expect("expected ordinary argument match");
+                assert!(!echo_match.is_grep_style_argument());
+            },
+        );
+    }
+
+    #[test]
+    fn skips_backslashes_inside_double_quotes_when_scanning_raw_fragments() {
+        let source = r#"#!/bin/sh
+ALL_JARS=`ls *.jar | tr "\n" " "`
+cat < "\n"
+"#;
+
+        with_matches(
+            source,
+            None,
+            ParseShellDialect::Posix,
+            ShellDialect::Sh,
+            |matches| {
+                assert!(!matches.iter().any(|escape| {
+                    escape.escaped_byte() == b'n'
+                        && matches!(
+                            escape.source_kind(),
+                            EscapeScanSourceKind::BacktickFragment
+                                | EscapeScanSourceKind::RedirectLiteralSegment
+                        )
+                }));
             },
         );
     }

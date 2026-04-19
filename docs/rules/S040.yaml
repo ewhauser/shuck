@@ -1,5 +1,5 @@
-legacy_code: SH-173
-legacy_name: backslash-before-command
+legacy_code: ""
+legacy_name: literal-control-escape
 new_category: Style
 new_code: S040
 runtime_kind: ast
@@ -9,14 +9,10 @@ shells:
   - bash
   - dash
   - ksh
-description: A backslash precedes a command name to bypass aliases.
-rationale: Use 'command' instead of a leading backslash for clarity.
-source:
-  shell_checks_rule: rules/SH-173.yaml
-  shell_checks_example: examples/173.sh
+description: A shell word contains \n, \r, or \t text that stays literal.
+rationale: Use printf or an actual control character when whitespace is intended.
 examples:
   - kind: invalid
-    source: shell-checks/examples/173.sh
     code: |
       #!/bin/bash
-      \command \rm tmp.txt || echo fail
+      echo foo\tbar

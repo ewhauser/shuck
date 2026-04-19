@@ -552,8 +552,8 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::EscapedUnderscore) {
             rules::style::escaped_underscore::escaped_underscore(self);
         }
-        if self.is_rule_enabled(Rule::NeedlessBackslashUnderscore) {
-            rules::style::needless_backslash_underscore::needless_backslash_underscore(self);
+        if self.is_rule_enabled(Rule::LiteralControlEscape) {
+            rules::style::literal_control_escape::literal_control_escape(self);
         }
         if self.is_rule_enabled(Rule::LiteralBackslash) {
             rules::style::literal_backslash::literal_backslash(self);

@@ -1,3 +1,0 @@
-reviewed_divergences:
-  - side: shuck-only
-    reason: "S040 intentionally flags leading `\\command` wrappers used to dodge alias expansion in command position. The current ShellCheck oracle no longer reports that guidance, so these corpus hits are reviewed divergence noise rather than an implementation bug."
