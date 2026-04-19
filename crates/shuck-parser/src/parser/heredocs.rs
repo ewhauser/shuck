@@ -7,13 +7,23 @@ impl<'a> Parser<'a> {
         let quoted_parts = word.has_quoted_parts();
 
         if let Some((text, token_quoted)) = self.current_static_token_text() {
-            let quoted = quoted_parts || token_quoted || raw_text != text;
-            return Some((word, text, quoted));
+            let delimiter_text = if raw_text.contains('\\') {
+                unescape_heredoc_delimiter_text(raw_text)
+            } else {
+                text
+            };
+            let quoted = quoted_parts || token_quoted || raw_text != delimiter_text;
+            return Some((word, delimiter_text, quoted));
         }
 
         let text = self.literal_word_text(&word)?;
-        let quoted = quoted_parts || raw_text != text;
-        Some((word, text, quoted))
+        let delimiter_text = if raw_text.contains('\\') {
+            unescape_heredoc_delimiter_text(raw_text)
+        } else {
+            text
+        };
+        let quoted = quoted_parts || raw_text != delimiter_text;
+        Some((word, delimiter_text, quoted))
     }
 
     pub(super) fn strip_heredoc_tabs(content: String) -> String {
@@ -143,6 +153,26 @@ impl<'a> Parser<'a> {
         while self.consume_non_heredoc_redirect(redirects, None, None, false)? {}
         Ok(())
     }
+}
+
+fn unescape_heredoc_delimiter_text(text: &str) -> String {
+    let mut cooked = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            if let Some(next) = chars.next() {
+                cooked.push(next);
+            } else {
+                cooked.push(ch);
+            }
+            continue;
+        }
+
+        cooked.push(ch);
+    }
+
+    cooked
 }
 
 fn strip_heredoc_literal_indentation(text: &str, at_line_start: &mut bool) -> String {

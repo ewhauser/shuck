@@ -3807,11 +3807,21 @@ impl<'a> Lexer<'a> {
 }
 
 fn heredoc_line_matches_delimiter(line: &str, delimiter: &str, strip_tabs: bool) -> bool {
-    if strip_tabs {
-        line.trim_start_matches('\t') == delimiter
+    let line = if strip_tabs {
+        line.trim_start_matches('\t')
     } else {
-        line == delimiter
+        line
+    };
+
+    if line == delimiter {
+        return true;
     }
+
+    let Some(trailing) = line.strip_prefix(delimiter) else {
+        return false;
+    };
+
+    trailing.chars().all(|ch| matches!(ch, ' ' | '\t'))
 }
 
 fn next_char_boundary(input: &str, index: usize) -> Option<(char, usize)> {

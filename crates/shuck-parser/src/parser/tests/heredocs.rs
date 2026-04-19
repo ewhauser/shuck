@@ -1,4 +1,5 @@
 use super::*;
+use shuck_ast::Command as AstCommand;
 #[test]
 fn test_heredoc_pipe() {
     let parser = Parser::new("cat <<EOF | sort\nc\na\nb\nEOF\n");
@@ -277,6 +278,52 @@ fn test_backslash_escaped_heredoc_delimiter_is_treated_as_quoted_static_text() {
             "dialect: {dialect:?}"
         );
         assert_eq!(heredoc.body.render(input), "hello $name\n");
+    }
+}
+
+#[test]
+fn test_backslash_escaped_heredoc_with_trailing_redirect_keeps_following_command() {
+    let input = "cat <<\\EOF >&2\nUsage:\nEOF\nexit 255\n";
+    for dialect in [ShellDialect::Bash, ShellDialect::Posix, ShellDialect::Mksh] {
+        let script = Parser::with_dialect(input, dialect).parse().unwrap().file;
+
+        assert_eq!(script.body.len(), 2, "dialect: {dialect:?}");
+
+        let stmt = &script.body[0];
+        let _command = expect_simple(stmt);
+        assert_eq!(stmt.redirects.len(), 2, "dialect: {dialect:?}");
+
+        let heredoc = redirect_heredoc(&stmt.redirects[0]);
+        assert_eq!(heredoc.delimiter.cooked, "EOF", "dialect: {dialect:?}");
+        assert!(heredoc.delimiter.quoted, "dialect: {dialect:?}");
+        assert_eq!(
+            heredoc.body.render(input),
+            "Usage:\n",
+            "dialect: {dialect:?}"
+        );
+
+        let AstCommand::Builtin(shuck_ast::BuiltinCommand::Exit(exit)) = &script.body[1].command
+        else {
+            panic!("expected exit builtin, dialect: {dialect:?}");
+        };
+        let code = exit.code.as_ref().expect("expected exit code");
+        assert_eq!(code.render(input), "255", "dialect: {dialect:?}");
+    }
+}
+
+#[test]
+fn test_heredoc_closer_with_trailing_whitespace_still_closes() {
+    let input = "cat <<EOF\nbody\nEOF \nnext\n";
+    for dialect in [ShellDialect::Bash, ShellDialect::Posix, ShellDialect::Mksh] {
+        let script = Parser::with_dialect(input, dialect).parse().unwrap().file;
+
+        assert_eq!(script.body.len(), 2, "dialect: {dialect:?}");
+        let stmt = &script.body[0];
+        let _command = expect_simple(stmt);
+        let heredoc = redirect_heredoc(&stmt.redirects[0]);
+        assert_eq!(heredoc.body.render(input), "body\n", "dialect: {dialect:?}");
+        let next = expect_simple(&script.body[1]);
+        assert_eq!(next.name.render(input), "next", "dialect: {dialect:?}");
     }
 }
 
