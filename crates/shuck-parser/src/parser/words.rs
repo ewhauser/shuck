@@ -41,6 +41,7 @@ struct ParsedWordTarget {
 #[derive(Debug, Clone, Copy)]
 pub(super) struct DecodeWordPartsOptions {
     preserve_quote_fragments: bool,
+    ambient_double_quotes: bool,
     parse_dollar_quotes: bool,
     preserve_escaped_expansion_literals: bool,
     parse_process_substitutions: bool,
@@ -50,6 +51,7 @@ impl Default for DecodeWordPartsOptions {
     fn default() -> Self {
         Self {
             preserve_quote_fragments: false,
+            ambient_double_quotes: false,
             parse_dollar_quotes: false,
             preserve_escaped_expansion_literals: false,
             parse_process_substitutions: true,
@@ -3183,6 +3185,7 @@ impl<'a> Parser<'a> {
                         content_start,
                         true,
                         DecodeWordPartsOptions {
+                            ambient_double_quotes: true,
                             // `$'...'` and `$"..."` are literal inside ordinary
                             // double quotes, so nested decoding must not
                             // reactivate dollar-quote parsing here.
@@ -3200,6 +3203,7 @@ impl<'a> Parser<'a> {
                         content_start,
                         false,
                         DecodeWordPartsOptions {
+                            ambient_double_quotes: true,
                             // `$'...'` and `$"..."` are literal inside ordinary
                             // double quotes, so nested decoding must not
                             // reactivate dollar-quote parsing here.
@@ -3466,6 +3470,7 @@ impl<'a> Parser<'a> {
                         content_start,
                         true,
                         DecodeWordPartsOptions {
+                            ambient_double_quotes: true,
                             // Localized `$"..."` content uses double-quote
                             // semantics, so nested `$'...'` and `$"..."` stay
                             // literal here as well.
@@ -3482,6 +3487,7 @@ impl<'a> Parser<'a> {
                         content_start,
                         false,
                         DecodeWordPartsOptions {
+                            ambient_double_quotes: true,
                             // Localized `$"..."` content uses double-quote
                             // semantics, so nested `$'...'` and `$"..."` stay
                             // literal here as well.
@@ -3569,12 +3575,14 @@ impl<'a> Parser<'a> {
                 } else {
                     let inner_start = cursor;
                     let had_prefix = current_start != part_start;
+                    let prefix = Span::from_positions(current_start, part_start).slice(self.input);
                     let nested_source_base = if source_backed
-                        && Span::from_positions(current_start, part_start)
-                            .slice(self.input)
-                            .chars()
-                            .any(|c| c == '"')
-                    {
+                        && (source_prefix_ends_inside_double_quotes(prefix)
+                            || (!options.preserve_quote_fragments
+                                && source_prefix_has_same_line_escaped_double_quote_fragment(
+                                    prefix,
+                                    options.ambient_double_quotes,
+                                ))) {
                         inner_start.advanced_by("(")
                     } else {
                         inner_start
@@ -5141,6 +5149,7 @@ impl<'a> Parser<'a> {
             base,
             source_backed,
             DecodeWordPartsOptions {
+                ambient_double_quotes: true,
                 // Double-quoted segment contents treat `$'...'` and `$"..."`
                 // as literal text, not nested quote forms.
                 parse_dollar_quotes: false,
@@ -5591,4 +5600,51 @@ impl<'a> Parser<'a> {
 
         false
     }
+}
+
+fn source_prefix_ends_inside_double_quotes(prefix: &str) -> bool {
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+
+    for ch in prefix.chars() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+
+        match ch {
+            '\\' if !in_single => escaped = true,
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            _ => {}
+        }
+    }
+
+    in_double
+}
+
+fn source_prefix_has_same_line_escaped_double_quote_fragment(
+    prefix: &str,
+    ambient_double_quotes: bool,
+) -> bool {
+    let line = prefix.rsplit('\n').next().unwrap_or(prefix);
+    let mut chars = line.trim_end_matches('\r').chars().peekable();
+    let mut in_single = false;
+    let mut in_double = ambient_double_quotes;
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\\' if !in_single => {
+                if in_double && chars.peek() == Some(&'"') {
+                    return true;
+                }
+            }
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            _ => {}
+        }
+    }
+
+    false
 }

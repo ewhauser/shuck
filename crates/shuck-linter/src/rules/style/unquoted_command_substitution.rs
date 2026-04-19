@@ -375,4 +375,36 @@ kill $(cat \"$pidfile\")
             vec!["$(cat \"$pidfile\")"]
         );
     }
+
+    #[test]
+    fn reports_inner_command_substitution_inside_heredoc_eval_wrapper() {
+        let source = "\
+#!/bin/bash
+cfgtest=true
+name=QtCore
+cfgtest_QtCore=\"shared\"
+if test \"${cfgtest}\"; then
+\tcat <<-EOF > \"${name}\"
+\t\t#!/bin/sh
+\t\ttest \"\\$#\" -ge 1 || exit 1
+\t\techo $(eval echo \\$$(echo cfgtest_${name})) | tr ' ' '\\n' > \\$1
+\tEOF
+fi
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$(echo cfgtest_${name})"]
+        );
+        assert_eq!(diagnostics[0].span.start.line, 9);
+        assert_eq!(diagnostics[0].span.start.column, 22);
+        assert_eq!(diagnostics[0].span.end.column, 45);
+    }
 }
