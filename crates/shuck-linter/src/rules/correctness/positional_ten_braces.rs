@@ -52,4 +52,30 @@ mod tests {
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
+
+    #[test]
+    fn ignores_single_digit_suffixes_in_nested_quoted_command_substitutions() {
+        let source = r#"#!/bin/sh
+eval "$(printf '%s\n' x | "$2_rework")"
+"#;
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::PositionalTenBraces));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn reports_above_nine_suffixes_in_nested_quoted_command_substitutions() {
+        let source = r#"#!/bin/sh
+eval "$(printf '%s\n' x | "$10_rework")"
+"#;
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::PositionalTenBraces));
+
+        assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:?}");
+        assert!(
+            diagnostics[0].span.slice(source).contains("$10"),
+            "diagnostics: {diagnostics:?}"
+        );
+    }
 }

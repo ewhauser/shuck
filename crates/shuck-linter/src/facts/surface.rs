@@ -125,6 +125,18 @@ impl<'a> SurfaceFragmentSink<'a> {
         backslashes % 2 == 1
     }
 
+    fn looks_like_unbraced_positional_above_nine(&self, span: Span) -> bool {
+        let fragment = span.slice(self.source);
+        let fragment = fragment.strip_prefix('"').unwrap_or(fragment);
+        let mut chars = fragment.chars();
+
+        matches!(
+            (chars.next(), chars.next(), chars.next()),
+            (Some('$'), Some(digit), Some(next))
+                if matches!(digit, '1'..='9') && next.is_ascii_digit()
+        )
+    }
+
     fn record_array_reference(&mut self, span: Span) {
         if self
             .facts
@@ -369,6 +381,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                 && text
                     .as_str(self.source, next_part.span)
                     .starts_with(|char: char| char.is_ascii_digit())
+                && self.looks_like_unbraced_positional_above_nine(part.span.merge(next_part.span))
             {
                 self.facts
                     .positional_parameters
@@ -610,6 +623,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                 && text
                     .as_str(self.source, next_part.span)
                     .starts_with(|char: char| char.is_ascii_digit())
+                && self.looks_like_unbraced_positional_above_nine(part.span.merge(next_part.span))
             {
                 self.facts
                     .positional_parameters
