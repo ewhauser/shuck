@@ -61,6 +61,18 @@ impl TestOperandClass {
 }
 
 pub fn static_word_text(word: &Word, source: &str) -> Option<String> {
+    if let [part] = word.parts.as_slice() {
+        match &part.kind {
+            WordPart::Literal(text) => return Some(text.as_str(source, word.span).to_owned()),
+            WordPart::SingleQuoted { value, .. } => return Some(value.slice(source).to_owned()),
+            WordPart::DoubleQuoted { parts, .. } => {
+                let mut result = String::new();
+                return collect_static_word_text(parts, source, &mut result).then_some(result);
+            }
+            _ => {}
+        }
+    }
+
     let mut result = String::new();
     collect_static_word_text(&word.parts, source, &mut result).then_some(result)
 }
@@ -259,8 +271,8 @@ mod tests {
     use super::{
         ExpansionContext, TestOperandClass, WordExpansionKind, WordLiteralness, WordQuote,
         WordSubstitutionShape, classify_conditional_operand, classify_contextual_operand,
-        classify_word, is_shell_variable_name, text_looks_like_nontrivial_arithmetic_expression,
-        word_is_standalone_status_capture,
+        classify_word, is_shell_variable_name, static_word_text,
+        text_looks_like_nontrivial_arithmetic_expression, word_is_standalone_status_capture,
     };
 
     fn parse_commands(source: &str) -> shuck_ast::StmtSeq {
@@ -320,6 +332,60 @@ mod tests {
         assert_eq!(
             classification.substitution_shape,
             WordSubstitutionShape::Mixed
+        );
+    }
+
+    #[test]
+    fn static_word_text_keeps_nested_command_names_in_prefixed_quoted_substitutions() {
+        let source = "\
+echo \"\\\"$BUILDSCRIPT\\\" --library $(test \"${PKG_DIR%/*}\" = \"gpkg\" && echo \"glibc\" || echo \"bionic\")\"\n";
+        let commands = parse_commands(source);
+        let Command::Simple(command) = &commands[0].command else {
+            panic!("expected simple command");
+        };
+        let Some(body) = command.args[0]
+            .parts
+            .iter()
+            .find_map(|part| match &part.kind {
+                shuck_ast::WordPart::DoubleQuoted { parts, .. } => {
+                    parts.iter().find_map(|part| match &part.kind {
+                        shuck_ast::WordPart::CommandSubstitution { body, .. } => Some(body),
+                        _ => None,
+                    })
+                }
+                _ => None,
+            })
+        else {
+            panic!("expected command substitution inside quoted word");
+        };
+
+        let Command::Binary(or_chain) = &body[0].command else {
+            panic!("expected short-circuit binary command");
+        };
+        let Command::Binary(and_chain) = &or_chain.left.command else {
+            panic!("expected left-hand && chain");
+        };
+        let Command::Simple(test_command) = &and_chain.left.command else {
+            panic!("expected test command");
+        };
+        let Command::Simple(then_echo) = &and_chain.right.command else {
+            panic!("expected then echo");
+        };
+        let Command::Simple(else_echo) = &or_chain.right.command else {
+            panic!("expected else echo");
+        };
+
+        assert_eq!(
+            static_word_text(&test_command.name, source).as_deref(),
+            Some("test")
+        );
+        assert_eq!(
+            static_word_text(&then_echo.name, source).as_deref(),
+            Some("echo")
+        );
+        assert_eq!(
+            static_word_text(&else_echo.name, source).as_deref(),
+            Some("echo")
         );
     }
 

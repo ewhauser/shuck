@@ -225,6 +225,18 @@ test -n \"$x\" && [ -f out ] || die
     }
 
     #[test]
+    fn ignores_literal_formatter_fallbacks_inside_command_substitutions() {
+        let source = "\
+echo \"\\\"$BUILDSCRIPT\\\" --library $(test \"${PKG_DIR%/*}\" = \"gpkg\" && echo \"glibc\" || echo \"bionic\")\"
+config=$([[ \"$mode\" = prod ]] && echo true || echo false)
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::ChainedTestBranches));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn ignores_non_sc2015_longer_or_reversed_mixed_chains() {
         let source = "\
 rc=0 || run && rc=$?

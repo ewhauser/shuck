@@ -24721,6 +24721,37 @@ true && false || printf '%s\\n' fallback
     }
 
     #[test]
+    fn preserves_fallback_command_names_inside_command_substitutions() {
+        let source = "\
+#!/bin/sh
+echo \"\\\"$BUILDSCRIPT\\\" --library $(test \"${PKG_DIR%/*}\" = \"gpkg\" && echo \"glibc\" || echo \"bionic\")\"
+";
+
+        with_facts(source, None, |_, facts| {
+            let list = facts.lists().first().expect("expected mixed list");
+            let names = list
+                .segments()
+                .iter()
+                .map(|segment| {
+                    facts
+                        .command(segment.command_id())
+                        .effective_or_literal_name()
+                        .map(str::to_owned)
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                names,
+                vec![
+                    Some("test".to_owned()),
+                    Some("echo".to_owned()),
+                    Some("echo".to_owned()),
+                ]
+            );
+        });
+    }
+
+    #[test]
     fn flagged_declaration_assignments_still_classify_as_assignment_segments() {
         let source = "\
 #!/bin/bash
