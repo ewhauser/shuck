@@ -1,5 +1,3 @@
-use shuck_ast::Span;
-
 use crate::{Checker, Rule, Violation};
 
 pub struct LiteralBackslashInSingleQuotes;
@@ -15,38 +13,14 @@ impl Violation for LiteralBackslashInSingleQuotes {
 }
 
 pub fn literal_backslash_in_single_quotes(checker: &mut Checker) {
-    let source = checker.source();
     let spans = checker
         .facts()
         .single_quoted_fragments()
         .iter()
-        .filter(|fragment| !fragment.dollar_quoted())
-        .filter_map(|fragment| literal_backslash_in_single_quotes_span(fragment.span(), source))
+        .filter_map(|fragment| fragment.literal_backslash_in_single_quotes_span())
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || LiteralBackslashInSingleQuotes);
-}
-
-fn literal_backslash_in_single_quotes_span(span: Span, source: &str) -> Option<Span> {
-    let text = span.slice(source);
-    let inner = text.strip_prefix('\'')?.strip_suffix('\'')?;
-    if !contains_backslash_letter(inner) {
-        return None;
-    }
-
-    let next_byte = *source.as_bytes().get(span.end.offset)?;
-    if !next_byte.is_ascii_alphabetic() {
-        return None;
-    }
-
-    let closing_quote = span.start.advanced_by(&text[..text.len() - 1]);
-    Some(Span::from_positions(closing_quote, closing_quote))
-}
-
-fn contains_backslash_letter(text: &str) -> bool {
-    text.as_bytes()
-        .windows(2)
-        .any(|pair| pair[0] == b'\\' && pair[1].is_ascii_alphabetic())
 }
 
 #[cfg(test)]
