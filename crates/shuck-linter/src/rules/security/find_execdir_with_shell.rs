@@ -115,4 +115,15 @@ mod tests {
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
+
+    #[test]
+    fn ignores_exec_tokens_nested_inside_ok_segments() {
+        let source = "#!/bin/sh\nfind . -ok find {} -exec sh -c 'printf \"%s\\n\" {}' \\; \\;\nfind . -okdir busybox find {} -execdir bash -c 'printf \"%s\\n\" {}' \\; \\;\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FindExecDirWithShell),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
 }

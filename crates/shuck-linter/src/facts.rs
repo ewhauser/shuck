@@ -17343,7 +17343,7 @@ fn parse_find_exec_shell_command(
             index += 1;
             continue;
         };
-        if !matches!(action.as_str(), "-exec" | "-execdir") {
+        if !matches!(action.as_str(), "-exec" | "-execdir" | "-ok" | "-okdir") {
             index += 1;
             continue;
         }
@@ -17356,7 +17356,9 @@ fn parse_find_exec_shell_command(
             .map(|offset| argument_start + offset);
         let argument_end = terminator_index.unwrap_or(words.len());
 
-        if let Some(segment) = words.get(argument_start..argument_end) {
+        if matches!(action.as_str(), "-exec" | "-execdir")
+            && let Some(segment) = words.get(argument_start..argument_end)
+        {
             shell_command_spans.extend(find_exec_shell_command_spans(segment, source));
         }
 
@@ -22069,6 +22071,30 @@ find . -okdir bash -c 'printf \"%s\\n\" {}' \\;
 #!/bin/sh
 find . -exec find {} -ok sh -c 'printf \"%s\\n\" {}' \\; \\;
 find . -execdir busybox find {} -okdir bash -c 'printf \"%s\\n\" {}' \\; \\;
+";
+
+        with_facts(source, None, |_, facts| {
+            let shell_spans = facts
+                .commands()
+                .iter()
+                .filter_map(|fact| fact.options().find_exec_shell())
+                .flat_map(|find_exec_shell| find_exec_shell.shell_command_spans().iter())
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>();
+
+            assert!(
+                shell_spans.is_empty(),
+                "unexpected shell spans: {shell_spans:?}"
+            );
+        });
+    }
+
+    #[test]
+    fn ignores_exec_tokens_nested_inside_find_ok_segments() {
+        let source = "\
+#!/bin/sh
+find . -ok find {} -exec sh -c 'printf \"%s\\n\" {}' \\; \\;
+find . -okdir busybox find {} -execdir bash -c 'printf \"%s\\n\" {}' \\; \\;
 ";
 
         with_facts(source, None, |_, facts| {
