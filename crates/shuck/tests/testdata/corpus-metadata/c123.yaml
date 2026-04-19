@@ -30,12 +30,6 @@ reviewed_divergences:
       - directive-handling
       - project-closure
     reason: "This bash.d helper is sourced into a larger shell environment, and the remaining `pull` invocation depends on project-closure plus directive-handling context that Shuck does not reconstruct for C123. The standalone local warning is therefore kept as a reviewed closure-side divergence."
-  - side: shuck-only
-    path_suffix: "bittorf__kalua__tests__test_all.sh"
-    labels:
-      - project-closure
-      - test-harness
-    reason: "This corpus case is a test harness that sources loader state before it exercises `test_explode`, so the remaining zero-argument helper call depends on project-closure and harness setup outside the file-local view. Shuck's standalone warning is reviewed rather than treated as a live C123 conformance bug."
   - side: shellcheck-only
     path_suffix: "docker-library__official-images__test__tests__postgres-basics__run.sh"
     line: 33
@@ -68,12 +62,6 @@ reviewed_divergences:
       - project-closure
       - test-harness
     reason: "Both tools agree on the heredoc-driven zero-argument `psql` helper call at this site, but the pinned oracle anchors the whole `psql <<'EOSQL'` command while Shuck anchors just the callee token. The remaining difference is reviewed as location drift under the harness and project-closure path."
-  - side: shuck-only
-    path_suffix: "ko1nksm__shellspec__lib__core__dsl.sh"
-    labels:
-      - directive-handling
-      - helper-library
-    reason: "This ShellSpec DSL file is sourced as helper-library code, and the remaining `shellspec_yield` site relies on the library's ambient execution contract rather than a normal script argv flow. Shuck still reports the local zero-argument helper call from its standalone view, so this helper-library difference is reviewed."
   - side: shuck-only
     path_suffix: "scop__bash-completion__completions-core__ssh.bash"
     labels:

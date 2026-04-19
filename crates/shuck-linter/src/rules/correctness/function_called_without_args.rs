@@ -197,6 +197,64 @@ greet
     }
 
     #[test]
+    fn ignores_functions_after_set_plus_option_toggle() {
+        let source = "\
+#!/bin/sh
+greet() {
+  set +x
+  printf '%s\n' \"$1\"
+}
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_functions_after_bare_set_plus_o() {
+        let source = "\
+#!/bin/sh
+greet() {
+  set +o
+  printf '%s\n' \"$1\"
+}
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn still_reports_functions_after_set_minus_option_toggle() {
+        let source = "\
+#!/bin/sh
+greet() {
+  set -x
+  printf '%s\n' \"$1\"
+}
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "greet() {\n  set -x\n  printf '%s\n' \"$1\"\n}"
+        );
+    }
+
+    #[test]
     fn reports_functions_that_use_variadic_positional_parameters() {
         let source = "\
 #!/bin/sh

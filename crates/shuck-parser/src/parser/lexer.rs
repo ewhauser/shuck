@@ -1351,6 +1351,10 @@ impl<'a> Lexer<'a> {
                     }
                     return Some(LexedToken::fd(TokenKind::RedirectFdAppend, fd));
                 }
+                (Some('>'), Some('|')) => {
+                    self.consume_ascii_chars(3);
+                    return Some(LexedToken::fd(TokenKind::Clobber, fd));
+                }
                 (Some('>'), Some('&')) => {
                     self.consume_ascii_chars(3);
 
@@ -5032,7 +5036,7 @@ EOF
 
     #[test]
     fn test_redirects() {
-        let mut lexer = Lexer::new("a > b >> c >>| d 2>>| e < f << g <<< h &>> i <> j");
+        let mut lexer = Lexer::new("a > b >> c >>| d 2>>| e 2>| f < g << h <<< i &>> j <> k");
 
         assert_next_token(&mut lexer, TokenKind::Word, Some("a"));
         assert_next_token(&mut lexer, TokenKind::RedirectOut, None);
@@ -5043,16 +5047,21 @@ EOF
         assert_next_token(&mut lexer, TokenKind::Word, Some("d"));
         assert_next_token(&mut lexer, TokenKind::RedirectFdAppend, None);
         assert_next_token(&mut lexer, TokenKind::Word, Some("e"));
-        assert_next_token(&mut lexer, TokenKind::RedirectIn, None);
+        let token = lexer.next_lexed_token().unwrap();
+        assert_eq!(token.kind, TokenKind::Clobber);
+        assert_eq!(token.fd_value(), Some(2));
+        assert_eq!(token_text(&token, lexer.input), None);
         assert_next_token(&mut lexer, TokenKind::Word, Some("f"));
-        assert_next_token(&mut lexer, TokenKind::HereDoc, None);
+        assert_next_token(&mut lexer, TokenKind::RedirectIn, None);
         assert_next_token(&mut lexer, TokenKind::Word, Some("g"));
-        assert_next_token(&mut lexer, TokenKind::HereString, None);
+        assert_next_token(&mut lexer, TokenKind::HereDoc, None);
         assert_next_token(&mut lexer, TokenKind::Word, Some("h"));
-        assert_next_token(&mut lexer, TokenKind::RedirectBothAppend, None);
+        assert_next_token(&mut lexer, TokenKind::HereString, None);
         assert_next_token(&mut lexer, TokenKind::Word, Some("i"));
-        assert_next_token(&mut lexer, TokenKind::RedirectReadWrite, None);
+        assert_next_token(&mut lexer, TokenKind::RedirectBothAppend, None);
         assert_next_token(&mut lexer, TokenKind::Word, Some("j"));
+        assert_next_token(&mut lexer, TokenKind::RedirectReadWrite, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("k"));
     }
 
     #[test]

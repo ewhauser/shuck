@@ -259,6 +259,62 @@ greet
     }
 
     #[test]
+    fn ignores_zero_argument_call_sites_after_set_plus_option_toggle() {
+        let source = "\
+#!/bin/sh
+greet() {
+  set +x
+  printf '%s\n' \"$2\"
+}
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_zero_argument_call_sites_after_bare_set_plus_o() {
+        let source = "\
+#!/bin/sh
+greet() {
+  set +o
+  printf '%s\n' \"$2\"
+}
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn still_reports_zero_argument_call_sites_after_set_minus_option_toggle() {
+        let source = "\
+#!/bin/sh
+greet() {
+  set -x
+  printf '%s\n' \"$2\"
+}
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "greet");
+        assert_eq!(diagnostics[0].span.start.line, 7);
+    }
+
+    #[test]
     fn same_name_functions_in_different_scopes_do_not_mask_each_other() {
         let source = "\
 #!/bin/sh

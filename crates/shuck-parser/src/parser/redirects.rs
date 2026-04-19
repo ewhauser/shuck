@@ -131,10 +131,15 @@ impl<'a> Parser<'a> {
                 } else {
                     RedirectKind::Output
                 };
+                let fd = if fd_var.is_some() {
+                    None
+                } else {
+                    self.current_fd_value()
+                };
                 self.advance();
                 if let Some(target) = self.maybe_expect_word(strict)? {
                     redirects.push(Redirect {
-                        fd: None,
+                        fd,
                         fd_var,
                         fd_var_span,
                         kind,

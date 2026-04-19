@@ -13,25 +13,6 @@ mod escape_scan;
 mod presence;
 mod surface;
 
-use rustc_hash::{FxHashMap, FxHashSet};
-use shuck_ast::{
-    ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue,
-    ArithmeticPostfixOp, ArithmeticUnaryOp, ArrayElem, ArrayKind, Assignment, AssignmentValue,
-    BinaryCommand, BinaryOp, BourneParameterExpansion, BraceQuoteContext, BraceSyntaxKind,
-    BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command, CommandSubstitutionSyntax,
-    CompoundCommand, ConditionalBinaryOp, ConditionalExpr, ConditionalUnaryOp, DeclClause,
-    DeclOperand, File, ForCommand, FunctionDef, IfCommand, Name, ParameterExpansion,
-    ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Position, Redirect, RedirectKind,
-    SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq, StmtTerminator, Subscript,
-    TextRange, VarRef, WhileCommand, Word, WordPart, WordPartNode, ZshExpansionTarget,
-    ZshGlobSegment, ZshQualifiedGlob,
-};
-use shuck_indexer::Indexer;
-use shuck_semantic::{
-    BindingAttributes, BindingId, BindingKind, ScopeId, SemanticModel, ZshOptionState,
-};
-use std::borrow::Cow;
-
 use self::{
     command_flow::{
         build_case_item_facts, build_for_header_facts, build_list_facts, build_pipeline_facts,
@@ -63,6 +44,24 @@ use crate::rules::common::{
         classify_contextual_operand, classify_word, static_word_text,
     },
 };
+use rustc_hash::{FxHashMap, FxHashSet};
+use shuck_ast::{
+    ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue,
+    ArithmeticPostfixOp, ArithmeticUnaryOp, ArrayElem, ArrayKind, Assignment, AssignmentValue,
+    BinaryCommand, BinaryOp, BourneParameterExpansion, BraceQuoteContext, BraceSyntaxKind,
+    BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command, CommandSubstitutionSyntax,
+    CompoundCommand, ConditionalBinaryOp, ConditionalExpr, ConditionalUnaryOp, DeclClause,
+    DeclOperand, File, ForCommand, FunctionDef, IfCommand, Name, ParameterExpansion,
+    ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Position, Redirect, RedirectKind,
+    SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq, StmtTerminator, Subscript,
+    TextRange, VarRef, WhileCommand, Word, WordPart, WordPartNode, ZshExpansionTarget,
+    ZshGlobSegment, ZshQualifiedGlob,
+};
+use shuck_indexer::Indexer;
+use shuck_semantic::{
+    BindingAttributes, BindingId, BindingKind, ScopeId, SemanticModel, ZshOptionState,
+};
+use std::borrow::Cow;
 
 pub use self::conditional_portability::ConditionalPortabilityFacts;
 pub(crate) use self::escape_scan::EscapeScanSourceKind;
@@ -15700,6 +15699,9 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
         match text.as_str() {
             "-o" | "+o" => {
                 let enable = text.starts_with('-');
+                if text.starts_with('+') {
+                    resets_positional_parameters = true;
+                }
                 let Some(name_word) = args.get(index + 1) else {
                     break;
                 };
@@ -15728,6 +15730,9 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
         };
         if flags.is_empty() {
             break;
+        }
+        if text.starts_with('+') {
+            resets_positional_parameters = true;
         }
 
         if flags.chars().any(|flag| flag == 'e') {
