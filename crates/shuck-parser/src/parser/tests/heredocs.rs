@@ -36,6 +36,12 @@ fn test_heredoc_comment_backslash_after_delimiter_still_parses() {
 }
 
 #[test]
+fn test_heredoc_blank_prefix_line_continuation_into_pipe_tail_still_parses() {
+    let input = "cat <<EOF \\\n| tac\n1\nEOF\n";
+    assert!(Parser::new(input).parse().is_ok());
+}
+
+#[test]
 fn test_function_definition_absorbs_trailing_heredoc_redirect() {
     let input = "f() { cat; } <<EOF\nhello\nEOF\n";
     let script = Parser::new(input).parse().unwrap().file;
