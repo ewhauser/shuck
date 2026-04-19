@@ -3688,12 +3688,20 @@ impl<'a> Lexer<'a> {
         let rest_of_line_start = self.current_position();
         let mut in_double_quote = false;
         let mut in_single_quote = false;
+        let mut saw_non_whitespace_tail = false;
+        let mut consecutive_backslashes = 0usize;
         while let Some(ch) = self.peek_char() {
             self.advance();
-            if ch == '\\' && !in_single_quote && self.peek_char() == Some('\n') {
+            let backslash_continues_line = ch == '\\'
+                && !in_single_quote
+                && self.peek_char() == Some('\n')
+                && saw_non_whitespace_tail
+                && consecutive_backslashes % 2 == 0;
+            if backslash_continues_line {
                 rest_of_line.push(ch);
                 rest_of_line.push('\n');
                 self.advance();
+                consecutive_backslashes = 0;
                 continue;
             }
             if ch == '\n' && !in_double_quote && !in_single_quote {
@@ -3713,6 +3721,14 @@ impl<'a> Lexer<'a> {
                 continue;
             }
             rest_of_line.push(ch);
+            if !ch.is_whitespace() {
+                saw_non_whitespace_tail = true;
+            }
+            if ch == '\\' && !in_single_quote {
+                consecutive_backslashes += 1;
+            } else {
+                consecutive_backslashes = 0;
+            }
         }
 
         // If we just drained a heredoc replay buffer (for example when multiple
@@ -5514,6 +5530,32 @@ EOF
         assert_next_token(&mut lexer, TokenKind::Word, Some("sort"));
         assert_next_token(&mut lexer, TokenKind::RedirectOut, None);
         assert_next_token(&mut lexer, TokenKind::Word, Some("out.txt"));
+    }
+
+    #[test]
+    fn test_read_heredoc_does_not_continue_body_when_backslash_is_immediately_after_delimiter() {
+        let source = "cat <<EOF \\\n1\n2\n3\nEOF\n| tac\n";
+        let mut lexer = Lexer::new(source);
+
+        assert_next_token(&mut lexer, TokenKind::Word, Some("cat"));
+        assert_next_token(&mut lexer, TokenKind::HereDoc, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("EOF"));
+
+        let heredoc = lexer.read_heredoc("EOF", false);
+        assert_eq!(heredoc.content, "1\n2\n3\n");
+    }
+
+    #[test]
+    fn test_read_heredoc_escaped_backslash_before_newline_does_not_continue_tail() {
+        let source = "cat <<EOF foo\\\\\nbody\nEOF\n";
+        let mut lexer = Lexer::new(source);
+
+        assert_next_token(&mut lexer, TokenKind::Word, Some("cat"));
+        assert_next_token(&mut lexer, TokenKind::HereDoc, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("EOF"));
+
+        let heredoc = lexer.read_heredoc("EOF", false);
+        assert_eq!(heredoc.content, "body\n");
     }
 
     #[test]
