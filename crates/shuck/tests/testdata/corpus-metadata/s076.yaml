@@ -34,3 +34,31 @@ reviewed_divergences:
     end_line: 48
     end_column: 12
     reason: "S076 intentionally flags nested quoted fragments inside a GraphQL query string assembled in one shell word, while current ShellCheck skips this string-literal construction."
+  - side: shuck-only
+    path_suffix: "scripts/GameServerManagers__LinuxGSM__lgsm__modules__alert_gotify.sh"
+    line: 43
+    column: 70
+    end_line: 43
+    end_column: 77
+    reason: "This Gotify curl call deliberately glues a quoted URL prefix, a bare `?token=` query segment, and a quoted token into one argument. Shuck keeps that mixed-fragment readability warning, while current ShellCheck does not classify the query-string join."
+  - side: shuck-only
+    path_suffix: "scripts/HariSekhon__DevOps-Bash-tools__.bash.d__java.sh"
+    line: 65
+    column: 52
+    end_line: 65
+    end_column: 55
+    reason: "This Java home finder intentionally builds one glob pattern from a quoted base path, bare wildcard/version glue, and a quoted version fragment. Shuck keeps warning on that mixed glob-and-quote assembly even though current ShellCheck leaves the path pattern alone."
+  - side: shuck-only
+    path_suffix: "scripts/RetroPie__RetroPie-Setup__scriptmodules__supplementary__wifi.sh"
+    line: 273
+    column: 297
+    end_line: 273
+    end_column: 301
+    reason: "This dialog menu string embeds an inner `echo \"none\"` fallback inside a larger human-readable shell word. S076 still treats that nested reopened quote as a readability issue, while current ShellCheck skips the display-string form."
+  - side: shellcheck-only
+    path_suffix: "scripts/moovweb__gvm__examples__native__configure"
+    line: 5840
+    column: 45
+    end_line: 5841
+    end_column: 1
+    reason: "This generated configure fragment is compared through a project-closure path, and the remaining SC2140 on the line-continued awk program string is treated as an unreliable oracle-only result for that generated file."
