@@ -2,16 +2,19 @@
 
 # shellcheck disable=2034,2154
 
-# Invalid: all-elements array slices in [[ string comparisons ]].
+# Invalid: all-elements array expansions in [[ ... ]] tests.
+set -- a b
+arr=(x y)
 if [[ "${sel[@]:0:4}" == "HELP" ]]; then :; fi
-if [[ "x${@:2}y" == "x" ]]; then :; fi
+if [[ -n "$@" ]]; then :; fi
+if [[ x == *${arr[@]}* ]]; then :; fi
+if [[ "${@: -1}" == "mM" || "${@:-1}" == "Mm" ]]; then :; fi
+if [[ " ${arr[@]} " =~ " x " ]]; then :; fi
+if [[ "${arr[@]}" ]]; then :; fi
 
-# Valid: non-slice and star-selector forms.
-if [[ "${sel[@]}" == "HELP" ]]; then :; fi
+# Valid: star-selector forms, escaped text, and single-bracket tests.
 if [[ "${sel[*]:1}" == "HELP" ]]; then :; fi
-
-# Valid: escaped slice marker.
 if [[ "\${sel[@]:1}" == "HELP" ]]; then :; fi
-
-# Valid: single-bracket comparisons are out of scope for C112.
+if [[ x == ${sel[*]}* ]]; then :; fi
+if [[ "\$@" ]]; then :; fi
 if [ "${sel[@]:1}" = "HELP" ]; then :; fi

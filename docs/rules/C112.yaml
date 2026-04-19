@@ -9,8 +9,8 @@ shells:
   - bash
   - dash
   - ksh
-description: An array slice is used in a string comparison.
-rationale: Compare individual elements or convert the slice to a string first.
+description: An all-elements array expansion is used inside a `[[ ... ]]` test.
+rationale: Compare individual elements or join the array deliberately before testing it.
 source:
   shell_checks_rule: rules/SH-250.yaml
   shell_checks_example: examples/250.sh
@@ -21,3 +21,7 @@ examples:
       #!/bin/bash
       # shellcheck disable=2154
       if [[ "${sel[@]:0:4}" == "HELP" ]]; then echo help; fi
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      if [[ -n "$@" ]]; then echo args; fi

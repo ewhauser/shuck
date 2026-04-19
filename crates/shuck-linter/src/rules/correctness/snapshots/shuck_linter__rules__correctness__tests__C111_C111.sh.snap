@@ -18,9 +18,3 @@ C111 positional-parameter at-splats fold arguments in string comparisons
   |
 7 | if [ "${@:-fallback}" = "--version" ]; then :; fi
   |
-
-C111 positional-parameter at-splats fold arguments in string comparisons
- --> <source>:8:9
-  |
-8 | if [[ "_$@" == "_--version" ]]; then :; fi
-  |

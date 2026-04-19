@@ -1,6 +1,9 @@
+use shuck_ast::Span;
+
 use crate::{
-    Checker, ConditionalNodeFact, ConditionalOperatorFamily, Rule, Violation,
-    word_all_elements_array_slice_span_in_source,
+    Checker, ConditionalNodeFact, ConditionalOperatorFamily, ExpansionContext, Rule, Violation,
+    command_substitution_part_spans, word_has_direct_all_elements_array_expansion_in_source,
+    word_is_pure_positional_at_splat,
 };
 
 pub struct ArraySliceInComparison;
@@ -11,42 +14,82 @@ impl Violation for ArraySliceInComparison {
     }
 
     fn message(&self) -> String {
-        "array-slice expansions collapse when used in string comparisons".to_owned()
+        "all-elements array expansions collapse inside `[[ ... ]]` tests".to_owned()
     }
 }
 
 pub fn array_slice_in_comparison(checker: &mut Checker) {
+    let direct_operand_spans = [
+        ExpansionContext::StringTestOperand,
+        ExpansionContext::RegexOperand,
+    ]
+    .into_iter()
+    .flat_map(|context| checker.facts().expansion_word_facts(context))
+    .filter(|fact| !fact.is_nested_word_command())
+    .filter(|fact| {
+        word_has_direct_all_elements_array_expansion_in_source(fact.word(), checker.source())
+    })
+    .map(|fact| fact.span())
+    .collect::<Vec<_>>();
+
+    let risky_pattern_word_spans = checker
+        .facts()
+        .expansion_word_facts(ExpansionContext::ConditionalPattern)
+        .filter(|fact| !fact.is_nested_word_command())
+        .filter(|fact| command_substitution_part_spans(fact.word()).is_empty())
+        .filter(|fact| !word_is_pure_positional_at_splat(fact.word()))
+        .filter(|fact| {
+            word_has_direct_all_elements_array_expansion_in_source(fact.word(), checker.source())
+        })
+        .map(|fact| fact.span())
+        .collect::<Vec<_>>();
+
     let spans = checker
         .facts()
         .commands()
         .iter()
-        .filter_map(|fact| {
-            fact.conditional()
-                .and_then(|conditional| conditional_span(conditional.root(), checker.source()))
-        })
+        .filter_map(|fact| fact.conditional())
+        .flat_map(|conditional| conditional.nodes().iter())
+        .flat_map(|node| conditional_pattern_spans(node, &risky_pattern_word_spans))
+        .chain(direct_operand_spans)
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || ArraySliceInComparison);
 }
 
-fn conditional_span(fact: &ConditionalNodeFact<'_>, source: &str) -> Option<shuck_ast::Span> {
-    let ConditionalNodeFact::Binary(binary) = fact else {
-        return None;
-    };
-    if binary.operator_family() != ConditionalOperatorFamily::StringBinary {
-        return None;
+fn conditional_pattern_spans(
+    fact: &ConditionalNodeFact<'_>,
+    risky_word_spans: &[Span],
+) -> Vec<Span> {
+    match fact {
+        ConditionalNodeFact::Binary(binary)
+            if binary.operator_family() != ConditionalOperatorFamily::Logical =>
+        {
+            [
+                pattern_span_if_risky(binary.left().expression().span(), risky_word_spans),
+                pattern_span_if_risky(binary.right().expression().span(), risky_word_spans),
+            ]
+            .into_iter()
+            .flatten()
+            .collect()
+        }
+        ConditionalNodeFact::BareWord(_)
+        | ConditionalNodeFact::Unary(_)
+        | ConditionalNodeFact::Binary(_)
+        | ConditionalNodeFact::Other(_) => Vec::new(),
     }
+}
 
-    binary
-        .left()
-        .word()
-        .and_then(|word| word_all_elements_array_slice_span_in_source(word, source))
-        .or_else(|| {
-            binary
-                .right()
-                .word()
-                .and_then(|word| word_all_elements_array_slice_span_in_source(word, source))
-        })
+fn pattern_span_if_risky(span: Span, risky_word_spans: &[Span]) -> Option<Span> {
+    risky_word_spans
+        .iter()
+        .copied()
+        .any(|word_span| span_contains(span, word_span))
+        .then_some(span)
+}
+
+fn span_contains(outer: Span, inner: Span) -> bool {
+    outer.start.offset <= inner.start.offset && outer.end.offset >= inner.end.offset
 }
 
 #[cfg(test)]
@@ -55,11 +98,17 @@ mod tests {
     use crate::{LinterSettings, Rule};
 
     #[test]
-    fn reports_array_slices_in_double_bracket_string_comparisons() {
+    fn reports_all_elements_array_expansions_in_double_bracket_tests() {
         let source = "\
 #!/bin/bash
+set -- a b
+arr=(x y)
 if [[ \"${sel[@]:0:4}\" == \"HELP\" ]]; then :; fi
-if [[ \"x${@:2}y\" == \"x\" ]]; then :; fi
+if [[ -n \"$@\" ]]; then :; fi
+if [[ x == *${arr[@]}* ]]; then :; fi
+if [[ \"${@: -1}\" == \"mM\" || \"${@:-1}\" == \"Mm\" ]]; then :; fi
+if [[ \" ${arr[@]} \" =~ \" x \" ]]; then :; fi
+if [[ \"${arr[@]}\" ]]; then :; fi
 ";
         let diagnostics = test_snippet(
             source,
@@ -71,17 +120,27 @@ if [[ \"x${@:2}y\" == \"x\" ]]; then :; fi
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["${sel[@]:0:4}", "${@:2}"]
+            vec![
+                "\"${sel[@]:0:4}\"",
+                "\"$@\"",
+                "*${arr[@]}*",
+                "\"${@: -1}\"",
+                "\"${@:-1}\"",
+                "\" ${arr[@]} \"",
+                "\"${arr[@]}\"",
+            ]
         );
     }
 
     #[test]
-    fn ignores_non_slice_or_non_conditional_comparisons() {
+    fn ignores_star_expansions_escaped_literals_and_single_bracket_tests() {
         let source = "\
 #!/bin/bash
-if [[ \"${sel[@]}\" == \"HELP\" ]]; then :; fi
 if [[ \"${sel[*]:1}\" == \"HELP\" ]]; then :; fi
 if [[ \"\\${sel[@]:1}\" == \"HELP\" ]]; then :; fi
+if [[ x == ${sel[*]}* ]]; then :; fi
+if [[ \"\\$@\" ]]; then :; fi
+if [[ -z ${packed=\"$@\"} ]]; then :; fi
 if [ \"${sel[@]:1}\" = \"HELP\" ]; then :; fi
 ";
         let diagnostics = test_snippet(

@@ -118,6 +118,12 @@ pub fn word_has_quoted_all_elements_array_slice(word: &Word) -> bool {
     !word_quoted_all_elements_array_slice_spans(word).is_empty()
 }
 
+pub fn word_has_direct_all_elements_array_expansion_in_source(word: &Word, source: &str) -> bool {
+    let mut spans = Vec::new();
+    collect_direct_all_elements_array_expansion_spans(&word.parts, source, &mut spans);
+    !spans.is_empty()
+}
+
 pub fn word_all_elements_array_slice_span_in_source(word: &Word, source: &str) -> Option<Span> {
     word_all_elements_array_slice_spans(word)
         .into_iter()
@@ -802,6 +808,27 @@ fn collect_all_elements_array_slice_spans(
                 collect_all_elements_array_slice_spans(parts, true, only_quoted, spans)
             }
             _ if (!only_quoted || quoted) && part_uses_all_elements_array_slice(&part.kind) => {
+                spans.push(part.span)
+            }
+            _ => {}
+        }
+    }
+}
+
+fn collect_direct_all_elements_array_expansion_spans(
+    parts: &[WordPartNode],
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::SingleQuoted { .. } => {}
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_direct_all_elements_array_expansion_spans(parts, source, spans)
+            }
+            _ if part_uses_direct_all_elements_array_expansion(&part.kind)
+                && !span_is_escaped(part.span, source) =>
+            {
                 spans.push(part.span)
             }
             _ => {}
@@ -2096,6 +2123,20 @@ fn part_uses_unquoted_all_elements_array_expansion(part: &WordPart) -> bool {
     }
 }
 
+fn part_uses_direct_all_elements_array_expansion(part: &WordPart) -> bool {
+    match part {
+        WordPart::Variable(name) => name.as_str() == "@",
+        WordPart::ArrayAccess(reference) | WordPart::ArrayIndices(reference) => {
+            var_ref_uses_all_elements_at_splat(reference)
+        }
+        WordPart::ArraySlice { reference, .. } => var_ref_uses_all_elements_at_splat(reference),
+        WordPart::Parameter(parameter) => {
+            parameter_uses_direct_all_elements_array_expansion(parameter)
+        }
+        _ => false,
+    }
+}
+
 fn part_is_pure_positional_at_splat(part: &WordPart) -> bool {
     match part {
         WordPart::Variable(name) => name.as_str() == "@",
@@ -2152,6 +2193,32 @@ fn parameter_uses_all_elements_array_slice(parameter: &ParameterExpansion) -> bo
 }
 
 fn parameter_uses_unquoted_all_elements_array_expansion(parameter: &ParameterExpansion) -> bool {
+    let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax else {
+        return false;
+    };
+
+    match syntax {
+        BourneParameterExpansion::Access { reference }
+        | BourneParameterExpansion::Indices { reference }
+        | BourneParameterExpansion::Slice { reference, .. } => {
+            var_ref_uses_all_elements_at_splat(reference)
+        }
+        BourneParameterExpansion::Operation {
+            reference,
+            operator,
+            ..
+        } => {
+            !matches!(operator, ParameterOp::UseReplacement)
+                && var_ref_uses_all_elements_at_splat(reference)
+        }
+        BourneParameterExpansion::Transformation { reference, .. } => {
+            var_ref_uses_all_elements_at_splat(reference)
+        }
+        _ => false,
+    }
+}
+
+fn parameter_uses_direct_all_elements_array_expansion(parameter: &ParameterExpansion) -> bool {
     let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax else {
         return false;
     };
@@ -2545,13 +2612,15 @@ mod tests {
         word_all_elements_array_slice_span_in_source, word_all_elements_array_slice_spans,
         word_caret_negated_bracket_spans, word_double_quoted_scalar_only_expansion_spans,
         word_exactly_one_extglob_span, word_folded_positional_at_splat_span,
-        word_folded_positional_at_splat_span_in_source, word_has_folded_positional_at_splat,
-        word_has_quoted_all_elements_array_slice, word_has_unquoted_brace_expansion,
-        word_is_pure_positional_at_splat, word_nested_dynamic_double_quote_spans,
-        word_positional_at_splat_span_in_source, word_positional_at_splat_spans,
-        word_quoted_all_elements_array_slice_spans, word_quoted_star_splat_spans,
-        word_quoted_unindexed_bash_source_span_in_source, word_unquoted_assign_default_spans,
-        word_unquoted_escaped_pipe_or_brace_spans_in_source, word_unquoted_glob_pattern_spans,
+        word_folded_positional_at_splat_span_in_source,
+        word_has_direct_all_elements_array_expansion_in_source,
+        word_has_folded_positional_at_splat, word_has_quoted_all_elements_array_slice,
+        word_has_unquoted_brace_expansion, word_is_pure_positional_at_splat,
+        word_nested_dynamic_double_quote_spans, word_positional_at_splat_span_in_source,
+        word_positional_at_splat_spans, word_quoted_all_elements_array_slice_spans,
+        word_quoted_star_splat_spans, word_quoted_unindexed_bash_source_span_in_source,
+        word_unquoted_assign_default_spans, word_unquoted_escaped_pipe_or_brace_spans_in_source,
+        word_unquoted_glob_pattern_spans,
         word_unquoted_literal_between_double_quoted_segments_spans,
         word_unquoted_scalar_between_double_quoted_segments_spans, word_unquoted_star_splat_spans,
         word_unquoted_word_between_single_quoted_segments_spans,
@@ -3067,6 +3136,26 @@ printf '%s\\n' \"${@:2}\" \"x${@:2}y\" \"${arr[@]:1}\" \"${arr[@]:1:2}\" ${@:2} 
         );
         assert!(word_has_quoted_all_elements_array_slice(&command.args[1]));
         assert!(!word_has_quoted_all_elements_array_slice(&command.args[5]));
+    }
+
+    #[test]
+    fn word_has_direct_all_elements_array_expansion_ignores_nested_or_scalar_operator_uses() {
+        let source = "\
+printf '%s\\n' \"$@\" \"${arr[@]}\" \"${arr[@]:1}\" \"${arr[@]:-fallback}\" \"${target=\"$@\"}\" \"$(echo \"$@\")\" \"${arr[*]}\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let matches = command
+            .args
+            .iter()
+            .skip(1)
+            .map(|word| word_has_direct_all_elements_array_expansion_in_source(word, source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(matches, vec![true, true, true, true, false, false, false]);
     }
 
     #[test]

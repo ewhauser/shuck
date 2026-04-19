@@ -5,9 +5,9 @@ set -- a b
 if [ "_$@" = "_--version" ]; then :; fi
 if [ "$@" = "--version" ]; then :; fi
 if [ "${@:-fallback}" = "--version" ]; then :; fi
-if [[ "_$@" == "_--version" ]]; then :; fi
 
-# Valid: non-positional comparisons.
+# Valid: non-positional and double-bracket comparisons.
 if [ "_$*" = "_--version" ]; then :; fi
 if [ "_${arr[@]}" = "_x" ]; then :; fi
+if [[ "_$@" == "_--version" ]]; then :; fi
 if [[ "\$@" == "x" ]]; then :; fi

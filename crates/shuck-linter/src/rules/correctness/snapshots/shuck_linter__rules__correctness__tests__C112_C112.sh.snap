@@ -1,14 +1,44 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
 ---
-C112 array-slice expansions collapse when used in string comparisons
- --> <source>:6:8
+C112 all-elements array expansions collapse inside `[[ ... ]]` tests
+ --> <source>:8:7
   |
-6 | if [[ "${sel[@]:0:4}" == "HELP" ]]; then :; fi
+8 | if [[ "${sel[@]:0:4}" == "HELP" ]]; then :; fi
   |
 
-C112 array-slice expansions collapse when used in string comparisons
- --> <source>:7:9
+C112 all-elements array expansions collapse inside `[[ ... ]]` tests
+ --> <source>:9:10
   |
-7 | if [[ "x${@:2}y" == "x" ]]; then :; fi
+9 | if [[ -n "$@" ]]; then :; fi
   |
+
+C112 all-elements array expansions collapse inside `[[ ... ]]` tests
+  --> <source>:10:12
+   |
+10 | if [[ x == *${arr[@]}* ]]; then :; fi
+   |
+
+C112 all-elements array expansions collapse inside `[[ ... ]]` tests
+  --> <source>:11:7
+   |
+11 | if [[ "${@: -1}" == "mM" || "${@:-1}" == "Mm" ]]; then :; fi
+   |
+
+C112 all-elements array expansions collapse inside `[[ ... ]]` tests
+  --> <source>:11:29
+   |
+11 | if [[ "${@: -1}" == "mM" || "${@:-1}" == "Mm" ]]; then :; fi
+   |
+
+C112 all-elements array expansions collapse inside `[[ ... ]]` tests
+  --> <source>:12:7
+   |
+12 | if [[ " ${arr[@]} " =~ " x " ]]; then :; fi
+   |
+
+C112 all-elements array expansions collapse inside `[[ ... ]]` tests
+  --> <source>:13:7
+   |
+13 | if [[ "${arr[@]}" ]]; then :; fi
+   |
