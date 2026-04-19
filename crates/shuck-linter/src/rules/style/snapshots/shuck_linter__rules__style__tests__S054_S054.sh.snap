@@ -13,9 +13,3 @@ S054 use `su -l` or `su -c` when switching users
   |
 4 | su -c
   |
-
-S054 use `su -l` or `su -c` when switching users
-  --> <source>:13:1
-   |
-13 | su librenms -c id
-   |
