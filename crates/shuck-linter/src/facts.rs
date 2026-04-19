@@ -16438,7 +16438,6 @@ fn grep_pattern_has_glob_style_star_confusion(pattern: &str) -> bool {
     if pattern.starts_with('^')
         || ends_with_unescaped_dollar(bytes)
         || bytes.contains(&b'[')
-        || bytes.contains(&b'\\')
         || bytes.contains(&b'+')
     {
         return false;
@@ -16450,6 +16449,11 @@ fn grep_pattern_has_glob_style_star_confusion(pattern: &str) -> bool {
 
     let mut index = 0usize;
     while let Some(star_index) = next_unescaped_star_index(bytes, index) {
+        if bytes.get(star_index + 1) == Some(&b'\\') {
+            index = star_index + 1;
+            continue;
+        }
+
         let Some(previous) = previous_unescaped_byte(bytes, star_index) else {
             index = star_index + 1;
             continue;
@@ -16457,7 +16461,7 @@ fn grep_pattern_has_glob_style_star_confusion(pattern: &str) -> bool {
 
         if matches!(
             previous,
-            b'.' | b']' | b')' | b'*' | b'?' | b'|' | b'$' | b'{' | b'('
+            b'.' | b']' | b')' | b'*' | b'?' | b'|' | b'$' | b'{' | b'(' | b'\\'
         ) || previous.is_ascii_whitespace()
         {
             index = star_index + 1;
@@ -21414,6 +21418,7 @@ grep --regexp='*start' data.txt
 #!/bin/bash
 grep start* data.txt
 grep 'foo*bar' data.txt
+grep 'foo\\*bar*' data.txt
 grep '^#* OPTIONS #*$' data.txt
 grep -Eo 'https?://[[:alnum:]./?&!$#%@*;:+~_=-]+' data.txt
 grep '^root:[:!*]' data.txt
@@ -21445,6 +21450,7 @@ grep 'foo*bar+' data.txt
             vec![
                 ("start*", true),
                 ("'foo*bar'", true),
+                ("'foo\\*bar*'", true),
                 ("'^#* OPTIONS #*$'", false),
                 ("'https?://[[:alnum:]./?&!$#%@*;:+~_=-]+'", false),
                 ("'^root:[:!*]'", false),

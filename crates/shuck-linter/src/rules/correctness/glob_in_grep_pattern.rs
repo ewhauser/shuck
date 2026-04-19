@@ -41,6 +41,7 @@ mod tests {
 grep start* out.txt
 grep \"start*\" out.txt
 grep 'foo*bar' out.txt
+grep 'foo\\*bar*' out.txt
 grep foo*bar out.txt
 grep -efoo* out.txt
 grep --regexp start* out.txt
@@ -64,6 +65,7 @@ grep -E \"foo*bar\" out.txt
                 "start*",
                 "\"start*\"",
                 "'foo*bar'",
+                "'foo\\*bar*'",
                 "foo*bar",
                 "-efoo*",
                 "start*",

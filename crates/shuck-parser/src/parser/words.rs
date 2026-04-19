@@ -3100,8 +3100,7 @@ impl<'a> Parser<'a> {
                             }
                             content_end = cursor;
                             if nested == '\\' {
-                                if let Some(escaped) =
-                                    Self::next_word_char(&mut chars, &mut cursor)
+                                if let Some(escaped) = Self::next_word_char(&mut chars, &mut cursor)
                                 {
                                     if let Some(content) = content.as_mut() {
                                         content.push(escaped);
