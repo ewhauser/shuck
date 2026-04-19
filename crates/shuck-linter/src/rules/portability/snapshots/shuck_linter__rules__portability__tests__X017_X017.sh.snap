@@ -1,8 +1,20 @@
 ---
 source: crates/shuck-linter/src/rules/portability/mod.rs
 ---
-X017 `ERR` traps are not portable in `sh` scripts
+X017 `ERR`, `DEBUG`, and `RETURN` traps are not portable in `sh` scripts
  --> <source>:2:16
   |
 2 | trap 'echo hi' ERR
+  |
+
+X017 `ERR`, `DEBUG`, and `RETURN` traps are not portable in `sh` scripts
+ --> <source>:3:19
+  |
+3 | trap 'echo debug' DEBUG
+  |
+
+X017 `ERR`, `DEBUG`, and `RETURN` traps are not portable in `sh` scripts
+ --> <source>:4:16
+  |
+4 | trap 'cleanup' RETURN
   |

@@ -7,8 +7,8 @@ shellcheck_code: SC3047
 shells:
   - sh
   - dash
-description: The script depends on trapping `ERR`, which is shell-specific rather than POSIX behavior.
-rationale: Check command statuses explicitly instead of relying on `ERR` traps in portable code.
+description: The script depends on trapping `ERR`, `DEBUG`, or `RETURN`, which are shell-specific rather than POSIX behavior.
+rationale: Check command statuses explicitly and avoid shell-specific trap hooks in portable code.
 source:
   shell_checks_rule: rules/SH-022.yaml
   shell_checks_example: examples/022.sh
@@ -18,3 +18,11 @@ examples:
     code: |
       #!/bin/sh
       trap 'echo hi' ERR
+  - kind: invalid
+    code: |
+      #!/bin/sh
+      trap 'echo debug' DEBUG
+  - kind: invalid
+    code: |
+      #!/bin/sh
+      trap 'cleanup' RETURN
