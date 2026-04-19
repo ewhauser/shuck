@@ -270,18 +270,34 @@ pub(crate) fn shellcheck_directive_can_apply_to_following_command(
 
             if_header || then_header || elif_header || elif_then_header || else_header
         }
-        Command::Compound(CompoundCommand::For(command)) => {
-            body_header_matches(source, visit.stmt.span.start.offset, &command.body, &context, "do")
-        }
-        Command::Compound(CompoundCommand::Repeat(command)) => {
-            body_header_matches(source, visit.stmt.span.start.offset, &command.body, &context, "do")
-        }
-        Command::Compound(CompoundCommand::Foreach(command)) => {
-            body_header_matches(source, visit.stmt.span.start.offset, &command.body, &context, "do")
-        }
-        Command::Compound(CompoundCommand::ArithmeticFor(command)) => {
-            body_header_matches(source, visit.stmt.span.start.offset, &command.body, &context, "do")
-        }
+        Command::Compound(CompoundCommand::For(command)) => body_header_matches(
+            source,
+            visit.stmt.span.start.offset,
+            &command.body,
+            &context,
+            "do",
+        ),
+        Command::Compound(CompoundCommand::Repeat(command)) => body_header_matches(
+            source,
+            visit.stmt.span.start.offset,
+            &command.body,
+            &context,
+            "do",
+        ),
+        Command::Compound(CompoundCommand::Foreach(command)) => body_header_matches(
+            source,
+            visit.stmt.span.start.offset,
+            &command.body,
+            &context,
+            "do",
+        ),
+        Command::Compound(CompoundCommand::ArithmeticFor(command)) => body_header_matches(
+            source,
+            visit.stmt.span.start.offset,
+            &command.body,
+            &context,
+            "do",
+        ),
         Command::Compound(CompoundCommand::While(command)) => {
             loop_header_matches(
                 source,
@@ -312,9 +328,13 @@ pub(crate) fn shellcheck_directive_can_apply_to_following_command(
                 "do",
             )
         }
-        Command::Compound(CompoundCommand::Select(command)) => {
-            body_header_matches(source, visit.stmt.span.start.offset, &command.body, &context, "do")
-        }
+        Command::Compound(CompoundCommand::Select(command)) => body_header_matches(
+            source,
+            visit.stmt.span.start.offset,
+            &command.body,
+            &context,
+            "do",
+        ),
         Command::Compound(CompoundCommand::Subshell(body)) => body.first().is_some_and(|stmt| {
             next_command_starts_after_comment_line(stmt.span.start.offset, &context)
                 && context.prefix.trim() == "("
