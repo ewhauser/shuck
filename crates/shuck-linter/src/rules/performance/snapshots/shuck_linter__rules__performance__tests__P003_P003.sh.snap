@@ -1,5 +1,6 @@
 ---
 source: crates/shuck-linter/src/rules/performance/mod.rs
+assertion_line: 25
 ---
 P003 drop the subshell around this single test condition
  --> <source>:2:4
@@ -14,13 +15,37 @@ P003 drop the subshell around this single test condition
   |
 
 P003 drop the subshell around this single test condition
- --> <source>:4:7
+ --> <source>:4:6
   |
-4 | while ([ -f /etc/passwd ]); do :; done
+4 | if ! (test -f /etc/passwd); then :; fi
   |
 
 P003 drop the subshell around this single test condition
- --> <source>:5:7
+ --> <source>:5:4
   |
-5 | until (test -f /etc/passwd); do :; done
+5 | if ( ! test -f /etc/passwd ); then :; fi
+  |
+
+P003 drop the subshell around this single test condition
+ --> <source>:6:7
+  |
+6 | while ([ -f /etc/passwd ]); do :; done
+  |
+
+P003 drop the subshell around this single test condition
+ --> <source>:7:9
+  |
+7 | while ! ([ -f /etc/passwd ]); do :; done
+  |
+
+P003 drop the subshell around this single test condition
+ --> <source>:8:7
+  |
+8 | until (test -f /etc/passwd); do :; done
+  |
+
+P003 drop the subshell around this single test condition
+ --> <source>:9:9
+  |
+9 | until ! (test -f /etc/passwd); do :; done
   |
