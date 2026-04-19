@@ -1,14 +1,27 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 286
 ---
 C015 redirections on `sudo` still run in the current shell
- --> <source>:4:16
+ --> <source>:4:14
   |
 4 | sudo echo hi > out.txt
   |
 
 C015 redirections on `sudo` still run in the current shell
- --> <source>:7:26
+ --> <source>:7:23
   |
 7 | sudo printf '%s\n' ok >> log.txt
   |
+
+C015 redirections on `sudo` still run in the current shell
+  --> <source>:10:10
+   |
+10 | sudo cat < input.txt
+   |
+
+C015 redirections on `sudo` still run in the current shell
+  --> <source>:13:23
+   |
+13 | sudo tee /tmp/out.txt < input.txt >/dev/null
+   |
