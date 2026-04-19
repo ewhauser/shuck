@@ -1,5 +1,6 @@
 use crate::{
-    Checker, Rule, Violation, WordFactHostKind, word_unbraced_variable_before_bracket_spans,
+    Checker, Rule, ShellDialect, Violation, WordFactHostKind,
+    word_unbraced_variable_before_bracket_spans,
 };
 
 pub struct BraceVariableBeforeBracket;
@@ -15,6 +16,10 @@ impl Violation for BraceVariableBeforeBracket {
 }
 
 pub fn brace_variable_before_bracket(checker: &mut Checker) {
+    if checker.shell() == ShellDialect::Zsh {
+        return;
+    }
+
     let source = checker.source();
     let spans = checker
         .facts()
@@ -31,7 +36,7 @@ pub fn brace_variable_before_bracket(checker: &mut Checker) {
 #[cfg(test)]
 mod tests {
     use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
     fn reports_unbraced_variables_before_bracket_text() {
@@ -105,5 +110,20 @@ sed_var() {
                 .collect::<Vec<_>>(),
             vec![(4, 33), (7, 14)]
         );
+    }
+
+    #[test]
+    fn ignores_zsh_array_subscripts() {
+        let source = "\
+#!/bin/zsh
+echo \"$foo[1]\"
+print $reply[2]
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::BraceVariableBeforeBracket).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty());
     }
 }
