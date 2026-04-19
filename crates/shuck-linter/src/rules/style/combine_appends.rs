@@ -25,14 +25,11 @@ pub fn combine_appends(checker: &mut Checker) {
         .facts()
         .case_items()
         .iter()
-        .map(|item| item.item().body.span)
-        .collect::<Vec<_>>();
+        .map(|item| FactSpan::new(item.item().body.span))
+        .collect::<FxHashSet<_>>();
 
     for fact in checker.facts().statement_facts() {
-        if case_item_body_spans.iter().any(|span| {
-            fact.stmt_span().start.offset >= span.start.offset
-                && fact.stmt_span().end.offset <= span.end.offset
-        }) {
+        if case_item_body_spans.contains(&FactSpan::new(fact.body_span())) {
             continue;
         }
 
@@ -105,16 +102,12 @@ fn append_target_for_statement(
     statement: &StatementFact,
     source: &str,
 ) -> Option<(ComparablePathKey, Span)> {
-    let command = checker.facts().command(statement.command_id());
     let statement_commands = commands_for_statement(checker, statement);
     let mut target: Option<ComparablePathKey> = None;
-    let mut anchor_end = command.body_span().end;
+    let mut anchor_start = None;
+    let mut anchor_end = None;
 
     for command in statement_commands {
-        if command.body_span().end.offset > anchor_end.offset {
-            anchor_end = command.body_span().end;
-        }
-
         for redirect in command.redirect_facts() {
             if redirect.redirect().kind != RedirectKind::Append {
                 continue;
@@ -133,8 +126,30 @@ fn append_target_for_statement(
                 command.zsh_options(),
             )?;
             let key = comparable.key().clone();
-            if comparable.span().end.offset > anchor_end.offset {
-                anchor_end = comparable.span().end;
+            if anchor_start.is_none() {
+                let command_end = command
+                    .body_args()
+                    .last()
+                    .map(|word| word.span.end)
+                    .or_else(|| command.body_word_span().map(|span| span.end))
+                    .unwrap_or(command.body_span().end);
+                let redirect_end = command
+                    .redirect_facts()
+                    .iter()
+                    .map(|redirect| redirect.redirect().span.end)
+                    .max_by_key(|position| position.offset)
+                    .unwrap_or(command_end);
+                anchor_start = Some(command.body_span().start);
+                anchor_end = Some(if redirect_end.offset > command_end.offset {
+                    redirect_end
+                } else {
+                    command_end
+                });
+            }
+            if let Some(current_end) = &mut anchor_end
+                && comparable.span().end.offset > current_end.offset
+            {
+                *current_end = comparable.span().end;
             }
 
             match &target {
@@ -146,10 +161,9 @@ fn append_target_for_statement(
     }
 
     target.map(|key| {
-        (
-            key,
-            Span::from_positions(command.body_span().start, anchor_end),
-        )
+        let anchor_start = anchor_start.expect("append targets should have an anchor start");
+        let anchor_end = anchor_end.expect("append targets should have an anchor end");
+        (key, Span::from_positions(anchor_start, anchor_end))
     })
 }
 
@@ -246,7 +260,190 @@ echo \"}\" >> .INSTALL
     }
 
     #[test]
-    fn ignores_append_runs_inside_case_arms() {
+    fn reports_append_runs_inside_loop_bodies() {
+        let source = "\
+#!/bin/sh
+for js in one; do
+    echo first >> \"$js\"
+    echo second >> \"$js\"
+    echo third >> \"$js\"
+done
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CombineAppends));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["echo first >> \"$js\""]
+        );
+    }
+
+    #[test]
+    fn reports_unquoted_parameter_redirect_targets() {
+        let source = "\
+#!/bin/sh
+for js in one; do
+    echo first >> $js
+    echo second >> $js
+    echo third >> $js
+done
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CombineAppends));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["echo first >> $js"]
+        );
+    }
+
+    #[test]
+    fn reports_append_runs_after_non_append_compound_statements() {
+        let source = "\
+#!/bin/sh
+for js in one; do
+    if [ -f $js ]; then
+        sed -i '/marker/d' $js
+    fi
+    echo first >> $js
+    echo second >> $js
+    echo third >> $js
+done
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CombineAppends));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["echo first >> $js"]
+        );
+    }
+
+    #[test]
+    fn counts_pipeline_echo_pipeline_runs() {
+        let source = "\
+#!/bin/sh
+tr ' ' \"$nl\" < \"$tmpdepfile\" \\
+  | sed -e 's/^.*\\.o://' -e 's/#.*$//' -e '/^$/ d' \\
+  | tr \"$nl\" ' ' >> \"$depfile\"
+echo >> \"$depfile\"
+tr ' ' \"$nl\" < \"$tmpdepfile\" \\
+  | sed -e 's/^.*\\.o://' -e 's/#.*$//' -e '/^$/ d' -e 's/$/:/' \\
+  >> \"$depfile\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CombineAppends));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["tr \"$nl\" ' ' >> \"$depfile\""]
+        );
+    }
+
+    #[test]
+    fn keeps_trailing_arguments_after_redirect_targets_in_anchor_spans() {
+        let source = "\
+#!/bin/sh
+echo >>$tools '. /tmp/loader'
+echo >>$tools ''
+echo >>$tools 'cat >script.sh <<EOF'
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CombineAppends));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["echo >>$tools '. /tmp/loader'"]
+        );
+    }
+
+    #[test]
+    fn matches_gnunet_style_append_runs() {
+        let source = "\
+#!/bin/sh
+for ffprofile in /home/$USER/.mozilla/firefox/*.*/; do
+    js=$ffprofile/user.js
+    if [ -f $js ]; then
+        sed -i '/Preferences for using the GNU Name System/d' $js
+        sed -i '/network.proxy.socks/d' $js
+        sed -i '/network.proxy.socks_port/d' $js
+        sed -i '/network.proxy.socks_remote_dns/d' $js
+        sed -i '/network.proxy.type/d' $js
+    fi
+    echo \"// Preferences for using the GNU Name System\" >> $js
+    echo \"user_pref(\\\"network.proxy.socks\\\", \\\"localhost\\\");\" >> $js
+    echo \"user_pref(\\\"network.proxy.socks_port\\\", $PORT);\" >> $js
+    echo \"user_pref(\\\"network.proxy.socks_remote_dns\\\", true);\" >> $js
+    echo \"user_pref(\\\"network.proxy.type\\\", 1);\" >> $js
+done
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CombineAppends));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["echo \"// Preferences for using the GNU Name System\" >> $js"]
+        );
+    }
+
+    #[test]
+    fn matches_depcomp_style_append_runs() {
+        let source = "\
+#!/bin/sh
+tr ' ' \"$nl\" < \"$tmpdepfile\" \\
+  | sed -e 's/^.*\\.o://' -e 's/#.*$//' -e '/^$/ d' \\
+  | tr \"$nl\" ' ' >> \"$depfile\"
+echo >> \"$depfile\"
+# The second pass generates a dummy entry for each header file.
+tr ' ' \"$nl\" < \"$tmpdepfile\" \\
+  | sed -e 's/^.*\\.o://' -e 's/#.*$//' -e '/^$/ d' -e 's/$/:/' \\
+  >> \"$depfile\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CombineAppends));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["tr \"$nl\" ' ' >> \"$depfile\""]
+        );
+    }
+
+    #[test]
+    fn anchors_pipeline_runs_at_the_redirecting_segment() {
+        let source = "\
+#!/bin/sh
+printf '%s\\n' one \\
+  | sed 's/o/o/' >> out.log
+echo two >> out.log
+echo three >> out.log
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CombineAppends));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["sed 's/o/o/' >> out.log"]
+        );
+    }
+
+    #[test]
+    fn ignores_top_level_append_runs_inside_case_arms() {
         let source = "\
 #!/bin/sh
 case \"$kind\" in
@@ -260,5 +457,55 @@ esac
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CombineAppends));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_nested_append_runs_inside_case_arms() {
+        let source = "\
+#!/bin/sh
+case \"$kind\" in
+  kernel)
+    if test -f \"$tmpdepfile\"; then
+      tr ' ' \"$nl\" < \"$tmpdepfile\" \\
+        | sed -e 's/^.*\\.o://' -e 's/#.*$//' -e '/^$/ d' \\
+        | tr \"$nl\" ' ' >> \"$depfile\"
+      echo >> \"$depfile\"
+      tr ' ' \"$nl\" < \"$tmpdepfile\" \\
+        | sed -e 's/^.*\\.o://' -e 's/#.*$//' -e '/^$/ d' -e 's/$/:/' \\
+        >> \"$depfile\"
+    fi
+    ;;
+esac
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CombineAppends));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["tr \"$nl\" ' ' >> \"$depfile\""]
+        );
+    }
+
+    #[test]
+    fn keeps_trailing_heredoc_redirects_in_anchor_spans() {
+        let source = "\
+#!/bin/sh
+cat >>confdefs.h <<_ACEOF
+#define PACKAGE_NAME \"$PACKAGE_NAME\"
+_ACEOF
+printf '%s\\n' done >>confdefs.h
+printf '%s\\n' again >>confdefs.h
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CombineAppends));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["cat >>confdefs.h <<_ACEOF"]
+        );
     }
 }
