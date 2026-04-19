@@ -5632,6 +5632,106 @@ EOF
     }
 
     #[test]
+    fn test_quoted_heredoc_preserves_following_backtick_word_spans() {
+        let source = "\
+cat <<\\_ACEOF
+Use these variables to override the choices made by `configure' or to help
+it to find libraries and programs with nonstandard names/locations.
+_ACEOF
+ac_dir_suffix=/`$as_echo \"$ac_dir\" | sed 's|^\\.[\\\\/]||'`
+ac_top_builddir_sub=`$as_echo \"$ac_dir_suffix\" | sed 's|/[^\\\\/]*|/..|g;s|/||'`
+";
+        let mut lexer = Lexer::new(source);
+
+        assert_next_token_with_comments(&mut lexer, TokenKind::Word, Some("cat"));
+        assert_next_token_with_comments(&mut lexer, TokenKind::HereDoc, None);
+        let delimiter = lexer.next_lexed_token_with_comments().unwrap();
+        assert_eq!(delimiter.kind, TokenKind::Word);
+        assert_eq!(delimiter.span.slice(source), "\\_ACEOF");
+
+        let heredoc = lexer.read_heredoc("_ACEOF", false);
+        assert_eq!(
+            heredoc.content,
+            "Use these variables to override the choices made by `configure' or to help\nit to find libraries and programs with nonstandard names/locations.\n"
+        );
+
+        assert_next_token_with_comments(&mut lexer, TokenKind::Newline, None);
+
+        let first = lexer.next_lexed_token_with_comments().unwrap();
+        assert_eq!(first.kind, TokenKind::Word);
+        assert_eq!(
+            first.span.slice(source),
+            "ac_dir_suffix=/`$as_echo \"$ac_dir\" | sed 's|^\\.[\\\\/]||'`"
+        );
+        let first_segments = first
+            .word()
+            .unwrap()
+            .segments()
+            .map(|segment| {
+                (
+                    segment.kind(),
+                    segment.as_str().to_string(),
+                    segment.span().map(|span| span.slice(source).to_string()),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            first_segments,
+            vec![
+                (
+                    LexedWordSegmentKind::Plain,
+                    "ac_dir_suffix=/".to_string(),
+                    Some("ac_dir_suffix=/".to_string()),
+                ),
+                (
+                    LexedWordSegmentKind::Plain,
+                    "`$as_echo \"$ac_dir\" | sed 's|^\\.[\\\\/]||'`".to_string(),
+                    Some("`$as_echo \"$ac_dir\" | sed 's|^\\.[\\\\/]||'`".to_string()),
+                ),
+            ]
+        );
+
+        assert_next_token_with_comments(&mut lexer, TokenKind::Newline, None);
+
+        let second = lexer.next_lexed_token_with_comments().unwrap();
+        assert_eq!(second.kind, TokenKind::Word);
+        assert_eq!(
+            second.span.slice(source),
+            "ac_top_builddir_sub=`$as_echo \"$ac_dir_suffix\" | sed 's|/[^\\\\/]*|/..|g;s|/||'`"
+        );
+        let second_segments = second
+            .word()
+            .unwrap()
+            .segments()
+            .map(|segment| {
+                (
+                    segment.kind(),
+                    segment.as_str().to_string(),
+                    segment.span().map(|span| span.slice(source).to_string()),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            second_segments,
+            vec![
+                (
+                    LexedWordSegmentKind::Plain,
+                    "ac_top_builddir_sub=".to_string(),
+                    Some("ac_top_builddir_sub=".to_string()),
+                ),
+                (
+                    LexedWordSegmentKind::Plain,
+                    "`$as_echo \"$ac_dir_suffix\" | sed 's|/[^\\\\/]*|/..|g;s|/||'`".to_string(),
+                    Some(
+                        "`$as_echo \"$ac_dir_suffix\" | sed 's|/[^\\\\/]*|/..|g;s|/||'`"
+                            .to_string(),
+                    ),
+                ),
+            ]
+        );
+    }
+
+    #[test]
     fn test_heredoc_with_unicode_content() {
         // Heredoc containing multi-byte characters; spans must be on char boundaries
         let source = "cat <<EOF\n# 你好\ncafé\nEOF\n";

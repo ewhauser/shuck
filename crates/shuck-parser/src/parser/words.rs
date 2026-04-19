@@ -5182,7 +5182,13 @@ impl<'a> Parser<'a> {
         base: Position,
         source_backed: bool,
     ) -> Word {
-        self.decode_word_text_preserving_quotes_if_needed(s, span, base, source_backed)
+        let (text, source_backed) = if source_backed && !self.source_matches(span, s) {
+            (span.slice(self.input), true)
+        } else {
+            (s, source_backed)
+        };
+
+        self.decode_word_text_preserving_quotes_if_needed(text, span, base, source_backed)
     }
 
     fn arithmetic_expansion_word_part(

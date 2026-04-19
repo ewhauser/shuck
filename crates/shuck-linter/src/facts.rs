@@ -923,11 +923,16 @@ impl SuspectClosingQuoteFragmentFact {
 #[derive(Debug, Clone, Copy)]
 pub struct BacktickFragmentFact {
     span: Span,
+    empty: bool,
 }
 
 impl BacktickFragmentFact {
     pub fn span(&self) -> Span {
         self.span
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.empty
     }
 }
 
@@ -24876,6 +24881,25 @@ printf '%s\\n' ${name%$suffix} `printf backtick`
                     .map(|fragment| fragment.span().slice(source))
                     .collect::<Vec<_>>(),
                 vec!["`printf backtick`"]
+            );
+        });
+    }
+
+    #[test]
+    fn backtick_fragments_remember_when_the_substitution_body_is_empty() {
+        let source = "\
+#!/bin/sh
+echo \"Resolve the conflict and run ``${PROGRAM} --continue`` plus `date`.\"
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .backtick_fragments()
+                    .iter()
+                    .map(|fragment| (fragment.span().slice(source), fragment.is_empty()))
+                    .collect::<Vec<_>>(),
+                vec![("``", true), ("``", true), ("`date`", false)]
             );
         });
     }

@@ -1418,6 +1418,101 @@ fn test_backtick_command_substitution_inside_double_quotes_preserves_syntax_form
 }
 
 #[test]
+fn test_backtick_command_substitution_inside_multiline_double_quotes_preserves_syntax_form() {
+    let input = "echo \"\\\n*** ERROR\n`cat lockfile 2>/dev/null`\n\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let word = &command.args[0];
+
+    let WordPart::DoubleQuoted { parts, dollar } = &word.parts[0].kind else {
+        panic!("expected double-quoted word");
+    };
+    assert!(!dollar);
+
+    let slices: Vec<&str> = parts.iter().map(|part| part.span.slice(input)).collect();
+    assert_eq!(
+        slices,
+        vec!["\\\n*** ERROR\n", "`cat lockfile 2>/dev/null`", "\n"]
+    );
+
+    let WordPart::CommandSubstitution {
+        body: commands,
+        syntax,
+    } = &parts[1].kind
+    else {
+        panic!("expected command substitution");
+    };
+    assert_eq!(*syntax, CommandSubstitutionSyntax::Backtick);
+
+    let inner = expect_simple(&commands[0]);
+    assert_eq!(inner.name.render(input), "cat");
+    assert_eq!(inner.args[0].render(input), "lockfile");
+    assert_eq!(commands[0].redirects[0].fd, Some(2));
+    assert_eq!(
+        redirect_word_target(&commands[0].redirects[0]).render(input),
+        "/dev/null"
+    );
+}
+
+#[test]
+fn test_backtick_assignments_after_quoted_heredoc_preserve_each_substitution() {
+    let input = "\
+cat <<\\_ACEOF
+Use these variables to override the choices made by `configure' or to help
+it to find libraries and programs with nonstandard names/locations.
+_ACEOF
+ac_dir_suffix=/`$as_echo \"$ac_dir\" | sed 's|^\\.[\\\\/]||'`
+ac_top_builddir_sub=`$as_echo \"$ac_dir_suffix\" | sed 's|/[^\\\\/]*|/..|g;s|/||'`
+";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    assert_eq!(script.body.len(), 3, "{:#?}", script.body);
+
+    let AstCommand::Simple(first) = &script.body[1].command else {
+        panic!("expected simple command, got {:#?}", script.body[1].command);
+    };
+    let AssignmentValue::Scalar(first_value) = &first.assignments[0].value else {
+        panic!("expected scalar assignment");
+    };
+    assert_eq!(
+        first_value
+            .parts
+            .iter()
+            .map(|part| part.span.slice(input))
+            .collect::<Vec<_>>(),
+        vec!["/", "`$as_echo \"$ac_dir\" | sed 's|^\\.[\\\\/]||'`"]
+    );
+    let WordPart::CommandSubstitution { syntax, body } = &first_value.parts[1].kind else {
+        panic!("expected backtick substitution");
+    };
+    assert_eq!(*syntax, CommandSubstitutionSyntax::Backtick);
+    assert!(!body.is_empty());
+
+    let AstCommand::Simple(second) = &script.body[2].command else {
+        panic!("expected simple command, got {:#?}", script.body[2].command);
+    };
+    let AssignmentValue::Scalar(second_value) = &second.assignments[0].value else {
+        panic!("expected scalar assignment");
+    };
+    assert_eq!(
+        second_value
+            .parts
+            .iter()
+            .map(|part| part.span.slice(input))
+            .collect::<Vec<_>>(),
+        vec!["`$as_echo \"$ac_dir_suffix\" | sed 's|/[^\\\\/]*|/..|g;s|/||'`"]
+    );
+    let WordPart::CommandSubstitution { syntax, body } = &second_value.parts[0].kind else {
+        panic!("expected backtick substitution");
+    };
+    assert_eq!(*syntax, CommandSubstitutionSyntax::Backtick);
+    assert!(!body.is_empty());
+}
+
+#[test]
 fn test_dollar_paren_command_substitution_inside_double_quotes_preserves_nested_quoted_argument() {
     let input = "echo \"$(cmd \"$arg\")\"\n";
     let script = Parser::new(input).parse().unwrap().file;

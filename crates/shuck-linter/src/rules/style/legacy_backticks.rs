@@ -17,6 +17,7 @@ pub fn legacy_backticks(checker: &mut Checker) {
         .facts()
         .backtick_fragments()
         .iter()
+        .filter(|fragment| !fragment.is_empty())
         .map(|fragment| fragment.span())
         .collect::<Vec<_>>();
 
@@ -63,6 +64,130 @@ mod tests {
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["`pyenv-commands --sh`"]
+        );
+    }
+
+    #[test]
+    fn ignores_empty_backtick_markup_inside_double_quotes() {
+        let source = "echo \"Resolve the conflict and run ``${PROGRAM} --continue``.\"\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LegacyBackticks));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_backticks_inside_multiline_double_quotes_after_line_continuation() {
+        let source = "\
+ECHO=echo
+$ECHO \"\\
+*** ERROR
+`cat lockfile 2>/dev/null`
+\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LegacyBackticks));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["`cat lockfile 2>/dev/null`"]
+        );
+    }
+
+    #[test]
+    fn reports_backticks_after_a_quoted_heredoc_help_block() {
+        let source = "\
+cat <<\\_ACEOF
+Use `configure' or `make' to build this project.
+_ACEOF
+x=`pwd`
+y=`uname`
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LegacyBackticks));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["`pwd`", "`uname`"]
+        );
+    }
+
+    #[test]
+    fn reports_multiple_backtick_assignments_with_single_quoted_sed_scripts() {
+        let source = "\
+ac_dir_suffix=/`$as_echo \"$ac_dir\" | sed 's|^\\.[\\\\/]||'`
+ac_top_builddir_sub=`$as_echo \"$ac_dir_suffix\" | sed 's|/[^\\\\/]*|/..|g;s|/||'`
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LegacyBackticks));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "`$as_echo \"$ac_dir\" | sed 's|^\\.[\\\\/]||'`",
+                "`$as_echo \"$ac_dir_suffix\" | sed 's|/[^\\\\/]*|/..|g;s|/||'`",
+            ]
+        );
+    }
+
+    #[test]
+    fn reports_backticks_inside_recursive_help_loop() {
+        let source = "\
+if test \"$ac_init_help\" = \"recursive\"; then
+  for ac_dir in : $ac_subdirs_all; do test \"x$ac_dir\" = x: && continue
+    test -d \"$ac_dir\" ||
+      { cd \"$srcdir\" && ac_pwd=`pwd` && srcdir=. && test -d \"$ac_dir\"; } ||
+      continue
+    case \"$ac_dir\" in
+    *)
+      ac_dir_suffix=/`$as_echo \"$ac_dir\" | sed 's|^\\.[\\\\/]||'`
+      ac_top_builddir_sub=`$as_echo \"$ac_dir_suffix\" | sed 's|/[^\\\\/]*|/..|g;s|/||'`
+      ;;
+    esac
+  done
+fi
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LegacyBackticks));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "`pwd`",
+                "`$as_echo \"$ac_dir\" | sed 's|^\\.[\\\\/]||'`",
+                "`$as_echo \"$ac_dir_suffix\" | sed 's|/[^\\\\/]*|/..|g;s|/||'`",
+            ]
+        );
+    }
+
+    #[test]
+    fn reports_sed_backticks_after_quoted_heredoc_backticks() {
+        let source = "\
+cat <<\\_ACEOF
+Use these variables to override the choices made by `configure' or to help
+it to find libraries and programs with nonstandard names/locations.
+_ACEOF
+ac_dir_suffix=/`$as_echo \"$ac_dir\" | sed 's|^\\.[\\\\/]||'`
+ac_top_builddir_sub=`$as_echo \"$ac_dir_suffix\" | sed 's|/[^\\\\/]*|/..|g;s|/||'`
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LegacyBackticks));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "`$as_echo \"$ac_dir\" | sed 's|^\\.[\\\\/]||'`",
+                "`$as_echo \"$ac_dir_suffix\" | sed 's|/[^\\\\/]*|/..|g;s|/||'`",
+            ]
         );
     }
 

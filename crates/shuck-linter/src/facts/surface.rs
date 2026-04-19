@@ -438,15 +438,16 @@ impl<'a> SurfaceFragmentSink<'a> {
                 }
                 WordPart::CommandSubstitution {
                     syntax: CommandSubstitutionSyntax::Backtick,
-                    body: _,
+                    body,
                     ..
                 } => {
                     if self.opening_backtick_is_escaped(part.span) {
                         continue;
                     }
-                    self.facts
-                        .backticks
-                        .push(BacktickFragmentFact { span: part.span });
+                    self.facts.backticks.push(BacktickFragmentFact {
+                        span: part.span,
+                        empty: body.is_empty(),
+                    });
                 }
                 WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => {}
                 WordPart::Parameter(parameter) => {
@@ -609,14 +610,16 @@ impl<'a> SurfaceFragmentSink<'a> {
                 HeredocBodyPart::Literal(_) | HeredocBodyPart::Variable(_) => {}
                 HeredocBodyPart::CommandSubstitution {
                     syntax: CommandSubstitutionSyntax::Backtick,
+                    body,
                     ..
                 } => {
                     if self.opening_backtick_is_escaped(part.span) {
                         continue;
                     }
-                    self.facts
-                        .backticks
-                        .push(BacktickFragmentFact { span: part.span });
+                    self.facts.backticks.push(BacktickFragmentFact {
+                        span: part.span,
+                        empty: body.is_empty(),
+                    });
                 }
                 HeredocBodyPart::CommandSubstitution { .. } => {}
                 HeredocBodyPart::ArithmeticExpansion {
