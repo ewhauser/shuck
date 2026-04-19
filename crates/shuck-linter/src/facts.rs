@@ -15640,13 +15640,20 @@ fn parse_find_execdir_shell_command(
 }
 
 fn parse_find_exec_argument_word_spans(args: &[&Word], source: &str) -> Vec<Span> {
-    args.iter()
-        .take_while(|word| {
-            !matches!(
-                static_word_text(word, source).as_deref(),
-                Some(";" | "\\;" | "+")
-            )
+    let semicolon_terminator_index = args
+        .iter()
+        .position(|word| matches!(static_word_text(word, source).as_deref(), Some(";" | "\\;")));
+    let plus_terminator_index = args
+        .iter()
+        .enumerate()
+        .filter_map(|(index, word)| {
+            (static_word_text(word, source).as_deref() == Some("+")).then_some(index)
         })
+        .last();
+    let terminator_index = semicolon_terminator_index.or(plus_terminator_index);
+
+    args.iter()
+        .take(terminator_index.unwrap_or(args.len()))
         .map(|word| word.span)
         .collect()
 }
@@ -19862,6 +19869,33 @@ find . -execdir sh -c 'printf \"%s\\n\" {}' {} \\;
                 vec!["$(readlink -f {})"]
             );
 
+            let plus_argument_find_exec = facts
+                .commands()
+                .iter()
+                .find(|fact| {
+                    fact.has_wrapper(WrapperKind::FindExec)
+                        && !fact.is_nested_word_command()
+                        && fact.effective_name_is("echo")
+                        && fact.options().find_exec().is_some_and(|find_exec| {
+                            find_exec
+                                .argument_word_spans()
+                                .iter()
+                                .any(|span| span.slice(source) == "\"$prefix\"*.tmp")
+                        })
+                })
+                .expect("expected semicolon-terminated find -exec fact");
+            assert_eq!(
+                plus_argument_find_exec
+                    .options()
+                    .find_exec()
+                    .expect("expected find -exec facts")
+                    .argument_word_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["\"$prefix\"*.tmp", "{}"]
+            );
+
             let find_execdir = facts
                 .commands()
                 .iter()
@@ -19877,6 +19911,31 @@ find . -execdir sh -c 'printf \"%s\\n\" {}' {} \\;
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
                 vec!["-c", "'printf \"%s\\n\" {}'", "{}"]
+            );
+        });
+    }
+
+    #[test]
+    fn keeps_plus_arguments_before_semicolon_terminated_find_exec() {
+        let source = "#!/bin/sh\nfind . -exec echo + *.tmp {} \\;\n";
+
+        with_facts(source, None, |_, facts| {
+            let find_exec = facts
+                .commands()
+                .iter()
+                .find(|fact| fact.has_wrapper(WrapperKind::FindExec))
+                .expect("expected find -exec fact");
+
+            assert_eq!(
+                find_exec
+                    .options()
+                    .find_exec()
+                    .expect("expected find -exec facts")
+                    .argument_word_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["+", "*.tmp", "{}"]
             );
         });
     }

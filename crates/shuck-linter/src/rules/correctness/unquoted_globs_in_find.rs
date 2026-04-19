@@ -132,4 +132,22 @@ find . -exec echo {} \\; -name *.cfg
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
+
+    #[test]
+    fn reports_globs_after_literal_plus_in_semicolon_terminated_find_exec() {
+        let source = "\
+#!/bin/bash
+find . -exec echo + *.tmp {} \\;
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedGlobsInFind));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["*"]
+        );
+    }
 }
