@@ -160,7 +160,11 @@ fn parse_shellcheck_directive(
                 if code.is_empty() {
                     continue;
                 }
-                codes.extend(shellcheck_map.resolve_all(code));
+                if code.eq_ignore_ascii_case("all") {
+                    codes.extend(Rule::iter());
+                } else {
+                    codes.extend(shellcheck_map.resolve_all(code));
+                }
             }
         }
     }
@@ -279,6 +283,17 @@ value=1 # shellcheck disable=SC2034
             directives[0].codes,
             vec![Rule::UnquotedExpansion, Rule::UnusedAssignment]
         );
+    }
+
+    #[test]
+    fn parses_shellcheck_disable_all() {
+        let directives = directives("# shellcheck disable=all\n");
+
+        assert_eq!(directives.len(), 1);
+        assert_eq!(directives[0].source, SuppressionSource::ShellCheck);
+        assert_eq!(directives[0].codes.len(), Rule::COUNT);
+        assert!(directives[0].codes.contains(&Rule::CompoundTestOperator));
+        assert!(directives[0].codes.contains(&Rule::UnquotedExpansion));
     }
 
     #[test]

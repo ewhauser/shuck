@@ -15,14 +15,6 @@ impl Violation for CompoundTestOperator {
 }
 
 pub fn compound_test_operator(checker: &mut Checker) {
-    if !checker
-        .facts()
-        .abort_like_bracket_test_spans(checker.source())
-        .is_empty()
-    {
-        return;
-    }
-
     let source = checker.source();
     let spans = checker
         .facts()
@@ -98,11 +90,53 @@ test \"$a\" = 1 -a \"$b\" = 2
     }
 
     #[test]
-    fn ignores_simple_tests_when_the_file_has_malformed_bracket_tests() {
+    fn reports_grouped_compound_test_operators_in_brackets() {
+        let source = "\
+#!/bin/sh
+[ ! '(' -f \"$left\" -o -f \"$right\" ')' ]
+[ '(' '!' -f \"$quoted_left\" -o -f \"$quoted_right\" ')' ]
+[ \"$a\" = 1 -a \\( \"$b\" = 2 -o \"$c\" = 3 \\) ]
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CompoundTestOperator),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["-o", "-o", "-a", "-o"]
+        );
+    }
+
+    #[test]
+    fn ignores_malformed_grouped_tests_without_hiding_valid_ones() {
         let source = "\
 #!/bin/sh
 [ \"$cross\" -a \"$nocross\" ]
 [ -n \"${TMPDIR-}\" -a '(' '(' -d \"${TMPDIR-}\" -a -w \"${TMPDIR-}\" ')' -o '!' '(' -d /tmp -a -w /tmp ')' ')' ]
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CompoundTestOperator),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["-a"]
+        );
+    }
+
+    #[test]
+    fn ignores_quoted_negation_before_grouped_subexpressions() {
+        let source = "\
+#!/bin/sh
+[ '(' '!' '(' -f \"$left\" -o -f \"$right\" ')' ')' ]
 ";
         let diagnostics = test_snippet(
             source,

@@ -567,6 +567,21 @@ echo $foo
     }
 
     #[test]
+    fn promotes_shellcheck_disable_all_before_the_first_statement_to_file_scope() {
+        let source = "\
+#!/bin/bash
+# shellcheck disable=all
+
+[ \"$a\" = 1 -a \"$b\" = 2 ]
+echo $foo
+";
+        let index = suppression_index(source);
+
+        assert!(index.is_suppressed(Rule::CompoundTestOperator, 4));
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 5));
+    }
+
+    #[test]
     fn scopes_shellcheck_disable_to_the_next_multiline_command() {
         let source = "\
 echo ready
