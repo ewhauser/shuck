@@ -3903,8 +3903,12 @@ impl<'a> LinterFactsBuilder<'a> {
                 .any(|set| set.errexit_change == Some(true));
         let commented_continuation_comment_spans =
             build_commented_continuation_comment_spans(self.source, self._indexer);
-        let trailing_directive_comment_spans =
-            build_trailing_directive_comment_spans(&case_items, self.source, self._indexer);
+        let trailing_directive_comment_spans = build_trailing_directive_comment_spans(
+            self.file,
+            &case_items,
+            self.source,
+            self._indexer,
+        );
         let backtick_command_name_spans = build_backtick_command_name_spans(&commands);
         let dollar_question_after_command_spans =
             build_dollar_question_after_command_spans(&self.file.body, self.source);
@@ -7526,6 +7530,7 @@ fn build_commented_continuation_comment_spans(source: &str, indexer: &Indexer) -
 }
 
 fn build_trailing_directive_comment_spans(
+    file: &File,
     case_items: &[CaseItemFact<'_>],
     source: &str,
     indexer: &Indexer,
@@ -7554,9 +7559,7 @@ fn build_trailing_directive_comment_spans(
             if case_item_label_comment(case_items, line, comment_start) {
                 return None;
             }
-            if shellcheck_directive_can_apply_to_following_command(
-                &source[line_start..comment_start],
-            ) {
+            if shellcheck_directive_can_apply_to_following_command(source, file, comment.range) {
                 return None;
             }
 

@@ -1,4 +1,4 @@
-use shuck_ast::{CaseItem, Command, CompoundCommand, File, TextRange, TextSize};
+use shuck_ast::{CaseItem, Command, CompoundCommand, File, IfSyntax, StmtSeq, TextRange, TextSize};
 use shuck_indexer::{CommentIndex, IndexedComment};
 
 use crate::{
@@ -52,7 +52,9 @@ pub fn parse_directives(
 
         if let Some(directive) = parse_shuck_directive(&comment) {
             directives.push(directive);
-        } else if let Some(directive) = parse_shellcheck_directive(&comment, file, shellcheck_map) {
+        } else if let Some(directive) =
+            parse_shellcheck_directive(source, &comment, file, shellcheck_map)
+        {
             directives.push(directive);
         }
     }
@@ -70,7 +72,6 @@ pub fn parse_directives(
 #[derive(Debug, Clone, Copy)]
 struct NormalizedComment<'a> {
     text: &'a str,
-    line_prefix: &'a str,
     range: TextRange,
     line: u32,
     is_own_line: bool,
@@ -94,7 +95,6 @@ fn normalized_comment<'a>(
 
     Some(NormalizedComment {
         text: &source[comment_start..line_end],
-        line_prefix: &source[line_start..comment_start],
         range: TextRange::new(
             TextSize::new(comment_start as u32),
             TextSize::new(line_end as u32),
@@ -143,12 +143,13 @@ fn parse_shuck_directive(comment: &NormalizedComment<'_>) -> Option<SuppressionD
 }
 
 fn parse_shellcheck_directive(
+    source: &str,
     comment: &NormalizedComment<'_>,
     file: &File,
     shellcheck_map: &ShellCheckCodeMap,
 ) -> Option<SuppressionDirective> {
     if !comment.is_own_line
-        && !shellcheck_directive_can_apply_to_following_command(comment.line_prefix)
+        && !shellcheck_directive_can_apply_to_following_command(source, file, comment.range)
         && !is_case_label_directive(comment, file)
     {
         return None;
@@ -192,14 +193,104 @@ fn parse_shellcheck_directive(
     })
 }
 
-pub(crate) fn shellcheck_directive_can_apply_to_following_command(prefix: &str) -> bool {
-    let trimmed = prefix.trim_end();
-    trimmed.ends_with(';')
-        || trimmed.ends_with('{')
-        || trimmed.ends_with('(')
-        || ["if", "elif", "while", "until", "then", "do", "else"]
-            .into_iter()
-            .any(|keyword| ends_with_keyword(trimmed, keyword))
+pub(crate) fn shellcheck_directive_can_apply_to_following_command(
+    source: &str,
+    file: &File,
+    comment_range: TextRange,
+) -> bool {
+    let Some(context) = inline_directive_context(source, comment_range) else {
+        return false;
+    };
+
+    if context.prefix.trim_end().ends_with(';') {
+        return true;
+    }
+
+    iter_commands(
+        &file.body,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+    )
+    .any(|visit| match visit.command {
+        Command::Compound(CompoundCommand::If(command)) => {
+            let if_header = command.condition.first().is_some_and(|stmt| {
+                next_command_starts_after_comment_line(stmt.span.start.offset, &context)
+                    && command_start_segment_matches(
+                        source,
+                        visit.stmt.span.start.offset,
+                        context.comment_start,
+                        "if",
+                    )
+            });
+
+            let then_header = match command.syntax {
+                IfSyntax::ThenFi { then_span, .. } => {
+                    command.then_branch.first().is_some_and(|stmt| {
+                        next_command_starts_after_comment_line(stmt.span.start.offset, &context)
+                            && span_precedes_comment_on_same_line(then_span, &context)
+                    })
+                }
+                IfSyntax::Brace { .. } => false,
+            };
+
+            let mut previous_branch_end = command.then_branch.span.end.offset;
+            let elif_header = command.elif_branches.iter().any(|(condition, branch)| {
+                let matches = condition.first().is_some_and(|stmt| {
+                    next_command_starts_after_comment_line(stmt.span.start.offset, &context)
+                        && gap_segment_ends_with_keyword(
+                            source,
+                            previous_branch_end,
+                            context.comment_start,
+                            "elif",
+                        )
+                });
+                previous_branch_end = branch.span.end.offset;
+                matches
+            });
+
+            let else_header = command.else_branch.as_ref().is_some_and(|branch| {
+                branch.first().is_some_and(|stmt| {
+                    next_command_starts_after_comment_line(stmt.span.start.offset, &context)
+                        && gap_segment_ends_with_keyword(
+                            source,
+                            previous_branch_end,
+                            context.comment_start,
+                            "else",
+                        )
+                })
+            });
+
+            if_header || then_header || elif_header || else_header
+        }
+        Command::Compound(CompoundCommand::While(command)) => {
+            loop_header_matches(
+                source,
+                visit.stmt.span.start.offset,
+                &command.condition,
+                context,
+                "while",
+            ) || loop_body_matches(source, &command.condition, &command.body, &context)
+        }
+        Command::Compound(CompoundCommand::Until(command)) => {
+            loop_header_matches(
+                source,
+                visit.stmt.span.start.offset,
+                &command.condition,
+                context,
+                "until",
+            ) || loop_body_matches(source, &command.condition, &command.body, &context)
+        }
+        Command::Compound(CompoundCommand::Subshell(body)) => body.first().is_some_and(|stmt| {
+            next_command_starts_after_comment_line(stmt.span.start.offset, &context)
+                && context.prefix.trim() == "("
+        }),
+        Command::Compound(CompoundCommand::BraceGroup(body)) => body.first().is_some_and(|stmt| {
+            next_command_starts_after_comment_line(stmt.span.start.offset, &context)
+                && context.prefix.trim() == "{"
+        }),
+        _ => false,
+    })
 }
 
 fn is_case_label_directive(comment: &NormalizedComment<'_>, file: &File) -> bool {
@@ -250,12 +341,109 @@ fn strip_prefix_ignore_ascii_case<'a>(text: &'a str, prefix: &str) -> Option<&'a
         .then(|| &text[prefix.len()..])
 }
 
-fn ends_with_keyword(text: &str, keyword: &str) -> bool {
-    text == keyword
-        || text
-            .strip_suffix(keyword)
-            .and_then(|prefix| prefix.chars().last())
-            .is_some_and(|ch| ch.is_ascii_whitespace())
+#[derive(Debug, Clone, Copy)]
+struct InlineDirectiveContext<'a> {
+    prefix: &'a str,
+    line_start: usize,
+    line_end: usize,
+    comment_start: usize,
+}
+
+fn inline_directive_context<'a>(
+    source: &'a str,
+    comment_range: TextRange,
+) -> Option<InlineDirectiveContext<'a>> {
+    let comment_start = usize::from(comment_range.start()).min(source.len());
+    let line_start = source[..comment_start]
+        .rfind('\n')
+        .map_or(0, |index| index + 1);
+    let line_end = source[comment_start..]
+        .find('\n')
+        .map_or(source.len(), |index| comment_start + index);
+
+    Some(InlineDirectiveContext {
+        prefix: &source[line_start..comment_start],
+        line_start,
+        line_end,
+        comment_start,
+    })
+}
+
+fn next_command_starts_after_comment_line(
+    next_command_start: usize,
+    context: &InlineDirectiveContext<'_>,
+) -> bool {
+    next_command_start >= context.line_end
+}
+
+fn command_start_segment_matches(
+    source: &str,
+    command_start: usize,
+    comment_start: usize,
+    keyword: &str,
+) -> bool {
+    segment_ends_with_keyword(source, command_start, comment_start, keyword)
+}
+
+fn gap_segment_ends_with_keyword(
+    source: &str,
+    gap_start: usize,
+    comment_start: usize,
+    keyword: &str,
+) -> bool {
+    segment_ends_with_keyword(source, gap_start.min(comment_start), comment_start, keyword)
+}
+
+fn segment_ends_with_keyword(source: &str, start: usize, end: usize, keyword: &str) -> bool {
+    let Some(segment) = source.get(start.min(end)..end) else {
+        return false;
+    };
+    let trimmed = segment.trim_end_matches([' ', '\t', '\r']);
+    let Some(prefix) = trimmed.strip_suffix(keyword) else {
+        return false;
+    };
+
+    prefix
+        .chars()
+        .next_back()
+        .is_none_or(|ch| !(ch.is_ascii_alphanumeric() || ch == '_'))
+}
+
+fn span_precedes_comment_on_same_line(
+    span: shuck_ast::Span,
+    context: &InlineDirectiveContext<'_>,
+) -> bool {
+    span.end.offset <= context.comment_start && span.end.offset >= context.line_start
+}
+
+fn loop_header_matches(
+    source: &str,
+    command_start: usize,
+    condition: &StmtSeq,
+    context: InlineDirectiveContext<'_>,
+    keyword: &str,
+) -> bool {
+    condition.first().is_some_and(|stmt| {
+        next_command_starts_after_comment_line(stmt.span.start.offset, &context)
+            && command_start_segment_matches(source, command_start, context.comment_start, keyword)
+    })
+}
+
+fn loop_body_matches(
+    source: &str,
+    condition: &StmtSeq,
+    body: &StmtSeq,
+    context: &InlineDirectiveContext<'_>,
+) -> bool {
+    body.first().is_some_and(|stmt| {
+        next_command_starts_after_comment_line(stmt.span.start.offset, context)
+            && gap_segment_ends_with_keyword(
+                source,
+                condition.span.end.offset,
+                context.comment_start,
+                "do",
+            )
+    })
 }
 
 fn parse_shuck_action(value: &str) -> Option<SuppressionAction> {
@@ -376,6 +564,19 @@ case $x in
   on) echo \"$x\" # shellcheck disable=SC2086
       ;;
 esac
+";
+        let directives = directives(source);
+
+        assert!(directives.is_empty());
+    }
+
+    #[test]
+    fn rejects_shellcheck_directives_after_keyword_like_arguments() {
+        let source = "\
+echo if # shellcheck disable=SC2086
+echo $foo
+echo { # shellcheck disable=SC2086
+echo $bar
 ";
         let directives = directives(source);
 

@@ -693,6 +693,17 @@ echo $foo
     }
 
     #[test]
+    fn ignores_shellcheck_directives_after_keyword_like_arguments() {
+        let source = "\
+echo if # shellcheck disable=SC2086
+echo $foo
+";
+        let index = suppression_index(source);
+
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 2));
+    }
+
+    #[test]
     fn ignores_case_label_directives_after_same_line_body_commands() {
         let source = "\
 case $x in

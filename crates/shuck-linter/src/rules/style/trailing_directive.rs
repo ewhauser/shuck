@@ -100,4 +100,13 @@ mod tests {
             assert!(diagnostics.is_empty(), "{source}");
         }
     }
+
+    #[test]
+    fn reports_keyword_like_arguments_with_trailing_directives() {
+        let source = "#!/bin/sh\necho if # shellcheck disable=SC2086\necho $foo\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrailingDirective));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+    }
 }
