@@ -2339,6 +2339,9 @@ impl<'a> Lexer<'a> {
                                     content_start,
                                     escape_start,
                                 );
+                                if next == '\\' {
+                                    Self::push_capture_char(&mut content, '\x00');
+                                }
                                 if next == '`' {
                                     Self::push_capture_char(&mut content, '\x00');
                                 }

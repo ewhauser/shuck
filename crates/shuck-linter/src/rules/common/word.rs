@@ -307,6 +307,23 @@ mod tests {
     }
 
     #[test]
+    fn classify_word_treats_escaped_backslash_before_command_substitution_as_mixed() {
+        let source = "printf \"\\\\$(printf '%03o' \"$i\")\"\n";
+        let commands = parse_commands(source);
+        let Command::Simple(command) = &commands[0].command else {
+            panic!("expected simple command");
+        };
+
+        let classification = classify_word(&command.args[0], source);
+        assert_eq!(classification.quote, WordQuote::FullyQuoted);
+        assert_eq!(classification.literalness, WordLiteralness::Expanded);
+        assert_eq!(
+            classification.substitution_shape,
+            WordSubstitutionShape::Mixed
+        );
+    }
+
+    #[test]
     fn shell_variable_name_helper_matches_identifier_rules() {
         assert!(is_shell_variable_name("name"));
         assert!(is_shell_variable_name("_name123"));
