@@ -17207,7 +17207,6 @@ fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
 
         if text == "-print0" {
             has_print0 = true;
-            has_formatted_output_action = true;
         }
 
         if is_find_group_open_token(text.as_str()) {
@@ -20753,7 +20752,7 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
     }
 
     #[test]
-    fn tracks_find_formatted_output_actions() {
+    fn tracks_find_print0_without_treating_it_as_formatted_output() {
         let source = "\
 #!/bin/bash
 find . -print0 | xargs rm
@@ -20774,7 +20773,8 @@ find . -print | xargs rm
             .collect::<Vec<_>>();
 
         assert_eq!(find_facts.len(), 3);
-        assert!(find_facts[0].has_formatted_output_action());
+        assert!(find_facts[0].has_print0);
+        assert!(!find_facts[0].has_formatted_output_action());
         assert!(find_facts[1].has_formatted_output_action());
         assert!(!find_facts[2].has_formatted_output_action());
     }
@@ -25687,7 +25687,7 @@ arr=(\"$(printf '%s\\n' \"$x\")\")
                     .iter()
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
-                vec!["$x"]
+                Vec::<&str>::new()
             );
         });
     }

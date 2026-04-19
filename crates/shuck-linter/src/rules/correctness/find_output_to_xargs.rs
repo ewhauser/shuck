@@ -132,13 +132,15 @@ find \"$dir\" \\( -type f -o -type l \\) -and -not -path \"$dir/plugins/*\" | xa
     }
 
     #[test]
-    fn ignores_find_printf_output_actions() {
+    fn ignores_find_printf_output_actions_but_reports_print0_without_null_xargs() {
         let source = "\
 find plugins/ -maxdepth 2 -name '__init__.py' -printf '%h\\n' | xargs mv -t \"$dest\"
 find \"$pkg\" -print0 | xargs rm
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FindOutputToXargs));
 
-        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.slice(source), "find \"$pkg\" -print0");
     }
 }

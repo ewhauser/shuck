@@ -2918,7 +2918,8 @@ impl<'a> Parser<'a> {
     fn decode_word_from_token(&mut self, token: &LexedToken<'_>, span: Span) -> Option<Word> {
         let word = token.word()?;
 
-        if !token.flags.is_synthetic()
+        if word.single_segment().is_none()
+            && !token.flags.is_synthetic()
             && let Some(source_text) = token.source_slice(self.input)
         {
             return Some(self.parse_word_with_context(source_text, span, span.start, true));
@@ -2943,7 +2944,14 @@ impl<'a> Parser<'a> {
             } else {
                 raw_text
             };
-            let decode_text = if source_backed && !self.source_matches(content_span, text) {
+            let decode_text = if source_backed
+                && !self.source_matches(content_span, text)
+                && matches!(
+                    segment.kind(),
+                    LexedWordSegmentKind::DoubleQuoted | LexedWordSegmentKind::DollarDoubleQuoted
+                )
+                && !text.contains("$(")
+            {
                 content_span.slice(self.input)
             } else {
                 text
@@ -2967,7 +2975,7 @@ impl<'a> Parser<'a> {
                 )),
                 LexedWordSegmentKind::Plain if Self::word_text_needs_parse(text) => Some(
                     self.decode_word_text_preserving_quotes_if_needed_with_escape_mode(
-                        decode_text,
+                        text,
                         span,
                         content_span.start,
                         source_backed,

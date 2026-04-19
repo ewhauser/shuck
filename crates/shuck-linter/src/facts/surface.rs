@@ -1863,7 +1863,7 @@ mod tests {
 
     #[test]
     fn detects_positional_parameter_operator_in_parsed_arithmetic_shell_word() {
-        let source = "#!/bin/sh\necho \"$(( value + $1suffix ))\"\n";
+        let source = "#!/bin/sh\necho \"$(( value + prefix$1 ))\"\n";
         let output = Parser::new(source).parse().unwrap();
         let command = output.file.body.stmts.first().expect("expected command");
         let Command::Simple(command) = &command.command else {
