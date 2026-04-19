@@ -22,6 +22,7 @@ pub fn printf_q_format_in_sh(checker: &mut Checker) {
         .commands()
         .iter()
         .filter(|fact| fact.effective_name_is("printf"))
+        .filter(|fact| fact.options().nonportable_sh_builtin_option_span().is_none())
         .filter_map(|fact| {
             let printf = fact.options().printf()?;
             printf
@@ -65,6 +66,17 @@ printf '%%q\\n' foo
         let source = "\
 #!/bin/bash
 printf '%q\\n' foo
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::PrintfQFormatInSh));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_q_formats_when_printf_v_is_already_nonportable() {
+        let source = "\
+#!/bin/sh
+printf -v out '%q\\n' foo
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::PrintfQFormatInSh));
 
