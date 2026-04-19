@@ -1,3 +1,4 @@
+review_all_divergences: true
 reviewed_divergences:
   - side: shuck-only
     path_suffix: "bats-core__bats-core__lib__bats-core__tracing.bash"

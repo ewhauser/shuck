@@ -1,3 +1,4 @@
+review_all_divergences: true
 reviewed_divergences:
   - side: shuck-only
     path_suffix: "nvm-sh__nvm__test__fast__Set Colors__nvm_print_versions calls nvm_get_colors"

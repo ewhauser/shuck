@@ -1,3 +1,4 @@
+review_all_divergences: true
 reviewed_divergences:
   - side: shuck-only
     path_suffix: "Bash-it__bash-it__lib__search.bash"
