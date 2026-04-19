@@ -14206,7 +14206,11 @@ fn rm_path_matches_dangerous_prefix_with_final_dynamic_or_glob(
             .all(|(component, expected)| matches!(component, RmTailComponent::Literal(actual) if actual == expected))
         && matches!(
             components.last(),
-            Some(RmTailComponent::PureDynamic | RmTailComponent::Literal("*"))
+            Some(
+                RmTailComponent::PureDynamic
+                    | RmTailComponent::Literal("*")
+                    | RmTailComponent::MixedDynamic("*")
+            )
         )
 }
 
@@ -20367,6 +20371,8 @@ rm -rf \"$DESTDIR\"/usr
 rm -rf $PKG/usr/{bin,include,libexec,man,share}
 rm -rf \"$PKG/$PYDIR/usr\"
 rm -rf $PKG/$PYDIR/*
+rm -rf \"$DESTDIR\"/usr/${PRGNAM}*
+rm -rf \"$DESTDIR\"/lib/${PRGNAM}*
 rm -rf $PKG/$PYDIR/lib*
 rm -rf \"$DESTDIR\"/lib*
 rm -rf $PKG/usr/share/doc
@@ -20395,6 +20401,8 @@ rm -rf $PKG/opt/$PRGNAM/bin
                     "$PKG/usr/{bin,include,libexec,man,share}",
                     "\"$PKG/$PYDIR/usr\"",
                     "$PKG/$PYDIR/*",
+                    "\"$DESTDIR\"/usr/${PRGNAM}*",
+                    "\"$DESTDIR\"/lib/${PRGNAM}*",
                 ]
             );
         });
