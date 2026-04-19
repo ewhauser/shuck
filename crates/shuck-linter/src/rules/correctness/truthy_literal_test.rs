@@ -1,6 +1,6 @@
-use shuck_ast::Span;
+use shuck_ast::{ConditionalUnaryOp, Span};
 
-use crate::{Checker, ConditionalNodeFact, Rule, SimpleTestShape, Violation};
+use crate::{Checker, ConditionalNodeFact, ConditionalOperatorFamily, Rule, Violation};
 
 pub struct TruthyLiteralTest;
 
@@ -15,44 +15,81 @@ impl Violation for TruthyLiteralTest {
 }
 
 pub fn truthy_literal_test(checker: &mut Checker) {
+    let source = checker.source();
     let spans = checker
         .facts()
         .commands()
         .iter()
-        .filter_map(|fact| {
-            if let Some(simple_test) = fact.simple_test()
-                && simple_test_matches(simple_test)
-            {
-                return simple_test_report_span(simple_test);
+        .flat_map(|fact| {
+            let mut spans = Vec::new();
+            if let Some(simple_test) = fact.simple_test() {
+                spans.extend(simple_test_report_spans(simple_test, source));
             }
-
-            fact.conditional().and_then(conditional_report_span)
+            if let Some(conditional) = fact.conditional() {
+                spans.extend(conditional_report_spans(conditional));
+            }
+            spans
         })
         .collect::<Vec<_>>();
 
-    checker.report_all(spans, || TruthyLiteralTest);
+    checker.report_all_dedup(spans, || TruthyLiteralTest);
 }
 
-fn simple_test_matches(fact: &crate::SimpleTestFact<'_>) -> bool {
-    fact.shape() == SimpleTestShape::Truthy
-        && fact
-            .truthy_operand_class()
-            .is_some_and(|class| class.is_fixed_literal())
+fn simple_test_report_spans(fact: &crate::SimpleTestFact<'_>, source: &str) -> Vec<Span> {
+    fact.truthy_expression_words(source)
+        .into_iter()
+        .filter_map(|word| {
+            fact.effective_operands()
+                .iter()
+                .position(|operand| operand.span == word.span)
+                .and_then(|index| fact.effective_operand_class(index))
+                .is_some_and(|class| class.is_fixed_literal())
+                .then_some(word.span)
+        })
+        .collect()
 }
 
-fn simple_test_report_span(fact: &crate::SimpleTestFact<'_>) -> Option<Span> {
-    (fact.shape() == SimpleTestShape::Truthy)
-        .then(|| fact.operands().first().map(|word| word.span))
-        .flatten()
-}
+fn conditional_report_spans(fact: &crate::ConditionalFact<'_>) -> Vec<Span> {
+    let excluded_operand_spans = fact
+        .nodes()
+        .iter()
+        .flat_map(|node| match node {
+            ConditionalNodeFact::Unary(unary) if unary.op() != ConditionalUnaryOp::Not => unary
+                .operand()
+                .word()
+                .map(|word| vec![word.span])
+                .unwrap_or_default(),
+            ConditionalNodeFact::Binary(binary)
+                if binary.operator_family() != ConditionalOperatorFamily::Logical =>
+            {
+                [binary.left().word(), binary.right().word()]
+                    .into_iter()
+                    .flatten()
+                    .map(|word| word.span)
+                    .collect::<Vec<_>>()
+            }
+            ConditionalNodeFact::BareWord(_)
+            | ConditionalNodeFact::Unary(_)
+            | ConditionalNodeFact::Binary(_)
+            | ConditionalNodeFact::Other(_) => Vec::new(),
+        })
+        .collect::<Vec<_>>();
 
-fn conditional_report_span(fact: &crate::ConditionalFact<'_>) -> Option<Span> {
-    match fact.root() {
-        ConditionalNodeFact::BareWord(word) if word.operand().class().is_fixed_literal() => {
-            word.operand().word().map(|word| word.span)
-        }
-        _ => None,
-    }
+    fact.nodes()
+        .iter()
+        .filter_map(|node| match node {
+            ConditionalNodeFact::BareWord(word)
+                if word.operand().class().is_fixed_literal()
+                    && word
+                        .operand()
+                        .word()
+                        .is_some_and(|operand| !excluded_operand_spans.contains(&operand.span)) =>
+            {
+                word.operand().word().map(|operand| operand.span)
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -112,6 +149,45 @@ test foo
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "\"\"");
+    }
+
+    #[test]
+    fn reports_truthy_terms_inside_simple_test_logical_chains() {
+        let source = "\
+#!/bin/sh
+[ \"$mode\" = yes -o foo ]
+[ bar -a \"$mode\" = yes ]
+[ \"$mode\" = yes -o \"$other\" = no ]
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TruthyLiteralTest));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["foo", "bar"]
+        );
+    }
+
+    #[test]
+    fn reports_truthy_literals_inside_negated_and_logical_conditionals() {
+        let source = "\
+#!/bin/bash
+[[ ! foo ]]
+[[ \"$mode\" == yes || bar ]]
+[[ ! -n baz ]]
+[[ foo == bar ]]
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TruthyLiteralTest));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["foo", "bar"]
+        );
     }
 
     #[test]
