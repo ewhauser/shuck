@@ -3,13 +3,15 @@ use crate::{Checker, Rule, ShellDialect, Violation, static_word_text};
 
 pub struct TrapErr;
 
+const NONPORTABLE_TRAP_PSEUDO_SIGNALS: &[&str] = &["ERR", "DEBUG", "RETURN"];
+
 impl Violation for TrapErr {
     fn rule() -> Rule {
         Rule::TrapErr
     }
 
     fn message(&self) -> String {
-        "`ERR` traps are not portable in `sh` scripts".to_owned()
+        "`ERR`, `DEBUG`, and `RETURN` traps are not portable in `sh` scripts".to_owned()
     }
 }
 
@@ -23,13 +25,13 @@ pub fn trap_err(checker: &mut Checker) {
         .commands()
         .iter()
         .filter(|fact| fact.effective_name_is("trap"))
-        .flat_map(|fact| trap_err_signal_spans(fact.body_args(), checker.source()))
+        .flat_map(|fact| trap_pseudo_signal_spans(fact.body_args(), checker.source()))
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || TrapErr);
 }
 
-fn trap_err_signal_spans(args: &[&shuck_ast::Word], source: &str) -> Vec<shuck_ast::Span> {
+fn trap_pseudo_signal_spans(args: &[&shuck_ast::Word], source: &str) -> Vec<shuck_ast::Span> {
     let Some(parsed) = parse_trap_args(args, source) else {
         return Vec::new();
     };
@@ -38,9 +40,12 @@ fn trap_err_signal_spans(args: &[&shuck_ast::Word], source: &str) -> Vec<shuck_a
         .signal_words
         .iter()
         .filter_map(|word| {
-            static_word_text(word, source)
-                .is_some_and(|text| text.eq_ignore_ascii_case("ERR"))
-                .then_some(word.span)
+            static_word_text(word, source).and_then(|text| {
+                NONPORTABLE_TRAP_PSEUDO_SIGNALS
+                    .iter()
+                    .any(|signal| text.eq_ignore_ascii_case(signal))
+                    .then_some(word.span)
+            })
         })
         .collect()
 }
@@ -51,24 +56,12 @@ mod tests {
     use crate::{LinterSettings, Rule};
 
     #[test]
-    fn reports_err_traps_in_sh() {
+    fn reports_nonportable_trap_pseudo_signals_in_sh() {
         let source = "\
 #!/bin/sh
 trap 'echo hi' ERR
-";
-        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrapErr));
-
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.slice(source), "ERR");
-    }
-
-    #[test]
-    fn reports_err_in_trap_listing_modes() {
-        let source = "\
-#!/bin/sh
-trap -p ERR
-trap -l ERR
-trap -lp ERR
+trap 'echo debug' DEBUG
+trap 'echo return' RETURN
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrapErr));
 
@@ -78,59 +71,94 @@ trap -lp ERR
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["ERR", "ERR", "ERR"]
+            vec!["ERR", "DEBUG", "RETURN"]
         );
     }
 
     #[test]
-    fn reports_lone_err_signal_reset() {
+    fn reports_err_in_trap_listing_modes() {
+        let source = "\
+#!/bin/sh
+trap -p ERR
+trap -l DEBUG
+trap -lp RETURN
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrapErr));
+
+        assert_eq!(diagnostics.len(), 3);
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["ERR", "DEBUG", "RETURN"]
+        );
+    }
+
+    #[test]
+    fn reports_actionless_pseudo_signal_reset() {
         let source = "\
 #!/bin/sh
 trap ERR
-trap -- ERR
+trap -- DEBUG
+trap RETURN
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrapErr));
 
-        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics.len(), 3);
         assert_eq!(
             diagnostics
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["ERR", "ERR"]
+            vec!["ERR", "DEBUG", "RETURN"]
         );
     }
 
     #[test]
-    fn reports_case_insensitive_err_signal_names() {
+    fn reports_case_insensitive_pseudo_signal_names() {
         let source = "\
 #!/bin/sh
 trap 'echo hi' err
-trap -- ErR
+trap -- DeBuG
+trap return
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrapErr));
 
-        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics.len(), 3);
         assert_eq!(
             diagnostics
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["err", "ErR"]
+            vec!["err", "DeBuG", "return"]
         );
     }
 
     #[test]
-    fn ignores_err_action_after_double_dash() {
+    fn ignores_pseudo_signal_action_after_double_dash() {
         let source = "\
 #!/bin/sh
-trap -- ERR EXIT
-trap -- 'echo hi' ERR
+trap -- DEBUG EXIT
+trap -- 'echo hi' RETURN
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrapErr));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.slice(source), "ERR");
+        assert_eq!(diagnostics[0].span.slice(source), "RETURN");
+    }
+
+    #[test]
+    fn ignores_portable_exit_traps() {
+        let source = "\
+#!/bin/sh
+trap 'echo hi' EXIT
+trap -p EXIT
+trap -- EXIT
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrapErr));
+
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
