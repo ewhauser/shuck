@@ -4093,27 +4093,46 @@ fn mixed_quote_shell_fragment_balance_delta(text: &str) -> (i32, i32) {
     let mut chars = text.chars().peekable();
     let mut escaped = false;
     let mut in_single_quotes = false;
+    let mut in_comment = false;
+    let mut previous_char = None;
 
     while let Some(ch) = chars.next() {
+        if in_comment {
+            if ch == '\n' {
+                in_comment = false;
+                previous_char = Some(ch);
+            }
+            continue;
+        }
+
         if in_single_quotes {
             if ch == '\'' {
                 in_single_quotes = false;
             }
+            previous_char = Some(ch);
             continue;
         }
 
         if escaped {
             escaped = false;
+            previous_char = Some(ch);
             continue;
         }
 
         if ch == '\'' {
             in_single_quotes = true;
+            previous_char = Some(ch);
             continue;
         }
 
         if ch == '\\' {
             escaped = true;
+            previous_char = Some(ch);
+            continue;
+        }
+
+        if ch == '#' && mixed_quote_shell_comment_can_start(command_delta, previous_char) {
+            in_comment = true;
             continue;
         }
 
@@ -4122,11 +4141,13 @@ fn mixed_quote_shell_fragment_balance_delta(text: &str) -> (i32, i32) {
                 Some('(') => {
                     command_delta += 1;
                     chars.next();
+                    previous_char = Some('(');
                     continue;
                 }
                 Some('{') => {
                     parameter_delta += 1;
                     chars.next();
+                    previous_char = Some('{');
                     continue;
                 }
                 _ => {}
@@ -4138,9 +4159,18 @@ fn mixed_quote_shell_fragment_balance_delta(text: &str) -> (i32, i32) {
             '}' => parameter_delta -= 1,
             _ => {}
         }
+
+        previous_char = Some(ch);
     }
 
     (command_delta, parameter_delta)
+}
+
+fn mixed_quote_shell_comment_can_start(command_depth: i32, previous_char: Option<char>) -> bool {
+    command_depth > 0
+        && previous_char.is_none_or(|ch| {
+            ch.is_ascii_whitespace() || matches!(ch, ';' | '|' | '&' | '(' | ')' | '<' | '>')
+        })
 }
 
 fn mixed_quote_trailing_line_join_between_double_quotes_span(
@@ -22811,6 +22841,29 @@ printf '%s\\n' \"foo\"bar\"baz\" \"foo\"-\"bar\" \"foo\"$(printf '%s' x)\"bar\" 
                 .collect::<Vec<_>>();
 
             assert_eq!(spans, vec!["bar", "-", "parenmid", "bracemid", "."]);
+        });
+    }
+
+    #[test]
+    fn builds_word_facts_ignore_comment_text_in_nested_fragment_scan() {
+        let source = "\
+#!/bin/bash
+echo $(echo x # $(
+ )\"foo\"bar\"baz\"
+";
+
+        with_facts(source, None, |_, facts| {
+            let spans = facts
+                .expansion_word_facts(ExpansionContext::CommandArgument)
+                .flat_map(|fact| {
+                    fact.unquoted_literal_between_double_quoted_segments_spans()
+                        .iter()
+                        .map(|span| span.slice(source).to_owned())
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(spans, vec!["bar"]);
         });
     }
 
