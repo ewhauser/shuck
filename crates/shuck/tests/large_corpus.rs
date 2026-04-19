@@ -3965,9 +3965,7 @@ mod tests {
             message: "caret negation in bracket expressions is not portable to POSIX sh".into(),
             labels: vec!["project-closure".into()],
         };
-        let wrong_path = CompatibilityRecord {
-            ..matching.clone()
-        };
+        let wrong_path = CompatibilityRecord { ..matching.clone() };
         let wrong_line = CompatibilityRecord {
             range: DiagnosticRange {
                 line: 121,
@@ -3987,11 +3985,8 @@ mod tests {
             "alpinelinux__aports__scripts__mkimage.sh",
             &metadata,
         );
-        let (wrong_path_classification, wrong_path_reason) = classify_compatibility_record(
-            &wrong_path,
-            "other__repo__script.sh",
-            &metadata,
-        );
+        let (wrong_path_classification, wrong_path_reason) =
+            classify_compatibility_record(&wrong_path, "other__repo__script.sh", &metadata);
         let (wrong_line_classification, wrong_line_reason) = classify_compatibility_record(
             &wrong_line,
             "alpinelinux__aports__scripts__mkimage.sh",
@@ -4007,7 +4002,10 @@ mod tests {
             matching_classification,
             CompatibilityClassification::ReviewedDivergence
         );
-        assert_eq!(matching_reason.as_deref(), Some("scoped reviewed divergence"));
+        assert_eq!(
+            matching_reason.as_deref(),
+            Some("scoped reviewed divergence")
+        );
         assert_eq!(
             wrong_path_classification,
             CompatibilityClassification::Implementation
