@@ -125,6 +125,28 @@ mod tests {
     }
 
     #[test]
+    fn reports_quoted_version_literals_and_dynamic_version_sources() {
+        let source = "\
+#!/bin/bash
+[[ \"$actual\" > \"0.8\" ]]
+[[ \"1.2\" < $ver ]]
+[[ $(cat version.txt) < 2.5.1 ]]
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::StringComparisonForVersion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["\"0.8\"", "\"1.2\"", "2.5.1"]
+        );
+    }
+
+    #[test]
     fn reports_nested_version_comparisons_inside_logical_expressions() {
         let source = "\
 #!/bin/bash
