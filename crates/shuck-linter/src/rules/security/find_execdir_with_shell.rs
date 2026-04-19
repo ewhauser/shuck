@@ -8,7 +8,8 @@ impl Violation for FindExecDirWithShell {
     }
 
     fn message(&self) -> String {
-        "shell command text passed through `find -execdir` can inject filenames".to_owned()
+        "shell command text passed through `find -exec` or `-execdir` can inject filenames"
+            .to_owned()
     }
 }
 
@@ -16,7 +17,7 @@ pub fn find_execdir_with_shell(checker: &mut Checker) {
     let spans = checker
         .facts()
         .structural_commands()
-        .filter_map(|fact| fact.options().find_execdir())
+        .filter_map(|fact| fact.options().find_exec_shell())
         .flat_map(|fact| fact.shell_command_spans().iter().copied())
         .collect::<Vec<_>>();
 
@@ -29,8 +30,8 @@ mod tests {
     use crate::{LinterSettings, Rule};
 
     #[test]
-    fn reports_sh_c_execdir_shell_interpolation() {
-        let source = "#!/bin/sh\nfind . -execdir sh -c 'printf \"%s\\n\" {}' \\;\n";
+    fn reports_sh_c_exec_shell_interpolation() {
+        let source = "#!/bin/sh\nfind . -exec sh -c 'printf \"%s\\n\" {}' \\;\n";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::FindExecDirWithShell),
@@ -55,8 +56,8 @@ mod tests {
     }
 
     #[test]
-    fn ignores_execdir_forms_without_shell_interpolation() {
-        let source = "#!/bin/sh\nfind . -execdir mv -- {} renamed-file \\;\nfind . -execdir sh ./rename-helper {} \\;\nfind . -execdir sh -c 'printf safe\\n' \\;\nfind . -execdir bash -c 'echo safe' \\;\n";
+    fn ignores_find_exec_shell_forms_without_shell_interpolation() {
+        let source = "#!/bin/sh\nfind . -exec mv -- {} renamed-file \\;\nfind . -exec sh ./rename-helper {} \\;\nfind . -exec sh -c 'printf safe\\n' \\;\nfind . -execdir mv -- {} renamed-file \\;\nfind . -execdir sh ./rename-helper {} \\;\nfind . -execdir sh -c 'printf safe\\n' \\;\nfind . -execdir bash -c 'echo safe' \\;\n";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::FindExecDirWithShell),

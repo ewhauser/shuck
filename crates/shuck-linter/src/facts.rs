@@ -2243,11 +2243,11 @@ impl FindExecCommandFacts {
 }
 
 #[derive(Debug, Clone)]
-pub struct FindExecDirCommandFacts {
+pub struct FindExecShellCommandFacts {
     shell_command_spans: Box<[Span]>,
 }
 
-impl FindExecDirCommandFacts {
+impl FindExecShellCommandFacts {
     pub fn shell_command_spans(&self) -> &[Span] {
         &self.shell_command_spans
     }
@@ -2547,7 +2547,7 @@ pub struct CommandOptionFacts<'a> {
     unset: Option<UnsetCommandFacts<'a>>,
     find: Option<FindCommandFacts>,
     find_exec: Option<FindExecCommandFacts>,
-    find_execdir: Option<FindExecDirCommandFacts>,
+    find_exec_shell: Option<FindExecShellCommandFacts>,
     mapfile: Option<MapfileCommandFacts>,
     xargs: Option<XargsCommandFacts>,
     wait: Option<WaitCommandFacts>,
@@ -2609,8 +2609,8 @@ impl<'a> CommandOptionFacts<'a> {
         self.find_exec.as_ref()
     }
 
-    pub fn find_execdir(&self) -> Option<&FindExecDirCommandFacts> {
-        self.find_execdir.as_ref()
+    pub fn find_exec_shell(&self) -> Option<&FindExecShellCommandFacts> {
+        self.find_exec_shell.as_ref()
     }
 
     pub fn mapfile(&self) -> Option<&MapfileCommandFacts> {
@@ -2721,16 +2721,16 @@ impl<'a> CommandOptionFacts<'a> {
                 argument_word_spans: parse_find_exec_argument_word_spans(command, source)
                     .into_boxed_slice(),
             }),
-            find_execdir: normalized
-                .has_wrapper(WrapperKind::FindExecDir)
-                .then(|| {
-                    parse_find_execdir_shell_command(
-                        normalized.effective_name.as_deref(),
-                        normalized.body_args(),
-                        source,
-                    )
-                })
-                .flatten(),
+            find_exec_shell: (normalized.has_wrapper(WrapperKind::FindExec)
+                || normalized.has_wrapper(WrapperKind::FindExecDir))
+            .then(|| {
+                parse_find_exec_shell_command(
+                    normalized.effective_name.as_deref(),
+                    normalized.body_args(),
+                    source,
+                )
+            })
+            .flatten(),
             mapfile: (normalized.effective_name_is("mapfile")
                 || normalized.effective_name_is("readarray"))
             .then(|| parse_mapfile_command(normalized.body_args(), source)),
@@ -17332,11 +17332,11 @@ fn collect_prefix_match_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
     }
 }
 
-fn parse_find_execdir_shell_command(
+fn parse_find_exec_shell_command(
     shell_name: Option<&str>,
     args: &[&Word],
     source: &str,
-) -> Option<FindExecDirCommandFacts> {
+) -> Option<FindExecShellCommandFacts> {
     if !matches!(shell_name, Some("sh" | "bash" | "dash" | "ksh")) {
         return None;
     }
@@ -17357,7 +17357,7 @@ fn parse_find_execdir_shell_command(
         })
         .collect::<Vec<_>>();
 
-    (!shell_command_spans.is_empty()).then_some(FindExecDirCommandFacts {
+    (!shell_command_spans.is_empty()).then_some(FindExecShellCommandFacts {
         shell_command_spans: shell_command_spans.into_boxed_slice(),
     })
 }
@@ -20767,14 +20767,17 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
             vec!["*.cfg", "\"$prefix\"*.jar", "*/tmp/*"]
         );
 
-        let find_execdir = facts
+        let find_exec_shell = facts
             .commands()
             .iter()
-            .find(|fact| fact.has_wrapper(WrapperKind::FindExecDir))
-            .and_then(|fact| fact.options().find_execdir());
+            .filter(|fact| {
+                fact.has_wrapper(WrapperKind::FindExec)
+                    || fact.has_wrapper(WrapperKind::FindExecDir)
+            })
+            .find_map(|fact| fact.options().find_exec_shell());
         assert!(
-            find_execdir.is_none(),
-            "fixture without execdir should not match"
+            find_exec_shell.is_none(),
+            "fixture without a shell-backed find exec should not match"
         );
 
         let xargs = facts
@@ -21873,7 +21876,7 @@ echo ${foo:-${1##*/}}
     }
 
     #[test]
-    fn builds_find_execdir_command_facts_for_shell_targets() {
+    fn builds_find_exec_shell_command_facts_for_execdir_shell_targets() {
         let source = "\
 #!/bin/sh
 # shellcheck disable=2086,2154
@@ -21890,17 +21893,48 @@ find $dir -type f -name \"rename*\" -execdir sh -c 'mv {} $(echo {} | sed \"s|re
             assert_eq!(find.effective_name(), Some("sh"));
             assert_eq!(find.wrappers(), &[WrapperKind::FindExecDir]);
 
-            let find_execdir = find
+            let find_exec_shell = find
                 .options()
-                .find_execdir()
+                .find_exec_shell()
                 .expect("expected shell command fact for find -execdir");
             assert_eq!(
-                find_execdir
+                find_exec_shell
                     .shell_command_spans()
                     .iter()
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
                 vec!["'mv {} $(echo {} | sed \"s|rename|perl-rename|\")'"]
+            );
+        });
+    }
+
+    #[test]
+    fn builds_find_exec_shell_command_facts_for_exec_shell_targets() {
+        let source = "\
+#!/bin/sh
+find . -exec bash -c 'hash=($(sha1sum {})); mv {} fuzz/corpus/$hash' \\;
+";
+
+        with_facts(source, None, |_, facts| {
+            let find = facts
+                .commands()
+                .iter()
+                .find(|fact| {
+                    fact.has_wrapper(WrapperKind::FindExec) && fact.effective_name_is("bash")
+                })
+                .expect("expected find -exec fact");
+
+            let find_exec_shell = find
+                .options()
+                .find_exec_shell()
+                .expect("expected shell command fact for find -exec");
+            assert_eq!(
+                find_exec_shell
+                    .shell_command_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["'hash=($(sha1sum {})); mv {} fuzz/corpus/$hash'"]
             );
         });
     }
@@ -22186,7 +22220,7 @@ find . -execdir sh -c 'printf \"%s\\n\" {}' {} \\;
     }
 
     #[test]
-    fn builds_find_execdir_command_facts_for_bundled_shell_c_flags() {
+    fn builds_find_exec_shell_command_facts_for_bundled_execdir_shell_c_flags() {
         let source = "\
 #!/bin/sh
 find . -execdir sh -ec 'mv {} \"$target\"' \\;
@@ -22199,12 +22233,12 @@ find . -execdir sh -ec 'mv {} \"$target\"' \\;
                 .find(|fact| fact.has_wrapper(WrapperKind::FindExecDir))
                 .expect("expected find -execdir fact");
 
-            let find_execdir = find
+            let find_exec_shell = find
                 .options()
-                .find_execdir()
+                .find_exec_shell()
                 .expect("expected shell command fact for bundled -c flags");
             assert_eq!(
-                find_execdir
+                find_exec_shell
                     .shell_command_spans()
                     .iter()
                     .map(|span| span.slice(source))

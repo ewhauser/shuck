@@ -2,7 +2,7 @@
 source: crates/shuck-linter/src/rules/security/mod.rs
 assertion_line: 25
 ---
-K004 shell command text passed through `find -execdir` can inject filenames
+K004 shell command text passed through `find -exec` or `-execdir` can inject filenames
  --> <source>:3:50
   |
 3 | find $dir -type f -name "rename*" -execdir sh -c 'mv {} $(echo {} | sed "s|rename|perl-rename|")' \;

@@ -9,7 +9,7 @@ shells:
   - bash
   - dash
   - ksh
-description: "A `find -execdir` passes `{}` to a shell command that may mishandle filenames."
+description: "A `find -exec` or `-execdir` passes `{}` to shell command text that may mishandle filenames."
 rationale: "Use safe quoting or `-print0` with `xargs -0` instead."
 source:
   shell_checks_rule: rules/SH-283.yaml
