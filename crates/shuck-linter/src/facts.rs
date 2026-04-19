@@ -7362,7 +7362,7 @@ fn opening_brace_starts_shell_group(text: &str, index: usize) -> bool {
         return false;
     }
 
-    let prefix = text[..index].trim_end_matches(|candidate| matches!(candidate, ' ' | '\t'));
+    let prefix = text[..index].trim_end_matches([' ', '\t']);
     let Some(last) = prefix.chars().next_back() else {
         return true;
     };
@@ -7379,7 +7379,7 @@ fn opening_brace_starts_shell_group(text: &str, index: usize) -> bool {
 }
 
 fn closing_brace_ends_shell_group(text: &str, index: usize) -> bool {
-    let prefix = text[..index].trim_end_matches(|candidate| matches!(candidate, ' ' | '\t'));
+    let prefix = text[..index].trim_end_matches([' ', '\t']);
     let Some(last) = prefix.chars().next_back() else {
         return true;
     };
