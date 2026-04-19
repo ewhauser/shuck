@@ -73,6 +73,7 @@ esac
 case $value in
   x$pat) : ;;
   \"$left\"$right) : ;;
+  x$left@(foo|bar)) : ;;
 esac
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CasePatternVar));
@@ -82,7 +83,7 @@ esac
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["x$pat", "\"$left\"$right"]
+            vec!["x$pat", "\"$left\"$right", "x$left@(foo|bar)"]
         );
     }
 

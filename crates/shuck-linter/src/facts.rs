@@ -2702,8 +2702,8 @@ impl<'a> CommandOptionFacts<'a> {
             find: (normalized.effective_name_is("find")
                 || normalized.literal_name.as_deref() == Some("find"))
             .then(|| {
-                    let args = find_command_args(command, normalized, source);
-                    parse_find_command(args.as_slice(), source)
+                let args = find_command_args(command, normalized, source);
+                parse_find_command(args.as_slice(), source)
             }),
             find_exec: (normalized.has_wrapper(WrapperKind::FindExec)
                 || normalized.has_wrapper(WrapperKind::FindExecDir))
@@ -11697,21 +11697,6 @@ impl<'a> WordFactCollector<'a> {
     }
 
     fn collect_case_pattern_expansion_spans(&mut self, pattern: &Pattern) {
-        if pattern
-            .parts
-            .iter()
-            .any(|part| matches!(part.kind, PatternPart::Group { .. }))
-        {
-            for part in &pattern.parts {
-                if let PatternPart::Group { patterns, .. } = &part.kind {
-                    for nested in patterns {
-                        self.collect_case_pattern_expansion_spans(nested);
-                    }
-                }
-            }
-            return;
-        }
-
         let expanded_word_spans = pattern
             .parts
             .iter()
@@ -11732,6 +11717,13 @@ impl<'a> WordFactCollector<'a> {
             .collect::<Vec<_>>();
 
         if expanded_word_spans.is_empty() {
+            for part in &pattern.parts {
+                if let PatternPart::Group { patterns, .. } = &part.kind {
+                    for nested in patterns {
+                        self.collect_case_pattern_expansion_spans(nested);
+                    }
+                }
+            }
             return;
         }
 
@@ -25123,6 +25115,7 @@ case $value in
   x$pat) : ;;
   \"$quoted\") : ;;
   \"$left\"$right) : ;;
+  x$left@(foo|bar)) : ;;
   @($nested|\"$ignored\")) : ;;
 esac
 ";
@@ -25134,7 +25127,7 @@ esac
                     .iter()
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
-                vec!["x$pat", "\"$left\"$right", "$nested"]
+                vec!["x$pat", "\"$left\"$right", "x$left@(foo|bar)", "$nested"]
             );
         });
     }
