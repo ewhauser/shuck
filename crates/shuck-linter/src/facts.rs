@@ -1110,6 +1110,17 @@ impl IndexedArrayReferenceFragmentFact {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct ZshParameterIndexFlagFragmentFact {
+    span: Span,
+}
+
+impl ZshParameterIndexFlagFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct SubstringExpansionFragmentFact {
     span: Span,
 }
@@ -3019,6 +3030,7 @@ pub struct LinterFacts<'a> {
     nested_parameter_expansion_fragments: Vec<NestedParameterExpansionFragmentFact>,
     indirect_expansion_fragments: Vec<IndirectExpansionFragmentFact>,
     indexed_array_reference_fragments: Vec<IndexedArrayReferenceFragmentFact>,
+    zsh_parameter_index_flag_fragments: Vec<ZshParameterIndexFlagFragmentFact>,
     substring_expansion_fragments: Vec<SubstringExpansionFragmentFact>,
     case_modification_fragments: Vec<CaseModificationFragmentFact>,
     replacement_expansion_fragments: Vec<ReplacementExpansionFragmentFact>,
@@ -3498,6 +3510,10 @@ impl<'a> LinterFacts<'a> {
         &self.indexed_array_reference_fragments
     }
 
+    pub fn zsh_parameter_index_flag_fragments(&self) -> &[ZshParameterIndexFlagFragmentFact] {
+        &self.zsh_parameter_index_flag_fragments
+    }
+
     pub fn substring_expansion_fragments(&self) -> &[SubstringExpansionFragmentFact] {
         &self.substring_expansion_fragments
     }
@@ -3914,6 +3930,7 @@ impl<'a> LinterFactsBuilder<'a> {
             nested_parameter_expansions,
             indirect_expansions,
             indexed_array_references,
+            zsh_parameter_index_flags,
             substring_expansions,
             case_modifications,
             replacement_expansions,
@@ -4079,6 +4096,7 @@ impl<'a> LinterFactsBuilder<'a> {
             nested_parameter_expansion_fragments: nested_parameter_expansions,
             indirect_expansion_fragments: indirect_expansions,
             indexed_array_reference_fragments: indexed_array_references,
+            zsh_parameter_index_flag_fragments: zsh_parameter_index_flags,
             substring_expansion_fragments: substring_expansions,
             case_modification_fragments: case_modifications,
             replacement_expansion_fragments: replacement_expansions,
@@ -11237,6 +11255,9 @@ fn extend_surface_fragment_facts(target: &mut SurfaceFragmentFacts, source: Surf
     target
         .indexed_array_references
         .extend(source.indexed_array_references);
+    target
+        .zsh_parameter_index_flags
+        .extend(source.zsh_parameter_index_flags);
     target
         .substring_expansions
         .extend(source.substring_expansions);
@@ -24826,6 +24847,10 @@ if [[ \"$@\" =~ x ]]; then :; fi
                     .collect::<Vec<_>>(),
                 vec!["${arr[0]}", "${arr[@]}", "${arr[*]}"]
             );
+            assert!(
+                facts.zsh_parameter_index_flag_fragments().is_empty(),
+                "did not expect quoted-target index facts in the baseline surface fixture"
+            );
             assert_eq!(
                 facts
                     .substring_expansion_fragments()
@@ -26230,6 +26255,34 @@ crypt=${crypt//\\//\\\\\\/}
                     .map(|fragment| fragment.span().slice(source))
                     .collect::<Vec<_>>(),
                 vec!["${crypt//\\\\/\\\\\\\\}", "${crypt//\\//\\\\\\/}"]
+            );
+        });
+    }
+
+    #[test]
+    fn surface_facts_track_zsh_parameter_index_flags_only_for_word_targets() {
+        let source = "\
+#!/bin/sh
+printf '%s\\n' ${\"$foo\"[1]}
+printf '%s\\n' ${\"$(printf '%s\\n' \"$PWD\")\"[(w)1]}
+printf '%s\\n' ${\"$(printf \"%s\" \")\")\"[(w)1]}
+printf '%s\\n' ${map[(I)needle]}
+printf '%s\\n' \"${precmd_functions[(r)_z_precmd]}\"
+printf '%s\\n' '${\"$bar\"[1]}'
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .zsh_parameter_index_flag_fragments()
+                    .iter()
+                    .map(|fragment| fragment.span().slice(source))
+                    .collect::<Vec<_>>(),
+                vec![
+                    "${\"$foo\"",
+                    "${\"$(printf '%s\\n' \"$PWD\")\"",
+                    "${\"$(printf \"%s\" \")\")\"",
+                ]
             );
         });
     }

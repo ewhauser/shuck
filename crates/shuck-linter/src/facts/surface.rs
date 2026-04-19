@@ -19,6 +19,7 @@ pub(super) struct SurfaceFragmentFacts {
     pub(super) nested_parameter_expansions: Vec<NestedParameterExpansionFragmentFact>,
     pub(super) indirect_expansions: Vec<IndirectExpansionFragmentFact>,
     pub(super) indexed_array_references: Vec<IndexedArrayReferenceFragmentFact>,
+    pub(super) zsh_parameter_index_flags: Vec<ZshParameterIndexFlagFragmentFact>,
     pub(super) substring_expansions: Vec<SubstringExpansionFragmentFact>,
     pub(super) case_modifications: Vec<CaseModificationFragmentFact>,
     pub(super) replacement_expansions: Vec<ReplacementExpansionFragmentFact>,
@@ -152,6 +153,20 @@ impl<'a> SurfaceFragmentSink<'a> {
             .push(SubstringExpansionFragmentFact { span });
     }
 
+    fn record_zsh_parameter_index_flag(&mut self, span: Span) {
+        if self
+            .facts
+            .zsh_parameter_index_flags
+            .iter()
+            .any(|fragment| fragment.span() == span)
+        {
+            return;
+        }
+        self.facts
+            .zsh_parameter_index_flags
+            .push(ZshParameterIndexFlagFragmentFact { span });
+    }
+
     fn record_case_modification(&mut self, span: Span) {
         if self
             .facts
@@ -230,6 +245,10 @@ impl<'a> SurfaceFragmentSink<'a> {
             false,
             &mut self.facts.unicode_smart_quote_spans,
         );
+        for span in zsh_parameter_index_flag_spans_in_word(word.span.slice(self.source), word.span)
+        {
+            self.record_zsh_parameter_index_flag(span);
+        }
         if context.collect_open_double_quotes && context.assignment_target.is_none() {
             self.collect_open_double_quote_fragments(word, context.command_name);
         }
@@ -962,6 +981,254 @@ impl<'a> SurfaceFragmentSink<'a> {
         }
         self.facts.subscript_spans.push(subscript.span());
     }
+}
+
+fn quoted_parameter_target_len(text: &str) -> Option<usize> {
+    match text.as_bytes().first().copied() {
+        Some(b'\'') => single_quoted_fragment_len(text),
+        Some(b'"') => double_quoted_fragment_len(text),
+        _ => None,
+    }
+}
+
+fn zsh_parameter_index_flag_spans_in_word(text: &str, span: Span) -> Vec<Span> {
+    let mut spans = Vec::new();
+    let mut search_from = 0usize;
+
+    while let Some(start) = next_live_parameter_expansion_start(text, search_from) {
+        let body = &text[start + 2..];
+        let Some(target_len) = quoted_parameter_target_len(body) else {
+            search_from = start + 2;
+            continue;
+        };
+        if !body[target_len..].starts_with('[') {
+            search_from = start + 2;
+            continue;
+        }
+
+        let target_start = span.start.advanced_by(&text[..start]);
+        let target_end = target_start.advanced_by(&text[start..start + 2 + target_len]);
+        spans.push(Span::from_positions(target_start, target_end));
+        search_from = start + 2 + target_len;
+    }
+
+    spans
+}
+
+fn next_live_parameter_expansion_start(text: &str, search_from: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut index = search_from;
+    let mut in_double_quotes = false;
+
+    while index + 1 < bytes.len() {
+        if bytes[index] == b'\\' {
+            index += usize::from(index + 1 < bytes.len()) + 1;
+            continue;
+        }
+
+        if !in_double_quotes && bytes[index..].starts_with(b"$'") {
+            index += 1 + dollar_single_quoted_fragment_len(&text[index + 1..])?;
+            continue;
+        }
+
+        if !in_double_quotes && bytes[index] == b'\'' {
+            index += single_quoted_fragment_len(&text[index..])?;
+            continue;
+        }
+
+        if bytes[index] == b'"' {
+            in_double_quotes = !in_double_quotes;
+            index += 1;
+            continue;
+        }
+
+        if bytes[index..].starts_with(b"${") {
+            return Some(index);
+        }
+
+        index += 1;
+    }
+
+    None
+}
+
+fn single_quoted_fragment_len(text: &str) -> Option<usize> {
+    debug_assert!(text.starts_with('\''));
+    text[1..].find('\'').map(|offset| offset + 2)
+}
+
+fn dollar_single_quoted_fragment_len(text: &str) -> Option<usize> {
+    debug_assert!(text.starts_with('\''));
+    let bytes = text.as_bytes();
+    let mut index = 1usize;
+
+    while index < bytes.len() {
+        if bytes[index] == b'\\' {
+            index += usize::from(index + 1 < bytes.len()) + 1;
+            continue;
+        }
+        if bytes[index] == b'\'' {
+            return Some(index + 1);
+        }
+        index += 1;
+    }
+
+    None
+}
+
+fn double_quoted_fragment_len(text: &str) -> Option<usize> {
+    debug_assert!(text.starts_with('"'));
+    let bytes = text.as_bytes();
+    let mut index = 1usize;
+
+    while index < bytes.len() {
+        if bytes[index] == b'\\' {
+            index += usize::from(index + 1 < bytes.len()) + 1;
+            continue;
+        }
+        if bytes[index..].starts_with(b"${") {
+            index += parameter_expansion_len(&text[index..])?;
+            continue;
+        }
+        if bytes[index..].starts_with(b"$(") {
+            index += command_substitution_len(&text[index..])?;
+            continue;
+        }
+        if bytes[index] == b'`' {
+            index += backtick_substitution_len(&text[index..])?;
+            continue;
+        }
+        if bytes[index] == b'"' {
+            return Some(index + 1);
+        }
+        index += 1;
+    }
+
+    None
+}
+
+fn parameter_expansion_len(text: &str) -> Option<usize> {
+    debug_assert!(text.starts_with("${"));
+    let bytes = text.as_bytes();
+    let mut index = 2usize;
+
+    while index < bytes.len() {
+        if bytes[index] == b'\\' {
+            index += usize::from(index + 1 < bytes.len()) + 1;
+            continue;
+        }
+        if bytes[index] == b'\'' {
+            index += single_quoted_fragment_len(&text[index..])?;
+            continue;
+        }
+        if bytes[index] == b'"' {
+            index += double_quoted_fragment_len(&text[index..])?;
+            continue;
+        }
+        if bytes[index] == b'`' {
+            index += backtick_substitution_len(&text[index..])?;
+            continue;
+        }
+        if bytes[index..].starts_with(b"${") {
+            index += parameter_expansion_len(&text[index..])?;
+            continue;
+        }
+        if bytes[index..].starts_with(b"$(") {
+            index += command_substitution_len(&text[index..])?;
+            continue;
+        }
+        if bytes[index] == b'}' {
+            return Some(index + 1);
+        }
+        index += 1;
+    }
+
+    None
+}
+
+fn command_substitution_len(text: &str) -> Option<usize> {
+    debug_assert!(text.starts_with("$("));
+    let bytes = text.as_bytes();
+    let mut index = 2usize;
+    let mut paren_depth = 0usize;
+
+    while index < bytes.len() {
+        if bytes[index] == b'\\' {
+            index += usize::from(index + 1 < bytes.len()) + 1;
+            continue;
+        }
+        if bytes[index] == b'\'' {
+            index += single_quoted_fragment_len(&text[index..])?;
+            continue;
+        }
+        if bytes[index] == b'"' {
+            index += double_quoted_fragment_len(&text[index..])?;
+            continue;
+        }
+        if bytes[index] == b'`' {
+            index += backtick_substitution_len(&text[index..])?;
+            continue;
+        }
+        if bytes[index..].starts_with(b"${") {
+            index += parameter_expansion_len(&text[index..])?;
+            continue;
+        }
+        if bytes[index..].starts_with(b"$(") {
+            index += command_substitution_len(&text[index..])?;
+            continue;
+        }
+        if bytes[index] == b'(' {
+            paren_depth += 1;
+            index += 1;
+            continue;
+        }
+        if bytes[index] == b')' {
+            if paren_depth == 0 {
+                return Some(index + 1);
+            }
+            paren_depth -= 1;
+            index += 1;
+            continue;
+        }
+        index += 1;
+    }
+
+    None
+}
+
+fn backtick_substitution_len(text: &str) -> Option<usize> {
+    debug_assert!(text.starts_with('`'));
+    let bytes = text.as_bytes();
+    let mut index = 1usize;
+
+    while index < bytes.len() {
+        if bytes[index] == b'\\' {
+            index += usize::from(index + 1 < bytes.len()) + 1;
+            continue;
+        }
+        if bytes[index] == b'\'' {
+            index += single_quoted_fragment_len(&text[index..])?;
+            continue;
+        }
+        if bytes[index] == b'"' {
+            index += double_quoted_fragment_len(&text[index..])?;
+            continue;
+        }
+        if bytes[index..].starts_with(b"${") {
+            index += parameter_expansion_len(&text[index..])?;
+            continue;
+        }
+        if bytes[index..].starts_with(b"$(") {
+            index += command_substitution_len(&text[index..])?;
+            continue;
+        }
+        if bytes[index] == b'`' {
+            return Some(index + 1);
+        }
+        index += 1;
+    }
+
+    None
 }
 
 fn heredoc_single_quote_is_escaped(text: &str, quote_offset: usize) -> bool {
