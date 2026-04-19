@@ -20403,6 +20403,8 @@ rm -rf \"$DESTDIR\"/usr/${PRGNAM}*
 rm -rf \"$DESTDIR\"/lib/${PRGNAM}*
 rm -rf $PKG/$PYDIR/lib*
 rm -rf \"$DESTDIR\"/lib*
+rm -rf \"$DESTDIR\"/opt
+rm -rf \"$DESTDIR\"/opt/$PRGNAM
 rm -rf $PKG/usr/share/doc
 rm -rf $PKG/usr/share/icons
 rm -rf $PKG/usr/doc/$PRGNAM
