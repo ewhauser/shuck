@@ -2938,6 +2938,7 @@ pub struct LinterFacts<'a> {
     array_assignment_split_word_indices: Vec<usize>,
     brace_variable_before_bracket_spans: Vec<Span>,
     function_headers: Vec<FunctionHeaderFact<'a>>,
+    function_in_alias_spans: Vec<Span>,
     function_body_without_braces_spans: Vec<Span>,
     function_parameter_fallback_spans: Vec<Span>,
     redundant_return_status_spans: Vec<Span>,
@@ -3206,6 +3207,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn function_headers(&self) -> &[FunctionHeaderFact<'a>] {
         &self.function_headers
+    }
+
+    pub fn function_in_alias_spans(&self) -> &[Span] {
+        &self.function_in_alias_spans
     }
 
     pub fn function_body_without_braces_spans(&self) -> &[Span] {
@@ -3818,6 +3823,7 @@ impl<'a> LinterFactsBuilder<'a> {
         sort_and_dedup_spans(&mut condition_status_capture_spans);
         sort_and_dedup_spans(&mut condition_command_substitution_spans);
         sort_and_dedup_spans(&mut case_pattern_expansion_spans);
+        let function_in_alias_spans = build_function_in_alias_spans(&commands, self.source);
         let function_parameter_fallback_spans = build_function_parameter_fallback_spans(
             &commands,
             &structural_command_ids,
@@ -3977,6 +3983,7 @@ impl<'a> LinterFactsBuilder<'a> {
             array_assignment_split_word_indices,
             brace_variable_before_bracket_spans,
             function_headers,
+            function_in_alias_spans,
             function_body_without_braces_spans,
             function_parameter_fallback_spans,
             redundant_return_status_spans,
@@ -4063,6 +4070,182 @@ fn build_brace_variable_before_bracket_spans(words: &[WordFact<'_>], source: &st
         .collect::<Vec<_>>();
     sort_and_dedup_spans(&mut spans);
     spans
+}
+
+fn build_function_in_alias_spans(commands: &[CommandFact<'_>], source: &str) -> Vec<Span> {
+    let mut spans = commands
+        .iter()
+        .filter(|fact| fact.effective_name_is("alias"))
+        .flat_map(|fact| function_in_alias_spans_for_command(fact, source))
+        .collect::<Vec<_>>();
+    sort_and_dedup_spans(&mut spans);
+    spans
+}
+
+fn function_in_alias_spans_for_command(command: &CommandFact<'_>, source: &str) -> Vec<Span> {
+    let body_args = command.body_args();
+    let mut spans = Vec::new();
+    let mut index = 0usize;
+
+    while let Some(word) = body_args.get(index).copied() {
+        let Some(text) = static_word_text(word, source) else {
+            index += 1;
+            continue;
+        };
+        if !text.contains('=') {
+            index += 1;
+            continue;
+        }
+
+        let mut last_word = word;
+        let mut definition_len = 1usize;
+        while last_word.span.slice(source).ends_with('=')
+            && let Some(next_word) = body_args.get(index + definition_len).copied()
+            && last_word.span.end.offset == next_word.span.start.offset
+        {
+            last_word = next_word;
+            definition_len += 1;
+        }
+
+        let definition_words = &body_args[index..index + definition_len];
+        if let Some(span) = function_in_alias_definition_span(definition_words, source) {
+            spans.push(span);
+        }
+
+        index += definition_len;
+    }
+
+    spans
+}
+
+fn function_in_alias_definition_span(words: &[&Word], source: &str) -> Option<Span> {
+    let definition = static_alias_definition_text(words, source)?;
+    let (_, value) = definition.split_once('=')?;
+    let end = words.last()?.span.end;
+    contains_function_definition(value).then(|| Span::from_positions(words[0].span.start, end))
+}
+
+fn static_alias_definition_text(words: &[&Word], source: &str) -> Option<String> {
+    let mut text = String::new();
+    for word in words {
+        text.push_str(&static_word_text(word, source)?);
+    }
+    Some(text)
+}
+
+fn contains_function_definition(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if starts_with_keyword(value, index, "function")
+            && precedes_definition_start(value, index)
+            && is_definition_after_function_keyword(value, index + "function".len())
+        {
+            return true;
+        }
+        if is_identifier_start(bytes[index])
+            && precedes_definition_start(value, index)
+            && is_definition_after_name(value, index, bytes.len())
+        {
+            return true;
+        }
+        index += 1;
+    }
+    false
+}
+
+fn starts_with_keyword(text: &str, index: usize, keyword: &str) -> bool {
+    let tail = &text[index..];
+    if !tail.starts_with(keyword) {
+        return false;
+    }
+    let before_ok = index == 0 || !is_identifier_char(text.as_bytes()[index - 1]);
+    let after_index = index + keyword.len();
+    let after_ok = after_index >= text.len() || !is_identifier_char(text.as_bytes()[after_index]);
+    before_ok && after_ok
+}
+
+fn precedes_definition_start(text: &str, index: usize) -> bool {
+    if index == 0 {
+        return true;
+    }
+
+    let bytes = text.as_bytes();
+    let mut cursor = index;
+    while cursor > 0 && bytes[cursor - 1].is_ascii_whitespace() {
+        cursor -= 1;
+    }
+
+    cursor == 0 || matches!(bytes[cursor - 1], b';' | b'|' | b'&' | b'(' | b'{' | b'\n')
+}
+
+fn is_definition_after_function_keyword(text: &str, mut index: usize) -> bool {
+    let bytes = text.as_bytes();
+    while index < bytes.len() && bytes[index].is_ascii_whitespace() {
+        index += 1;
+    }
+
+    let Some(end) = parse_identifier(text, index) else {
+        return false;
+    };
+    is_definition_suffix(text, end, false)
+}
+
+fn is_definition_after_name(text: &str, index: usize, len: usize) -> bool {
+    let Some(end) = parse_identifier(text, index) else {
+        return false;
+    };
+    if end >= len {
+        return false;
+    }
+    is_definition_suffix(text, end, true)
+}
+
+fn is_definition_suffix(text: &str, mut index: usize, require_parens: bool) -> bool {
+    let bytes = text.as_bytes();
+    while index < bytes.len() && bytes[index].is_ascii_whitespace() {
+        index += 1;
+    }
+
+    let has_parens = bytes
+        .get(index..)
+        .is_some_and(|rest| rest.starts_with(b"()"));
+    if require_parens && !has_parens {
+        return false;
+    }
+
+    if has_parens {
+        index += 2;
+        while index < bytes.len() && bytes[index].is_ascii_whitespace() {
+            index += 1;
+        }
+    }
+
+    bytes.get(index) == Some(&b'{')
+}
+
+fn parse_identifier(text: &str, index: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let first = bytes.get(index).copied()?;
+    if !is_identifier_start(first) {
+        return None;
+    }
+    let mut end = index + 1;
+    while let Some(byte) = bytes.get(end) {
+        if !is_identifier_char(*byte) {
+            break;
+        }
+        end += 1;
+    }
+    Some(end)
+}
+
+fn is_identifier_start(byte: u8) -> bool {
+    byte.is_ascii_alphabetic() || byte == b'_'
+}
+
+fn is_identifier_char(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
 fn build_echo_backslash_escape_word_spans(commands: &[CommandFact<'_>], source: &str) -> Vec<Span> {
@@ -25390,6 +25573,31 @@ $cmd[0] arg
                 .collect::<Vec<_>>();
 
             assert_eq!(spans, vec![(2, 7), (6, 1)]);
+        });
+    }
+
+    #[test]
+    fn builds_function_in_alias_spans_from_static_alias_definitions() {
+        let source = "\
+#!/bin/sh
+alias gtl='gtl(){ git tag --sort=-v:refname -n -l \"${1}*\" }; noglob gtl'
+alias hello='function hello { echo hi; }'
+alias positional='${1+\"$@\"}'
+alias runtime=$BAR
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .function_in_alias_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec![
+                    "gtl='gtl(){ git tag --sort=-v:refname -n -l \"${1}*\" }; noglob gtl'",
+                    "hello='function hello { echo hi; }'",
+                ]
+            );
         });
     }
 
