@@ -9,8 +9,8 @@ shells:
   - bash
   - dash
   - ksh
-description: "Combining a variable directory and a glob inside `rm -rf` makes it easy to delete more than intended."
-rationale: Validate the target path or use a narrower deletion pattern before removing matching files.
+description: "Using a variable-derived path with recursive `rm` can delete more than intended if the prefix collapses into a sensitive subtree."
+rationale: Require the variable path to be non-empty and constrained, or target a narrower known-safe location before deleting recursively.
 source:
   shell_checks_rule: rules/SH-044.yaml
   shell_checks_example: examples/044.sh
