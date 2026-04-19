@@ -2242,11 +2242,18 @@ pub struct ExitCommandFacts<'a> {
     pub status_word: Option<&'a Word>,
     pub is_numeric_literal: bool,
     status_is_static: bool,
+    status_has_literal_content: bool,
 }
 
 impl<'a> ExitCommandFacts<'a> {
     pub fn has_static_status(self) -> bool {
         self.status_is_static
+    }
+
+    pub fn has_invalid_status_argument(self) -> bool {
+        self.status_word.is_some()
+            && !self.is_numeric_literal
+            && (self.status_is_static || self.status_has_literal_content)
     }
 }
 
@@ -15758,16 +15765,46 @@ fn parse_exit_command<'a>(command: &'a Command, source: &str) -> Option<ExitComm
             status_word: None,
             is_numeric_literal: false,
             status_is_static: false,
+            status_has_literal_content: false,
         });
     };
     let status_text = static_word_text(status_word, source);
 
     Some(ExitCommandFacts {
         status_word: Some(status_word),
-        is_numeric_literal: status_text
-            .as_deref()
-            .is_some_and(|text| text.chars().all(|character| character.is_ascii_digit())),
+        is_numeric_literal: status_text.as_deref().is_some_and(|text| {
+            !text.is_empty() && text.chars().all(|character| character.is_ascii_digit())
+        }),
         status_is_static: status_text.is_some(),
+        status_has_literal_content: word_contains_literal_content(status_word, source),
+    })
+}
+
+fn word_contains_literal_content(word: &Word, source: &str) -> bool {
+    word_parts_contain_literal_content(&word.parts, source)
+}
+
+fn word_parts_contain_literal_content(parts: &[WordPartNode], source: &str) -> bool {
+    parts.iter().any(|part| match &part.kind {
+        WordPart::Literal(text) => !text.as_str(source, part.span).is_empty(),
+        WordPart::SingleQuoted { value, .. } => !value.slice(source).is_empty(),
+        WordPart::DoubleQuoted { parts, .. } => word_parts_contain_literal_content(parts, source),
+        WordPart::Variable(_)
+        | WordPart::Parameter(_)
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ArithmeticExpansion { .. }
+        | WordPart::ParameterExpansion { .. }
+        | WordPart::Length(_)
+        | WordPart::ArrayAccess(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::Substring { .. }
+        | WordPart::ArraySlice { .. }
+        | WordPart::IndirectExpansion { .. }
+        | WordPart::PrefixMatch { .. }
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::Transformation { .. }
+        | WordPart::ZshQualifiedGlob(_) => false,
     })
 }
 
@@ -18199,6 +18236,7 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
         );
         assert!(exit.has_static_status());
         assert!(!exit.is_numeric_literal);
+        assert!(exit.has_invalid_status_argument());
 
         let doas = facts
             .commands()
@@ -19197,6 +19235,53 @@ command run0 --version
         );
         assert!(exit.has_static_status());
         assert!(exit.is_numeric_literal);
+        assert!(!exit.has_invalid_status_argument());
+    }
+
+    #[test]
+    fn parses_mixed_and_pure_dynamic_exit_status_shapes() {
+        let source = "\
+#!/bin/bash
+code=3
+other=4
+exit \"message $code\"
+exit \"123$code\"
+exit \"$code\"
+exit \"${code}${other}\"
+exit \"$(printf '%s' 3)\"
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let exits = facts
+            .commands()
+            .iter()
+            .filter_map(|fact| fact.options().exit())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            exits
+                .iter()
+                .map(|exit| exit.status_word.map(|word| word.span.slice(source)))
+                .collect::<Vec<_>>(),
+            vec![
+                Some("\"message $code\""),
+                Some("\"123$code\""),
+                Some("\"$code\""),
+                Some("\"${code}${other}\""),
+                Some("\"$(printf '%s' 3)\""),
+            ]
+        );
+        assert_eq!(
+            exits
+                .iter()
+                .map(|exit| exit.has_invalid_status_argument())
+                .collect::<Vec<_>>(),
+            vec![true, true, false, false, false]
+        );
     }
 
     #[test]

@@ -18,7 +18,7 @@ pub fn invalid_exit_status(checker: &mut Checker) {
         .commands()
         .iter()
         .filter_map(|fact| fact.options().exit().copied())
-        .filter(|exit| exit.has_static_status() && !exit.is_numeric_literal)
+        .filter(|exit| exit.has_invalid_status_argument())
         .filter_map(|exit| exit.status_word.map(|word| word.span))
         .collect::<Vec<_>>();
 
@@ -37,5 +37,26 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "nope");
+    }
+
+    #[test]
+    fn reports_empty_and_mixed_literal_exit_values() {
+        let source = "\
+code=3
+exit \"\"
+exit \"123$code\"
+exit \"$code\"
+exit \"${code}$(printf 4)\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::InvalidExitStatus));
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["\"\"", "\"123$code\""]
+        );
     }
 }
