@@ -647,6 +647,52 @@ esac
     }
 
     #[test]
+    fn scopes_shellcheck_disable_after_if_header_to_the_next_command() {
+        let source = "\
+foo='a b'
+if # shellcheck disable=SC2086
+  echo $foo
+then
+  echo $foo
+fi
+";
+        let index = suppression_index(source);
+
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 3));
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 5));
+    }
+
+    #[test]
+    fn scopes_shellcheck_disable_after_then_header_to_the_next_command() {
+        let source = "\
+foo='a b'
+if true; then # shellcheck disable=SC2086
+  echo $foo
+fi
+echo $foo
+";
+        let index = suppression_index(source);
+
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 3));
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 5));
+    }
+
+    #[test]
+    fn scopes_shellcheck_disable_after_brace_group_opener_to_the_next_command() {
+        let source = "\
+foo='a b'
+{ # shellcheck disable=SC2086
+  echo $foo
+}
+echo $foo
+";
+        let index = suppression_index(source);
+
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 3));
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 5));
+    }
+
+    #[test]
     fn ignores_case_label_directives_after_same_line_body_commands() {
         let source = "\
 case $x in
