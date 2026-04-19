@@ -34,3 +34,17 @@ reviewed_divergences:
     column: 9
     end_column: 11
     reason: "This SC3018 site is the `c++` operator in a standalone arithmetic command guarded with `|| :`, not an arithmetic-for header. That behavior is outside X062's rule definition."
+  - side: shellcheck-only
+    path_suffix: "ohmyzsh__ohmyzsh__plugins__gitfast__git-prompt.sh"
+    line: 195
+    end_line: 195
+    column: 19
+    end_column: 21
+    reason: "This SC3018 site is the `behind++` operator in a standalone arithmetic command inside a loop body, not an update expression in a `for ((...))` header. X062 intentionally stays scoped to arithmetic used by `for` headers."
+  - side: shellcheck-only
+    path_suffix: "ohmyzsh__ohmyzsh__plugins__gitfast__git-prompt.sh"
+    line: 196
+    end_line: 196
+    column: 18
+    end_column: 20
+    reason: "This SC3018 site is the `ahead++` operator in a standalone arithmetic command inside a loop body, not an update expression in a `for ((...))` header. X062 intentionally stays scoped to arithmetic used by `for` headers."
