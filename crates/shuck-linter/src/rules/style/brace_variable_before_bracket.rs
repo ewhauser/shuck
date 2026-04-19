@@ -121,7 +121,8 @@ print $reply[2]
 ";
         let diagnostics = test_snippet(
             source,
-            &LinterSettings::for_rule(Rule::BraceVariableBeforeBracket).with_shell(ShellDialect::Zsh),
+            &LinterSettings::for_rule(Rule::BraceVariableBeforeBracket)
+                .with_shell(ShellDialect::Zsh),
         );
 
         assert!(diagnostics.is_empty());
