@@ -904,6 +904,7 @@ impl<'a> ConditionalFact<'a> {
 #[derive(Debug, Clone)]
 pub struct RedirectFact<'a> {
     redirect: &'a Redirect,
+    operator_span: Span,
     target_span: Option<Span>,
     arithmetic_update_operator_spans: Box<[Span]>,
     analysis: Option<RedirectTargetAnalysis>,
@@ -912,6 +913,10 @@ pub struct RedirectFact<'a> {
 impl<'a> RedirectFact<'a> {
     pub fn redirect(&self) -> &'a Redirect {
         self.redirect
+    }
+
+    pub fn operator_span(&self) -> Span {
+        self.operator_span
     }
 
     pub fn target_span(&self) -> Option<Span> {
@@ -10981,6 +10986,7 @@ fn build_redirect_facts<'a>(
         .iter()
         .map(|redirect| RedirectFact {
             redirect,
+            operator_span: redirect_operator_span(redirect),
             target_span: redirect.word_target().map(|word| word.span),
             arithmetic_update_operator_spans: redirect
                 .word_target()
@@ -10998,6 +11004,38 @@ fn build_redirect_facts<'a>(
         })
         .collect::<Vec<_>>()
         .into_boxed_slice()
+}
+
+fn redirect_operator_span(redirect: &Redirect) -> Span {
+    let operator_start = redirect
+        .fd_var_span
+        .map(|span| span.end)
+        .or_else(|| {
+            redirect
+                .fd
+                .filter(|fd| *fd >= 0)
+                .map(|fd| redirect.span.start.advanced_by(&fd.to_string()))
+        })
+        .unwrap_or(redirect.span.start);
+    let operator_end = operator_start.advanced_by(redirect_operator_text(redirect.kind));
+
+    Span::from_positions(operator_start, operator_end)
+}
+
+fn redirect_operator_text(kind: RedirectKind) -> &'static str {
+    match kind {
+        RedirectKind::Output => ">",
+        RedirectKind::Clobber => ">|",
+        RedirectKind::Append => ">>",
+        RedirectKind::Input => "<",
+        RedirectKind::ReadWrite => "<>",
+        RedirectKind::HereDoc => "<<",
+        RedirectKind::HereDocStrip => "<<-",
+        RedirectKind::HereString => "<<<",
+        RedirectKind::DupOutput => ">&",
+        RedirectKind::DupInput => "<&",
+        RedirectKind::OutputBoth => "&>",
+    }
 }
 
 fn effective_command_zsh_options(
@@ -22522,6 +22560,7 @@ rm -rf $PKG/opt/$PRGNAM/bin
             assert_eq!(redirects.len(), 3);
 
             let descriptor_dup = &redirects[0];
+            assert_eq!(descriptor_dup.operator_span().slice(source), ">&");
             assert!(
                 descriptor_dup
                     .analysis()
@@ -22535,6 +22574,7 @@ rm -rf $PKG/opt/$PRGNAM/bin
             );
 
             let dev_null = &redirects[1];
+            assert_eq!(dev_null.operator_span().slice(source), ">");
             assert_eq!(
                 dev_null.target_span().map(|span| span.slice(source)),
                 Some("/dev/null")
@@ -22546,6 +22586,7 @@ rm -rf $PKG/opt/$PRGNAM/bin
             );
 
             let arithmetic = &redirects[2];
+            assert_eq!(arithmetic.operator_span().slice(source), ">>");
             assert_eq!(
                 arithmetic.target_span().map(|span| span.slice(source)),
                 Some("\"$((i++))\"")
