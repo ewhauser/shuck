@@ -74,4 +74,20 @@ echo hi > \"{{name}}\"
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn ignores_other_malformed_command_name_shapes_without_template_braces() {
+        let source = "\
+#!/bin/sh
+\"ERROR: missing arg\"
+amoeba=\"\" [ \"${AMOEBA:-yes}\" = \"yes\" ] && amoeba=1
++++ diff header
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::TemplateBraceInCommand),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
 }
