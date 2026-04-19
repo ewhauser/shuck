@@ -124,6 +124,10 @@ mod tests {
         assert_eq!(map.resolve("SC2096"), Some(Rule::DuplicateShebangFlag));
         assert_eq!(map.resolve("SC2318"), Some(Rule::LocalCrossReference));
         assert_eq!(map.resolve("SC2260"), Some(Rule::RedirectBeforePipe));
+        assert_eq!(
+            map.resolve("SC1087"),
+            Some(Rule::BraceVariableBeforeBracket)
+        );
         assert_eq!(map.resolve("SC2317"), None);
         assert_eq!(map.resolve("SC7777"), None);
     }
@@ -181,6 +185,10 @@ mod tests {
         assert_eq!(map.code_for_rule(Rule::DuplicateShebangFlag), Some(2096));
         assert_eq!(map.code_for_rule(Rule::BashFileSlurp), Some(3034));
         assert_eq!(map.code_for_rule(Rule::LiteralControlEscape), Some(1012));
+        assert_eq!(
+            map.code_for_rule(Rule::BraceVariableBeforeBracket),
+            Some(1087)
+        );
         assert_eq!(map.code_for_rule(Rule::BackslashBeforeCommand), None);
         assert_eq!(
             map.code_for_rule(Rule::LeadingGlobInGrepPattern),

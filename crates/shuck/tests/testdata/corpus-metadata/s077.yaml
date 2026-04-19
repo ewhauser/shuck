@@ -1,0 +1,11 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
+    line: 827
+    end_line: 827
+    column: 16
+    end_column: 16
+    labels:
+      - helper-library
+      - project-closure
+    reason: "This helper intentionally builds literal `NAME[@]` text for a later indirect expansion, so the adjacent bracket suffix is deliberate and warning here would be noisy."

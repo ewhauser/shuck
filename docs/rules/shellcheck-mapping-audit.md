@@ -34,7 +34,7 @@ Important context:
 | Rule | Current `SC` | Why it still needs help |
 | --- | --- | --- |
 | `X033` | `SC1027`, `SC1036` | The current example does not isolate a unique portability code. It looks closer to the `X046` extglob-in-test case than to a distinct `elif` portability rule. |
-| `X041` | `SC3010`, `SC1087`, `SC2203`, `SC2154` | `SC2203` is the only unique current code, but the example is too noisy to claim it confidently without a cleaner fixture. |
+| `X041` | `SC3010`, `SC2203`, `SC2154` | `SC2203` is the only unique current code, but the example is too noisy to claim it confidently without a cleaner fixture. |
 
 ## Suggested Next Pass
 

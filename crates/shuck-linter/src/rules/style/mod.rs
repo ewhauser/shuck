@@ -5,6 +5,7 @@ pub mod avoid_let_builtin;
 pub mod backslash_before_command;
 pub mod bare_command_name_assignment;
 pub mod bare_read;
+pub mod brace_variable_before_bracket;
 pub mod combine_appends;
 pub mod command_output_array_split;
 pub mod command_substitution_in_alias;
@@ -116,6 +117,7 @@ mod tests {
     #[test_case(Rule::DoubleQuoteNesting, Path::new("S070.sh"))]
     #[test_case(Rule::EnvPrefixCommandOnly, Path::new("S071.sh"))]
     #[test_case(Rule::MixedQuoteWord, Path::new("S076.sh"))]
+    #[test_case(Rule::BraceVariableBeforeBracket, Path::new("S077.sh"))]
     #[test_case(Rule::FunctionInAlias, Path::new("S057.sh"))]
     #[test_case(Rule::FunctionBodyWithoutBraces, Path::new("S041.sh"))]
     #[test_case(Rule::LocalDeclareCombined, Path::new("S066.sh"))]

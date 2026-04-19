@@ -540,6 +540,9 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::MixedQuoteWord) {
             rules::style::mixed_quote_word::mixed_quote_word(self);
         }
+        if self.is_rule_enabled(Rule::BraceVariableBeforeBracket) {
+            rules::style::brace_variable_before_bracket::brace_variable_before_bracket(self);
+        }
         if self.is_rule_enabled(Rule::UnquotedPipeInEcho) {
             rules::correctness::unquoted_pipe_in_echo::unquoted_pipe_in_echo(self);
         }

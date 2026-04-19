@@ -34,7 +34,9 @@ use crate::rules::common::expansion::{
     SubstitutionOutputIntent, WordExpansionKind, WordLiteralness, WordSubstitutionShape,
     analyze_literal_runtime, analyze_redirect_target, analyze_word,
 };
-use crate::rules::common::span::expansion_part_spans;
+use crate::rules::common::span::{
+    expansion_part_spans, word_unbraced_variable_before_bracket_spans,
+};
 use crate::rules::common::{
     command::{self, NormalizedCommand, WrapperKind},
     query::{self, CommandSubstitutionKind, CommandVisit, CommandWalkOptions},
@@ -2759,6 +2761,7 @@ pub struct LinterFacts<'a> {
     word_index: FxHashMap<FactSpan, Vec<usize>>,
     unquoted_command_argument_use_offsets: FxHashMap<Name, Vec<usize>>,
     array_assignment_split_word_indices: Vec<usize>,
+    brace_variable_before_bracket_spans: Vec<Span>,
     function_headers: Vec<FunctionHeaderFact<'a>>,
     function_body_without_braces_spans: Vec<Span>,
     function_parameter_fallback_spans: Vec<Span>,
@@ -3018,6 +3021,10 @@ impl<'a> LinterFacts<'a> {
         self.array_assignment_split_word_indices
             .iter()
             .map(|&index| &self.words[index])
+    }
+
+    pub fn brace_variable_before_bracket_spans(&self) -> &[Span] {
+        &self.brace_variable_before_bracket_spans
     }
 
     pub fn function_headers(&self) -> &[FunctionHeaderFact<'a>] {
@@ -3752,6 +3759,8 @@ impl<'a> LinterFactsBuilder<'a> {
             build_bare_command_name_assignment_spans(&commands, &words, &word_index, self.source);
         let unquoted_command_argument_use_offsets =
             build_unquoted_command_argument_use_offsets(self.semantic, &words);
+        let brace_variable_before_bracket_spans =
+            build_brace_variable_before_bracket_spans(&words, self.source);
 
         LinterFacts {
             commands,
@@ -3772,6 +3781,7 @@ impl<'a> LinterFactsBuilder<'a> {
             word_index,
             unquoted_command_argument_use_offsets,
             array_assignment_split_word_indices,
+            brace_variable_before_bracket_spans,
             function_headers,
             function_body_without_braces_spans,
             function_parameter_fallback_spans,
@@ -3846,6 +3856,17 @@ impl<'a> LinterFactsBuilder<'a> {
             conditional_portability,
         }
     }
+}
+
+fn build_brace_variable_before_bracket_spans(words: &[WordFact<'_>], source: &str) -> Vec<Span> {
+    let mut spans = words
+        .iter()
+        .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
+        .filter(|fact| !fact.is_arithmetic_command())
+        .flat_map(|fact| word_unbraced_variable_before_bracket_spans(fact.word(), source))
+        .collect::<Vec<_>>();
+    sort_and_dedup_spans(&mut spans);
+    spans
 }
 
 fn build_echo_backslash_escape_word_spans(commands: &[CommandFact<'_>], source: &str) -> Vec<Span> {
@@ -23160,6 +23181,28 @@ echo <(echo x # ${
                 .collect::<Vec<_>>();
 
             assert_eq!(spans, vec!["bar"]);
+        });
+    }
+
+    #[test]
+    fn builds_brace_variable_before_bracket_spans_from_direct_words() {
+        let source = "\
+#!/bin/bash
+echo \"$foo[0]\"
+echo \"${foo}[0]\"
+echo \"$foo\"\"[0]\"
+echo \"$foo\\[0]\"
+$cmd[0] arg
+";
+
+        with_facts(source, None, |_, facts| {
+            let spans = facts
+                .brace_variable_before_bracket_spans()
+                .iter()
+                .map(|span| (span.start.line, span.start.column))
+                .collect::<Vec<_>>();
+
+            assert_eq!(spans, vec![(2, 7), (6, 1)]);
         });
     }
 
