@@ -47,6 +47,36 @@ while [ \"$x\" = y ]; do again=$?; break; done
     }
 
     #[test]
+    fn reports_follow_up_elif_conditions_and_case_bodies() {
+        let source = "\
+#!/bin/sh
+foo
+if [ $? -eq 0 ]; then
+  :
+elif [ $? -eq 1 ]; then
+  :
+fi
+if [ \"$mode\" = foo ]; then
+  case $mode in
+    foo) tend $? ;;
+  esac
+fi
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::StatusCaptureAfterBranchTest),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$?", "$?"]
+        );
+    }
+
+    #[test]
     fn ignores_non_test_conditions_and_late_status_reads() {
         let source = "\
 #!/bin/sh

@@ -27,3 +27,105 @@ reviewed_divergences:
     path_suffix: "rvm__rvm__scripts__functions__requirements__gentoo_portage"
     line: 9
     reason: "This guard chain reads `$?` from the preceding condition branch through `|| return $?`. Shuck keeps that explicit status-capture warning, while ShellCheck is silent for this corpus location."
+  - side: shuck-only
+    path_suffix: "CISOfy__lynis__include__tests_mac_frameworks"
+    labels:
+      - test-harness
+    reason: "This AppArmor status probe keeps chaining explicit `$?` checks through an `elif` ladder. Shuck keeps the first follow-up branch warning here, while ShellCheck stays silent on that harness-flavored classifier arm in the corpus run."
+  - side: shuck-only
+    path_suffix: "community-scripts__ProxmoxVE__tools__copy-data__home-assistant-container-copy-data-home-assistant-container.sh"
+    reason: "This copy-data helper routes the failing test status into a `die` alias that captures `$?` at invocation time. Shuck keeps that strict condition-status warning, while ShellCheck stays silent for this file."
+  - side: shuck-only
+    path_suffix: "community-scripts__ProxmoxVE__tools__copy-data__home-assistant-container-copy-data-home-assistant-core.sh"
+    reason: "This copy-data helper routes the failing test status into a `die` alias that captures `$?` at invocation time. Shuck keeps that strict condition-status warning, while ShellCheck stays silent for this file."
+  - side: shuck-only
+    path_suffix: "community-scripts__ProxmoxVE__tools__copy-data__home-assistant-container-copy-data-podman-home-assistant.sh"
+    reason: "This copy-data helper routes the failing test status into a `die` alias that captures `$?` at invocation time. Shuck keeps that strict condition-status warning, while ShellCheck stays silent for this file."
+  - side: shuck-only
+    path_suffix: "community-scripts__ProxmoxVE__tools__copy-data__home-assistant-core-copy-data-home-assistant-container.sh"
+    reason: "This copy-data helper routes the failing test status into a `die` alias that captures `$?` at invocation time. Shuck keeps that strict condition-status warning, while ShellCheck stays silent for this file."
+  - side: shuck-only
+    path_suffix: "community-scripts__ProxmoxVE__tools__copy-data__home-assistant-core-copy-data-home-assistant-core.sh"
+    reason: "This copy-data helper routes the failing test status into a `die` alias that captures `$?` at invocation time. Shuck keeps that strict condition-status warning, while ShellCheck stays silent for this file."
+  - side: shuck-only
+    path_suffix: "community-scripts__ProxmoxVE__tools__copy-data__plex-copy-data-plex.sh"
+    reason: "This copy-data helper routes the failing test status into a `die` alias that captures `$?` at invocation time. Shuck keeps that strict condition-status warning, while ShellCheck stays silent for this file."
+  - side: shuck-only
+    path_suffix: "community-scripts__ProxmoxVE__tools__copy-data__podman-home-assistant-copy-data-home-assistant-container.sh"
+    reason: "This copy-data helper routes the failing test status into a `die` alias that captures `$?` at invocation time. Shuck keeps that strict condition-status warning, while ShellCheck stays silent for this file."
+  - side: shuck-only
+    path_suffix: "community-scripts__ProxmoxVE__tools__copy-data__z2m-copy-data-z2m.sh"
+    reason: "This copy-data helper routes the failing test status into a `die` alias that captures `$?` at invocation time. Shuck keeps that strict condition-status warning, while ShellCheck stays silent for this file."
+  - side: shuck-only
+    path_suffix: "community-scripts__ProxmoxVE__tools__copy-data__zwavejs2mqtt-copy-data-zwavejsui.sh"
+    reason: "This copy-data helper routes the failing test status into a `die` alias that captures `$?` at invocation time. Shuck keeps that strict condition-status warning, while ShellCheck stays silent for this file."
+  - side: shuck-only
+    path_suffix: "itzg__docker-minecraft-server__scripts__start-deployLimbo"
+    labels:
+      - project-closure
+    reason: "This deploy helper logs `$?` from inside a condition branch immediately after testing it. Shuck keeps that strict branch-status warning, while ShellCheck stays silent at this project-local site."
+  - side: shellcheck-only
+    path_suffix: "gentoo__gentoo__eclass__tests__edo.sh"
+    labels:
+      - project-closure
+      - test-harness
+    reason: "This Gentoo test harness uses helper-managed assertion flow under project-local sourcing, and ShellCheck keeps one extra C056 anchor here that we review narrowly instead of widening the core rule around harness sequencing."
+  - side: shellcheck-only
+    path_suffix: "gentoo__gentoo__eclass__tests__estack_eshopts.sh"
+    labels:
+      - project-closure
+      - test-harness
+    reason: "This Gentoo test harness uses helper-managed assertion flow under project-local sourcing, and ShellCheck keeps a few extra C056 anchors here that we review narrowly instead of widening the core rule around harness sequencing."
+  - side: shellcheck-only
+    path_suffix: "gentoo__gentoo__eclass__tests__estack_estack.sh"
+    labels:
+      - project-closure
+      - test-harness
+    reason: "This Gentoo test harness uses helper-managed assertion flow under project-local sourcing, and ShellCheck keeps a few extra C056 anchors here that we review narrowly instead of widening the core rule around harness sequencing."
+  - side: shellcheck-only
+    path_suffix: "gentoo__gentoo__eclass__tests__estack_evar.sh"
+    labels:
+      - project-closure
+      - test-harness
+    reason: "This Gentoo test harness uses helper-managed assertion flow under project-local sourcing, and ShellCheck keeps a few extra C056 anchors here that we review narrowly instead of widening the core rule around harness sequencing."
+  - side: shellcheck-only
+    path_suffix: "gentoo__gentoo__eclass__tests__toolchain-funcs.sh"
+    labels:
+      - project-closure
+      - test-harness
+    reason: "This Gentoo test harness uses helper-managed assertion flow under project-local sourcing, and ShellCheck keeps a few extra C056 anchors here that we review narrowly instead of widening the core rule around harness sequencing."
+  - side: shellcheck-only
+    path_suffix: "ko1nksm__shellspec__contrib__bugs.sh"
+    labels:
+      - directive-handling
+    reason: "This ShellSpec bug harness combines directive-heavy fixtures with helper assertions, so we review the remaining ShellCheck-only C056 anchors narrowly instead of teaching the rule ShellSpec-specific directive flow."
+  - side: shuck-only
+    path_suffix: "tteck__Proxmox__misc__copy-data__home-assistant-container-copy-data-home-assistant-container.sh"
+    reason: "This copy-data helper routes the failing test status into a `die` alias that captures `$?` at invocation time. Shuck keeps that strict condition-status warning, while ShellCheck stays silent for this file."
+  - side: shuck-only
+    path_suffix: "tteck__Proxmox__misc__copy-data__home-assistant-container-copy-data-home-assistant-core.sh"
+    reason: "This copy-data helper routes the failing test status into a `die` alias that captures `$?` at invocation time. Shuck keeps that strict condition-status warning, while ShellCheck stays silent for this file."
+  - side: shuck-only
+    path_suffix: "tteck__Proxmox__misc__copy-data__home-assistant-container-copy-data-podman-home-assistant.sh"
+    reason: "This copy-data helper routes the failing test status into a `die` alias that captures `$?` at invocation time. Shuck keeps that strict condition-status warning, while ShellCheck stays silent for this file."
+  - side: shuck-only
+    path_suffix: "tteck__Proxmox__misc__copy-data__home-assistant-core-copy-data-home-assistant-container.sh"
+    reason: "This copy-data helper routes the failing test status into a `die` alias that captures `$?` at invocation time. Shuck keeps that strict condition-status warning, while ShellCheck stays silent for this file."
+  - side: shuck-only
+    path_suffix: "tteck__Proxmox__misc__copy-data__home-assistant-core-copy-data-home-assistant-core.sh"
+    reason: "This copy-data helper routes the failing test status into a `die` alias that captures `$?` at invocation time. Shuck keeps that strict condition-status warning, while ShellCheck stays silent for this file."
+  - side: shuck-only
+    path_suffix: "tteck__Proxmox__misc__copy-data__plex-copy-data-plex.sh"
+    reason: "This copy-data helper routes the failing test status into a `die` alias that captures `$?` at invocation time. Shuck keeps that strict condition-status warning, while ShellCheck stays silent for this file."
+  - side: shuck-only
+    path_suffix: "tteck__Proxmox__misc__copy-data__podman-home-assistant-copy-data-home-assistant-container.sh"
+    reason: "This copy-data helper routes the failing test status into a `die` alias that captures `$?` at invocation time. Shuck keeps that strict condition-status warning, while ShellCheck stays silent for this file."
+  - side: shuck-only
+    path_suffix: "tteck__Proxmox__misc__copy-data__z2m-copy-data-z2m.sh"
+    reason: "This copy-data helper routes the failing test status into a `die` alias that captures `$?` at invocation time. Shuck keeps that strict condition-status warning, while ShellCheck stays silent for this file."
+  - side: shuck-only
+    path_suffix: "tteck__Proxmox__misc__copy-data__zwavejs2mqtt-copy-data-zwavejsui.sh"
+    reason: "This copy-data helper routes the failing test status into a `die` alias that captures `$?` at invocation time. Shuck keeps that strict condition-status warning, while ShellCheck stays silent for this file."
+  - side: shuck-only
+    path_suffix: "tteck__Proxmox__turnkey__turnkey.sh"
+    reason: "This TurnKey helper routes the failing test status into a `die` alias that captures `$?` at invocation time. Shuck keeps that strict condition-status warning, while ShellCheck stays silent for this file."

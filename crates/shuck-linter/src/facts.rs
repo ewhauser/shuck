@@ -3391,23 +3391,26 @@ impl<'a> LinterFactsBuilder<'a> {
                             &mut condition_status_capture_spans,
                         );
 
+                        let mut previous_condition = &command.condition;
                         for (condition, branch) in &command.elif_branches {
+                            collect_condition_status_capture_from_body(
+                                previous_condition,
+                                condition,
+                                self.source,
+                                &mut condition_status_capture_spans,
+                            );
                             collect_condition_status_capture_from_body(
                                 condition,
                                 branch,
                                 self.source,
                                 &mut condition_status_capture_spans,
                             );
+                            previous_condition = condition;
                         }
 
                         if let Some(else_branch) = &command.else_branch {
-                            let fallback_condition = command
-                                .elif_branches
-                                .last()
-                                .map(|(condition, _)| condition)
-                                .unwrap_or(&command.condition);
                             collect_condition_status_capture_from_body(
-                                fallback_condition,
+                                previous_condition,
                                 else_branch,
                                 self.source,
                                 &mut condition_status_capture_spans,
@@ -9110,6 +9113,14 @@ fn collect_status_parameter_spans_in_command(
                     collect_status_parameter_spans_in_stmt(first_stmt, source, spans);
                 }
             }
+            CompoundCommand::Case(command) => {
+                collect_status_parameter_spans_in_word(&command.word, source, spans);
+                for case in &command.cases {
+                    if let Some(first_stmt) = case.body.first() {
+                        collect_status_parameter_spans_in_stmt(first_stmt, source, spans);
+                    }
+                }
+            }
             CompoundCommand::Subshell(body) | CompoundCommand::BraceGroup(body) => {
                 if let Some(first_stmt) = body.first() {
                     collect_status_parameter_spans_in_stmt(first_stmt, source, spans);
@@ -9139,7 +9150,6 @@ fn collect_status_parameter_spans_in_command(
             | CompoundCommand::Repeat(_)
             | CompoundCommand::Foreach(_)
             | CompoundCommand::ArithmeticFor(_)
-            | CompoundCommand::Case(_)
             | CompoundCommand::Select(_)
             | CompoundCommand::Arithmetic(_) => {}
         },
@@ -16899,10 +16909,17 @@ if [[ -f foo ]]; then
   echo $?
 elif [[ -f bar ]]; then
   echo $?
+elif [ $? -eq 1 ]; then
+  :
 fi
 while test -f baz; do
   echo $?
 done
+if [[ -n $mode ]]; then
+  case $mode in
+    foo) tend $? ;;
+  esac
+fi
 if $(printf one); then
   :
 fi
@@ -16926,7 +16943,7 @@ done
                     .iter()
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
-                vec!["$?", "$?", "$?"]
+                vec!["$?", "$?", "$?", "$?", "$?"]
             );
         });
     }
