@@ -96,6 +96,12 @@ pub fn all_elements_array_expansion_part_spans(word: &Word, source: &str) -> Vec
     spans
 }
 
+pub fn direct_all_elements_array_expansion_part_spans(word: &Word, source: &str) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_direct_all_elements_array_expansion_spans(&word.parts, source, &mut spans);
+    spans
+}
+
 pub fn unquoted_all_elements_array_expansion_part_spans(word: &Word, source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_unquoted_all_elements_array_expansion_spans(&word.parts, false, source, &mut spans);
@@ -119,9 +125,7 @@ pub fn word_has_quoted_all_elements_array_slice(word: &Word) -> bool {
 }
 
 pub fn word_has_direct_all_elements_array_expansion_in_source(word: &Word, source: &str) -> bool {
-    let mut spans = Vec::new();
-    collect_direct_all_elements_array_expansion_spans(&word.parts, source, &mut spans);
-    !spans.is_empty()
+    !direct_all_elements_array_expansion_part_spans(word, source).is_empty()
 }
 
 pub fn word_all_elements_array_slice_span_in_source(word: &Word, source: &str) -> Option<Span> {
@@ -930,10 +934,21 @@ fn collect_direct_all_elements_array_expansion_spans(
             WordPart::DoubleQuoted { parts, .. } => {
                 collect_direct_all_elements_array_expansion_spans(parts, source, spans)
             }
-            _ if part_uses_direct_all_elements_array_expansion(&part.kind)
-                && !span_is_escaped(part.span, source) =>
+            _ if part_uses_direct_all_elements_array_expansion(&part.kind) => {
+                if let Some(span) = normalize_all_elements_array_expansion_span(part.span, source) {
+                    spans.push(span);
+                }
+            }
+            WordPart::Parameter(parameter)
+                if parameter_might_use_all_elements_array_expansion(
+                    parameter, part.span, source,
+                ) =>
             {
-                spans.push(part.span)
+                if let Some(span) =
+                    normalize_nested_braced_all_elements_array_expansion_span(part.span, source)
+                {
+                    spans.push(span);
+                }
             }
             _ => {}
         }
@@ -1012,6 +1027,43 @@ fn normalize_all_elements_array_expansion_span(span: Span, source: &str) -> Opti
     }
 
     widen_all_elements_array_expansion_span(span, source)
+}
+
+fn normalize_nested_braced_all_elements_array_expansion_span(
+    span: Span,
+    source: &str,
+) -> Option<Span> {
+    let text = span.slice(source);
+    if !text.contains("${") {
+        return None;
+    }
+
+    let base_offset = span.start.offset;
+    let mut search_from = 0usize;
+
+    while let Some(found) = text[search_from..].find("${") {
+        let relative_start = search_from + found;
+        let absolute_start = base_offset + relative_start;
+        if absolute_start > 0 && source.as_bytes()[absolute_start - 1] == b'\\' {
+            search_from = relative_start + 2;
+            continue;
+        }
+
+        let remainder = &source[absolute_start..];
+        let Some(relative_end) = remainder.find('}') else {
+            break;
+        };
+        let candidate = &remainder[..=relative_end];
+        if candidate_is_all_elements_array_expansion(candidate) {
+            let start = position_at_offset(source, absolute_start)?;
+            let end = position_at_offset(source, absolute_start + candidate.len())?;
+            return Some(Span::from_positions(start, end));
+        }
+
+        search_from = relative_start + 2;
+    }
+
+    None
 }
 
 fn normalize_command_substitution_span(span: Span, source: &str) -> Span {
