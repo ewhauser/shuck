@@ -387,16 +387,21 @@ fn bracket_v_name_spans(
 
             let operand = simple_test.effective_operands().get(1)?;
             let name = static_word_text(operand, checker.source())?;
-            let binding = checker
-                .semantic()
-                .visible_binding(&Name::from(name.as_str()), operand.span)?;
-            let roots = root_bindings_for_binding(
-                binding.id,
-                direct_unsafe_bindings,
-                dependency_map,
-                root_cache,
-                &mut FxHashSet::default(),
-            );
+            let mut roots = FxHashSet::default();
+            for binding_id in checker.semantic().bindings_for(&Name::from(name.as_str())) {
+                let binding = checker.semantic().binding(*binding_id);
+                if binding.span.start.offset > operand.span.start.offset {
+                    continue;
+                }
+
+                roots.extend(root_bindings_for_binding(
+                    binding.id,
+                    direct_unsafe_bindings,
+                    dependency_map,
+                    root_cache,
+                    &mut FxHashSet::default(),
+                ));
+            }
             if roots.is_empty() {
                 return None;
             }

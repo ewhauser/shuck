@@ -115,6 +115,42 @@ test -v args\n\
     }
 
     #[test]
+    fn reports_bracket_v_tests_when_quoted_value_was_set_in_an_earlier_function() {
+        let source = "\
+#!/bin/bash
+normalize() {
+  args='--name \"hello world\"'
+}
+[ -v args ]
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "'--name \"hello world\"'"
+        );
+    }
+
+    #[test]
+    fn ignores_bracket_v_tests_when_the_first_quoted_assignment_comes_later() {
+        let source = "\
+#!/bin/bash
+[ -v args ]
+args='--name \"hello world\"'
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn anchors_multiline_literal_runs_before_the_next_expansion() {
         let source = "\
 #!/bin/sh
