@@ -4556,6 +4556,24 @@ exec \"$@\" \"${@}\" \"${@:1}\" \"${@:-fallback}\" \"${@:${args_offset}}\" \"${@
     }
 
     #[test]
+    fn word_folded_positional_at_splat_span_in_source_tracks_unescaped_splats_after_escaped_literals()
+    {
+        let source = "echo \"gvm_pkgset_use: \\$@   => $@\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        assert_eq!(
+            word_folded_positional_at_splat_span_in_source(&command.args[0], source)
+                .expect("expected folded positional span")
+                .slice(source),
+            "$@"
+        );
+    }
+
+    #[test]
     fn word_positional_at_splat_span_in_source_tracks_operation_forms() {
         let source = "printf '%s\\n' \"${@:-fallback}\" \"$@\" \"\\$@\"\n";
         let output = Parser::new(source).parse().unwrap();

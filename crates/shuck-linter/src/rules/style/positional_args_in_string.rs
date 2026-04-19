@@ -93,4 +93,25 @@ printf '%s\\n' \"Errors:\\n${errors[@]}\"
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn reports_folded_positional_splats_even_with_escaped_literals_earlier_in_word() {
+        let source = "\
+#!/bin/bash
+set -- a b
+echo \"gvm_pkgset_use: \\$@   => $@\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PositionalArgsInString),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$@"]
+        );
+    }
 }
