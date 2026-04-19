@@ -3830,7 +3830,7 @@ mod tests {
 
         assert!(
             metadata
-                .get("C014")
+                .get("C001")
                 .is_some_and(|rule_metadata| rule_metadata.review_all_divergences)
         );
     }

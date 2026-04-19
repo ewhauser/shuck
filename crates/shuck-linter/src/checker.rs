@@ -15,6 +15,7 @@ pub struct Checker<'a> {
     rules: &'a RuleSet,
     shell: ShellDialect,
     file_context: &'a FileContext,
+    first_parse_error: Option<(usize, usize)>,
     diagnostics: Vec<Diagnostic>,
     reported: FxHashSet<DiagnosticKey>,
 }
@@ -37,6 +38,7 @@ impl DiagnosticKey {
 }
 
 impl<'a> Checker<'a> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         file: &'a File,
         source: &'a str,
@@ -45,6 +47,7 @@ impl<'a> Checker<'a> {
         rules: &'a RuleSet,
         shell: ShellDialect,
         file_context: &'a FileContext,
+        first_parse_error: Option<(usize, usize)>,
     ) -> Self {
         Self {
             semantic,
@@ -56,6 +59,7 @@ impl<'a> Checker<'a> {
             rules,
             shell,
             file_context,
+            first_parse_error,
             diagnostics: Vec::new(),
             reported: FxHashSet::default(),
         }
@@ -95,6 +99,10 @@ impl<'a> Checker<'a> {
 
     pub fn file_context(&self) -> &'a FileContext {
         self.file_context
+    }
+
+    pub fn first_parse_error(&self) -> Option<(usize, usize)> {
+        self.first_parse_error
     }
 
     pub fn report<V: Violation>(&mut self, violation: V, span: Span) {

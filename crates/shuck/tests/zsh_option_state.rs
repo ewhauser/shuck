@@ -152,6 +152,7 @@ fn run_fixture(fixture: &Fixture) -> Result<()> {
         &rules,
         ShellDialect::Zsh,
         &file_context,
+        None,
     );
 
     for (probe_id, expected) in &fixture.option_probes {
