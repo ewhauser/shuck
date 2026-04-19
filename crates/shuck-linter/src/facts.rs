@@ -4000,10 +4000,10 @@ fn build_unquoted_literal_between_double_quoted_segments_spans(
         })
         .collect::<Vec<_>>();
 
-    if let Some(span) = mixed_quote_trailing_line_join_between_double_quotes_span(word, source) {
-        if !spans.contains(&span) {
-            spans.push(span);
-        }
+    if let Some(span) = mixed_quote_trailing_line_join_between_double_quotes_span(word, source)
+        && !spans.contains(&span)
+    {
+        spans.push(span);
     }
 
     spans
@@ -4092,10 +4092,23 @@ fn mixed_quote_shell_fragment_balance_delta(text: &str) -> (i32, i32) {
     let mut parameter_delta = 0i32;
     let mut chars = text.chars().peekable();
     let mut escaped = false;
+    let mut in_single_quotes = false;
 
     while let Some(ch) = chars.next() {
+        if in_single_quotes {
+            if ch == '\'' {
+                in_single_quotes = false;
+            }
+            continue;
+        }
+
         if escaped {
             escaped = false;
+            continue;
+        }
+
+        if ch == '\'' {
+            in_single_quotes = true;
             continue;
         }
 
@@ -22782,7 +22795,7 @@ printf '%s\\n' $@ ${@:2} ${items[@]} ${items[@]:1} ${!items[@]} ${items[@]/#/#} 
     fn builds_word_facts_for_unquoted_literals_between_reopened_double_quotes() {
         let source = "\
 #!/bin/bash
-printf '%s\\n' \"foo\"bar\"baz\" \"foo\"-\"bar\" \"foo\"$(printf '%s' x)\"bar\" \"$left\"-\"$right\" x=\"$(cmd \"a\".\"b\")\"
+printf '%s\\n' \"foo\"bar\"baz\" \"foo\"-\"bar\" \"foo\"$(printf '%s' x)\"bar\" \"$left\"-\"$right\" x=\"$(cmd \"a\".\"b\")\" '$('\"foo\"parenmid\"baz\" '${'\"foo\"bracemid\"baz\"
 ";
 
         with_facts(source, None, |_, facts| {
@@ -22797,7 +22810,7 @@ printf '%s\\n' \"foo\"bar\"baz\" \"foo\"-\"bar\" \"foo\"$(printf '%s' x)\"bar\" 
                 })
                 .collect::<Vec<_>>();
 
-            assert_eq!(spans, vec!["bar", "-", "."]);
+            assert_eq!(spans, vec!["bar", "-", "parenmid", "bracemid", "."]);
         });
     }
 

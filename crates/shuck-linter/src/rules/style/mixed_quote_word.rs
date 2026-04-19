@@ -173,4 +173,21 @@ this_dir=\\$(dirname \"\\$0\")
             vec!["\\$0"]
         );
     }
+
+    #[test]
+    fn still_reports_reopened_quotes_after_quoted_literal_fragment_prefixes() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' '$('\"foo\"parenmid\"baz\" '${'\"foo\"bracemid\"baz\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::MixedQuoteWord));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["parenmid", "bracemid"]
+        );
+    }
 }
