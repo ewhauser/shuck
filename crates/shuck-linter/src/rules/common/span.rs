@@ -4557,7 +4557,7 @@ exec \"$@\" \"${@}\" \"${@:1}\" \"${@:-fallback}\" \"${@:${args_offset}}\" \"${@
 
     #[test]
     fn word_folded_positional_at_splat_span_in_source_tracks_unescaped_splats_after_escaped_literals()
-    {
+     {
         let source = "echo \"gvm_pkgset_use: \\$@   => $@\"\n";
         let output = Parser::new(source).parse().unwrap();
         let command = &output.file.body[0].command;
