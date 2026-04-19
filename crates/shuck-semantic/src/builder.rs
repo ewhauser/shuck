@@ -3415,7 +3415,9 @@ fn classify_source_ref_diagnostic_class(
     kind: &SourceRefKind,
 ) -> SourceRefDiagnosticClass {
     match kind {
-        SourceRefKind::Literal(path) if literal_uses_current_user_home_tilde(word, source, path) => {
+        SourceRefKind::Literal(path)
+            if literal_uses_current_user_home_tilde(word, source, path) =>
+        {
             SourceRefDiagnosticClass::DynamicPath
         }
         SourceRefKind::Dynamic if dynamic_root_with_slash_tail(word, source) => {
