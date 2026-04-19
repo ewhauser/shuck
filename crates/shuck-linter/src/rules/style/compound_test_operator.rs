@@ -131,4 +131,18 @@ test \"$a\" = 1 -a \"$b\" = 2
             vec!["-a"]
         );
     }
+
+    #[test]
+    fn ignores_quoted_negation_before_grouped_subexpressions() {
+        let source = "\
+#!/bin/sh
+[ '(' '!' '(' -f \"$left\" -o -f \"$right\" ')' ')' ]
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CompoundTestOperator),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
 }

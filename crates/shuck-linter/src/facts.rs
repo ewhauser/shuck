@@ -20691,6 +20691,23 @@ test
     }
 
     #[test]
+    fn skips_compound_operator_spans_for_quoted_negation_before_grouped_subexpressions() {
+        let source = "\
+#!/bin/sh
+[ '(' '!' '(' -f \"$left\" -o -f \"$right\" ')' ')' ]
+";
+
+        with_facts(source, None, |_, facts| {
+            let test = facts
+                .structural_commands()
+                .find_map(|fact| fact.simple_test())
+                .expect("expected grouped simple test fact");
+
+            assert!(test.compound_operator_spans(source).is_empty());
+        });
+    }
+
+    #[test]
     fn records_glued_closing_bracket_operand_spans_for_unary_tests() {
         let source = "\
 #!/bin/sh
