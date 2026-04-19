@@ -1,5 +1,3 @@
-use shuck_semantic::BindingAttributes;
-
 use crate::{Checker, Rule, Violation};
 
 pub struct UnsetAssociativeArrayElement;
@@ -10,12 +8,11 @@ impl Violation for UnsetAssociativeArrayElement {
     }
 
     fn message(&self) -> String {
-        "quote associative-array unset targets as `'name[key]'` to keep keys literal".to_owned()
+        "quote `unset` array-subscript operands so bracket text stays literal".to_owned()
     }
 }
 
 pub fn unset_associative_array_element(checker: &mut Checker) {
-    let semantic = checker.semantic();
     let mut spans = Vec::new();
 
     for fact in checker
@@ -28,19 +25,7 @@ pub fn unset_associative_array_element(checker: &mut Checker) {
         };
 
         for operand in unset.operand_facts() {
-            let Some(array_subscript) = operand.array_subscript() else {
-                continue;
-            };
-            if !array_subscript.key_contains_quote() {
-                continue;
-            }
-
-            let Some(visible) =
-                semantic.visible_binding(array_subscript.name(), operand.word().span)
-            else {
-                continue;
-            };
-            if visible.attributes.contains(BindingAttributes::ASSOC) {
+            if operand.array_subscript().is_some() {
                 spans.push(operand.word().span);
             }
         }
@@ -55,14 +40,21 @@ mod tests {
     use crate::{LinterSettings, Rule};
 
     #[test]
-    fn reports_quoted_associative_unset_keys() {
+    fn reports_array_subscript_unset_operands() {
         let source = "\
 #!/bin/bash
 declare -A parts
 parts[one]=1
+parts[two]=2
+foo=1
 unset parts[\"one\"]
 unset parts['two']
 key=three
+declare -a nums
+unset foo[1]
+unset nums[1]
+unset nums[\"1\"]
+unset nums[$key]
 unset parts[\"$key\"]
 unset parts[\\\"four\\\"]
 ";
@@ -79,6 +71,10 @@ unset parts[\\\"four\\\"]
             vec![
                 "parts[\"one\"]",
                 "parts['two']",
+                "foo[1]",
+                "nums[1]",
+                "nums[\"1\"]",
+                "nums[$key]",
                 "parts[\"$key\"]",
                 "parts[\\\"four\\\"]"
             ]
@@ -86,14 +82,13 @@ unset parts[\\\"four\\\"]
     }
 
     #[test]
-    fn ignores_indexed_or_safely_quoted_unset_operands() {
+    fn ignores_non_array_and_literal_unset_operands() {
         let source = "\
 #!/bin/bash
-declare -a nums
 declare -A parts
-key=one
-unset nums[\"1\"]
-unset parts[$key]
+declare value=one
+unset plain
+unset value
 unset 'parts[key]'
 unset \"parts[key]\"
 ";

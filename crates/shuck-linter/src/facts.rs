@@ -2041,20 +2041,7 @@ impl<'a> UnsetOperandFact<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct UnsetArraySubscriptFact {
-    name: Name,
-    key_contains_quote: bool,
-}
-
-impl UnsetArraySubscriptFact {
-    pub(crate) fn name(&self) -> &Name {
-        &self.name
-    }
-
-    pub(crate) fn key_contains_quote(&self) -> bool {
-        self.key_contains_quote
-    }
-}
+pub(crate) struct UnsetArraySubscriptFact;
 
 #[derive(Debug, Clone)]
 pub struct RmCommandFacts {
@@ -15668,11 +15655,8 @@ fn parse_unset_operand_fact<'a>(word: &'a Word, source: &str) -> UnsetOperandFac
 
 fn parse_unset_array_subscript(text: &str) -> Option<UnsetArraySubscriptFact> {
     let (name, key_with_bracket) = text.split_once('[')?;
-    let key = key_with_bracket.strip_suffix(']')?;
-    is_shell_variable_name(name).then(|| UnsetArraySubscriptFact {
-        name: Name::from(name),
-        key_contains_quote: key.chars().any(|ch| ch == '\'' || ch == '"'),
-    })
+    key_with_bracket.strip_suffix(']')?;
+    is_shell_variable_name(name).then_some(UnsetArraySubscriptFact)
 }
 
 fn collect_word_prefix_match_spans(word: &Word, spans: &mut Vec<Span>) {
@@ -19438,25 +19422,15 @@ unset parts[\"$key\"] plain \"parts[safe]\" 'parts[also_safe]' nums[1]
             .operand_facts()
             .iter()
             .map(|operand| {
-                operand.array_subscript().map(|subscript| {
-                    (
-                        operand.word().span.slice(source),
-                        subscript.name().as_str().to_owned(),
-                        subscript.key_contains_quote(),
-                    )
-                })
+                operand
+                    .array_subscript()
+                    .map(|_| operand.word().span.slice(source))
             })
             .collect::<Vec<_>>();
 
         assert_eq!(
             operand_subscripts,
-            vec![
-                Some(("parts[\"$key\"]", "parts".to_owned(), true)),
-                None,
-                None,
-                None,
-                Some(("nums[1]", "nums".to_owned(), false)),
-            ]
+            vec![Some("parts[\"$key\"]"), None, None, None, Some("nums[1]"),]
         );
     }
 

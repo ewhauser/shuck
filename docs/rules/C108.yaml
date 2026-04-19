@@ -9,8 +9,8 @@ shells:
   - bash
   - dash
   - ksh
-description: An associative array element is unset with a quoted key.
-rationale: "Use `unset 'arr[key]'` with single quotes to avoid expansion."
+description: An array-subscript operand is passed to `unset` without being kept literal.
+rationale: "Quote the whole operand, such as `unset 'arr[key]'`, so bracket text is not treated as a pattern."
 source:
   shell_checks_rule: rules/SH-243.yaml
   shell_checks_example: examples/243.sh
