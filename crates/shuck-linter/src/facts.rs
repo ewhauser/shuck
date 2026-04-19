@@ -4076,8 +4076,8 @@ fn mixed_quote_word_parts_inside_nested_shell_fragments(word: &Word, source: &st
     for part in &word.parts {
         nested.push(command_depth > 0 || parameter_depth > 0);
 
-        let text = part.span.slice(source);
-        let (command_delta, parameter_delta) = mixed_quote_shell_fragment_balance_delta(text);
+        let (command_delta, parameter_delta) =
+            mixed_quote_shell_fragment_balance_delta_for_part(part, source);
         command_depth += command_delta;
         parameter_depth += parameter_delta;
         command_depth = command_depth.max(0);
@@ -4087,7 +4087,30 @@ fn mixed_quote_word_parts_inside_nested_shell_fragments(word: &Word, source: &st
     nested
 }
 
-fn mixed_quote_shell_fragment_balance_delta(text: &str) -> (i32, i32) {
+fn mixed_quote_shell_fragment_balance_delta_for_part(
+    part: &WordPartNode,
+    source: &str,
+) -> (i32, i32) {
+    match &part.kind {
+        WordPart::CommandSubstitution {
+            syntax: CommandSubstitutionSyntax::Backtick,
+            ..
+        } => {
+            let text = part.span.slice(source);
+            let body = text
+                .strip_prefix('`')
+                .and_then(|text| text.strip_suffix('`'))
+                .unwrap_or(text);
+            mixed_quote_shell_fragment_balance_delta(body, true)
+        }
+        _ => mixed_quote_shell_fragment_balance_delta(part.span.slice(source), false),
+    }
+}
+
+fn mixed_quote_shell_fragment_balance_delta(
+    text: &str,
+    allow_top_level_command_comments: bool,
+) -> (i32, i32) {
     let mut command_delta = 0i32;
     let mut parameter_delta = 0i32;
     let mut chars = text.chars().peekable();
@@ -4131,7 +4154,13 @@ fn mixed_quote_shell_fragment_balance_delta(text: &str) -> (i32, i32) {
             continue;
         }
 
-        if ch == '#' && mixed_quote_shell_comment_can_start(command_delta, previous_char) {
+        if ch == '#'
+            && mixed_quote_shell_comment_can_start(
+                command_delta,
+                allow_top_level_command_comments,
+                previous_char,
+            )
+        {
             in_comment = true;
             continue;
         }
@@ -4166,8 +4195,12 @@ fn mixed_quote_shell_fragment_balance_delta(text: &str) -> (i32, i32) {
     (command_delta, parameter_delta)
 }
 
-fn mixed_quote_shell_comment_can_start(command_depth: i32, previous_char: Option<char>) -> bool {
-    command_depth > 0
+fn mixed_quote_shell_comment_can_start(
+    command_depth: i32,
+    allow_top_level_command_comments: bool,
+    previous_char: Option<char>,
+) -> bool {
+    (command_depth > 0 || allow_top_level_command_comments)
         && previous_char.is_none_or(|ch| {
             ch.is_ascii_whitespace() || matches!(ch, ';' | '|' | '&' | '(' | ')' | '<' | '>')
         })
@@ -22850,6 +22883,29 @@ printf '%s\\n' \"foo\"bar\"baz\" \"foo\"-\"bar\" \"foo\"$(printf '%s' x)\"bar\" 
 #!/bin/bash
 echo $(echo x # $(
  )\"foo\"bar\"baz\"
+";
+
+        with_facts(source, None, |_, facts| {
+            let spans = facts
+                .expansion_word_facts(ExpansionContext::CommandArgument)
+                .flat_map(|fact| {
+                    fact.unquoted_literal_between_double_quoted_segments_spans()
+                        .iter()
+                        .map(|span| span.slice(source).to_owned())
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(spans, vec!["bar"]);
+        });
+    }
+
+    #[test]
+    fn builds_word_facts_ignore_comment_text_in_backtick_fragment_scan() {
+        let source = "\
+#!/bin/bash
+echo `echo x # $(
+`\"foo\"bar\"baz\"
 ";
 
         with_facts(source, None, |_, facts| {
