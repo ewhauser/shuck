@@ -1,4 +1,4 @@
-use crate::{Checker, ExpansionContext, Rule, Violation};
+use crate::{Checker, Rule, Violation};
 
 pub struct CasePatternVar;
 
@@ -13,16 +13,10 @@ impl Violation for CasePatternVar {
 }
 
 pub fn case_pattern_var(checker: &mut Checker) {
-    let spans = checker
-        .facts()
-        .expansion_word_facts(ExpansionContext::CasePattern)
-        .filter(|fact| fact.classification().is_expanded())
-        .map(|fact| fact.span())
-        .collect::<Vec<_>>();
-
-    for span in spans {
-        checker.report(CasePatternVar, span);
-    }
+    checker.report_all(
+        checker.facts().case_pattern_expansion_spans().to_vec(),
+        || CasePatternVar,
+    );
 }
 
 #[cfg(test)]
@@ -49,12 +43,47 @@ esac
             vec!["$pat", "$(printf '%s' bar)"]
         );
     }
+
     #[test]
     fn ignores_case_patterns_built_from_quoted_literal_fragments() {
         let source = "#!/bin/bash\ncase $value in foo\"bar\"'baz') : ;; esac\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CasePatternVar));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_fully_quoted_case_pattern_expansions() {
+        let source = "\
+#!/bin/sh
+case $value in
+  \"$pat\") : ;;
+  x\"$quoted\") : ;;
+esac
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CasePatternVar));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn anchors_mixed_case_patterns_to_the_full_pattern_span() {
+        let source = "\
+#!/bin/sh
+case $value in
+  x$pat) : ;;
+  \"$left\"$right) : ;;
+esac
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CasePatternVar));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["x$pat", "\"$left\"$right"]
+        );
     }
 
     #[test]

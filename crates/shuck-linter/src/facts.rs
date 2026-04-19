@@ -2823,6 +2823,7 @@ pub struct LinterFacts<'a> {
     select_headers: Vec<SelectHeaderFact<'a>>,
     case_items: Vec<CaseItemFact<'a>>,
     case_pattern_shadows: Vec<CasePatternShadowFact>,
+    case_pattern_expansion_spans: Vec<Span>,
     getopts_cases: Vec<GetoptsCaseFact>,
     pipelines: Vec<PipelineFact<'a>>,
     lists: Vec<ListFact<'a>>,
@@ -3110,6 +3111,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn case_pattern_shadows(&self) -> &[CasePatternShadowFact] {
         &self.case_pattern_shadows
+    }
+
+    pub fn case_pattern_expansion_spans(&self) -> &[Span] {
+        &self.case_pattern_expansion_spans
     }
 
     pub fn getopts_cases(&self) -> &[GetoptsCaseFact] {
@@ -3419,6 +3424,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut compound_assignment_value_word_spans = FxHashSet::default();
         let mut array_assignment_split_word_indices = Vec::new();
         let mut pattern_exactly_one_extglob_spans = Vec::new();
+        let mut case_pattern_expansion_spans = Vec::new();
         let mut pattern_literal_spans = Vec::new();
         let mut pattern_charclass_spans = Vec::new();
         let mut arithmetic_summary = ArithmeticFactSummary::default();
@@ -3501,6 +3507,7 @@ impl<'a> LinterFactsBuilder<'a> {
                     .map(|index| word_index_offset + *index),
             );
             words.extend(collected_words.facts);
+            case_pattern_expansion_spans.extend(collected_words.case_pattern_expansion_spans);
             pattern_literal_spans.extend(collected_words.pattern_literal_spans);
             pattern_charclass_spans.extend(collected_words.pattern_charclass_spans);
             arithmetic_summary
@@ -3683,6 +3690,7 @@ impl<'a> LinterFactsBuilder<'a> {
             build_function_header_facts(self.semantic, &functions, &commands, self.source);
         sort_and_dedup_spans(&mut condition_status_capture_spans);
         sort_and_dedup_spans(&mut condition_command_substitution_spans);
+        sort_and_dedup_spans(&mut case_pattern_expansion_spans);
         let function_parameter_fallback_spans = build_function_parameter_fallback_spans(
             &commands,
             &structural_command_ids,
@@ -3847,6 +3855,7 @@ impl<'a> LinterFactsBuilder<'a> {
             select_headers,
             case_items,
             case_pattern_shadows,
+            case_pattern_expansion_spans,
             getopts_cases,
             pipelines,
             lists,
@@ -10650,6 +10659,7 @@ struct CollectedWordFacts<'a> {
     facts: Vec<WordFact<'a>>,
     compound_assignment_value_word_spans: FxHashSet<FactSpan>,
     array_assignment_split_word_indices: Vec<usize>,
+    case_pattern_expansion_spans: Vec<Span>,
     pattern_literal_spans: Vec<Span>,
     pattern_charclass_spans: Vec<Span>,
     arithmetic: ArithmeticFactSummary,
@@ -10718,6 +10728,7 @@ struct WordFactCollector<'a> {
     array_assignment_split_word_indices: Vec<usize>,
     seen: FxHashSet<(FactSpan, WordFactContext, WordFactHostKind)>,
     compound_assignment_value_word_spans: FxHashSet<FactSpan>,
+    case_pattern_expansion_spans: Vec<Span>,
     pattern_literal_spans: Vec<Span>,
     pattern_charclass_spans: Vec<Span>,
     arithmetic: ArithmeticFactSummary,
@@ -10749,6 +10760,7 @@ impl<'a> WordFactCollector<'a> {
             array_assignment_split_word_indices: Vec::new(),
             seen: FxHashSet::default(),
             compound_assignment_value_word_spans: FxHashSet::default(),
+            case_pattern_expansion_spans: Vec::new(),
             pattern_literal_spans: Vec::new(),
             pattern_charclass_spans: Vec::new(),
             arithmetic: ArithmeticFactSummary::default(),
@@ -10761,6 +10773,7 @@ impl<'a> WordFactCollector<'a> {
             facts: self.facts,
             compound_assignment_value_word_spans: self.compound_assignment_value_word_spans,
             array_assignment_split_word_indices: self.array_assignment_split_word_indices,
+            case_pattern_expansion_spans: self.case_pattern_expansion_spans,
             pattern_literal_spans: self.pattern_literal_spans,
             pattern_charclass_spans: self.pattern_charclass_spans,
             arithmetic: self.arithmetic,
@@ -10831,6 +10844,7 @@ impl<'a> WordFactCollector<'a> {
                                 pattern,
                                 surface_context.with_pattern_charclass_scan(),
                             );
+                            self.collect_case_pattern_expansion_spans(pattern);
                             self.collect_pattern_context_words(
                                 pattern,
                                 WordFactContext::Expansion(ExpansionContext::CasePattern),
@@ -11244,6 +11258,53 @@ impl<'a> WordFactCollector<'a> {
                 PatternPart::AnyString | PatternPart::AnyChar => {}
                 PatternPart::Literal(_) | PatternPart::CharClass(_) => {}
             }
+        }
+    }
+
+    fn collect_case_pattern_expansion_spans(&mut self, pattern: &Pattern) {
+        if pattern
+            .parts
+            .iter()
+            .any(|part| matches!(part.kind, PatternPart::Group { .. }))
+        {
+            for part in &pattern.parts {
+                if let PatternPart::Group { patterns, .. } = &part.kind {
+                    for nested in patterns {
+                        self.collect_case_pattern_expansion_spans(nested);
+                    }
+                }
+            }
+            return;
+        }
+
+        let expanded_word_spans = pattern
+            .parts
+            .iter()
+            .filter_map(|part| match &part.kind {
+                PatternPart::Word(word) => {
+                    let analysis =
+                        analyze_word(word, self.source, self.command_zsh_options.as_ref());
+                    (analysis.literalness == WordLiteralness::Expanded
+                        && analysis.quote != WordQuote::FullyQuoted)
+                        .then_some(word.span)
+                }
+                PatternPart::Literal(_)
+                | PatternPart::AnyString
+                | PatternPart::AnyChar
+                | PatternPart::CharClass(_)
+                | PatternPart::Group { .. } => None,
+            })
+            .collect::<Vec<_>>();
+
+        if expanded_word_spans.is_empty() {
+            return;
+        }
+
+        if pattern.parts.len() > 1 {
+            self.case_pattern_expansion_spans.push(pattern.span);
+        } else {
+            self.case_pattern_expansion_spans
+                .extend(expanded_word_spans);
         }
     }
 
@@ -24171,6 +24232,30 @@ printf '%s\\n' prefix${name}suffix ${items[@]}
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
                 vec!["${items[@]}"]
+            );
+        });
+    }
+
+    #[test]
+    fn builds_case_pattern_expansion_spans_for_mixed_and_quoted_patterns() {
+        let source = "\
+#!/bin/sh
+case $value in
+  x$pat) : ;;
+  \"$quoted\") : ;;
+  \"$left\"$right) : ;;
+  @($nested|\"$ignored\")) : ;;
+esac
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .case_pattern_expansion_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["x$pat", "\"$left\"$right", "$nested"]
             );
         });
     }
