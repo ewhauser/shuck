@@ -13067,10 +13067,9 @@ fn text_contains_shell_quoting_literals(text: &str) -> bool {
         while end < chars.len() && chars[end] == '\\' {
             end += 1;
         }
-        if chars
-            .get(end)
-            .is_some_and(|next| next.is_whitespace() || matches!(next, '"' | '\''))
-        {
+        if chars.get(end).is_some_and(|next| {
+            matches!(next, '"' | '\'') || (next.is_whitespace() && !matches!(next, '\n' | '\r'))
+        }) {
             return true;
         }
 
@@ -18840,6 +18839,20 @@ mod tests {
             ShellDialect::Bash,
             visit,
         );
+    }
+
+    #[test]
+    fn assignment_value_facts_ignore_line_continuation_backslashes_for_shell_quoting_literals() {
+        let source = "#!/bin/bash\npackages=$foo\\\n$bar\nprintf '%s\\n' \"$packages\"\n";
+
+        with_facts(source, None, |_, facts| {
+            let fact = facts
+                .expansion_word_facts(ExpansionContext::AssignmentValue)
+                .next()
+                .expect("assignment value fact should exist");
+
+            assert!(!fact.contains_shell_quoting_literals());
+        });
     }
 
     #[test]
