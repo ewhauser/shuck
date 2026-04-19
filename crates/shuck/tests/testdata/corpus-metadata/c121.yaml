@@ -1,0 +1,7 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__supplementary__runcommand__runcommand.sh"
+    line: 1269
+    labels:
+      - project-closure
+    reason: "This runcommand helper compares a quoted variable-name token after configuration globals have been populated through another helper path. The remaining C121 hit depends on cross-function project-closure state that shuck does not yet promote into this literal-name suppression, so we record the narrow divergence instead of restoring the old blanket allowlist."

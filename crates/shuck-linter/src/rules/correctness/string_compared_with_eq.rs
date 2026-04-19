@@ -127,10 +127,19 @@ fn looks_like_defined_variable_name(checker: &Checker<'_>, text: &str, span: Spa
         .copied()
         .any(|binding_id| {
             let binding = checker.semantic().binding(binding_id);
-            !matches!(binding.kind, BindingKind::FunctionDefinition)
-                && !binding
-                    .attributes
-                    .contains(BindingAttributes::IMPORTED_FUNCTION)
+            if binding
+                .attributes
+                .contains(BindingAttributes::IMPORTED_FUNCTION)
+                || matches!(binding.kind, BindingKind::FunctionDefinition)
+            {
+                return false;
+            }
+
+            if matches!(binding.kind, BindingKind::Imported) {
+                return true;
+            }
+
+            checker.semantic().binding_visible_at(binding_id, span)
                 && binding.span.start.offset != span.start.offset
         })
 }
@@ -206,8 +215,8 @@ mod tests {
     fn ignores_operands_that_match_defined_variable_names() {
         let source = "\
 #!/bin/bash
-[[ retval -ne 0 ]]
 retval=$?
+[[ retval -ne 0 ]]
 DISABLE_MENU=1
 [[ \"$LEGACY_JOY2KEY\" -eq 0 && \"DISABLE_MENU\" -ne 1 ]]
 __iterator=0
@@ -221,5 +230,30 @@ done
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn later_or_out_of_scope_bindings_do_not_suppress_diagnostics() {
+        let source = "\
+#!/bin/bash
+[[ foo -eq 1 ]]
+foo=1
+helper() {
+  local bar=1
+}
+[[ bar -eq 1 ]]
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::StringComparedWithEq),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["foo", "bar"]
+        );
     }
 }
