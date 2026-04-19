@@ -63,6 +63,7 @@ use shuck_ast::{
     ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
 };
 use shuck_indexer::Indexer;
+use shuck_parser::parser::Parser;
 use shuck_semantic::{
     BindingAttributes, BindingId, BindingKind, ScopeId, SemanticModel, ZshOptionState,
 };
@@ -960,8 +961,7 @@ pub struct DeclarationAssignmentProbe {
     readonly_flag: bool,
     target_name: Box<str>,
     target_name_span: Span,
-    word_span: Span,
-    expansion_context: ExpansionContext,
+    has_command_substitution: bool,
 }
 
 impl DeclarationAssignmentProbe {
@@ -981,12 +981,8 @@ impl DeclarationAssignmentProbe {
         self.target_name_span
     }
 
-    pub fn word_span(&self) -> Span {
-        self.word_span
-    }
-
-    pub fn expansion_context(&self) -> ExpansionContext {
-        self.expansion_context
+    pub fn has_command_substitution(&self) -> bool {
+        self.has_command_substitution
     }
 }
 
@@ -3755,8 +3751,12 @@ impl<'a> LinterFactsBuilder<'a> {
             let redirect_facts =
                 build_redirect_facts(visit.redirects, self.source, command_zsh_options.as_ref());
             let options = CommandOptionFacts::build(visit.command, &normalized, self.source);
-            let declaration_assignment_probes =
-                build_declaration_assignment_probes(visit.command, &normalized, self.source);
+            let declaration_assignment_probes = build_declaration_assignment_probes(
+                visit.command,
+                &normalized,
+                self.source,
+                command_zsh_options.as_ref(),
+            );
             let glued_closing_bracket_operand_span =
                 build_glued_closing_bracket_operand_span(visit.command, self.source);
             let simple_test =
@@ -11250,6 +11250,7 @@ fn build_declaration_assignment_probes<'a>(
     command: &'a Command,
     normalized: &NormalizedCommand<'a>,
     source: &str,
+    zsh_options: Option<&ZshOptionState>,
 ) -> Box<[DeclarationAssignmentProbe]> {
     if let Some(declaration) = normalized.declaration.as_ref() {
         return declaration
@@ -11265,21 +11266,25 @@ fn build_declaration_assignment_probes<'a>(
                     readonly_flag: declaration.readonly_flag,
                     target_name: assignment.target.name.as_str().into(),
                     target_name_span: assignment.target.name_span,
-                    word_span: word.span,
-                    expansion_context: ExpansionContext::DeclarationAssignmentValue,
+                    has_command_substitution: word_has_command_substitution(
+                        word,
+                        source,
+                        zsh_options,
+                    ),
                 })
             })
             .collect::<Vec<_>>()
             .into_boxed_slice();
     }
 
-    build_simple_command_declaration_assignment_probes(command, normalized, source)
+    build_simple_command_declaration_assignment_probes(command, normalized, source, zsh_options)
 }
 
 fn build_simple_command_declaration_assignment_probes<'a>(
     command: &'a Command,
     normalized: &NormalizedCommand<'a>,
     source: &str,
+    zsh_options: Option<&ZshOptionState>,
 ) -> Box<[DeclarationAssignmentProbe]> {
     let Command::Simple(_) = command else {
         return Vec::new().into_boxed_slice();
@@ -11306,17 +11311,20 @@ fn build_simple_command_declaration_assignment_probes<'a>(
         .body_args()
         .iter()
         .filter_map(|word| {
-            let name = assignment_word_name(word.span.slice(source))?;
+            let parsed = parse_assignment_word(word.span.slice(source))?;
+            let value_text = &word.span.slice(source)[parsed.value_offset..];
             Some(DeclarationAssignmentProbe {
                 kind: kind.clone(),
                 readonly_flag,
-                target_name: name.into(),
+                target_name: parsed.name.into(),
                 target_name_span: Span::from_positions(
                     word.span.start,
-                    word.span.start.advanced_by(name),
+                    word.span.start.advanced_by(parsed.name),
                 ),
-                word_span: word.span,
-                expansion_context: ExpansionContext::CommandArgument,
+                has_command_substitution: parsed_assignment_value_has_command_substitution(
+                    value_text,
+                    zsh_options,
+                ),
             })
         })
         .collect::<Vec<_>>()
@@ -11338,7 +11346,13 @@ fn declaration_flag_sets_readonly(word: &Word, source: &str) -> bool {
     static_word_text(word, source).is_some_and(|text| text.starts_with('-') && text.contains('r'))
 }
 
-fn assignment_word_name(word: &str) -> Option<&str> {
+#[derive(Debug, Clone, Copy)]
+struct ParsedAssignmentWord<'a> {
+    name: &'a str,
+    value_offset: usize,
+}
+
+fn parse_assignment_word(word: &str) -> Option<ParsedAssignmentWord<'_>> {
     if !word.contains('=') {
         return None;
     }
@@ -11381,13 +11395,17 @@ fn assignment_word_name(word: &str) -> Option<&str> {
                 '\\' if !in_single => escaped = true,
                 '\'' if !in_double => in_single = !in_single,
                 '"' if !in_single => in_double = !in_double,
-                '[' if !in_single && !in_double => bracket_depth += 1,
+                '[' if !in_single && !in_double && brace_depth == 0 && paren_depth == 0 => {
+                    bracket_depth += 1
+                }
                 ']' if !in_single && !in_double => {
                     if bracket_depth == 0 && brace_depth == 0 && paren_depth == 0 {
                         close_index = Some(absolute);
                         break;
                     }
-                    bracket_depth -= 1;
+                    if bracket_depth > 0 && brace_depth == 0 && paren_depth == 0 {
+                        bracket_depth -= 1;
+                    }
                 }
                 '{' if !in_single && !in_double => brace_depth += 1,
                 '}' if !in_single && !in_double && brace_depth > 0 => brace_depth -= 1,
@@ -11401,10 +11419,40 @@ fn assignment_word_name(word: &str) -> Option<&str> {
     }
 
     if word[cursor..].starts_with("+=") || word[cursor..].starts_with('=') {
-        Some(name)
+        Some(ParsedAssignmentWord {
+            name,
+            value_offset: cursor
+                + if word[cursor..].starts_with("+=") {
+                    2
+                } else {
+                    1
+                },
+        })
     } else {
         None
     }
+}
+
+fn word_has_command_substitution(
+    word: &Word,
+    source: &str,
+    zsh_options: Option<&ZshOptionState>,
+) -> bool {
+    word_classification_from_analysis(analyze_word(word, source, zsh_options))
+        .has_command_substitution()
+}
+
+fn parsed_assignment_value_has_command_substitution(
+    value_text: &str,
+    zsh_options: Option<&ZshOptionState>,
+) -> bool {
+    if value_text.is_empty() {
+        return false;
+    }
+
+    let word = Parser::parse_word_string(value_text);
+    word_classification_from_analysis(analyze_word(&word, value_text, zsh_options))
+        .has_command_substitution()
 }
 fn redirect_operator_span(redirect: &Redirect) -> Span {
     let operator_start = redirect

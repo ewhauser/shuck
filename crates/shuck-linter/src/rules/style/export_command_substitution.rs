@@ -1,6 +1,6 @@
 use shuck_semantic::ScopeKind;
 
-use crate::{Checker, DeclarationKind, Rule, Violation, WordFactContext};
+use crate::{Checker, DeclarationKind, Rule, Violation};
 
 pub struct ExportCommandSubstitution {
     pub name: String,
@@ -30,14 +30,7 @@ pub fn export_command_substitution(checker: &mut Checker) {
                 continue;
             }
 
-            if checker
-                .facts()
-                .word_fact(
-                    probe.word_span(),
-                    WordFactContext::Expansion(probe.expansion_context()),
-                )
-                .is_some_and(|fact| fact.classification().has_command_substitution())
-            {
+            if probe.has_command_substitution() {
                 findings.push((probe.target_name().to_owned(), probe.target_name_span()));
             }
         }
@@ -242,5 +235,42 @@ demo() {
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_command_substitutions_in_escaped_assignment_targets() {
+        let source = "\
+#!/bin/bash
+demo() {
+  \\local arr[$(date)]=1
+  \\declare map[${key:-$(printf '%s' fallback)}]=literal
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ExportCommandSubstitution),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_escaped_declarations_with_nested_subscript_brackets() {
+        let source = "\
+#!/bin/bash
+\\declare name[${x:-]}]=$(date)
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ExportCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["name"]
+        );
     }
 }
