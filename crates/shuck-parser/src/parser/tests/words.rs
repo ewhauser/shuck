@@ -331,7 +331,7 @@ fn test_parse_escaped_literal_before_command_substitution_keeps_following_substi
 
 #[test]
 fn test_parse_escaped_quotes_before_command_substitution_keep_nested_pipeline_live() {
-    let input = "echo -n \"\\\"adp_$(echo $var | tr A-Z a-z)\\\": [\"\n";
+    let input = "#!/bin/sh\necho -n \"\\\"adp_$(echo $var | tr A-Z a-z)\\\": [\"\n";
     let script = Parser::new(input).parse().unwrap().file;
 
     let AstCommand::Simple(command) = &script.body[0].command else {
@@ -1447,6 +1447,68 @@ fn test_dollar_paren_command_substitution_inside_double_quotes_preserves_nested_
     let inner = expect_simple(&body[0]);
     assert_eq!(inner.name.render(input), "cmd");
     assert_eq!(inner.args[0].render_syntax(input), "\"$arg\"");
+}
+
+#[test]
+fn test_dollar_paren_command_substitution_inside_double_quotes_with_prefix_keeps_nested_spans_absolute()
+ {
+    let input = "echo \"pre $(echo hi) post\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let word = &command.args[0];
+    let WordPart::DoubleQuoted { parts, .. } = &word.parts[0].kind else {
+        panic!("expected double-quoted word");
+    };
+    let WordPart::CommandSubstitution { body, syntax } = &parts[1].kind else {
+        panic!("expected command substitution");
+    };
+    assert_eq!(*syntax, CommandSubstitutionSyntax::DollarParen);
+
+    let inner = expect_simple(&body[0]);
+    assert_eq!(inner.name.render(input), "echo");
+    assert_eq!(inner.name.span.slice(input), "echo");
+    assert_eq!(inner.args[0].render(input), "hi");
+}
+
+#[test]
+fn test_dollar_paren_command_substitution_inside_quoted_prefix_with_pipeline_keeps_nested_spans_absolute()
+ {
+    let input = "echo -n \"\\\"adp_$(echo $var | tr A-Z a-z)\\\": [\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    assert_eq!(command.name.render(input), "echo");
+    assert_eq!(command.args[0].render(input), "-n");
+    let word = &command.args[1];
+    let WordPart::DoubleQuoted { parts, .. } = &word.parts[0].kind else {
+        panic!("expected double-quoted word");
+    };
+    let WordPart::Literal(text) = &parts[0].kind else {
+        panic!("expected literal prefix");
+    };
+    assert_eq!(text.as_str(input, parts[0].span), "\"adp_");
+    let WordPart::CommandSubstitution { body, syntax } = &parts[1].kind else {
+        panic!("expected command substitution");
+    };
+    assert_eq!(*syntax, CommandSubstitutionSyntax::DollarParen);
+
+    let AstCommand::Binary(binary) = &body[0].command else {
+        panic!("expected pipeline");
+    };
+    let left = expect_simple(&binary.left);
+    assert_eq!(left.name.render(input), "echo");
+    assert_eq!(left.args[0].render(input), "$var");
+
+    let right = expect_simple(&binary.right);
+    assert_eq!(right.name.render(input), "tr");
+    assert_eq!(right.name.span.slice(input), "tr");
+    assert_eq!(right.args[0].render(input), "A-Z");
+    assert_eq!(right.args[1].render(input), "a-z");
 }
 
 #[test]

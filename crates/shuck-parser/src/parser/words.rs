@@ -3493,6 +3493,12 @@ impl<'a> Parser<'a> {
                                 Self::next_word_char_unwrap(&mut chars, &mut cursor);
                             }
                             let inner_text = consumed_text.strip_suffix(')').unwrap_or_default();
+                            let body_start =
+                                if inner_text.chars().next().is_some_and(char::is_whitespace) {
+                                    inner_start
+                                } else {
+                                    body_start
+                                };
                             if had_prefix {
                                 self.nested_stmt_seq_from_source(inner_text, body_start)
                             } else {
