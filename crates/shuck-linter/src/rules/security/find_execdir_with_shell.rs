@@ -104,4 +104,15 @@ mod tests {
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
+
+    #[test]
+    fn ignores_nested_find_exec_wrappers_with_inner_ok_actions() {
+        let source = "#!/bin/sh\nfind . -exec find {} -ok sh -c 'printf \"%s\\n\" {}' \\; \\;\nfind . -execdir busybox find {} -okdir bash -c 'printf \"%s\\n\" {}' \\; \\;\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FindExecDirWithShell),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
 }

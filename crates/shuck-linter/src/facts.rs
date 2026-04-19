@@ -17372,6 +17372,11 @@ fn find_exec_shell_command_spans(args: &[&Word], source: &str) -> Vec<Span> {
     let Some(normalized) = command::normalize_command_words(args, source) else {
         return Vec::new();
     };
+    if normalized.has_wrapper(WrapperKind::FindExec)
+        || normalized.has_wrapper(WrapperKind::FindExecDir)
+    {
+        return Vec::new();
+    }
     let Some(shell_name) = normalized
         .effective_name
         .as_deref()
@@ -22040,6 +22045,30 @@ find . -exec sudo sh -c 'printf \"%s\\n\" {}' \\;
 #!/bin/sh
 find . -ok sh -c 'printf \"%s\\n\" {}' \\;
 find . -okdir bash -c 'printf \"%s\\n\" {}' \\;
+";
+
+        with_facts(source, None, |_, facts| {
+            let shell_spans = facts
+                .commands()
+                .iter()
+                .filter_map(|fact| fact.options().find_exec_shell())
+                .flat_map(|find_exec_shell| find_exec_shell.shell_command_spans().iter())
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>();
+
+            assert!(
+                shell_spans.is_empty(),
+                "unexpected shell spans: {shell_spans:?}"
+            );
+        });
+    }
+
+    #[test]
+    fn ignores_nested_find_exec_wrappers_for_find_exec_shell_command_facts() {
+        let source = "\
+#!/bin/sh
+find . -exec find {} -ok sh -c 'printf \"%s\\n\" {}' \\; \\;
+find . -execdir busybox find {} -okdir bash -c 'printf \"%s\\n\" {}' \\; \\;
 ";
 
         with_facts(source, None, |_, facts| {
