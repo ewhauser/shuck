@@ -11376,42 +11376,61 @@ fn parse_assignment_word(word: &str) -> Option<ParsedAssignmentWord<'_>> {
     let mut cursor = ident_end;
 
     if word[cursor..].starts_with('[') {
+        let bytes = word.as_bytes();
         let mut close_index = None;
-        let mut bracket_depth = 0_i32;
-        let mut brace_depth = 0_i32;
-        let mut paren_depth = 0_i32;
-        let mut in_single = false;
-        let mut in_double = false;
-        let mut escaped = false;
+        let mut bracket_depth = 0usize;
+        let mut index = cursor + 1;
 
-        for (relative, ch) in word[cursor + 1..].char_indices() {
-            let absolute = cursor + 1 + relative;
-            if escaped {
-                escaped = false;
+        while index < bytes.len() {
+            if bytes[index] == b'\\' {
+                index = (index + 2).min(bytes.len());
                 continue;
             }
 
-            match ch {
-                '\\' if !in_single => escaped = true,
-                '\'' if !in_double => in_single = !in_single,
-                '"' if !in_single => in_double = !in_double,
-                '[' if !in_single && !in_double && brace_depth == 0 && paren_depth == 0 => {
-                    bracket_depth += 1
+            if index + 2 < bytes.len()
+                && is_unescaped_dollar(bytes, index)
+                && bytes[index + 1] == b'('
+                && bytes[index + 2] == b'('
+            {
+                index = find_wrapped_arithmetic_end(bytes, index)?;
+                continue;
+            }
+
+            if index + 1 < bytes.len()
+                && is_unescaped_dollar(bytes, index)
+                && bytes[index + 1] == b'('
+            {
+                index = find_command_substitution_end(bytes, index)?;
+                continue;
+            }
+
+            if index + 1 < bytes.len()
+                && is_unescaped_dollar(bytes, index)
+                && bytes[index + 1] == b'{'
+            {
+                index = find_runtime_parameter_closing_brace(word, index)?;
+                continue;
+            }
+
+            match bytes[index] {
+                b'\'' => index = skip_single_quoted(bytes, index + 1)?,
+                b'"' => index = skip_double_quoted(bytes, index + 1)?,
+                b'`' => index = skip_backticks(bytes, index + 1)?,
+                b'[' => {
+                    bracket_depth += 1;
+                    index += 1;
                 }
-                ']' if !in_single && !in_double => {
-                    if bracket_depth == 0 && brace_depth == 0 && paren_depth == 0 {
-                        close_index = Some(absolute);
-                        break;
-                    }
-                    if bracket_depth > 0 && brace_depth == 0 && paren_depth == 0 {
-                        bracket_depth -= 1;
-                    }
+                b']' if bracket_depth == 0 => {
+                    close_index = Some(index);
+                    break;
                 }
-                '{' if !in_single && !in_double => brace_depth += 1,
-                '}' if !in_single && !in_double && brace_depth > 0 => brace_depth -= 1,
-                '(' if !in_single && !in_double => paren_depth += 1,
-                ')' if !in_single && !in_double && paren_depth > 0 => paren_depth -= 1,
-                _ => {}
+                b']' => {
+                    bracket_depth -= 1;
+                    index += 1;
+                }
+                _ => {
+                    index += word[index..].chars().next()?.len_utf8();
+                }
             }
         }
 

@@ -273,4 +273,24 @@ demo() {
             vec!["name"]
         );
     }
+
+    #[test]
+    fn reports_escaped_declarations_with_literal_braces_inside_command_subscripts() {
+        let source = "\
+#!/bin/bash
+\\declare arr[$(echo {)]=$(date)
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ExportCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["arr"]
+        );
+    }
 }
