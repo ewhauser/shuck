@@ -15,7 +15,11 @@ impl Violation for SetFlagsWithoutDashes {
 pub fn set_flags_without_dashes(checker: &mut Checker) {
     if !matches!(
         checker.shell(),
-        ShellDialect::Sh | ShellDialect::Bash | ShellDialect::Dash | ShellDialect::Ksh
+        ShellDialect::Unknown
+            | ShellDialect::Sh
+            | ShellDialect::Bash
+            | ShellDialect::Dash
+            | ShellDialect::Ksh
     ) {
         return;
     }
@@ -76,7 +80,7 @@ set n-aliases.conf n-env.conf
     }
 
     #[test]
-    fn ignores_quoted_literals_and_unsupported_shells() {
+    fn ignores_quoted_literals_but_keeps_unknown_shells_enabled() {
         let source = "\
 set \"required\" \"$1\"
 set f\"oo\" bar
@@ -94,11 +98,29 @@ set OFFLINE_PATH \"$PWD\"
             vec!["OFFLINE_PATH"]
         );
 
+        let unknown_source = "set foo bar\n";
         let unknown_shell_diagnostics = test_snippet(
-            source,
+            unknown_source,
             &LinterSettings::for_rule(Rule::SetFlagsWithoutDashes)
                 .with_shell(ShellDialect::Unknown),
         );
-        assert!(unknown_shell_diagnostics.is_empty());
+        assert_eq!(
+            unknown_shell_diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(unknown_source))
+                .collect::<Vec<_>>(),
+            vec!["foo"]
+        );
+    }
+
+    #[test]
+    fn ignores_unsupported_known_shells() {
+        let source = "set foo bar\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SetFlagsWithoutDashes).with_shell(ShellDialect::Zsh),
+        );
+
+        assert!(diagnostics.is_empty());
     }
 }
