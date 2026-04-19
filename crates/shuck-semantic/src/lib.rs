@@ -2443,6 +2443,23 @@ source \"$x\"
     }
 
     #[test]
+    fn literal_leading_backslashes_do_not_create_source_refs() {
+        for source in [
+            "#!/bin/bash\n\"\\\\.\" \"$rvm_environments_path/$1\"\n",
+            "#!/bin/bash\n'\\source' \"$rvm_environments_path/$1\"\n",
+            "#!/bin/bash\n\\\\. \"$rvm_environments_path/$1\"\n",
+        ] {
+            let model = model(source);
+
+            assert!(
+                model.source_refs().is_empty(),
+                "unexpected source refs for {source:?}: {:?}",
+                model.source_refs()
+            );
+        }
+    }
+
+    #[test]
     fn builds_transitive_call_graph_and_overwritten_functions() {
         let source = "\
 f() { g; }

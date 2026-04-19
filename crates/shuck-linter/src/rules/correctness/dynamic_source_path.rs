@@ -47,4 +47,18 @@ mod tests {
             "\"$rvm_environments_path/$1\""
         );
     }
+
+    #[test]
+    fn ignores_literal_leading_backslashes_in_other_command_names() {
+        for source in [
+            "#!/bin/bash\n\"\\\\.\" \"$rvm_environments_path/$1\"\n",
+            "#!/bin/bash\n'\\source' \"$rvm_environments_path/$1\"\n",
+            "#!/bin/bash\n\\\\. \"$rvm_environments_path/$1\"\n",
+        ] {
+            let diagnostics =
+                test_snippet(source, &LinterSettings::for_rule(Rule::DynamicSourcePath));
+
+            assert!(diagnostics.is_empty(), "{source}");
+        }
+    }
 }

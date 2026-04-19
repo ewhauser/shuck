@@ -3013,13 +3013,86 @@ fn named_target_word(word: &Word, source: &str) -> Option<(Name, Span)> {
 }
 
 fn static_command_name_text(word: &Word, source: &str) -> Option<String> {
-    static_word_text(word, source)
-        .map(|text| text.strip_prefix('\\').map_or(text.clone(), str::to_owned))
+    let mut result = String::new();
+    collect_static_command_name_parts(
+        &word.parts,
+        source,
+        StaticCommandNameContext::Unquoted,
+        &mut result,
+    )
+    .then_some(result)
 }
 
 fn static_word_text(word: &Word, source: &str) -> Option<String> {
     let mut result = String::new();
     collect_static_word_text(&word.parts, source, &mut result).then_some(result)
+}
+
+#[derive(Clone, Copy)]
+enum StaticCommandNameContext {
+    Unquoted,
+    DoubleQuoted,
+}
+
+fn collect_static_command_name_parts(
+    parts: &[WordPartNode],
+    source: &str,
+    context: StaticCommandNameContext,
+    out: &mut String,
+) -> bool {
+    for part in parts {
+        match &part.kind {
+            WordPart::Literal(text) => {
+                decode_static_command_literal(text.as_str(source, part.span), context, out);
+            }
+            WordPart::SingleQuoted { value, .. } => out.push_str(value.slice(source)),
+            WordPart::DoubleQuoted { parts, .. } => {
+                if !collect_static_command_name_parts(
+                    parts,
+                    source,
+                    StaticCommandNameContext::DoubleQuoted,
+                    out,
+                ) {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
+    }
+
+    true
+}
+
+fn decode_static_command_literal(text: &str, context: StaticCommandNameContext, out: &mut String) {
+    let mut chars = text.chars();
+
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            out.push(ch);
+            continue;
+        }
+
+        let Some(next) = chars.next() else {
+            out.push('\\');
+            break;
+        };
+
+        match context {
+            StaticCommandNameContext::Unquoted => {
+                if next != '\n' {
+                    out.push(next);
+                }
+            }
+            StaticCommandNameContext::DoubleQuoted => match next {
+                '$' | '`' | '"' | '\\' => out.push(next),
+                '\n' => {}
+                _ => {
+                    out.push('\\');
+                    out.push(next);
+                }
+            },
+        }
+    }
 }
 
 fn recorded_command_info(
