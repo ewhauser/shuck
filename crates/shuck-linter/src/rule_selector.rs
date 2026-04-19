@@ -96,4 +96,16 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn rejects_removed_rule_codes() {
+        assert_eq!(
+            RuleSelector::from_str("S026"),
+            Err(SelectorParseError::Unknown("S026".to_owned()))
+        );
+        assert_eq!(
+            RuleSelector::from_str("SH-092"),
+            Err(SelectorParseError::Unknown("SH-092".to_owned()))
+        );
+    }
 }

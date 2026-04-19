@@ -37,6 +37,7 @@ pub mod linebreak_before_and;
 pub mod literal_backslash;
 pub mod literal_backslash_in_single_quotes;
 pub mod literal_braces;
+pub mod literal_control_escape;
 pub mod local_declare_combined;
 pub mod loop_from_command_output;
 pub mod ls_grep_pipeline;
@@ -44,7 +45,6 @@ pub mod ls_in_substitution;
 pub mod ls_piped_to_xargs;
 pub mod missing_shebang_line;
 pub mod mixed_quote_word;
-pub mod needless_backslash_underscore;
 pub mod positional_args_in_string;
 pub mod printf_format_variable;
 pub mod ps_grep_pipeline;
@@ -148,8 +148,7 @@ mod tests {
     #[test_case(Rule::LiteralBackslashInSingleQuotes, Path::new("S039.sh"))]
     #[test_case(Rule::MissingShebangLine, Path::new("S043.txt"))]
     #[test_case(Rule::DuplicateShebangFlag, Path::new("S053.sh"))]
-    #[test_case(Rule::NeedlessBackslashUnderscore, Path::new("S026.sh"))]
-    #[test_case(Rule::BackslashBeforeCommand, Path::new("S040.sh"))]
+    #[test_case(Rule::LiteralControlEscape, Path::new("S040.sh"))]
     #[test_case(Rule::IfsEqualsAmbiguity, Path::new("S042.sh"))]
     #[test_case(Rule::SuspectClosingQuote, Path::new("S028.sh"))]
     #[test_case(Rule::LiteralBraces, Path::new("S029.sh"))]

@@ -7,7 +7,7 @@ This note tracks the follow-up work that still remains from the original audit p
 Remaining work:
 
 - 6 rules become clean once stale `shellcheck_code` metadata on already-mapped rules is refreshed.
-- 8 look like duplicates and should be collapsed instead of getting a new mapping.
+- 7 look like duplicates and should be collapsed instead of getting a new mapping.
 - 2 still need a cleaner example before a mapping decision is safe.
 
 Important context:
@@ -35,7 +35,6 @@ Important context:
 | `C028` | `SC1007` | Collapse into the same canonical `SC1007` assignment-spacing rule as `C024`. |
 | `C027` | `SC1010` | Keep one canonical bare-`done` / missing-separator rule. |
 | `C029` | `SC1010` | Collapse into the same canonical `SC1010` rule as `C027`. |
-| `S026` | `SC1001` | Collapse into the existing `SC1001` needless-backslash family rather than adding another owner. |
 | `X034` | `SC1036` | Collapse into `X046`; both currently describe the same invalid `(` in test-pattern context. |
 | `X064` | `SC3024` | Collapse into `X045`; both are the same POSIX `+=` portability warning. |
 

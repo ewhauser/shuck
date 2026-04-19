@@ -30,6 +30,7 @@ pub fn escaped_underscore(checker: &mut Checker) {
             EscapeScanSourceKind::SingleLiteralAssignmentWord
             | EscapeScanSourceKind::BacktickFragment => false,
         })
+        .filter(|escape| !escape.is_grep_style_argument())
         .filter(|escape| match escape.source_kind() {
             EscapeScanSourceKind::PatternCharClass => escape.escaped_byte() == b'-',
             _ => is_regular_plain_word_escape_target(escape.escaped_byte()),
@@ -170,6 +171,17 @@ ${bindir}/foo\\_bar
 echo foo\\@bar
 echo \"$rvm_path\"/gems/*\\@
 cp --no-preserve=mode,ownership -rf \"${GOPATH}\"/pkg/mod/\"${go_module}\"\\@* ./\"${go_module##*/}\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::EscapedUnderscore));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn keeps_grep_style_patterns_out_of_the_sc1001_family() {
+        let source = "\
+#!/bin/sh
+grep foo\\_bar file
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::EscapedUnderscore));
 
