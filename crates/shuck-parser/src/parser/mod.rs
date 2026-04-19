@@ -3948,10 +3948,18 @@ impl<'a> Parser<'a> {
                     Self::materialize_stmt_seq_source_backing(else_branch, source);
                 }
             }
-            CompoundCommand::For(command) => Self::materialize_stmt_seq_source_backing(&mut command.body, source),
-            CompoundCommand::Repeat(command) => Self::materialize_stmt_seq_source_backing(&mut command.body, source),
-            CompoundCommand::Foreach(command) => Self::materialize_stmt_seq_source_backing(&mut command.body, source),
-            CompoundCommand::ArithmeticFor(command) => Self::materialize_stmt_seq_source_backing(&mut command.body, source),
+            CompoundCommand::For(command) => {
+                Self::materialize_stmt_seq_source_backing(&mut command.body, source)
+            }
+            CompoundCommand::Repeat(command) => {
+                Self::materialize_stmt_seq_source_backing(&mut command.body, source)
+            }
+            CompoundCommand::Foreach(command) => {
+                Self::materialize_stmt_seq_source_backing(&mut command.body, source)
+            }
+            CompoundCommand::ArithmeticFor(command) => {
+                Self::materialize_stmt_seq_source_backing(&mut command.body, source)
+            }
             CompoundCommand::While(command) => {
                 Self::materialize_stmt_seq_source_backing(&mut command.condition, source);
                 Self::materialize_stmt_seq_source_backing(&mut command.body, source);
@@ -3965,7 +3973,9 @@ impl<'a> Parser<'a> {
                     Self::materialize_stmt_seq_source_backing(&mut case.body, source);
                 }
             }
-            CompoundCommand::Select(command) => Self::materialize_stmt_seq_source_backing(&mut command.body, source),
+            CompoundCommand::Select(command) => {
+                Self::materialize_stmt_seq_source_backing(&mut command.body, source)
+            }
             CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
                 Self::materialize_stmt_seq_source_backing(commands, source);
             }

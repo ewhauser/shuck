@@ -343,15 +343,19 @@ echo \"\\\"$BUILDSCRIPT\\\" --library $(test \"${PKG_DIR%/*}\" = \"gpkg\" && ech
         let Command::Simple(command) = &commands[0].command else {
             panic!("expected simple command");
         };
-        let Some(body) = command.args[0].parts.iter().find_map(|part| match &part.kind {
-            shuck_ast::WordPart::DoubleQuoted { parts, .. } => parts.iter().find_map(|part| {
-                match &part.kind {
-                    shuck_ast::WordPart::CommandSubstitution { body, .. } => Some(body),
-                    _ => None,
+        let Some(body) = command.args[0]
+            .parts
+            .iter()
+            .find_map(|part| match &part.kind {
+                shuck_ast::WordPart::DoubleQuoted { parts, .. } => {
+                    parts.iter().find_map(|part| match &part.kind {
+                        shuck_ast::WordPart::CommandSubstitution { body, .. } => Some(body),
+                        _ => None,
+                    })
                 }
-            }),
-            _ => None,
-        }) else {
+                _ => None,
+            })
+        else {
             panic!("expected command substitution inside quoted word");
         };
 
@@ -371,9 +375,18 @@ echo \"\\\"$BUILDSCRIPT\\\" --library $(test \"${PKG_DIR%/*}\" = \"gpkg\" && ech
             panic!("expected else echo");
         };
 
-        assert_eq!(static_word_text(&test_command.name, source).as_deref(), Some("test"));
-        assert_eq!(static_word_text(&then_echo.name, source).as_deref(), Some("echo"));
-        assert_eq!(static_word_text(&else_echo.name, source).as_deref(), Some("echo"));
+        assert_eq!(
+            static_word_text(&test_command.name, source).as_deref(),
+            Some("test")
+        );
+        assert_eq!(
+            static_word_text(&then_echo.name, source).as_deref(),
+            Some("echo")
+        );
+        assert_eq!(
+            static_word_text(&else_echo.name, source).as_deref(),
+            Some("echo")
+        );
     }
 
     #[test]
