@@ -3894,8 +3894,9 @@ fn heredoc_line_matches_delimiter(line: &str, delimiter: &str, strip_tabs: bool)
 }
 
 fn heredoc_tail_hash_starts_comment(previous_tail_char: Option<char>) -> bool {
-    previous_tail_char
-        .is_none_or(|prev| prev.is_whitespace() || matches!(prev, ';' | '|' | '&' | '<' | '>'))
+    previous_tail_char.is_none_or(|prev| {
+        prev.is_whitespace() || matches!(prev, ';' | '|' | '&' | '<' | '>' | ')')
+    })
 }
 
 fn next_char_boundary(input: &str, index: usize) -> Option<(char, usize)> {
@@ -5617,6 +5618,22 @@ EOF
 
         let heredoc = lexer.read_heredoc("EOF", false);
         assert_eq!(heredoc.content, "body\n");
+    }
+
+    #[test]
+    fn test_read_heredoc_right_paren_comment_backslash_does_not_continue_tail() {
+        let source = "( cat <<EOF )# note \\\nbody\nEOF\n";
+        let mut lexer = Lexer::new(source);
+
+        assert_next_token(&mut lexer, TokenKind::LeftParen, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("cat"));
+        assert_next_token(&mut lexer, TokenKind::HereDoc, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("EOF"));
+
+        let heredoc = lexer.read_heredoc("EOF", false);
+        assert_eq!(heredoc.content, "body\n");
+
+        assert_next_token(&mut lexer, TokenKind::RightParen, None);
     }
 
     #[test]
