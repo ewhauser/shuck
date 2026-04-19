@@ -1817,6 +1817,7 @@ pub struct ListSegmentFact {
     kind: ListSegmentKind,
     assignment_target: Option<Box<str>>,
     assignment_span: Option<Span>,
+    assignment_is_declaration: bool,
 }
 
 impl ListSegmentFact {
@@ -1838,6 +1839,10 @@ impl ListSegmentFact {
 
     pub fn assignment_span(&self) -> Option<Span> {
         self.assignment_span
+    }
+
+    pub fn assignment_is_declaration(&self) -> bool {
+        self.assignment_is_declaration
     }
 }
 
@@ -23308,6 +23313,14 @@ true && declare -x flag=1
                     .collect::<Vec<_>>(),
                 vec![None, Some("out"), Some("out")]
             );
+            assert_eq!(
+                ternary
+                    .segments()
+                    .iter()
+                    .map(|segment| segment.assignment_is_declaration())
+                    .collect::<Vec<_>>(),
+                vec![false, true, true]
+            );
 
             let shortcut = &facts.lists()[1];
             assert_eq!(
@@ -23322,6 +23335,7 @@ true && declare -x flag=1
                 ]
             );
             assert_eq!(shortcut.segments()[1].assignment_target(), Some("flag"));
+            assert!(shortcut.segments()[1].assignment_is_declaration());
         });
     }
 

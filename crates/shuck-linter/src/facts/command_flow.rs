@@ -1707,6 +1707,9 @@ fn collect_list_stmt_segment_facts<'a>(
         .map(|info| info.target)
         .map(str::to_owned)
         .map(String::into_boxed_str);
+    let assignment_is_declaration = assignment_info
+        .as_ref()
+        .is_some_and(|info| info.is_declaration);
 
     segments.push(ListSegmentFact {
         command_id: id,
@@ -1714,6 +1717,7 @@ fn collect_list_stmt_segment_facts<'a>(
         kind: list_segment_kind(fact),
         assignment_target,
         assignment_span: assignment_info.map(|info| info.span),
+        assignment_is_declaration,
     });
     Some(())
 }
@@ -1742,6 +1746,7 @@ fn list_segment_assignment_target<'a>(fact: &'a CommandFact<'a>) -> Option<&'a s
 struct ListSegmentAssignmentInfo<'a> {
     target: &'a str,
     span: Span,
+    is_declaration: bool,
 }
 
 fn list_segment_assignment_info<'a>(
@@ -1766,6 +1771,7 @@ fn single_assignment_info<'a>(
     (assignments.len() == 1).then(|| ListSegmentAssignmentInfo {
         target: assignments[0].target.name.as_str(),
         span: assignments[0].span,
+        is_declaration: false,
     })
 }
 
@@ -1793,6 +1799,7 @@ fn declaration_assignment_info<'a>(
     assignment.map(|assignment| ListSegmentAssignmentInfo {
         target: assignment.target.name.as_str(),
         span: assignment.span,
+        is_declaration: true,
     })
 }
 

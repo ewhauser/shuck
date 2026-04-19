@@ -1,6 +1,7 @@
 use crate::facts::{ListFact, ListSegmentKind, MixedShortCircuitKind};
 use crate::{Checker, Rule, Violation};
 use shuck_ast::BinaryOp;
+use std::cmp::Reverse;
 
 pub struct ChainedTestBranches;
 
@@ -15,15 +16,44 @@ impl Violation for ChainedTestBranches {
 }
 
 pub fn chained_test_branches(checker: &mut Checker) {
-    let spans = checker
+    let mut lists = checker
         .facts()
         .lists()
         .iter()
         .filter(|list| matches_mixed_short_circuit(checker, list))
-        .filter_map(|list| list.mixed_short_circuit_span())
         .collect::<Vec<_>>();
 
+    lists.sort_by_key(|list| {
+        (
+            list.span().start.offset,
+            Reverse(list.span().end.offset - list.span().start.offset),
+        )
+    });
+
+    let mut reported_lists = Vec::new();
+    let mut spans = Vec::new();
+
+    for list in lists {
+        if reported_lists
+            .iter()
+            .any(|reported| span_strictly_contains(*reported, list.span()))
+        {
+            continue;
+        }
+
+        reported_lists.push(list.span());
+        if let Some(span) = list.mixed_short_circuit_span() {
+            spans.push(span);
+        }
+    }
+
     checker.report_all_dedup(spans, || ChainedTestBranches);
+}
+
+fn span_strictly_contains(outer: shuck_ast::Span, inner: shuck_ast::Span) -> bool {
+    outer.start.offset <= inner.start.offset
+        && inner.end.offset <= outer.end.offset
+        && (outer.start.offset < inner.start.offset || inner.end.offset < outer.end.offset)
 }
 
 fn matches_mixed_short_circuit(checker: &Checker<'_>, list: &ListFact<'_>) -> bool {
@@ -109,7 +139,7 @@ fn matches_exempt_fallback_branch(checker: &Checker<'_>, list: &ListFact<'_>) ->
     };
 
     if last_segment.kind() == ListSegmentKind::AssignmentOnly {
-        return true;
+        return !last_segment.assignment_is_declaration();
     }
 
     matches!(
@@ -226,6 +256,7 @@ test -d x && chmod 755 y || echo fail
     fn ignores_when_only_the_fallback_is_an_assignment_or_list_runs_in_condition_position() {
         let source = "\
 [ -n \"$x\" ] && run_task || fallback=1
+[ \"$hidden\" ] && return 0 || len=${_width%,*}
 if [ ! -d \"$cache_dir\" ] && ! mkdir -p -- \"$cache_dir\" || [ ! -w \"$cache_dir\" ]; then
   :
 fi
@@ -248,5 +279,34 @@ check && log_ok || log_fail
         assert_eq!(diagnostics.len(), 2);
         assert_eq!(diagnostics[0].span.slice(source), "&&");
         assert_eq!(diagnostics[1].span.slice(source), "&&");
+    }
+
+    #[test]
+    fn reports_return_guards_that_fall_back_to_declaration_assignments() {
+        let source = "\
+init_guard() {
+  [[ ${FLAG:-} -eq 1 ]] && return || readonly FLAG=1
+}
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::ChainedTestBranches));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "&&");
+    }
+
+    #[test]
+    fn suppresses_nested_lists_when_an_outer_chain_is_already_reported() {
+        let source = "\
+check && {
+  nested && log_ok || log_fail
+} || cleanup
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::ChainedTestBranches));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 1);
+        assert_eq!(diagnostics[0].span.slice(source), "&&");
     }
 }
