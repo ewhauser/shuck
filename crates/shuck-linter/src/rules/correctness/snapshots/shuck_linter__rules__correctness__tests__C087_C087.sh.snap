@@ -1,27 +1,33 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
-assertion_line: 207
+assertion_line: 285
 ---
-C087 this `[[ ... < ... ]]` comparison orders version-like values lexicographically
+C087 this `[[ ... ]]` comparison orders version-like values lexicographically
  --> <source>:4:11
   |
 4 | [[ $ver < 1.27 ]]
   |
 
-C087 this `[[ ... < ... ]]` comparison orders version-like values lexicographically
+C087 this `[[ ... ]]` comparison orders version-like values lexicographically
  --> <source>:7:4
   |
 7 | [[ 1.2 < $ver ]]
   |
 
-C087 this `[[ ... < ... ]]` comparison orders version-like values lexicographically
+C087 this `[[ ... ]]` comparison orders version-like values lexicographically
   --> <source>:10:12
    |
 10 | [[ 1.2.3 < 2.0 ]]
    |
 
-C087 this `[[ ... < ... ]]` comparison orders version-like values lexicographically
+C087 this `[[ ... ]]` comparison orders version-like values lexicographically
   --> <source>:13:11
    |
-13 | [[ $ver < 1.27 && -n $x ]]
+13 | [[ $ver > 1.27 ]]
+   |
+
+C087 this `[[ ... ]]` comparison orders version-like values lexicographically
+  --> <source>:16:11
+   |
+16 | [[ $ver < 1.27 && -n $x ]]
    |

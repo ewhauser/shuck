@@ -9,6 +9,9 @@
 # Invalid: comparing two dotted numeric literals still uses lexical ordering.
 [[ 1.2.3 < 2.0 ]]
 
+# Invalid: lexical `>` still compares version-like values as strings.
+[[ $ver > 1.27 ]]
+
 # Invalid: nested lexical version comparisons inside logical conditions still compare strings.
 [[ $ver < 1.27 && -n $x ]]
 
