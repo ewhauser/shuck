@@ -3799,6 +3799,37 @@ fn test_prefixed_nested_escaped_quoted_command_substitution_keeps_command_names(
 }
 
 #[test]
+fn test_prefixed_nested_escaped_quoted_command_substitution_keeps_command_names_after_apostrophe() {
+    let input = "#!/bin/sh\necho -n \"it's \\\"adp_$(echo $var | tr A-Z a-z)\\\": [\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let WordPart::DoubleQuoted { parts, .. } = &command.args[1].parts[0].kind else {
+        panic!("expected quoted echo argument");
+    };
+    let body = parts
+        .iter()
+        .find_map(|part| match &part.kind {
+            WordPart::CommandSubstitution { body, .. } => Some(body),
+            _ => None,
+        })
+        .expect("expected nested command substitution");
+
+    let AstCommand::Binary(pipeline) = &body[0].command else {
+        panic!("expected piped command");
+    };
+    let echo = expect_simple(&pipeline.left);
+    assert_eq!(echo.name.render(input), "echo");
+
+    let tr_command = expect_simple(&pipeline.right);
+    assert_eq!(tr_command.name.render(input), "tr");
+    assert_eq!(tr_command.args[0].render(input), "A-Z");
+    assert_eq!(tr_command.args[1].render(input), "a-z");
+}
+
+#[test]
 fn test_parse_command_substitution_with_open_paren_inside_double_quotes() {
     Parser::new("x=$(echo \"(\")\n").parse().unwrap();
 }
