@@ -21,7 +21,11 @@ pub fn variable_as_command_name(checker: &mut Checker) {
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
+    use std::fs;
+
+    use tempfile::tempdir;
+
+    use crate::test::{test_snippet, test_snippet_at_path};
     use crate::{LinterSettings, Rule};
 
     #[test]
@@ -128,6 +132,157 @@ export quote
         );
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn reports_bracket_v_tests_but_not_other_variable_set_forms() {
+        let source = "\
+#!/bin/bash
+args='--name \"hello world\"'
+[ -v args ]
+test -v args
+[[ -v args ]]
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::VariableAsCommandName),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "args");
+    }
+
+    #[test]
+    fn reports_bracket_v_tests_when_quoted_value_was_set_in_an_earlier_function() {
+        let source = "\
+#!/bin/bash
+normalize() {
+  args='--name \"hello world\"'
+}
+[ -v args ]
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::VariableAsCommandName),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "args");
+    }
+
+    #[test]
+    fn reports_bracket_v_tests_when_the_latest_binding_is_local() {
+        let source = "\
+#!/bin/bash
+normalize() {
+  local args='--name \"hello world\"'
+}
+[ -v args ]
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::VariableAsCommandName),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "args");
+    }
+
+    #[test]
+    fn reports_bracket_v_tests_when_a_later_function_reuses_the_name() {
+        let source = "\
+#!/bin/bash
+args='--name \"hello world\"'
+args() {
+  :
+}
+[ -v args ]
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::VariableAsCommandName),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "args");
+    }
+
+    #[test]
+    fn ignores_bracket_v_tests_when_the_first_quoted_assignment_comes_later() {
+        let source = "\
+#!/bin/bash
+[ -v args ]
+args='--name \"hello world\"'
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::VariableAsCommandName),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_bracket_v_tests_after_a_later_safe_assignment() {
+        let source = "\
+#!/bin/bash
+args='--name \"hello world\"'
+args=safe
+[ -v args ]
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::VariableAsCommandName),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn sourced_safe_bindings_do_not_hide_later_unsafe_bracket_v_bindings() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        let source = "\
+#!/bin/bash
+. ./helper.sh
+args='--name \"hello world\"'
+[ -v args ]
+";
+
+        fs::write(&main, source).unwrap();
+        fs::write(&helper, "args=safe\n").unwrap();
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::VariableAsCommandName)
+                .with_analyzed_paths([main.clone(), helper.clone()]),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "args");
+    }
+
+    #[test]
+    fn reports_bracket_v_after_chained_double_brackets_with_regex_brace_literal() {
+        let source = "\
+#!/bin/bash
+if [[ $MOTD ]] && ! [[ $MOTD =~ ^{ ]]; then
+  # shellcheck disable=SC2089
+  MOTD=\"{\\\"text\\\":\\\"${MOTD}\\\"}\"
+fi
+if ! [ -v MOTD ]; then
+  echo no
+fi
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::VariableAsCommandName),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "MOTD");
     }
 
     #[test]

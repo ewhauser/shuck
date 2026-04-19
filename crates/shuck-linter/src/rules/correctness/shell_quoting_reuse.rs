@@ -1,10 +1,13 @@
 use rustc_hash::{FxHashMap, FxHashSet};
-use shuck_ast::{Command, DeclOperand, Span, Word};
-use shuck_semantic::{BindingId, BindingKind, Reference, ReferenceKind};
+use shuck_ast::{Command, DeclOperand, Name, Span, Word};
+use shuck_semantic::{
+    Binding, BindingAttributes, BindingId, BindingKind, Reference, ReferenceKind,
+};
 
 use crate::facts::CommandId;
 use crate::{
-    Checker, ExpansionContext, WordFactContext, word_shell_quoting_literal_run_span_in_source,
+    Checker, ExpansionContext, SimpleTestShape, SimpleTestSyntax, WordFactContext,
+    static_word_text, word_shell_quoting_literal_run_span_in_source,
 };
 
 pub(crate) struct ShellQuotingReuseAnalysis {
@@ -112,6 +115,13 @@ pub(crate) fn analyze_shell_quoting_reuse(checker: &Checker<'_>) -> ShellQuoting
     }
 
     use_spans.extend(export_name_spans(
+        checker,
+        &direct_unsafe_bindings,
+        &dependency_map,
+        &mut root_cache,
+        &mut used_root_bindings,
+    ));
+    use_spans.extend(bracket_v_name_spans(
         checker,
         &direct_unsafe_bindings,
         &dependency_map,
@@ -349,6 +359,74 @@ fn export_name_spans(
                 .collect::<Vec<_>>()
         })
         .collect()
+}
+
+fn bracket_v_name_spans(
+    checker: &Checker<'_>,
+    direct_unsafe_bindings: &FxHashSet<BindingId>,
+    dependency_map: &FxHashMap<BindingId, Vec<BindingId>>,
+    root_cache: &mut FxHashMap<BindingId, FxHashSet<BindingId>>,
+    used_root_bindings: &mut FxHashSet<BindingId>,
+) -> Vec<Span> {
+    checker
+        .facts()
+        .commands()
+        .iter()
+        .filter_map(|command| {
+            let simple_test = command.simple_test()?;
+            if simple_test.syntax() != SimpleTestSyntax::Bracket
+                || simple_test.effective_shape() != SimpleTestShape::Unary
+            {
+                return None;
+            }
+
+            let operator = simple_test
+                .effective_operator_word()
+                .and_then(|word| static_word_text(word, checker.source()));
+            if operator.as_deref() != Some("-v") {
+                return None;
+            }
+
+            let operand = simple_test.effective_operands().get(1)?;
+            let name = static_word_text(operand, checker.source())?;
+            let binding_id = checker
+                .semantic()
+                .bindings_for(&Name::from(name.as_str()))
+                .iter()
+                .copied()
+                .filter(|binding_id| {
+                    let binding = checker.semantic().binding(*binding_id);
+                    binding.span.start.offset <= operand.span.start.offset
+                        && is_test_v_variable_binding(binding)
+                })
+                .max_by_key(|binding_id| {
+                    checker.semantic().binding(*binding_id).span.start.offset
+                })?;
+            let roots = root_bindings_for_binding(
+                binding_id,
+                direct_unsafe_bindings,
+                dependency_map,
+                root_cache,
+                &mut FxHashSet::default(),
+            );
+            if roots.is_empty() {
+                return None;
+            }
+
+            used_root_bindings.extend(roots);
+            Some(operand.span)
+        })
+        .collect()
+}
+
+fn is_test_v_variable_binding(binding: &Binding) -> bool {
+    match binding.kind {
+        BindingKind::FunctionDefinition => false,
+        BindingKind::Imported => !binding
+            .attributes
+            .contains(BindingAttributes::IMPORTED_FUNCTION),
+        _ => true,
+    }
 }
 
 fn export_assignment_root_bindings(

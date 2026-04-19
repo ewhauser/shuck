@@ -95,6 +95,84 @@ cat <<< $args\n";
     }
 
     #[test]
+    fn reports_assignments_reused_by_bracket_v_tests() {
+        let source = "\
+#!/bin/bash
+args='--name \"hello world\"'\n\
+[ -v args ]\n\
+test -v args\n\
+[[ -v args ]]\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "'--name \"hello world\"'"
+        );
+    }
+
+    #[test]
+    fn reports_bracket_v_tests_when_quoted_value_was_set_in_an_earlier_function() {
+        let source = "\
+#!/bin/bash
+normalize() {
+  args='--name \"hello world\"'
+}
+[ -v args ]
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "'--name \"hello world\"'"
+        );
+    }
+
+    #[test]
+    fn reports_bracket_v_tests_when_a_later_function_reuses_the_name() {
+        let source = "\
+#!/bin/bash
+args='--name \"hello world\"'
+args() {
+  :
+}
+[ -v args ]
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "'--name \"hello world\"'"
+        );
+    }
+
+    #[test]
+    fn ignores_bracket_v_tests_when_the_first_quoted_assignment_comes_later() {
+        let source = "\
+#!/bin/bash
+[ -v args ]
+args='--name \"hello world\"'
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn anchors_multiline_literal_runs_before_the_next_expansion() {
         let source = "\
 #!/bin/sh
@@ -229,6 +307,22 @@ fi\n";
             diagnostics[0].span.slice(source),
             "Authorization: Signature version=\\\""
         );
+    }
+
+    #[test]
+    fn ignores_bracket_v_tests_after_a_later_safe_assignment() {
+        let source = "\
+#!/bin/bash
+args='--name \"hello world\"'
+args=safe
+[ -v args ]
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
     #[test]

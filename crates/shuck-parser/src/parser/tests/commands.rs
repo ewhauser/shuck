@@ -3265,6 +3265,21 @@ fn test_parse_conditional_regex_allows_left_brace_operand() {
 }
 
 #[test]
+fn test_parse_if_condition_accepts_chained_double_brackets_with_regex_brace_literal() {
+    let input = "if [[ $MOTD ]] && ! [[ $MOTD =~ ^{ ]]; then\n  :\nfi\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let (compound, redirects) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::If(command) = compound else {
+        panic!("expected if command");
+    };
+
+    assert!(redirects.is_empty());
+    assert_eq!(command.condition.len(), 1);
+    assert_eq!(expect_binary(&command.condition[0]).op, BinaryOp::And);
+}
+
+#[test]
 fn test_parse_prefix_match_preserves_selector_kind() {
     let input = "printf '%s\\n' \"${!prefix@}\" \"${!prefix*}\"\n";
     let script = Parser::new(input).parse().unwrap().file;

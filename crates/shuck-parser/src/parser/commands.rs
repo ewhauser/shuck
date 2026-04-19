@@ -3378,6 +3378,7 @@ impl<'a> Parser<'a> {
         let mut in_double = false;
         let mut in_backtick = false;
         let mut escaped = false;
+        let mut prev_char = None;
 
         while cursor.offset < self.input.len() {
             let rest = &self.input[cursor.offset..];
@@ -3410,6 +3411,7 @@ impl<'a> Parser<'a> {
 
             if escaped {
                 escaped = false;
+                prev_char = Some(ch);
                 continue;
             }
 
@@ -3422,12 +3424,16 @@ impl<'a> Parser<'a> {
                 ')' if !in_single && !in_double && brace_depth == 0 && paren_depth > 0 => {
                     paren_depth -= 1
                 }
-                '{' if !in_single && !in_double => brace_depth += 1,
+                '{' if !in_single && !in_double && (brace_depth > 0 || prev_char == Some('$')) => {
+                    brace_depth += 1
+                }
                 '}' if !in_single && !in_double && brace_depth > 0 => brace_depth -= 1,
                 '[' if !in_single && !in_double => bracket_depth += 1,
                 ']' if !in_single && !in_double && bracket_depth > 0 => bracket_depth -= 1,
                 _ => {}
             }
+
+            prev_char = Some(ch);
         }
 
         (!text.is_empty()).then_some((text, cursor))
