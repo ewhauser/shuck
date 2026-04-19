@@ -35,7 +35,7 @@ fn let_command_span(source: &str, fact: &crate::facts::CommandFact<'_>) -> Optio
     let mut end = fact
         .body_args()
         .last()
-        .map_or(name.span.end, |word| word.span.end);
+        .map_or(name.span.end, |word| let_argument_end(source, word));
 
     let tail = source.get(end.offset..)?;
     let mut padding_end = end;
@@ -55,6 +55,17 @@ fn let_command_span(source: &str, fact: &crate::facts::CommandFact<'_>) -> Optio
     Some(Span::from_positions(name.span.start, end))
 }
 
+fn let_argument_end(source: &str, word: &shuck_ast::Word) -> shuck_ast::Position {
+    if word.is_fully_quoted() {
+        let text = word.span.slice(source);
+        if let Some(trimmed) = text.strip_suffix('"').or_else(|| text.strip_suffix('\'')) {
+            return word.span.start.advanced_by(trimmed);
+        }
+    }
+
+    word.span.end
+}
+
 #[cfg(test)]
 mod tests {
     use crate::test::test_snippet;
@@ -69,6 +80,17 @@ mod tests {
         assert_eq!(diagnostics[0].span.start.line, 2);
         assert_eq!(diagnostics[0].span.start.column, 1);
         assert_eq!(diagnostics[0].span.end.column, 7);
+    }
+
+    #[test]
+    fn anchors_quoted_let_builtin_before_closing_quote() {
+        let source = "#!/usr/bin/env bash\nlet \"number %= RANGE\"\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::AvoidLetBuiltin));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.end.column, 21);
     }
 
     #[test]
