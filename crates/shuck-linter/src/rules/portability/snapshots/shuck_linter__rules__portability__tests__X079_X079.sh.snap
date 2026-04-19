@@ -2,13 +2,7 @@
 source: crates/shuck-linter/src/rules/portability/mod.rs
 ---
 X079 zsh parameter index flags are not portable to this shell
- --> <source>:5:47
+ --> <source>:5:20
   |
 5 | if is-at-least 3.1 ${"$(rsync --version 2>&1)"[(w)3]}; then
   |
-
-X079 zsh parameter index flags are not portable to this shell
-  --> <source>:10:12
-   |
-10 | value=${map[(I)needle]}
-   |
