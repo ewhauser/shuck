@@ -2,19 +2,25 @@
 source: crates/shuck-linter/src/rules/correctness/mod.rs
 ---
 C017 this comparison only checks fixed literals
- --> <source>:4:1
+ --> <source>:4:5
   |
 4 | [ 1 = 1 ]
   |
 
 C017 this comparison only checks fixed literals
- --> <source>:7:1
+ --> <source>:7:10
   |
 7 | test foo != bar
   |
 
 C017 this comparison only checks fixed literals
-  --> <source>:10:1
+  --> <source>:10:9
    |
 10 | [[ left == right ]]
+   |
+
+C017 this comparison only checks fixed literals
+  --> <source>:13:26
+   |
+13 | [[ "$value" = ok || left == right ]]
    |

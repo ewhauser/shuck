@@ -1,8 +1,6 @@
-use shuck_ast::Span;
-
 use crate::{
     Checker, ConditionalNodeFact, ConditionalOperatorFamily, Rule, SimpleTestOperatorFamily,
-    SimpleTestShape, Violation, double_quoted_scalar_affix_span,
+    SimpleTestShape, Violation,
 };
 
 pub struct ConstantComparisonTest;
@@ -22,16 +20,18 @@ pub fn constant_comparison_test(checker: &mut Checker) {
         .facts()
         .commands()
         .iter()
-        .filter_map(|fact| {
-            if let Some(simple_test) = fact.simple_test()
-                && simple_test_is_constant(simple_test)
-            {
-                return Some(simple_test_report_span(simple_test, fact.span()));
-            }
+        .flat_map(|fact| {
+            let simple_test_spans = fact
+                .simple_test()
+                .into_iter()
+                .filter(|simple_test| simple_test_is_constant(simple_test))
+                .filter_map(simple_test_report_span);
+            let conditional_spans = fact
+                .conditional()
+                .into_iter()
+                .flat_map(conditional_report_spans);
 
-            fact.conditional()
-                .is_some_and(conditional_is_constant)
-                .then_some(fact.span())
+            simple_test_spans.chain(conditional_spans)
         })
         .collect::<Vec<_>>();
 
@@ -39,56 +39,45 @@ pub fn constant_comparison_test(checker: &mut Checker) {
 }
 
 fn simple_test_is_constant(fact: &crate::SimpleTestFact<'_>) -> bool {
-    match fact.shape() {
-        SimpleTestShape::Unary => {
-            fact.operator_family() == SimpleTestOperatorFamily::StringUnary
-                && (fact
-                    .unary_operand_class()
-                    .is_some_and(|class| class.is_fixed_literal())
-                    || simple_test_unary_affix_span(fact).is_some())
-        }
-        SimpleTestShape::Binary => {
-            fact.operator_family() == SimpleTestOperatorFamily::StringBinary
-                && fact.binary_operand_classes().is_some_and(|(left, right)| {
-                    left.is_fixed_literal() && right.is_fixed_literal()
-                })
-        }
-        SimpleTestShape::Empty | SimpleTestShape::Truthy | SimpleTestShape::Other => false,
-    }
+    fact.shape() == SimpleTestShape::Binary
+        && fact.operator_family() == SimpleTestOperatorFamily::StringBinary
+        && fact
+            .binary_operand_classes()
+            .is_some_and(|(left, right)| left.is_fixed_literal() && right.is_fixed_literal())
 }
 
-fn simple_test_unary_affix_span(fact: &crate::SimpleTestFact<'_>) -> Option<Span> {
-    let operand = fact.operands().get(1)?;
-
-    double_quoted_scalar_affix_span(operand)
+fn simple_test_report_span(fact: &crate::SimpleTestFact<'_>) -> Option<shuck_ast::Span> {
+    (fact.shape() == SimpleTestShape::Binary
+        && fact.operator_family() == SimpleTestOperatorFamily::StringBinary)
+        .then(|| fact.effective_operator_word().map(|word| word.span))
+        .flatten()
 }
 
-fn simple_test_report_span(fact: &crate::SimpleTestFact<'_>, fallback: Span) -> Span {
-    match fact.shape() {
-        SimpleTestShape::Unary
-            if fact.operator_family() == SimpleTestOperatorFamily::StringUnary =>
-        {
-            simple_test_unary_affix_span(fact)
-                .or_else(|| fact.operands().get(1).map(|word| word.span))
-                .unwrap_or(fallback)
-        }
-        _ => fallback,
-    }
-}
-
-fn conditional_is_constant(fact: &crate::ConditionalFact<'_>) -> bool {
-    match fact.root() {
+fn conditional_node_is_constant(fact: &crate::ConditionalNodeFact<'_>) -> bool {
+    match fact {
         ConditionalNodeFact::Binary(binary) => {
             binary.operator_family() == ConditionalOperatorFamily::StringBinary
                 && binary.left().class().is_fixed_literal()
                 && binary.right().class().is_fixed_literal()
         }
-        ConditionalNodeFact::Unary(unary) => {
-            unary.operator_family() == ConditionalOperatorFamily::StringUnary
-                && unary.operand().class().is_fixed_literal()
-        }
-        ConditionalNodeFact::BareWord(_) | ConditionalNodeFact::Other(_) => false,
+        ConditionalNodeFact::BareWord(_)
+        | ConditionalNodeFact::Unary(_)
+        | ConditionalNodeFact::Other(_) => false,
     }
+}
+
+fn conditional_report_spans<'a>(
+    fact: &'a crate::ConditionalFact<'a>,
+) -> impl Iterator<Item = shuck_ast::Span> + 'a {
+    fact.nodes().iter().filter_map(|node| match node {
+        ConditionalNodeFact::Binary(binary) if conditional_node_is_constant(node) => {
+            Some(binary.operator_span())
+        }
+        ConditionalNodeFact::BareWord(_)
+        | ConditionalNodeFact::Unary(_)
+        | ConditionalNodeFact::Binary(_)
+        | ConditionalNodeFact::Other(_) => None,
+    })
 }
 
 #[cfg(test)]
@@ -116,32 +105,26 @@ mod tests {
     }
 
     #[test]
-    fn reports_constant_unary_string_tests() {
+    fn ignores_unary_string_tests_that_belong_to_c019() {
         let source = "\
 #!/bin/bash
 [ -n foo ]
 [[ -z bar ]]
-[ -n ~ ]
+[ -z \"${rootfs_path}_path\" ]
 ";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::ConstantComparisonTest),
         );
 
-        assert_eq!(
-            diagnostics
-                .iter()
-                .map(|diagnostic| diagnostic.span.start.line)
-                .collect::<Vec<_>>(),
-            vec![2, 3]
-        );
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
-    fn anchors_unary_simple_tests_on_the_operand() {
+    fn anchors_binary_simple_tests_on_the_operator() {
         let source = "\
 #!/bin/bash
-[ -n TEMP_NVM_COLORS ]
+[ left = right ]
 ";
         let diagnostics = test_snippet(
             source,
@@ -149,28 +132,24 @@ mod tests {
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.slice(source), "TEMP_NVM_COLORS");
+        assert_eq!(diagnostics[0].span.slice(source), "=");
     }
 
     #[test]
-    fn reports_affixed_quoted_unary_tests_but_not_plain_variables() {
+    fn reports_nested_constant_conditionals_on_the_operator() {
         let source = "\
 #!/bin/bash
-[ -z \"${rootfs_path}_path\" ]
-[ -n \"prefix${rootfs_path}\" ]
-[ -n \"$rootfs_path\" ]
+if [[ \"$value\" = ok || \"@TERMUX_PACKAGE_FORMAT@\" = \"pacman\" ]]; then
+  :
+fi
 ";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::ConstantComparisonTest),
         );
 
-        assert_eq!(
-            diagnostics
-                .iter()
-                .map(|diagnostic| diagnostic.span.slice(source))
-                .collect::<Vec<_>>(),
-            vec!["_path", "prefix"]
-        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.slice(source), "=");
     }
 }
