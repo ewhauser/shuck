@@ -135,10 +135,6 @@ fn looks_like_defined_variable_name(checker: &Checker<'_>, text: &str, span: Spa
                 return false;
             }
 
-            if matches!(binding.kind, BindingKind::Imported) {
-                return true;
-            }
-
             checker.semantic().binding_visible_at(binding_id, span)
                 && binding.span.start.offset != span.start.offset
         })
@@ -154,8 +150,12 @@ fn looks_like_decimal_integer(text: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use crate::test::test_snippet;
+    use crate::test::test_snippet_at_path;
     use crate::{LinterSettings, Rule};
+    use tempfile::tempdir;
 
     #[test]
     fn reports_string_like_operands_in_double_bracket_numeric_comparisons() {
@@ -254,6 +254,37 @@ helper() {
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["foo", "bar"]
+        );
+    }
+
+    #[test]
+    fn imported_bindings_only_suppress_after_the_source_site() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        let source = "\
+#!/bin/bash
+[[ flag -eq 1 ]]
+source ./helper.sh
+[[ flag -eq 1 ]]
+";
+
+        fs::write(&main, source).unwrap();
+        fs::write(&helper, "flag=1\n").unwrap();
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::StringComparedWithEq)
+                .with_analyzed_paths([main.clone(), helper.clone()]),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["flag"]
         );
     }
 }
