@@ -2996,6 +2996,7 @@ pub struct LinterFacts<'a> {
     condition_command_substitution_spans: Vec<Span>,
     backtick_command_name_spans: Vec<Span>,
     dollar_question_after_command_spans: Vec<Span>,
+    assignment_like_command_name_spans: Vec<Span>,
     bare_command_name_assignment_spans: Vec<Span>,
     subshell_assignment_sites: Vec<NamedSpan>,
     subshell_later_use_sites: Vec<NamedSpan>,
@@ -3361,6 +3362,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn dollar_question_after_command_spans(&self) -> &[Span] {
         &self.dollar_question_after_command_spans
+    }
+
+    pub fn assignment_like_command_name_spans(&self) -> &[Span] {
+        &self.assignment_like_command_name_spans
     }
 
     pub fn bare_command_name_assignment_spans(&self) -> &[Span] {
@@ -4004,6 +4009,8 @@ impl<'a> LinterFactsBuilder<'a> {
             &word_index,
             self.source,
         );
+        let assignment_like_command_name_spans =
+            build_assignment_like_command_name_spans(&commands, self.source);
         let bare_command_name_assignment_spans =
             build_bare_command_name_assignment_spans(&commands, &words, &word_index, self.source);
         let unquoted_command_argument_use_offsets =
@@ -4065,6 +4072,7 @@ impl<'a> LinterFactsBuilder<'a> {
             condition_command_substitution_spans,
             backtick_command_name_spans,
             dollar_question_after_command_spans,
+            assignment_like_command_name_spans,
             bare_command_name_assignment_spans,
             subshell_assignment_sites: nonpersistent_assignment_spans.subshell_assignment_sites,
             subshell_later_use_sites: nonpersistent_assignment_spans.subshell_later_use_sites,
@@ -4855,6 +4863,64 @@ fn build_bare_command_name_assignment_spans<'a>(
         .iter()
         .filter_map(|command| bare_command_name_assignment_span(command, words, word_index, source))
         .collect()
+}
+
+fn build_assignment_like_command_name_spans<'a>(
+    commands: &[CommandFact<'a>],
+    source: &str,
+) -> Vec<Span> {
+    let mut spans = Vec::new();
+
+    for fact in commands {
+        collect_assignment_like_command_name_spans_in_command(fact.command(), source, &mut spans);
+    }
+
+    spans
+}
+
+fn collect_assignment_like_command_name_spans_in_command(
+    command: &Command,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match command {
+        Command::Simple(command) => {
+            collect_assignment_like_command_name_span(&command.name, source, spans);
+        }
+        Command::Decl(command) => {
+            for operand in &command.operands {
+                if let DeclOperand::Dynamic(word) = operand {
+                    collect_assignment_like_command_name_span(word, source, spans);
+                }
+            }
+        }
+        Command::Builtin(_)
+        | Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => {}
+    }
+}
+
+fn collect_assignment_like_command_name_span(word: &Word, source: &str, spans: &mut Vec<Span>) {
+    if let Some(span) = assignment_like_command_name_span(word, source) {
+        spans.push(span);
+    }
+}
+
+fn assignment_like_command_name_span(word: &Word, source: &str) -> Option<Span> {
+    let prefix = leading_literal_word_prefix(word, source);
+    let target_end = prefix.find("+=").or_else(|| prefix.find('='))?;
+    let target = &prefix[..target_end];
+    if target.is_empty() || target.chars().any(char::is_whitespace) {
+        return None;
+    }
+
+    if let Some(remainder) = target.strip_prefix('+') {
+        is_shell_variable_name(remainder).then_some(word.span)
+    } else {
+        (!is_shell_variable_name(target)).then_some(word.span)
+    }
 }
 
 fn bare_command_name_assignment_span<'a>(
@@ -20065,6 +20131,52 @@ complex[$((i+=1))]+=x
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
                 vec!["x", "arr", "r", "index[1+2]", "complex[$((i+=1))]"]
+            );
+        });
+    }
+
+    #[test]
+    fn collects_assignment_like_command_name_spans() {
+        let source = r#"#!/bin/bash
++YYYY="$( date +%Y )"
+export +MONTH=12
+network.wan.proto='dhcp'
+@VAR@=$(. /etc/profile >/dev/null 2>&1; echo "${@VAR@}")
+echo +YEAR=2024
++1=bad
+name+=still_ok
+"#;
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .assignment_like_command_name_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec![
+                    "+YYYY=\"$( date +%Y )\"",
+                    "+MONTH=12",
+                    "network.wan.proto='dhcp'",
+                    "@VAR@=$(. /etc/profile >/dev/null 2>&1; echo \"${@VAR@}\")",
+                ]
+            );
+        });
+    }
+
+    #[test]
+    fn ignores_assignment_like_text_after_literal_arrow_prefix() {
+        let source = r#"#!/bin/bash
+rvm_info="
+  bash: \"$(command -v bash) => $(version_for bash)\"
+  zsh:  \"$(command -v zsh) => $(version_for zsh)\"
+"
+"#;
+
+        with_facts(source, None, |_, facts| {
+            assert!(
+                facts.assignment_like_command_name_spans().is_empty(),
+                "quoted arrow text should not look like an assignment command name"
             );
         });
     }

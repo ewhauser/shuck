@@ -1,6 +1,4 @@
-use shuck_ast::{Command, DeclOperand, Span, Word};
-
-use crate::{Checker, Rule, Violation, leading_literal_word_prefix};
+use crate::{Checker, Rule, Violation};
 
 pub struct PlusPrefixInAssignment;
 
@@ -10,57 +8,18 @@ impl Violation for PlusPrefixInAssignment {
     }
 
     fn message(&self) -> String {
-        "leading `+` makes this look like a command instead of an assignment".to_owned()
+        "this looks like an assignment, but the shell parses it as a command name".to_owned()
     }
 }
 
 pub fn plus_prefix_in_assignment(checker: &mut Checker) {
-    let source = checker.source();
-    let spans = checker
-        .facts()
-        .commands()
-        .iter()
-        .flat_map(|fact| match fact.command() {
-            Command::Simple(command) => assignment_like_plus_span(&command.name, source)
-                .into_iter()
-                .collect::<Vec<_>>(),
-            Command::Decl(command) => command
-                .operands
-                .iter()
-                .filter_map(|operand| match operand {
-                    DeclOperand::Dynamic(word) => assignment_like_plus_span(word, source),
-                    DeclOperand::Flag(_) | DeclOperand::Name(_) | DeclOperand::Assignment(_) => {
-                        None
-                    }
-                })
-                .collect::<Vec<_>>(),
-            Command::Builtin(_)
-            | Command::Binary(_)
-            | Command::Compound(_)
-            | Command::Function(_)
-            | Command::AnonymousFunction(_) => Vec::new(),
-        })
-        .collect::<Vec<_>>();
-
-    checker.report_all_dedup(spans, || PlusPrefixInAssignment);
-}
-
-fn assignment_like_plus_span(word: &Word, source: &str) -> Option<Span> {
-    let prefix = leading_literal_word_prefix(word, source);
-    let target_end = prefix.find("+=").or_else(|| prefix.find('='))?;
-    let target = &prefix[..target_end];
-
-    if let Some(remainder) = target.strip_prefix('+') {
-        is_valid_identifier(remainder).then_some(word.span)
-    } else {
-        (!is_valid_identifier(target)).then_some(word.span)
-    }
-}
-
-fn is_valid_identifier(text: &str) -> bool {
-    let mut chars = text.chars();
-    matches!(chars.next(), Some('A'..='Z' | 'a'..='z' | '_'))
-        && chars.all(|character| matches!(character, 'A'..='Z' | 'a'..='z' | '0'..='9' | '_'))
+    checker.report_all_dedup(
+        checker
+            .facts()
+            .assignment_like_command_name_spans()
+            .to_vec(),
+        || PlusPrefixInAssignment,
+    );
 }
 
 #[cfg(test)]
@@ -127,5 +86,21 @@ network.wan.proto='dhcp'
                 "@VAR@=$(. /etc/profile >/dev/null 2>&1; echo \"${@VAR@}\")"
             ]
         );
+    }
+
+    #[test]
+    fn ignores_assignment_like_text_after_literal_arrow_prefix() {
+        let source = r#"#!/bin/bash
+rvm_info="
+  bash: \"$(command -v bash) => $(version_for bash)\"
+  zsh:  \"$(command -v zsh) => $(version_for zsh)\"
+"
+"#;
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PlusPrefixInAssignment),
+        );
+
+        assert!(diagnostics.is_empty());
     }
 }
