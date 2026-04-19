@@ -11383,7 +11383,7 @@ fn parse_assignment_word(word: &str) -> Option<ParsedAssignmentWord<'_>> {
 
         while index < bytes.len() {
             if bytes[index] == b'\\' {
-                index = (index + 2).min(bytes.len());
+                index = advance_escaped_char_boundary(word, index);
                 continue;
             }
 
@@ -11450,6 +11450,15 @@ fn parse_assignment_word(word: &str) -> Option<ParsedAssignmentWord<'_>> {
     } else {
         None
     }
+}
+
+fn advance_escaped_char_boundary(text: &str, start: usize) -> usize {
+    let next = start + '\\'.len_utf8();
+    if next >= text.len() {
+        return next;
+    }
+
+    next + text[next..].chars().next().map_or(0, char::len_utf8)
 }
 
 fn word_has_command_substitution(
