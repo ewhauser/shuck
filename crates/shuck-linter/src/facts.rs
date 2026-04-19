@@ -1190,6 +1190,7 @@ pub struct WordFact<'a> {
     array_assignment_split_scalar_expansion_spans: Box<[Span]>,
     array_expansion_spans: Box<[Span]>,
     all_elements_array_expansion_spans: Box<[Span]>,
+    direct_all_elements_array_expansion_spans: Box<[Span]>,
     unquoted_all_elements_array_expansion_spans: Box<[Span]>,
     unquoted_array_expansion_spans: Box<[Span]>,
     command_substitution_spans: Box<[Span]>,
@@ -1308,6 +1309,10 @@ impl<'a> WordFact<'a> {
 
     pub fn all_elements_array_expansion_spans(&self) -> &[Span] {
         &self.all_elements_array_expansion_spans
+    }
+
+    pub fn direct_all_elements_array_expansion_spans(&self) -> &[Span] {
+        &self.direct_all_elements_array_expansion_spans
     }
 
     pub fn unquoted_all_elements_array_expansion_spans(&self) -> &[Span] {
@@ -12097,6 +12102,9 @@ impl<'a> WordFactCollector<'a> {
                 self.source,
             )
             .into_boxed_slice(),
+            direct_all_elements_array_expansion_spans:
+                span::direct_all_elements_array_expansion_part_spans(word_ref, self.source)
+                    .into_boxed_slice(),
             unquoted_all_elements_array_expansion_spans:
                 span::unquoted_all_elements_array_expansion_part_spans(word_ref, self.source)
                     .into_boxed_slice(),
@@ -25522,6 +25530,15 @@ if [[ x == *${shims[@]}* ]]; then :; fi
                     .collect::<Vec<_>>(),
                 vec!["${shims[@]}"]
             );
+            assert_eq!(
+                fact.direct_all_elements_array_expansion_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["${shims[@]}"],
+                "parts: {:?}",
+                fact.word().parts
+            );
         });
     }
 
@@ -25545,6 +25562,43 @@ eval \"conda_shim() { case \\\"\\${1##*/}\\\" in ${shims[@]} *) return 1;; esac 
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
                 vec!["${shims[@]}"]
+            );
+            assert_eq!(
+                fact.direct_all_elements_array_expansion_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["${shims[@]}"],
+                "parts: {:?}",
+                fact.word().parts
+            );
+        });
+    }
+
+    #[test]
+    fn direct_all_elements_word_facts_ignore_nested_positional_forwarding_idioms() {
+        let source = "\
+#!/bin/sh
+eval shellspec_join SHELLSPEC_EXPECTATION '\" \"' The ${1+'\"$@\"'}
+";
+
+        with_facts(source, None, |_, facts| {
+            let fact = facts
+                .expansion_word_facts(ExpansionContext::CommandArgument)
+                .find(|fact| fact.span().slice(source).contains("${1+'\"$@\"'}"))
+                .expect("expected eval argument fact");
+
+            assert_eq!(
+                fact.all_elements_array_expansion_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["$@"]
+            );
+            assert!(
+                fact.direct_all_elements_array_expansion_spans().is_empty(),
+                "parts: {:?}",
+                fact.word().parts
             );
         });
     }

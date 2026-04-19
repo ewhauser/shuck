@@ -96,6 +96,12 @@ pub fn all_elements_array_expansion_part_spans(word: &Word, source: &str) -> Vec
     spans
 }
 
+pub fn direct_all_elements_array_expansion_part_spans(word: &Word, source: &str) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_direct_all_elements_array_expansion_spans(&word.parts, source, &mut spans);
+    spans
+}
+
 pub fn unquoted_all_elements_array_expansion_part_spans(word: &Word, source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_unquoted_all_elements_array_expansion_spans(&word.parts, false, source, &mut spans);
@@ -119,9 +125,7 @@ pub fn word_has_quoted_all_elements_array_slice(word: &Word) -> bool {
 }
 
 pub fn word_has_direct_all_elements_array_expansion_in_source(word: &Word, source: &str) -> bool {
-    let mut spans = Vec::new();
-    collect_direct_all_elements_array_expansion_spans(&word.parts, source, &mut spans);
-    !spans.is_empty()
+    !direct_all_elements_array_expansion_part_spans(word, source).is_empty()
 }
 
 pub fn word_all_elements_array_slice_span_in_source(word: &Word, source: &str) -> Option<Span> {
@@ -930,10 +934,23 @@ fn collect_direct_all_elements_array_expansion_spans(
             WordPart::DoubleQuoted { parts, .. } => {
                 collect_direct_all_elements_array_expansion_spans(parts, source, spans)
             }
-            _ if part_uses_direct_all_elements_array_expansion(&part.kind)
-                && !span_is_escaped(part.span, source) =>
+            _ if part_uses_direct_all_elements_array_expansion(&part.kind) => {
+                if let Some(span) =
+                    normalize_direct_all_elements_array_expansion_span(part.span, source)
+                {
+                    spans.push(span);
+                }
+            }
+            WordPart::Parameter(parameter)
+                if parameter_might_use_all_elements_array_expansion(
+                    parameter, part.span, source,
+                ) =>
             {
-                spans.push(part.span)
+                if let Some(span) =
+                    normalize_nested_direct_all_elements_array_expansion_span(part.span, source)
+                {
+                    spans.push(span);
+                }
             }
             _ => {}
         }
@@ -1012,6 +1029,168 @@ fn normalize_all_elements_array_expansion_span(span: Span, source: &str) -> Opti
     }
 
     widen_all_elements_array_expansion_span(span, source)
+}
+
+fn normalize_direct_all_elements_array_expansion_span(span: Span, source: &str) -> Option<Span> {
+    let text = span.slice(source);
+    if !span_is_escaped(span, source)
+        && (text == "$@" || candidate_is_direct_all_elements_array_expansion(text))
+    {
+        return Some(span);
+    }
+
+    let base_offset = span.start.offset;
+    let mut search_from = 0usize;
+
+    while let Some(found) = text[search_from..].find('$') {
+        let relative_start = search_from + found;
+        let absolute_start = base_offset + relative_start;
+        if absolute_start > 0 && source.as_bytes()[absolute_start - 1] == b'\\' {
+            search_from = relative_start + 1;
+            continue;
+        }
+
+        let start = position_at_offset(source, absolute_start)?;
+        let remainder = &source[absolute_start..];
+
+        if remainder.starts_with("$@") {
+            let end = position_at_offset(source, absolute_start + "$@".len())?;
+            return Some(Span::from_positions(start, end));
+        }
+
+        if remainder.starts_with("${")
+            && let Some(relative_end) = remainder.find('}')
+        {
+            let candidate = &remainder[..=relative_end];
+            if candidate_is_direct_all_elements_array_expansion(candidate) {
+                let end = position_at_offset(source, absolute_start + candidate.len())?;
+                return Some(Span::from_positions(start, end));
+            }
+        }
+
+        search_from = relative_start + 1;
+    }
+
+    widen_direct_all_elements_array_expansion_span(span, source)
+}
+
+fn normalize_nested_direct_all_elements_array_expansion_span(
+    span: Span,
+    source: &str,
+) -> Option<Span> {
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum QuoteState {
+        None,
+        Single,
+        Double,
+    }
+
+    let text = span.slice(source);
+    if !text.contains('$') {
+        return None;
+    }
+
+    let base_offset = span.start.offset;
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+    let mut nested_braced_depth = 0usize;
+    let mut quote_state = QuoteState::None;
+
+    while index < bytes.len() {
+        let absolute_start = base_offset + index;
+        let byte = bytes[index];
+
+        match quote_state {
+            QuoteState::Single if nested_braced_depth > 0 => {
+                if byte == b'\'' {
+                    quote_state = QuoteState::None;
+                }
+                index += 1;
+                continue;
+            }
+            QuoteState::Double if nested_braced_depth > 0 => {
+                if byte == b'\\' {
+                    index += usize::from(index + 1 < bytes.len()) + 1;
+                    continue;
+                }
+                if byte == b'"' {
+                    quote_state = QuoteState::None;
+                }
+                index += 1;
+                continue;
+            }
+            QuoteState::None if nested_braced_depth > 0 && byte == b'\'' => {
+                quote_state = QuoteState::Single;
+                index += 1;
+                continue;
+            }
+            QuoteState::None if nested_braced_depth > 0 && byte == b'"' => {
+                quote_state = QuoteState::Double;
+                index += 1;
+                continue;
+            }
+            QuoteState::None => {}
+            QuoteState::Single | QuoteState::Double => {}
+        }
+
+        if byte == b'\\' {
+            if index + 2 < bytes.len() && bytes[index + 1] == b'$' && bytes[index + 2] == b'{' {
+                nested_braced_depth += 1;
+                index += 3;
+                continue;
+            }
+
+            index += usize::from(index + 1 < bytes.len()) + 1;
+            continue;
+        }
+
+        if byte == b'}' && nested_braced_depth > 0 {
+            nested_braced_depth -= 1;
+            index += 1;
+            continue;
+        }
+
+        if byte != b'$' {
+            if byte == b'{' && nested_braced_depth > 0 {
+                nested_braced_depth += 1;
+            }
+            index += 1;
+            continue;
+        }
+
+        if absolute_start > 0 && source.as_bytes()[absolute_start - 1] == b'\\' {
+            index += 1;
+            continue;
+        }
+
+        let remainder = &source[absolute_start..];
+        if nested_braced_depth == 0 && remainder.starts_with("$@") {
+            let start = position_at_offset(source, absolute_start)?;
+            let end = position_at_offset(source, absolute_start + "$@".len())?;
+            return Some(Span::from_positions(start, end));
+        }
+
+        if remainder.starts_with("${") {
+            if nested_braced_depth == 0
+                && let Some(relative_end) = remainder.find('}')
+            {
+                let candidate = &remainder[..=relative_end];
+                if candidate_is_direct_all_elements_array_expansion(candidate) {
+                    let start = position_at_offset(source, absolute_start)?;
+                    let end = position_at_offset(source, absolute_start + candidate.len())?;
+                    return Some(Span::from_positions(start, end));
+                }
+            }
+
+            nested_braced_depth += 1;
+            index += 2;
+            continue;
+        }
+
+        index += 1;
+    }
+
+    None
 }
 
 fn normalize_command_substitution_span(span: Span, source: &str) -> Span {
@@ -1170,6 +1349,29 @@ fn widen_all_elements_array_expansion_span(span: Span, source: &str) -> Option<S
     Some(Span::from_positions(start, end))
 }
 
+fn widen_direct_all_elements_array_expansion_span(span: Span, source: &str) -> Option<Span> {
+    let text = span.slice(source);
+    if !text.contains("[@]") {
+        return None;
+    }
+
+    let start_offset = span.start.offset.checked_sub(2)?;
+    if source.as_bytes().get(start_offset..span.start.offset)? != b"${" {
+        return None;
+    }
+
+    let start = position_at_offset(source, start_offset)?;
+    let remainder = &source[start_offset..];
+    let relative_end = remainder.find('}')?;
+    let candidate = &remainder[..=relative_end];
+    if !candidate_is_direct_all_elements_array_expansion(candidate) {
+        return None;
+    }
+
+    let end = position_at_offset(source, start_offset + candidate.len())?;
+    Some(Span::from_positions(start, end))
+}
+
 fn candidate_is_all_elements_array_expansion(candidate: &str) -> bool {
     let Some(inner) = candidate
         .strip_prefix("${")
@@ -1197,6 +1399,43 @@ fn candidate_is_all_elements_array_expansion(candidate: &str) -> bool {
     }
 
     inner[index..].starts_with("[@]")
+}
+
+fn candidate_is_direct_all_elements_array_expansion(candidate: &str) -> bool {
+    let Some(inner) = candidate
+        .strip_prefix("${")
+        .and_then(|text| text.strip_suffix('}'))
+    else {
+        return false;
+    };
+
+    let suffix = if let Some(stripped) = inner.strip_prefix('@') {
+        stripped
+    } else {
+        let Some(first) = inner.as_bytes().first().copied() else {
+            return false;
+        };
+        if !is_name_start(first) {
+            return false;
+        }
+
+        let bytes = inner.as_bytes();
+        let mut index = 1usize;
+        while index < bytes.len() && is_name_continue(bytes[index]) {
+            index += 1;
+        }
+
+        let Some(stripped) = inner[index..].strip_prefix("[@]") else {
+            return false;
+        };
+        stripped
+    };
+
+    if suffix.starts_with('+') || suffix.starts_with(":+") {
+        return false;
+    }
+
+    true
 }
 
 fn position_at_offset(source: &str, target_offset: usize) -> Option<Position> {
@@ -3543,7 +3782,7 @@ printf '%s\\n' \"${@:2}\" \"x${@:2}y\" \"${arr[@]:1}\" \"${arr[@]:1:2}\" ${@:2} 
     #[test]
     fn word_has_direct_all_elements_array_expansion_ignores_nested_or_scalar_operator_uses() {
         let source = "\
-printf '%s\\n' \"$@\" \"${arr[@]}\" \"${arr[@]:1}\" \"${arr[@]:-fallback}\" \"${target=\"$@\"}\" \"$(echo \"$@\")\" \"${arr[*]}\"\n";
+printf '%s\\n' \"$@\" \"${arr[@]}\" \"${arr[@]:1}\" \"${arr[@]:-fallback}\" \"${@:+ok}\" \"${arr[@]:+ok}\" \"${target=\"$@\"}\" \"$(echo \"$@\")\" \"${arr[*]}\"\n";
         let output = Parser::new(source).parse().unwrap();
         let command = &output.file.body[0].command;
         let shuck_ast::Command::Simple(command) = command else {
@@ -3557,7 +3796,50 @@ printf '%s\\n' \"$@\" \"${arr[@]}\" \"${arr[@]:1}\" \"${arr[@]:-fallback}\" \"${
             .map(|word| word_has_direct_all_elements_array_expansion_in_source(word, source))
             .collect::<Vec<_>>();
 
-        assert_eq!(matches, vec![true, true, true, true, false, false, false]);
+        assert_eq!(
+            matches,
+            vec![true, true, true, true, false, false, false, false, false]
+        );
+    }
+
+    #[test]
+    fn word_has_direct_all_elements_array_expansion_ignores_escaped_parameter_nesting() {
+        let source = "\
+printf '%s\\n' \"\\${1+'\\\"$@\\\"'}\" \"$@\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let matches = command
+            .args
+            .iter()
+            .skip(1)
+            .map(|word| word_has_direct_all_elements_array_expansion_in_source(word, source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(matches, vec![false, true]);
+    }
+
+    #[test]
+    fn word_has_direct_all_elements_array_expansion_ignores_quoted_braces_in_escaped_text() {
+        let source = "\
+printf '%s\\n' \"\\${1+'} \\\"$@\\\"'}\" \"$@\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let matches = command
+            .args
+            .iter()
+            .skip(1)
+            .map(|word| word_has_direct_all_elements_array_expansion_in_source(word, source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(matches, vec![false, true]);
     }
 
     #[test]
