@@ -61,6 +61,24 @@ f() {
     }
 
     #[test]
+    fn ignores_continue_inside_function_subshells() {
+        let source = "\
+#!/bin/sh
+f() {
+\t(
+\t\tcontinue
+\t)
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ContinueOutsideLoopInFunction),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn ignores_top_level_continue() {
         let source = "\
 #!/bin/sh
