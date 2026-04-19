@@ -2427,6 +2427,39 @@ source \"$x\"
     }
 
     #[test]
+    fn escaped_dot_source_builtin_still_records_dynamic_source_refs() {
+        let source = "\
+#!/bin/bash
+\\. \"$rvm_environments_path/$1\"
+";
+        let model = model(source);
+
+        assert_eq!(model.source_refs().len(), 1);
+        assert_eq!(model.source_refs()[0].kind, SourceRefKind::Dynamic);
+        assert_eq!(
+            model.source_refs()[0].diagnostic_class,
+            SourceRefDiagnosticClass::DynamicPath
+        );
+    }
+
+    #[test]
+    fn literal_leading_backslashes_do_not_create_source_refs() {
+        for source in [
+            "#!/bin/bash\n\"\\\\.\" \"$rvm_environments_path/$1\"\n",
+            "#!/bin/bash\n'\\source' \"$rvm_environments_path/$1\"\n",
+            "#!/bin/bash\n\\\\. \"$rvm_environments_path/$1\"\n",
+        ] {
+            let model = model(source);
+
+            assert!(
+                model.source_refs().is_empty(),
+                "unexpected source refs for {source:?}: {:?}",
+                model.source_refs()
+            );
+        }
+    }
+
+    #[test]
     fn builds_transitive_call_graph_and_overwritten_functions() {
         let source = "\
 f() { g; }

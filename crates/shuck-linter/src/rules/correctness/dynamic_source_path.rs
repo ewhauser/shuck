@@ -27,3 +27,38 @@ pub fn dynamic_source_path(checker: &mut Checker) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test::test_snippet;
+    use crate::{LinterSettings, Rule};
+
+    #[test]
+    fn flags_escaped_source_builtins_with_dynamic_paths() {
+        let source = "\
+#!/bin/bash
+\\. \"$rvm_environments_path/$1\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DynamicSourcePath));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "\"$rvm_environments_path/$1\""
+        );
+    }
+
+    #[test]
+    fn ignores_literal_leading_backslashes_in_other_command_names() {
+        for source in [
+            "#!/bin/bash\n\"\\\\.\" \"$rvm_environments_path/$1\"\n",
+            "#!/bin/bash\n'\\source' \"$rvm_environments_path/$1\"\n",
+            "#!/bin/bash\n\\\\. \"$rvm_environments_path/$1\"\n",
+        ] {
+            let diagnostics =
+                test_snippet(source, &LinterSettings::for_rule(Rule::DynamicSourcePath));
+
+            assert!(diagnostics.is_empty(), "{source}");
+        }
+    }
+}

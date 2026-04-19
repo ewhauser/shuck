@@ -320,7 +320,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             &mut nested_regions,
         );
 
-        if let Some(name) = static_word_text(&command.name, self.source)
+        if let Some(name) = static_command_name_text(&command.name, self.source)
             && !name.is_empty()
         {
             let callee = Name::from(name.as_str());
@@ -3012,9 +3012,87 @@ fn named_target_word(word: &Word, source: &str) -> Option<(Name, Span)> {
     is_name(&text).then_some((Name::from(text), word.span))
 }
 
+fn static_command_name_text(word: &Word, source: &str) -> Option<String> {
+    let mut result = String::new();
+    collect_static_command_name_parts(
+        &word.parts,
+        source,
+        StaticCommandNameContext::Unquoted,
+        &mut result,
+    )
+    .then_some(result)
+}
+
 fn static_word_text(word: &Word, source: &str) -> Option<String> {
     let mut result = String::new();
     collect_static_word_text(&word.parts, source, &mut result).then_some(result)
+}
+
+#[derive(Clone, Copy)]
+enum StaticCommandNameContext {
+    Unquoted,
+    DoubleQuoted,
+}
+
+fn collect_static_command_name_parts(
+    parts: &[WordPartNode],
+    source: &str,
+    context: StaticCommandNameContext,
+    out: &mut String,
+) -> bool {
+    for part in parts {
+        match &part.kind {
+            WordPart::Literal(text) => {
+                decode_static_command_literal(text.as_str(source, part.span), context, out);
+            }
+            WordPart::SingleQuoted { value, .. } => out.push_str(value.slice(source)),
+            WordPart::DoubleQuoted { parts, .. } => {
+                if !collect_static_command_name_parts(
+                    parts,
+                    source,
+                    StaticCommandNameContext::DoubleQuoted,
+                    out,
+                ) {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
+    }
+
+    true
+}
+
+fn decode_static_command_literal(text: &str, context: StaticCommandNameContext, out: &mut String) {
+    let mut chars = text.chars();
+
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            out.push(ch);
+            continue;
+        }
+
+        let Some(next) = chars.next() else {
+            out.push('\\');
+            break;
+        };
+
+        match context {
+            StaticCommandNameContext::Unquoted => {
+                if next != '\n' {
+                    out.push(next);
+                }
+            }
+            StaticCommandNameContext::DoubleQuoted => match next {
+                '$' | '`' | '"' | '\\' => out.push(next),
+                '\n' => {}
+                _ => {
+                    out.push('\\');
+                    out.push(next);
+                }
+            },
+        }
+    }
 }
 
 fn recorded_command_info(
@@ -3043,7 +3121,7 @@ fn recorded_simple_command_info(
     let words = std::iter::once(&command.name)
         .chain(command.args.iter())
         .collect::<Vec<_>>();
-    let mut static_callee = static_word_text(&command.name, source);
+    let mut static_callee = static_command_name_text(&command.name, source);
     let static_args = command
         .args
         .iter()
@@ -3057,7 +3135,9 @@ fn recorded_simple_command_info(
         .and_then(|word| source_path_template(word, source, bash_runtime_vars_enabled));
 
     if static_callee.as_deref() == Some("noglob") {
-        static_callee = words.get(1).and_then(|word| static_word_text(word, source));
+        static_callee = words
+            .get(1)
+            .and_then(|word| static_command_name_text(word, source));
     }
 
     let mut info = RecordedCommandInfo {
