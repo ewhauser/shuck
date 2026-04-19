@@ -184,4 +184,15 @@ arr=($0 $1)
             vec!["$0", "$1"]
         );
     }
+
+    #[test]
+    fn ignores_use_replacement_expansions_in_array_assignments() {
+        let source = "\
+#!/bin/bash
+arr=(${flag:+-f} ${flag:+$fallback} ${name:+\"$name\" \"$regex\"} ${items[@]+\"${items[@]}\"})
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedArraySplit));
+
+        assert!(diagnostics.is_empty());
+    }
 }

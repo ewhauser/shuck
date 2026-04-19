@@ -1315,14 +1315,7 @@ impl<'a> WordFact<'a> {
     }
 
     pub fn array_assignment_split_scalar_expansion_spans(&self) -> &[Span] {
-        if self
-            .array_assignment_split_scalar_expansion_spans
-            .is_empty()
-        {
-            self.unquoted_scalar_expansion_spans()
-        } else {
-            &self.array_assignment_split_scalar_expansion_spans
-        }
+        &self.array_assignment_split_scalar_expansion_spans
     }
 
     pub fn array_expansion_spans(&self) -> &[Span] {
@@ -11312,6 +11305,70 @@ fn collect_array_assignment_nested_scalar_expansion_spans(
     spans
 }
 
+fn collect_array_assignment_use_replacement_expansion_spans(word: &Word) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_use_replacement_expansion_spans(&word.parts, &mut spans);
+    sort_and_dedup_spans(&mut spans);
+    spans
+}
+
+fn collect_use_replacement_expansion_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
+    for part in parts {
+        match &part.kind {
+            WordPart::DoubleQuoted { .. }
+            | WordPart::Literal(_)
+            | WordPart::SingleQuoted { .. }
+            | WordPart::Variable(_)
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::Transformation { .. }
+            | WordPart::ZshQualifiedGlob(_) => {}
+            WordPart::Parameter(parameter) if parameter_uses_replacement_operator(parameter) => {
+                spans.push(part.span);
+            }
+            WordPart::ParameterExpansion { operator, .. }
+            | WordPart::IndirectExpansion {
+                operator: Some(operator),
+                ..
+            } if matches!(operator, ParameterOp::UseReplacement) => spans.push(part.span),
+            WordPart::Parameter(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::IndirectExpansion { .. } => {}
+        }
+    }
+}
+
+fn parameter_uses_replacement_operator(parameter: &ParameterExpansion) -> bool {
+    let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax else {
+        return false;
+    };
+
+    match syntax {
+        BourneParameterExpansion::Indirect {
+            operator: Some(operator),
+            ..
+        }
+        | BourneParameterExpansion::Operation { operator, .. } => {
+            matches!(operator, ParameterOp::UseReplacement)
+        }
+        BourneParameterExpansion::Access { .. }
+        | BourneParameterExpansion::Length { .. }
+        | BourneParameterExpansion::Indices { .. }
+        | BourneParameterExpansion::PrefixMatch { .. }
+        | BourneParameterExpansion::Slice { .. }
+        | BourneParameterExpansion::Transformation { .. }
+        | BourneParameterExpansion::Indirect { operator: None, .. } => false,
+    }
+}
+
 struct CollectedWordFacts<'a> {
     facts: Vec<WordFact<'a>>,
     compound_assignment_value_word_spans: FxHashSet<FactSpan>,
@@ -11868,6 +11925,8 @@ impl<'a> WordFactCollector<'a> {
                                 let fact = &mut self.facts[index];
                                 let mut split_sensitive_spans =
                                     fact.unquoted_scalar_expansion_spans().to_vec();
+                                let use_replacement_spans =
+                                    collect_array_assignment_use_replacement_expansion_spans(word);
                                 if !word_fact_is_double_quoted_command_substitution_only(
                                     fact,
                                     self.source,
@@ -11880,6 +11939,8 @@ impl<'a> WordFactCollector<'a> {
                                         ),
                                     );
                                 }
+                                split_sensitive_spans
+                                    .retain(|span| !use_replacement_spans.contains(span));
                                 sort_and_dedup_spans(&mut split_sensitive_spans);
                                 fact.array_assignment_split_scalar_expansion_spans =
                                     split_sensitive_spans.into_boxed_slice();
@@ -26751,6 +26812,28 @@ EOF
                     "\"$(\n    cat <<-EOF | tr '\\n' ' '\n      {\n        \"query\": \"query {\n          repository(owner: \\\"${project%/*}\\\", name: \\\"${project##*/}\\\") {\n            refs(refPrefix: \\\"refs/tags/\\\")\n          }\n        }\"\n      }\nEOF\n  )\"",
                 ]
             );
+        });
+    }
+
+    #[test]
+    fn array_assignment_split_facts_ignore_use_replacement_expansions() {
+        let source = "\
+#!/bin/bash
+arr=(${flag:+-f} ${flag:+$fallback} ${name:+\"$name\" \"$regex\"} ${items[@]+\"${items[@]}\"} ${x:-\"$fallback\"})
+";
+
+        with_facts(source, None, |_, facts| {
+            let split_sensitive = facts
+                .array_assignment_split_word_facts()
+                .flat_map(|fact| {
+                    fact.array_assignment_split_scalar_expansion_spans()
+                        .iter()
+                        .map(|span| span.slice(source).to_owned())
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(split_sensitive, vec!["${x:-\"$fallback\"}"]);
         });
     }
 
