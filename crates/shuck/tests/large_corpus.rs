@@ -2022,7 +2022,11 @@ fn shell_supported_for_large_corpus(
 
     shellcheck_supported_shells
         .map(|supported| supported.contains_key(shell))
-        .unwrap_or(true)
+        .unwrap_or_else(|| default_supported_large_corpus_shell(shell))
+}
+
+fn default_supported_large_corpus_shell(shell: &str) -> bool {
+    matches!(shell, "sh" | "bash" | "dash" | "ksh")
 }
 
 fn effective_large_corpus_shell(fixture: &LargeCorpusFixture) -> &str {
@@ -2386,9 +2390,28 @@ fn resolve_shell(path: &Path, src: &[u8]) -> String {
         shuck_linter::ShellDialect::Bash => "bash".into(),
         shuck_linter::ShellDialect::Ksh | shuck_linter::ShellDialect::Mksh => "ksh".into(),
         shuck_linter::ShellDialect::Zsh => "zsh".into(),
-        shuck_linter::ShellDialect::Unknown
-        | shuck_linter::ShellDialect::Sh
-        | shuck_linter::ShellDialect::Dash => "sh".into(),
+        shuck_linter::ShellDialect::Sh | shuck_linter::ShellDialect::Dash => "sh".into(),
+        shuck_linter::ShellDialect::Unknown => {
+            unsupported_large_corpus_shebang_shell(&trimmed_first_line)
+                .map(|shell| shell.to_ascii_lowercase())
+                .unwrap_or_else(|| "sh".into())
+        }
+    }
+}
+
+fn unsupported_large_corpus_shebang_shell(first_line: &str) -> Option<&str> {
+    let line = first_line.strip_prefix("#!")?.trim();
+    let mut parts = line.split_whitespace();
+    let first = parts.next()?;
+    let interpreter = if Path::new(first).file_name()?.to_str()? == "env" {
+        parts.find(|part| !part.starts_with('-'))?
+    } else {
+        Path::new(first).file_name()?.to_str()?
+    };
+
+    match interpreter.to_ascii_lowercase().as_str() {
+        "fish" | "csh" | "tcsh" => Some(interpreter),
+        _ => None,
     }
 }
 
@@ -3118,6 +3141,30 @@ mod tests {
     }
 
     #[test]
+    fn resolve_shell_fish_shebang_stays_unsupported() {
+        assert_eq!(
+            resolve_shell(Path::new("script"), b"#!/usr/bin/env fish\n"),
+            "fish"
+        );
+    }
+
+    #[test]
+    fn resolve_shell_csh_shebang_stays_unsupported() {
+        assert_eq!(resolve_shell(Path::new("script"), b"#!/bin/csh\n"), "csh");
+    }
+
+    #[test]
+    fn resolve_shell_respects_shellcheck_header_over_unsupported_shebang() {
+        assert_eq!(
+            resolve_shell(
+                Path::new("script"),
+                b"#!/usr/bin/env fish\n# shellcheck shell=bash\necho hi\n",
+            ),
+            "bash"
+        );
+    }
+
+    #[test]
     fn resolve_shell_compdef_header_is_zsh() {
         assert_eq!(resolve_shell(Path::new("_wd.sh"), b"#compdef wd\n"), "zsh");
     }
@@ -3503,6 +3550,13 @@ mod tests {
         assert!(!shell_supported_for_large_corpus("zsh", Some(&supported)));
         assert!(shell_supported_for_large_corpus("sh", Some(&supported)));
         assert!(shell_supported_for_large_corpus("bash", Some(&supported)));
+    }
+
+    #[test]
+    fn unsupported_shebang_shells_are_skipped_without_shellcheck_metadata() {
+        assert!(!shell_supported_for_large_corpus("fish", None));
+        assert!(!shell_supported_for_large_corpus("csh", None));
+        assert!(shell_supported_for_large_corpus("sh", None));
     }
 
     #[test]
