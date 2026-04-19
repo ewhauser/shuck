@@ -181,12 +181,7 @@ impl<'a> SurfaceFragmentSink<'a> {
     }
 
     fn record_parameter_pattern(&mut self, span: Span) {
-        if self
-            .facts
-            .parameter_pattern_spans
-            .iter()
-            .any(|recorded| *recorded == span)
-        {
+        if self.facts.parameter_pattern_spans.contains(&span) {
             return;
         }
         self.facts.parameter_pattern_spans.push(span);

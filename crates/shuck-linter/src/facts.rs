@@ -20,7 +20,9 @@ use self::{
         build_subshell_test_group_spans, build_substitution_facts,
     },
     conditional_portability::build_conditional_portability_facts,
-    escape_scan::{EscapeScanContext, EscapeScanMatch, build_escape_scan_matches},
+    escape_scan::{
+        EscapeScanContext, EscapeScanInputs, EscapeScanMatch, build_escape_scan_matches,
+    },
     presence::build_presence_tested_names,
     surface::{
         SurfaceFragmentFacts, SurfaceFragmentSink, SurfaceScanContext,
@@ -3627,11 +3629,13 @@ impl<'a> LinterFactsBuilder<'a> {
         let escape_scan_matches = build_escape_scan_matches(
             &commands,
             &words,
-            &pattern_literal_spans,
-            &pattern_charclass_spans,
-            &parameter_pattern_spans,
-            &single_quoted,
-            &backticks,
+            EscapeScanInputs {
+                pattern_literal_spans: &pattern_literal_spans,
+                pattern_charclass_spans: &pattern_charclass_spans,
+                parameter_pattern_spans: &parameter_pattern_spans,
+                single_quoted_fragments: &single_quoted,
+                backtick_fragments: &backticks,
+            },
             EscapeScanContext {
                 source: self.source,
                 file_context: self._file_context,

@@ -32,8 +32,8 @@ pub fn escaped_underscore(checker: &mut Checker) {
             | EscapeScanSourceKind::BacktickFragment => false,
         })
         .filter(|escape| {
-            !escape.is_grep_style_argument()
-                && !(escape.is_tr_operand_argument()
+            !(escape.is_grep_style_argument()
+                || escape.is_tr_operand_argument()
                     && matches!(escape.escaped_byte(), b'.' | b'*' | b'?'))
         })
         .filter(|escape| match escape.source_kind() {

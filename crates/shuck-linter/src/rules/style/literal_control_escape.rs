@@ -27,6 +27,7 @@ pub fn literal_control_escape(checker: &mut Checker) {
                     | EscapeScanSourceKind::DynamicPathCommandName
                     | EscapeScanSourceKind::PatternLiteral
                     | EscapeScanSourceKind::PatternCharClass
+                    | EscapeScanSourceKind::ParameterPatternCharClass
                     | EscapeScanSourceKind::SingleLiteralAssignmentWord
                     | EscapeScanSourceKind::BacktickFragment
             )
@@ -100,5 +101,19 @@ fi
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_control_escapes_in_parameter_pattern_char_classes() {
+        let source = "\
+#!/bin/bash
+name=\"${name//[a\\t]/x}\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::LiteralControlEscape),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
     }
 }
