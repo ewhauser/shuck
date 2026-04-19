@@ -2008,6 +2008,17 @@ impl FindCommandFacts {
 }
 
 #[derive(Debug, Clone)]
+pub struct FindExecCommandFacts {
+    argument_word_spans: Box<[Span]>,
+}
+
+impl FindExecCommandFacts {
+    pub fn argument_word_spans(&self) -> &[Span] {
+        &self.argument_word_spans
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct FindExecDirCommandFacts {
     shell_command_spans: Box<[Span]>,
 }
@@ -2289,6 +2300,7 @@ pub struct CommandOptionFacts<'a> {
     printf: Option<PrintfCommandFacts<'a>>,
     unset: Option<UnsetCommandFacts<'a>>,
     find: Option<FindCommandFacts>,
+    find_exec: Option<FindExecCommandFacts>,
     find_execdir: Option<FindExecDirCommandFacts>,
     mapfile: Option<MapfileCommandFacts>,
     xargs: Option<XargsCommandFacts>,
@@ -2345,6 +2357,10 @@ impl<'a> CommandOptionFacts<'a> {
 
     pub fn find(&self) -> Option<&FindCommandFacts> {
         self.find.as_ref()
+    }
+
+    pub fn find_exec(&self) -> Option<&FindExecCommandFacts> {
+        self.find_exec.as_ref()
     }
 
     pub fn find_execdir(&self) -> Option<&FindExecDirCommandFacts> {
@@ -2450,6 +2466,15 @@ impl<'a> CommandOptionFacts<'a> {
             find: normalized
                 .effective_name_is("find")
                 .then(|| parse_find_command(normalized.body_args(), source)),
+            find_exec: (normalized.has_wrapper(WrapperKind::FindExec)
+                || normalized.has_wrapper(WrapperKind::FindExecDir))
+            .then(|| FindExecCommandFacts {
+                argument_word_spans: parse_find_exec_argument_word_spans(
+                    normalized.body_args(),
+                    source,
+                )
+                .into_boxed_slice(),
+            }),
             find_execdir: normalized
                 .has_wrapper(WrapperKind::FindExecDir)
                 .then(|| {
@@ -15614,6 +15639,18 @@ fn parse_find_execdir_shell_command(
     })
 }
 
+fn parse_find_exec_argument_word_spans(args: &[&Word], source: &str) -> Vec<Span> {
+    args.iter()
+        .take_while(|word| {
+            !matches!(
+                static_word_text(word, source).as_deref(),
+                Some(";" | "\\;" | "+")
+            )
+        })
+        .map(|word| word.span)
+        .collect()
+}
+
 fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
     let mut has_print0 = false;
     let mut or_without_grouping_spans = Vec::new();
@@ -19769,6 +19806,77 @@ find $dir -type f -name \"rename*\" -execdir sh -c 'mv {} $(echo {} | sed \"s|re
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
                 vec!["'mv {} $(echo {} | sed \"s|rename|perl-rename|\")'"]
+            );
+        });
+    }
+
+    #[test]
+    fn builds_find_exec_argument_word_spans_for_wrapped_commands() {
+        let source = "\
+#!/bin/sh
+find \"$root\"/*.py -exec echo \"$prefix\"*.tmp {} \\; -name '*.cfg'
+result=$(find . -type d -name fuzz -exec dirname $(readlink -f {}) \\;)
+find . -execdir sh -c 'printf \"%s\\n\" {}' {} \\;
+";
+
+        with_facts(source, None, |_, facts| {
+            let top_level_find_exec = facts
+                .commands()
+                .iter()
+                .find(|fact| {
+                    fact.has_wrapper(WrapperKind::FindExec)
+                        && !fact.is_nested_word_command()
+                        && fact.effective_name_is("echo")
+                })
+                .expect("expected top-level find -exec fact");
+            assert_eq!(
+                top_level_find_exec
+                    .options()
+                    .find_exec()
+                    .expect("expected find -exec facts")
+                    .argument_word_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["\"$prefix\"*.tmp", "{}"]
+            );
+
+            let nested_find_exec = facts
+                .commands()
+                .iter()
+                .find(|fact| {
+                    fact.has_wrapper(WrapperKind::FindExec)
+                        && fact.is_nested_word_command()
+                        && fact.effective_name_is("dirname")
+                })
+                .expect("expected nested find -exec fact");
+            assert_eq!(
+                nested_find_exec
+                    .options()
+                    .find_exec()
+                    .expect("expected nested find -exec facts")
+                    .argument_word_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["$(readlink -f {})"]
+            );
+
+            let find_execdir = facts
+                .commands()
+                .iter()
+                .find(|fact| fact.has_wrapper(WrapperKind::FindExecDir))
+                .expect("expected find -execdir fact");
+            assert_eq!(
+                find_execdir
+                    .options()
+                    .find_exec()
+                    .expect("expected find -exec facts for execdir wrapper")
+                    .argument_word_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["-c", "'printf \"%s\\n\" {}'", "{}"]
             );
         });
     }
