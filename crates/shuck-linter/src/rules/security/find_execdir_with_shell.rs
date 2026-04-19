@@ -93,4 +93,15 @@ mod tests {
         assert_eq!(diagnostics[0].span.slice(source), "'printf \"%s\\n\" {}'");
         assert_eq!(diagnostics[1].span.slice(source), "'printf \"%s\\n\" {}'");
     }
+
+    #[test]
+    fn ignores_ok_variants_even_with_shell_interpolation() {
+        let source = "#!/bin/sh\nfind . -ok sh -c 'printf \"%s\\n\" {}' \\;\nfind . -okdir bash -c 'printf \"%s\\n\" {}' \\;\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FindExecDirWithShell),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
 }

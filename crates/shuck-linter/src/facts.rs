@@ -17343,7 +17343,7 @@ fn parse_find_exec_shell_command(
             index += 1;
             continue;
         };
-        if !matches!(action.as_str(), "-exec" | "-ok" | "-execdir" | "-okdir") {
+        if !matches!(action.as_str(), "-exec" | "-execdir") {
             index += 1;
             continue;
         }
@@ -22030,6 +22030,30 @@ find . -exec sudo sh -c 'printf \"%s\\n\" {}' \\;
             assert_eq!(
                 shell_spans,
                 vec!["'printf \"%s\\n\" {}'", "'printf \"%s\\n\" {}'"]
+            );
+        });
+    }
+
+    #[test]
+    fn ignores_find_ok_shell_targets_for_find_exec_shell_command_facts() {
+        let source = "\
+#!/bin/sh
+find . -ok sh -c 'printf \"%s\\n\" {}' \\;
+find . -okdir bash -c 'printf \"%s\\n\" {}' \\;
+";
+
+        with_facts(source, None, |_, facts| {
+            let shell_spans = facts
+                .commands()
+                .iter()
+                .filter_map(|fact| fact.options().find_exec_shell())
+                .flat_map(|find_exec_shell| find_exec_shell.shell_command_spans().iter())
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>();
+
+            assert!(
+                shell_spans.is_empty(),
+                "unexpected shell spans: {shell_spans:?}"
             );
         });
     }
