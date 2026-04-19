@@ -202,4 +202,21 @@ mod tests {
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn ignores_quoted_tilde_literals_outside_string_comparisons() {
+        let source = "\
+#!/bin/bash
+profile='~/.bash_profile'
+VAGRANT_HOME=\"~/.vagrant.d\"
+[ -e '~/.bash_profile' ]
+printf '%s\n' \"~/.config/powershell/profile.ps1\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::TildeInStringComparison),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
 }
