@@ -6,8 +6,8 @@ runtime_kind: ast
 shellcheck_code: SC3041
 shells:
   - sh
-description: "The `-E` flag for `set` is used in POSIX sh."
-rationale: "Use trap on specific signals instead of `-E` for portability."
+description: "The script uses `set -E` or `set -T` in POSIX sh."
+rationale: "Avoid Bash-only trap inheritance flags in `sh`, or switch to a shell that supports them."
 source:
   shell_checks_rule: rules/SH-275.yaml
   shell_checks_example: examples/275.sh
@@ -18,3 +18,7 @@ examples:
       #!/bin/sh
       set -eE
       echo hello
+  - kind: invalid
+    code: |
+      #!/bin/sh
+      set -T
