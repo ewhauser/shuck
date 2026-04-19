@@ -25,6 +25,11 @@ pub enum SafeValueQuery {
     Quoted,
 }
 
+enum SourceTextLiteral<'a> {
+    Bare(&'a str),
+    Quoted(&'a str),
+}
+
 impl SafeValueQuery {
     pub fn from_context(context: ExpansionContext) -> Option<Self> {
         match context {
@@ -684,8 +689,15 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn source_text_is_safe_literal(&self, text: &SourceText, query: SafeValueQuery) -> bool {
-        let text = text.slice(self.source);
-        !source_text_needs_parse(text) && query.literal_is_safe(text)
+        source_text_literal_value(text.slice(self.source)).is_some_and(|literal| match literal {
+            SourceTextLiteral::Bare(text) => query.literal_is_safe(text),
+            SourceTextLiteral::Quoted(text) => match query {
+                SafeValueQuery::Argv | SafeValueQuery::RedirectTarget | SafeValueQuery::Quoted => {
+                    true
+                }
+                SafeValueQuery::Pattern | SafeValueQuery::Regex => query.literal_is_safe(text),
+            },
+        })
     }
 }
 
@@ -728,6 +740,32 @@ fn literal_is_regex_safe(text: &str) -> bool {
 fn source_text_needs_parse(text: &str) -> bool {
     text.chars()
         .any(|character| matches!(character, '$' | '`' | '\\' | '\'' | '"'))
+}
+
+fn source_text_literal_value(text: &str) -> Option<SourceTextLiteral<'_>> {
+    if !source_text_needs_parse(text) {
+        return Some(SourceTextLiteral::Bare(text));
+    }
+
+    if let Some(inner) = text
+        .strip_prefix('"')
+        .and_then(|text| text.strip_suffix('"'))
+        && !inner
+            .chars()
+            .any(|character| matches!(character, '$' | '`' | '\\' | '"'))
+    {
+        return Some(SourceTextLiteral::Quoted(inner));
+    }
+
+    if let Some(inner) = text
+        .strip_prefix('\'')
+        .and_then(|text| text.strip_suffix('\''))
+        && !inner.contains('\'')
+    {
+        return Some(SourceTextLiteral::Quoted(inner));
+    }
+
+    None
 }
 
 fn safe_special_parameter(name: &Name) -> bool {
@@ -1519,5 +1557,57 @@ printf '%s\\n' $pkgname
             .expect("expected imported command argument fact");
 
         assert!(!safe_values.word_is_safe(word_fact.word(), SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn quoted_replacement_operands_stay_safe_in_argv_context() {
+        let source = "\
+#!/bin/bash
+bash ${debug:+\"-x\"} script
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "${debug:+\"-x\"}"
+            })
+            .expect("expected replacement-operator command argument fact");
+
+        assert!(safe_values.word_is_safe(word_fact.word(), SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn quoted_replacement_operands_with_spaces_stay_safe_in_argv_context() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' ${debug:+\"a b\"}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "${debug:+\"a b\"}"
+            })
+            .expect("expected replacement-operator command argument fact");
+
+        assert!(safe_values.word_is_safe(word_fact.word(), SafeValueQuery::Argv));
     }
 }

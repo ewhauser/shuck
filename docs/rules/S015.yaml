@@ -9,8 +9,8 @@ shells:
   - bash
   - dash
   - ksh
-description: Putting "$*" in a loop turns every positional parameter into one combined item.
-rationale: Use "$@" if the loop should process each positional parameter on its own.
+description: Using "$*" as the loop list makes the loop iterate once over one combined string instead of once per positional parameter.
+rationale: Use "$@" or the implicit for item; do ...; done form when the loop should visit each positional parameter separately.
 source:
   shell_checks_rule: rules/SH-063.yaml
   shell_checks_example: examples/063.sh
