@@ -15647,10 +15647,18 @@ fn parse_find_exec_argument_word_spans(args: &[&Word], source: &str) -> Vec<Span
         .iter()
         .enumerate()
         .filter_map(|(index, word)| {
-            (static_word_text(word, source).as_deref() == Some("+")).then_some(index)
+            (index > 0
+                && static_word_text(word, source).as_deref() == Some("+")
+                && static_word_text(args[index - 1], source).as_deref() == Some("{}"))
+            .then_some(index)
         })
         .next_back();
-    let terminator_index = semicolon_terminator_index.or(plus_terminator_index);
+    let terminator_index = match (semicolon_terminator_index, plus_terminator_index) {
+        (Some(semicolon_index), Some(plus_index)) => Some(semicolon_index.min(plus_index)),
+        (Some(semicolon_index), None) => Some(semicolon_index),
+        (None, Some(plus_index)) => Some(plus_index),
+        (None, None) => None,
+    };
 
     args.iter()
         .take(terminator_index.unwrap_or(args.len()))
@@ -19936,6 +19944,33 @@ find . -execdir sh -c 'printf \"%s\\n\" {}' {} \\;
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
                 vec!["+", "*.tmp", "{}"]
+            );
+        });
+    }
+
+    #[test]
+    fn stops_at_plus_terminator_before_later_exec_semicolon() {
+        let source = "#!/bin/sh\nfind . -exec echo {} + -name *.cfg -exec rm {} \\;\n";
+
+        with_facts(source, None, |_, facts| {
+            let first_find_exec = facts
+                .commands()
+                .iter()
+                .find(|fact| {
+                    fact.has_wrapper(WrapperKind::FindExec) && fact.effective_name_is("echo")
+                })
+                .expect("expected first find -exec fact");
+
+            assert_eq!(
+                first_find_exec
+                    .options()
+                    .find_exec()
+                    .expect("expected find -exec facts")
+                    .argument_word_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["{}"]
             );
         });
     }

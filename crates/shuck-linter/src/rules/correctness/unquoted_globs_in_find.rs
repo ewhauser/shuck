@@ -150,4 +150,16 @@ find . -exec echo + *.tmp {} \\;
             vec!["*"]
         );
     }
+
+    #[test]
+    fn ignores_outer_find_words_after_plus_terminated_exec() {
+        let source = "\
+#!/bin/bash
+find . -exec echo {} + -name *.cfg -exec rm {} \\;
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedGlobsInFind));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
 }
