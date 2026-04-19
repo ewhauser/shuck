@@ -2427,6 +2427,22 @@ source \"$x\"
     }
 
     #[test]
+    fn escaped_dot_source_builtin_still_records_dynamic_source_refs() {
+        let source = "\
+#!/bin/bash
+\\. \"$rvm_environments_path/$1\"
+";
+        let model = model(source);
+
+        assert_eq!(model.source_refs().len(), 1);
+        assert_eq!(model.source_refs()[0].kind, SourceRefKind::Dynamic);
+        assert_eq!(
+            model.source_refs()[0].diagnostic_class,
+            SourceRefDiagnosticClass::DynamicPath
+        );
+    }
+
+    #[test]
     fn builds_transitive_call_graph_and_overwritten_functions() {
         let source = "\
 f() { g; }

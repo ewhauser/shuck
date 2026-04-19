@@ -320,7 +320,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             &mut nested_regions,
         );
 
-        if let Some(name) = static_word_text(&command.name, self.source)
+        if let Some(name) = static_command_name_text(&command.name, self.source)
             && !name.is_empty()
         {
             let callee = Name::from(name.as_str());
@@ -3012,6 +3012,11 @@ fn named_target_word(word: &Word, source: &str) -> Option<(Name, Span)> {
     is_name(&text).then_some((Name::from(text), word.span))
 }
 
+fn static_command_name_text(word: &Word, source: &str) -> Option<String> {
+    static_word_text(word, source)
+        .map(|text| text.strip_prefix('\\').map_or(text.clone(), str::to_owned))
+}
+
 fn static_word_text(word: &Word, source: &str) -> Option<String> {
     let mut result = String::new();
     collect_static_word_text(&word.parts, source, &mut result).then_some(result)
@@ -3043,7 +3048,7 @@ fn recorded_simple_command_info(
     let words = std::iter::once(&command.name)
         .chain(command.args.iter())
         .collect::<Vec<_>>();
-    let mut static_callee = static_word_text(&command.name, source);
+    let mut static_callee = static_command_name_text(&command.name, source);
     let static_args = command
         .args
         .iter()
@@ -3057,7 +3062,9 @@ fn recorded_simple_command_info(
         .and_then(|word| source_path_template(word, source, bash_runtime_vars_enabled));
 
     if static_callee.as_deref() == Some("noglob") {
-        static_callee = words.get(1).and_then(|word| static_word_text(word, source));
+        static_callee = words
+            .get(1)
+            .and_then(|word| static_command_name_text(word, source));
     }
 
     let mut info = RecordedCommandInfo {
