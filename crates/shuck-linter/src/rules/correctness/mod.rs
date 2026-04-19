@@ -113,6 +113,7 @@ pub mod subshell_side_effect;
 pub mod subst_with_redirect;
 pub mod subst_with_redirect_err;
 pub mod sudo_redirection_order;
+pub mod suspicious_bracket_glob;
 pub mod syntax;
 pub mod template_brace_in_command;
 pub mod tilde_in_string_comparison;
@@ -125,7 +126,6 @@ pub mod unicode_quote_in_string;
 pub mod unicode_single_quote_in_single_quotes;
 pub mod unquoted_globs_in_find;
 pub mod unquoted_grep_regex;
-pub mod unquoted_pipe_in_echo;
 pub mod unreachable_after_exit;
 pub mod unset_associative_array_element;
 pub mod until_missing_do;
@@ -229,7 +229,7 @@ mod tests {
     #[test_case(Rule::RedirectBeforePipe, Path::new("C119.sh"))]
     #[test_case(Rule::GlobWithExpansionInLoop, Path::new("C114.sh"))]
     #[test_case(Rule::AssignmentLooksLikeComparison, Path::new("C095.sh"))]
-    #[test_case(Rule::UnquotedPipeInEcho, Path::new("C096.sh"))]
+    #[test_case(Rule::SuspiciousBracketGlob, Path::new("C096.sh"))]
     #[test_case(Rule::FunctionCalledWithoutArgs, Path::new("C097.sh"))]
     #[test_case(Rule::SetFlagsWithoutDashes, Path::new("C098.sh"))]
     #[test_case(Rule::QuotedArraySlice, Path::new("C099.sh"))]

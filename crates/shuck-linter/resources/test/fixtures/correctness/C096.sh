@@ -1,11 +1,18 @@
 #!/bin/sh
 
-# Should trigger: unquoted escaped pipe/brace sequences in echo arguments
+# Should trigger: bracket globs that are trying to spell out whole words or lists
+[appname] arg
+foo[appname] arg
 echo usage: cmd [start\|stop\|restart]
-echo token\{on,off\}
+printf '%s\n' "$dir"/[appname]
+ITEM=[0,-1,1,-10,-20]
+cat <<EOF >/etc/systemd/system/[appname].service
+EOF
 
-# Should not trigger: quoted arguments and non-echo commands
+# Should not trigger: valid single-character sets and literal bracket text
+echo [ab]
+echo [a-z]
+echo [[:alpha:]]
+echo foo[bar]baz
 echo "usage: cmd [start\|stop\|restart]"
-echo 'token\{on,off\}'
-printf '%s\n' usage: cmd [start\|stop\|restart]
-echo plain | pipeline
+echo \[appname\]
