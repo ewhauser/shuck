@@ -26,7 +26,10 @@ use crate::declaration::{Declaration, DeclarationBuiltin, DeclarationOperand};
 use crate::reference::{Reference, ReferenceKind};
 use crate::runtime::RuntimePrelude;
 use crate::source_closure::source_path_template;
-use crate::source_ref::{SourceRef, SourceRefKind, SourceRefResolution};
+use crate::source_ref::{
+    SourceRef, SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution,
+    default_diagnostic_class,
+};
 use crate::{
     BindingId, FunctionScopeKind, IndirectTargetHint, ReferenceId, Scope, ScopeId, ScopeKind,
     SourceDirectiveOverride, SpanKey, TraversalObserver,
@@ -2251,9 +2254,16 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             }
             "source" | "." => {
                 if let Some(argument) = command.args.first() {
+                    let source_span = self.command_stack.last().copied().unwrap_or(command.span);
+                    let kind = self.classify_source_ref(command.span.line(), argument);
                     self.source_refs.push(SourceRef {
-                        kind: self.classify_source_ref(command.span.line(), argument),
-                        span: command.span,
+                        diagnostic_class: classify_source_ref_diagnostic_class(
+                            argument,
+                            self.source,
+                            &kind,
+                        ),
+                        kind,
+                        span: source_span,
                         path_span: argument.span,
                         resolution: SourceRefResolution::Unchecked,
                         explicitly_provided: false,
@@ -3397,6 +3407,92 @@ fn classify_dynamic_source_word(word: &Word, source: &str) -> SourceRefKind {
     }
 
     SourceRefKind::Dynamic
+}
+
+fn classify_source_ref_diagnostic_class(
+    word: &Word,
+    source: &str,
+    kind: &SourceRefKind,
+) -> SourceRefDiagnosticClass {
+    match kind {
+        SourceRefKind::Literal(path)
+            if literal_uses_current_user_home_tilde(word, source, path) =>
+        {
+            SourceRefDiagnosticClass::DynamicPath
+        }
+        SourceRefKind::Dynamic if dynamic_root_with_slash_tail(word, source) => {
+            SourceRefDiagnosticClass::UntrackedFile
+        }
+        _ => default_diagnostic_class(kind),
+    }
+}
+
+fn literal_uses_current_user_home_tilde(word: &Word, source: &str, path: &str) -> bool {
+    if !path.starts_with("~/") {
+        return false;
+    }
+
+    let Some((first, tail)) = word.parts.split_first() else {
+        return false;
+    };
+
+    match &first.kind {
+        WordPart::Literal(_) => {
+            let text = first.span.slice(source);
+            text.starts_with("~/")
+                || (text == "~"
+                    && static_parts_text(tail, source).is_some_and(|tail| tail.starts_with('/')))
+        }
+        _ => false,
+    }
+}
+
+fn dynamic_root_with_slash_tail(word: &Word, source: &str) -> bool {
+    let Some((root, tail)) = word.parts.split_first() else {
+        return false;
+    };
+
+    match &root.kind {
+        WordPart::DoubleQuoted { parts, .. } => {
+            let Some((inner_root, inner_tail)) = parts.split_first() else {
+                return false;
+            };
+
+            root_word_part_is_dynamic_root(&inner_root.kind)
+                && static_tail_text_starts_with_slash(inner_tail, tail, source)
+        }
+        _ => {
+            root_word_part_is_dynamic_root(&root.kind)
+                && static_tail_text_starts_with_slash(tail, &[], source)
+        }
+    }
+}
+
+fn root_word_part_is_dynamic_root(part: &WordPart) -> bool {
+    match part {
+        WordPart::Variable(_) | WordPart::ArrayAccess(_) => true,
+        WordPart::Parameter(parameter) => matches!(
+            parameter.syntax,
+            ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { .. })
+        ),
+        _ => false,
+    }
+}
+
+fn static_parts_text(parts: &[WordPartNode], source: &str) -> Option<String> {
+    let mut result = String::new();
+    collect_static_word_text(parts, source, &mut result).then_some(result)
+}
+
+fn static_tail_text_starts_with_slash(
+    parts: &[WordPartNode],
+    trailing: &[WordPartNode],
+    source: &str,
+) -> bool {
+    let mut result = String::new();
+    collect_static_word_text(parts, source, &mut result)
+        && collect_static_word_text(trailing, source, &mut result)
+        && result.starts_with('/')
 }
 
 fn parse_source_directives(

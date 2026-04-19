@@ -1,6 +1,5 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
-assertion_line: 76
 ---
 C003 sourced file is not available to this analysis
  --> <source>:4:3
@@ -13,3 +12,15 @@ C003 sourced file is not available to this analysis
   |
 8 | . "$generated_helper"
   |
+
+C003 sourced file is not available to this analysis
+  --> <source>:11:3
+   |
+11 | . "~/.bashrc"
+   |
+
+C003 sourced file is not available to this analysis
+  --> <source>:14:3
+   |
+14 | . \~/.bashrc
+   |

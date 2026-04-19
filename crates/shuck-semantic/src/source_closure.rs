@@ -13,8 +13,8 @@ use shuck_parser::parser::Parser;
 use crate::{
     Binding, BindingId, BindingKind, ContractCertainty, FileContract, FunctionContract,
     FunctionScopeKind, ProvidedBinding, ProvidedBindingKind, ScopeId, ScopeKind, SemanticModel,
-    SourcePathResolver, SourceRefKind, SourceRefResolution, SpanKey, SyntheticRead,
-    build_semantic_model_base,
+    SourcePathResolver, SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution, SpanKey,
+    SyntheticRead, build_semantic_model_base,
 };
 
 #[derive(Debug, Clone)]
@@ -24,6 +24,7 @@ struct SourceClosureContracts {
     imported_functions: Vec<ImportedFunctionContractSite>,
     source_ref_resolutions: Vec<SourceRefResolution>,
     source_ref_explicitness: Vec<bool>,
+    source_ref_diagnostic_classes: Vec<SourceRefDiagnosticClass>,
 }
 
 type SourceClosureContractResult = (
@@ -31,6 +32,7 @@ type SourceClosureContractResult = (
     Vec<ImportedBindingContractSite>,
     Vec<SourceRefResolution>,
     Vec<bool>,
+    Vec<SourceRefDiagnosticClass>,
 );
 
 #[derive(Clone, Copy)]
@@ -83,6 +85,7 @@ pub(crate) fn collect_source_closure_contracts(
         contracts.imported_bindings,
         contracts.source_ref_resolutions,
         contracts.source_ref_explicitness,
+        contracts.source_ref_diagnostic_classes,
     )
 }
 
@@ -102,12 +105,14 @@ fn collect_source_closure_contracts_with_cache(
     let mut imported_functions = Vec::new();
     let mut source_ref_resolutions = Vec::new();
     let mut source_ref_explicitness = Vec::new();
+    let mut source_ref_diagnostic_classes = Vec::new();
 
     for source_ref in model.source_refs() {
         let scope = model.scope_at(source_ref.span.start.offset);
+        let template = facts.source_templates.get(&SpanKey::new(source_ref.span));
         let candidates = source_candidates(
             &source_ref.kind,
-            facts.source_templates.get(&SpanKey::new(source_ref.span)),
+            template,
             call_args_by_scope.get(&scope).map(Vec::as_slice),
             source_path,
         );
@@ -116,6 +121,8 @@ fn collect_source_closure_contracts_with_cache(
             merge_contracts_for_candidates(source_path, candidates, summaries, active, context);
         source_ref_resolutions.push(classify_source_ref_resolution(&source_ref.kind, resolved));
         source_ref_explicitness.push(explicit);
+        source_ref_diagnostic_classes
+            .push(classify_source_ref_diagnostic_class(source_ref, template));
         for provided in contract.provided_bindings.iter().cloned() {
             imported_bindings.push(ImportedBindingContractSite {
                 scope,
@@ -183,6 +190,7 @@ fn collect_source_closure_contracts_with_cache(
         imported_functions,
         source_ref_resolutions,
         source_ref_explicitness,
+        source_ref_diagnostic_classes,
     }
 }
 
@@ -236,6 +244,32 @@ fn classify_source_ref_resolution(kind: &SourceRefKind, resolved: bool) -> Sourc
             }
         }
     }
+}
+
+fn classify_source_ref_diagnostic_class(
+    source_ref: &crate::SourceRef,
+    template: Option<&SourcePathTemplate>,
+) -> SourceRefDiagnosticClass {
+    match source_ref.kind {
+        SourceRefKind::Dynamic if template_is_untracked_file(template) => {
+            SourceRefDiagnosticClass::UntrackedFile
+        }
+        _ => source_ref.diagnostic_class,
+    }
+}
+
+fn template_is_untracked_file(template: Option<&SourcePathTemplate>) -> bool {
+    let Some(SourcePathTemplate::Interpolated(parts)) = template else {
+        return false;
+    };
+
+    matches!(
+        parts.as_slice(),
+        [TemplatePart::Literal(path)] if path.contains('/')
+    ) || matches!(
+        parts.as_slice(),
+        [TemplatePart::SourceDir, TemplatePart::Literal(tail)] if tail.starts_with('/')
+    )
 }
 
 fn dedup_synthetic_reads(reads: Vec<SyntheticRead>) -> Vec<SyntheticRead> {
@@ -1076,6 +1110,7 @@ fn summarize_helper_uncached(
         collected.imported_bindings.clone(),
         collected.source_ref_resolutions.clone(),
         collected.source_ref_explicitness.clone(),
+        collected.source_ref_diagnostic_classes.clone(),
     );
     let analysis = semantic.analysis();
 
