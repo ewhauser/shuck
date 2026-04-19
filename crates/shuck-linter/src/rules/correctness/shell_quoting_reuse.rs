@@ -1,6 +1,8 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{Command, DeclOperand, Name, Span, Word};
-use shuck_semantic::{BindingId, BindingKind, Reference, ReferenceKind};
+use shuck_semantic::{
+    Binding, BindingAttributes, BindingId, BindingKind, Reference, ReferenceKind,
+};
 
 use crate::facts::CommandId;
 use crate::{
@@ -391,15 +393,17 @@ fn bracket_v_name_spans(
                 .semantic()
                 .bindings_for(&Name::from(name.as_str()))
                 .iter()
+                .copied()
                 .filter(|binding_id| {
-                    checker.semantic().binding(**binding_id).span.start.offset
-                        <= operand.span.start.offset
+                    let binding = checker.semantic().binding(*binding_id);
+                    binding.span.start.offset <= operand.span.start.offset
+                        && is_test_v_variable_binding(binding)
                 })
                 .max_by_key(|binding_id| {
-                    checker.semantic().binding(**binding_id).span.start.offset
+                    checker.semantic().binding(*binding_id).span.start.offset
                 })?;
             let roots = root_bindings_for_binding(
-                *binding_id,
+                binding_id,
                 direct_unsafe_bindings,
                 dependency_map,
                 root_cache,
@@ -413,6 +417,16 @@ fn bracket_v_name_spans(
             Some(operand.span)
         })
         .collect()
+}
+
+fn is_test_v_variable_binding(binding: &Binding) -> bool {
+    match binding.kind {
+        BindingKind::FunctionDefinition => false,
+        BindingKind::Imported => !binding
+            .attributes
+            .contains(BindingAttributes::IMPORTED_FUNCTION),
+        _ => true,
+    }
 }
 
 fn export_assignment_root_bindings(
