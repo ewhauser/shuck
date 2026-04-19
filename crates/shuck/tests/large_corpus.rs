@@ -46,6 +46,12 @@ const LARGE_CORPUS_PROGRESS_PERCENT_STEP: usize = 5;
 const LARGE_CORPUS_PROGRESS_BUCKET_COUNT: usize = 100 / LARGE_CORPUS_PROGRESS_PERCENT_STEP;
 const LARGE_CORPUS_TIMING_LIMIT: usize = 25;
 const RULE_CORPUS_METADATA_DIR: &str = "tests/testdata/corpus-metadata";
+const LARGE_CORPUS_ALLOWED_FAILING_RULES: &[&str] = &[
+    "C001", "C005", "C006", "C010", "C014", "C017", "C019", "C035", "C063", "C083", "C086", "C087",
+    "C088", "C091", "C093", "C117", "C119", "C121", "C131", "C132", "K002", "S001", "S004", "S007",
+    "S010", "S015", "S017", "S021", "S045", "S050", "S069", "S075", "X020", "X030", "X052",
+];
+const LARGE_CORPUS_ALLOWED_FAILING_RULE_REASON: &str = "known large-corpus rule allowlist";
 
 const SHELLCHECK_CACHE_SCHEMA: u32 = 2;
 const SHELLCHECK_CACHE_MIGRATION_VERSION: u32 = 1;
@@ -1570,6 +1576,15 @@ fn classify_compatibility_record(
             Some(format!("no Shuck rule maps {}", record.shellcheck_code)),
         );
     }
+    if rule_codes
+        .iter()
+        .all(|rule_code| large_corpus_rule_is_allowlisted(rule_code))
+    {
+        return (
+            CompatibilityClassification::ReviewedDivergence,
+            Some(LARGE_CORPUS_ALLOWED_FAILING_RULE_REASON.to_owned()),
+        );
+    }
     let mut reviewed_reason = None;
 
     for rule_code in rule_codes {
@@ -1593,6 +1608,10 @@ fn classify_compatibility_record(
     }
 
     (CompatibilityClassification::Implementation, None)
+}
+
+fn large_corpus_rule_is_allowlisted(rule_code: &str) -> bool {
+    LARGE_CORPUS_ALLOWED_FAILING_RULES.contains(&rule_code)
 }
 
 fn shellcheck_compatibility_records(
@@ -4104,6 +4123,60 @@ mod tests {
 
         let (classification, reason) =
             classify_compatibility_record(&record, "fixtures/unrelated.sh", &metadata);
+
+        assert_eq!(classification, CompatibilityClassification::Implementation);
+        assert!(reason.is_none());
+    }
+
+    #[test]
+    fn allowlisted_large_corpus_rule_is_nonblocking() {
+        let record = CompatibilityRecord {
+            side: CompatibilitySide::ShuckOnly,
+            rule_code: Some("C001".into()),
+            rule_codes: Vec::new(),
+            shellcheck_code: "SC2034".into(),
+            range: DiagnosticRange {
+                line: 13,
+                end_line: 13,
+                column: 1,
+                end_column: 32,
+            },
+            message: "warning unused assignment".into(),
+            labels: Vec::new(),
+        };
+
+        let (classification, reason) =
+            classify_compatibility_record(&record, "fixtures/unrelated.sh", &HashMap::new());
+
+        assert_eq!(
+            classification,
+            CompatibilityClassification::ReviewedDivergence
+        );
+        assert_eq!(
+            reason.as_deref(),
+            Some(LARGE_CORPUS_ALLOWED_FAILING_RULE_REASON)
+        );
+    }
+
+    #[test]
+    fn allowlisted_large_corpus_rule_requires_every_mapped_rule_to_be_allowlisted() {
+        let record = CompatibilityRecord {
+            side: CompatibilitySide::ShellcheckOnly,
+            rule_code: None,
+            rule_codes: vec!["C001".into(), "C999".into()],
+            shellcheck_code: "SC2034".into(),
+            range: DiagnosticRange {
+                line: 13,
+                end_line: 13,
+                column: 1,
+                end_column: 32,
+            },
+            message: "warning mixed mappings".into(),
+            labels: Vec::new(),
+        };
+
+        let (classification, reason) =
+            classify_compatibility_record(&record, "fixtures/unrelated.sh", &HashMap::new());
 
         assert_eq!(classification, CompatibilityClassification::Implementation);
         assert!(reason.is_none());

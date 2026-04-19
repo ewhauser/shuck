@@ -293,6 +293,10 @@ Check that:
 - Fixed deltas are now gone
 - Corpus-metadata entries suppress the reviewed divergences
 - No new regressions appeared
+- If the rule now passes cleanly and its code is listed in
+  `crates/shuck/tests/large_corpus.rs` under `LARGE_CORPUS_ALLOWED_FAILING_RULES`,
+  remove it from that array and rerun the targeted corpus test to confirm it no
+  longer needs the allowlist entry
 
 If there are still failures, go back to Step 3 and work through the remaining
 patterns.
