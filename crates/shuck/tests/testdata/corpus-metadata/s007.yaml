@@ -95,6 +95,17 @@ reviewed_divergences:
     path_suffix: "rvm__rvm__scripts__functions__utility_logging"
     reason: "This helper script is treated as a reviewed S007 divergence in the corpus comparison."
   - side: shuck-only
+    path_suffix: "oh-my-fish__oh-my-fish__bin__install"
+    labels:
+      - project-closure
+    reason: "This project-closure Fish installer is treated as a reviewed S007 divergence in the corpus comparison."
+  - side: shuck-only
+    path_suffix: "ohmyzsh__ohmyzsh__oh-my-zsh.sh"
+    labels:
+      - project-closure
+      - shell-collapse
+    reason: "This shell-collapse wrapper is treated as a reviewed S007 divergence in the corpus comparison."
+  - side: shuck-only
     path_suffix: "sstephenson__bats__libexec__bats-format-tap-stream"
     labels:
       - helper-library
