@@ -902,6 +902,48 @@ mod tests {
     }
 
     #[test]
+    fn does_not_map_line_continued_heredoc_pipeline_to_c035() {
+        let source = "\
+#!/bin/sh
+if [ ! -f ${sslcert} ] ; then
+cat << EOF | openssl req -new -key ${sslkey} \\
+         -x509 -days 365 -set_serial $RANDOM \\
+         -out ${sslcert} 2>/dev/null
+--
+SomeState
+SomeCity
+SomeOrganization
+SomeOrganizationalUnit
+${FQDN}
+root@${FQDN}
+EOF
+fi
+";
+        let recovered = Parser::new(source).parse();
+        let settings = LinterSettings::for_rule(Rule::MissingFi);
+        let diagnostics = collect_parse_rule_diagnostics(
+            &recovered.file,
+            source,
+            Some(&recovered),
+            &settings.rules,
+            ShellDialect::Sh,
+        );
+
+        assert!(
+            diagnostics.is_empty(),
+            "unexpected diagnostics: {diagnostics:?}"
+        );
+        assert!(
+            !recovered
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.starts_with("expected 'fi'")),
+            "unexpected parse diagnostics: {:?}",
+            recovered.diagnostics
+        );
+    }
+
+    #[test]
     fn maps_function_parameter_parse_error_to_x035() {
         let source = "#!/bin/sh\nfunction g(y) { :; }\n";
         let recovered = Parser::new(source).parse();

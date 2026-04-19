@@ -3688,8 +3688,44 @@ impl<'a> Lexer<'a> {
         let rest_of_line_start = self.current_position();
         let mut in_double_quote = false;
         let mut in_single_quote = false;
+        let mut in_comment = false;
+        let mut saw_non_whitespace_tail = false;
+        let mut consecutive_backslashes = 0usize;
+        let mut previous_tail_char = None;
         while let Some(ch) = self.peek_char() {
             self.advance();
+            if in_comment {
+                if ch == '\n' {
+                    break;
+                }
+                rest_of_line.push(ch);
+                previous_tail_char = Some(ch);
+                continue;
+            }
+            if ch == '#'
+                && !in_single_quote
+                && !in_double_quote
+                && self.comments_enabled()
+                && heredoc_tail_hash_starts_comment(previous_tail_char)
+            {
+                in_comment = true;
+                rest_of_line.push(ch);
+                previous_tail_char = Some(ch);
+                consecutive_backslashes = 0;
+                continue;
+            }
+            let backslash_continues_line = ch == '\\'
+                && !in_single_quote
+                && self.peek_char() == Some('\n')
+                && (saw_non_whitespace_tail || self.heredoc_tail_line_join_stays_in_tail())
+                && consecutive_backslashes.is_multiple_of(2);
+            if backslash_continues_line {
+                rest_of_line.push(ch);
+                rest_of_line.push('\n');
+                self.advance();
+                consecutive_backslashes = 0;
+                continue;
+            }
             if ch == '\n' && !in_double_quote && !in_single_quote {
                 break;
             }
@@ -3707,6 +3743,15 @@ impl<'a> Lexer<'a> {
                 continue;
             }
             rest_of_line.push(ch);
+            if !ch.is_whitespace() {
+                saw_non_whitespace_tail = true;
+            }
+            if ch == '\\' && !in_single_quote {
+                consecutive_backslashes += 1;
+            } else {
+                consecutive_backslashes = 0;
+            }
+            previous_tail_char = Some(ch);
         }
 
         // If we just drained a heredoc replay buffer (for example when multiple
@@ -3808,6 +3853,26 @@ impl<'a> Lexer<'a> {
             content_span: Span::from_positions(content_start, content_end),
         }
     }
+
+    fn heredoc_tail_line_join_stays_in_tail(&mut self) -> bool {
+        let mut chars = self.cursor.rest().chars();
+        if chars.next() != Some('\n') {
+            return false;
+        }
+
+        for ch in chars {
+            if matches!(ch, ' ' | '\t') {
+                continue;
+            }
+            if ch == '\n' {
+                return false;
+            }
+            return matches!(ch, '|' | '&' | ';' | '<' | '>')
+                || (ch == '#' && self.comments_enabled());
+        }
+
+        false
+    }
 }
 
 fn heredoc_line_matches_delimiter(line: &str, delimiter: &str, strip_tabs: bool) -> bool {
@@ -3826,6 +3891,12 @@ fn heredoc_line_matches_delimiter(line: &str, delimiter: &str, strip_tabs: bool)
     };
 
     trailing.chars().all(|ch| matches!(ch, ' ' | '\t'))
+}
+
+fn heredoc_tail_hash_starts_comment(previous_tail_char: Option<char>) -> bool {
+    previous_tail_char.is_none_or(|prev| {
+        prev.is_whitespace() || matches!(prev, ';' | '|' | '&' | '<' | '>' | ')')
+    })
 }
 
 fn next_char_boundary(input: &str, index: usize) -> Option<(char, usize)> {
@@ -5487,6 +5558,98 @@ EOF
         // The redirect tokens are now available from the lexer
         assert_next_token(&mut lexer, TokenKind::RedirectOut, None);
         assert_next_token(&mut lexer, TokenKind::Word, Some("file.txt"));
+    }
+
+    #[test]
+    fn test_read_heredoc_reinjects_line_continued_pipeline_tail() {
+        let source = "cat <<EOF | grep hello \\\n  | sort \\\n  > out.txt\nhello\nEOF\n";
+        let mut lexer = Lexer::new(source);
+
+        assert_next_token(&mut lexer, TokenKind::Word, Some("cat"));
+        assert_next_token(&mut lexer, TokenKind::HereDoc, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("EOF"));
+
+        let heredoc = lexer.read_heredoc("EOF", false);
+        assert_eq!(heredoc.content, "hello\n");
+
+        assert_next_token(&mut lexer, TokenKind::Pipe, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("grep"));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("hello"));
+        assert_next_token(&mut lexer, TokenKind::Pipe, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("sort"));
+        assert_next_token(&mut lexer, TokenKind::RedirectOut, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("out.txt"));
+    }
+
+    #[test]
+    fn test_read_heredoc_does_not_continue_body_when_backslash_is_immediately_after_delimiter() {
+        let source = "cat <<EOF \\\n1\n2\n3\nEOF\n| tac\n";
+        let mut lexer = Lexer::new(source);
+
+        assert_next_token(&mut lexer, TokenKind::Word, Some("cat"));
+        assert_next_token(&mut lexer, TokenKind::HereDoc, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("EOF"));
+
+        let heredoc = lexer.read_heredoc("EOF", false);
+        assert_eq!(heredoc.content, "1\n2\n3\n");
+    }
+
+    #[test]
+    fn test_read_heredoc_escaped_backslash_before_newline_does_not_continue_tail() {
+        let source = "cat <<EOF foo\\\\\nbody\nEOF\n";
+        let mut lexer = Lexer::new(source);
+
+        assert_next_token(&mut lexer, TokenKind::Word, Some("cat"));
+        assert_next_token(&mut lexer, TokenKind::HereDoc, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("EOF"));
+
+        let heredoc = lexer.read_heredoc("EOF", false);
+        assert_eq!(heredoc.content, "body\n");
+    }
+
+    #[test]
+    fn test_read_heredoc_comment_backslash_does_not_continue_tail() {
+        let source = "cat <<EOF # note \\\nbody\nEOF\n";
+        let mut lexer = Lexer::new(source);
+
+        assert_next_token(&mut lexer, TokenKind::Word, Some("cat"));
+        assert_next_token(&mut lexer, TokenKind::HereDoc, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("EOF"));
+
+        let heredoc = lexer.read_heredoc("EOF", false);
+        assert_eq!(heredoc.content, "body\n");
+    }
+
+    #[test]
+    fn test_read_heredoc_right_paren_comment_backslash_does_not_continue_tail() {
+        let source = "( cat <<EOF )# note \\\nbody\nEOF\n";
+        let mut lexer = Lexer::new(source);
+
+        assert_next_token(&mut lexer, TokenKind::LeftParen, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("cat"));
+        assert_next_token(&mut lexer, TokenKind::HereDoc, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("EOF"));
+
+        let heredoc = lexer.read_heredoc("EOF", false);
+        assert_eq!(heredoc.content, "body\n");
+
+        assert_next_token(&mut lexer, TokenKind::RightParen, None);
+    }
+
+    #[test]
+    fn test_read_heredoc_blank_prefix_continues_into_operator_led_tail() {
+        let source = "cat <<EOF \\\n| tac\n1\nEOF\n";
+        let mut lexer = Lexer::new(source);
+
+        assert_next_token(&mut lexer, TokenKind::Word, Some("cat"));
+        assert_next_token(&mut lexer, TokenKind::HereDoc, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("EOF"));
+
+        let heredoc = lexer.read_heredoc("EOF", false);
+        assert_eq!(heredoc.content, "1\n");
+
+        assert_next_token(&mut lexer, TokenKind::Pipe, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("tac"));
     }
 
     #[test]
