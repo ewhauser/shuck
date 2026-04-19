@@ -1,0 +1,32 @@
+---
+source: crates/shuck-linter/src/rules/style/mod.rs
+---
+S008 quote array expansions to preserve element boundaries
+ --> <source>:6:15
+  |
+6 | printf '%s\n' $@ ${@:2}
+  |
+
+S008 quote array expansions to preserve element boundaries
+ --> <source>:6:18
+  |
+6 | printf '%s\n' $@ ${@:2}
+  |
+
+S008 quote array expansions to preserve element boundaries
+ --> <source>:7:15
+  |
+7 | printf '%s\n' ${arr[@]} ${arr[@]:1}
+  |
+
+S008 quote array expansions to preserve element boundaries
+ --> <source>:7:25
+  |
+7 | printf '%s\n' ${arr[@]} ${arr[@]:1}
+  |
+
+S008 quote array expansions to preserve element boundaries
+ --> <source>:8:13
+  |
+8 | for item in $@; do
+  |

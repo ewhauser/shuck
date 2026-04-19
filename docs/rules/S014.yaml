@@ -9,8 +9,8 @@ shells:
   - bash
   - dash
   - ksh
-description: Expanding $* without quotes collapses positional parameters into a single word and can split them again.
-rationale: Use "$@" when you need to preserve each argument separately.
+description: Unquoted *-style splats such as $*, ${*}, and ${arr[*]} join values into one word and then expose the result to splitting and pathname expansion.
+rationale: Use "$@" for positional parameters, or "${arr[@]}" for arrays, when each value must stay separate.
 source:
   shell_checks_rule: rules/SH-062.yaml
   shell_checks_example: examples/062.sh
