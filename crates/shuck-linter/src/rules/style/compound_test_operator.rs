@@ -94,6 +94,7 @@ test \"$a\" = 1 -a \"$b\" = 2
         let source = "\
 #!/bin/sh
 [ ! '(' -f \"$left\" -o -f \"$right\" ')' ]
+[ '(' '!' -f \"$quoted_left\" -o -f \"$quoted_right\" ')' ]
 [ \"$a\" = 1 -a \\( \"$b\" = 2 -o \"$c\" = 3 \\) ]
 ";
         let diagnostics = test_snippet(
@@ -106,7 +107,7 @@ test \"$a\" = 1 -a \"$b\" = 2
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["-o", "-a", "-o"]
+            vec!["-o", "-o", "-a", "-o"]
         );
     }
 

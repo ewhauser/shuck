@@ -505,6 +505,22 @@ fn simple_test_is_logical_connector(text: &str) -> bool {
     matches!(text, "-a" | "-o")
 }
 
+fn simple_test_is_logical_negation(
+    simple_test: &SimpleTestFact<'_>,
+    index: usize,
+    source: &str,
+) -> bool {
+    if simple_test_effective_unquoted_operand_text(simple_test, index, source).as_deref()
+        == Some("!")
+    {
+        return true;
+    }
+
+    simple_test_effective_operand_text(simple_test, index, source).as_deref() == Some("!")
+        && simple_test_effective_operand_text(simple_test, index + 1, source).as_deref()
+            != Some("(")
+}
+
 fn simple_test_is_string_unary_operator(text: &str) -> bool {
     matches!(text, "-n" | "-z")
 }
@@ -543,8 +559,7 @@ fn simple_test_parse_logical_term(
     let mut index = start;
 
     while index + 1 < simple_test.effective_operands().len()
-        && simple_test_effective_unquoted_operand_text(simple_test, index, source).as_deref()
-            == Some("!")
+        && simple_test_is_logical_negation(simple_test, index, source)
     {
         index += 1;
     }
@@ -20620,6 +20635,7 @@ test
         let source = "\
 #!/bin/sh
 [ ! '(' -f \"$left\" -o -f \"$right\" ')' ]
+[ '(' '!' -f \"$quoted_left\" -o -f \"$quoted_right\" ')' ]
 [ \"$a\" = 1 -a \\( \"$b\" = 2 -o \"$c\" = 3 \\) ]
 ";
 
@@ -20629,7 +20645,7 @@ test
                 .filter_map(|fact| fact.simple_test())
                 .collect::<Vec<_>>();
 
-            assert_eq!(tests.len(), 2);
+            assert_eq!(tests.len(), 3);
             assert_eq!(
                 tests[0]
                     .compound_operator_spans(source)
@@ -20640,6 +20656,14 @@ test
             );
             assert_eq!(
                 tests[1]
+                    .compound_operator_spans(source)
+                    .into_iter()
+                    .map(|span| span.slice(source).to_owned())
+                    .collect::<Vec<_>>(),
+                vec!["-o".to_owned()]
+            );
+            assert_eq!(
+                tests[2]
                     .compound_operator_spans(source)
                     .into_iter()
                     .map(|span| span.slice(source).to_owned())
