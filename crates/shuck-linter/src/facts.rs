@@ -52,14 +52,14 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue,
     ArithmeticPostfixOp, ArithmeticUnaryOp, ArrayElem, ArrayKind, Assignment, AssignmentValue,
-    BinaryCommand, BinaryOp, BourneParameterExpansion, BraceQuoteContext, BraceSyntaxKind,
-    BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command, CommandSubstitutionSyntax,
-    CompoundCommand, ConditionalBinaryOp, ConditionalExpr, ConditionalUnaryOp, DeclClause,
-    DeclOperand, File, ForCommand, FunctionDef, IfCommand, Name, ParameterExpansion,
-    ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Position, Redirect, RedirectKind,
-    SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq, StmtTerminator, Subscript,
-    TextRange, VarRef, WhileCommand, Word, WordPart, WordPartNode, ZshExpansionTarget,
-    ZshGlobSegment, ZshQualifiedGlob,
+    BackgroundOperator, BinaryCommand, BinaryOp, BourneParameterExpansion, BraceQuoteContext,
+    BraceSyntaxKind, BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command,
+    CommandSubstitutionSyntax, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
+    ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, FunctionDef, IfCommand, Name,
+    ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Position,
+    Redirect, RedirectKind, SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq,
+    StmtTerminator, Subscript, TextRange, VarRef, WhileCommand, Word, WordPart, WordPartNode,
+    ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
 };
 use shuck_indexer::Indexer;
 use shuck_semantic::{
@@ -2845,6 +2845,7 @@ pub struct LinterFacts<'a> {
     pipelines: Vec<PipelineFact<'a>>,
     lists: Vec<ListFact<'a>>,
     statement_facts: Vec<StatementFact>,
+    background_semicolon_spans: Vec<Span>,
     single_test_subshell_spans: Vec<Span>,
     subshell_test_group_spans: Vec<Span>,
     indented_shebang_span: Option<Span>,
@@ -3148,6 +3149,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn statement_facts(&self) -> &[StatementFact] {
         &self.statement_facts
+    }
+
+    pub fn background_semicolon_spans(&self) -> &[Span] {
+        &self.background_semicolon_spans
     }
 
     pub fn single_test_subshell_spans(&self) -> &[Span] {
@@ -3728,6 +3733,8 @@ impl<'a> LinterFactsBuilder<'a> {
         annotate_conditional_assignment_shortcuts(self.semantic, &lists, &mut binding_values);
         let statement_facts =
             build_statement_facts(&commands, &command_ids_by_span, &self.file.body);
+        let background_semicolon_spans =
+            build_background_semicolon_spans(&commands, &case_items, self.source);
         let single_test_subshell_spans =
             build_single_test_subshell_spans(&commands, &command_ids_by_span, self.source);
         let subshell_test_group_spans =
@@ -3877,6 +3884,7 @@ impl<'a> LinterFactsBuilder<'a> {
             pipelines,
             lists,
             statement_facts,
+            background_semicolon_spans,
             single_test_subshell_spans,
             subshell_test_group_spans,
             indented_shebang_span: shebang_header_facts.indented_shebang_span,
@@ -5662,6 +5670,56 @@ fn position_at_offset(source: &str, target_offset: usize) -> Option<Position> {
         position.advance(ch);
     }
     Some(position)
+}
+
+fn build_background_semicolon_spans(
+    commands: &[CommandFact<'_>],
+    case_items: &[CaseItemFact<'_>],
+    source: &str,
+) -> Vec<Span> {
+    let case_terminator_starts = case_items
+        .iter()
+        .filter_map(CaseItemFact::terminator_span)
+        .map(|span| span.start.offset)
+        .collect::<FxHashSet<_>>();
+    let mut spans = commands
+        .iter()
+        .filter_map(|command| background_semicolon_span(command, &case_terminator_starts, source))
+        .collect::<Vec<_>>();
+    sort_and_dedup_spans(&mut spans);
+    spans
+}
+
+fn background_semicolon_span(
+    command: &CommandFact<'_>,
+    case_terminator_starts: &FxHashSet<usize>,
+    source: &str,
+) -> Option<Span> {
+    if command.stmt().terminator != Some(StmtTerminator::Background(BackgroundOperator::Plain)) {
+        return None;
+    }
+
+    let terminator_span = command.stmt().terminator_span?;
+    if terminator_span.slice(source) != "&" {
+        return None;
+    }
+
+    let semicolon_offset = source[terminator_span.end.offset..]
+        .char_indices()
+        .find_map(|(relative, ch)| match ch {
+            ' ' | '\t' | '\r' => None,
+            '\n' | '#' => Some(None),
+            ';' => Some(Some(terminator_span.end.offset + relative)),
+            _ => Some(None),
+        })??;
+
+    if case_terminator_starts.contains(&semicolon_offset) {
+        return None;
+    }
+
+    let start = position_at_offset(source, semicolon_offset)?;
+    let end = position_at_offset(source, semicolon_offset + 1)?;
+    Some(Span::from_positions(start, end))
 }
 
 fn build_plus_equals_assignment_spans(commands: &[CommandFact<'_>]) -> Vec<Span> {
@@ -18227,6 +18285,38 @@ mod tests {
             ShellDialect::Bash,
             visit,
         );
+    }
+
+    #[test]
+    fn background_semicolon_facts_report_plain_semicolons() {
+        let source = "#!/bin/bash\necho x &;\necho y & ;\n";
+
+        with_facts(source, None, |_, facts| {
+            let spans = facts.background_semicolon_spans();
+
+            assert_eq!(spans.len(), 2);
+            assert_eq!(spans[0].slice(source), ";");
+            assert_eq!(spans[0].start.line, 2);
+            assert_eq!(spans[1].slice(source), ";");
+            assert_eq!(spans[1].start.line, 3);
+        });
+    }
+
+    #[test]
+    fn background_semicolon_facts_ignore_case_item_terminators() {
+        let source = "\
+#!/bin/bash
+case ${1-} in
+  break) printf '%s\\n' ok &;;
+  spaced) printf '%s\\n' ok & ;;
+  fallthrough) printf '%s\\n' ok & ;&
+  continue) printf '%s\\n' ok & ;;&
+esac
+";
+
+        with_facts(source, None, |_, facts| {
+            assert!(facts.background_semicolon_spans().is_empty());
+        });
     }
 
     #[test]
