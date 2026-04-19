@@ -1,9 +1,8 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
-assertion_line: 132
 ---
 C076 line continuation is followed by a comment-only line
- --> <source>:3:3
+ --> <source>:3:11
   |
 3 |   #world \
   |

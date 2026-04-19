@@ -6512,40 +6512,32 @@ fn build_commented_continuation_comment_spans(source: &str, indexer: &Indexer) -
         .iter()
         .filter_map(|&line_start_offset| {
             let line = line_index.line_number(line_start_offset);
-            let previous_line = line.checked_sub(1)?;
-            let previous_line_text = line_index.line_range(previous_line, source)?.slice(source);
-            if continued_comment_line_is_safe(previous_line_text) {
-                return None;
-            }
             let comment = comment_index
                 .comments_on_line(line)
                 .iter()
                 .find(|comment| comment.is_own_line)?;
             let line_start = usize::from(line_index.line_start(line)?);
+            let line_end = usize::from(line_index.line_range(line, source)?.end());
             let comment_start = usize::from(comment.range.start());
-            if comment_start < line_start || comment_start > source.len() {
+            if comment_start < line_start || comment_start >= line_end || line_end > source.len() {
                 return None;
             }
+            let comment_text = &source[comment_start..line_end];
+            let trimmed_comment_text = comment_text.trim_end_matches([' ', '\t', '\r']);
+            if !trimmed_comment_text.ends_with('\\') {
+                return None;
+            }
+            let caret_offset = comment_start + trimmed_comment_text.len();
 
             let line_start_position = Position {
                 line,
                 column: 1,
                 offset: line_start,
             };
-            let start = line_start_position.advanced_by(&source[line_start..comment_start]);
-            let end = start.advanced_by("#");
-            Some(Span::from_positions(start, end))
+            let caret = line_start_position.advanced_by(&source[line_start..caret_offset]);
+            Some(Span::at(caret))
         })
         .collect()
-}
-
-fn continued_comment_line_is_safe(previous_line_text: &str) -> bool {
-    let text = previous_line_text
-        .trim_end()
-        .strip_suffix('\\')
-        .unwrap_or(previous_line_text.trim_end())
-        .trim_end();
-    matches!(text.chars().last(), Some('|')) || text.ends_with("&&") || text.ends_with("||")
 }
 
 fn build_trailing_directive_comment_spans(source: &str, indexer: &Indexer) -> Vec<Span> {
@@ -16860,6 +16852,32 @@ mod tests {
             ShellDialect::Bash,
             visit,
         );
+    }
+
+    #[test]
+    fn commented_continuation_facts_ignore_plain_comment_only_lines() {
+        let source = "#!/bin/sh\necho hello \\\n  #world\n  foo\n";
+
+        with_facts(source, None, |_, facts| {
+            assert!(facts.commented_continuation_comment_spans().is_empty());
+        });
+    }
+
+    #[test]
+    fn commented_continuation_facts_anchor_at_comment_backslash() {
+        let source = "#!/bin/sh\necho hello \\\n  #world \\\n  foo\n";
+
+        with_facts(source, None, |_, facts| {
+            let spans = facts.commented_continuation_comment_spans();
+            assert_eq!(spans.len(), 1);
+            assert_eq!(spans[0].start.line, 3);
+            assert_eq!(spans[0].start.column, 11);
+            assert_eq!(spans[0].start, spans[0].end);
+            assert_eq!(
+                &source[spans[0].start.offset - 1..spans[0].start.offset],
+                "\\"
+            );
+        });
     }
 
     #[test]
