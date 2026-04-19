@@ -2105,11 +2105,16 @@ impl SshCommandFacts {
 #[derive(Debug, Clone)]
 pub struct FindCommandFacts {
     pub has_print0: bool,
+    has_formatted_output_action: bool,
     or_without_grouping_spans: Box<[Span]>,
     glob_pattern_operand_spans: Box<[Span]>,
 }
 
 impl FindCommandFacts {
+    pub fn has_formatted_output_action(&self) -> bool {
+        self.has_formatted_output_action
+    }
+
     pub fn or_without_grouping_spans(&self) -> &[Span] {
         &self.or_without_grouping_spans
     }
@@ -16737,6 +16742,7 @@ fn is_find_exec_semicolon_terminator(word: &Word, source: &str) -> bool {
 
 fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
     let mut has_print0 = false;
+    let mut has_formatted_output_action = false;
     let mut or_without_grouping_spans = Vec::new();
     let mut glob_pattern_operand_spans = Vec::new();
     let mut group_stack = vec![FindGroupState::default()];
@@ -16767,6 +16773,7 @@ fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
 
         if text == "-print0" {
             has_print0 = true;
+            has_formatted_output_action = true;
         }
 
         if is_find_group_open_token(text.as_str()) {
@@ -16799,6 +16806,9 @@ fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
         }
 
         if is_find_branch_action_token(text.as_str()) {
+            if matches!(text.as_str(), "-fprint0" | "-printf" | "-fprintf") {
+                has_formatted_output_action = true;
+            }
             state.note_action(
                 word.span,
                 is_find_reportable_action_token(text.as_str()),
@@ -16816,6 +16826,7 @@ fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
 
     FindCommandFacts {
         has_print0,
+        has_formatted_output_action,
         or_without_grouping_spans: or_without_grouping_spans.into_boxed_slice(),
         glob_pattern_operand_spans: glob_pattern_operand_spans.into_boxed_slice(),
     }
@@ -20259,6 +20270,33 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
                 .collect::<Vec<_>>(),
             vec!["a-z", "A-Z"]
         );
+    }
+
+    #[test]
+    fn tracks_find_formatted_output_actions() {
+        let source = "\
+#!/bin/bash
+find . -print0 | xargs rm
+find . -printf '%h\\n' | xargs mv -t dest
+find . -print | xargs rm
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let find_facts = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("find"))
+            .filter_map(|fact| fact.options().find())
+            .collect::<Vec<_>>();
+
+        assert_eq!(find_facts.len(), 3);
+        assert!(find_facts[0].has_formatted_output_action());
+        assert!(find_facts[1].has_formatted_output_action());
+        assert!(!find_facts[2].has_formatted_output_action());
     }
 
     #[test]
