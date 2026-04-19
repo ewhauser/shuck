@@ -13197,12 +13197,14 @@ fn word_contains_shell_quoting_literals(word: &Word, source: &str) -> bool {
 
 fn word_parts_contain_shell_quoting_literals(parts: &[WordPartNode], source: &str) -> bool {
     parts.iter().any(|part| match &part.kind {
-        WordPart::Literal(text) => {
-            text_contains_shell_quoting_literals(text.as_str(source, part.span))
-        }
-        WordPart::SingleQuoted { value, .. } => {
-            text_contains_shell_quoting_literals(value.slice(source))
-        }
+        WordPart::Literal(text) => text_contains_shell_quoting_literals(
+            text.as_str(source, part.span),
+            ShellQuotingLiteralTextContext::ShellContinuationAware,
+        ),
+        WordPart::SingleQuoted { value, .. } => text_contains_shell_quoting_literals(
+            value.slice(source),
+            ShellQuotingLiteralTextContext::LiteralBackslashNewlines,
+        ),
         WordPart::DoubleQuoted { parts, .. } => {
             word_parts_contain_shell_quoting_literals(parts, source)
         }
@@ -13210,7 +13212,16 @@ fn word_parts_contain_shell_quoting_literals(parts: &[WordPartNode], source: &st
     })
 }
 
-fn text_contains_shell_quoting_literals(text: &str) -> bool {
+#[derive(Clone, Copy)]
+enum ShellQuotingLiteralTextContext {
+    ShellContinuationAware,
+    LiteralBackslashNewlines,
+}
+
+fn text_contains_shell_quoting_literals(
+    text: &str,
+    context: ShellQuotingLiteralTextContext,
+) -> bool {
     if text.contains(['"', '\'']) {
         return true;
     }
@@ -13227,10 +13238,14 @@ fn text_contains_shell_quoting_literals(text: &str) -> bool {
         while end < chars.len() && chars[end] == '\\' {
             end += 1;
         }
-        if chars
-            .get(end)
-            .is_some_and(|next| next.is_whitespace() || matches!(next, '"' | '\''))
-        {
+        if chars.get(end).is_some_and(|next| {
+            matches!(next, '"' | '\'')
+                || (next.is_whitespace()
+                    && (matches!(
+                        context,
+                        ShellQuotingLiteralTextContext::LiteralBackslashNewlines
+                    ) || !matches!(next, '\n' | '\r')))
+        }) {
             return true;
         }
 
@@ -19010,6 +19025,34 @@ mod tests {
             ShellDialect::Bash,
             visit,
         );
+    }
+
+    #[test]
+    fn assignment_value_facts_ignore_line_continuation_backslashes_for_shell_quoting_literals() {
+        let source = "#!/bin/bash\npackages=$foo\\\n$bar\nprintf '%s\\n' \"$packages\"\n";
+
+        with_facts(source, None, |_, facts| {
+            let fact = facts
+                .expansion_word_facts(ExpansionContext::AssignmentValue)
+                .next()
+                .expect("assignment value fact should exist");
+
+            assert!(!fact.contains_shell_quoting_literals());
+        });
+    }
+
+    #[test]
+    fn assignment_value_facts_keep_single_quoted_backslash_newlines_for_shell_quoting_literals() {
+        let source = "#!/bin/bash\npackages='foo\\\nbar'\nprintf '%s\\n' $packages\n";
+
+        with_facts(source, None, |_, facts| {
+            let fact = facts
+                .expansion_word_facts(ExpansionContext::AssignmentValue)
+                .next()
+                .expect("assignment value fact should exist");
+
+            assert!(fact.contains_shell_quoting_literals());
+        });
     }
 
     #[test]

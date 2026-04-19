@@ -230,4 +230,20 @@ fi\n";
             "Authorization: Signature version=\\\""
         );
     }
+
+    #[test]
+    fn reports_single_quoted_backslash_newline_values_reused_unquoted() {
+        let source = "\
+#!/bin/sh
+args='foo\\
+bar'\n\
+printf '%s\\n' $args\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "foo\\\nbar'");
+    }
 }
