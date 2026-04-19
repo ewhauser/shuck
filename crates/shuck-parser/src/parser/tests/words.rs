@@ -299,6 +299,34 @@ fn test_parse_escaped_command_substitution_stays_literal_in_double_quotes() {
 }
 
 #[test]
+fn test_parse_escaped_backslash_before_command_substitution_keeps_substitution_live() {
+    let input = "echo \"\\\\$(pwd)\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let word = &command.args[0];
+
+    let WordPart::DoubleQuoted { parts, .. } = &word.parts[0].kind else {
+        panic!("expected double-quoted word");
+    };
+    let slices: Vec<&str> = parts.iter().map(|part| part.span.slice(input)).collect();
+    assert_eq!(slices, vec![r#"\\"#, "$(pwd)"]);
+
+    let WordPart::Literal(text) = &parts[0].kind else {
+        panic!("expected literal backslash prefix");
+    };
+    assert_eq!(text.as_str(input, parts[0].span), r#"\"#);
+
+    let WordPart::CommandSubstitution { body, .. } = &parts[1].kind else {
+        panic!("expected live command substitution");
+    };
+    let inner = expect_simple(&body[0]);
+    assert_eq!(inner.name.render(input), "pwd");
+}
+
+#[test]
 fn test_parse_escaped_literal_before_command_substitution_keeps_following_substitution_live() {
     let input = "echo $VERSION\\_$(echo hi)\n";
     let script = Parser::new(input).parse().unwrap().file;

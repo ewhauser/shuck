@@ -82,4 +82,19 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "\"$fmt\"");
     }
+
+    #[test]
+    fn reports_command_substitution_formats_even_with_literal_backslash_prefixes() {
+        let source = "i=65\nkeyassoc=\"$( printf \"\\\\$(printf '%03o' \"$i\")\" )\"\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PrintfFormatVariable),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "\"\\\\$(printf '%03o' \"$i\")\""
+        );
+    }
 }
