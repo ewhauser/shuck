@@ -131,6 +131,36 @@ greet
     }
 
     #[test]
+    fn ignores_guarded_special_positional_parameters() {
+        let source = "\
+#!/bin/sh
+greet() { printf '%s\n' \"${@:-fallback}\"; }
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_nested_guarded_special_positional_parameters() {
+        let source = "\
+#!/bin/sh
+greet() { printf '%s\n' \"${name:-${@}}\"; }
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn ignores_functions_that_reset_positional_parameters() {
         let source = "\
 #!/bin/sh
@@ -287,6 +317,25 @@ greet
         assert_eq!(
             diagnostics[0].span.slice(source),
             "greet() {\n  printf '%s\n' \"$(printf '%s' \"$1\")\"\n}"
+        );
+    }
+
+    #[test]
+    fn backtick_substitutions_still_count_as_zero_arg_calls() {
+        let source = "\
+#!/bin/sh
+greet() { printf '%s\n' \"$1\"; }
+value=\"`greet`\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "greet() { printf '%s\n' \"$1\"; }"
         );
     }
 

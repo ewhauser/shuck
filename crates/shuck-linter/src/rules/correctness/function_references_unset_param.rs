@@ -40,19 +40,21 @@ pub fn function_references_unset_param(checker: &mut Checker) {
         let positional = checker
             .facts()
             .function_positional_parameter_facts(function_scope);
-        let required_arg_count = positional.required_arg_count();
-
-        if required_arg_count <= 1 || positional.resets_positional_parameters() {
+        if !positional.uses_positional_parameters() || positional.resets_positional_parameters() {
             continue;
         }
-        if !header.call_arity().called_only_without_args() {
+        let call_arity = header.call_arity();
+        if !call_arity.called_only_without_args() {
             continue;
         }
 
-        violations.push((
-            header.function_span_in_source(checker.source()),
-            name.to_string(),
-        ));
+        violations.extend(
+            call_arity
+                .zero_arg_call_spans()
+                .iter()
+                .copied()
+                .map(|span| (span, name.to_string())),
+        );
     }
 
     for (span, name) in violations {
@@ -66,7 +68,7 @@ mod tests {
     use crate::{LinterSettings, Rule};
 
     #[test]
-    fn reports_functions_called_with_too_few_arguments() {
+    fn reports_zero_argument_call_sites_for_functions_that_read_positional_parameters() {
         let source = "\
 #!/bin/sh
 greet() { echo \"$1 $2\"; }
@@ -78,10 +80,28 @@ greet
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(
-            diagnostics[0].span.slice(source),
-            "greet() { echo \"$1 $2\"; }"
+        assert_eq!(diagnostics[0].span.slice(source), "greet");
+        assert_eq!(diagnostics[0].span.start.line, 3);
+    }
+
+    #[test]
+    fn reports_each_zero_argument_call_site_when_all_calls_omit_arguments() {
+        let source = "\
+#!/bin/sh
+greet() { echo \"$1\"; }
+greet
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
         );
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.slice(source), "greet");
+        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[1].span.slice(source), "greet");
+        assert_eq!(diagnostics[1].span.start.line, 4);
     }
 
     #[test]
@@ -116,10 +136,30 @@ greet
     }
 
     #[test]
-    fn ignores_functions_with_only_one_required_argument() {
+    fn reports_functions_that_read_special_positional_parameters() {
         let source = "\
 #!/bin/sh
-greet() { echo \"$1\"; }
+usage() { echo \"usage: ${##*/} <files>\"; }
+usage
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "usage");
+        assert_eq!(diagnostics[0].span.start.line, 3);
+    }
+
+    #[test]
+    fn ignores_guarded_or_reset_positional_parameters() {
+        let source = "\
+#!/bin/sh
+greet() {
+  set -- hello
+  echo \"${1:-default}\" \"$#\"
+}
 greet
 ";
         let diagnostics = test_snippet(
@@ -131,13 +171,25 @@ greet
     }
 
     #[test]
-    fn ignores_guarded_or_reset_positional_parameters() {
+    fn ignores_guarded_special_positional_parameters() {
         let source = "\
 #!/bin/sh
-greet() {
-  set -- hello
-  echo \"${1:-default}\" \"$#\"
-}
+greet() { printf '%s\n' \"${@:-fallback}\"; }
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_nested_guarded_special_positional_parameters() {
+        let source = "\
+#!/bin/sh
+greet() { printf '%s\n' \"${name:-${@}}\"; }
 greet
 ";
         let diagnostics = test_snippet(
@@ -163,10 +215,8 @@ greet
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(
-            diagnostics[0].span.slice(source),
-            "greet() { echo \"$2\"; }"
-        );
+        assert_eq!(diagnostics[0].span.slice(source), "greet");
+        assert_eq!(diagnostics[0].span.start.line, 5);
     }
 
     #[test]
@@ -186,7 +236,8 @@ wrapper
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.slice(source), "foo() { echo \"$2\"; }");
+        assert_eq!(diagnostics[0].span.slice(source), "foo");
+        assert_eq!(diagnostics[0].span.start.line, 4);
     }
 
     #[test]
@@ -230,10 +281,8 @@ outer_with_args
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(
-            diagnostics[0].span.slice(source),
-            "inner() { echo \"$1 $2\"; }"
-        );
+        assert_eq!(diagnostics[0].span.slice(source), "inner");
+        assert_eq!(diagnostics[0].span.start.line, 4);
     }
 
     #[test]
@@ -251,10 +300,24 @@ greet
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(
-            diagnostics[0].span.slice(source),
-            "greet() {\n  printf '%s\n' \"$(printf '%s' \"$1 $2\")\"\n}"
+        assert_eq!(diagnostics[0].span.slice(source), "greet");
+        assert_eq!(diagnostics[0].span.start.line, 6);
+    }
+
+    #[test]
+    fn backtick_substitutions_still_count_as_zero_arg_calls() {
+        let source = "\
+#!/bin/sh
+greet() { printf '%s\n' \"$1 $2\"; }
+value=\"`greet`\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
         );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "greet");
     }
 
     #[test]
@@ -263,6 +326,40 @@ greet
 #!/bin/sh
 greet ok yes
 greet() { echo \"$1 $2\"; }
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn wrapper_resolved_targets_do_not_suppress_direct_zero_arg_reports() {
+        let source = "\
+#!/usr/bin/env bash
+greet() { echo \"$1 $2\"; }
+command greet ok yes
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "greet");
+        assert_eq!(diagnostics[0].span.start.line, 4);
+    }
+
+    #[test]
+    fn quoted_static_calls_with_arguments_still_suppress_zero_arg_reports() {
+        let source = "\
+#!/usr/bin/env bash
+greet() { echo \"$1 $2\"; }
+\"greet\" ok yes
 greet
 ";
         let diagnostics = test_snippet(
@@ -309,10 +406,8 @@ greet
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(
-            diagnostics[0].span.slice(source),
-            "greet() {\n  status=$(set -- hello world)\n  echo \"$2\"\n}"
-        );
+        assert_eq!(diagnostics[0].span.slice(source), "greet");
+        assert_eq!(diagnostics[0].span.start.line, 6);
     }
 
     #[test]
@@ -353,9 +448,44 @@ greet
         );
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(
-            diagnostics[0].span.slice(source),
-            "greet() {\n  printf '%s\n' 'hello world' | while read -r first second; do\n    set -- \"$first\" \"$second\"\n  done\n  echo \"$2\"\n}"
+        assert_eq!(diagnostics[0].span.slice(source), "greet");
+        assert_eq!(diagnostics[0].span.start.line, 9);
+    }
+
+    #[test]
+    fn ignores_dynamic_set_operands_that_reset_positional_parameters() {
+        let source = "\
+#!/bin/sh
+greet() {
+  line='hello world'
+  set $line
+  echo \"$2\"
+}
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
         );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_calls_with_arguments_inside_parameter_expansion_defaults() {
+        let source = "\
+#!/usr/bin/env bash
+GetBuildVersion() {
+  local build_revision=\"${1}\"
+  printf '%s\n' \"$build_revision\"
+}
+BUILD_VERSION=\"${BUILD_VERSION:-\"$(GetBuildVersion \"${BUILD_REVISION}\")\"}\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 }

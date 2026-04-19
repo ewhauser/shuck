@@ -17,6 +17,7 @@ pub fn positional_ten_braces(checker: &mut Checker) {
         .facts()
         .positional_parameter_fragments()
         .iter()
+        .filter(|fragment| fragment.is_above_nine())
         .map(|fragment| fragment.span())
         .collect::<Vec<_>>();
 
@@ -41,5 +42,14 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["$10", "$10"]
         );
+    }
+
+    #[test]
+    fn ignores_special_positional_parameter_expansions() {
+        let source = "#!/usr/bin/env bash\nprintf '%s\\n' \"${@:1}\" \"${*:1:2}\"\n";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::PositionalTenBraces));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 }

@@ -31,6 +31,7 @@ pub(super) struct SurfaceScanContext<'a> {
     assignment_target: Option<&'a str>,
     nested_word_command: bool,
     variable_set_operand: bool,
+    guarded_parameter_operand: bool,
     collect_open_double_quotes: bool,
     collect_pattern_charclasses: bool,
 }
@@ -56,6 +57,13 @@ impl<'a> SurfaceScanContext<'a> {
     pub(super) fn variable_set_operand(self) -> Self {
         Self {
             variable_set_operand: true,
+            ..self
+        }
+    }
+
+    pub(super) fn guarded_parameter_operand(self) -> Self {
+        Self {
+            guarded_parameter_operand: true,
             ..self
         }
     }
@@ -344,6 +352,8 @@ impl<'a> SurfaceFragmentSink<'a> {
                     .positional_parameters
                     .push(PositionalParameterFragmentFact {
                         span: part.span.merge(next_part.span),
+                        kind: PositionalParameterFragmentKind::AboveNine,
+                        guarded: context.guarded_parameter_operand,
                     });
             }
 
@@ -576,6 +586,8 @@ impl<'a> SurfaceFragmentSink<'a> {
                     .positional_parameters
                     .push(PositionalParameterFragmentFact {
                         span: part.span.merge(next_part.span),
+                        kind: PositionalParameterFragmentKind::AboveNine,
+                        guarded: context.guarded_parameter_operand,
                     });
             }
 
@@ -731,6 +743,19 @@ impl<'a> SurfaceFragmentSink<'a> {
         span: Span,
         context: SurfaceScanContext<'_>,
     ) {
+        let guarded_reference = context.guarded_parameter_operand
+            || parameter_expansion_guards_unset_reference(parameter);
+
+        self.record_special_positional_parameter(parameter, guarded_reference);
+        if span.slice(self.source).starts_with("${##") {
+            self.facts
+                .positional_parameters
+                .push(PositionalParameterFragmentFact {
+                    span,
+                    kind: PositionalParameterFragmentKind::General,
+                    guarded: guarded_reference,
+                });
+        }
         if is_nested_parameter_expansion(parameter, self.source) {
             self.facts
                 .nested_parameter_expansions
@@ -797,6 +822,39 @@ impl<'a> SurfaceFragmentSink<'a> {
         }
     }
 
+    fn record_special_positional_parameter(
+        &mut self,
+        parameter: &shuck_ast::ParameterExpansion,
+        guarded: bool,
+    ) {
+        let reference = match &parameter.syntax {
+            ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+                BourneParameterExpansion::Access { reference }
+                | BourneParameterExpansion::Length { reference }
+                | BourneParameterExpansion::Indices { reference }
+                | BourneParameterExpansion::Indirect { reference, .. }
+                | BourneParameterExpansion::Slice { reference, .. }
+                | BourneParameterExpansion::Operation { reference, .. }
+                | BourneParameterExpansion::Transformation { reference, .. } => Some(reference),
+                BourneParameterExpansion::PrefixMatch { .. } => None,
+            },
+            ParameterExpansionSyntax::Zsh(_) => None,
+        };
+
+        if let Some(reference) = reference
+            && reference.subscript.is_none()
+            && matches!(reference.name.as_str(), "@" | "*" | "#")
+        {
+            self.facts
+                .positional_parameters
+                .push(PositionalParameterFragmentFact {
+                    span: reference.span,
+                    kind: PositionalParameterFragmentKind::General,
+                    guarded,
+                });
+        }
+    }
+
     fn collect_parameter_operator_patterns(
         &mut self,
         operator: &ParameterOp,
@@ -832,7 +890,11 @@ impl<'a> SurfaceFragmentSink<'a> {
             | ParameterOp::AssignDefault
             | ParameterOp::UseReplacement
             | ParameterOp::Error => {
-                self.collect_fragment_word(operand_word_ast, operand, context);
+                self.collect_fragment_word(
+                    operand_word_ast,
+                    operand,
+                    context.guarded_parameter_operand(),
+                );
             }
             ParameterOp::UpperFirst
             | ParameterOp::UpperAll
@@ -897,6 +959,38 @@ fn heredoc_single_quote_is_escaped(text: &str, quote_offset: usize) -> bool {
     }
 
     !backslash_count.is_multiple_of(2)
+}
+
+fn parameter_expansion_guards_unset_reference(parameter: &shuck_ast::ParameterExpansion) -> bool {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(
+            BourneParameterExpansion::Operation { operator, .. }
+            | BourneParameterExpansion::Indirect {
+                operator: Some(operator),
+                ..
+            },
+        ) => parameter_operator_guards_unset_reference(operator),
+        ParameterExpansionSyntax::Bourne(
+            BourneParameterExpansion::Access { .. }
+            | BourneParameterExpansion::Length { .. }
+            | BourneParameterExpansion::Indices { .. }
+            | BourneParameterExpansion::Indirect { operator: None, .. }
+            | BourneParameterExpansion::PrefixMatch { .. }
+            | BourneParameterExpansion::Slice { .. }
+            | BourneParameterExpansion::Transformation { .. },
+        )
+        | ParameterExpansionSyntax::Zsh(_) => false,
+    }
+}
+
+fn parameter_operator_guards_unset_reference(operator: &ParameterOp) -> bool {
+    matches!(
+        operator,
+        ParameterOp::UseDefault
+            | ParameterOp::AssignDefault
+            | ParameterOp::UseReplacement
+            | ParameterOp::Error
+    )
 }
 
 fn parameter_has_array_reference(parameter: &shuck_ast::ParameterExpansion) -> bool {
