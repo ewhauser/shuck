@@ -215,6 +215,24 @@ greet
     }
 
     #[test]
+    fn ignores_functions_after_bare_set_plus_o() {
+        let source = "\
+#!/bin/sh
+greet() {
+  set +o
+  printf '%s\n' \"$1\"
+}
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn still_reports_functions_after_set_minus_option_toggle() {
         let source = "\
 #!/bin/sh
