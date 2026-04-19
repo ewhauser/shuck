@@ -15649,7 +15649,7 @@ fn parse_find_exec_argument_word_spans(args: &[&Word], source: &str) -> Vec<Span
         .filter_map(|(index, word)| {
             (static_word_text(word, source).as_deref() == Some("+")).then_some(index)
         })
-        .last();
+        .next_back();
     let terminator_index = semicolon_terminator_index.or(plus_terminator_index);
 
     args.iter()
