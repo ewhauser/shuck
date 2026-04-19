@@ -1,5 +1,5 @@
 use shuck_ast::{
-    ArithmeticExpr, Assignment, BinaryCommand, BourneParameterExpansion, ConditionalExpr,
+    ArithmeticExpr, Assignment, BinaryCommand, BourneParameterExpansion, CaseItem, ConditionalExpr,
     ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternGroupKind,
     PatternPart, Position, Redirect, Span, SubscriptSelector, VarRef, Word, WordPart, WordPartNode,
     ZshExpansionTarget,
@@ -225,6 +225,13 @@ pub fn word_unquoted_glob_pattern_spans(word: &Word, source: &str) -> Vec<Span> 
     let mut spans = Vec::new();
     collect_unquoted_glob_pattern_spans(&word.parts, source, false, &mut spans);
     spans
+}
+
+pub fn word_suspicious_bracket_glob_spans(word: &Word, source: &str) -> Vec<Span> {
+    word_unquoted_glob_pattern_spans(word, source)
+        .into_iter()
+        .filter(|span| suspicious_bracket_glob_text(span.slice(source)))
+        .collect()
 }
 
 pub fn word_has_unquoted_brace_expansion(word: &Word, source: &str) -> bool {
@@ -545,6 +552,23 @@ pub fn conditional_exactly_one_extglob_span(
     }
 }
 
+pub fn conditional_suspicious_bracket_glob_spans(
+    expression: &ConditionalExpr,
+    source: &str,
+) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_conditional_suspicious_bracket_glob_spans(expression, source, &mut spans);
+    spans
+}
+
+pub fn case_item_suspicious_bracket_glob_spans(item: &CaseItem, source: &str) -> Vec<Span> {
+    let mut spans = Vec::new();
+    for pattern in &item.patterns {
+        collect_pattern_suspicious_bracket_glob_spans(pattern, source, &mut spans);
+    }
+    spans
+}
+
 pub fn text_looks_like_caret_negated_bracket(text: &str) -> bool {
     let bytes = text.as_bytes();
     let mut index = 0usize;
@@ -610,6 +634,55 @@ fn collect_command_substitution_spans(parts: &[WordPartNode], spans: &mut Vec<Sp
             }
             WordPart::CommandSubstitution { .. } => spans.push(part.span),
             _ => {}
+        }
+    }
+}
+
+fn collect_conditional_suspicious_bracket_glob_spans(
+    expression: &ConditionalExpr,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match expression {
+        ConditionalExpr::Binary(expr) => {
+            collect_conditional_suspicious_bracket_glob_spans(&expr.left, source, spans);
+            collect_conditional_suspicious_bracket_glob_spans(&expr.right, source, spans);
+        }
+        ConditionalExpr::Unary(expr) => {
+            collect_conditional_suspicious_bracket_glob_spans(&expr.expr, source, spans);
+        }
+        ConditionalExpr::Parenthesized(expr) => {
+            collect_conditional_suspicious_bracket_glob_spans(&expr.expr, source, spans);
+        }
+        ConditionalExpr::Pattern(pattern) => {
+            collect_pattern_suspicious_bracket_glob_spans(pattern, source, spans);
+        }
+        ConditionalExpr::Word(_) | ConditionalExpr::Regex(_) | ConditionalExpr::VarRef(_) => {}
+    }
+}
+
+fn collect_pattern_suspicious_bracket_glob_spans(
+    pattern: &Pattern,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for (part, span) in pattern.parts_with_spans() {
+        match part {
+            PatternPart::Group { patterns, .. } => {
+                for pattern in patterns {
+                    collect_pattern_suspicious_bracket_glob_spans(pattern, source, spans);
+                }
+            }
+            PatternPart::Word(word) => {
+                spans.extend(word_suspicious_bracket_glob_spans(word, source))
+            }
+            PatternPart::CharClass(_) if suspicious_bracket_glob_text(span.slice(source)) => {
+                spans.push(span);
+            }
+            PatternPart::CharClass(_)
+            | PatternPart::Literal(_)
+            | PatternPart::AnyString
+            | PatternPart::AnyChar => {}
         }
     }
 }
@@ -1446,6 +1519,10 @@ fn literal_glob_pattern_spans(span: Span, source: &str) -> Vec<Span> {
             b'[' => {
                 let mut end = index + 1;
                 while end < bytes.len() {
+                    if let Some(named_end) = bracket_glob_named_class_end(bytes, end, bytes.len()) {
+                        end = named_end;
+                        continue;
+                    }
                     if bytes[end] == b'\\' {
                         end = (end + 2).min(bytes.len());
                         continue;
@@ -1467,6 +1544,105 @@ fn literal_glob_pattern_spans(span: Span, source: &str) -> Vec<Span> {
     }
 
     spans
+}
+
+fn suspicious_bracket_glob_text(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    if bytes.len() < 3 || bytes[0] != b'[' || *bytes.last().unwrap_or(&b'\0') != b']' {
+        return false;
+    }
+    if bracket_glob_is_named_class_without_outer_brackets(bytes) {
+        return false;
+    }
+
+    let mut seen = [false; 256];
+    let start = usize::from(matches!(bytes[1], b'!' | b'^')) + 1;
+    let mut index = start;
+    let end = bytes.len() - 1;
+
+    while index < end {
+        if let Some(next) = bracket_glob_named_class_end(bytes, index, bytes.len()) {
+            index = next;
+            continue;
+        }
+        if hyphen_is_range_separator(bytes, index, start, end) {
+            index += 1;
+            continue;
+        }
+
+        if bytes[index] == b'\\' {
+            if index + 1 >= end {
+                break;
+            }
+            let escaped = bytes[index + 1];
+            if seen[escaped as usize] {
+                return true;
+            }
+            seen[escaped as usize] = true;
+            index += 2;
+            continue;
+        }
+
+        let byte = bytes[index];
+        if seen[byte as usize] {
+            return true;
+        }
+        seen[byte as usize] = true;
+        index += 1;
+    }
+
+    false
+}
+
+fn bracket_glob_is_named_class_without_outer_brackets(bytes: &[u8]) -> bool {
+    if bytes.len() < 5 {
+        return false;
+    }
+
+    let kind = bytes[1];
+    if !matches!(kind, b':' | b'.' | b'=') {
+        return false;
+    }
+
+    bytes[bytes.len() - 2] == kind
+}
+
+fn bracket_glob_named_class_end(bytes: &[u8], start: usize, limit: usize) -> Option<usize> {
+    if start + 3 >= limit || bytes[start] != b'[' {
+        return None;
+    }
+
+    let kind = bytes[start + 1];
+    if !matches!(kind, b':' | b'.' | b'=') {
+        return None;
+    }
+
+    let mut index = start + 2;
+    while index + 1 < limit {
+        if bytes[index] == b'\\' {
+            index = (index + 2).min(limit);
+            continue;
+        }
+
+        if bytes[index] == kind && bytes[index + 1] == b']' {
+            return Some(index + 2);
+        }
+        index += 1;
+    }
+
+    None
+}
+
+fn hyphen_is_range_separator(bytes: &[u8], index: usize, start: usize, end: usize) -> bool {
+    if bytes[index] != b'-' || index == start || index + 1 >= end {
+        return false;
+    }
+
+    if bracket_glob_named_class_end(bytes, index + 1, bytes.len()).is_some() {
+        return false;
+    }
+
+    true
 }
 
 fn span_within_literal(span: Span, source: &str, start: usize, end: usize) -> Span {
@@ -2623,8 +2799,8 @@ mod tests {
         word_nested_dynamic_double_quote_spans, word_positional_at_splat_span_in_source,
         word_positional_at_splat_spans, word_quoted_all_elements_array_slice_spans,
         word_quoted_star_splat_spans, word_quoted_unindexed_bash_source_span_in_source,
-        word_unquoted_assign_default_spans, word_unquoted_escaped_pipe_or_brace_spans_in_source,
-        word_unquoted_glob_pattern_spans,
+        word_suspicious_bracket_glob_spans, word_unquoted_assign_default_spans,
+        word_unquoted_escaped_pipe_or_brace_spans_in_source, word_unquoted_glob_pattern_spans,
         word_unquoted_scalar_between_double_quoted_segments_spans, word_unquoted_star_splat_spans,
         word_unquoted_word_between_single_quoted_segments_spans,
     };
@@ -2861,6 +3037,57 @@ mod tests {
             word_unquoted_glob_pattern_spans(&command.args[2], source).is_empty(),
             "parameter longest-prefix operator tails should not be reported as pathname globs"
         );
+    }
+
+    #[test]
+    fn word_suspicious_bracket_glob_spans_track_duplicate_literal_members() {
+        let source = "\
+echo [appname] [1,2,3] [foo-bar] foo[aba]bar [start\\|stop\\|restart] \"$dir\"/[appname]
+";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let spans = command
+            .args
+            .iter()
+            .flat_map(|word| word_suspicious_bracket_glob_spans(word, source))
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            spans,
+            vec![
+                "[appname]",
+                "[1,2,3]",
+                "[foo-bar]",
+                "[aba]",
+                "[start\\|stop\\|restart]",
+                "[appname]"
+            ]
+        );
+    }
+
+    #[test]
+    fn word_suspicious_bracket_glob_spans_ignore_valid_sets_and_named_classes() {
+        let source = "\
+echo [ab] [a-z] [123] [1,2] [bar] [[:alpha:]] [![:digit:]] [:lower:] [a-zA-Z_] [0-9a-fA-F] foo[xyz]bar \\[appname\\]
+";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let spans = command
+            .args
+            .iter()
+            .flat_map(|word| word_suspicious_bracket_glob_spans(word, source))
+            .collect::<Vec<_>>();
+
+        assert!(spans.is_empty(), "spans: {spans:?}");
     }
 
     #[test]

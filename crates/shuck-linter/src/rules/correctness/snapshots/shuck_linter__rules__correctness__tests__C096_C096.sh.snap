@@ -1,15 +1,32 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
-assertion_line: 191
 ---
-C096 quote echo arguments that contain escaped pipes or braces
- --> <source>:4:17
+C096 bracket globs only match one character at a time; quote word-like ones
+ --> <source>:4:4
   |
-4 | echo usage: cmd [start\|stop\|restart]
+4 | foo[appname] arg
   |
 
-C096 quote echo arguments that contain escaped pipes or braces
- --> <source>:5:6
+C096 bracket globs only match one character at a time; quote word-like ones
+ --> <source>:5:17
   |
-5 | echo token\{on,off\}
+5 | echo usage: cmd [start\|stop\|restart]
+  |
+
+C096 bracket globs only match one character at a time; quote word-like ones
+ --> <source>:6:22
+  |
+6 | printf '%s\n' "$dir"/[appname]
+  |
+
+C096 bracket globs only match one character at a time; quote word-like ones
+ --> <source>:7:6
+  |
+7 | ITEM=[0,-1,1,-10,-20]
+  |
+
+C096 bracket globs only match one character at a time; quote word-like ones
+ --> <source>:8:32
+  |
+8 | cat <<EOF >/etc/systemd/system/[appname].service
   |

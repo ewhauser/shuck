@@ -543,8 +543,8 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::BraceVariableBeforeBracket) {
             rules::style::brace_variable_before_bracket::brace_variable_before_bracket(self);
         }
-        if self.is_rule_enabled(Rule::UnquotedPipeInEcho) {
-            rules::correctness::unquoted_pipe_in_echo::unquoted_pipe_in_echo(self);
+        if self.is_rule_enabled(Rule::SuspiciousBracketGlob) {
+            rules::correctness::suspicious_bracket_glob::suspicious_bracket_glob(self);
         }
         if self.is_rule_enabled(Rule::DefaultValueInColonAssign) {
             rules::style::default_value_in_colon_assign::default_value_in_colon_assign(self);

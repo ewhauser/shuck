@@ -225,7 +225,7 @@ declare_rules! {
         Severity::Warning,
         AssignmentLooksLikeComparison
     ),
-    ("C096", Category::Correctness, Severity::Warning, UnquotedPipeInEcho),
+    ("C096", Category::Correctness, Severity::Warning, SuspiciousBracketGlob),
     (
         "C097",
         Category::Correctness,
@@ -882,7 +882,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-193" => Some(Rule::ShebangNotOnFirstLine),
         "SH-223" => Some(Rule::DuplicateShebangFlag),
         "SH-224" => Some(Rule::AssignmentLooksLikeComparison),
-        "SH-225" => Some(Rule::UnquotedPipeInEcho),
+        "SH-225" => Some(Rule::SuspiciousBracketGlob),
         "SH-227" => Some(Rule::SuWithoutFlag),
         "SH-231" => Some(Rule::GlobAssignedToVariable),
         "SH-194" => Some(Rule::CommentedContinuationLine),
@@ -1262,8 +1262,8 @@ mod tests {
             code_to_rule("SH-224"),
             Some(Rule::AssignmentLooksLikeComparison)
         );
-        assert_eq!(code_to_rule("C096"), Some(Rule::UnquotedPipeInEcho));
-        assert_eq!(code_to_rule("SH-225"), Some(Rule::UnquotedPipeInEcho));
+        assert_eq!(code_to_rule("C096"), Some(Rule::SuspiciousBracketGlob));
+        assert_eq!(code_to_rule("SH-225"), Some(Rule::SuspiciousBracketGlob));
         assert_eq!(code_to_rule("SH-227"), Some(Rule::SuWithoutFlag));
         assert_eq!(code_to_rule("SH-240"), Some(Rule::UnquotedPathInMkdir));
         assert_eq!(code_to_rule("SH-195"), Some(Rule::SubshellInArithmetic));

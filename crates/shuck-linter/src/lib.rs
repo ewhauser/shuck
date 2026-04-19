@@ -44,8 +44,9 @@ pub use rules::common::expansion::{ExpansionContext, WordQuote};
 pub use rules::common::query::CommandSubstitutionKind;
 pub use rules::common::safe_value::{SafeValueIndex, SafeValueQuery};
 pub use rules::common::span::{
-    assignment_name_span, command_substitution_part_spans, conditional_array_subscript_span,
-    conditional_extglob_span, double_quoted_scalar_affix_span,
+    assignment_name_span, case_item_suspicious_bracket_glob_spans, command_substitution_part_spans,
+    conditional_array_subscript_span, conditional_extglob_span,
+    conditional_suspicious_bracket_glob_spans, double_quoted_scalar_affix_span,
     unescaped_backtick_command_substitution_span, word_all_elements_array_slice_span_in_source,
     word_all_elements_array_slice_spans, word_array_subscript_span,
     word_double_quoted_scalar_only_expansion_spans, word_extglob_span,
@@ -58,12 +59,12 @@ pub use rules::common::span::{
     word_nested_zsh_substitution_spans, word_positional_at_splat_span_in_source,
     word_positional_at_splat_spans, word_quoted_all_elements_array_slice_spans,
     word_quoted_star_splat_spans, word_quoted_unindexed_bash_source_span_in_source,
-    word_standalone_literal_backslash_span, word_unbraced_variable_before_bracket_spans,
-    word_unquoted_assign_default_spans, word_unquoted_escaped_pipe_or_brace_spans_in_source,
-    word_unquoted_glob_pattern_spans, word_unquoted_scalar_between_double_quoted_segments_spans,
-    word_unquoted_star_parameter_spans, word_unquoted_star_splat_spans,
-    word_unquoted_word_between_single_quoted_segments_spans, word_zsh_flag_modifier_spans,
-    word_zsh_nested_expansion_spans,
+    word_standalone_literal_backslash_span, word_suspicious_bracket_glob_spans,
+    word_unbraced_variable_before_bracket_spans, word_unquoted_assign_default_spans,
+    word_unquoted_escaped_pipe_or_brace_spans_in_source, word_unquoted_glob_pattern_spans,
+    word_unquoted_scalar_between_double_quoted_segments_spans, word_unquoted_star_parameter_spans,
+    word_unquoted_star_splat_spans, word_unquoted_word_between_single_quoted_segments_spans,
+    word_zsh_flag_modifier_spans, word_zsh_nested_expansion_spans,
 };
 pub use rules::common::word::{
     TestOperandClass, WordClassification, conditional_binary_op_is_string_match,

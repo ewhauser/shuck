@@ -1,5 +1,5 @@
 legacy_code: SH-225
-legacy_name: unquoted-pipe-in-echo
+legacy_name: suspicious-bracket-glob
 new_category: Correctness
 new_code: C096
 runtime_kind: ast
@@ -9,8 +9,8 @@ shells:
   - bash
   - dash
   - ksh
-description: Pipe and brace characters in an echo argument may be interpreted by the shell.
-rationale: Quote the argument to prevent special character interpretation.
+description: Bracket globs only match individual characters, not whole words or word-like lists.
+rationale: Quote bracketed text like `[appname]` when you mean it literally, or rewrite it as a real single-character pattern.
 source:
   shell_checks_rule: rules/SH-225.yaml
   shell_checks_example: examples/225.sh
@@ -20,3 +20,4 @@ examples:
     code: |
       #!/bin/sh
       echo usage: cmd [start\|stop\|restart]
+      pip3 install deluge[all] --upgrade
