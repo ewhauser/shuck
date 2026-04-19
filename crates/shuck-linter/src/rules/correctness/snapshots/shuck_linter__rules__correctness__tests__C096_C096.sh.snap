@@ -1,32 +1,39 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 286
 ---
 C096 bracket globs only match one character at a time; quote word-like ones
- --> <source>:4:4
+ --> <source>:4:1
   |
-4 | foo[appname] arg
-  |
-
-C096 bracket globs only match one character at a time; quote word-like ones
- --> <source>:5:17
-  |
-5 | echo usage: cmd [start\|stop\|restart]
+4 | [appname] arg
   |
 
 C096 bracket globs only match one character at a time; quote word-like ones
- --> <source>:6:22
+ --> <source>:5:4
   |
-6 | printf '%s\n' "$dir"/[appname]
-  |
-
-C096 bracket globs only match one character at a time; quote word-like ones
- --> <source>:7:6
-  |
-7 | ITEM=[0,-1,1,-10,-20]
+5 | foo[appname] arg
   |
 
 C096 bracket globs only match one character at a time; quote word-like ones
- --> <source>:8:32
+ --> <source>:6:17
   |
-8 | cat <<EOF >/etc/systemd/system/[appname].service
+6 | echo usage: cmd [start\|stop\|restart]
+  |
+
+C096 bracket globs only match one character at a time; quote word-like ones
+ --> <source>:7:22
+  |
+7 | printf '%s\n' "$dir"/[appname]
+  |
+
+C096 bracket globs only match one character at a time; quote word-like ones
+ --> <source>:8:6
+  |
+8 | ITEM=[0,-1,1,-10,-20]
+  |
+
+C096 bracket globs only match one character at a time; quote word-like ones
+ --> <source>:9:32
+  |
+9 | cat <<EOF >/etc/systemd/system/[appname].service
   |

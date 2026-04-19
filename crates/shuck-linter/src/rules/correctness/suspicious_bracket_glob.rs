@@ -74,7 +74,7 @@ fn supports_suspicious_bracket_glob_context(context: Option<ExpansionContext>) -
 }
 
 fn bare_bracket_test_name(text: &str) -> bool {
-    text.starts_with('[') && text.ends_with(']')
+    text == "["
 }
 
 #[cfg(test)]
@@ -86,6 +86,7 @@ mod tests {
     fn reports_suspicious_bracket_globs_across_shell_contexts() {
         let source = "\
 #!/bin/bash
+[appname] arg
 foo[appname] arg
 echo [skipped]
 printf '%s\\n' \"$dir\"/[appname]
@@ -108,6 +109,7 @@ case $x in [appname]) : ;; esac
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec![
+                "[appname]",
                 "[appname]",
                 "[skipped]",
                 "[appname]",
@@ -138,8 +140,7 @@ echo \"[appname]\"
 echo \\[appname\\]
 foo=${bar#[appname]}
 foo=${bar%[appname]}
-if [ \"$ARCH\" = \"x86_64\" ]; then [27/1847]
-fi
+if [ \"$ARCH\" = \"x86_64\" ]; then :; fi
 ";
         let diagnostics = test_snippet(
             source,

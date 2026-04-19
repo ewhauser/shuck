@@ -1,6 +1,7 @@
 #!/bin/sh
 
 # Should trigger: bracket globs that are trying to spell out whole words or lists
+[appname] arg
 foo[appname] arg
 echo usage: cmd [start\|stop\|restart]
 printf '%s\n' "$dir"/[appname]
