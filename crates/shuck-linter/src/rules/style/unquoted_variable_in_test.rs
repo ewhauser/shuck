@@ -1,6 +1,6 @@
 use crate::{
-    Checker, ExpansionContext, Rule, SimpleTestShape, SimpleTestSyntax, Violation,
-    WordFactContext, static_word_text,
+    Checker, ExpansionContext, Rule, SimpleTestShape, SimpleTestSyntax, Violation, WordFactContext,
+    static_word_text,
 };
 
 pub struct UnquotedVariableInTest;
