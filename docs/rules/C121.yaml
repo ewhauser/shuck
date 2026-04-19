@@ -5,12 +5,10 @@ new_code: C121
 runtime_kind: ast
 shellcheck_code: SC2309
 shells:
-  - sh
   - bash
-  - dash
   - ksh
-description: "A string value is compared using the numeric `-eq` operator."
-rationale: "Use `==` or `=` for string comparisons in test expressions."
+description: "A `[[ ... ]]` numeric comparison uses text instead of a number."
+rationale: "Use `=` or `!=` for text comparisons, or expand arithmetic expressions explicitly before comparing numerically."
 source:
   shell_checks_rule: rules/SH-288.yaml
   shell_checks_example: examples/288.sh

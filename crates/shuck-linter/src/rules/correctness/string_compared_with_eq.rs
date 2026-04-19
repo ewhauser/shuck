@@ -1,9 +1,9 @@
-use shuck_ast::{ConditionalBinaryOp, Span};
+use shuck_ast::{ConditionalBinaryOp, Name, Span};
+use shuck_semantic::{BindingAttributes, BindingKind};
 
 use crate::{
-    Checker, ConditionalNodeFact, ConditionalOperandFact, Rule, SimpleTestShape, Violation,
-    WordQuote, is_shell_variable_name, static_word_text,
-    text_looks_like_nontrivial_arithmetic_expression,
+    Checker, ConditionalNodeFact, ConditionalOperandFact, Rule, Violation, WordQuote,
+    is_shell_variable_name, static_word_text, text_is_self_contained_arithmetic_expression,
 };
 
 pub struct StringComparedWithEq;
@@ -14,7 +14,7 @@ impl Violation for StringComparedWithEq {
     }
 
     fn message(&self) -> String {
-        "this comparison uses `-eq` with a string value".to_owned()
+        "this numeric comparison uses text instead of a number".to_owned()
     }
 }
 
@@ -25,98 +25,113 @@ pub fn string_compared_with_eq(checker: &mut Checker) {
         .commands()
         .iter()
         .flat_map(|fact| {
-            let mut spans = Vec::new();
-            if let Some(simple_test) = fact.simple_test()
-                && let Some(span) = simple_test_string_eq_span(simple_test, source)
-            {
-                spans.push(span);
-            }
-            if let Some(conditional) = fact.conditional() {
-                spans.extend(conditional_string_eq_spans(conditional, source));
-            }
-            spans
+            fact.conditional()
+                .map(|conditional| conditional_string_eq_spans(checker, conditional, source))
+                .unwrap_or_default()
         })
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || StringComparedWithEq);
 }
 
-fn simple_test_string_eq_span(
-    simple_test: &crate::SimpleTestFact<'_>,
-    source: &str,
-) -> Option<Span> {
-    if simple_test.effective_shape() != SimpleTestShape::Binary {
-        return None;
-    }
-
-    let operands = simple_test.effective_operands();
-    if static_word_text(operands.get(1)?, source).as_deref() != Some("-eq") {
-        return None;
-    }
-
-    if simple_test_operand_looks_like_string_value(simple_test, 0, source)
-        || simple_test_operand_looks_like_string_value(simple_test, 2, source)
-    {
-        Some(operands[1].span)
-    } else {
-        None
-    }
-}
-
 fn conditional_string_eq_spans(
+    checker: &Checker<'_>,
     conditional: &crate::ConditionalFact<'_>,
     source: &str,
 ) -> Vec<Span> {
     conditional
         .nodes()
         .iter()
-        .filter_map(|node| match node {
+        .flat_map(|node| match node {
             ConditionalNodeFact::Binary(binary)
-                if binary.op() == ConditionalBinaryOp::ArithmeticEq =>
+                if matches!(
+                    binary.op(),
+                    ConditionalBinaryOp::ArithmeticEq | ConditionalBinaryOp::ArithmeticNe
+                ) =>
             {
-                if conditional_operand_looks_like_string_value(binary.left(), source)
-                    || conditional_operand_looks_like_string_value(binary.right(), source)
+                let mut spans = Vec::new();
+                if let Some(span) =
+                    conditional_operand_string_value_span(checker, binary.left(), source)
                 {
-                    Some(binary.operator_span())
-                } else {
-                    None
+                    spans.push(span);
                 }
+                if let Some(span) =
+                    conditional_operand_string_value_span(checker, binary.right(), source)
+                {
+                    spans.push(span);
+                }
+                spans
             }
-            _ => None,
+            _ => Vec::new(),
         })
         .collect()
 }
 
-fn simple_test_operand_looks_like_string_value(
-    simple_test: &crate::SimpleTestFact<'_>,
-    index: usize,
-    source: &str,
-) -> bool {
-    simple_test
-        .effective_operand_class(index)
-        .is_some_and(|class| class.is_fixed_literal())
-        && simple_test
-            .effective_operands()
-            .get(index)
-            .and_then(|word| static_word_text(word, source))
-            .is_some_and(|text| !looks_like_decimal_integer(&text))
-}
-
-fn conditional_operand_looks_like_string_value(
+fn conditional_operand_string_value_span(
+    checker: &Checker<'_>,
     operand: ConditionalOperandFact<'_>,
     source: &str,
-) -> bool {
+) -> Option<Span> {
     operand
         .word()
         .zip(operand.word_classification())
-        .is_some_and(|(word, classification)| {
-            classification.is_fixed_literal()
-                && static_word_text(word, source).is_some_and(|text| {
-                    !(looks_like_decimal_integer(&text)
-                        || text_looks_like_nontrivial_arithmetic_expression(&text)
-                        || (operand.quote() == Some(WordQuote::Unquoted)
-                            && is_shell_variable_name(&text)))
+        .and_then(|(word, classification)| {
+            classification
+                .is_fixed_literal()
+                .then_some(word)
+                .filter(|word| {
+                    static_word_text(word, source).is_some_and(|text| {
+                        operand_text_looks_like_string_value(
+                            checker,
+                            &text,
+                            operand.quote(),
+                            word.span,
+                        )
+                    })
                 })
+                .map(|word| word.span)
+        })
+}
+
+fn operand_text_looks_like_string_value(
+    checker: &Checker<'_>,
+    text: &str,
+    quote: Option<WordQuote>,
+    span: Span,
+) -> bool {
+    if looks_like_decimal_integer(text) {
+        return false;
+    }
+
+    if looks_like_defined_variable_name(checker, text, span) {
+        return false;
+    }
+
+    if !text_is_self_contained_arithmetic_expression(text) {
+        return true;
+    }
+
+    quote != Some(WordQuote::Unquoted) && text.trim().starts_with('(') && text.trim().ends_with(')')
+}
+
+fn looks_like_defined_variable_name(checker: &Checker<'_>, text: &str, span: Span) -> bool {
+    if !is_shell_variable_name(text) {
+        return false;
+    }
+
+    let name = Name::from(text);
+    checker
+        .semantic()
+        .bindings_for(&name)
+        .iter()
+        .copied()
+        .any(|binding_id| {
+            let binding = checker.semantic().binding(binding_id);
+            !matches!(binding.kind, BindingKind::FunctionDefinition)
+                && !binding
+                    .attributes
+                    .contains(BindingAttributes::IMPORTED_FUNCTION)
+                && binding.span.start.offset != span.start.offset
         })
 }
 
@@ -134,13 +149,15 @@ mod tests {
     use crate::{LinterSettings, Rule};
 
     #[test]
-    fn reports_string_values_compared_with_numeric_eq() {
+    fn reports_string_like_operands_in_double_bracket_numeric_comparisons() {
         let source = "\
 #!/bin/bash
 [[ $VER -eq \"latest\" ]]
-[ $VER -eq \"latest\" ]
 [[ \"latest\" -eq $VER ]]
-[ \"latest\" -eq $VER ]
+[[ foo -ne 3 ]]
+[[ 3 -eq bar ]]
+[[ foo -eq bar ]]
+[[ \"(1+2)\" -eq 3 ]]
 ";
         let diagnostics = test_snippet(
             source,
@@ -152,23 +169,51 @@ mod tests {
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["-eq", "-eq", "-eq", "-eq"]
+            vec![
+                "\"latest\"",
+                "\"latest\"",
+                "foo",
+                "bar",
+                "foo",
+                "bar",
+                "\"(1+2)\""
+            ]
         );
     }
 
     #[test]
-    fn ignores_numeric_and_non_eq_comparisons() {
+    fn ignores_single_bracket_and_numeric_arithmetic_comparisons() {
         let source = "\
 #!/bin/bash
-[[ 1 -eq 2 ]]
 [ 1 -eq 2 ]
+[[ 1 -eq 2 ]]
+[ $VER -eq \"latest\" ]
 [[ $VER = latest ]]
-[[ $VER -ne latest ]]
-[[ $VER -eq 123 ]]
-[ $VER -eq +123 ]
 [[ 1+2 -eq 3 ]]
+[[ (1+2) -eq 3 ]]
+[[ \"1+2\" -eq 3 ]]
 [[ \"1 + 2\" -eq 3 ]]
-[[ __iterator -eq 0 || -n \"${__next}\" ]]
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::StringComparedWithEq),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_operands_that_match_defined_variable_names() {
+        let source = "\
+#!/bin/bash
+[[ retval -ne 0 ]]
+retval=$?
+DISABLE_MENU=1
+[[ \"$LEGACY_JOY2KEY\" -eq 0 && \"DISABLE_MENU\" -ne 1 ]]
+__iterator=0
+while [[ __iterator -eq 0 || -n \"${__next}\" ]]; do
+  break
+done
 ";
         let diagnostics = test_snippet(
             source,

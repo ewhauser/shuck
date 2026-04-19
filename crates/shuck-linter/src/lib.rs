@@ -72,8 +72,9 @@ pub use rules::common::span::{
 };
 pub use rules::common::word::{
     TestOperandClass, WordClassification, conditional_binary_op_is_string_match,
-    is_shell_variable_name, static_word_text, text_looks_like_nontrivial_arithmetic_expression,
-    word_is_standalone_status_capture, word_is_standalone_variable_like,
+    is_shell_variable_name, static_word_text, text_is_self_contained_arithmetic_expression,
+    text_looks_like_nontrivial_arithmetic_expression, word_is_standalone_status_capture,
+    word_is_standalone_variable_like,
 };
 pub use settings::LinterSettings;
 pub use shell::ShellDialect;
