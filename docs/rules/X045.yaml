@@ -9,8 +9,8 @@ shells:
   - bash
   - dash
   - ksh
-description: "Uses `+=` style assignment in `sh`."
-rationale: Rewrite it as a normal assignment or string append.
+description: "Uses `+=` append assignment in a shell mode that does not guarantee it."
+rationale: Rewrite it as an ordinary assignment or explicit string append.
 source:
   shell_checks_rule: rules/SH-158.yaml
   shell_checks_example: examples/158.sh
@@ -21,3 +21,8 @@ examples:
       #!/bin/sh
       x=1
       x+=64
+  - kind: invalid
+    source: shell-checks/examples/271.sh
+    code: |
+      #!/bin/sh
+      x+="hello"

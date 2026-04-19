@@ -1,27 +1,32 @@
 ---
 source: crates/shuck-linter/src/rules/portability/mod.rs
-assertion_line: 32
 ---
 X046 extended glob syntax in test operands is not portable to POSIX sh
- --> <source>:2:8
+ --> <source>:2:16
   |
-2 | [ "$x" = (foo|bar)* ]
+2 | if [[ $term == @(xterm|screen)* ]]; then :; fi
   |
 
 X046 extended glob syntax in test operands is not portable to POSIX sh
  --> <source>:3:10
   |
-3 | [ "$x" = @(foo) ]
+3 | [ "$x" = @(foo|bar) ]
   |
 
 X046 extended glob syntax in test operands is not portable to POSIX sh
- --> <source>:4:10
+ --> <source>:4:8
   |
-4 | [ "$x" = !(name) ]
+4 | [ "$x" = (foo|bar)* ]
   |
 
 X046 extended glob syntax in test operands is not portable to POSIX sh
- --> <source>:7:10
+ --> <source>:5:10
   |
-7 | [ "$x" = @(foo|bar) ]
+5 | [ "$x" = @(foo) ]
+  |
+
+X046 extended glob syntax in test operands is not portable to POSIX sh
+ --> <source>:6:10
+  |
+6 | [ "$x" = !(name) ]
   |

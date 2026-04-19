@@ -423,9 +423,6 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::PlusEqualsAppend) {
             rules::portability::plus_equals_append::plus_equals_append(self);
         }
-        if self.is_rule_enabled(Rule::PlusEqualsInSh) {
-            rules::portability::plus_equals_in_sh::plus_equals_in_sh(self);
-        }
         if self.is_rule_enabled(Rule::ArrayKeysInSh) {
             rules::portability::array_keys_in_sh::array_keys_in_sh(self);
         }
@@ -919,9 +916,6 @@ impl<'a> Checker<'a> {
         }
         if self.is_rule_enabled(Rule::IfElifBashTest) {
             rules::portability::conditional_portability::if_elif_bash_test(self);
-        }
-        if self.is_rule_enabled(Rule::ExtendedGlobInTest) {
-            rules::portability::conditional_portability::extended_glob_in_test(self);
         }
         if self.is_rule_enabled(Rule::ExtglobInSh) {
             rules::portability::conditional_portability::extglob_in_sh(self);

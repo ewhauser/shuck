@@ -20835,19 +20835,11 @@ test -O \"$file\"
             );
             assert_eq!(
                 portability
-                    .extended_glob_in_test()
-                    .iter()
-                    .map(|span| span.slice(source))
-                    .collect::<Vec<_>>(),
-                vec!["@(linux|freebsd)"]
-            );
-            assert_eq!(
-                portability
                     .extglob_in_test()
                     .iter()
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
-                vec!["@(foo|bar)"]
+                vec!["@(linux|freebsd)", "@(foo|bar)"]
             );
             assert_eq!(
                 portability

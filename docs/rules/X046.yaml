@@ -9,15 +9,21 @@ shells:
   - bash
   - dash
   - ksh
-description: An extended glob pattern appears inside a test bracket.
-rationale: Quote or restructure the pattern to avoid parsing ambiguity.
+description: An extended glob pattern appears inside a test expression.
+rationale: Rewrite the condition with a portable pattern or a `case` statement.
 source:
   shell_checks_rule: rules/SH-174.yaml
   shell_checks_example: examples/174.sh
 examples:
   - kind: invalid
+    source: shell-checks/examples/101.sh
+    code: |
+      #!/bin/sh
+      if [[ $term == @(xterm|screen)* ]]; then
+        :
+      fi
+  - kind: invalid
     source: shell-checks/examples/174.sh
     code: |
-      #!/bin/bash
-      # shellcheck disable=1009,1072,1073,1027
-      if [[ "$x" == (foo|bar)* ]]; then echo ok; fi
+      #!/bin/sh
+      [ "$x" = (foo|bar)* ]
