@@ -1,6 +1,5 @@
-use shuck_ast::{Assignment, AssignmentValue, BuiltinCommand, Command, DeclOperand, Span};
-
-use crate::{Checker, ExpansionContext, Rule, Violation, WordFactContext};
+use crate::rules::correctness::shell_quoting_reuse::analyze_shell_quoting_reuse;
+use crate::{Checker, Rule, Violation};
 
 pub struct AppendWithEscapedQuotes;
 
@@ -10,113 +9,14 @@ impl Violation for AppendWithEscapedQuotes {
     }
 
     fn message(&self) -> String {
-        "escaped quotes in `+=` text will stay literal".to_owned()
+        "quotes or backslashes stored in this value will stay literal on reuse".to_owned()
     }
 }
 
 pub fn append_with_escaped_quotes(checker: &mut Checker) {
-    let source = checker.source();
-    let spans = checker
-        .facts()
-        .commands()
-        .iter()
-        .flat_map(|fact| command_assignment_spans(checker, fact.command(), source))
-        .collect::<Vec<_>>();
-
-    checker.report_all_dedup(spans, || AppendWithEscapedQuotes);
-}
-
-fn command_assignment_spans(checker: &Checker<'_>, command: &Command, source: &str) -> Vec<Span> {
-    match command {
-        Command::Simple(command) => command
-            .assignments
-            .iter()
-            .filter_map(|assignment| {
-                escaped_quote_append_span(
-                    checker,
-                    assignment,
-                    source,
-                    WordFactContext::Expansion(ExpansionContext::AssignmentValue),
-                )
-            })
-            .collect(),
-        Command::Builtin(command) => builtin_assignments(command)
-            .iter()
-            .filter_map(|assignment| {
-                escaped_quote_append_span(
-                    checker,
-                    assignment,
-                    source,
-                    WordFactContext::Expansion(ExpansionContext::AssignmentValue),
-                )
-            })
-            .collect(),
-        Command::Decl(command) => command
-            .assignments
-            .iter()
-            .chain(command.operands.iter().filter_map(|operand| match operand {
-                DeclOperand::Assignment(assignment) => Some(assignment),
-                DeclOperand::Flag(_) | DeclOperand::Name(_) | DeclOperand::Dynamic(_) => None,
-            }))
-            .filter_map(|assignment| {
-                escaped_quote_append_span(
-                    checker,
-                    assignment,
-                    source,
-                    WordFactContext::Expansion(ExpansionContext::DeclarationAssignmentValue),
-                )
-            })
-            .collect(),
-        Command::Binary(_)
-        | Command::Compound(_)
-        | Command::Function(_)
-        | Command::AnonymousFunction(_) => Vec::new(),
-    }
-}
-
-fn builtin_assignments(command: &BuiltinCommand) -> &[Assignment] {
-    match command {
-        BuiltinCommand::Break(command) => &command.assignments,
-        BuiltinCommand::Continue(command) => &command.assignments,
-        BuiltinCommand::Return(command) => &command.assignments,
-        BuiltinCommand::Exit(command) => &command.assignments,
-    }
-}
-
-fn escaped_quote_append_span(
-    checker: &Checker<'_>,
-    assignment: &Assignment,
-    source: &str,
-    context: WordFactContext,
-) -> Option<Span> {
-    if !assignment.append || assignment.target.subscript.is_some() {
-        return None;
-    }
-
-    let AssignmentValue::Scalar(word) = &assignment.value else {
-        return None;
-    };
-
-    let fact = checker.facts().word_fact(word.span, context)?;
-    let classification = fact.classification();
-    let text = word.span.slice(source);
-    let first = text.find("\\\"")?;
-    if !classification.has_scalar_expansion() || classification.has_command_substitution() {
-        return None;
-    }
-    if !has_later_unquoted_command_argument_use(checker, assignment) {
-        return None;
-    }
-
-    let end = word.span.start.advanced_by(&text[..first + 2]);
-    Some(Span::from_positions(word.span.start, end))
-}
-
-fn has_later_unquoted_command_argument_use(checker: &Checker<'_>, assignment: &Assignment) -> bool {
-    checker.facts().has_later_unquoted_command_argument_use(
-        &assignment.target.name,
-        assignment.target.name_span.start.offset,
-    )
+    checker.report_all_dedup(analyze_shell_quoting_reuse(checker).assignment_spans, || {
+        AppendWithEscapedQuotes
+    });
 }
 
 #[cfg(test)]
@@ -125,87 +25,211 @@ mod tests {
     use crate::{LinterSettings, Rule};
 
     #[test]
-    fn reports_escaped_quote_segments_in_append_assignments() {
+    fn reports_assignment_sites_for_shell_encoded_values() {
         let source = "\
 #!/bin/sh
-CFLAGS+=\" -DDIR=\\\"$PREFIX/share/\\\"\"\n\
+args='--name \"hello world\"'\n\
+copy=$args\n\
+printf '%s\\n' $copy\n\
+CFLAGS=\" -DDIR=\\\"$PREFIX/share/\\\"\"\n\
 $CC $CFLAGS -c test.c -o test.o\n";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes),
         );
 
+        let spans = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.span.slice(source).to_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            spans,
+            vec![
+                "'--name \"hello world\"'",
+                " -DDIR=\\\"",
+            ]
+        );
+    }
+
+    #[test]
+    fn ignores_safe_assignments_without_unsafe_reuse() {
+        let source = "\
+#!/bin/sh
+args='--name \"hello world\"'\n\
+printf '%s\\n' \"$args\"\n\
+toolchain=\"--llvm-targets-to-build='X86;ARM;AArch64'\"\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_eval_only_reuse_sites() {
+        let source = "\
+#!/bin/bash
+cmd='printf \"hello world\"'\n\
+eval $cmd\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_assignments_reused_by_export_and_here_strings() {
+        let source = "\
+#!/bin/bash
+args='--name \"hello world\"'\n\
+export args\n\
+cat <<< $args\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes),
+        );
+
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.slice(source), "\" -DDIR=\\\"");
+        assert_eq!(diagnostics[0].span.slice(source), "'--name \"hello world\"'");
     }
 
     #[test]
-    fn ignores_non_append_and_non_escaped_quote_assignments() {
+    fn anchors_multiline_literal_runs_before_the_next_expansion() {
         let source = "\
 #!/bin/sh
-CFLAGS=\" -DDIR=\\\"$PREFIX/share/\\\"\"\nCFLAGS+=\" -DDIR=$PREFIX/share/\"\nCFLAGS+=\" -DDIR=\\\"arm\\\"\"\nshell+=$(printf '%s' \"\\\"$PREFIX\\\"\")\n";
+BUILDARCH=x86_64\n\
+_USE_INTERNAL_LIBS=1\n\
+PKG=/tmp/pkg\n\
+MAKE_ARGS=\"ARCH=$BUILDARCH \\\n\
+USE_INTERNAL_LIBS=${_USE_INTERNAL_LIBS} \\\n\
+USE_CODEC_VORBIS=1 \\\n\
+USE_CODEC_OPUS=1 \\\n\
+USE_FREETYPE=1 \\\n\
+COPYDIR=\\\"$PKG/usr/share/games/rtcw\\\"\"\n\
+make $MAKE_ARGS release\n";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes),
         );
 
-        assert!(diagnostics.is_empty());
-    }
-
-    #[test]
-    fn ignores_append_strings_only_reused_as_quoted_arguments() {
-        let source = "\
-#!/bin/bash
-GO_LDFLAGS=\"\"
-GO_LDFLAGS+=\" -X \\\"main.GitVersion=$VERSION\\\"\"\n\
-go build -ldflags \"$GO_LDFLAGS\"\n";
-        let diagnostics = test_snippet(
-            source,
-            &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes),
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            " \\\nUSE_CODEC_VORBIS=1 \\\nUSE_CODEC_OPUS=1 \\\nUSE_FREETYPE=1 \\\nCOPYDIR=\\\""
         );
-
-        assert!(diagnostics.is_empty());
     }
 
     #[test]
-    fn ignores_escaped_quote_appends_without_later_unquoted_argument_use() {
+    fn keeps_literal_prefixes_that_end_right_before_an_expansion() {
         let source = "\
 #!/bin/sh
-echo $CFLAGS
-CFLAGS+=\" -DDIR=\\\"$PREFIX/share/\\\"\"\n\
-printf '%s\\n' \"$CFLAGS\"\n";
+category=dev-lang\n\
+pkg=ocaml\n\
+slot=0\n\
+tobuildstr=\"\\\">=$category/$pkg:$slot\\\" $tobuildstr\"\n\
+echo Building $tobuildstr\n";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes),
         );
 
-        assert!(diagnostics.is_empty());
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "\\\">=");
     }
 
     #[test]
-    fn ignores_quoted_uses_in_earlier_unquoted_command_substitutions() {
+    fn trims_single_quoted_prefixes_before_mixed_expansion_fragments() {
         let source = "\
-#!/bin/bash
-echo $(CFLAGS+=\" -DDIR=\\\"$PREFIX/share/\\\"\"; printf '%s\\n' \"$CFLAGS\")\n";
+#!/bin/sh
+is_outbounds='outbounds:[{tag:'\\\"$is_config_name\\\"',protocol:'\\\"$is_protocol\\\"'}'\n\
+printf '%s\\n' $is_outbounds\n";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes),
         );
 
-        assert!(diagnostics.is_empty());
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "\\\"");
     }
 
     #[test]
-    fn ignores_subscripted_appends() {
+    fn keeps_single_quoted_shell_fragments_intact_when_dollar_text_is_literal() {
         let source = "\
-#!/bin/bash
-DEPENDENTS[0]+=\" --slave \\\"$prefix/bin/tool\\\" \\\"tool\\\" \\\"$prefix/bin/tool-real\\\"\"\n\
-printf '%s\\n' \"${DEPENDENTS[0]}\"\n";
+#!/bin/sh
+as_echo_body='eval expr \"X$1\" : \"X\\\\(.*\\\\)\"'\n\
+sh -c $as_echo_body\n";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes),
         );
 
-        assert!(diagnostics.is_empty());
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "'eval expr \"X$1\" : \"X\\\\(.*\\\\)\"'"
+        );
+    }
+
+    #[test]
+    fn keeps_double_quoted_prefixes_that_store_single_quoted_arguments() {
+        let source = "\
+#!/bin/sh
+HW=\"-DDEVICES='$DEVICES'\"\n\
+make $HW\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "-DDEVICES='");
+    }
+
+    #[test]
+    fn keeps_double_quoted_prefixes_that_wrap_project_closure_arguments() {
+        let source = "\
+#!/bin/sh
+OPTS=\"${OPTS} -c '${CONF_FILE}'\"\n\
+exec udevmon ${OPTS}\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), " -c '");
+    }
+
+    #[test]
+    fn reports_shell_encoded_values_reexported_through_repeated_export_targets() {
+        let source = "\
+#!/bin/sh
+mode=PATCH\n\
+sig_version=v1\n\
+sig_key_id=v2\n\
+sig_alg=v3\n\
+sig_headers=v4\n\
+signed=\"Authorization: Signature version=\\\"$sig_version\\\",keyId=\\\"$sig_key_id\\\",algorithm=\\\"$sig_alg\\\",headers=\\\"$sig_headers\\\"\"\n\
+if [ \"$mode\" = GET ]; then\n\
+  export _H2=\"$signed\"\n\
+  printf '%s\\n' ok\n\
+elif [ \"$mode\" = PATCH ]; then\n\
+  # shellcheck disable=SC2090\n\
+  export _H2=y\n\
+  printf '%s\\n' ok\n\
+fi\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "Authorization: Signature version=\\\""
+        );
     }
 }

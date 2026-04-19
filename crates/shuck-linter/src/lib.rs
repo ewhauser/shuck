@@ -61,6 +61,7 @@ pub use rules::common::span::{
     word_nested_zsh_substitution_spans, word_positional_at_splat_span_in_source,
     word_positional_at_splat_spans, word_quoted_all_elements_array_slice_spans,
     word_quoted_star_splat_spans, word_quoted_unindexed_bash_source_span_in_source,
+    word_shell_quoting_literal_span,
     word_standalone_literal_backslash_span, word_suspicious_bracket_glob_spans,
     word_unbraced_variable_before_bracket_spans, word_unquoted_assign_default_spans,
     word_unquoted_escaped_pipe_or_brace_spans_in_source, word_unquoted_glob_pattern_spans,

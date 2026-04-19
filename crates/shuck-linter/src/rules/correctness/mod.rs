@@ -98,6 +98,7 @@ pub mod redirect_clobbers_input;
 pub mod redirect_to_command_name;
 pub mod script_scope_local;
 pub mod set_flags_without_dashes;
+mod shell_quoting_reuse;
 pub mod shebang_not_on_first_line;
 pub mod single_quoted_literal;
 pub mod space_after_hash_bang;

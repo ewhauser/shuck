@@ -1,8 +1,9 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 287
 ---
-C130 escaped quotes in `+=` text will stay literal
- --> <source>:4:10
+C130 quotes or backslashes stored in this value will stay literal on reuse
+ --> <source>:4:11
   |
 4 | 	CFLAGS+=" -DDIR=\"$PREFIX/share/\""
   |

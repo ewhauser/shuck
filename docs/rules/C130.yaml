@@ -9,8 +9,8 @@ shells:
   - bash
   - dash
   - ksh
-description: "A `+=` string append contains escaped quotes that may not behave as intended."
-rationale: Build the string with a separate assignment or use single quotes.
+description: "An assignment stores shell-style quotes or escapes that later expansion will not re-parse."
+rationale: Build argv with arrays, `set --`, or helper functions instead of storing shell quoting in a scalar.
 source:
   shell_checks_rule: rules/SH-307.yaml
   shell_checks_example: examples/307.sh
