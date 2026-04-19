@@ -2,7 +2,7 @@
 source: crates/shuck-linter/src/rules/correctness/mod.rs
 assertion_line: 159
 ---
-C147 reserved word is used as a function name
+C147 function keyword without trailing `()` is not portable in `sh` scripts
  --> <source>:2:10
   |
 2 | function for { :; }

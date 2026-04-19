@@ -1366,7 +1366,7 @@ impl ShellDialect {
                 double_bracket: false,
                 arithmetic_command: false,
                 arithmetic_for: false,
-                function_keyword: false,
+                function_keyword: true,
                 select_loop: false,
                 coproc_keyword: false,
                 zsh_repeat_loop: false,

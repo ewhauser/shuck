@@ -6,11 +6,9 @@ runtime_kind: ast
 shellcheck_code: SC2113
 shells:
   - sh
-  - bash
   - dash
-  - ksh
-description: A reserved shell word is written as a function name.
-rationale: Use a non-keyword name for the function.
+description: The `function` keyword is used without trailing `()` in a `sh`-style script.
+rationale: Define shell functions with the plain `name() { ...; }` form instead.
 source:
   shell_checks_rule: rules/SH-336.yaml
   shell_checks_example: examples/336.sh

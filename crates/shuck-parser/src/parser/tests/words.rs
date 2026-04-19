@@ -369,6 +369,34 @@ fn test_function_keyword_without_parens_preserves_surface_form() {
 }
 
 #[test]
+fn test_posix_function_keyword_without_parens_preserves_surface_form() {
+    let input = "function inc { :; }\n";
+    let script = Parser::with_dialect(input, ShellDialect::Posix)
+        .parse()
+        .unwrap()
+        .file;
+
+    let function = expect_function(&script.body[0]);
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group function body");
+    };
+
+    assert!(function.uses_function_keyword());
+    assert!(!function.has_name_parens());
+    assert_eq!(
+        function
+            .header
+            .function_keyword_span
+            .map(|span| span.slice(input)),
+        Some("function")
+    );
+    assert_eq!(function.header.trailing_parens_span, None);
+    assert!(redirects.is_empty());
+    assert_eq!(body.len(), 1);
+}
+
+#[test]
 fn test_function_keyword_with_parens_preserves_surface_form() {
     let input = "function inc() { :; }\n";
     let script = Parser::new(input).parse().unwrap().file;
