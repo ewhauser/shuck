@@ -660,4 +660,21 @@ esac
         assert!(!index.is_suppressed(Rule::UnquotedExpansion, 2));
         assert!(!index.is_suppressed(Rule::UnquotedExpansion, 3));
     }
+
+    #[test]
+    fn scopes_case_label_directives_inside_command_substitution_arguments() {
+        let source = "\
+printf '%s\\n' \"$(
+  case $x in
+    on) # shellcheck disable=SC2086
+      echo $foo
+      ;;
+  esac
+  echo $bar
+)\"\n";
+        let index = suppression_index(source);
+
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 4));
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 7));
+    }
 }

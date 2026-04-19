@@ -21,27 +21,21 @@ pub fn quoted_dollar_star_loop(checker: &mut Checker) {
         .facts()
         .for_headers()
         .iter()
-        .filter(|header| {
-            header.words().iter().all(|word| {
+        .flat_map(|header| {
+            header.words().iter().filter_map(|word| {
                 let classification = word.classification();
                 if classification.quote != WordQuote::FullyQuoted
                     || classification.is_fixed_literal()
                     || !all_elements_array_expansion_part_spans(word.word(), source).is_empty()
                 {
-                    return false;
+                    return None;
                 }
 
-                classification.has_command_substitution()
+                (classification.has_command_substitution()
                     || !word_double_quoted_scalar_only_expansion_spans(word.word()).is_empty()
-                    || !word_quoted_star_splat_spans(word.word()).is_empty()
+                    || !word_quoted_star_splat_spans(word.word()).is_empty())
+                .then_some(word.span())
             })
-        })
-        .flat_map(|header| {
-            header
-                .words()
-                .iter()
-                .map(|word| word.span())
-                .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
 
@@ -82,6 +76,28 @@ done
                 "\"${arr[*]}\"",
                 "\"x$*y\""
             ]
+        );
+    }
+
+    #[test]
+    fn reports_problematic_words_in_mixed_loop_lists() {
+        let source = "\
+#!/bin/bash
+for item in \"$var\" literal \"$@\" \"$*\"; do
+  :
+done
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedDollarStarLoop),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["\"$var\"", "\"$*\""]
         );
     }
 
