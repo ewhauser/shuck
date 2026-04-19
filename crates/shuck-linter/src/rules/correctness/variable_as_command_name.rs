@@ -167,11 +167,45 @@ normalize() {
     }
 
     #[test]
+    fn reports_bracket_v_tests_when_the_latest_binding_is_local() {
+        let source = "\
+#!/bin/bash
+normalize() {
+  local args='--name \"hello world\"'
+}
+[ -v args ]
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::VariableAsCommandName),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "args");
+    }
+
+    #[test]
     fn ignores_bracket_v_tests_when_the_first_quoted_assignment_comes_later() {
         let source = "\
 #!/bin/bash
 [ -v args ]
 args='--name \"hello world\"'
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::VariableAsCommandName),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_bracket_v_tests_after_a_later_safe_assignment() {
+        let source = "\
+#!/bin/bash
+args='--name \"hello world\"'
+args=safe
+[ -v args ]
 ";
         let diagnostics = test_snippet(
             source,

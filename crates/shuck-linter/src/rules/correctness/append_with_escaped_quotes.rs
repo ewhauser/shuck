@@ -288,6 +288,22 @@ fi\n";
     }
 
     #[test]
+    fn ignores_bracket_v_tests_after_a_later_safe_assignment() {
+        let source = "\
+#!/bin/bash
+args='--name \"hello world\"'
+args=safe
+[ -v args ]
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::AppendWithEscapedQuotes),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn reports_single_quoted_backslash_newline_values_reused_unquoted() {
         let source = "\
 #!/bin/sh
