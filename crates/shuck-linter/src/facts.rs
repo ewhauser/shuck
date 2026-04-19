@@ -2364,10 +2364,19 @@ impl FunctionPositionalParameterFacts {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExprStringHelperKind {
+    Length,
+    Index,
+    Match,
+    Substr,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct ExprCommandFacts {
     pub uses_arithmetic_operator: bool,
-    uses_substr_string_form: bool,
+    string_helper_kind: Option<ExprStringHelperKind>,
+    string_helper_span: Option<Span>,
 }
 
 impl ExprCommandFacts {
@@ -2375,8 +2384,16 @@ impl ExprCommandFacts {
         self.uses_arithmetic_operator
     }
 
+    pub fn string_helper_kind(self) -> Option<ExprStringHelperKind> {
+        self.string_helper_kind
+    }
+
+    pub fn string_helper_span(self) -> Option<Span> {
+        self.string_helper_span
+    }
+
     pub fn uses_substr_string_form(self) -> bool {
-        self.uses_substr_string_form
+        self.string_helper_kind == Some(ExprStringHelperKind::Substr)
     }
 }
 
@@ -17548,9 +17565,13 @@ fn xargs_long_option_requires_separate_argument(option: &str) -> bool {
 }
 
 fn parse_expr_command(args: &[&Word], source: &str) -> Option<ExprCommandFacts> {
+    let (string_helper_kind, string_helper_span) = expr_string_helper(args, source)
+        .map_or((None, None), |(kind, span)| (Some(kind), Some(span)));
+
     Some(ExprCommandFacts {
         uses_arithmetic_operator: !expr_uses_string_form(args, source),
-        uses_substr_string_form: expr_uses_substr_string_form(args, source),
+        string_helper_kind,
+        string_helper_span,
     })
 }
 
@@ -17567,11 +17588,17 @@ fn expr_uses_string_form(args: &[&Word], source: &str) -> bool {
         .is_some_and(|text| matches!(text, ":" | "=" | "!=" | "<" | ">" | "<=" | ">=" | "=="))
 }
 
-fn expr_uses_substr_string_form(args: &[&Word], source: &str) -> bool {
-    args.first()
-        .and_then(|word| static_word_text(word, source))
-        .as_deref()
-        == Some("substr")
+fn expr_string_helper(args: &[&Word], source: &str) -> Option<(ExprStringHelperKind, Span)> {
+    let word = args.first()?;
+    let kind = match static_word_text(word, source).as_deref() {
+        Some("length") => ExprStringHelperKind::Length,
+        Some("index") => ExprStringHelperKind::Index,
+        Some("match") => ExprStringHelperKind::Match,
+        Some("substr") => ExprStringHelperKind::Substr,
+        _ => return None,
+    };
+
+    Some((kind, word.span))
 }
 
 fn parse_exit_command<'a>(command: &'a Command, source: &str) -> Option<ExitCommandFacts<'a>> {
@@ -18164,9 +18191,9 @@ mod tests {
     use shuck_semantic::{BindingAttributes, SemanticModel};
 
     use super::{
-        CommandId, ConditionalNodeFact, ConditionalOperatorFamily, GrepPatternSourceKind,
-        LinterFacts, SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax,
-        SubstitutionHostKind, SudoFamilyInvoker, WordFactHostKind,
+        CommandId, ConditionalNodeFact, ConditionalOperatorFamily, ExprStringHelperKind,
+        GrepPatternSourceKind, LinterFacts, SimpleTestOperatorFamily, SimpleTestShape,
+        SimpleTestSyntax, SubstitutionHostKind, SudoFamilyInvoker, WordFactHostKind,
     };
     use crate::facts::PositionalParameterFragmentKind;
     use crate::rules::common::command::WrapperKind;
@@ -20141,6 +20168,68 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
                 .map(|word| word.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["a-z", "A-Z"]
+        );
+    }
+
+    #[test]
+    fn tracks_expr_string_helper_kinds_and_spans() {
+        let source = "\
+#!/bin/sh
+expr length \"$mode\"
+expr index \"$mode\" w
+expr match \"$mode\" 'w'
+expr substr \"$mode\" 1 1
+expr \"$a\" = \"$b\"
+expr 1 + 2
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        let exprs = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("expr"))
+            .filter_map(|fact| fact.options().expr())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            exprs
+                .iter()
+                .map(|expr| expr.string_helper_kind())
+                .collect::<Vec<_>>(),
+            vec![
+                Some(ExprStringHelperKind::Length),
+                Some(ExprStringHelperKind::Index),
+                Some(ExprStringHelperKind::Match),
+                Some(ExprStringHelperKind::Substr),
+                None,
+                None,
+            ]
+        );
+        assert_eq!(
+            exprs
+                .iter()
+                .map(|expr| expr.string_helper_span().map(|span| span.slice(source)))
+                .collect::<Vec<_>>(),
+            vec![
+                Some("length"),
+                Some("index"),
+                Some("match"),
+                Some("substr"),
+                None,
+                None,
+            ]
+        );
+        assert!(exprs[3].uses_substr_string_form());
+        assert_eq!(
+            exprs
+                .iter()
+                .map(|expr| expr.uses_arithmetic_operator())
+                .collect::<Vec<_>>(),
+            vec![false, false, false, false, false, true]
         );
     }
 

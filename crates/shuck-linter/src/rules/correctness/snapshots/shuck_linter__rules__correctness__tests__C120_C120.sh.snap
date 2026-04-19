@@ -1,8 +1,8 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
 ---
-C120 this test uses `expr substr` instead of shell substring expansion
- --> <source>:3:10
+C120 this uses an `expr` string helper instead of shell string operations
+ --> <source>:3:17
   |
 3 | if test "$(expr substr $(uname -s) 1 5)" = "Linux"; then echo linux; fi
   |
