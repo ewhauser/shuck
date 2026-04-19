@@ -40,7 +40,7 @@ const LARGE_CORPUS_AUTOSCALED_SHUCK_TIMEOUT_BUFFER: Duration = Duration::from_se
 const LARGE_CORPUS_MAX_AUTOSCALED_SHUCK_TIMEOUT: Duration = Duration::from_secs(150);
 const LARGE_CORPUS_AUTOSCALED_SHUCK_LINES_PER_SEC: usize = 175;
 const LARGE_CORPUS_CACHE_DIR_NAME: &str = ".cache/large-corpus";
-const LARGE_CORPUS_WORKER_COUNT: usize = 4;
+const LARGE_CORPUS_MAX_WORKER_COUNT: usize = 4;
 const LARGE_CORPUS_TIMEOUT_FAILURE_CAP: usize = 5;
 const LARGE_CORPUS_PROGRESS_PERCENT_STEP: usize = 5;
 const LARGE_CORPUS_PROGRESS_BUCKET_COUNT: usize = 100 / LARGE_CORPUS_PROGRESS_PERCENT_STEP;
@@ -1073,13 +1073,27 @@ where
     if keep_going {
         return collect_fixture_failures_in_parallel(
             fixtures,
-            LARGE_CORPUS_WORKER_COUNT,
+            large_corpus_worker_count(fixtures.len()),
             &evaluate,
             &progress,
         );
     }
 
     collect_fixture_failures_sequential(fixtures, &evaluate, &progress)
+}
+
+fn large_corpus_worker_count(fixtures_len: usize) -> usize {
+    let available_parallelism = thread::available_parallelism()
+        .map(std::num::NonZeroUsize::get)
+        .unwrap_or(1);
+
+    clamp_large_corpus_worker_count(available_parallelism, fixtures_len)
+}
+
+fn clamp_large_corpus_worker_count(available_parallelism: usize, fixtures_len: usize) -> usize {
+    available_parallelism
+        .min(LARGE_CORPUS_MAX_WORKER_COUNT)
+        .min(fixtures_len)
 }
 
 fn collect_fixture_failures_sequential<F>(
@@ -4211,6 +4225,16 @@ mod tests {
         assert_eq!(failures.implementation_diffs.len(), 2);
         assert!(failures.implementation_diffs[0].contains("first.sh"));
         assert!(failures.implementation_diffs[1].contains("second.sh"));
+    }
+
+    #[test]
+    fn clamp_large_corpus_worker_count_uses_machine_parallelism_with_cap() {
+        assert_eq!(clamp_large_corpus_worker_count(2, 10), 2);
+        assert_eq!(
+            clamp_large_corpus_worker_count(8, 10),
+            LARGE_CORPUS_MAX_WORKER_COUNT
+        );
+        assert_eq!(clamp_large_corpus_worker_count(8, 3), 3);
     }
 
     #[test]
