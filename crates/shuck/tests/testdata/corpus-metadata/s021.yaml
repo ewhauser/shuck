@@ -1,4 +1,4 @@
-review_all_divergences: true
+review_all_divergences: false
 reviewed_divergences:
   - side: shuck-only
     path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
@@ -7,6 +7,61 @@ reviewed_divergences:
       - helper-library
       - project-closure
     reason: "This helper-library project-closure fixture folds positional parameters into a quoted sentence; shuck keeps S021 on this callsite even though the oracle does not emit SC2145 here."
+  - side: shellcheck-only
+    path_suffix: "RetroPie__RetroPie-Setup__retropie_packages.sh"
+    line: 95
+    reason: "S021 is scoped to positional-parameter '$@' folding, while this SC2145 finding is for an '__ERRMSGS[@]' array embedded in a console message."
+  - side: shellcheck-only
+    path_suffix: "RetroPie__RetroPie-Setup__retropie_packages.sh"
+    line: 99
+    reason: "S021 is scoped to positional-parameter '$@' folding, while this SC2145 finding is for an '__INFMSGS[@]' array embedded in a console message."
+  - side: shellcheck-only
+    path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__system.sh"
+    line: 345
+    reason: "S021 is scoped to positional-parameter '$@' folding, while this SC2145 finding is for an 'md_ret_errors[@]' array embedded in an install failure message."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__network__wechat-universal__resources__wechat-universal.sh"
+    line: 23
+    reason: "S021 is scoped to positional-parameter '$@' folding, while this SC2145 finding is for an 'args[@]' array embedded in a D-Bus trace string."
+  - side: shellcheck-only
+    path_suffix: "alexanderepstein__Bash-Snippets__gist__gist"
+    line: 784
+    labels:
+      - directive-handling
+      - project-closure
+    reason: "S021 is scoped to positional-parameter '$@' folding, while this SC2145 finding is for a composed edit argument that mixes in the 'hashtags[@]' array."
+  - side: shellcheck-only
+    path_suffix: "gentoo__gentoo__app-office__libreoffice-l10n__files__lo_gen_langs.sh"
+    line: 64
+    reason: "S021 is scoped to positional-parameter '$@' folding, while this SC2145 finding is for a 'help_packs[@]' array embedded in generated shell text."
+  - side: shellcheck-only
+    path_suffix: "gentoo__gentoo__app-office__libreoffice-l10n__files__lo_gen_langs.sh"
+    line: 65
+    reason: "S021 is scoped to positional-parameter '$@' folding, while this SC2145 finding is for a 'lang_packs_reduced[@]' array embedded in generated shell text."
+  - side: shellcheck-only
+    path_suffix: "gentoo__gentoo__eclass__tests__git-r3_subrepos.sh"
+    line: 22
+    labels:
+      - project-closure
+      - test-harness
+    reason: "S021 is scoped to positional-parameter '$@' folding, while this SC2145 finding is for array expansions inside a test harness mismatch message."
+  - side: shellcheck-only
+    path_suffix: "gentoo__gentoo__eclass__tests__python-utils-r1.sh"
+    line: 44
+    labels:
+      - project-closure
+      - test-harness
+    reason: "S021 is scoped to positional-parameter '$@' folding, while this SC2145 finding is for an 'args[*]' expansion folded into a test description string."
+  - side: shellcheck-only
+    path_suffix: "gentoo__gentoo__sys-apps__kexec-tools__files__kexec-auto-load"
+    line: 89
+    reason: "S021 is scoped to positional-parameter '$@' folding, while this SC2145 finding is for a 'KEXEC_ARGS[@]' array embedded in an informational message."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__infra__base-images__base-builder__bazel_build_fuzz_tests"
+    line: 64
+    labels:
+      - test-harness
+    reason: "S021 is scoped to positional-parameter '$@' folding, while this SC2145 finding is for a 'BAZEL_BUILD_FLAGS[@]' array echoed in test-harness output."
   - side: shellcheck-only
     path_suffix: "pyenv__pyenv__pyenv.d__rehash__conda.bash"
     line: 29
