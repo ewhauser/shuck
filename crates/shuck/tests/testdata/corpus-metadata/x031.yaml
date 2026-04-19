@@ -35,3 +35,29 @@ reviewed_divergences:
       - project-closure
       - shell-collapse
     reason: "This fixture is an Oh My Zsh startup script. In the shell-collapse comparison path it gets treated like portable `sh`, but these `source` commands belong to Zsh-specific startup loading rather than the POSIX portability target for X031."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__misc__cwiid__rc.cwiid.new"
+    line: 39
+    reason: "This helper uses `source` inside a function body. Shuck classifies function-local `source` under X080, while the current ShellCheck oracle still reports the generic X031 portability code here."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__network__firewalld__rc.firewalld"
+    line: 6
+    reason: "This helper uses `source` inside a function body. Shuck classifies function-local `source` under X080, while the current ShellCheck oracle still reports the generic X031 portability code here."
+  - side: shellcheck-only
+    path_suffix: "moovweb__gvm__examples__native__ltmain.sh"
+    line: 3360
+    reason: "This generated helper uses `source` inside a function body, nested in command substitution. Shuck classifies function-local `source` under X080, while the current ShellCheck oracle still reports the generic X031 portability code here."
+  - side: shellcheck-only
+    path_suffix: "romkatv__powerlevel10k__gitstatus__gitstatus.plugin.sh"
+    line: 164
+    labels:
+      - project-closure
+      - shell-collapse
+    reason: "This fixture is a bash gitstatus plugin that only shows up through the shell-collapse portability comparison path. The generic POSIX-sh X031 comparison target is not the right match for this function-local `source` call."
+  - side: shellcheck-only
+    path_suffix: "romkatv__powerlevel10k__gitstatus__gitstatus.plugin.sh"
+    line: 206
+    labels:
+      - project-closure
+      - shell-collapse
+    reason: "This fixture is a bash gitstatus plugin that only shows up through the shell-collapse portability comparison path. The generic POSIX-sh X031 comparison target is not the right match for this function-local `source` call."

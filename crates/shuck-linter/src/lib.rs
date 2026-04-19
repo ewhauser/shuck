@@ -1743,6 +1743,26 @@ f
     }
 
     #[test]
+    fn guarded_source_inside_function_in_sh_is_flagged_by_x080() {
+        let diagnostics = lint(
+            "#!/bin/sh\nf() {\n  [ -r ./helpers.sh ] && source ./helpers.sh\n}\n",
+            &LinterSettings::for_rule(Rule::SourceInsideFunctionInSh),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::SourceInsideFunctionInSh);
+    }
+
+    #[test]
+    fn source_inside_function_command_substitution_in_sh_is_flagged_by_x080() {
+        let diagnostics = lint(
+            "#!/bin/sh\nf() {\n  version=$(source ./helpers.sh && echo \"$name\")\n}\n",
+            &LinterSettings::for_rule(Rule::SourceInsideFunctionInSh),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::SourceInsideFunctionInSh);
+    }
+
+    #[test]
     fn top_level_source_is_not_flagged_by_x080() {
         let diagnostics = lint(
             "#!/bin/sh\nsource ./helpers.sh\n",
