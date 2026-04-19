@@ -38,6 +38,7 @@ impl DiagnosticKey {
 }
 
 impl<'a> Checker<'a> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         file: &'a File,
         source: &'a str,
