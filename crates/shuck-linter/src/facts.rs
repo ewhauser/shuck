@@ -9077,17 +9077,13 @@ fn find_runtime_parameter_closing_brace(text: &str, start_offset: usize) -> Opti
             continue;
         }
 
-        if index + 1 < bytes.len()
-            && is_unescaped_dollar(bytes, index)
-            && bytes[index + 1] == b'('
+        if index + 1 < bytes.len() && is_unescaped_dollar(bytes, index) && bytes[index + 1] == b'('
         {
             index = find_command_substitution_end(bytes, index)?;
             continue;
         }
 
-        if index + 1 < bytes.len()
-            && is_unescaped_dollar(bytes, index)
-            && bytes[index + 1] == b'{'
+        if index + 1 < bytes.len() && is_unescaped_dollar(bytes, index) && bytes[index + 1] == b'{'
         {
             depth += 1;
             index += "${".len();
