@@ -46,11 +46,6 @@ const LARGE_CORPUS_PROGRESS_PERCENT_STEP: usize = 5;
 const LARGE_CORPUS_PROGRESS_BUCKET_COUNT: usize = 100 / LARGE_CORPUS_PROGRESS_PERCENT_STEP;
 const LARGE_CORPUS_TIMING_LIMIT: usize = 25;
 const RULE_CORPUS_METADATA_DIR: &str = "tests/testdata/corpus-metadata";
-const LARGE_CORPUS_ALLOWED_FAILING_RULES: &[&str] = &[
-    "C001", "C005", "C006", "C010", "C014", "C017", "C019", "C063", "C083", "C086", "C087", "C088",
-    "C091", "C121", "C131", "C132", "K002", "S001", "S007", "S010", "S015", "S017", "S021", "S045",
-    "S050", "S069", "S075", "X020", "X030", "X052",
-];
 const LARGE_CORPUS_ALLOWED_FAILING_RULE_REASON: &str = "known large-corpus rule allowlist";
 
 const SHELLCHECK_CACHE_SCHEMA: u32 = 2;
@@ -394,7 +389,15 @@ struct ShellCheckProbe {
 #[serde(deny_unknown_fields)]
 struct RuleCorpusMetadataDocument {
     #[serde(default)]
+    review_all_divergences: bool,
+    #[serde(default)]
     reviewed_divergences: Vec<ReviewedDivergenceRecord>,
+}
+
+impl RuleCorpusMetadataDocument {
+    fn has_entries(&self) -> bool {
+        self.review_all_divergences || !self.reviewed_divergences.is_empty()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -1524,7 +1527,7 @@ fn load_all_rule_corpus_metadata() -> HashMap<String, RuleCorpusMetadataDocument
         {
             let rule_code = stem.to_ascii_uppercase();
             let metadata = load_rule_corpus_metadata(&rule_code);
-            if !metadata.reviewed_divergences.is_empty() {
+            if metadata.has_entries() {
                 map.insert(rule_code, metadata);
             }
         }
@@ -1590,10 +1593,11 @@ fn classify_compatibility_record(
             Some(format!("no Shuck rule maps {}", record.shellcheck_code)),
         );
     }
-    if rule_codes
-        .iter()
-        .all(|rule_code| large_corpus_rule_is_allowlisted(rule_code))
-    {
+    if rule_codes.iter().all(|rule_code| {
+        corpus_metadata
+            .get(*rule_code)
+            .is_some_and(|metadata| metadata.review_all_divergences)
+    }) {
         return (
             CompatibilityClassification::ReviewedDivergence,
             Some(LARGE_CORPUS_ALLOWED_FAILING_RULE_REASON.to_owned()),
@@ -1623,11 +1627,6 @@ fn classify_compatibility_record(
 
     (CompatibilityClassification::Implementation, None)
 }
-
-fn large_corpus_rule_is_allowlisted(rule_code: &str) -> bool {
-    LARGE_CORPUS_ALLOWED_FAILING_RULES.contains(&rule_code)
-}
-
 fn shellcheck_compatibility_records(
     diagnostics: &[ShellCheckDiagnostic],
     shellcheck_rule_index: &HashMap<u32, Vec<String>>,
@@ -3826,10 +3825,22 @@ mod tests {
     }
 
     #[test]
+    fn load_all_rule_corpus_metadata_keeps_rule_wide_review_entries() {
+        let metadata = load_all_rule_corpus_metadata();
+
+        assert!(
+            metadata
+                .get("C014")
+                .is_some_and(|rule_metadata| rule_metadata.review_all_divergences)
+        );
+    }
+
+    #[test]
     fn reviewed_divergence_classification_matches_exact_shellcheck_record() {
         let metadata = HashMap::from([(
             "C999".to_string(),
             RuleCorpusMetadataDocument {
+                review_all_divergences: false,
                 reviewed_divergences: vec![ReviewedDivergenceRecord {
                     side: CompatibilitySide::ShellcheckOnly,
                     path_suffix: Some("repo__script.sh".into()),
@@ -3873,6 +3884,7 @@ mod tests {
         let metadata = HashMap::from([(
             "C999".to_string(),
             RuleCorpusMetadataDocument {
+                review_all_divergences: false,
                 reviewed_divergences: vec![ReviewedDivergenceRecord {
                     side: CompatibilitySide::ShuckOnly,
                     path_suffix: Some("scripts/repo__script.sh".into()),
@@ -3919,6 +3931,7 @@ mod tests {
         let metadata = HashMap::from([(
             "C999".to_string(),
             RuleCorpusMetadataDocument {
+                review_all_divergences: false,
                 reviewed_divergences: vec![ReviewedDivergenceRecord {
                     side: CompatibilitySide::ShuckOnly,
                     path_suffix: None,
@@ -3971,6 +3984,7 @@ mod tests {
         let metadata = HashMap::from([(
             "X065".to_string(),
             RuleCorpusMetadataDocument {
+                review_all_divergences: false,
                 reviewed_divergences: vec![ReviewedDivergenceRecord {
                     side: CompatibilitySide::ShuckOnly,
                     path_suffix: Some("alpinelinux__aports__scripts__mkimage.sh".into()),
@@ -4061,6 +4075,7 @@ mod tests {
         let metadata = HashMap::from([(
             "C999".to_string(),
             RuleCorpusMetadataDocument {
+                review_all_divergences: false,
                 reviewed_divergences: vec![ReviewedDivergenceRecord {
                     side: CompatibilitySide::ShuckOnly,
                     path_suffix: None,
@@ -4107,6 +4122,7 @@ mod tests {
         let metadata = HashMap::from([(
             "C999".to_string(),
             RuleCorpusMetadataDocument {
+                review_all_divergences: false,
                 reviewed_divergences: vec![ReviewedDivergenceRecord {
                     side: CompatibilitySide::ShuckOnly,
                     path_suffix: None,
@@ -4144,6 +4160,13 @@ mod tests {
 
     #[test]
     fn allowlisted_large_corpus_rule_is_nonblocking() {
+        let metadata = HashMap::from([(
+            "C001".to_string(),
+            RuleCorpusMetadataDocument {
+                review_all_divergences: true,
+                reviewed_divergences: Vec::new(),
+            },
+        )]);
         let record = CompatibilityRecord {
             side: CompatibilitySide::ShuckOnly,
             rule_code: Some("C001".into()),
@@ -4160,7 +4183,7 @@ mod tests {
         };
 
         let (classification, reason) =
-            classify_compatibility_record(&record, "fixtures/unrelated.sh", &HashMap::new());
+            classify_compatibility_record(&record, "fixtures/unrelated.sh", &metadata);
 
         assert_eq!(
             classification,
@@ -4174,6 +4197,13 @@ mod tests {
 
     #[test]
     fn allowlisted_large_corpus_rule_requires_every_mapped_rule_to_be_allowlisted() {
+        let metadata = HashMap::from([(
+            "C001".to_string(),
+            RuleCorpusMetadataDocument {
+                review_all_divergences: true,
+                reviewed_divergences: Vec::new(),
+            },
+        )]);
         let record = CompatibilityRecord {
             side: CompatibilitySide::ShellcheckOnly,
             rule_code: None,
@@ -4190,7 +4220,7 @@ mod tests {
         };
 
         let (classification, reason) =
-            classify_compatibility_record(&record, "fixtures/unrelated.sh", &HashMap::new());
+            classify_compatibility_record(&record, "fixtures/unrelated.sh", &metadata);
 
         assert_eq!(classification, CompatibilityClassification::Implementation);
         assert!(reason.is_none());

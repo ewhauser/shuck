@@ -1,3 +1,4 @@
+review_all_divergences: true
 reviewed_divergences:
   - side: shuck-only
     path_suffix: "termux__termux-packages__packages__ldd__ldd.in"

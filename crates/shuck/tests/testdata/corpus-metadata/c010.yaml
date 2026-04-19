@@ -1,3 +1,4 @@
+review_all_divergences: true
 reviewed_divergences:
   - side: shuck-only
     path_suffix: "scop__bash-completion__completions-core__7z.bash"
