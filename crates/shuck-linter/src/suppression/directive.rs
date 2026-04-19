@@ -272,8 +272,17 @@ fn case_label_directive(case: &CaseItem, comment: &NormalizedComment<'_>) -> boo
         return false;
     };
 
-    u32::try_from(pattern.span.end.line).ok() == Some(comment.line)
-        && usize::from(comment.range.start()) > pattern.span.end.offset
+    let Some(pattern_line) = u32::try_from(pattern.span.end.line).ok() else {
+        return false;
+    };
+    if pattern_line != comment.line || usize::from(comment.range.start()) <= pattern.span.end.offset
+    {
+        return false;
+    }
+
+    case.body
+        .first()
+        .is_none_or(|stmt| u32::try_from(stmt.span.start.line).ok() != Some(comment.line))
 }
 
 fn strip_comment_prefix(text: &str) -> &str {
@@ -392,6 +401,19 @@ esac
         let source = "\
 value=1 # shellcheck disable=SC2086
 echo $foo
+";
+        let directives = directives(source);
+
+        assert!(directives.is_empty());
+    }
+
+    #[test]
+    fn rejects_case_label_directives_after_same_line_commands() {
+        let source = "\
+case $x in
+  on) echo \"$x\" # shellcheck disable=SC2086
+      ;;
+esac
 ";
         let directives = directives(source);
 

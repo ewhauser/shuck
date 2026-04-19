@@ -3503,8 +3503,17 @@ impl<'a> Parser<'a> {
                     );
                 } else {
                     let inner_start = cursor;
-                    let body_start = inner_start.advanced_by("(");
                     let had_prefix = current_start != part_start;
+                    let nested_source_base = if source_backed
+                        && Span::from_positions(current_start, part_start)
+                            .slice(self.input)
+                            .chars()
+                            .any(|c| c == '"')
+                    {
+                        inner_start.advanced_by("(")
+                    } else {
+                        inner_start
+                    };
                     let body = if source_backed {
                         let remaining_word_text = chars.clone().collect::<String>();
                         if let Some(consumed) =
@@ -3515,18 +3524,8 @@ impl<'a> Parser<'a> {
                                 Self::next_word_char_unwrap(&mut chars, &mut cursor);
                             }
                             let inner_text = consumed_text.strip_suffix(')').unwrap_or_default();
-                            let quoted_prefix = source_backed
-                                && Span::from_positions(current_start, part_start)
-                                    .slice(self.input)
-                                    .chars()
-                                    .any(|c| matches!(c, '"' | '\\'));
-                            let body_start = if quoted_prefix {
-                                body_start
-                            } else {
-                                inner_start
-                            };
                             if had_prefix {
-                                self.nested_stmt_seq_from_source(inner_text, body_start)
+                                self.nested_stmt_seq_from_source(inner_text, nested_source_base)
                             } else {
                                 let inner_end = inner_start.advanced_by(inner_text);
                                 self.nested_stmt_seq_from_current_input(inner_start, inner_end)
@@ -3552,7 +3551,7 @@ impl<'a> Parser<'a> {
                                 }
                             }
                             if had_prefix {
-                                self.nested_stmt_seq_from_source(&cmd_str, body_start)
+                                self.nested_stmt_seq_from_source(&cmd_str, nested_source_base)
                             } else {
                                 self.nested_stmt_seq_from_current_input(
                                     inner_start,
@@ -3578,7 +3577,7 @@ impl<'a> Parser<'a> {
                             }
                         }
                         if had_prefix {
-                            self.nested_stmt_seq_from_source(&cmd_str, body_start)
+                            self.nested_stmt_seq_from_source(&cmd_str, inner_start)
                         } else {
                             self.nested_stmt_seq_from_current_input(
                                 inner_start,
@@ -4861,6 +4860,18 @@ impl<'a> Parser<'a> {
                     break;
                 }
 
+                if ch == '\x00' {
+                    Self::next_word_char_unwrap(chars, cursor);
+                    if let Some(&literal) = chars.peek() {
+                        if literal == '/' {
+                            has_escaped_slash = true;
+                        }
+                        Self::next_word_char_unwrap(chars, cursor);
+                    }
+                    end = *cursor;
+                    continue;
+                }
+
                 if escaped {
                     if ch == '/' {
                         has_escaped_slash = true;
@@ -4916,6 +4927,14 @@ impl<'a> Parser<'a> {
                 if !escaped && nested_parameter_depth == 0 && (ch == '/' || ch == '}') {
                     end = *cursor;
                     break;
+                }
+                if ch == '\x00' {
+                    Self::next_word_char_unwrap(chars, cursor);
+                    if chars.peek().is_some() {
+                        pattern.push(Self::next_word_char_unwrap(chars, cursor));
+                    }
+                    end = *cursor;
+                    continue;
                 }
                 if escaped {
                     let consumed = Self::next_word_char_unwrap(chars, cursor);
@@ -5358,6 +5377,17 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
+            if c == '\x00' {
+                Self::next_word_char_unwrap(chars, cursor);
+                if chars.peek().is_some() {
+                    let ch = Self::next_word_char_unwrap(chars, cursor);
+                    if let Some(operand) = operand.as_mut() {
+                        operand.push(ch);
+                    }
+                }
+                continue;
+            }
+
             match c {
                 '\\' if !in_single => {
                     escaped = true;
@@ -5456,6 +5486,11 @@ impl<'a> Parser<'a> {
         let mut escaped = false;
 
         while let Some(ch) = chars.next() {
+            if ch == '\x00' {
+                chars.next();
+                continue;
+            }
+
             if escaped {
                 escaped = false;
                 continue;

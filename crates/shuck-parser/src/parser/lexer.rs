@@ -150,6 +150,10 @@ impl<'a> LexedWordSegment<'a> {
         self.text.as_str()
     }
 
+    pub(crate) const fn text_is_source_backed(&self) -> bool {
+        matches!(self.text, TokenText::Borrowed(_) | TokenText::Shared { .. })
+    }
+
     pub const fn kind(&self) -> LexedWordSegmentKind {
         self.kind
     }

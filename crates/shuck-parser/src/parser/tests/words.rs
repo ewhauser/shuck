@@ -226,6 +226,7 @@ fn test_parse_mixed_quoted_and_cooked_plain_continuation_keeps_variable_live() {
         panic!("expected simple command");
     };
     let word = &command.args[0];
+    dbg!(&word.parts);
 
     assert!(matches!(
         word.parts.as_slice(),

@@ -2781,7 +2781,7 @@ impl<'a> Parser<'a> {
             && let Some(word) = self.maybe_parse_zsh_qualified_glob_word(
                 segment.as_str(),
                 span,
-                segment.span().is_some() && source_backed,
+                segment.span().is_some() && source_backed && segment.text_is_source_backed(),
             )
         {
             return Some(word);
@@ -2791,10 +2791,20 @@ impl<'a> Parser<'a> {
         for segment in word.segments() {
             let source_backed = segment.span().is_some() && !token.flags.is_synthetic();
             let content_span = Self::segment_content_span(segment, span);
-            let text = if source_backed {
+            let raw_text = segment.as_str();
+            let use_source_slice = source_backed
+                && match segment.kind() {
+                    LexedWordSegmentKind::Plain => {
+                        segment.text_is_source_backed()
+                            || raw_text.contains("${") && raw_text.contains('/')
+                            || !raw_text.contains("$(")
+                    }
+                    _ => segment.text_is_source_backed(),
+                };
+            let text = if use_source_slice {
                 content_span.slice(self.input)
             } else {
-                segment.as_str()
+                raw_text
             };
             match segment.kind() {
                 LexedWordSegmentKind::Plain
@@ -2909,10 +2919,24 @@ impl<'a> Parser<'a> {
         let word = token.word()?;
 
         if let Some(segment) = word.single_segment() {
-            let text = segment.as_str();
             let content_span = Self::segment_content_span(segment, span);
             let wrapper_span = Self::segment_wrapper_span(segment, span);
             let source_backed = segment.span().is_some() && !token.flags.is_synthetic();
+            let raw_text = segment.as_str();
+            let use_source_slice = source_backed
+                && match segment.kind() {
+                    LexedWordSegmentKind::Plain => {
+                        segment.text_is_source_backed()
+                            || raw_text.contains("${") && raw_text.contains('/')
+                            || !raw_text.contains("$(")
+                    }
+                    _ => segment.text_is_source_backed(),
+                };
+            let text = if use_source_slice {
+                content_span.slice(self.input)
+            } else {
+                raw_text
+            };
             let preserve_escaped_expansion_literals = source_backed;
 
             return match segment.kind() {
@@ -3005,7 +3029,16 @@ impl<'a> Parser<'a> {
             };
             let wrapper_span = segment.wrapper_span().unwrap_or(content_span);
             let source_backed = segment.span().is_some() && !token.flags.is_synthetic();
-            let text = if source_backed {
+            let use_source_slice = source_backed
+                && match segment.kind() {
+                    LexedWordSegmentKind::Plain => {
+                        segment.text_is_source_backed()
+                            || raw_text.contains("${") && raw_text.contains('/')
+                            || !raw_text.contains("$(")
+                    }
+                    _ => segment.text_is_source_backed(),
+                };
+            let text = if use_source_slice {
                 content_span.slice(self.input)
             } else {
                 raw_text

@@ -645,4 +645,19 @@ esac
         assert!(index.is_suppressed(Rule::UnquotedExpansion, 3));
         assert!(!index.is_suppressed(Rule::UnquotedExpansion, 5));
     }
+
+    #[test]
+    fn ignores_case_label_directives_after_same_line_body_commands() {
+        let source = "\
+case $x in
+  on) echo $foo # shellcheck disable=SC2086
+    echo $bar
+    ;;
+esac
+";
+        let index = suppression_index(source);
+
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 2));
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 3));
+    }
 }

@@ -1,9 +1,9 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
-assertion_line: 159
+assertion_line: 286
 ---
 C147 function keyword without trailing `()` is not portable in `sh` scripts
- --> <source>:2:10
+ --> <source>:2:1
   |
 2 | function for { :; }
   |
