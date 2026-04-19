@@ -110,4 +110,16 @@ eval shellspec_join SHELLSPEC_EXPECTATION '\" \"' The ${1+'\"$@\"'}
 
         assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
+
+    #[test]
+    fn reports_direct_positional_splats_after_escaped_parameter_text_in_eval_strings() {
+        let source = "\
+#!/bin/bash
+eval \"echo \\${1##*/} $@\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::EvalOnArray));
+
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+        assert_eq!(diagnostics[0].span.slice(source), "$@");
+    }
 }

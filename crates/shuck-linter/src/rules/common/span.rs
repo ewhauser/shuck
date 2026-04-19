@@ -945,7 +945,7 @@ fn collect_direct_all_elements_array_expansion_spans(
                 ) =>
             {
                 if let Some(span) =
-                    normalize_nested_braced_all_elements_array_expansion_span(part.span, source)
+                    normalize_nested_direct_all_elements_array_expansion_span(part.span, source)
                 {
                     spans.push(span);
                 }
@@ -1029,38 +1029,73 @@ fn normalize_all_elements_array_expansion_span(span: Span, source: &str) -> Opti
     widen_all_elements_array_expansion_span(span, source)
 }
 
-fn normalize_nested_braced_all_elements_array_expansion_span(
+fn normalize_nested_direct_all_elements_array_expansion_span(
     span: Span,
     source: &str,
 ) -> Option<Span> {
     let text = span.slice(source);
-    if !text.contains("${") {
+    if !text.contains('$') {
         return None;
     }
 
     let base_offset = span.start.offset;
-    let mut search_from = 0usize;
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+    let mut nested_braced_depth = 0usize;
 
-    while let Some(found) = text[search_from..].find("${") {
-        let relative_start = search_from + found;
-        let absolute_start = base_offset + relative_start;
+    while index < bytes.len() {
+        let absolute_start = base_offset + index;
+        let byte = bytes[index];
+
+        if byte == b'\\' {
+            index += usize::from(index + 1 < bytes.len()) + 1;
+            continue;
+        }
+
+        if byte == b'}' && nested_braced_depth > 0 {
+            nested_braced_depth -= 1;
+            index += 1;
+            continue;
+        }
+
+        if byte != b'$' {
+            if byte == b'{' && nested_braced_depth > 0 {
+                nested_braced_depth += 1;
+            }
+            index += 1;
+            continue;
+        }
+
         if absolute_start > 0 && source.as_bytes()[absolute_start - 1] == b'\\' {
-            search_from = relative_start + 2;
+            index += 1;
             continue;
         }
 
         let remainder = &source[absolute_start..];
-        let Some(relative_end) = remainder.find('}') else {
-            break;
-        };
-        let candidate = &remainder[..=relative_end];
-        if candidate_is_all_elements_array_expansion(candidate) {
+        if nested_braced_depth == 0 && remainder.starts_with("$@") {
             let start = position_at_offset(source, absolute_start)?;
-            let end = position_at_offset(source, absolute_start + candidate.len())?;
+            let end = position_at_offset(source, absolute_start + "$@".len())?;
             return Some(Span::from_positions(start, end));
         }
 
-        search_from = relative_start + 2;
+        if remainder.starts_with("${") {
+            if nested_braced_depth == 0
+                && let Some(relative_end) = remainder.find('}')
+            {
+                let candidate = &remainder[..=relative_end];
+                if candidate_is_all_elements_array_expansion(candidate) {
+                    let start = position_at_offset(source, absolute_start)?;
+                    let end = position_at_offset(source, absolute_start + candidate.len())?;
+                    return Some(Span::from_positions(start, end));
+                }
+            }
+
+            nested_braced_depth += 1;
+            index += 2;
+            continue;
+        }
+
+        index += 1;
     }
 
     None
