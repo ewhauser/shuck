@@ -22,15 +22,20 @@ pub fn escaped_underscore(checker: &mut Checker) {
         .filter(|escape| match escape.source_kind() {
             EscapeScanSourceKind::WordLiteralPart
             | EscapeScanSourceKind::RedirectLiteralSegment => {
-                !escape.host_contains_single_quoted_fragment()
+                !escape.inside_single_quoted_fragment()
             }
             EscapeScanSourceKind::DynamicPathCommandName
             | EscapeScanSourceKind::PatternLiteral
             | EscapeScanSourceKind::PatternCharClass => true,
+            EscapeScanSourceKind::ParameterPatternCharClass => false,
             EscapeScanSourceKind::SingleLiteralAssignmentWord
             | EscapeScanSourceKind::BacktickFragment => false,
         })
-        .filter(|escape| !escape.is_grep_style_argument())
+        .filter(|escape| {
+            !escape.is_grep_style_argument()
+                && !(escape.is_tr_operand_argument()
+                    && matches!(escape.escaped_byte(), b'.' | b'*' | b'?'))
+        })
         .filter(|escape| match escape.source_kind() {
             EscapeScanSourceKind::PatternCharClass => escape.escaped_byte() == b'-',
             _ => is_regular_plain_word_escape_target(escape.escaped_byte()),
@@ -46,6 +51,7 @@ fn is_regular_plain_word_escape_target(byte: u8) -> bool {
         byte,
         b' ' | b'\t'
             | b'\n'
+            | b'.'
             | b'@'
             | b'#'
             | b'$'
@@ -186,5 +192,63 @@ grep foo\\_bar file
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::EscapedUnderscore));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn keeps_tr_operands_out_of_the_sc1001_family() {
+        let source = "\
+#!/bin/bash
+srcnam=$(tr \\. _ <<<${PRGNAM#python3-*})
+src_ver=$(echo $VERSION | tr -d \\.)
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::EscapedUnderscore));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_parameter_expansion_char_classes() {
+        let source = "\
+#!/bin/bash
+name=\"${name//[^a-zA-Z0-9_\\-]/}\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::EscapedUnderscore));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_literal_dot_escapes() {
+        let source = "\
+#!/bin/bash
+echo foo\\.bar
+echo gem5-$gem5_isa\\.$VARIANT
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::EscapedUnderscore));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_escapes_adjacent_to_expansions() {
+        let source = "\
+#!/bin/bash
+echo $VERSION\\_$(echo x)
+echo ${host}\\:443
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::EscapedUnderscore));
+
+        assert_eq!(diagnostics.len(), 2);
+    }
+
+    #[test]
+    fn reports_escapes_outside_single_quoted_fragments() {
+        let source = "\
+#!/bin/bash
+echo 'prefix'\\:suffix
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::EscapedUnderscore));
+
+        assert_eq!(diagnostics.len(), 1);
     }
 }

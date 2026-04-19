@@ -14,6 +14,7 @@ pub(super) struct SurfaceFragmentFacts {
     pub(super) unicode_smart_quote_spans: Vec<Span>,
     pub(super) pattern_exactly_one_extglob_spans: Vec<Span>,
     pub(super) pattern_charclass_spans: Vec<Span>,
+    pub(super) parameter_pattern_spans: Vec<Span>,
     pub(super) nested_pattern_charclass_spans: Vec<Span>,
     pub(super) nested_parameter_expansions: Vec<NestedParameterExpansionFragmentFact>,
     pub(super) indirect_expansions: Vec<IndirectExpansionFragmentFact>,
@@ -177,6 +178,18 @@ impl<'a> SurfaceFragmentSink<'a> {
         self.facts
             .replacement_expansions
             .push(ReplacementExpansionFragmentFact { span });
+    }
+
+    fn record_parameter_pattern(&mut self, span: Span) {
+        if self
+            .facts
+            .parameter_pattern_spans
+            .iter()
+            .any(|recorded| *recorded == span)
+        {
+            return;
+        }
+        self.facts.parameter_pattern_spans.push(span);
     }
 
     fn record_star_glob_removal(&mut self, span: Span) {
@@ -867,6 +880,7 @@ impl<'a> SurfaceFragmentSink<'a> {
             | ParameterOp::RemovePrefixLong { pattern }
             | ParameterOp::RemoveSuffixShort { pattern }
             | ParameterOp::RemoveSuffixLong { pattern } => {
+                self.record_parameter_pattern(pattern.span);
                 self.collect_pattern(pattern, context.with_pattern_charclass_scan())
             }
             ParameterOp::ReplaceFirst {
@@ -879,6 +893,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                 replacement,
                 ..
             } => {
+                self.record_parameter_pattern(pattern.span);
                 self.collect_pattern(pattern, context.with_pattern_charclass_scan());
                 self.collect_fragment_word(
                     operator.replacement_word_ast(),
