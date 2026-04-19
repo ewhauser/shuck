@@ -167,6 +167,10 @@ mod tests {
 [[ 3 -eq bar ]]
 [[ foo -eq bar ]]
 [[ \"(1+2)\" -eq 3 ]]
+[[ foo+1 -eq 3 ]]
+[[ \"foo+1\" -eq 3 ]]
+[[ arr[1] -eq 3 ]]
+[[ \"arr[1]\" -eq 3 ]]
 ";
         let diagnostics = test_snippet(
             source,
@@ -185,7 +189,11 @@ mod tests {
                 "bar",
                 "foo",
                 "bar",
-                "\"(1+2)\""
+                "\"(1+2)\"",
+                "foo+1",
+                "\"foo+1\"",
+                "arr[1]",
+                "\"arr[1]\"",
             ]
         );
     }
