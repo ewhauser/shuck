@@ -3760,6 +3760,18 @@ impl<'a> Parser<'a> {
                 }
 
                 if Self::consume_word_char_if(&mut chars, &mut cursor, '!') {
+                    if Self::consume_word_char_if(&mut chars, &mut cursor, '}') {
+                        let part = self.parameter_word_part_from_legacy(
+                            WordPart::Variable("!".into()),
+                            part_start,
+                            cursor,
+                            source_backed,
+                        );
+                        Self::push_word_part(parts, part, part_start, cursor);
+                        current_start = cursor;
+                        continue;
+                    }
+
                     let var_name = Self::read_word_while(&mut chars, &mut cursor, |c| {
                         !matches!(
                             c,

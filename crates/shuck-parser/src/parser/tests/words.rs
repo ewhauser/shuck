@@ -902,7 +902,7 @@ fn test_parameter_forms_preserve_selector_kinds() {
 
 #[test]
 fn test_braced_special_parameters_parse_as_parameter_accesses() {
-    let input = "echo ${#} ${$}\n";
+    let input = "echo ${#} ${$} ${!}\n";
     let script = Parser::new(input).parse().unwrap().file;
     let command = expect_simple(&script.body[0]);
 
@@ -913,6 +913,10 @@ fn test_braced_special_parameters_parse_as_parameter_accesses() {
     let pid = expect_array_access(&command.args[1]);
     assert_eq!(pid.name.as_str(), "$");
     assert_eq!(pid.name_span.slice(input), "$");
+
+    let bang = expect_array_access(&command.args[2]);
+    assert_eq!(bang.name.as_str(), "!");
+    assert_eq!(bang.name_span.slice(input), "!");
 }
 
 #[test]
