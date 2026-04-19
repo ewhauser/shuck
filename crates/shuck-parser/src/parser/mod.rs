@@ -2727,8 +2727,13 @@ impl<'a> Parser<'a> {
         let mut parts = Vec::new();
 
         for segment in word.segments() {
-            let text = segment.as_str();
             let source_backed = segment.span().is_some() && !token.flags.is_synthetic();
+            let content_span = Self::segment_content_span(segment, span);
+            let text = if source_backed {
+                content_span.slice(self.input)
+            } else {
+                segment.as_str()
+            };
             match segment.kind() {
                 LexedWordSegmentKind::Plain
                 | LexedWordSegmentKind::DoubleQuoted
@@ -2745,7 +2750,6 @@ impl<'a> Parser<'a> {
                 LexedWordSegmentKind::Composite => return None,
             }
 
-            let content_span = Self::segment_content_span(segment, span);
             let wrapper_span = Self::segment_wrapper_span(segment, span);
             let part = match segment.kind() {
                 LexedWordSegmentKind::Plain => {
@@ -2847,8 +2851,7 @@ impl<'a> Parser<'a> {
             let content_span = Self::segment_content_span(segment, span);
             let wrapper_span = Self::segment_wrapper_span(segment, span);
             let source_backed = segment.span().is_some() && !token.flags.is_synthetic();
-            let preserve_escaped_expansion_literals =
-                source_backed && self.source_matches(content_span, text);
+            let preserve_escaped_expansion_literals = source_backed;
 
             return match segment.kind() {
                 LexedWordSegmentKind::SingleQuoted => Some(self.word_with_parts(
@@ -2928,20 +2931,24 @@ impl<'a> Parser<'a> {
         let mut cursor = span.start;
 
         for segment in word.segments() {
-            let text = segment.as_str();
+            let raw_text = segment.as_str();
             let content_span = if let Some(segment_span) = segment.span() {
                 cursor = segment_span.end;
                 segment_span
             } else {
                 let start = cursor;
-                let end = start.advanced_by(text);
+                let end = start.advanced_by(raw_text);
                 cursor = end;
                 Span::from_positions(start, end)
             };
             let wrapper_span = segment.wrapper_span().unwrap_or(content_span);
             let source_backed = segment.span().is_some() && !token.flags.is_synthetic();
-            let preserve_escaped_expansion_literals =
-                source_backed && self.source_matches(content_span, text);
+            let text = if source_backed {
+                content_span.slice(self.input)
+            } else {
+                raw_text
+            };
+            let preserve_escaped_expansion_literals = source_backed;
 
             match segment.kind() {
                 LexedWordSegmentKind::SingleQuoted => parts.push(
@@ -3219,6 +3226,11 @@ impl<'a> Parser<'a> {
         token
             .source_slice(self.input)
             .map(Cow::Borrowed)
+            .or_else(|| {
+                (token.span.start.offset <= token.span.end.offset
+                    && token.span.end.offset <= self.input.len())
+                .then(|| Cow::Borrowed(&self.input[token.span.start.offset..token.span.end.offset]))
+            })
             .or_else(|| token.word_string().map(Cow::Owned))
     }
 

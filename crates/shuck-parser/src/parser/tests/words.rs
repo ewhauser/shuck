@@ -2701,6 +2701,49 @@ echo ${dest_dir//\\'/\\'\\\\\\'\\'} ${TERMUX_PKG_VERSION_EDITED//${INCORRECT_SYM
 }
 
 #[test]
+fn test_assignment_replacement_expansion_span_keeps_escaped_backslashes() {
+    let input = "crypt=${crypt//\\\\/\\\\\\\\}\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+        panic!("expected scalar assignment");
+    };
+
+    let (_, operator, _) = expect_parameter_operation_part(&word.parts[0].kind);
+    let ParameterOp::ReplaceAll {
+        pattern,
+        replacement,
+        replacement_word_ast,
+    } = operator
+    else {
+        panic!("expected replace-all operator");
+    };
+    assert_eq!(pattern.span.slice(input), "\\\\");
+    assert_eq!(replacement.slice(input), "\\\\\\\\");
+    assert_eq!(replacement_word_ast.span.slice(input), "\\\\\\\\");
+    assert_eq!(
+        top_level_part_slices(word, input),
+        vec!["${crypt//\\\\/\\\\\\\\}"]
+    );
+}
+
+#[test]
+fn test_read_replacement_pattern_stops_before_unescaped_delimiter() {
+    let input = "crypt=${crypt//\\\\/\\\\\\\\}\n";
+    let parser = Parser::new(input);
+    let offset = input.find("//").expect("expected replacement operator") + 2;
+    let mut chars = input[offset..].chars().peekable();
+    let mut cursor = Position::new().advanced_by(&input[..offset]);
+
+    let pattern = parser.read_replacement_pattern(&mut chars, &mut cursor, true);
+    assert_eq!(pattern.slice(input), "\\\\");
+    assert_eq!(cursor.offset, offset + 2);
+}
+
+#[test]
 fn test_decode_cooked_word_keeps_variable_after_literal_backslash() {
     let cooked = r#"\$HOME"#;
     let span = Span::from_positions(Position::new(), Position::new().advanced_by(cooked));

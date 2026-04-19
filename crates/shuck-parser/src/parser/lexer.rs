@@ -5089,6 +5089,23 @@ EOF
     }
 
     #[test]
+    fn test_parameter_expansion_replacement_with_escaped_backslashes_stays_single_token() {
+        let source = "crypt=${crypt//\\\\/\\\\\\\\}\n";
+        let mut lexer = Lexer::new(source);
+
+        let token = lexer.next_lexed_token().unwrap();
+        assert_eq!(token.kind, TokenKind::Word);
+        assert_eq!(token.span.slice(source), "crypt=${crypt//\\\\/\\\\\\\\}");
+        assert!(token.source_slice(source).is_none());
+        assert_eq!(
+            token.word_string().as_deref(),
+            Some("crypt=${crypt//\\/\\\\}")
+        );
+        assert_next_token(&mut lexer, TokenKind::Newline, None);
+        assert!(lexer.next_lexed_token().is_none());
+    }
+
+    #[test]
     fn test_trim_pattern_with_literal_left_brace_does_not_swallow_following_tokens() {
         let source = "dns_servercow_info='ServerCow.de\nSite: ServerCow.de\n'\n\nf(){\n  if true; then\n    txtvalue_old=${response#*{\\\"name\\\":\\\"\"$_sub_domain\"\\\",\\\"ttl\\\":20,\\\"type\\\":\\\"TXT\\\",\\\"content\\\":\\\"}\n  fi\n}\n";
         let mut lexer = Lexer::new(source);

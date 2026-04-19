@@ -23462,6 +23462,27 @@ EOF
     }
 
     #[test]
+    fn surface_facts_cover_replacement_expansions_with_escaped_backslashes() {
+        let source = "\
+#!/bin/sh
+local crypt=$(grep \"^root:\" /etc/shadow | cut -f 2 -d :)
+crypt=${crypt//\\\\/\\\\\\\\}
+crypt=${crypt//\\//\\\\\\/}
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .replacement_expansion_fragments()
+                    .iter()
+                    .map(|fragment| fragment.span().slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["${crypt//\\\\/\\\\\\\\}", "${crypt//\\//\\\\\\/}"]
+            );
+        });
+    }
+
+    #[test]
     fn shared_command_traversal_collects_word_facts_and_surface_fragments() {
         let source = "\
 #!/bin/bash

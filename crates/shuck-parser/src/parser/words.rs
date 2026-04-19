@@ -4789,21 +4789,27 @@ impl<'a> Parser<'a> {
             let mut end = *cursor;
             let mut has_escaped_slash = false;
             let mut nested_parameter_depth = 0usize;
+            let mut escaped = false;
 
             while let Some(&ch) = chars.peek() {
-                if nested_parameter_depth == 0 && (ch == '/' || ch == '}') {
+                if !escaped && nested_parameter_depth == 0 && (ch == '/' || ch == '}') {
                     end = *cursor;
                     break;
                 }
 
+                if escaped {
+                    if ch == '/' {
+                        has_escaped_slash = true;
+                    }
+                    Self::next_word_char_unwrap(chars, cursor);
+                    escaped = false;
+                    end = *cursor;
+                    continue;
+                }
+
                 if ch == '\\' {
                     Self::next_word_char_unwrap(chars, cursor);
-                    if let Some(&next) = chars.peek()
-                        && next == '/'
-                    {
-                        has_escaped_slash = true;
-                        Self::next_word_char_unwrap(chars, cursor);
-                    }
+                    escaped = true;
                     end = *cursor;
                     continue;
                 }
@@ -4841,21 +4847,27 @@ impl<'a> Parser<'a> {
             let mut pattern = String::new();
             let mut end = *cursor;
             let mut nested_parameter_depth = 0usize;
+            let mut escaped = false;
             while let Some(&ch) = chars.peek() {
-                if nested_parameter_depth == 0 && (ch == '/' || ch == '}') {
+                if !escaped && nested_parameter_depth == 0 && (ch == '/' || ch == '}') {
                     end = *cursor;
                     break;
                 }
+                if escaped {
+                    let consumed = Self::next_word_char_unwrap(chars, cursor);
+                    if consumed == '/' {
+                        pattern.push('/');
+                    } else {
+                        pattern.push('\\');
+                        pattern.push(consumed);
+                    }
+                    escaped = false;
+                    end = *cursor;
+                    continue;
+                }
                 if ch == '\\' {
                     Self::next_word_char_unwrap(chars, cursor);
-                    if let Some(&next) = chars.peek()
-                        && next == '/'
-                    {
-                        pattern.push(Self::next_word_char_unwrap(chars, cursor));
-                        end = *cursor;
-                        continue;
-                    }
-                    pattern.push('\\');
+                    escaped = true;
                     end = *cursor;
                     continue;
                 }
@@ -4878,6 +4890,9 @@ impl<'a> Parser<'a> {
                 }
                 pattern.push(Self::next_word_char_unwrap(chars, cursor));
                 end = *cursor;
+            }
+            if escaped {
+                pattern.push('\\');
             }
             self.source_text(pattern, start, end)
         }
