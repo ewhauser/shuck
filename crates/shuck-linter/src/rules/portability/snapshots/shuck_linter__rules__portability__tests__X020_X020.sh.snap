@@ -1,9 +1,8 @@
 ---
 source: crates/shuck-linter/src/rules/portability/mod.rs
-assertion_line: 21
 ---
 X020 brace-based file-descriptor redirects are not portable in `sh`
- --> <source>:2:7
+ --> <source>:2:6
   |
 2 | exec {fd}>/dev/null
   |

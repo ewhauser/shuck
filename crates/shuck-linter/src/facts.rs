@@ -905,6 +905,7 @@ impl<'a> ConditionalFact<'a> {
 #[derive(Debug, Clone)]
 pub struct RedirectFact<'a> {
     redirect: &'a Redirect,
+    brace_fd_redirection_span: Option<Span>,
     operator_span: Span,
     target_span: Option<Span>,
     arithmetic_update_operator_spans: Box<[Span]>,
@@ -914,6 +915,10 @@ pub struct RedirectFact<'a> {
 impl<'a> RedirectFact<'a> {
     pub fn redirect(&self) -> &'a Redirect {
         self.redirect
+    }
+
+    pub fn brace_fd_redirection_span(&self) -> Option<Span> {
+        self.brace_fd_redirection_span
     }
 
     pub fn operator_span(&self) -> Span {
@@ -11148,6 +11153,7 @@ fn build_redirect_facts<'a>(
         .iter()
         .map(|redirect| RedirectFact {
             redirect,
+            brace_fd_redirection_span: brace_fd_redirection_span(redirect, source),
             operator_span: redirect_operator_span(redirect),
             target_span: redirect.word_target().map(|word| word.span),
             arithmetic_update_operator_spans: redirect
@@ -11166,6 +11172,34 @@ fn build_redirect_facts<'a>(
         })
         .collect::<Vec<_>>()
         .into_boxed_slice()
+}
+
+fn brace_fd_redirection_span(redirect: &Redirect, source: &str) -> Option<Span> {
+    let brace_span = redirect_fd_var_brace_span(redirect, source)?;
+    let gap = source.get(brace_span.end.offset..redirect.span.start.offset)?;
+    brace_fd_gap_allows_attachment(gap)
+        .then(|| Span::from_positions(brace_span.start, redirect.span.end))
+}
+
+fn brace_fd_gap_allows_attachment(gap: &str) -> bool {
+    if gap.is_empty() {
+        return true;
+    }
+
+    let mut remaining = gap;
+    while !remaining.is_empty() {
+        if let Some(stripped) = remaining.strip_prefix("\\\r\n") {
+            remaining = stripped;
+            continue;
+        }
+        if let Some(stripped) = remaining.strip_prefix("\\\n") {
+            remaining = stripped;
+            continue;
+        }
+        return false;
+    }
+
+    true
 }
 
 fn redirect_operator_span(redirect: &Redirect) -> Span {
