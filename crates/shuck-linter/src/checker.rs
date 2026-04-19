@@ -398,8 +398,8 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::CaseArmNotInGetopts) {
             rules::correctness::case_arm_not_in_getopts::case_arm_not_in_getopts(self);
         }
-        if self.is_rule_enabled(Rule::SingleLetterCaseLabel) {
-            rules::style::single_letter_case_label::single_letter_case_label(self);
+        if self.is_rule_enabled(Rule::GetoptsInvalidFlagHandler) {
+            rules::style::getopts_invalid_flag_handler::getopts_invalid_flag_handler(self);
         }
         if self.is_rule_enabled(Rule::StandaloneArithmetic) {
             rules::portability::standalone_arithmetic::standalone_arithmetic(self);
