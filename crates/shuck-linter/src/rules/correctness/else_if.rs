@@ -53,8 +53,7 @@ fn else_if_span(nested_if_start: Position, source: &str) -> Option<Span> {
         offset: line_start_offset,
     };
     let else_start = line_start.advanced_by(&line_prefix[..else_start_in_line]);
-    let else_end = else_start.advanced_by("else");
-    Some(Span::from_positions(else_start, else_end))
+    Some(Span::at(else_start))
 }
 
 #[cfg(test)]
@@ -68,7 +67,9 @@ mod tests {
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ElseIf));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.slice(source), "else");
+        assert_eq!(diagnostics[0].span.start.line, 4);
+        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start, diagnostics[0].span.end);
     }
 
     #[test]
