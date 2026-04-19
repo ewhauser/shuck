@@ -72,10 +72,13 @@ fn operator_slices(source: &str) -> Vec<&str> {
     use crate::test::test_snippet;
     use crate::{LinterSettings, Rule};
 
-    test_snippet(source, &LinterSettings::for_rule(Rule::SudoRedirectionOrder))
-        .iter()
-        .map(|diagnostic| diagnostic.span.slice(source))
-        .collect()
+    test_snippet(
+        source,
+        &LinterSettings::for_rule(Rule::SudoRedirectionOrder),
+    )
+    .iter()
+    .map(|diagnostic| diagnostic.span.slice(source))
+    .collect()
 }
 
 #[cfg(test)]
