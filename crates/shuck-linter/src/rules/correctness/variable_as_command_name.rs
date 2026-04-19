@@ -246,6 +246,27 @@ args='--name \"hello world\"'
     }
 
     #[test]
+    fn reports_bracket_v_after_chained_double_brackets_with_regex_brace_literal() {
+        let source = "\
+#!/bin/bash
+if [[ $MOTD ]] && ! [[ $MOTD =~ ^{ ]]; then
+  # shellcheck disable=SC2089
+  MOTD=\"{\\\"text\\\":\\\"${MOTD}\\\"}\"
+fi
+if ! [ -v MOTD ]; then
+  echo no
+fi
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::VariableAsCommandName),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "MOTD");
+    }
+
+    #[test]
     fn reports_unquoted_reuse_of_single_quoted_backslash_newline_values() {
         let source = "\
 #!/bin/sh

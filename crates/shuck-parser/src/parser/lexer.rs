@@ -1598,21 +1598,29 @@ impl<'a> Lexer<'a> {
                     }
                 }
             } else if ch == '{' {
-                // Brace expansion pattern - include entire {...} in word
-                Self::push_capture_char(&mut word, ch);
-                self.advance();
-                let mut depth = 1;
-                while let Some(c) = self.peek_char() {
-                    Self::push_capture_char(&mut word, c);
+                if self.looks_like_mid_word_brace_segment() {
+                    // Keep balanced {...} forms attached to the current word so
+                    // plain literals like foo{bar} and brace expansions stay intact.
+                    Self::push_capture_char(&mut word, ch);
                     self.advance();
-                    if c == '{' {
-                        depth += 1;
-                    } else if c == '}' {
-                        depth -= 1;
-                        if depth == 0 {
-                            break;
+                    let mut depth = 1;
+                    while let Some(c) = self.peek_char() {
+                        Self::push_capture_char(&mut word, c);
+                        self.advance();
+                        if c == '{' {
+                            depth += 1;
+                        } else if c == '}' {
+                            depth -= 1;
+                            if depth == 0 {
+                                break;
+                            }
                         }
                     }
+                } else {
+                    // Unmatched literal braces in regexes like ^{ should not swallow
+                    // trailing delimiters such as ]] or then.
+                    Self::push_capture_char(&mut word, ch);
+                    self.advance();
                 }
             } else if ch == '`' {
                 // Preserve legacy backticks verbatim so the parser can keep the
@@ -3433,6 +3441,79 @@ impl<'a> Lexer<'a> {
                 ' ' | '\t' | '\n' | ';' if depth == 1 => return false,
                 _ => {}
             }
+            prev_char = Some(ch);
+        }
+
+        false
+    }
+
+    /// Check whether a mid-word `{...}` segment can stay attached to the current
+    /// word without crossing a top-level word boundary.
+    fn looks_like_mid_word_brace_segment(&self) -> bool {
+        const MAX_LOOKAHEAD: usize = 10_000;
+
+        let mut chars = self.lookahead_chars();
+        if chars.next() != Some('{') {
+            return false;
+        }
+
+        let mut brace_depth = 1;
+        let mut paren_depth = 0usize;
+        let mut escaped = false;
+        let mut in_single = false;
+        let mut in_double = false;
+        let mut in_backtick = false;
+        let mut prev_char = None;
+        let mut scanned = 0usize;
+
+        for ch in chars {
+            scanned += 1;
+            if scanned > MAX_LOOKAHEAD {
+                return false;
+            }
+
+            if !in_single
+                && !in_double
+                && !in_backtick
+                && !escaped
+                && brace_depth == 1
+                && paren_depth == 0
+                && matches!(ch, ' ' | '\t' | '\n' | ';' | '|' | '&' | '<' | '>')
+            {
+                return false;
+            }
+
+            if escaped {
+                escaped = false;
+                prev_char = Some(ch);
+                continue;
+            }
+
+            match ch {
+                '\\' => escaped = true,
+                '\'' if !in_double && !in_backtick => in_single = !in_single,
+                '"' if !in_single && !in_backtick => in_double = !in_double,
+                '`' if !in_single && !in_double => in_backtick = !in_backtick,
+                '(' if !in_single
+                    && !in_double
+                    && !in_backtick
+                    && (paren_depth > 0 || prev_char == Some('$')) =>
+                {
+                    paren_depth += 1
+                }
+                ')' if !in_single && !in_double && !in_backtick && paren_depth > 0 => {
+                    paren_depth -= 1
+                }
+                '{' if !in_single && !in_double && !in_backtick => brace_depth += 1,
+                '}' => {
+                    brace_depth -= 1;
+                    if brace_depth == 0 {
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+
             prev_char = Some(ch);
         }
 
@@ -5300,6 +5381,50 @@ EOF
         assert_next_token(&mut lexer, TokenKind::Word, Some("fi"));
         assert_next_token(&mut lexer, TokenKind::Newline, None);
         assert_next_token(&mut lexer, TokenKind::RightBrace, None);
+        assert_next_token(&mut lexer, TokenKind::Newline, None);
+        assert!(lexer.next_lexed_token().is_none());
+    }
+
+    #[test]
+    fn test_conditional_regex_literal_left_brace_keeps_closing_tokens() {
+        let source = "if [[ $MOTD ]] && ! [[ $MOTD =~ ^{ ]]; then\n";
+        let mut lexer = Lexer::new(source);
+
+        assert_next_token(&mut lexer, TokenKind::Word, Some("if"));
+        assert_next_token(&mut lexer, TokenKind::DoubleLeftBracket, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("$MOTD"));
+        assert_next_token(&mut lexer, TokenKind::DoubleRightBracket, None);
+        assert_next_token(&mut lexer, TokenKind::And, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("!"));
+        assert_next_token(&mut lexer, TokenKind::DoubleLeftBracket, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("$MOTD"));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("=~"));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("^{"));
+        assert_next_token(&mut lexer, TokenKind::DoubleRightBracket, None);
+        assert_next_token(&mut lexer, TokenKind::Semicolon, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("then"));
+        assert_next_token(&mut lexer, TokenKind::Newline, None);
+        assert!(lexer.next_lexed_token().is_none());
+    }
+
+    #[test]
+    fn test_midword_brace_expansion_with_command_substitution_stays_single_word() {
+        let source = "echo -{$(echo a),b}-\n";
+        let mut lexer = Lexer::new(source);
+
+        assert_next_token(&mut lexer, TokenKind::Word, Some("echo"));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("-{$(echo a),b}-"));
+        assert_next_token(&mut lexer, TokenKind::Newline, None);
+        assert!(lexer.next_lexed_token().is_none());
+    }
+
+    #[test]
+    fn test_midword_brace_expansion_with_arithmetic_substitution_stays_single_word() {
+        let source = "echo -{$((1 + 2)),b}-\n";
+        let mut lexer = Lexer::new(source);
+
+        assert_next_token(&mut lexer, TokenKind::Word, Some("echo"));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("-{$((1 + 2)),b}-"));
         assert_next_token(&mut lexer, TokenKind::Newline, None);
         assert!(lexer.next_lexed_token().is_none());
     }
