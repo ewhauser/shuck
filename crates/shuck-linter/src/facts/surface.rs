@@ -351,6 +351,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                                             .map(str::to_owned)
                                             .map(String::into_boxed_str),
                                         variable_set_operand: context.variable_set_operand,
+                                        literal_backslash_in_single_quotes_span: None,
                                     });
                                 } else {
                                     open_quote = Some(quote_start);
@@ -406,6 +407,8 @@ impl<'a> SurfaceFragmentSink<'a> {
                             .map(str::to_owned)
                             .map(String::into_boxed_str),
                         variable_set_operand: context.variable_set_operand,
+                        literal_backslash_in_single_quotes_span:
+                            single_quoted_backslash_continuation_span(parts, index, self.source),
                     });
                 }
                 WordPart::DoubleQuoted { parts, dollar } => {
@@ -1088,6 +1091,51 @@ fn dollar_single_quoted_fragment_len(text: &str) -> Option<usize> {
     }
 
     None
+}
+
+fn single_quoted_backslash_continuation_span(
+    parts: &[WordPartNode],
+    index: usize,
+    source: &str,
+) -> Option<Span> {
+    let part = parts.get(index)?;
+    if !single_quoted_part_contains_backslash_letter(part, source) {
+        return None;
+    }
+
+    let next_part = parts.get(index + 1)?;
+    let WordPart::Literal(text) = &next_part.kind else {
+        return None;
+    };
+    if !text
+        .as_str(source, next_part.span)
+        .starts_with(|char: char| char.is_ascii_alphabetic())
+    {
+        return None;
+    }
+
+    let raw = part.span.slice(source);
+    let closing_quote = part.span.start.advanced_by(&raw[..raw.len() - 1]);
+    Some(Span::from_positions(closing_quote, closing_quote))
+}
+
+fn single_quoted_part_contains_backslash_letter(part: &WordPartNode, source: &str) -> bool {
+    let WordPart::SingleQuoted { dollar: false, .. } = part.kind else {
+        return false;
+    };
+    let Some(inner) = part
+        .span
+        .slice(source)
+        .strip_prefix('\'')
+        .and_then(|text| text.strip_suffix('\''))
+    else {
+        return false;
+    };
+
+    inner
+        .as_bytes()
+        .windows(2)
+        .any(|pair| pair[0] == b'\\' && pair[1].is_ascii_alphabetic())
 }
 
 fn double_quoted_fragment_len(text: &str) -> Option<usize> {

@@ -956,6 +956,7 @@ pub struct SingleQuotedFragmentFact {
     command_name: Option<Box<str>>,
     assignment_target: Option<Box<str>>,
     variable_set_operand: bool,
+    literal_backslash_in_single_quotes_span: Option<Span>,
 }
 
 impl SingleQuotedFragmentFact {
@@ -977,6 +978,10 @@ impl SingleQuotedFragmentFact {
 
     pub fn variable_set_operand(&self) -> bool {
         self.variable_set_operand
+    }
+
+    pub fn literal_backslash_in_single_quotes_span(&self) -> Option<Span> {
+        self.literal_backslash_in_single_quotes_span
     }
 }
 
@@ -25002,6 +25007,51 @@ if [[ \"$@\" =~ x ]]; then :; fi
                 .expect("expected pipeline tail");
             assert_eq!(tail.static_utility_name(), Some("kill"));
             assert!(tail.static_utility_name_is("kill"));
+        });
+    }
+
+    #[test]
+    fn surface_facts_mark_single_quoted_backslash_sequences_that_continue_into_literals() {
+        let source = "\
+#!/bin/sh
+grep ^start'\\s'end file.txt
+printf '%s\\n' '\\n'foo
+printf '%s\\n' 'ab\\n'c
+printf '%s\\n' '\\\\n'foo
+printf '%s\\n' 'foo\\nbar'
+printf '%s\\n' '\\x'41
+printf '%s\\n' '\\0'foo
+printf '%s\\n' '\\n'_
+printf '%s\\n' $'\\n'foo
+printf '%s\\n' a'\\'bc
+";
+
+        with_facts(source, None, |_, facts| {
+            let flagged = facts
+                .single_quoted_fragments()
+                .iter()
+                .filter_map(|fragment| {
+                    fragment
+                        .literal_backslash_in_single_quotes_span()
+                        .map(|span| {
+                            (
+                                fragment.span().slice(source),
+                                span.start.line,
+                                span.start.column,
+                            )
+                        })
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                flagged,
+                vec![
+                    ("'\\s'", 2, 15),
+                    ("'\\n'", 3, 18),
+                    ("'ab\\n'", 4, 20),
+                    ("'\\\\n'", 5, 19),
+                ]
+            );
         });
     }
 
