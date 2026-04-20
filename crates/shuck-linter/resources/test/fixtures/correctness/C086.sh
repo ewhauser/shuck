@@ -1,18 +1,31 @@
 #!/bin/bash
 
-# Invalid: `>` inside `[` redirects instead of comparing.
+# Invalid: numeric `<`/`>` in test expressions should use `-lt`/`-gt`.
 [ "$version" > "10" ]
+[ "$version" < 10 ]
 
-# Invalid: literal operands still use a redirecting `>`.
+# Invalid: literal operands still use redirecting or lexical operators.
 [ 1 > 2 ]
+[[ $count > 10 ]]
+[[ "$count" < 1 ]]
 
-# Valid: redirecting the test command after the closing bracket is unrelated.
+# Valid: redirects outside the test expression are unrelated.
 [ "$version" ] > "$log"
 
-# Valid: escaped or quoted `>` stays a test operand.
-[ "$version" \> "$other" ]
-[ "$version" ">" "$other" ]
-
-# Valid: `test` and `[[` are out of scope for this rule.
-test "$version" > "$other"
+# Valid: plain string ordering is outside this numeric-comparison rule.
+[ "$version" > "$other" ]
+[ "$version" < "$other" ]
 [[ "$version" > "$other" ]]
+
+# Valid: escaped or quoted operators stay test operands.
+[ "$version" \> "$other" ]
+[ "$version" \< "$other" ]
+[ "$version" ">" "$other" ]
+[ "$version" "<" "$other" ]
+
+# Valid: decimal/version ordering is handled by C087 instead.
+[[ "$version" > 1.2 ]]
+[[ 1.2 < "$version" ]]
+
+# Valid: `test` is out of scope for this rule.
+test "$version" > 10
