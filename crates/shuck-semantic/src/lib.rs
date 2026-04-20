@@ -248,6 +248,24 @@ fn previous_visible_binding_id_from_slice(
         .find(|binding_id| ignored_binding_span != Some(all_bindings[binding_id.index()].span))
 }
 
+fn insert_binding_id_sorted(
+    bindings: &mut Vec<BindingId>,
+    all_bindings: &[Binding],
+    id: BindingId,
+) {
+    let target = &all_bindings[id.index()];
+    let insertion = bindings.partition_point(|candidate_id| {
+        let candidate = &all_bindings[candidate_id.index()];
+        candidate.span.start.offset < target.span.start.offset
+            || (candidate.span.start.offset == target.span.start.offset
+                && candidate.span.end.offset < target.span.end.offset)
+            || (candidate.span.start.offset == target.span.start.offset
+                && candidate.span.end.offset == target.span.end.offset
+                && candidate.id.index() < target.id.index())
+    });
+    bindings.insert(insertion, id);
+}
+
 #[derive(Debug)]
 struct AssocLookupBindingIndex {
     blocking_bindings_by_scope: Vec<FxHashMap<Name, Box<[BindingId]>>>,
@@ -776,20 +794,25 @@ impl SemanticModel {
             references: Vec::new(),
             attributes,
         });
-        self.binding_index
-            .entry(provided.name.clone())
-            .or_default()
-            .push(id);
-        self.scopes[scope.index()]
-            .bindings
-            .entry(provided.name.clone())
-            .or_default()
-            .push(id);
-        if provided.kind == ProvidedBindingKind::Function {
-            self.functions
+        insert_binding_id_sorted(
+            self.binding_index.entry(provided.name.clone()).or_default(),
+            &self.bindings,
+            id,
+        );
+        insert_binding_id_sorted(
+            self.scopes[scope.index()]
+                .bindings
                 .entry(provided.name.clone())
-                .or_default()
-                .push(id);
+                .or_default(),
+            &self.bindings,
+            id,
+        );
+        if provided.kind == ProvidedBindingKind::Function {
+            insert_binding_id_sorted(
+                self.functions.entry(provided.name.clone()).or_default(),
+                &self.bindings,
+                id,
+            );
         }
         if let Some(command_span) = command_span {
             self.command_bindings
@@ -3342,6 +3365,58 @@ shadow() {
                 .map(|binding| binding.id),
             Some(shadow_local)
         );
+    }
+
+    #[test]
+    fn imported_entry_bindings_insert_in_visibility_order() {
+        let source = "\
+#!/bin/bash
+value=local
+echo $value
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let model = SemanticModel::build_with_options(
+            &output.file,
+            source,
+            &indexer,
+            SemanticBuildOptions {
+                file_entry_contract: Some(FileContract {
+                    required_reads: Vec::new(),
+                    provided_bindings: vec![ProvidedBinding::new(
+                        Name::from("value"),
+                        ProvidedBindingKind::Variable,
+                        ContractCertainty::Definite,
+                    )],
+                    provided_functions: Vec::new(),
+                }),
+                ..SemanticBuildOptions::default()
+            },
+        );
+        let value_bindings = model.bindings_for(&Name::from("value"));
+
+        assert_eq!(value_bindings.len(), 2);
+        assert!(matches!(
+            model.binding(value_bindings[0]).kind,
+            BindingKind::Imported
+        ));
+        assert!(matches!(
+            model.binding(value_bindings[1]).kind,
+            BindingKind::Assignment
+        ));
+
+        let value_reference = model
+            .references()
+            .iter()
+            .find(|reference| {
+                reference.name.as_str() == "value" && reference.span.slice(source) == "$value"
+            })
+            .expect("expected value reference");
+
+        assert!(matches!(
+            model.visible_binding(&Name::from("value"), value_reference.span),
+            Some(binding) if binding.kind == BindingKind::Assignment
+        ));
     }
 
     #[test]
