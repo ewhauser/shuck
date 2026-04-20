@@ -1,8 +1,8 @@
 use shuck_ast::{
     ArithmeticExpr, Assignment, BinaryCommand, BourneParameterExpansion, CaseItem, ConditionalExpr,
     ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternGroupKind,
-    PatternPart, Position, Redirect, Span, SubscriptSelector, VarRef, Word, WordPart, WordPartNode,
-    ZshExpansionTarget,
+    PatternPart, Position, PrefixMatchKind, Redirect, Span, SubscriptSelector, VarRef, Word,
+    WordPart, WordPartNode, ZshExpansionTarget,
 };
 
 pub fn assignment_name_span(assignment: &Assignment) -> Span {
@@ -958,6 +958,27 @@ fn collect_all_elements_array_expansion_spans(
                     spans.push(span);
                 }
             }
+            WordPart::ArrayIndices(reference)
+                if matches!(
+                    reference
+                        .subscript
+                        .as_ref()
+                        .and_then(|subscript| subscript.selector()),
+                    Some(SubscriptSelector::At)
+                ) =>
+            {
+                if let Some(span) = normalize_all_elements_array_expansion_span(part.span, source) {
+                    spans.push(span);
+                }
+            }
+            WordPart::PrefixMatch {
+                kind: PrefixMatchKind::At,
+                ..
+            } => {
+                if let Some(span) = normalize_all_elements_array_expansion_span(part.span, source) {
+                    spans.push(span);
+                }
+            }
             WordPart::Parameter(parameter)
                 if parameter_might_use_all_elements_array_expansion(
                     parameter, part.span, source,
@@ -1470,12 +1491,16 @@ fn candidate_is_all_elements_array_expansion(candidate: &str) -> bool {
         return false;
     };
 
+    let (inner, indirect_like) = inner
+        .strip_prefix('!')
+        .map_or((inner, false), |stripped| (stripped, true));
+
     let Some(first) = inner.as_bytes().first().copied() else {
         return false;
     };
 
     if first == b'@' {
-        return true;
+        return !indirect_like;
     }
 
     if !is_name_start(first) {
@@ -1488,7 +1513,11 @@ fn candidate_is_all_elements_array_expansion(candidate: &str) -> bool {
         index += 1;
     }
 
-    inner[index..].starts_with("[@]")
+    if inner[index..].starts_with("[@]") {
+        return true;
+    }
+
+    indirect_like && inner[index..].starts_with('@')
 }
 
 fn candidate_is_direct_all_elements_array_expansion(candidate: &str) -> bool {
@@ -2945,13 +2974,15 @@ fn parameter_might_use_all_elements_array_expansion(
     }
 
     match &parameter.syntax {
-        ParameterExpansionSyntax::Bourne(syntax) => !matches!(
-            syntax,
-            BourneParameterExpansion::Length { .. }
-                | BourneParameterExpansion::Indices { .. }
-                | BourneParameterExpansion::Indirect { .. }
-                | BourneParameterExpansion::PrefixMatch { .. }
-        ),
+        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+            BourneParameterExpansion::Length { .. } | BourneParameterExpansion::Indirect { .. } => {
+                false
+            }
+            BourneParameterExpansion::PrefixMatch { kind, .. } => {
+                matches!(kind, PrefixMatchKind::At)
+            }
+            _ => true,
+        },
         ParameterExpansionSyntax::Zsh(_) => true,
     }
 }
@@ -3958,9 +3989,9 @@ eval command sudo \\\"\\${sudo_args[@]}\\\" \\\"\\$@\\\"
     }
 
     #[test]
-    fn all_elements_array_expansion_spans_ignore_non_selector_at_text() {
+    fn all_elements_array_expansion_spans_track_safe_quoted_name_fanout() {
         let source = "\
-printf '%s\\n' ${#arr[@]} ${!arr[@]} ${name:-safe[@]} ${arr[@]}
+printf '%s\\n' ${#arr[@]} ${!arr[@]} ${!cfg@} ${name:-safe[@]} ${arr[@]}
 ";
         let output = Parser::new(source).parse().unwrap();
         let command = &output.file.body[0].command;
@@ -3969,10 +4000,23 @@ printf '%s\\n' ${#arr[@]} ${!arr[@]} ${name:-safe[@]} ${arr[@]}
         };
 
         assert!(all_elements_array_expansion_part_spans(&command.args[1], source).is_empty());
-        assert!(all_elements_array_expansion_part_spans(&command.args[2], source).is_empty());
-        assert!(all_elements_array_expansion_part_spans(&command.args[3], source).is_empty());
         assert_eq!(
-            all_elements_array_expansion_part_spans(&command.args[4], source)
+            all_elements_array_expansion_part_spans(&command.args[2], source)
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${!arr[@]}"]
+        );
+        assert_eq!(
+            all_elements_array_expansion_part_spans(&command.args[3], source)
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${!cfg@}"]
+        );
+        assert!(all_elements_array_expansion_part_spans(&command.args[4], source).is_empty());
+        assert_eq!(
+            all_elements_array_expansion_part_spans(&command.args[5], source)
                 .iter()
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),

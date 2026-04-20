@@ -1,4 +1,3 @@
-review_all_divergences: true
 reviewed_divergences:
   - side: shuck-only
     path_suffix: "Bash-it__bash-it__lib__search.bash"
@@ -125,7 +124,7 @@ reviewed_divergences:
     end_line: 112
     column: 16
     end_column: 37
-    reason: "Current corpus-reviewed S015 loop-list span in this fixture."
+    reason: "This JSON-building helper loops over `\"${arns_to_block[@]}\"`, which preserves one item per array element. A standalone oracle probe stays quiet on that shape, so the remaining full-file hit is treated as project-closure noise rather than a live S015 bug."
   - side: shuck-only
     path_suffix: "HariSekhon__DevOps-Bash-tools__bin__open.sh"
     line: 59
@@ -4472,7 +4471,7 @@ reviewed_divergences:
     end_line: 258
     column: 18
     end_column: 33
-    reason: "Current corpus-reviewed S015 loop-list span in this fixture."
+    reason: "This GraphQL-query builder iterates `\"${COMMITS[@]}\"`, which keeps one loop item per commit. Direct oracle probes stay quiet on that loop shape, so the remaining corpus-only miss is reviewed narrowly instead of widening S015 again."
   - side: shuck-only
     path_suffix: "tj__git-extras__bin__git-brv"
     line: 41

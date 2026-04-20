@@ -1,7 +1,15 @@
 #!/bin/bash
 
 arr=(alpha "two words")
-for item in "$*" "${arr[*]}" "x$*y"; do
+for item in "$*"; do
+  :
+done
+
+for item in "${arr[*]}"; do
+  :
+done
+
+for item in "x$*y"; do
   :
 done
 
