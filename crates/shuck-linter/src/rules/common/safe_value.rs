@@ -4,8 +4,8 @@ use shuck_ast::{
     RedirectKind, SourceText, Span, VarRef, Word, WordPart, WordPartNode,
 };
 use shuck_semantic::{
-    AssignmentValueOrigin, BindingAttributes, BindingKind, BindingOrigin, ContractCertainty,
-    LoopValueOrigin, ScopeId, ScopeKind, SemanticAnalysis, SemanticModel, UninitializedCertainty,
+    AssignmentValueOrigin, BindingAttributes, BindingKind, BindingOrigin, LoopValueOrigin, ScopeId,
+    ScopeKind, SemanticAnalysis, SemanticModel, UninitializedCertainty,
 };
 use shuck_semantic::{BindingId, BlockId, ReferenceId, ReferenceKind};
 
@@ -74,6 +74,8 @@ pub struct SafeValueIndex<'a> {
     maybe_uninitialized_refs: FxHashSet<FactSpan>,
     memo: FxHashMap<(FactSpan, SafeValueQuery), bool>,
     visiting: FxHashSet<(FactSpan, SafeValueQuery)>,
+    helper_binding_memo: FxHashMap<(Name, ScopeId, FactSpan), Box<[BindingId]>>,
+    helper_binding_visiting: FxHashSet<(Name, ScopeId, FactSpan)>,
 }
 
 impl<'a> SafeValueIndex<'a> {
@@ -98,6 +100,8 @@ impl<'a> SafeValueIndex<'a> {
             maybe_uninitialized_refs,
             memo: FxHashMap::default(),
             visiting: FxHashSet::default(),
+            helper_binding_memo: FxHashMap::default(),
+            helper_binding_visiting: FxHashSet::default(),
         }
     }
 
@@ -326,7 +330,7 @@ impl<'a> SafeValueIndex<'a> {
         })
     }
 
-    fn safe_bindings_for_name(&self, name: &Name, at: Span) -> Vec<BindingId> {
+    fn safe_bindings_for_name(&mut self, name: &Name, at: Span) -> Vec<BindingId> {
         let mut bindings = self.analysis.reaching_bindings_for_name(name, at);
         if bindings.len() == 1 {
             let mut expanded = self
@@ -347,23 +351,25 @@ impl<'a> SafeValueIndex<'a> {
         bindings
     }
 
-    fn called_helper_bindings_for_name(&self, name: &Name, at: Span) -> Vec<BindingId> {
+    fn called_helper_bindings_for_name(&mut self, name: &Name, at: Span) -> Vec<BindingId> {
         let scope = self.semantic.scope_at(at.start.offset);
-        let mut seen = FxHashSet::default();
-        let mut bindings = self.called_helper_bindings_before(name, scope, at, &mut seen);
+        let mut bindings = self.called_helper_bindings_before(name, scope, at);
         bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
         bindings.dedup();
         bindings
     }
 
     fn called_helper_bindings_before(
-        &self,
+        &mut self,
         name: &Name,
         scope: ScopeId,
         at: Span,
-        seen: &mut FxHashSet<(ScopeId, usize, usize)>,
     ) -> Vec<BindingId> {
-        if !seen.insert((scope, at.start.offset, at.end.offset)) {
+        let key = (name.clone(), scope, FactSpan::new(at));
+        if let Some(cached) = self.helper_binding_memo.get(&key) {
+            return cached.to_vec();
+        }
+        if !self.helper_binding_visiting.insert(key.clone()) {
             return Vec::new();
         }
 
@@ -372,20 +378,23 @@ impl<'a> SafeValueIndex<'a> {
             .into_iter()
             .collect::<FxHashSet<_>>();
 
-        if let Some(caller_bindings) = self.helper_bindings_reaching_all_callers(name, scope, seen)
-        {
+        if let Some(caller_bindings) = self.helper_bindings_reaching_all_callers(name, scope) {
             bindings.extend(caller_bindings);
         }
 
-        seen.remove(&(scope, at.start.offset, at.end.offset));
-        bindings.into_iter().collect()
+        self.helper_binding_visiting.remove(&key);
+        let mut bindings = bindings.into_iter().collect::<Vec<_>>();
+        bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+        bindings.dedup();
+        self.helper_binding_memo
+            .insert(key, bindings.clone().into_boxed_slice());
+        bindings
     }
 
     fn helper_bindings_reaching_all_callers(
-        &self,
+        &mut self,
         name: &Name,
         scope: ScopeId,
-        seen: &mut FxHashSet<(ScopeId, usize, usize)>,
     ) -> Option<FxHashSet<BindingId>> {
         let function_kind = self.named_function_kind(scope)?;
         let mut caller_sites = Vec::new();
@@ -407,7 +416,7 @@ impl<'a> SafeValueIndex<'a> {
         for site in caller_sites {
             saw_caller = true;
             let branch = self
-                .called_helper_bindings_before(name, site.scope, site.span, seen)
+                .called_helper_bindings_before(name, site.scope, site.span)
                 .into_iter()
                 .collect::<FxHashSet<_>>();
             if branch.is_empty() {
@@ -462,41 +471,40 @@ impl<'a> SafeValueIndex<'a> {
         }
         let _ = name;
 
-        !self.facts.commands().iter().any(|fact| {
-            let outer = fact.span();
-            outer.start.offset < call_span.start.offset
-                && call_span.end.offset <= outer.end.offset
-                && outer.end.offset <= at.start.offset
-                && match fact.command() {
-                    shuck_ast::Command::Binary(_) => true,
-                    shuck_ast::Command::Compound(compound) => !matches!(
-                        compound,
-                        shuck_ast::CompoundCommand::BraceGroup(_)
-                            | shuck_ast::CompoundCommand::Arithmetic(_)
-                            | shuck_ast::CompoundCommand::Time(_)
-                    ),
-                    shuck_ast::Command::Simple(_)
-                    | shuck_ast::Command::Builtin(_)
-                    | shuck_ast::Command::Decl(_)
-                    | shuck_ast::Command::Function(_)
-                    | shuck_ast::Command::AnonymousFunction(_) => false,
-                }
-        })
+        let Some(mut command_id) = self.facts.innermost_command_id_at(call_span.start.offset)
+        else {
+            return true;
+        };
+        while self.facts.command(command_id).span() != call_span {
+            let Some(parent_id) = self.facts.command_parent_id(command_id) else {
+                return true;
+            };
+            command_id = parent_id;
+        }
+
+        let mut current = self.facts.command_parent_id(command_id);
+        while let Some(command_id) = current {
+            let command = self.facts.command(command_id);
+            if command.span().end.offset > at.start.offset {
+                break;
+            }
+            if command.span().start.offset < call_span.start.offset
+                && self.facts.command_is_dominance_barrier(command_id)
+            {
+                return false;
+            }
+            current = self.facts.command_parent_id(command_id);
+        }
+
+        true
     }
 
     fn helper_scopes_definitely_providing_name(&self, name: &Name) -> Vec<ScopeId> {
-        self.semantic
-            .scopes()
+        self.analysis
+            .definite_provider_scopes(name)
             .iter()
-            .filter_map(|scope| matches!(scope.kind, ScopeKind::Function(_)).then_some(scope.id))
-            .filter(|scope| {
-                self.analysis
-                    .summarize_scope_provided_bindings(*scope)
-                    .iter()
-                    .any(|binding| {
-                        binding.name == *name && binding.certainty == ContractCertainty::Definite
-                    })
-            })
+            .copied()
+            .filter(|scope| matches!(self.semantic.scope(*scope).kind, ScopeKind::Function(_)))
             .collect()
     }
 

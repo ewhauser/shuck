@@ -1495,6 +1495,7 @@ pub(crate) fn benchmark_collect_word_facts(
     let mut word_occurrences = Vec::new();
     let mut compound_assignment_value_word_spans = FxHashSet::default();
     let mut array_assignment_split_word_ids = Vec::new();
+    let mut assoc_binding_visibility_memo = FxHashMap::default();
     let mut case_pattern_expansion_spans = Vec::new();
     let mut pattern_literal_spans = Vec::new();
     let mut arithmetic_summary = ArithmeticFactSummary::default();
@@ -1531,6 +1532,7 @@ pub(crate) fn benchmark_collect_word_facts(
                 word_occurrences: &mut word_occurrences,
                 compound_assignment_value_word_spans: &mut compound_assignment_value_word_spans,
                 array_assignment_split_word_ids: &mut array_assignment_split_word_ids,
+                assoc_binding_visibility_memo: &mut assoc_binding_visibility_memo,
                 case_pattern_expansion_spans: &mut case_pattern_expansion_spans,
                 pattern_literal_spans: &mut pattern_literal_spans,
                 arithmetic: &mut arithmetic_summary,
@@ -1571,6 +1573,8 @@ struct WordFactOutputs<'out, 'a> {
     word_occurrences: &'out mut Vec<WordOccurrence>,
     compound_assignment_value_word_spans: &'out mut FxHashSet<FactSpan>,
     array_assignment_split_word_ids: &'out mut Vec<WordOccurrenceId>,
+    assoc_binding_visibility_memo:
+        &'out mut FxHashMap<(Name, ScopeId, Option<FactSpan>), bool>,
     case_pattern_expansion_spans: &'out mut Vec<Span>,
     pattern_literal_spans: &'out mut Vec<Span>,
     arithmetic: &'out mut ArithmeticFactSummary,
@@ -1624,6 +1628,8 @@ struct WordFactCollector<'out, 'a, 'norm> {
     word_node_ids_by_span: &'out mut FxHashMap<FactSpan, WordNodeId>,
     word_occurrences: &'out mut Vec<WordOccurrence>,
     array_assignment_split_word_ids: &'out mut Vec<WordOccurrenceId>,
+    assoc_binding_visibility_memo:
+        &'out mut FxHashMap<(Name, ScopeId, Option<FactSpan>), bool>,
     seen: FxHashSet<(FactSpan, WordFactContext, WordFactHostKind)>,
     compound_assignment_value_word_spans: &'out mut FxHashSet<FactSpan>,
     case_pattern_expansion_spans: &'out mut Vec<Span>,
@@ -1653,6 +1659,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             word_node_ids_by_span: outputs.word_node_ids_by_span,
             word_occurrences: outputs.word_occurrences,
             array_assignment_split_word_ids: outputs.array_assignment_split_word_ids,
+            assoc_binding_visibility_memo: outputs.assoc_binding_visibility_memo,
             seen: FxHashSet::default(),
             compound_assignment_value_word_spans: outputs.compound_assignment_value_word_spans,
             case_pattern_expansion_spans: outputs.case_pattern_expansion_spans,
@@ -2548,7 +2555,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
     }
 
     fn subscript_uses_index_arithmetic_semantics(
-        &self,
+        &mut self,
         owner_name: Option<&Name>,
         owner_name_span: Option<Span>,
         subscript: Option<&Subscript>,
@@ -2571,18 +2578,30 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
     }
 
     fn assoc_binding_visible_for_subscript(
-        &self,
+        &mut self,
         owner_name: &Name,
         owner_name_span: Option<Span>,
         subscript: &Subscript,
     ) -> bool {
-        if let Some(binding) =
-            self.prior_visible_binding_for_subscript(owner_name, owner_name_span, subscript.span())
-        {
-            return binding.attributes.contains(BindingAttributes::ASSOC);
+        let current_scope = self.semantic.scope_at(subscript.span().start.offset);
+        let key = (
+            owner_name.clone(),
+            current_scope,
+            owner_name_span.map(FactSpan::new),
+        );
+        if let Some(result) = self.assoc_binding_visibility_memo.get(&key) {
+            return *result;
         }
 
-        self.assoc_binding_visible_from_named_callers(owner_name, subscript.span())
+        let visible = if let Some(binding) =
+            self.prior_visible_binding_for_subscript(owner_name, subscript.span())
+        {
+            binding.attributes.contains(BindingAttributes::ASSOC)
+        } else {
+            self.assoc_binding_visible_from_named_callers(owner_name, subscript.span())
+        };
+        self.assoc_binding_visibility_memo.insert(key, visible);
+        visible
     }
 
     fn assoc_binding_visible_from_named_callers(&self, owner_name: &Name, span: Span) -> bool {
@@ -2621,24 +2640,11 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
     fn prior_visible_binding_for_subscript(
         &self,
         owner_name: &Name,
-        owner_name_span: Option<Span>,
         span: Span,
     ) -> Option<&shuck_semantic::Binding> {
         let current_scope = self.semantic.scope_at(span.start.offset);
         self.semantic
-            .bindings_for(owner_name)
-            .iter()
-            .rev()
-            .copied()
-            .find(|binding_id| {
-                self.semantic.binding_visible_at(*binding_id, span)
-                    && self.binding_blocks_caller_assoc_lookup(
-                        *binding_id,
-                        current_scope,
-                        owner_name_span,
-                    )
-            })
-            .map(|binding_id| self.semantic.binding(binding_id))
+            .visible_binding_for_assoc_lookup(owner_name, current_scope, span)
     }
 
     fn visible_binding_for_caller_assoc_lookup(
@@ -2648,46 +2654,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
     ) -> Option<&shuck_semantic::Binding> {
         let current_scope = self.semantic.scope_at(span.start.offset);
         self.semantic
-            .bindings_for(owner_name)
-            .iter()
-            .rev()
-            .copied()
-            .find(|binding_id| {
-                self.semantic.binding_visible_at(*binding_id, span)
-                    && self.binding_blocks_caller_assoc_lookup(*binding_id, current_scope, None)
-            })
-            .map(|binding_id| self.semantic.binding(binding_id))
-    }
-
-    fn binding_blocks_caller_assoc_lookup(
-        &self,
-        binding_id: shuck_semantic::BindingId,
-        current_scope: shuck_semantic::ScopeId,
-        owner_name_span: Option<Span>,
-    ) -> bool {
-        let binding = self.semantic.binding(binding_id);
-        if owner_name_span.is_some_and(|owner_span| binding.span == owner_span)
-            && matches!(
-                binding.kind,
-                shuck_semantic::BindingKind::Assignment
-                    | shuck_semantic::BindingKind::AppendAssignment
-                    | shuck_semantic::BindingKind::ArrayAssignment
-                    | shuck_semantic::BindingKind::ArithmeticAssignment
-            )
-        {
-            return false;
-        }
-        if binding.scope != current_scope || binding.attributes.contains(BindingAttributes::LOCAL) {
-            return true;
-        }
-
-        !matches!(
-            binding.kind,
-            shuck_semantic::BindingKind::Assignment
-                | shuck_semantic::BindingKind::AppendAssignment
-                | shuck_semantic::BindingKind::ArrayAssignment
-                | shuck_semantic::BindingKind::ArithmeticAssignment
-        )
+            .visible_binding_for_assoc_lookup(owner_name, current_scope, span)
     }
 
     fn named_function_scope_names(&self, offset: usize) -> Option<&[Name]> {
