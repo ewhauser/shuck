@@ -9,8 +9,8 @@ shells:
   - bash
   - dash
   - ksh
-description: "A `>` operator inside `[ ]` creates a file instead of comparing."
-rationale: "Use `-gt` for numeric comparison or `[[ ]]` for string ordering."
+description: "A numeric comparison uses `<` or `>` instead of `-lt` or `-gt`."
+rationale: "Use `-lt` or `-gt` for integer comparisons. Inside `[ ]`, raw `<` or `>` redirects instead of comparing; inside `[[ ]]`, they order text lexicographically."
 source:
   shell_checks_rule: rules/SH-213.yaml
   shell_checks_example: examples/213.sh
@@ -21,3 +21,9 @@ examples:
       #!/bin/bash
       # shellcheck disable=2154
       if [ "$version" > "10" ]; then echo newer; fi
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      if [[ $count < 1 ]]; then
+        echo empty
+      fi

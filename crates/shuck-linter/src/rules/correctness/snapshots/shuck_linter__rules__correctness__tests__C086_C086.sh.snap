@@ -1,15 +1,32 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
-assertion_line: 205
 ---
-C086 `>` inside `[` redirects output instead of comparing values
+C086 use `-lt`/`-gt` instead of `<`/`>` for numeric comparisons
  --> <source>:4:14
   |
 4 | [ "$version" > "10" ]
   |
 
-C086 `>` inside `[` redirects output instead of comparing values
- --> <source>:7:5
+C086 use `-lt`/`-gt` instead of `<`/`>` for numeric comparisons
+ --> <source>:5:14
   |
-7 | [ 1 > 2 ]
+5 | [ "$version" < 10 ]
   |
+
+C086 use `-lt`/`-gt` instead of `<`/`>` for numeric comparisons
+ --> <source>:8:5
+  |
+8 | [ 1 > 2 ]
+  |
+
+C086 use `-lt`/`-gt` instead of `<`/`>` for numeric comparisons
+ --> <source>:9:11
+  |
+9 | [[ $count > 10 ]]
+  |
+
+C086 use `-lt`/`-gt` instead of `<`/`>` for numeric comparisons
+  --> <source>:10:13
+   |
+10 | [[ "$count" < 1 ]]
+   |
