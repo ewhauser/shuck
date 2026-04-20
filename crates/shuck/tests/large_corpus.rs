@@ -51,11 +51,29 @@ const LARGE_CORPUS_STATIC_IGNORE_SUFFIXES: &[&str] = &[
     "super-linter__super-linter__test__linters__bash__shell_bad_1.sh",
     "super-linter__super-linter__test__linters__bash_exec__shell_bad_1.sh",
     "alpinelinux__aports__community__starship__starship.plugin.zsh",
+    "google__oss-fuzz__infra__chronos__coverage_test_collection.py",
 ];
 const LARGE_CORPUS_STATIC_ZSH_OVERRIDE_SUFFIXES: &[&str] = &[
     "ohmyzsh__ohmyzsh__oh-my-zsh.sh",
     "ohmyzsh__ohmyzsh__tools__check_for_upgrade.sh",
 ];
+const LARGE_CORPUS_REVIEWED_SHELLCHECK_PARSE_ABORT_SUFFIXES: &[&str] = &[
+    "SlackBuildsOrg__slackbuilds__network__modemu2k__modemu2k.SlackBuild",
+    "SlackBuildsOrg__slackbuilds__system__firmware-gobi-2000__firmware-gobi-2000.SlackBuild",
+    "alpinelinux__aports__community__dnscrypt-proxy__dnscrypt-proxy.setup",
+    "bittorf__kalua__openwrt-addons__www__cgi-bin-status.sh",
+    "docker__docker-bench-security__tests__2_docker_daemon_configuration.sh",
+    "google__oss-fuzz__projects__apache-tika__build.sh",
+    "leebaird__discover__passive.sh",
+    "nvm-sh__nvm__test__install_script__install_nvm_from_git",
+    "pyenv__pyenv__plugins__python-build__bin__python-build",
+    "romkatv__powerlevel10k__gitstatus__install",
+    "rvm__rvm__scripts__functions__build_config_system",
+    "rvm__rvm__scripts__functions__requirements__gentoo_portage",
+    "rvm__rvm__scripts__functions__rvmrc",
+];
+const LARGE_CORPUS_REVIEWED_SHUCK_PARSE_EXCEPTION_SUFFIXES: &[&str] =
+    &["paulirish__dotfiles__.git-completion.bash"];
 
 const SHELLCHECK_CACHE_SCHEMA: u32 = 2;
 const SHELLCHECK_CACHE_MIGRATION_VERSION: u32 = 1;
@@ -707,6 +725,13 @@ struct ShuckRun {
 enum FixtureFailureKind {
     Other,
     Timeout,
+    Warning,
+}
+
+impl FixtureFailureKind {
+    fn blocks(self) -> bool {
+        matches!(self, Self::Other)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1132,7 +1157,7 @@ where
         let has_blocking = evaluation
             .harness_failure
             .as_ref()
-            .is_some_and(|failure| failure.kind != FixtureFailureKind::Timeout)
+            .is_some_and(|failure| failure.kind.blocks())
             || !evaluation.implementation_diffs.is_empty();
         let timeout = evaluation
             .harness_failure
@@ -1323,6 +1348,13 @@ fn evaluate_fixture_compatibility(
             } else {
                 details.push("shellcheck parsed fixture successfully".into());
             }
+            if record_reviewed_large_corpus_harness_warning(
+                &mut evaluation,
+                &fixture.path,
+                &details,
+            ) {
+                return evaluation;
+            }
             evaluation.harness_failure = Some(FixtureFailure {
                 kind: FixtureFailureKind::Other,
                 message: format_fixture_failure(&fixture.path, &details),
@@ -1343,12 +1375,17 @@ fn evaluate_fixture_compatibility(
     }) {
         Ok(sc_run) => {
             if sc_run.parse_aborted {
+                let details = vec!["shellcheck parse aborted".into()];
+                if record_reviewed_large_corpus_harness_warning(
+                    &mut evaluation,
+                    &fixture.path,
+                    &details,
+                ) {
+                    return evaluation;
+                }
                 evaluation.harness_failure = Some(FixtureFailure {
                     kind: FixtureFailureKind::Other,
-                    message: format_fixture_failure(
-                        &fixture.path,
-                        &["shellcheck parse aborted".into()],
-                    ),
+                    message: format_fixture_failure(&fixture.path, &details),
                 });
                 return evaluation;
             }
@@ -1523,7 +1560,9 @@ fn merge_fixture_evaluation(
         .extend(evaluation.reviewed_divergences);
     if let Some(failure) = evaluation.harness_failure {
         match failure.kind {
-            FixtureFailureKind::Timeout => collection.harness_warnings.push(failure.message),
+            FixtureFailureKind::Timeout | FixtureFailureKind::Warning => {
+                collection.harness_warnings.push(failure.message)
+            }
             FixtureFailureKind::Other => collection.harness_failures.push(failure.message),
         }
     }
@@ -1987,6 +2026,59 @@ fn path_is_statically_ignored_large_corpus_fixture(path: &Path) -> bool {
 
 fn path_has_large_corpus_static_zsh_override(path: &Path) -> bool {
     path_matches_large_corpus_suffix(path, LARGE_CORPUS_STATIC_ZSH_OVERRIDE_SUFFIXES)
+}
+
+fn path_has_reviewed_shellcheck_parse_abort(path: &Path) -> bool {
+    path_matches_large_corpus_suffix(path, LARGE_CORPUS_REVIEWED_SHELLCHECK_PARSE_ABORT_SUFFIXES)
+}
+
+fn path_has_reviewed_shuck_parse_exception(path: &Path) -> bool {
+    path_matches_large_corpus_suffix(path, LARGE_CORPUS_REVIEWED_SHUCK_PARSE_EXCEPTION_SUFFIXES)
+}
+
+fn reviewed_large_corpus_harness_warning_reason(
+    path: &Path,
+    details: &[String],
+) -> Option<&'static str> {
+    if details
+        .iter()
+        .any(|detail| detail.contains("shellcheck parse aborted"))
+        && path_has_reviewed_shellcheck_parse_abort(path)
+    {
+        return Some(
+            "reviewed fixture exception: shellcheck stops on this fixture even though the target shell still accepts it",
+        );
+    }
+
+    if details
+        .iter()
+        .any(|detail| detail.contains("shellcheck parsed fixture successfully"))
+        && path_has_reviewed_shuck_parse_exception(path)
+    {
+        return Some(
+            "reviewed fixture exception: this valid bash completion pattern still trips Shuck's parser",
+        );
+    }
+
+    None
+}
+
+fn record_reviewed_large_corpus_harness_warning(
+    evaluation: &mut FixtureEvaluation,
+    path: &Path,
+    details: &[String],
+) -> bool {
+    let Some(reason) = reviewed_large_corpus_harness_warning_reason(path, details) else {
+        return false;
+    };
+
+    let mut warning_details = vec![reason.to_owned()];
+    warning_details.extend(details.iter().cloned());
+    evaluation.harness_failure = Some(FixtureFailure {
+        kind: FixtureFailureKind::Warning,
+        message: format_fixture_failure(path, &warning_details),
+    });
+    true
 }
 
 fn path_is_sample_file(path: &Path) -> bool {
@@ -2801,12 +2893,13 @@ fn shellcheck_parse_aborted(diags: &[ShellCheckDiagnostic]) -> bool {
         if diag.level != "error" {
             continue;
         }
-        if diag.code == 1072 || diag.code == 1073 {
+        if matches!(diag.code, 1072 | 1073 | 1088) {
             return true;
         }
         let lower = diag.message.to_lowercase();
         if lower.contains("fix to allow more checks")
             || lower.contains("fix any mentioned problems and try again")
+            || lower.contains("parsing stopped here")
         {
             return true;
         }
@@ -3620,6 +3713,52 @@ mod tests {
     }
 
     #[test]
+    fn reviewed_shellcheck_parse_abort_fixture_is_downgraded_to_warning() {
+        let details = vec!["shellcheck parse aborted".to_owned()];
+        let path = Path::new("pyenv__pyenv__plugins__python-build__bin__python-build");
+        let mut evaluation = FixtureEvaluation::default();
+
+        assert!(record_reviewed_large_corpus_harness_warning(
+            &mut evaluation,
+            path,
+            &details
+        ));
+        assert_eq!(
+            evaluation.harness_failure.as_ref().unwrap().kind,
+            FixtureFailureKind::Warning
+        );
+        assert!(
+            evaluation
+                .harness_failure
+                .as_ref()
+                .unwrap()
+                .message
+                .contains("reviewed fixture exception")
+        );
+    }
+
+    #[test]
+    fn reviewed_shuck_parse_exception_fixture_is_downgraded_to_warning() {
+        let details = vec![
+            "shuck parse error: parse error at line 1325, column 2: expected ')' after case pattern"
+                .to_owned(),
+            "shellcheck parsed fixture successfully".to_owned(),
+        ];
+        let path = Path::new("paulirish__dotfiles__.git-completion.bash");
+        let mut evaluation = FixtureEvaluation::default();
+
+        assert!(record_reviewed_large_corpus_harness_warning(
+            &mut evaluation,
+            path,
+            &details
+        ));
+        assert_eq!(
+            evaluation.harness_failure.as_ref().unwrap().kind,
+            FixtureFailureKind::Warning
+        );
+    }
+
+    #[test]
     fn guess_files_are_skipped_for_large_corpus() {
         let fixture = LargeCorpusFixture {
             path: PathBuf::from("termux__termux-packages__scripts__config.guess"),
@@ -3673,6 +3812,18 @@ mod tests {
             },
         ];
         assert!(shellcheck_parse_aborted(&aborted));
+
+        let parsing_stopped = vec![ShellCheckDiagnostic {
+            file: String::new(),
+            code: 1088,
+            line: 3,
+            end_line: 3,
+            column: 1,
+            end_column: 1,
+            level: "error".into(),
+            message: "Parsing stopped here. Invalid use of parentheses?".into(),
+        }];
+        assert!(shellcheck_parse_aborted(&parsing_stopped));
 
         let non_aborted = vec![ShellCheckDiagnostic {
             file: String::new(),
@@ -4684,6 +4835,11 @@ mod tests {
         fs::write(
             scripts_dir.join("alpinelinux__aports__community__starship__starship.plugin.zsh"),
             "echo skip\n",
+        )
+        .unwrap();
+        fs::write(
+            scripts_dir.join("google__oss-fuzz__infra__chronos__coverage_test_collection.py"),
+            "#!/bin/bash -eux\nprint('skip')\n",
         )
         .unwrap();
         fs::write(
