@@ -445,6 +445,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
         let builtin = declaration_builtin(&command.variant);
         let flags = declaration_flags(&command.operands, self.source);
+        let global_flag_enabled =
+            declaration_flag_is_enabled(&command.operands, self.source, 'g').unwrap_or(false);
         self.declarations.push(Declaration {
             builtin,
             span: command.span,
@@ -465,12 +467,16 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         &mut nested_regions,
                     );
                     self.visit_name_only_declaration_operand(
-                        builtin, &flags, &name.name, name.span,
+                        builtin,
+                        &flags,
+                        global_flag_enabled,
+                        &name.name,
+                        name.span,
                     );
                 }
                 DeclOperand::Assignment(assignment) => {
                     let (scope, mut attributes) =
-                        self.declaration_scope_and_attributes(builtin, &flags);
+                        self.declaration_scope_and_attributes(builtin, &flags, global_flag_enabled);
                     attributes |= BindingAttributes::DECLARATION_INITIALIZED;
                     let kind = if attributes.contains(BindingAttributes::NAMEREF) {
                         BindingKind::Nameref
@@ -2418,6 +2424,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         &self,
         builtin: DeclarationBuiltin,
         flags: &FxHashSet<char>,
+        global_flag_enabled: bool,
     ) -> (ScopeId, BindingAttributes) {
         let mut attributes = BindingAttributes::empty();
         if matches!(builtin, DeclarationBuiltin::Export) || flags.contains(&'x') {
@@ -2448,13 +2455,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         let global_like = matches!(
             builtin,
             DeclarationBuiltin::Declare | DeclarationBuiltin::Typeset
-        ) && flags.contains(&'g');
+        ) && global_flag_enabled;
         let local_like = matches!(builtin, DeclarationBuiltin::Local)
             || (matches!(
                 builtin,
                 DeclarationBuiltin::Declare | DeclarationBuiltin::Typeset
             ) && self.nearest_function_scope().is_some()
-                && !flags.contains(&'g'));
+                && !global_flag_enabled);
 
         if local_like {
             attributes |= BindingAttributes::LOCAL;
@@ -2465,7 +2472,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 self.nearest_function_scope()
                     .unwrap_or_else(|| self.current_scope())
             } else if global_like {
-                ScopeId(0)
+                self.nearest_execution_scope()
             } else {
                 self.current_scope()
             },
@@ -2477,10 +2484,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         &mut self,
         builtin: DeclarationBuiltin,
         flags: &FxHashSet<char>,
+        global_flag_enabled: bool,
         name: &Name,
         span: Span,
     ) {
-        let (scope, attributes) = self.declaration_scope_and_attributes(builtin, flags);
+        let (scope, attributes) =
+            self.declaration_scope_and_attributes(builtin, flags, global_flag_enabled);
         let local_like = attributes.contains(BindingAttributes::LOCAL);
         let existing = self.resolve_reference(name, scope, span.start.offset);
 
@@ -2873,6 +2882,15 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             .copied()
             .find(|scope| matches!(self.scopes[scope.index()].kind, ScopeKind::Function(_)))
     }
+
+    fn nearest_execution_scope(&self) -> ScopeId {
+        self.scope_stack
+            .iter()
+            .rev()
+            .copied()
+            .find(|scope| !matches!(self.scopes[scope.index()].kind, ScopeKind::Function(_)))
+            .unwrap_or(ScopeId(0))
+    }
 }
 
 fn parameter_operator_guards_unset_reference(operator: &ParameterOp) -> bool {
@@ -2908,6 +2926,35 @@ fn declaration_flags(operands: &[DeclOperand], source: &str) -> FxHashSet<char> 
         }
     }
     flags
+}
+
+fn declaration_flag_is_enabled(
+    operands: &[DeclOperand],
+    source: &str,
+    target: char,
+) -> Option<bool> {
+    let mut enabled = None;
+    for operand in operands {
+        if let DeclOperand::Flag(word) = operand
+            && let Some(text) = static_word_text(word, source)
+        {
+            let mut chars = text.chars();
+            let Some(polarity) = chars.next() else {
+                continue;
+            };
+            let enabled_for_operand = match polarity {
+                '-' => true,
+                '+' => false,
+                _ => continue,
+            };
+            for flag in chars {
+                if flag == target {
+                    enabled = Some(enabled_for_operand);
+                }
+            }
+        }
+    }
+    enabled
 }
 
 fn declaration_operands(operands: &[DeclOperand], source: &str) -> Vec<DeclarationOperand> {

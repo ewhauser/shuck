@@ -1826,6 +1826,49 @@ mod tests {
     }
 
     #[test]
+    fn declare_plus_g_stays_local_inside_functions() {
+        let source = "\
+#!/bin/bash
+f() {
+  declare +g scoped=1
+  printf '%s\\n' \"$scoped\"
+}
+printf '%s\\n' \"$scoped\"
+";
+        let model = model(source);
+
+        let scoped_binding = binding_for_name(&model, "scoped");
+        let ScopeKind::Function(function_scope) = model.scope_kind(scoped_binding.scope) else {
+            panic!("expected declare +g binding to live in the function scope");
+        };
+        assert!(function_scope.contains_name_str("f"));
+
+        let scoped_refs = model
+            .references()
+            .iter()
+            .filter(|reference| {
+                reference.kind == ReferenceKind::Expansion && reference.name == "scoped"
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(scoped_refs.len(), 2);
+
+        let inner_ref = scoped_refs
+            .iter()
+            .find(|reference| reference.span.start.line == 4)
+            .unwrap();
+        let outer_ref = scoped_refs
+            .iter()
+            .find(|reference| reference.span.start.line == 6)
+            .unwrap();
+
+        assert_eq!(
+            model.resolved_binding(inner_ref.id).unwrap().id,
+            scoped_binding.id
+        );
+        assert!(model.resolved_binding(outer_ref.id).is_none());
+    }
+
+    #[test]
     fn zsh_anonymous_functions_create_function_scoped_locals() {
         let source =
             "function { local scoped=1; echo \"$scoped\" \"$1\"; } arg\necho \"$scoped\"\n";
@@ -2175,6 +2218,28 @@ printf '%s\\n' \"$pkgname\"
         let reference = model.references().last().unwrap();
         let binding = model.resolved_binding(reference.id).unwrap();
         assert_eq!(binding.span.slice(source), "VAR");
+    }
+
+    #[test]
+    fn declare_g_in_command_substitution_stays_in_that_execution_scope() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' \"$(
+  f() { declare -gA assoc=([key]=1); }
+  f
+  printf '%s\\n' \"${assoc[key]}\"
+)\"
+printf '%s\\n' \"${assoc[key]}\"
+";
+        let model = model(source);
+
+        let assoc_binding = binding_for_name(&model, "assoc");
+        assert!(assoc_binding.attributes.contains(BindingAttributes::ARRAY));
+        assert!(assoc_binding.attributes.contains(BindingAttributes::ASSOC));
+        assert!(matches!(
+            model.scope_kind(assoc_binding.scope),
+            ScopeKind::CommandSubstitution
+        ));
     }
 
     #[test]
