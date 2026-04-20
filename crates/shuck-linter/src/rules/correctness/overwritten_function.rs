@@ -1,6 +1,6 @@
-use shuck_semantic::{BindingKind, OverwrittenFunction as SemanticOverwrittenFunction};
 use crate::context::FileContextTag;
 use crate::{Checker, Rule, Violation};
+use shuck_semantic::{BindingKind, OverwrittenFunction as SemanticOverwrittenFunction};
 
 pub struct OverwrittenFunction {
     pub name: String,
@@ -45,8 +45,7 @@ fn should_suppress_overwrite(
     let first = checker.semantic().binding(overwritten.first);
     let second = checker.semantic().binding(overwritten.second);
 
-    if matches!(first.kind, BindingKind::Imported) || matches!(second.kind, BindingKind::Imported)
-    {
+    if matches!(first.kind, BindingKind::Imported) || matches!(second.kind, BindingKind::Imported) {
         return true;
     }
 

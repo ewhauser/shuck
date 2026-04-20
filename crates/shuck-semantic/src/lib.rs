@@ -331,6 +331,14 @@ pub struct SemanticAnalysis<'model> {
     overwritten_functions: OnceLock<Vec<OverwrittenFunction>>,
 }
 
+struct OverwriteWindow<'a> {
+    first: BindingId,
+    first_blocks: &'a [BlockId],
+    second_blocks: &'a [BlockId],
+    cfg: &'a ControlFlowGraph,
+    unreachable: &'a FxHashSet<BlockId>,
+}
+
 impl SemanticModel {
     pub fn build(file: &File, source: &str, indexer: &Indexer) -> Self {
         Self::build_with_options(file, source, indexer, SemanticBuildOptions::default())
@@ -1113,14 +1121,15 @@ impl<'model> SemanticAnalysis<'model> {
 
     fn reachable_call_site_blocks(
         &self,
-        cfg: &ControlFlowGraph,
-        unreachable: &FxHashSet<BlockId>,
+        window: &OverwriteWindow<'_>,
         site: &CallSite,
     ) -> Vec<BlockId> {
-        cfg.block_ids_for_span(site.span)
+        window
+            .cfg
+            .block_ids_for_span(site.span)
             .iter()
             .copied()
-            .filter(|block| !unreachable.contains(block))
+            .filter(|block| !window.unreachable.contains(block))
             .collect()
     }
 
@@ -1128,13 +1137,13 @@ impl<'model> SemanticAnalysis<'model> {
         &self,
         scope: ScopeId,
         site_blocks: &[BlockId],
-        cfg: &ControlFlowGraph,
+        window: &OverwriteWindow<'_>,
         reachability: &mut ReachabilityCache<'_>,
     ) -> bool {
-        let Some(&scope_entry) = cfg.scope_entries.get(&scope) else {
+        let Some(&scope_entry) = window.cfg.scope_entries.get(&scope) else {
             return false;
         };
-        let Some(scope_exits) = cfg.scope_exits(scope) else {
+        let Some(scope_exits) = window.cfg.scope_exits(scope) else {
             return false;
         };
 
@@ -1145,32 +1154,27 @@ impl<'model> SemanticAnalysis<'model> {
     fn call_site_executes_between_overwrite(
         &self,
         site: &CallSite,
-        first: BindingId,
-        second: BindingId,
-        first_blocks: &[BlockId],
-        second_blocks: &[BlockId],
-        cfg: &ControlFlowGraph,
-        unreachable: &FxHashSet<BlockId>,
+        window: &OverwriteWindow<'_>,
         reachability: &mut ReachabilityCache<'_>,
         visiting_scopes: &mut FxHashSet<ScopeId>,
     ) -> bool {
-        let site_blocks = self.reachable_call_site_blocks(cfg, unreachable, site);
+        let site_blocks = self.reachable_call_site_blocks(window, site);
         if site_blocks.is_empty() {
             return false;
         }
 
-        let first_binding = self.model.binding(first);
+        let first_binding = self.model.binding(window.first);
         if site.scope == first_binding.scope {
-            return blocks_have_path(first_blocks, &site_blocks, reachability)
-                && blocks_have_path(&site_blocks, second_blocks, reachability);
+            return blocks_have_path(window.first_blocks, &site_blocks, reachability)
+                && blocks_have_path(&site_blocks, window.second_blocks, reachability);
         }
 
         if !matches!(self.model.scope_kind(site.scope), ScopeKind::Function(_)) {
-            return blocks_have_path(first_blocks, &site_blocks, reachability)
-                && blocks_have_path(&site_blocks, second_blocks, reachability);
+            return blocks_have_path(window.first_blocks, &site_blocks, reachability)
+                && blocks_have_path(&site_blocks, window.second_blocks, reachability);
         }
 
-        if !self.nested_call_site_is_viable(site.scope, &site_blocks, cfg, reachability) {
+        if !self.nested_call_site_is_viable(site.scope, &site_blocks, window, reachability) {
             return false;
         }
 
@@ -1183,26 +1187,26 @@ impl<'model> SemanticAnalysis<'model> {
             .recorded_program
             .function_body_scopes
             .iter()
-            .filter_map(|(binding_id, body_scope)| (*body_scope == site.scope).then_some(*binding_id))
+            .filter_map(|(binding_id, body_scope)| {
+                (*body_scope == site.scope).then_some(*binding_id)
+            })
             .any(|function_binding| {
                 let function_name = self.model.binding(function_binding).name.clone();
-                self.model.call_sites_for(&function_name).iter().any(|caller| {
-                    self.overwrite_call_site_resolves_to_binding(
-                        &function_name,
-                        caller,
-                        function_binding,
-                    ) && self.call_site_executes_between_overwrite(
-                        caller,
-                        first,
-                        second,
-                        first_blocks,
-                        second_blocks,
-                        cfg,
-                        unreachable,
-                        reachability,
-                        visiting_scopes,
-                    )
-                })
+                self.model
+                    .call_sites_for(&function_name)
+                    .iter()
+                    .any(|caller| {
+                        self.overwrite_call_site_resolves_to_binding(
+                            &function_name,
+                            caller,
+                            function_binding,
+                        ) && self.call_site_executes_between_overwrite(
+                            caller,
+                            window,
+                            reachability,
+                            visiting_scopes,
+                        )
+                    })
             });
 
         visiting_scopes.remove(&site.scope);
@@ -1251,17 +1255,19 @@ impl<'model> SemanticAnalysis<'model> {
                         continue;
                     }
 
+                    let window = OverwriteWindow {
+                        first,
+                        first_blocks: &first_blocks,
+                        second_blocks: &second_blocks,
+                        cfg,
+                        unreachable: &unreachable,
+                    };
                     let mut visiting_scopes = FxHashSet::default();
                     let first_called = self.model.call_sites_for(name).iter().any(|site| {
                         self.overwrite_call_site_resolves_to_binding(name, site, first)
                             && self.call_site_executes_between_overwrite(
                                 site,
-                                first,
-                                second,
-                                &first_blocks,
-                                &second_blocks,
-                                cfg,
-                                &unreachable,
+                                &window,
                                 &mut reachability,
                                 &mut visiting_scopes,
                             )
