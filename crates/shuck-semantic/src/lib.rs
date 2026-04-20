@@ -218,6 +218,65 @@ fn is_in_named_function_scope(scopes: &[Scope], scope: ScopeId, name: &Name) -> 
     })
 }
 
+fn assignment_like_binding(kind: BindingKind) -> bool {
+    matches!(
+        kind,
+        BindingKind::Assignment
+            | BindingKind::AppendAssignment
+            | BindingKind::ArrayAssignment
+            | BindingKind::ArithmeticAssignment
+    )
+}
+
+fn binding_blocks_same_scope_assoc_lookup(binding: &Binding) -> bool {
+    binding.attributes.contains(BindingAttributes::LOCAL) || !assignment_like_binding(binding.kind)
+}
+
+fn previous_visible_binding_id_from_slice(
+    all_bindings: &[Binding],
+    bindings: &[BindingId],
+    offset: usize,
+    ignored_binding_span: Option<Span>,
+) -> Option<BindingId> {
+    let candidate_count = bindings
+        .partition_point(|binding_id| all_bindings[binding_id.index()].span.start.offset <= offset);
+
+    bindings[..candidate_count]
+        .iter()
+        .rev()
+        .copied()
+        .find(|binding_id| ignored_binding_span != Some(all_bindings[binding_id.index()].span))
+}
+
+fn insert_binding_id_sorted(
+    bindings: &mut Vec<BindingId>,
+    all_bindings: &[Binding],
+    id: BindingId,
+) {
+    let target = &all_bindings[id.index()];
+    let insertion = bindings.partition_point(|candidate_id| {
+        let candidate = &all_bindings[candidate_id.index()];
+        candidate.span.start.offset < target.span.start.offset
+            || (candidate.span.start.offset == target.span.start.offset
+                && candidate.span.end.offset < target.span.end.offset)
+            || (candidate.span.start.offset == target.span.start.offset
+                && candidate.span.end.offset == target.span.end.offset
+                && candidate.id.index() < target.id.index())
+    });
+    bindings.insert(insertion, id);
+}
+
+#[derive(Debug)]
+struct AssocLookupBindingIndex {
+    blocking_bindings_by_scope: Vec<FxHashMap<Name, Box<[BindingId]>>>,
+}
+
+#[derive(Debug)]
+struct ScopeProvidedBindingIndex {
+    provided_bindings_by_scope: Vec<Box<[ProvidedBinding]>>,
+    definite_provider_scopes_by_name: FxHashMap<Name, Box<[ScopeId]>>,
+}
+
 #[derive(Debug)]
 struct ScopeLookup {
     children: Vec<Box<[ScopeId]>>,
@@ -317,6 +376,7 @@ pub struct SemanticModel {
     import_origins_by_binding: FxHashMap<BindingId, Vec<PathBuf>>,
     heuristic_unused_assignments: Vec<BindingId>,
     zsh_option_analysis: Option<ZshOptionAnalysis>,
+    assoc_lookup_binding_index: OnceLock<AssocLookupBindingIndex>,
 }
 
 #[derive(Debug)]
@@ -329,6 +389,7 @@ pub struct SemanticAnalysis<'model> {
     uninitialized_references: OnceLock<Vec<UninitializedReference>>,
     dead_code: OnceLock<Vec<DeadCode>>,
     overwritten_functions: OnceLock<Vec<OverwrittenFunction>>,
+    scope_provided_binding_index: OnceLock<ScopeProvidedBindingIndex>,
 }
 
 struct OverwriteWindow<'a> {
@@ -405,6 +466,7 @@ impl SemanticModel {
             import_origins_by_binding: FxHashMap::default(),
             heuristic_unused_assignments: built.heuristic_unused_assignments,
             zsh_option_analysis,
+            assoc_lookup_binding_index: OnceLock::new(),
         }
     }
 
@@ -478,18 +540,7 @@ impl SemanticModel {
     }
 
     pub fn visible_binding(&self, name: &Name, at: Span) -> Option<&Binding> {
-        let scope = self.scope_at(at.start.offset);
-        for scope in self.ancestor_scopes(scope) {
-            if let Some(bindings) = self.scopes[scope.index()].bindings.get(name) {
-                for binding in bindings.iter().rev() {
-                    let binding = &self.bindings[binding.index()];
-                    if binding.span.start.offset <= at.start.offset {
-                        return Some(binding);
-                    }
-                }
-            }
-        }
-        None
+        self.previous_visible_binding(name, at, None)
     }
 
     #[doc(hidden)]
@@ -499,6 +550,44 @@ impl SemanticModel {
             && self
                 .ancestor_scopes(self.scope_at(at.start.offset))
                 .any(|scope| scope == binding.scope)
+    }
+
+    #[doc(hidden)]
+    pub fn previous_visible_binding(
+        &self,
+        name: &Name,
+        at: Span,
+        ignored_binding_span: Option<Span>,
+    ) -> Option<&Binding> {
+        let scope = self.scope_at(at.start.offset);
+        self.previous_visible_binding_id_in_scope_chain(
+            name,
+            scope,
+            at.start.offset,
+            ignored_binding_span,
+        )
+        .map(|binding_id| self.binding(binding_id))
+    }
+
+    #[doc(hidden)]
+    pub fn visible_binding_for_assoc_lookup(
+        &self,
+        name: &Name,
+        current_scope: ScopeId,
+        at: Span,
+    ) -> Option<&Binding> {
+        if let Some(binding_id) =
+            self.previous_assoc_lookup_binding_id_in_scope(current_scope, name, at.start.offset)
+        {
+            return Some(self.binding(binding_id));
+        }
+
+        self.ancestor_scopes(current_scope)
+            .skip(1)
+            .find_map(|scope| {
+                self.previous_visible_binding_id_in_scope(scope, name, at.start.offset, None)
+            })
+            .map(|binding_id| self.binding(binding_id))
     }
 
     pub fn defined_anywhere(&self, name: &Name) -> bool {
@@ -591,6 +680,79 @@ impl SemanticModel {
         std::iter::successors(Some(scope), move |scope| self.scopes[scope.index()].parent)
     }
 
+    fn previous_visible_binding_id_in_scope_chain(
+        &self,
+        name: &Name,
+        scope: ScopeId,
+        offset: usize,
+        ignored_binding_span: Option<Span>,
+    ) -> Option<BindingId> {
+        self.ancestor_scopes(scope).find_map(|scope_id| {
+            self.previous_visible_binding_id_in_scope(scope_id, name, offset, ignored_binding_span)
+        })
+    }
+
+    fn previous_visible_binding_id_in_scope(
+        &self,
+        scope: ScopeId,
+        name: &Name,
+        offset: usize,
+        ignored_binding_span: Option<Span>,
+    ) -> Option<BindingId> {
+        let bindings = self.scopes[scope.index()].bindings.get(name)?;
+        previous_visible_binding_id_from_slice(
+            &self.bindings,
+            bindings,
+            offset,
+            ignored_binding_span,
+        )
+    }
+
+    fn previous_assoc_lookup_binding_id_in_scope(
+        &self,
+        scope: ScopeId,
+        name: &Name,
+        offset: usize,
+    ) -> Option<BindingId> {
+        let bindings = self
+            .assoc_lookup_binding_index()
+            .blocking_bindings_by_scope
+            .get(scope.index())
+            .and_then(|bindings_by_name| bindings_by_name.get(name))?;
+        previous_visible_binding_id_from_slice(&self.bindings, bindings, offset, None)
+    }
+
+    fn assoc_lookup_binding_index(&self) -> &AssocLookupBindingIndex {
+        self.assoc_lookup_binding_index.get_or_init(|| {
+            let blocking_bindings_by_scope = self
+                .scopes
+                .iter()
+                .map(|scope| {
+                    let mut bindings_by_name = FxHashMap::default();
+                    for (name, bindings) in &scope.bindings {
+                        let filtered = bindings
+                            .iter()
+                            .copied()
+                            .filter(|binding_id| {
+                                binding_blocks_same_scope_assoc_lookup(
+                                    &self.bindings[binding_id.index()],
+                                )
+                            })
+                            .collect::<Vec<_>>();
+                        if !filtered.is_empty() {
+                            bindings_by_name.insert(name.clone(), filtered.into_boxed_slice());
+                        }
+                    }
+                    bindings_by_name
+                })
+                .collect();
+
+            AssocLookupBindingIndex {
+                blocking_bindings_by_scope,
+            }
+        })
+    }
+
     pub fn flow_context_at(&self, span: &Span) -> Option<&FlowContext> {
         self.flow_contexts
             .iter()
@@ -632,20 +794,25 @@ impl SemanticModel {
             references: Vec::new(),
             attributes,
         });
-        self.binding_index
-            .entry(provided.name.clone())
-            .or_default()
-            .push(id);
-        self.scopes[scope.index()]
-            .bindings
-            .entry(provided.name.clone())
-            .or_default()
-            .push(id);
-        if provided.kind == ProvidedBindingKind::Function {
-            self.functions
+        insert_binding_id_sorted(
+            self.binding_index.entry(provided.name.clone()).or_default(),
+            &self.bindings,
+            id,
+        );
+        insert_binding_id_sorted(
+            self.scopes[scope.index()]
+                .bindings
                 .entry(provided.name.clone())
-                .or_default()
-                .push(id);
+                .or_default(),
+            &self.bindings,
+            id,
+        );
+        if provided.kind == ProvidedBindingKind::Function {
+            insert_binding_id_sorted(
+                self.functions.entry(provided.name.clone()).or_default(),
+                &self.bindings,
+                id,
+            );
         }
         if let Some(command_span) = command_span {
             self.command_bindings
@@ -889,6 +1056,7 @@ impl<'model> SemanticAnalysis<'model> {
             uninitialized_references: OnceLock::new(),
             dead_code: OnceLock::new(),
             overwritten_functions: OnceLock::new(),
+            scope_provided_binding_index: OnceLock::new(),
         }
     }
 
@@ -1064,11 +1232,26 @@ impl<'model> SemanticAnalysis<'model> {
     }
 
     #[doc(hidden)]
+    pub fn scope_provided_bindings(&self, scope: ScopeId) -> &[ProvidedBinding] {
+        self.scope_provided_binding_index()
+            .provided_bindings_by_scope
+            .get(scope.index())
+            .map(Box::as_ref)
+            .unwrap_or(&[])
+    }
+
+    #[doc(hidden)]
+    pub fn definite_provider_scopes(&self, name: &Name) -> &[ScopeId] {
+        self.scope_provided_binding_index()
+            .definite_provider_scopes_by_name
+            .get(name)
+            .map(Box::as_ref)
+            .unwrap_or(&[])
+    }
+
+    #[doc(hidden)]
     pub fn summarize_scope_provided_bindings(&self, scope: ScopeId) -> Vec<ProvidedBinding> {
-        let cfg = self.cfg();
-        let exact = self.exact_variable_dataflow();
-        let context = self.model.dataflow_context(cfg);
-        dataflow::summarize_scope_provided_bindings(&context, exact, scope)
+        self.scope_provided_bindings(scope).to_vec()
     }
 
     pub(crate) fn summarize_scope_provided_functions(
@@ -1079,6 +1262,40 @@ impl<'model> SemanticAnalysis<'model> {
         let exact = self.exact_variable_dataflow();
         let context = self.model.dataflow_context(cfg);
         dataflow::summarize_scope_provided_functions(&context, exact, scope)
+    }
+
+    fn scope_provided_binding_index(&self) -> &ScopeProvidedBindingIndex {
+        self.scope_provided_binding_index.get_or_init(|| {
+            let cfg = self.cfg();
+            let exact = self.exact_variable_dataflow();
+            let context = self.model.dataflow_context(cfg);
+            let mut provided_bindings_by_scope = Vec::with_capacity(self.model.scopes.len());
+            let mut definite_provider_scopes_by_name = FxHashMap::<Name, Vec<ScopeId>>::default();
+
+            for scope in self.model.scopes.iter().map(|scope| scope.id) {
+                let provided_bindings =
+                    dataflow::summarize_scope_provided_bindings(&context, exact, scope);
+                for binding in &provided_bindings {
+                    if binding.certainty == ContractCertainty::Definite {
+                        definite_provider_scopes_by_name
+                            .entry(binding.name.clone())
+                            .or_default()
+                            .push(scope);
+                    }
+                }
+                provided_bindings_by_scope.push(provided_bindings.into_boxed_slice());
+            }
+
+            let definite_provider_scopes_by_name = definite_provider_scopes_by_name
+                .into_iter()
+                .map(|(name, scopes)| (name, scopes.into_boxed_slice()))
+                .collect();
+
+            ScopeProvidedBindingIndex {
+                provided_bindings_by_scope,
+                definite_provider_scopes_by_name,
+            }
+        })
     }
 
     fn overwrite_call_site_resolves_to_binding(
@@ -2988,6 +3205,25 @@ foo() {
 
         assert_eq!(bundle_ptr, function_ptr);
         assert_eq!(bundle_ptr, reused_ptr);
+        let cfg = analysis.cfg();
+        let exact = analysis.exact_variable_dataflow();
+        let context = model.dataflow_context(cfg);
+        assert_eq!(
+            analysis.scope_provided_bindings(ScopeId(0)),
+            dataflow::summarize_scope_provided_bindings(&context, exact, ScopeId(0)).as_slice()
+        );
+        assert_eq!(
+            analysis.scope_provided_bindings(foo_scope),
+            dataflow::summarize_scope_provided_bindings(&context, exact, foo_scope).as_slice()
+        );
+        assert_eq!(
+            analysis.definite_provider_scopes(&Name::from("outer")),
+            &[ScopeId(0)]
+        );
+        assert_eq!(
+            analysis.definite_provider_scopes(&Name::from("inner")),
+            &[foo_scope]
+        );
         assert_eq!(
             root_bindings
                 .iter()
@@ -3009,6 +3245,178 @@ foo() {
                 .collect::<Vec<_>>(),
             vec!["foo"]
         );
+    }
+
+    #[test]
+    fn previous_visible_binding_can_ignore_the_current_assignment_span() {
+        let model = model(
+            "\
+#!/bin/bash
+value=outer
+f() {
+  local value=inner
+  value=next
+}
+",
+        );
+        let binding_ids = model.bindings_for(&Name::from("value"));
+        let local = model.binding(binding_ids[1]);
+        let current = model.binding(binding_ids[2]);
+
+        assert_eq!(
+            model
+                .visible_binding(&Name::from("value"), current.span)
+                .map(|binding| binding.id),
+            Some(current.id)
+        );
+        assert_eq!(
+            model
+                .previous_visible_binding(&Name::from("value"), current.span, Some(current.span))
+                .map(|binding| binding.id),
+            Some(local.id)
+        );
+    }
+
+    #[test]
+    fn assoc_lookup_binding_prefers_visible_assoc_declarations_and_respects_local_shadowing() {
+        let model = model(
+            "\
+#!/bin/bash
+declare -A map
+helper() {
+  map[$key]=1
+}
+shadow() {
+  local map
+  map[$key]=2
+}
+",
+        );
+        let helper_scope = model
+            .scopes()
+            .iter()
+            .find_map(|scope| match &scope.kind {
+                ScopeKind::Function(FunctionScopeKind::Named(names))
+                    if names.iter().any(|name| name == "helper") =>
+                {
+                    Some(scope.id)
+                }
+                _ => None,
+            })
+            .expect("expected helper scope");
+        let shadow_scope = model
+            .scopes()
+            .iter()
+            .find_map(|scope| match &scope.kind {
+                ScopeKind::Function(FunctionScopeKind::Named(names))
+                    if names.iter().any(|name| name == "shadow") =>
+                {
+                    Some(scope.id)
+                }
+                _ => None,
+            })
+            .expect("expected shadow scope");
+        let helper_assignment = model
+            .bindings_for(&Name::from("map"))
+            .iter()
+            .copied()
+            .find(|binding_id| {
+                let binding = model.binding(*binding_id);
+                binding.scope == helper_scope && binding.kind == BindingKind::ArrayAssignment
+            })
+            .expect("expected helper assignment binding");
+        let shadow_local = model
+            .bindings_for(&Name::from("map"))
+            .iter()
+            .copied()
+            .find(|binding_id| {
+                let binding = model.binding(*binding_id);
+                binding.scope == shadow_scope
+                    && matches!(binding.kind, BindingKind::Declaration(_))
+                    && binding.attributes.contains(BindingAttributes::LOCAL)
+            })
+            .expect("expected shadowing local binding");
+        let shadow_assignment = model
+            .bindings_for(&Name::from("map"))
+            .iter()
+            .copied()
+            .find(|binding_id| {
+                let binding = model.binding(*binding_id);
+                binding.scope == shadow_scope && binding.kind == BindingKind::ArrayAssignment
+            })
+            .expect("expected shadow assignment binding");
+
+        assert!(
+            model
+                .visible_binding_for_assoc_lookup(
+                    &Name::from("map"),
+                    helper_scope,
+                    model.binding(helper_assignment).span,
+                )
+                .is_some_and(|binding| binding.attributes.contains(BindingAttributes::ASSOC))
+        );
+        assert_eq!(
+            model
+                .visible_binding_for_assoc_lookup(
+                    &Name::from("map"),
+                    shadow_scope,
+                    model.binding(shadow_assignment).span,
+                )
+                .map(|binding| binding.id),
+            Some(shadow_local)
+        );
+    }
+
+    #[test]
+    fn imported_entry_bindings_insert_in_visibility_order() {
+        let source = "\
+#!/bin/bash
+value=local
+echo $value
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let model = SemanticModel::build_with_options(
+            &output.file,
+            source,
+            &indexer,
+            SemanticBuildOptions {
+                file_entry_contract: Some(FileContract {
+                    required_reads: Vec::new(),
+                    provided_bindings: vec![ProvidedBinding::new(
+                        Name::from("value"),
+                        ProvidedBindingKind::Variable,
+                        ContractCertainty::Definite,
+                    )],
+                    provided_functions: Vec::new(),
+                }),
+                ..SemanticBuildOptions::default()
+            },
+        );
+        let value_bindings = model.bindings_for(&Name::from("value"));
+
+        assert_eq!(value_bindings.len(), 2);
+        assert!(matches!(
+            model.binding(value_bindings[0]).kind,
+            BindingKind::Imported
+        ));
+        assert!(matches!(
+            model.binding(value_bindings[1]).kind,
+            BindingKind::Assignment
+        ));
+
+        let value_reference = model
+            .references()
+            .iter()
+            .find(|reference| {
+                reference.name.as_str() == "value" && reference.span.slice(source) == "$value"
+            })
+            .expect("expected value reference");
+
+        assert!(matches!(
+            model.visible_binding(&Name::from("value"), value_reference.span),
+            Some(binding) if binding.kind == BindingKind::Assignment
+        ));
     }
 
     #[test]

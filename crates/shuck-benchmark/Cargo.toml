@@ -69,3 +69,7 @@ harness = false
 [[bench]]
 name = "check_command"
 harness = false
+
+[[bench]]
+name = "large_corpus_hotspots"
+harness = false

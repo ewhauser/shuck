@@ -58,6 +58,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut word_occurrences = Vec::new();
         let mut compound_assignment_value_word_spans = FxHashSet::default();
         let mut array_assignment_split_word_ids = Vec::new();
+        let mut assoc_binding_visibility_memo = FxHashMap::default();
         let mut pattern_exactly_one_extglob_spans = Vec::new();
         let mut case_pattern_expansion_spans = Vec::new();
         let mut pattern_literal_spans = Vec::new();
@@ -140,6 +141,7 @@ impl<'a> LinterFactsBuilder<'a> {
                     word_occurrences: &mut word_occurrences,
                     compound_assignment_value_word_spans: &mut compound_assignment_value_word_spans,
                     array_assignment_split_word_ids: &mut array_assignment_split_word_ids,
+                    assoc_binding_visibility_memo: &mut assoc_binding_visibility_memo,
                     case_pattern_expansion_spans: &mut case_pattern_expansion_spans,
                     pattern_literal_spans: &mut pattern_literal_spans,
                     arithmetic: &mut arithmetic_summary,
@@ -498,12 +500,25 @@ impl<'a> LinterFactsBuilder<'a> {
                 &word_index,
                 source,
             );
+        let innermost_command_ids_by_offset = build_innermost_command_ids_by_offset(
+            &commands,
+            commands
+                .iter()
+                .map(|command| command.span().start.offset)
+                .collect(),
+        );
+        let command_parent_ids = build_command_parent_ids(&commands);
+        let command_dominance_barrier_flags =
+            build_command_dominance_barrier_flags(&commands);
 
         LinterFacts {
             source,
             commands,
             structural_command_ids,
             command_ids_by_span,
+            innermost_command_ids_by_offset,
+            command_parent_ids,
+            command_dominance_barrier_flags,
             if_condition_command_ids,
             elif_condition_command_ids,
             binding_values,

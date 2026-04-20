@@ -574,10 +574,69 @@ fn command_fact<'a>(commands: &'a [CommandFact<'a>], id: CommandId) -> &'a Comma
     &commands[id.index()]
 }
 
+fn build_command_parent_ids(commands: &[CommandFact<'_>]) -> Vec<Option<CommandId>> {
+    let mut command_spans = commands
+        .iter()
+        .map(|command| (command.span(), command.id()))
+        .collect::<Vec<_>>();
+    if command_spans
+        .windows(2)
+        .any(|window| compare_command_offset_entries(window[0], window[1]).is_gt())
+    {
+        command_spans.sort_unstable_by(|left, right| compare_command_offset_entries(*left, *right));
+    }
+
+    let mut parent_ids = vec![None; commands.len()];
+    let mut active_commands = Vec::<OpenParentCommand>::new();
+
+    for (span, id) in command_spans {
+        while active_commands
+            .last()
+            .is_some_and(|candidate| candidate.end_offset < span.end.offset)
+        {
+            active_commands.pop();
+        }
+
+        parent_ids[id.index()] = active_commands.last().map(|command| command.id);
+        active_commands.push(OpenParentCommand {
+            id,
+            end_offset: span.end.offset,
+        });
+    }
+
+    parent_ids
+}
+
+fn build_command_dominance_barrier_flags(commands: &[CommandFact<'_>]) -> Vec<bool> {
+    commands
+        .iter()
+        .map(|fact| match fact.command() {
+            Command::Binary(_) => true,
+            Command::Compound(compound) => !matches!(
+                compound,
+                CompoundCommand::BraceGroup(_)
+                    | CompoundCommand::Arithmetic(_)
+                    | CompoundCommand::Time(_)
+            ),
+            Command::Simple(_)
+            | Command::Builtin(_)
+            | Command::Decl(_)
+            | Command::Function(_)
+            | Command::AnonymousFunction(_) => false,
+        })
+        .collect()
+}
+
 fn sort_and_dedup_spans(spans: &mut Vec<Span>) {
     let mut seen = FxHashSet::default();
     spans.retain(|span| seen.insert(FactSpan::new(*span)));
     spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+}
+
+#[derive(Debug, Clone, Copy)]
+struct OpenParentCommand {
+    id: CommandId,
+    end_offset: usize,
 }
 
 fn trim_trailing_whitespace_span(span: Span, source: &str) -> Span {

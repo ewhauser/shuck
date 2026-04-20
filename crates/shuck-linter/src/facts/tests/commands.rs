@@ -922,6 +922,84 @@ unset parts[\"$key\"] plain \"parts[safe]\" 'parts[also_safe]' nums[1]
 }
 
 #[test]
+fn precomputes_command_containment_and_barrier_flags_for_nested_commands() {
+    let source = "\
+#!/bin/bash
+if init_if; then
+  { brace_inner; }
+fi
+left && right
+time timed
+";
+
+    with_facts(source, None, |_, facts| {
+        let init_if = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_name_is("init_if"))
+            .expect("expected init_if command");
+        let brace_inner = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_name_is("brace_inner"))
+            .expect("expected brace_inner command");
+        let timed = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_name_is("timed"))
+            .expect("expected timed command");
+        let binary = facts
+            .commands()
+            .iter()
+            .find(|fact| matches!(fact.command(), shuck_ast::Command::Binary(_)))
+            .expect("expected binary command");
+
+        let init_parent = facts
+            .command_parent(init_if.id())
+            .expect("expected if parent");
+        assert!(matches!(
+            init_parent.command(),
+            shuck_ast::Command::Compound(shuck_ast::CompoundCommand::If(_))
+        ));
+        assert!(facts.command_is_dominance_barrier(init_parent.id()));
+
+        let brace_parent = facts
+            .command_parent(brace_inner.id())
+            .expect("expected brace-group parent");
+        assert!(matches!(
+            brace_parent.command(),
+            shuck_ast::Command::Compound(shuck_ast::CompoundCommand::BraceGroup(_))
+        ));
+        assert!(!facts.command_is_dominance_barrier(brace_parent.id()));
+
+        let timed_parent = facts
+            .command_parent(timed.id())
+            .expect("expected time parent");
+        assert!(matches!(
+            timed_parent.command(),
+            shuck_ast::Command::Compound(shuck_ast::CompoundCommand::Time(_))
+        ));
+        assert!(!facts.command_is_dominance_barrier(timed_parent.id()));
+        assert!(facts.command_is_dominance_barrier(binary.id()));
+
+        let brace_offset = source.find("brace_inner").expect("brace_inner offset");
+        let right_offset = source.find("right").expect("right offset");
+        assert_eq!(
+            facts
+                .innermost_command_at(brace_offset)
+                .and_then(|fact| fact.effective_name()),
+            Some("brace_inner")
+        );
+        assert_eq!(
+            facts
+                .innermost_command_at(right_offset)
+                .and_then(|fact| fact.effective_name()),
+            Some("right")
+        );
+    });
+}
+
+#[test]
 fn collects_prefix_match_spans_from_unset_operands() {
     let source = "\
 #!/bin/sh

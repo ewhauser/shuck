@@ -4,6 +4,9 @@ pub struct LinterFacts<'a> {
     structural_command_ids: Vec<CommandId>,
     #[cfg_attr(not(test), allow(dead_code))]
     command_ids_by_span: CommandLookupIndex,
+    innermost_command_ids_by_offset: FxHashMap<usize, Option<CommandId>>,
+    command_parent_ids: Vec<Option<CommandId>>,
+    command_dominance_barrier_flags: Vec<bool>,
     if_condition_command_ids: FxHashSet<CommandId>,
     elif_condition_command_ids: FxHashSet<CommandId>,
     binding_values: FxHashMap<BindingId, BindingValueFact<'a>>,
@@ -170,6 +173,29 @@ impl<'a> LinterFacts<'a> {
 
     pub fn command(&self, id: CommandId) -> &CommandFact<'a> {
         &self.commands[id.index()]
+    }
+
+    pub fn innermost_command_at(&self, offset: usize) -> Option<&CommandFact<'a>> {
+        self.innermost_command_id_at(offset).map(|id| self.command(id))
+    }
+
+    pub fn innermost_command_id_at(&self, offset: usize) -> Option<CommandId> {
+        precomputed_command_id_for_offset(&self.innermost_command_ids_by_offset, offset)
+    }
+
+    pub fn command_parent_id(&self, id: CommandId) -> Option<CommandId> {
+        self.command_parent_ids.get(id.index()).copied().flatten()
+    }
+
+    pub fn command_parent(&self, id: CommandId) -> Option<&CommandFact<'a>> {
+        self.command_parent_id(id).map(|parent_id| self.command(parent_id))
+    }
+
+    pub fn command_is_dominance_barrier(&self, id: CommandId) -> bool {
+        self.command_dominance_barrier_flags
+            .get(id.index())
+            .copied()
+            .unwrap_or(false)
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
