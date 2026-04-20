@@ -1586,36 +1586,43 @@ fn is_inline_shellcheck_directive(comment_text: &str) -> bool {
         .trim_start()
         .trim_start_matches('#')
         .trim_start();
-    let Some(remainder) = strip_prefix_ignore_ascii_case(body, "shellcheck") else {
-        return false;
-    };
-    let Some(first) = remainder.chars().next() else {
-        return false;
-    };
-    if !first.is_ascii_whitespace() {
-        return false;
+
+    if let Some(remainder) = strip_prefix_ignore_ascii_case(body, "shellcheck") {
+        let Some(first) = remainder.chars().next() else {
+            return false;
+        };
+        if !first.is_ascii_whitespace() {
+            return false;
+        }
+
+        let mut body = remainder;
+        if let Some((before, _)) = body.split_once('#') {
+            body = before;
+        }
+
+        return body.split_ascii_whitespace().any(|part| {
+            [
+                "disable=",
+                "enable=",
+                "disable-file=",
+                "source=",
+                "shell=",
+                "external-sources=",
+            ]
+            .into_iter()
+            .any(|prefix| {
+                strip_prefix_ignore_ascii_case(part, prefix)
+                    .is_some_and(|value| !value.trim().is_empty())
+            })
+        });
     }
 
-    let mut body = remainder;
-    if let Some((before, _)) = body.split_once('#') {
-        body = before;
-    }
-
-    body.split_ascii_whitespace().any(|part| {
-        [
-            "disable=",
-            "enable=",
-            "disable-file=",
-            "source=",
-            "shell=",
-            "external-sources=",
-        ]
-        .into_iter()
-        .any(|prefix| {
-            strip_prefix_ignore_ascii_case(part, prefix)
-                .is_some_and(|value| !value.trim().is_empty())
-        })
-    })
+    let Some(remainder) = strip_prefix_ignore_ascii_case(body, "shuck:") else {
+        return false;
+    };
+    let body = remainder.split_once('#').map_or(remainder, |(before, _)| before);
+    strip_prefix_ignore_ascii_case(body.trim(), "disable=")
+        .is_some_and(|value| !value.trim().is_empty())
 }
 
 fn strip_prefix_ignore_ascii_case<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {

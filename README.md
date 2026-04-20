@@ -107,7 +107,7 @@ Each rule has a short code (e.g., `C006`, `S001`) that appears in diagnostics an
 
 ### ShellCheck compatibility
 
-Where possible, shuck rules align with ShellCheck rules. Shuck supports ShellCheck suppression syntax (`# shellcheck disable=SC2086`) and maps ShellCheck codes to their shuck equivalents, so existing suppression comments continue to work without changes. Both suppression syntaxes accept either code namespace, so `# shuck: disable=SC2086` and `# shellcheck disable=S001` target the same rule.
+Where possible, shuck rules align with ShellCheck rules. Shuck supports ShellCheck suppression syntax (`# shellcheck disable=SC2086`) and maps ShellCheck codes to their shuck equivalents, so existing suppression comments continue to work without changes. Both suppression syntaxes accept either code namespace, and native `# shuck: disable=...` follows ShellCheck's scope rules: before the first statement it is file-wide, otherwise it applies to the next command.
 
 That said, shuck is not a port of ShellCheck. It is a clean-room reimplementation built on its own parser and analysis engine, so results will sometimes differ:
 
@@ -121,16 +121,13 @@ Compatibility is continuously validated against a large corpus of shell scripts 
 Suppress diagnostics with inline comments. Both native and ShellCheck-style directives are supported.
 
 ```sh
-# Suppress a specific rule for the next line
+# Suppress a specific rule for the next command
 # shuck:disable=C001
 unused_var="ok"
 
 # Suppress multiple rules
 # shuck:disable=C001,S001
 code_here
-
-# Re-enable a rule
-# shuck:enable=C001
 
 # Suppress for the entire file (place anywhere)
 # shuck:disable-file=S001,S002
@@ -141,6 +138,9 @@ code_here
 # Code aliases are interchangeable in either style
 # shuck: disable=SC2086
 # shellcheck disable=S001
+
+# Before the first statement, disable becomes file-wide
+# shuck: disable=S001
 ```
 
 ## File discovery
