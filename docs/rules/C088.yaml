@@ -3,7 +3,6 @@ legacy_name: mixed-and-or-in-condition
 new_category: Correctness
 new_code: C088
 runtime_kind: ast
-shellcheck_code: SC2077
 shells:
   - sh
   - bash
@@ -17,4 +16,6 @@ source:
 examples:
   - kind: invalid
     source: shell-checks/examples/215.sh
-    code: "#!/bin/bash\n# shellcheck disable=2154\n[[ -n $file && file=\"$file\n\" || -n $content ]]\n"
+    code: |
+      #!/bin/bash
+      [[ -n ${1-} && -n ${2-} || -n ${3-} ]]
