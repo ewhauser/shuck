@@ -67,7 +67,7 @@ use shuck_parser::parser::Parser;
 use shuck_semantic::{
     BindingAttributes, BindingId, BindingKind, ScopeId, SemanticModel, ZshOptionState,
 };
-use std::borrow::Cow;
+use std::{borrow::Cow, ops::ControlFlow};
 
 pub use self::conditional_portability::ConditionalPortabilityFacts;
 pub(crate) use self::escape_scan::EscapeScanSourceKind;
@@ -4036,10 +4036,10 @@ impl<'a> LinterFactsBuilder<'a> {
             &nested_pattern_charclass_spans,
             self.source,
         );
-        let env_prefix_assignment_scope_spans =
-            build_env_prefix_assignment_scope_spans(self.semantic, self.source, &commands);
-        let env_prefix_expansion_scope_spans =
-            build_env_prefix_expansion_scope_spans(self.source, &commands);
+        let EnvPrefixScopeSpans {
+            assignment_scope_spans: env_prefix_assignment_scope_spans,
+            expansion_scope_spans: env_prefix_expansion_scope_spans,
+        } = build_env_prefix_scope_spans(self.source, &commands);
         let mut word_index = FxHashMap::<FactSpan, Vec<usize>>::default();
         for (index, fact) in words.iter().enumerate() {
             word_index.entry(fact.key()).or_default().push(index);
@@ -5354,13 +5354,17 @@ fn build_unquoted_command_argument_use_offsets(
     offsets_by_name
 }
 
-fn build_env_prefix_assignment_scope_spans(
-    _semantic: &SemanticModel,
-    source: &str,
-    commands: &[CommandFact<'_>],
-) -> Vec<Span> {
-    let mut spans = Vec::new();
-    let mut seen = FxHashSet::default();
+#[derive(Debug, Default)]
+struct EnvPrefixScopeSpans {
+    assignment_scope_spans: Vec<Span>,
+    expansion_scope_spans: Vec<Span>,
+}
+
+fn build_env_prefix_scope_spans(source: &str, commands: &[CommandFact<'_>]) -> EnvPrefixScopeSpans {
+    let mut scope_spans = EnvPrefixScopeSpans::default();
+    let mut seen_assignment_scope_spans = FxHashSet::default();
+    let mut seen_expansion_scope_spans = FxHashSet::default();
+
     for command in commands {
         if command_is_assignment_only(command, source) {
             continue;
@@ -5376,13 +5380,9 @@ fn build_env_prefix_assignment_scope_spans(
             | Command::Function(_)
             | Command::AnonymousFunction(_) => None,
         };
+
         for (index, assignment) in assignments.iter().enumerate() {
             let span_key = FactSpan::new(assignment.target.name_span);
-            if seen.contains(&span_key) {
-                continue;
-            }
-
-            let identity_self_copy = assignment_is_identity_self_copy(assignment);
             let earlier_prefix_uses_name = assignments.iter().take(index).any(|other| {
                 assignment_mentions_name_outside_nested_commands(other, &assignment.target.name)
             });
@@ -5423,63 +5423,50 @@ fn build_env_prefix_assignment_scope_spans(
                 &assignment.target.name,
             );
 
-            if earlier_prefix_uses_name
+            if (earlier_prefix_uses_name
                 || later_prefix_uses_name
-                || (body_uses_name && !identity_self_copy)
+                || (body_uses_name && !assignment_is_identity_self_copy(assignment)))
+                && seen_assignment_scope_spans.insert(span_key)
             {
-                seen.insert(span_key);
-                spans.push(assignment.target.name_span);
+                scope_spans
+                    .assignment_scope_spans
+                    .push(assignment.target.name_span);
             }
-        }
-    }
 
-    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
-    spans
-}
-
-fn build_env_prefix_expansion_scope_spans(source: &str, commands: &[CommandFact<'_>]) -> Vec<Span> {
-    let mut spans = Vec::new();
-    let mut seen = FxHashSet::default();
-
-    for command in commands {
-        if command_is_assignment_only(command, source) {
-            continue;
-        }
-
-        let assignments = query::command_assignments(command.command());
-        let broken_legacy_bracket_tail = match command.command() {
-            Command::Simple(simple) => broken_legacy_bracket_tail(simple, source),
-            Command::Builtin(_)
-            | Command::Decl(_)
-            | Command::Binary(_)
-            | Command::Compound(_)
-            | Command::Function(_)
-            | Command::AnonymousFunction(_) => None,
-        };
-
-        for (index, assignment) in assignments.iter().enumerate() {
             for (other_index, other) in assignments.iter().enumerate() {
                 if other_index == index {
                     continue;
                 }
 
-                collect_assignment_reference_spans_outside_nested_commands(
+                let _ = visit_assignment_reference_spans_outside_nested_commands(
                     other,
                     &assignment.target.name,
-                    &mut spans,
-                    &mut seen,
+                    &mut |span| {
+                        push_fact_span(
+                            span,
+                            &mut scope_spans.expansion_scope_spans,
+                            &mut seen_expansion_scope_spans,
+                        );
+                        ControlFlow::Continue(())
+                    },
                 );
 
                 match (command.command(), broken_legacy_bracket_tail) {
                     (Command::Simple(simple), Some(tail))
                         if tail.assignment_index == other_index =>
                     {
-                        collect_broken_legacy_bracket_tail_reference_spans(
+                        let _ = visit_broken_legacy_bracket_tail_reference_spans(
                             simple,
                             tail,
                             &assignment.target.name,
-                            &mut spans,
-                            &mut seen,
+                            &mut |span| {
+                                push_fact_span(
+                                    span,
+                                    &mut scope_spans.expansion_scope_spans,
+                                    &mut seen_expansion_scope_spans,
+                                );
+                                ControlFlow::Continue(())
+                            },
                         );
                     }
                     (
@@ -5498,26 +5485,43 @@ fn build_env_prefix_expansion_scope_spans(source: &str, commands: &[CommandFact<
             if assignments.iter().enumerate().any(|(other_index, other)| {
                 other_index != index && other.target.name == assignment.target.name
             }) {
-                collect_assignment_reference_spans_outside_nested_commands(
+                let _ = visit_assignment_reference_spans_outside_nested_commands(
                     assignment,
                     &assignment.target.name,
-                    &mut spans,
-                    &mut seen,
+                    &mut |span| {
+                        push_fact_span(
+                            span,
+                            &mut scope_spans.expansion_scope_spans,
+                            &mut seen_expansion_scope_spans,
+                        );
+                        ControlFlow::Continue(())
+                    },
                 );
             }
 
-            collect_command_body_reference_spans_outside_nested_commands(
+            let _ = visit_command_body_reference_spans_outside_nested_commands(
                 command,
                 source,
                 &assignment.target.name,
-                &mut spans,
-                &mut seen,
+                &mut |span| {
+                    push_fact_span(
+                        span,
+                        &mut scope_spans.expansion_scope_spans,
+                        &mut seen_expansion_scope_spans,
+                    );
+                    ControlFlow::Continue(())
+                },
             );
         }
     }
 
-    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
-    spans
+    scope_spans
+        .assignment_scope_spans
+        .sort_by_key(|span| (span.start.offset, span.end.offset));
+    scope_spans
+        .expansion_scope_spans
+        .sort_by_key(|span| (span.start.offset, span.end.offset));
+    scope_spans
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -5525,6 +5529,8 @@ struct BrokenLegacyBracketTail {
     assignment_index: usize,
     synthetic_word_count: usize,
 }
+
+type EnvPrefixReferenceSpanVisitor<'a> = dyn FnMut(Span) -> ControlFlow<()> + 'a;
 
 fn command_is_assignment_only(fact: &CommandFact<'_>, source: &str) -> bool {
     match fact.command() {
@@ -5581,21 +5587,10 @@ fn assignment_is_broken_legacy_bracket_arithmetic(assignment: &Assignment) -> bo
 }
 
 fn assignment_mentions_name_outside_nested_commands(assignment: &Assignment, name: &Name) -> bool {
-    subscript_mentions_name(assignment.target.subscript.as_ref(), name)
-        || match &assignment.value {
-            AssignmentValue::Scalar(word) => word_mentions_name_outside_nested_commands(word, name),
-            AssignmentValue::Compound(array) => {
-                array.elements.iter().any(|element| match element {
-                    ArrayElem::Sequential(word) => {
-                        word_mentions_name_outside_nested_commands(word, name)
-                    }
-                    ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
-                        subscript_mentions_name(Some(key), name)
-                            || word_mentions_name_outside_nested_commands(value, name)
-                    }
-                })
-            }
-        }
+    visit_assignment_reference_spans_outside_nested_commands(assignment, name, &mut |_span| {
+        ControlFlow::Break(())
+    })
+    .is_break()
 }
 
 fn command_body_mentions_name_outside_nested_commands(
@@ -5603,40 +5598,10 @@ fn command_body_mentions_name_outside_nested_commands(
     source: &str,
     name: &Name,
 ) -> bool {
-    let redirects_mention_name = fact
-        .redirects()
-        .iter()
-        .filter_map(Redirect::word_target)
-        .any(|word| word_mentions_name_outside_nested_commands(word, name));
-
-    match fact.command() {
-        Command::Simple(command) => {
-            simple_command_body_words(command, source)
-                .any(|word| word_mentions_name_outside_nested_commands(word, name))
-                || redirects_mention_name
-        }
-        Command::Builtin(command) => {
-            builtin_words(command)
-                .into_iter()
-                .any(|word| word_mentions_name_outside_nested_commands(word, name))
-                || redirects_mention_name
-        }
-        Command::Decl(command) => {
-            command.operands.iter().any(|operand| match operand {
-                DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
-                    word_mentions_name_outside_nested_commands(word, name)
-                }
-                DeclOperand::Assignment(assignment) => {
-                    assignment_mentions_name_outside_nested_commands(assignment, name)
-                }
-                DeclOperand::Name(_) => false,
-            }) || redirects_mention_name
-        }
-        Command::Binary(_)
-        | Command::Compound(_)
-        | Command::Function(_)
-        | Command::AnonymousFunction(_) => false,
-    }
+    visit_command_body_reference_spans_outside_nested_commands(fact, source, name, &mut |_span| {
+        ControlFlow::Break(())
+    })
+    .is_break()
 }
 
 fn simple_command_body_words<'a>(
@@ -5655,84 +5620,76 @@ fn broken_legacy_bracket_tail_mentions_name(
     tail: BrokenLegacyBracketTail,
     name: &Name,
 ) -> bool {
-    std::iter::once(&command.name)
-        .chain(command.args.iter())
-        .take(tail.synthetic_word_count.saturating_sub(1))
-        .any(|word| word_mentions_name_outside_nested_commands(word, name))
+    visit_broken_legacy_bracket_tail_reference_spans(command, tail, name, &mut |_span| {
+        ControlFlow::Break(())
+    })
+    .is_break()
 }
 
-fn collect_assignment_reference_spans_outside_nested_commands(
+fn visit_assignment_reference_spans_outside_nested_commands(
     assignment: &Assignment,
     name: &Name,
-    spans: &mut Vec<Span>,
-    seen: &mut FxHashSet<FactSpan>,
-) {
-    collect_subscript_reference_spans_outside_nested_commands(
+    visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
+) -> ControlFlow<()> {
+    visit_subscript_reference_spans_outside_nested_commands(
         assignment.target.subscript.as_ref(),
         name,
-        spans,
-        seen,
-    );
+        visit,
+    )?;
 
     match &assignment.value {
         AssignmentValue::Scalar(word) => {
-            collect_word_reference_spans_outside_nested_commands(word, name, spans, seen);
+            visit_word_reference_spans_outside_nested_commands(word, name, visit)
         }
         AssignmentValue::Compound(array) => {
             for element in &array.elements {
                 match element {
                     ArrayElem::Sequential(word) => {
-                        collect_word_reference_spans_outside_nested_commands(
-                            word, name, spans, seen,
-                        );
+                        visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
                     }
                     ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
-                        collect_subscript_reference_spans_outside_nested_commands(
+                        visit_subscript_reference_spans_outside_nested_commands(
                             Some(key),
                             name,
-                            spans,
-                            seen,
-                        );
-                        collect_word_reference_spans_outside_nested_commands(
-                            value, name, spans, seen,
-                        );
+                            visit,
+                        )?;
+                        visit_word_reference_spans_outside_nested_commands(value, name, visit)?;
                     }
                 }
             }
+
+            ControlFlow::Continue(())
         }
     }
 }
 
-fn collect_command_body_reference_spans_outside_nested_commands(
+fn visit_command_body_reference_spans_outside_nested_commands(
     fact: &CommandFact<'_>,
     source: &str,
     name: &Name,
-    spans: &mut Vec<Span>,
-    seen: &mut FxHashSet<FactSpan>,
-) {
+    visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
+) -> ControlFlow<()> {
     match fact.command() {
         Command::Simple(command) => {
             for word in simple_command_body_words(command, source) {
-                collect_word_reference_spans_outside_nested_commands(word, name, spans, seen);
+                visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
             }
         }
         Command::Builtin(command) => {
             for word in builtin_words(command) {
-                collect_word_reference_spans_outside_nested_commands(word, name, spans, seen);
+                visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
             }
         }
         Command::Decl(command) => {
             for operand in &command.operands {
                 match operand {
                     DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
-                        collect_word_reference_spans_outside_nested_commands(
-                            word, name, spans, seen,
-                        );
+                        visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
                     }
                     DeclOperand::Assignment(assignment) => {
-                        collect_assignment_reference_spans_outside_nested_commands(
-                            assignment, name, spans, seen,
-                        );
+                        visit_assignment_reference_spans_outside_nested_commands(
+                            assignment, name, visit,
+                        )?;
                     }
                     DeclOperand::Name(_) => {}
                 }
@@ -5745,23 +5702,26 @@ fn collect_command_body_reference_spans_outside_nested_commands(
     }
 
     for word in fact.redirects().iter().filter_map(Redirect::word_target) {
-        collect_word_reference_spans_outside_nested_commands(word, name, spans, seen);
+        visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
     }
+
+    ControlFlow::Continue(())
 }
 
-fn collect_broken_legacy_bracket_tail_reference_spans(
+fn visit_broken_legacy_bracket_tail_reference_spans(
     command: &SimpleCommand,
     tail: BrokenLegacyBracketTail,
     name: &Name,
-    spans: &mut Vec<Span>,
-    seen: &mut FxHashSet<FactSpan>,
-) {
+    visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
+) -> ControlFlow<()> {
     for word in std::iter::once(&command.name)
         .chain(command.args.iter())
         .take(tail.synthetic_word_count.saturating_sub(1))
     {
-        collect_word_reference_spans_outside_nested_commands(word, name, spans, seen);
+        visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
     }
+
+    ControlFlow::Continue(())
 }
 
 fn builtin_words(command: &BuiltinCommand) -> Vec<&Word> {
@@ -5844,41 +5804,42 @@ fn parameter_is_plain_access_to_name(parameter: &ParameterExpansion, name: &Name
     }
 }
 
-fn collect_subscript_reference_spans_outside_nested_commands(
+fn visit_subscript_reference_spans_outside_nested_commands(
     subscript: Option<&Subscript>,
     name: &Name,
-    spans: &mut Vec<Span>,
-    seen: &mut FxHashSet<FactSpan>,
-) {
+    visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
+) -> ControlFlow<()> {
     let Some(subscript) = subscript else {
-        return;
+        return ControlFlow::Continue(());
     };
 
     if let Some(word) = subscript.word_ast() {
-        collect_word_reference_spans_outside_nested_commands(word, name, spans, seen);
+        visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
     }
     if let Some(expr) = subscript.arithmetic_ast.as_ref() {
-        collect_arithmetic_reference_spans_outside_nested_commands(expr, name, spans, seen);
+        visit_arithmetic_reference_spans_outside_nested_commands(expr, name, visit)?;
     }
+
+    ControlFlow::Continue(())
 }
 
-fn collect_word_reference_spans_outside_nested_commands(
+fn visit_word_reference_spans_outside_nested_commands(
     word: &Word,
     name: &Name,
-    spans: &mut Vec<Span>,
-    seen: &mut FxHashSet<FactSpan>,
-) {
+    visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
+) -> ControlFlow<()> {
     for part in &word.parts {
-        collect_word_part_reference_spans_outside_nested_commands(part, name, spans, seen);
+        visit_word_part_reference_spans_outside_nested_commands(part, name, visit)?;
     }
+
+    ControlFlow::Continue(())
 }
 
-fn collect_word_part_reference_spans_outside_nested_commands(
+fn visit_word_part_reference_spans_outside_nested_commands(
     part: &WordPartNode,
     name: &Name,
-    spans: &mut Vec<Span>,
-    seen: &mut FxHashSet<FactSpan>,
-) {
+    visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
+) -> ControlFlow<()> {
     match &part.kind {
         WordPart::Literal(_)
         | WordPart::SingleQuoted { .. }
@@ -5886,12 +5847,12 @@ fn collect_word_part_reference_spans_outside_nested_commands(
         | WordPart::PrefixMatch { .. } => {}
         WordPart::DoubleQuoted { parts, .. } => {
             for part in parts {
-                collect_word_part_reference_spans_outside_nested_commands(part, name, spans, seen);
+                visit_word_part_reference_spans_outside_nested_commands(part, name, visit)?;
             }
         }
         WordPart::Variable(variable) => {
             if variable == name {
-                push_fact_span(part.span, spans, seen);
+                visit(part.span)?;
             }
         }
         WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => {}
@@ -5901,30 +5862,25 @@ fn collect_word_part_reference_spans_outside_nested_commands(
             ..
         } => {
             if let Some(expr) = expression_ast.as_ref() {
-                collect_arithmetic_reference_spans_outside_nested_commands(expr, name, spans, seen);
+                visit_arithmetic_reference_spans_outside_nested_commands(expr, name, visit)?;
             }
-            collect_word_reference_spans_outside_nested_commands(
-                expression_word_ast,
-                name,
-                spans,
-                seen,
-            );
+            visit_word_reference_spans_outside_nested_commands(expression_word_ast, name, visit)?;
         }
         WordPart::Parameter(parameter) => {
-            collect_parameter_reference_spans_outside_nested_commands(
-                parameter, part.span, name, spans, seen,
-            );
+            visit_parameter_reference_spans_outside_nested_commands(
+                parameter, part.span, name, visit,
+            )?;
         }
         WordPart::ParameterExpansion {
             reference,
             operand_word_ast,
             ..
         } => {
-            collect_var_ref_reference_spans_outside_nested_commands(
-                reference, part.span, name, spans, seen,
-            );
+            visit_var_ref_reference_spans_outside_nested_commands(
+                reference, part.span, name, visit,
+            )?;
             if let Some(word) = operand_word_ast.as_ref() {
-                collect_word_reference_spans_outside_nested_commands(word, name, spans, seen);
+                visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
             }
         }
         WordPart::Length(reference)
@@ -5932,9 +5888,9 @@ fn collect_word_part_reference_spans_outside_nested_commands(
         | WordPart::ArrayLength(reference)
         | WordPart::ArrayIndices(reference)
         | WordPart::Transformation { reference, .. } => {
-            collect_var_ref_reference_spans_outside_nested_commands(
-                reference, part.span, name, spans, seen,
-            );
+            visit_var_ref_reference_spans_outside_nested_commands(
+                reference, part.span, name, visit,
+            )?;
         }
         WordPart::Substring {
             reference,
@@ -5952,23 +5908,18 @@ fn collect_word_part_reference_spans_outside_nested_commands(
             length_word_ast,
             ..
         } => {
-            collect_var_ref_reference_spans_outside_nested_commands(
-                reference, part.span, name, spans, seen,
-            );
+            visit_var_ref_reference_spans_outside_nested_commands(
+                reference, part.span, name, visit,
+            )?;
             if let Some(expr) = offset_ast.as_ref() {
-                collect_arithmetic_reference_spans_outside_nested_commands(expr, name, spans, seen);
+                visit_arithmetic_reference_spans_outside_nested_commands(expr, name, visit)?;
             }
-            collect_word_reference_spans_outside_nested_commands(
-                offset_word_ast,
-                name,
-                spans,
-                seen,
-            );
+            visit_word_reference_spans_outside_nested_commands(offset_word_ast, name, visit)?;
             if let Some(expr) = length_ast.as_ref() {
-                collect_arithmetic_reference_spans_outside_nested_commands(expr, name, spans, seen);
+                visit_arithmetic_reference_spans_outside_nested_commands(expr, name, visit)?;
             }
             if let Some(word) = length_word_ast.as_ref() {
-                collect_word_reference_spans_outside_nested_commands(word, name, spans, seen);
+                visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
             }
         }
         WordPart::IndirectExpansion {
@@ -5976,32 +5927,33 @@ fn collect_word_part_reference_spans_outside_nested_commands(
             operand_word_ast,
             ..
         } => {
-            collect_var_ref_reference_spans_outside_nested_commands(
-                reference, part.span, name, spans, seen,
-            );
+            visit_var_ref_reference_spans_outside_nested_commands(
+                reference, part.span, name, visit,
+            )?;
             if let Some(word) = operand_word_ast.as_ref() {
-                collect_word_reference_spans_outside_nested_commands(word, name, spans, seen);
+                visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
             }
         }
     }
+
+    ControlFlow::Continue(())
 }
 
-fn collect_parameter_reference_spans_outside_nested_commands(
+fn visit_parameter_reference_spans_outside_nested_commands(
     parameter: &ParameterExpansion,
     span: Span,
     name: &Name,
-    spans: &mut Vec<Span>,
-    seen: &mut FxHashSet<FactSpan>,
-) {
+    visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
+) -> ControlFlow<()> {
     match &parameter.syntax {
         ParameterExpansionSyntax::Bourne(syntax) => match syntax {
             BourneParameterExpansion::Access { reference }
             | BourneParameterExpansion::Length { reference }
             | BourneParameterExpansion::Indices { reference }
             | BourneParameterExpansion::Transformation { reference, .. } => {
-                collect_var_ref_reference_spans_outside_nested_commands(
-                    reference, span, name, spans, seen,
-                );
+                visit_var_ref_reference_spans_outside_nested_commands(
+                    reference, span, name, visit,
+                )?;
             }
             BourneParameterExpansion::Indirect {
                 reference,
@@ -6013,11 +5965,11 @@ fn collect_parameter_reference_spans_outside_nested_commands(
                 operand_word_ast,
                 ..
             } => {
-                collect_var_ref_reference_spans_outside_nested_commands(
-                    reference, span, name, spans, seen,
-                );
+                visit_var_ref_reference_spans_outside_nested_commands(
+                    reference, span, name, visit,
+                )?;
                 if let Some(word) = operand_word_ast.as_ref() {
-                    collect_word_reference_spans_outside_nested_commands(word, name, spans, seen);
+                    visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
                 }
             }
             BourneParameterExpansion::Slice {
@@ -6026,89 +5978,80 @@ fn collect_parameter_reference_spans_outside_nested_commands(
                 length_ast,
                 ..
             } => {
-                collect_var_ref_reference_spans_outside_nested_commands(
-                    reference, span, name, spans, seen,
-                );
+                visit_var_ref_reference_spans_outside_nested_commands(
+                    reference, span, name, visit,
+                )?;
                 if let Some(expr) = offset_ast.as_ref() {
-                    collect_arithmetic_reference_spans_outside_nested_commands(
-                        expr, name, spans, seen,
-                    );
+                    visit_arithmetic_reference_spans_outside_nested_commands(expr, name, visit)?;
                 }
                 if let Some(expr) = length_ast.as_ref() {
-                    collect_arithmetic_reference_spans_outside_nested_commands(
-                        expr, name, spans, seen,
-                    );
+                    visit_arithmetic_reference_spans_outside_nested_commands(expr, name, visit)?;
                 }
             }
             BourneParameterExpansion::PrefixMatch { .. } => {}
         },
         ParameterExpansionSyntax::Zsh(syntax) => {
-            collect_zsh_target_reference_spans_outside_nested_commands(
+            visit_zsh_target_reference_spans_outside_nested_commands(
                 &syntax.target,
                 span,
                 name,
-                spans,
-                seen,
-            );
+                visit,
+            )?;
         }
     }
+
+    ControlFlow::Continue(())
 }
 
-fn collect_zsh_target_reference_spans_outside_nested_commands(
+fn visit_zsh_target_reference_spans_outside_nested_commands(
     target: &ZshExpansionTarget,
     span: Span,
     name: &Name,
-    spans: &mut Vec<Span>,
-    seen: &mut FxHashSet<FactSpan>,
-) {
+    visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
+) -> ControlFlow<()> {
     match target {
         ZshExpansionTarget::Reference(reference) => {
-            collect_var_ref_reference_spans_outside_nested_commands(
-                reference, span, name, spans, seen,
-            );
+            visit_var_ref_reference_spans_outside_nested_commands(reference, span, name, visit)?;
         }
         ZshExpansionTarget::Nested(parameter) => {
-            collect_parameter_reference_spans_outside_nested_commands(
-                parameter, span, name, spans, seen,
-            );
+            visit_parameter_reference_spans_outside_nested_commands(parameter, span, name, visit)?;
         }
         ZshExpansionTarget::Word(word) => {
-            collect_word_reference_spans_outside_nested_commands(word, name, spans, seen);
+            visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
         }
         ZshExpansionTarget::Empty => {}
     }
+
+    ControlFlow::Continue(())
 }
 
-fn collect_var_ref_reference_spans_outside_nested_commands(
+fn visit_var_ref_reference_spans_outside_nested_commands(
     reference: &VarRef,
     span: Span,
     name: &Name,
-    spans: &mut Vec<Span>,
-    seen: &mut FxHashSet<FactSpan>,
-) {
+    visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
+) -> ControlFlow<()> {
     if reference.name == *name {
-        push_fact_span(span, spans, seen);
+        visit(span)?;
     }
 
-    collect_subscript_reference_spans_outside_nested_commands(
+    visit_subscript_reference_spans_outside_nested_commands(
         reference.subscript.as_ref(),
         name,
-        spans,
-        seen,
-    );
+        visit,
+    )
 }
 
-fn collect_arithmetic_reference_spans_outside_nested_commands(
+fn visit_arithmetic_reference_spans_outside_nested_commands(
     expression: &ArithmeticExprNode,
     name: &Name,
-    spans: &mut Vec<Span>,
-    seen: &mut FxHashSet<FactSpan>,
-) {
+    visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
+) -> ControlFlow<()> {
     match &expression.kind {
         ArithmeticExpr::Number(_) => {}
         ArithmeticExpr::Variable(variable) => {
             if variable == name {
-                push_fact_span(expression.span, spans, seen);
+                visit(expression.span)?;
             }
         }
         ArithmeticExpr::Indexed {
@@ -6116,64 +6059,56 @@ fn collect_arithmetic_reference_spans_outside_nested_commands(
             index,
         } => {
             if variable == name {
-                push_fact_span(expression.span, spans, seen);
+                visit(expression.span)?;
             }
-            collect_arithmetic_reference_spans_outside_nested_commands(index, name, spans, seen);
+            visit_arithmetic_reference_spans_outside_nested_commands(index, name, visit)?;
         }
         ArithmeticExpr::ShellWord(word) => {
-            collect_word_reference_spans_outside_nested_commands(word, name, spans, seen);
+            visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
         }
         ArithmeticExpr::Parenthesized { expression } => {
-            collect_arithmetic_reference_spans_outside_nested_commands(
-                expression, name, spans, seen,
-            );
+            visit_arithmetic_reference_spans_outside_nested_commands(expression, name, visit)?;
         }
         ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
-            collect_arithmetic_reference_spans_outside_nested_commands(expr, name, spans, seen);
+            visit_arithmetic_reference_spans_outside_nested_commands(expr, name, visit)?;
         }
         ArithmeticExpr::Binary { left, right, .. } => {
-            collect_arithmetic_reference_spans_outside_nested_commands(left, name, spans, seen);
-            collect_arithmetic_reference_spans_outside_nested_commands(right, name, spans, seen);
+            visit_arithmetic_reference_spans_outside_nested_commands(left, name, visit)?;
+            visit_arithmetic_reference_spans_outside_nested_commands(right, name, visit)?;
         }
         ArithmeticExpr::Conditional {
             condition,
             then_expr,
             else_expr,
         } => {
-            collect_arithmetic_reference_spans_outside_nested_commands(
-                condition, name, spans, seen,
-            );
-            collect_arithmetic_reference_spans_outside_nested_commands(
-                then_expr, name, spans, seen,
-            );
-            collect_arithmetic_reference_spans_outside_nested_commands(
-                else_expr, name, spans, seen,
-            );
+            visit_arithmetic_reference_spans_outside_nested_commands(condition, name, visit)?;
+            visit_arithmetic_reference_spans_outside_nested_commands(then_expr, name, visit)?;
+            visit_arithmetic_reference_spans_outside_nested_commands(else_expr, name, visit)?;
         }
         ArithmeticExpr::Assignment { target, value, .. } => {
-            collect_arithmetic_lvalue_reference_spans_outside_nested_commands(
+            visit_arithmetic_lvalue_reference_spans_outside_nested_commands(
                 target,
                 expression.span,
                 name,
-                spans,
-                seen,
-            );
-            collect_arithmetic_reference_spans_outside_nested_commands(value, name, spans, seen);
+                visit,
+            )?;
+            visit_arithmetic_reference_spans_outside_nested_commands(value, name, visit)?;
         }
     }
+
+    ControlFlow::Continue(())
 }
 
-fn collect_arithmetic_lvalue_reference_spans_outside_nested_commands(
+fn visit_arithmetic_lvalue_reference_spans_outside_nested_commands(
     target: &ArithmeticLvalue,
     span: Span,
     name: &Name,
-    spans: &mut Vec<Span>,
-    seen: &mut FxHashSet<FactSpan>,
-) {
+    visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
+) -> ControlFlow<()> {
     match target {
         ArithmeticLvalue::Variable(variable) => {
             if variable == name {
-                push_fact_span(span, spans, seen);
+                visit(span)?;
             }
         }
         ArithmeticLvalue::Indexed {
@@ -6181,240 +6116,19 @@ fn collect_arithmetic_lvalue_reference_spans_outside_nested_commands(
             index,
         } => {
             if variable == name {
-                push_fact_span(span, spans, seen);
+                visit(span)?;
             }
-            collect_arithmetic_reference_spans_outside_nested_commands(index, name, spans, seen);
+            visit_arithmetic_reference_spans_outside_nested_commands(index, name, visit)?;
         }
     }
+
+    ControlFlow::Continue(())
 }
 
 fn push_fact_span(span: Span, spans: &mut Vec<Span>, seen: &mut FxHashSet<FactSpan>) {
     let key = FactSpan::new(span);
     if seen.insert(key) {
         spans.push(span);
-    }
-}
-
-fn subscript_mentions_name(subscript: Option<&Subscript>, name: &Name) -> bool {
-    let Some(subscript) = subscript else {
-        return false;
-    };
-
-    subscript
-        .word_ast
-        .as_ref()
-        .is_some_and(|word| word_mentions_name_outside_nested_commands(word, name))
-        || subscript
-            .arithmetic_ast
-            .as_ref()
-            .is_some_and(|expr| arithmetic_mentions_name_outside_nested_commands(expr, name))
-}
-
-fn word_mentions_name_outside_nested_commands(word: &Word, name: &Name) -> bool {
-    word.parts
-        .iter()
-        .any(|part| word_part_mentions_name_outside_nested_commands(&part.kind, name))
-}
-
-fn word_part_mentions_name_outside_nested_commands(part: &WordPart, name: &Name) -> bool {
-    match part {
-        WordPart::Literal(_)
-        | WordPart::ZshQualifiedGlob(_)
-        | WordPart::SingleQuoted { .. }
-        | WordPart::PrefixMatch { .. } => false,
-        WordPart::DoubleQuoted { parts, .. } => parts
-            .iter()
-            .any(|part| word_part_mentions_name_outside_nested_commands(&part.kind, name)),
-        WordPart::Variable(variable) => variable == name,
-        WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => false,
-        WordPart::ArithmeticExpansion {
-            expression_ast,
-            expression_word_ast,
-            ..
-        } => {
-            expression_ast
-                .as_ref()
-                .is_some_and(|expr| arithmetic_mentions_name_outside_nested_commands(expr, name))
-                || word_mentions_name_outside_nested_commands(expression_word_ast, name)
-        }
-        WordPart::Parameter(parameter) => {
-            parameter_mentions_name_outside_nested_commands(parameter, name)
-        }
-        WordPart::ParameterExpansion {
-            reference,
-            operand_word_ast,
-            ..
-        } => {
-            var_ref_mentions_name_outside_nested_commands(reference, name)
-                || operand_word_ast
-                    .as_ref()
-                    .is_some_and(|word| word_mentions_name_outside_nested_commands(word, name))
-        }
-        WordPart::Length(reference)
-        | WordPart::ArrayAccess(reference)
-        | WordPart::ArrayLength(reference)
-        | WordPart::ArrayIndices(reference)
-        | WordPart::Transformation { reference, .. } => {
-            var_ref_mentions_name_outside_nested_commands(reference, name)
-        }
-        WordPart::Substring {
-            reference,
-            offset_ast,
-            offset_word_ast,
-            length_ast,
-            length_word_ast,
-            ..
-        }
-        | WordPart::ArraySlice {
-            reference,
-            offset_ast,
-            offset_word_ast,
-            length_ast,
-            length_word_ast,
-            ..
-        } => {
-            var_ref_mentions_name_outside_nested_commands(reference, name)
-                || offset_ast.as_ref().is_some_and(|expr| {
-                    arithmetic_mentions_name_outside_nested_commands(expr, name)
-                })
-                || word_mentions_name_outside_nested_commands(offset_word_ast, name)
-                || length_ast.as_ref().is_some_and(|expr| {
-                    arithmetic_mentions_name_outside_nested_commands(expr, name)
-                })
-                || length_word_ast
-                    .as_ref()
-                    .is_some_and(|word| word_mentions_name_outside_nested_commands(word, name))
-        }
-        WordPart::IndirectExpansion {
-            reference,
-            operand_word_ast,
-            ..
-        } => {
-            var_ref_mentions_name_outside_nested_commands(reference, name)
-                || operand_word_ast
-                    .as_ref()
-                    .is_some_and(|word| word_mentions_name_outside_nested_commands(word, name))
-        }
-    }
-}
-
-fn parameter_mentions_name_outside_nested_commands(
-    parameter: &ParameterExpansion,
-    name: &Name,
-) -> bool {
-    match &parameter.syntax {
-        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
-            BourneParameterExpansion::Access { reference }
-            | BourneParameterExpansion::Length { reference }
-            | BourneParameterExpansion::Indices { reference }
-            | BourneParameterExpansion::Transformation { reference, .. } => {
-                var_ref_mentions_name_outside_nested_commands(reference, name)
-            }
-            BourneParameterExpansion::Indirect {
-                reference,
-                operand_word_ast,
-                ..
-            }
-            | BourneParameterExpansion::Operation {
-                reference,
-                operand_word_ast,
-                ..
-            } => {
-                var_ref_mentions_name_outside_nested_commands(reference, name)
-                    || operand_word_ast
-                        .as_ref()
-                        .is_some_and(|word| word_mentions_name_outside_nested_commands(word, name))
-            }
-            BourneParameterExpansion::Slice {
-                reference,
-                offset_ast,
-                length_ast,
-                ..
-            } => {
-                var_ref_mentions_name_outside_nested_commands(reference, name)
-                    || offset_ast.as_ref().is_some_and(|expr| {
-                        arithmetic_mentions_name_outside_nested_commands(expr, name)
-                    })
-                    || length_ast.as_ref().is_some_and(|expr| {
-                        arithmetic_mentions_name_outside_nested_commands(expr, name)
-                    })
-            }
-            BourneParameterExpansion::PrefixMatch { .. } => false,
-        },
-        ParameterExpansionSyntax::Zsh(syntax) => {
-            zsh_target_mentions_name_outside_nested_commands(&syntax.target, name)
-        }
-    }
-}
-
-fn zsh_target_mentions_name_outside_nested_commands(
-    target: &ZshExpansionTarget,
-    name: &Name,
-) -> bool {
-    match target {
-        ZshExpansionTarget::Reference(reference) => {
-            var_ref_mentions_name_outside_nested_commands(reference, name)
-        }
-        ZshExpansionTarget::Nested(parameter) => {
-            parameter_mentions_name_outside_nested_commands(parameter, name)
-        }
-        ZshExpansionTarget::Word(word) => word_mentions_name_outside_nested_commands(word, name),
-        ZshExpansionTarget::Empty => false,
-    }
-}
-
-fn var_ref_mentions_name_outside_nested_commands(reference: &VarRef, name: &Name) -> bool {
-    reference.name == *name || subscript_mentions_name(reference.subscript.as_ref(), name)
-}
-
-fn arithmetic_mentions_name_outside_nested_commands(
-    expression: &ArithmeticExprNode,
-    name: &Name,
-) -> bool {
-    match &expression.kind {
-        ArithmeticExpr::Number(_) => false,
-        ArithmeticExpr::Variable(variable) => variable == name,
-        ArithmeticExpr::Indexed {
-            name: variable,
-            index,
-        } => variable == name || arithmetic_mentions_name_outside_nested_commands(index, name),
-        ArithmeticExpr::ShellWord(word) => word_mentions_name_outside_nested_commands(word, name),
-        ArithmeticExpr::Parenthesized { expression } => {
-            arithmetic_mentions_name_outside_nested_commands(expression, name)
-        }
-        ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
-            arithmetic_mentions_name_outside_nested_commands(expr, name)
-        }
-        ArithmeticExpr::Binary { left, right, .. } => {
-            arithmetic_mentions_name_outside_nested_commands(left, name)
-                || arithmetic_mentions_name_outside_nested_commands(right, name)
-        }
-        ArithmeticExpr::Conditional {
-            condition,
-            then_expr,
-            else_expr,
-        } => {
-            arithmetic_mentions_name_outside_nested_commands(condition, name)
-                || arithmetic_mentions_name_outside_nested_commands(then_expr, name)
-                || arithmetic_mentions_name_outside_nested_commands(else_expr, name)
-        }
-        ArithmeticExpr::Assignment { target, value, .. } => {
-            arithmetic_lvalue_mentions_name_outside_nested_commands(target, name)
-                || arithmetic_mentions_name_outside_nested_commands(value, name)
-        }
-    }
-}
-
-fn arithmetic_lvalue_mentions_name_outside_nested_commands(
-    target: &ArithmeticLvalue,
-    name: &Name,
-) -> bool {
-    match target {
-        ArithmeticLvalue::Variable(variable) => variable == name,
-        ArithmeticLvalue::Indexed {
-            name: variable,
-            index,
-        } => variable == name || arithmetic_mentions_name_outside_nested_commands(index, name),
     }
 }
 
@@ -26954,7 +26668,7 @@ printf '%s\\n' \"${arr[$((read+1))]}\"
     }
 
     #[test]
-    fn tracks_command_prefix_assignments_reused_later_in_the_same_command() {
+    fn tracks_env_prefix_scope_spans_for_same_command_references() {
         let source = "\
 #!/bin/bash
 CFLAGS=\"${SLKCFLAGS}\" ./configure --with-optmizer=${CFLAGS}
@@ -27011,6 +26725,25 @@ X=1 A=$[ $X + 1 ] true
                     "$COUNTDOWN",
                     "$X"
                 ]
+            );
+        });
+    }
+
+    #[test]
+    fn tracks_env_prefix_expansion_spans_for_duplicate_name_self_reference() {
+        let source = "\
+#!/bin/bash
+foo=\"$foo\" foo=2 cmd
+";
+
+        with_facts(source, None, |_, facts| {
+            assert_eq!(
+                facts
+                    .env_prefix_expansion_scope_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["$foo"]
             );
         });
     }
