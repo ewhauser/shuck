@@ -1,3 +1,4 @@
 reviewed_divergences:
   - side: shuck-only
+    rule_wide: true
     reason: "Shuck treats a bare compound command in function position as a missing-braces portability issue. The nix ShellCheck 0.11.0 oracle in this repo does not emit SC2276 for the small probes we checked, including subshell and bare test/if forms, so the corpus comparison is intentionally recorded as a reviewed shuck-only divergence."

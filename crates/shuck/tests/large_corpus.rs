@@ -398,6 +398,14 @@ impl RuleCorpusMetadataDocument {
     fn has_entries(&self) -> bool {
         self.review_all_divergences || !self.reviewed_divergences.is_empty()
     }
+
+    fn validate(&self, rule_code: &str, path: &Path) -> Result<(), String> {
+        for (index, entry) in self.reviewed_divergences.iter().enumerate() {
+            entry.validate(rule_code, path, index + 1)?;
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
@@ -421,6 +429,8 @@ impl CompatibilitySide {
 struct ReviewedDivergenceRecord {
     side: CompatibilitySide,
     #[serde(default)]
+    rule_wide: bool,
+    #[serde(default)]
     path_suffix: Option<String>,
     #[serde(default)]
     path_contains: Option<String>,
@@ -433,6 +443,35 @@ struct ReviewedDivergenceRecord {
     #[serde(default)]
     end_column: Option<usize>,
     reason: String,
+}
+
+impl ReviewedDivergenceRecord {
+    fn has_scope(&self) -> bool {
+        self.path_suffix.is_some()
+            || self.path_contains.is_some()
+            || self.line.is_some()
+            || self.end_line.is_some()
+            || self.column.is_some()
+            || self.end_column.is_some()
+    }
+
+    fn validate(&self, rule_code: &str, path: &Path, entry_index: usize) -> Result<(), String> {
+        match (self.rule_wide, self.has_scope()) {
+            (false, false) => Err(format!(
+                "invalid reviewed divergence {} entry {} in {}: add a scope field or set rule-wide: true",
+                rule_code,
+                entry_index,
+                path.display()
+            )),
+            (true, true) => Err(format!(
+                "invalid reviewed divergence {} entry {} in {}: rule-wide entries cannot also set path or range constraints",
+                rule_code,
+                entry_index,
+                path.display()
+            )),
+            _ => Ok(()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -1492,7 +1531,12 @@ fn load_rule_corpus_metadata(rule_code: &str) -> RuleCorpusMetadataDocument {
     }
     let data =
         fs::read_to_string(&path).unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
-    serde_yaml::from_str(&data).unwrap_or_else(|err| panic!("parse {}: {err}", path.display()))
+    let metadata: RuleCorpusMetadataDocument =
+        serde_yaml::from_str(&data).unwrap_or_else(|err| panic!("parse {}: {err}", path.display()));
+    metadata
+        .validate(rule_code, &path)
+        .unwrap_or_else(|err| panic!("{err}"));
+    metadata
 }
 
 fn load_all_rule_corpus_metadata() -> HashMap<String, RuleCorpusMetadataDocument> {
@@ -3729,6 +3773,12 @@ mod tests {
                 .get("C001")
                 .is_some_and(|rule_metadata| rule_metadata.review_all_divergences)
         );
+        assert!(
+            metadata
+                .get("C057")
+                .and_then(|rule_metadata| rule_metadata.reviewed_divergences.first())
+                .is_some_and(|entry| entry.rule_wide)
+        );
     }
 
     #[test]
@@ -3739,6 +3789,7 @@ mod tests {
                 review_all_divergences: false,
                 reviewed_divergences: vec![ReviewedDivergenceRecord {
                     side: CompatibilitySide::ShellcheckOnly,
+                    rule_wide: false,
                     path_suffix: Some("repo__script.sh".into()),
                     path_contains: None,
                     line: Some(19),
@@ -3781,6 +3832,7 @@ mod tests {
                 review_all_divergences: false,
                 reviewed_divergences: vec![ReviewedDivergenceRecord {
                     side: CompatibilitySide::ShuckOnly,
+                    rule_wide: false,
                     path_suffix: Some("scripts/repo__script.sh".into()),
                     path_contains: None,
                     line: Some(19),
@@ -3826,6 +3878,7 @@ mod tests {
                 review_all_divergences: false,
                 reviewed_divergences: vec![ReviewedDivergenceRecord {
                     side: CompatibilitySide::ShuckOnly,
+                    rule_wide: true,
                     path_suffix: None,
                     path_contains: None,
                     line: None,
@@ -3868,6 +3921,7 @@ mod tests {
                 review_all_divergences: false,
                 reviewed_divergences: vec![ReviewedDivergenceRecord {
                     side: CompatibilitySide::ShuckOnly,
+                    rule_wide: false,
                     path_suffix: Some("alpinelinux__aports__scripts__mkimage.sh".into()),
                     path_contains: None,
                     line: Some(120),
@@ -3943,6 +3997,7 @@ mod tests {
                 review_all_divergences: false,
                 reviewed_divergences: vec![ReviewedDivergenceRecord {
                     side: CompatibilitySide::ShuckOnly,
+                    rule_wide: false,
                     path_suffix: None,
                     path_contains: Some("termux__termux-packages__".into()),
                     line: None,
@@ -3988,6 +4043,7 @@ mod tests {
                 review_all_divergences: false,
                 reviewed_divergences: vec![ReviewedDivergenceRecord {
                     side: CompatibilitySide::ShuckOnly,
+                    rule_wide: false,
                     path_suffix: None,
                     path_contains: Some("termux__termux-packages__".into()),
                     line: None,
@@ -4017,6 +4073,60 @@ mod tests {
 
         assert_eq!(classification, CompatibilityClassification::Implementation);
         assert!(reason.is_none());
+    }
+
+    #[test]
+    fn reviewed_divergence_validation_rejects_implicit_rule_wide_entry() {
+        let metadata = RuleCorpusMetadataDocument {
+            review_all_divergences: false,
+            reviewed_divergences: vec![ReviewedDivergenceRecord {
+                side: CompatibilitySide::ShellcheckOnly,
+                rule_wide: false,
+                path_suffix: None,
+                path_contains: None,
+                line: None,
+                end_line: None,
+                column: None,
+                end_column: None,
+                reason: "implicit rule-wide reviewed divergence".into(),
+            }],
+        };
+
+        let error = metadata
+            .validate(
+                "C999",
+                Path::new("tests/testdata/corpus-metadata/c999.yaml"),
+            )
+            .unwrap_err();
+
+        assert!(error.contains("add a scope field or set rule-wide: true"));
+    }
+
+    #[test]
+    fn reviewed_divergence_validation_rejects_rule_wide_entry_with_scope() {
+        let metadata = RuleCorpusMetadataDocument {
+            review_all_divergences: false,
+            reviewed_divergences: vec![ReviewedDivergenceRecord {
+                side: CompatibilitySide::ShellcheckOnly,
+                rule_wide: true,
+                path_suffix: Some("repo__script.sh".into()),
+                path_contains: None,
+                line: None,
+                end_line: None,
+                column: None,
+                end_column: None,
+                reason: "conflicting reviewed divergence".into(),
+            }],
+        };
+
+        let error = metadata
+            .validate(
+                "C999",
+                Path::new("tests/testdata/corpus-metadata/c999.yaml"),
+            )
+            .unwrap_err();
+
+        assert!(error.contains("rule-wide entries cannot also set path or range constraints"));
     }
 
     #[test]

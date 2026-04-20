@@ -1,3 +1,4 @@
 reviewed_divergences:
   - side: shuck-only
+    rule_wide: true
     reason: "C057 intentionally flags command substitutions that send stdout to a different sink inside the subshell, even when the surrounding code is a helper wrapper, project-closure script, or test harness. ShellCheck stays silent on these SC2255 cases, and the remaining corpus hits are all the same policy shape, so one broad reviewed divergence captures the stricter Shuck behavior without hiding a distinct implementation bug."

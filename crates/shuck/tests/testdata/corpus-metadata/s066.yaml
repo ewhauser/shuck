@@ -1,3 +1,4 @@
 reviewed_divergences:
   - side: shuck-only
+    rule_wide: true
     reason: "Shuck flags a declaration that mixes `local` and `declare` in one statement. The current oracle build in this repo does not surface the authored SC2362 target for that pattern, so the remaining corpus hits are treated as reviewed shuck-only divergence."

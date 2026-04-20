@@ -1,5 +1,211 @@
 reviewed_divergences:
   - side: shellcheck-only
+    path_suffix: "Bash-it__bash-it__completion__available__apm.completion.bash"
+    line: 4
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "Bash-it__bash-it__completion__available__defaults.completion.bash"
+    line: 6
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "Bash-it__bash-it__install.sh"
+    line: 289
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "Bash-it__bash-it__install.sh"
+    line: 291
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "Bash-it__bash-it__install.sh"
+    line: 293
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "Bash-it__bash-it__lib__preexec.bash"
+    line: 12
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "Bash-it__bash-it__template__bashrc.template.bash"
+    line: 76
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "Bash-it__bash-it__themes__gitline__gitline.theme.bash"
+    line: 4
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "Bash-it__bash-it__themes__powerline-multiline__powerline-multiline.base.bash"
+    line: 4
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "Bash-it__bash-it__themes__powerline-multiline__powerline-multiline.theme.bash"
+    line: 4
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "Bash-it__bash-it__themes__powerline-naked__powerline-naked.theme.bash"
+    line: 4
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "Bash-it__bash-it__themes__powerline__powerline.theme.bash"
+    line: 4
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__misc__wcd__wcd.sh"
+    line: 3
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "alpinelinux__aports__community__fzf__fzf.plugin.sh"
+    line: 1
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "alpinelinux__aports__community__fzf__fzf.plugin.sh"
+    line: 2
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "alpinelinux__aports__community__skim__skim.plugin.sh"
+    line: 1
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "alpinelinux__aports__community__skim__skim.plugin.sh"
+    line: 2
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "alpinelinux__aports__main__meson__abuild-meson"
+    line: 4
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "alpinelinux__aports__scripts__mkimage.sh"
+    line: 17
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "awslabs__git-secrets__git-secrets"
+    line: 46
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "itzg__docker-minecraft-server__scripts__auto__autopause-daemon.sh"
+    line: 3
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "itzg__docker-minecraft-server__scripts__auto__autostop-daemon.sh"
+    line: 4
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "itzg__docker-minecraft-server__scripts__auto__pause.sh"
+    line: 3
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "itzg__docker-minecraft-server__scripts__auto__resume.sh"
+    line: 3
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "itzg__docker-minecraft-server__scripts__auto__stop.sh"
+    line: 3
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "itzg__docker-minecraft-server__scripts__start-deployLimbo"
+    line: 5
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "romkatv__powerlevel10k__gitstatus__gitstatus.prompt.sh"
+    line: 8
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__bin__rvm"
+    line: 55
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__binscripts__rvm-installer"
+    line: 898
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__binscripts__rvm-installer"
+    line: 899
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__cd"
+    line: 24
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__completion"
+    line: 22
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__cli"
+    line: 149
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__cli"
+    line: 315
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__env"
+    line: 68
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__functions__environment"
+    line: 330
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "rvm__rvm__scripts__rvm"
+    line: 222
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__openssh__source-ssh-agent.sh"
+    line: 11
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__openssh__sv__ssh-agent.run.in"
+    line: 22
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__packages__openssh__wrap-ssh-agent.sh"
+    line: 3
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__scripts__bin__check-pie.sh"
+    line: 4
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__scripts__generate-bootstraps.sh"
+    line: 9
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__scripts__setup-android-sdk.sh"
+    line: 8
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__scripts__setup-android-sdk.sh"
+    line: 9
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__scripts__setup-archlinux.sh"
+    line: 55
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__scripts__setup-cgct.sh"
+    line: 5
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__scripts__setup-cgct.sh"
+    line: 6
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__scripts__setup-termux-glibc.sh"
+    line: 3
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__scripts__setup-termux.sh"
+    line: 68
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__scripts__setup-ubuntu.sh"
+    line: 336
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "termux__termux-packages__scripts__updates__utils__termux_pkg_is_update_needed.sh"
+    line: 32
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
+  - side: shellcheck-only
+    path_suffix: "xwmx__nb__nb.ksh__nb"
+    line: 8
     reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
   - side: shuck-only
     path_suffix: "dylanaraps__neofetch__neofetch"

@@ -1,3 +1,4 @@
 reviewed_divergences:
   - side: shuck-only
+    rule_wide: true
     reason: "Shuck intentionally keeps warning on `for` headers that resolve to a single item, including runtime-fixed paths built from quoted scalar expansions or command substitutions. In the pinned large-corpus oracle, SC2043 only appears for a much narrower subset of those loops, so the remaining `shuck-only` sites are treated as a reviewed policy divergence rather than an implementation bug."

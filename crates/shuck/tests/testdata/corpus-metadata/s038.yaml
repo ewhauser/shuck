@@ -1,3 +1,4 @@
 reviewed_divergences:
   - side: shuck-only
+    rule_wide: true
     reason: "S038 intentionally flags explicit `return $?` status propagation inside function bodies when the function already preserves the previous command's exit status. The current ShellCheck 0.11.0 comparison target does not report that pattern in the corpus, so these hits are reviewed divergence noise for parity testing."

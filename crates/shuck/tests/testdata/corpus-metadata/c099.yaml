@@ -1,3 +1,4 @@
 reviewed_divergences:
   - side: shellcheck-only
+    rule_wide: true
     reason: "C099 is intentionally scoped to quoted all-elements @-slice assignments, while the oracle's SC2124 check also reports broader array-to-scalar assignment patterns outside this rule's authored slice scope."
