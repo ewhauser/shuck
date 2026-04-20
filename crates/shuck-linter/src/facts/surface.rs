@@ -77,6 +77,13 @@ impl<'a> SurfaceScanContext<'a> {
         }
     }
 
+    pub(super) fn without_command_name(self) -> Self {
+        Self {
+            command_name: None,
+            ..self
+        }
+    }
+
     pub(super) fn with_pattern_charclass_scan(self) -> Self {
         Self {
             collect_pattern_charclasses: true,
@@ -720,7 +727,12 @@ impl<'a> SurfaceFragmentSink<'a> {
         for redirect in redirects {
             match redirect.word_target() {
                 Some(word) => {
-                    self.collect_word(word, context);
+                    let word_context = if redirect.kind == RedirectKind::HereString {
+                        context
+                    } else {
+                        context.without_command_name()
+                    };
+                    self.collect_word(word, word_context);
                 }
                 None => {
                     let heredoc = redirect.heredoc().expect("expected heredoc redirect");

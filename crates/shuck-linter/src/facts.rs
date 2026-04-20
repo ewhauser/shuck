@@ -25596,6 +25596,24 @@ bash --init-file \"${BASH_IT?}/bash_it.sh\" -i <<< '_bash-it-flash-term \"${#BAS
     }
 
     #[test]
+    fn surface_facts_do_not_apply_command_context_to_plain_redirect_targets() {
+        let source = "\
+#!/bin/bash
+bash > '$HOME'
+";
+
+        with_facts(source, None, |_, facts| {
+            let fragment = facts
+                .single_quoted_fragments()
+                .iter()
+                .find(|fragment| fragment.span().slice(source) == "'$HOME'")
+                .expect("expected redirect-target single-quoted fragment");
+
+            assert_eq!(fragment.command_name(), None);
+        });
+    }
+
+    #[test]
     fn surface_facts_mark_single_quoted_backslash_sequences_that_continue_into_literals() {
         let source = "\
 #!/bin/sh

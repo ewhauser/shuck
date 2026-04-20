@@ -337,6 +337,11 @@ mod tests {
     }
 
     #[test]
+    fn reports_single_quoted_plain_redirect_targets_for_exempt_commands() {
+        assert_eq!(c005("bash > '$HOME'\n"), 1);
+    }
+
+    #[test]
     fn ignores_single_quoted_sequences_inside_quoted_heredoc_bodies() {
         assert_eq!(c005("cat <<'EOF'\n'$HOME'\nEOF\n"), 0);
     }
