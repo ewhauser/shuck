@@ -16,7 +16,7 @@ parser-benchmarking = ["shuck-parser/benchmarking"]
 [dependencies]
 shuck-formatter = { path = "../shuck-formatter", features = ["benchmarking"] }
 shuck-indexer = { path = "../shuck-indexer" }
-shuck-linter = { path = "../shuck-linter" }
+shuck-linter = { path = "../shuck-linter", features = ["benchmarking"] }
 shuck-parser = { path = "../shuck-parser" }
 shuck-semantic = { path = "../shuck-semantic" }
 

@@ -9,6 +9,9 @@ description = "Lint rule engine and checker for shell scripts"
 keywords = ["shell", "bash", "linter", "static-analysis"]
 categories = ["development-tools"]
 
+[features]
+benchmarking = []
+
 [dependencies]
 rustc-hash = "2"
 thiserror = { workspace = true }
