@@ -374,8 +374,8 @@ impl<'a> Checker<'a> {
                 self,
             );
         }
-        if self.is_rule_enabled(Rule::MisspelledOptionName) {
-            rules::correctness::misspelled_option_name::misspelled_option_name(self);
+        if self.is_rule_enabled(Rule::EnvPrefixExpansionOnly) {
+            rules::correctness::env_prefix_expansion_only::env_prefix_expansion_only(self);
         }
         if self.is_rule_enabled(Rule::LocalVariableInSh) {
             rules::portability::local_variable_in_sh::local_variable_in_sh(self);

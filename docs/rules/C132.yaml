@@ -1,5 +1,5 @@
 legacy_code: SH-310
-legacy_name: misspelled-option-name
+legacy_name: env-prefix-expansion-only
 new_category: Correctness
 new_code: C132
 runtime_kind: ast
@@ -9,8 +9,8 @@ shells:
   - bash
   - dash
   - ksh
-description: A configure option name looks like a misspelling.
-rationale: Check the option name against the expected spelling.
+description: A later expansion in the same command still reads the shell's earlier value instead of the preceding prefix assignment.
+rationale: Prefix assignments only reach the spawned command environment after the shell has already expanded the rest of the command line.
 source:
   shell_checks_rule: rules/SH-310.yaml
   shell_checks_example: examples/310.sh
