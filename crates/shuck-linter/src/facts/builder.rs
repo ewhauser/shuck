@@ -453,11 +453,15 @@ impl<'a> LinterFactsBuilder<'a> {
             expansion_scope_spans: env_prefix_expansion_scope_spans,
         } = build_env_prefix_scope_spans(self.source, &commands);
         let mut word_index = FxHashMap::<FactSpan, SmallVec<[WordOccurrenceId; 2]>>::default();
+        let mut word_occurrence_ids_by_command =
+            vec![SmallVec::<[WordOccurrenceId; 4]>::new(); commands.len()];
         for (index, fact) in word_occurrences.iter().enumerate() {
+            let id = WordOccurrenceId::new(index);
             word_index
                 .entry(occurrence_key(&word_nodes, fact))
                 .or_default()
-                .push(WordOccurrenceId::new(index));
+                .push(id);
+            word_occurrence_ids_by_command[fact.command_id.index()].push(id);
         }
         let echo_to_sed_substitution_spans = build_echo_to_sed_substitution_spans(
             &commands,
@@ -515,6 +519,7 @@ impl<'a> LinterFactsBuilder<'a> {
             word_nodes,
             word_occurrences,
             word_index,
+            word_occurrence_ids_by_command,
             unquoted_command_argument_use_offsets,
             array_assignment_split_word_ids,
             brace_variable_before_bracket_spans,

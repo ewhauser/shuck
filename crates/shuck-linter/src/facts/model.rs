@@ -19,6 +19,7 @@ pub struct LinterFacts<'a> {
     word_nodes: Vec<WordNode<'a>>,
     word_occurrences: Vec<WordOccurrence>,
     word_index: FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
+    word_occurrence_ids_by_command: Vec<SmallVec<[WordOccurrenceId; 4]>>,
     unquoted_command_argument_use_offsets: FxHashMap<Name, Vec<usize>>,
     array_assignment_split_word_ids: Vec<WordOccurrenceId>,
     brace_variable_before_bracket_spans: Vec<Span>,
@@ -327,6 +328,15 @@ impl<'a> LinterFacts<'a> {
         &self.word_occurrences[id.index()]
     }
 
+    fn word_occurrence_ids_for_command(
+        &self,
+        id: CommandId,
+    ) -> &[WordOccurrenceId] {
+        self.word_occurrence_ids_by_command
+            .get(id.index())
+            .map_or(&[], SmallVec::as_slice)
+    }
+
     fn word_node(&self, id: WordNodeId) -> &WordNode<'a> {
         &self.word_nodes[id.index()]
     }
@@ -352,11 +362,13 @@ impl<'a> LinterFacts<'a> {
         ) {
             for command in &self.commands {
                 if contains_span_strictly(fact.span(), command.span()) {
-                    for nested_fact in self.word_facts() {
-                        if nested_fact.command_id() == command.id() {
-                            split_sensitive_spans
-                                .extend(nested_fact.scalar_expansion_spans().iter().copied());
-                        }
+                    for nested_id in self.word_occurrence_ids_for_command(command.id()) {
+                        split_sensitive_spans.extend(
+                            self.word_occurrence_ref(*nested_id)
+                                .scalar_expansion_spans()
+                                .iter()
+                                .copied(),
+                        );
                     }
                 }
             }
