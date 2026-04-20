@@ -33,6 +33,7 @@ PATH=/tmp \"$PATH\"/bin/tool
 A=1 B=\"$A\" C=\"$B\" cmd
 foo=1 export \"$foo\"
 foo=1 bar[$foo]=x cmd
+FOO=tmp cmd >\"$FOO\"
 COUNTDOWN=$[ $COUNTDOWN - 1 ] echo \"$COUNTDOWN\"
 ";
         let diagnostics = test_snippet(
@@ -52,13 +53,14 @@ COUNTDOWN=$[ $COUNTDOWN - 1 ] echo \"$COUNTDOWN\"
                 "$B",
                 "$foo",
                 "$foo",
+                "$FOO",
                 "$COUNTDOWN"
             ]
         );
     }
 
     #[test]
-    fn ignores_nested_commands_assignment_only_forms_and_redirects() {
+    fn ignores_nested_commands_and_assignment_only_forms() {
         let source = "\
 #!/bin/bash
 foo=1 echo hi
@@ -66,7 +68,6 @@ foo=\"$foo\" cmd
 foo=1 cmd \"$(printf %s \"$foo\")\"
 foo=1 foo=2 cmd
 foo=1 bar=\"$foo\"
-FOO=tmp cmd >\"$FOO\"
 COUNTDOWN=$[ $COUNTDOWN - 1 ]
 ";
         let diagnostics = test_snippet(

@@ -43,3 +43,9 @@ C132 this same-command expansion still sees the earlier shell value
    |
 19 | COUNTDOWN=$[ $COUNTDOWN - 1 ] echo "$COUNTDOWN"
    |
+
+C132 this same-command expansion still sees the earlier shell value
+  --> <source>:25:15
+   |
+25 | FOO=tmp cmd >"$FOO"
+   |

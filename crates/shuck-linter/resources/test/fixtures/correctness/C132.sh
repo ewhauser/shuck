@@ -21,7 +21,7 @@ COUNTDOWN=$[ $COUNTDOWN - 1 ] echo "$COUNTDOWN"
 # Should not trigger: nested commands are out of scope.
 foo=1 cmd "$(printf %s "$foo")"
 
-# Should not trigger: redirects are not covered here.
+# Should trigger: redirect targets are expanded before the command runs.
 FOO=tmp cmd >"$FOO"
 
 # Should not trigger: assignment-only commands do not create the temporary command environment.

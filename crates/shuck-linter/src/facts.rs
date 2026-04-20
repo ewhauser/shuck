@@ -5699,6 +5699,10 @@ fn collect_command_body_reference_spans_outside_nested_commands(
         | Command::Function(_)
         | Command::AnonymousFunction(_) => {}
     }
+
+    for word in fact.redirects().iter().filter_map(Redirect::word_target) {
+        collect_word_reference_spans_outside_nested_commands(word, name, spans, seen);
+    }
 }
 
 fn collect_broken_legacy_bracket_tail_reference_spans(
@@ -26480,6 +26484,7 @@ X=1 A=$[ $X + 1 ] true
                     "$foo",
                     "$foo",
                     "$foo",
+                    "$FOO",
                     "$COUNTDOWN",
                     "$X"
                 ]
