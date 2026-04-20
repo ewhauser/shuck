@@ -39,11 +39,11 @@ impl CheckReport {
         if exit_non_zero_on_fix && self.fixes_applied > 0 {
             return ExitStatus::Failure;
         }
-        let has_parse_error = self
-            .diagnostics
-            .iter()
-            .any(|d| matches!(d.kind, DisplayedDiagnosticKind::ParseError));
-        if has_parse_error {
+        let has_fatal = self.diagnostics.iter().any(|d| match &d.kind {
+            DisplayedDiagnosticKind::ParseError => true,
+            DisplayedDiagnosticKind::Lint { severity, .. } => severity == "error",
+        });
+        if has_fatal {
             return ExitStatus::Failure;
         }
         if self.diagnostics.is_empty() || exit_zero {
@@ -487,14 +487,24 @@ mod tests {
     }
 
     #[test]
-    fn exit_zero_suppresses_lint_only_failures_but_not_parse_errors() {
-        let lint = DisplayedDiagnostic {
+    fn exit_zero_suppresses_only_non_fatal_diagnostics() {
+        let warning = DisplayedDiagnostic {
             path: PathBuf::from("warn.sh"),
             span: DisplaySpan::point(1, 1),
             message: "lint".to_owned(),
             kind: DisplayedDiagnosticKind::Lint {
                 code: "C001".to_owned(),
                 severity: "warning".to_owned(),
+            },
+            source: None,
+        };
+        let error_lint = DisplayedDiagnostic {
+            path: PathBuf::from("err.sh"),
+            span: DisplaySpan::point(1, 1),
+            message: "lint".to_owned(),
+            kind: DisplayedDiagnosticKind::Lint {
+                code: "C035".to_owned(),
+                severity: "error".to_owned(),
             },
             source: None,
         };
@@ -506,15 +516,24 @@ mod tests {
             source: None,
         };
 
-        let lint_only = CheckReport {
-            diagnostics: vec![lint.clone()],
+        let warning_only = CheckReport {
+            diagnostics: vec![warning.clone()],
             ..CheckReport::default()
         };
-        assert_eq!(lint_only.exit_status(false, false), ExitStatus::Failure);
-        assert_eq!(lint_only.exit_status(true, false), ExitStatus::Success);
+        assert_eq!(warning_only.exit_status(false, false), ExitStatus::Failure);
+        assert_eq!(warning_only.exit_status(true, false), ExitStatus::Success);
+
+        let with_error_lint = CheckReport {
+            diagnostics: vec![warning.clone(), error_lint],
+            ..CheckReport::default()
+        };
+        assert_eq!(
+            with_error_lint.exit_status(true, false),
+            ExitStatus::Failure
+        );
 
         let with_parse_error = CheckReport {
-            diagnostics: vec![lint, parse],
+            diagnostics: vec![warning, parse],
             ..CheckReport::default()
         };
         assert_eq!(

@@ -214,7 +214,7 @@ pub struct CheckCommand {
     /// Disable cache reads and writes.
     #[arg(long = "no-cache", help_heading = "Miscellaneous")]
     pub no_cache: bool,
-    /// Exit with status code "0", even upon detecting lint violations. Parse errors still fail.
+    /// Exit with status code "0", even upon detecting lint violations. Parse errors and error-severity diagnostics still fail.
     #[arg(short = 'e', long = "exit-zero", help_heading = "Miscellaneous")]
     pub exit_zero: bool,
     /// Exit with a non-zero status code if any files were modified via fix, even if no lint violations remain.
