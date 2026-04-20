@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# Invalid: the first definition is replaced before any call can reach it.
+# Invalid: the first definition is replaced before any direct call can reach it.
 myfunc() { return 1; }
 myfunc() { return 0; }
 myfunc

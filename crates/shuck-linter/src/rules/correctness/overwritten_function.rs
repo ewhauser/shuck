@@ -1,5 +1,4 @@
-use shuck_semantic::{BindingKind, OverwrittenFunction as SemanticOverwrittenFunction, ScopeKind};
-
+use shuck_semantic::{BindingKind, OverwrittenFunction as SemanticOverwrittenFunction};
 use crate::context::FileContextTag;
 use crate::{Checker, Rule, Violation};
 
@@ -14,7 +13,7 @@ impl Violation for OverwrittenFunction {
 
     fn message(&self) -> String {
         format!(
-            "function `{}` is overwritten before it can be called",
+            "function `{}` is overwritten before any direct call can reach it",
             self.name
         )
     }
@@ -46,10 +45,12 @@ fn should_suppress_overwrite(
     let first = checker.semantic().binding(overwritten.first);
     let second = checker.semantic().binding(overwritten.second);
 
-    if file_context.has_tag(FileContextTag::ShellSpec)
-        && !matches!(checker.semantic().scope_kind(first.scope), ScopeKind::File)
-        && !matches!(checker.semantic().scope_kind(second.scope), ScopeKind::File)
+    if matches!(first.kind, BindingKind::Imported) || matches!(second.kind, BindingKind::Imported)
     {
+        return true;
+    }
+
+    if file_context.has_tag(FileContextTag::ShellSpec) {
         return true;
     }
 
@@ -79,21 +80,6 @@ fn should_suppress_overwrite(
                     ))
                 && has_intervening_executable_command(
                     checker,
-                    first.span.end.offset,
-                    second.span.start.offset,
-                ))
-            || (file_context.has_tag(FileContextTag::ProjectClosure)
-                && is_project_closure_imported_override(
-                    checker,
-                    overwritten,
-                    first.span.end.offset,
-                    second.span.start.offset,
-                ))
-            || (file_context.has_tag(FileContextTag::DirectiveHandling)
-                && file_context.has_tag(FileContextTag::ProjectClosure)
-                && is_nested_project_closure_import_reimport_from_same_origin(
-                    checker,
-                    overwritten,
                     first.span.end.offset,
                     second.span.start.offset,
                 )))
@@ -156,75 +142,6 @@ fn has_only_indirect_call_sites_between(
     has_nested_call_site && !has_same_scope_call_between
 }
 
-fn is_project_closure_imported_override(
-    checker: &Checker<'_>,
-    overwritten: &SemanticOverwrittenFunction,
-    start_offset: usize,
-    end_offset: usize,
-) -> bool {
-    let first = checker.semantic().binding(overwritten.first);
-    let second = checker.semantic().binding(overwritten.second);
-
-    matches!(first.kind, BindingKind::Imported)
-        && matches!(second.kind, BindingKind::FunctionDefinition)
-        && !has_same_scope_call_site_between(checker, overwritten, start_offset, end_offset)
-}
-
-fn is_nested_project_closure_import_reimport_from_same_origin(
-    checker: &Checker<'_>,
-    overwritten: &SemanticOverwrittenFunction,
-    start_offset: usize,
-    end_offset: usize,
-) -> bool {
-    let first = checker.semantic().binding(overwritten.first);
-    let second = checker.semantic().binding(overwritten.second);
-
-    first.scope == second.scope
-        && matches!(first.kind, BindingKind::Imported)
-        && matches!(second.kind, BindingKind::Imported)
-        && !matches!(checker.semantic().scope_kind(first.scope), ScopeKind::File)
-        && imported_binding_origins_match_exactly(checker, overwritten.first, overwritten.second)
-        && !has_same_scope_call_site_between(checker, overwritten, start_offset, end_offset)
-}
-
-fn imported_binding_origins_match_exactly(
-    checker: &Checker<'_>,
-    first: shuck_semantic::BindingId,
-    second: shuck_semantic::BindingId,
-) -> bool {
-    let first_origins = checker.semantic().import_origins_for_binding(first);
-    let second_origins = checker.semantic().import_origins_for_binding(second);
-
-    !first_origins.is_empty()
-        && first_origins.len() == second_origins.len()
-        && first_origins
-            .iter()
-            .all(|origin| second_origins.contains(origin))
-}
-
-fn has_same_scope_call_site_between(
-    checker: &Checker<'_>,
-    overwritten: &SemanticOverwrittenFunction,
-    start_offset: usize,
-    end_offset: usize,
-) -> bool {
-    let first = checker.semantic().binding(overwritten.first);
-
-    checker
-        .semantic()
-        .call_sites_for(&overwritten.name)
-        .iter()
-        .any(|site| {
-            site.scope == first.scope
-                && site.span.start.offset > start_offset
-                && site.span.start.offset < end_offset
-                && checker
-                    .semantic()
-                    .visible_binding(&overwritten.name, site.span)
-                    .is_some_and(|binding| binding.id == overwritten.first)
-        })
-}
-
 #[cfg(test)]
 mod tests {
     use std::{fs, path::Path};
@@ -242,6 +159,27 @@ factory() {
   shellspec_matcher__match() { :; }
   shellspec_matcher__match() { :; }
 }
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/ko1nksm__shellspec__spec__core__matcher_spec.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn shellspec_top_level_example_helpers_are_suppressed() {
+        let source = "\
+Describe 'matcher'
+  Specify 'first'
+    helper() { return 0; }
+  End
+
+  Specify 'second'
+    helper() { return 1; }
+  End
 ";
         let diagnostics = test_snippet_at_path(
             Path::new("/tmp/ko1nksm__shellspec__spec__core__matcher_spec.sh"),
@@ -411,7 +349,7 @@ cleanup
     }
 
     #[test]
-    fn sourced_test_double_swaps_without_direct_calls_are_suppressed() {
+    fn transitive_direct_calls_before_redefinition_do_not_report() {
         let source = "\
 \\. ./helpers.sh
 run_case() {
@@ -431,7 +369,7 @@ helper() { printf '%s\\n' second; }
     }
 
     #[test]
-    fn sourced_test_double_swaps_with_opaque_helper_calls_are_suppressed() {
+    fn opaque_helper_calls_before_redefinition_are_suppressed() {
         let source = "\
 \\. ./helpers.sh
 helper() { printf '%s\\n' first; }
@@ -553,7 +491,66 @@ runner
     }
 
     #[test]
-    fn nested_helper_library_collisions_from_different_origins_still_report() {
+    fn project_closure_reimports_in_regular_scripts_are_suppressed() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join(".bash.d/mysql.sh");
+        let functions = temp.path().join(".bash.d/functions.sh");
+        let os_detection = temp.path().join(".bash.d/os_detection.sh");
+        let source = "\
+#!/usr/bin/env bash
+. ./os_detection.sh
+. ./functions.sh
+";
+
+        fs::create_dir_all(main.parent().unwrap()).unwrap();
+        fs::write(&main, source).unwrap();
+        fs::write(
+            &functions,
+            "#!/usr/bin/env bash\n. ./os_detection.sh\nfunctions_loaded() { :; }\n",
+        )
+        .unwrap();
+        fs::write(&os_detection, "#!/usr/bin/env bash\nget_os() { :; }\n").unwrap();
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction).with_analyzed_paths([
+                main.clone(),
+                functions.clone(),
+                os_detection.clone(),
+            ]),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn imported_project_closure_overrides_in_regular_scripts_are_suppressed() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("themes/custom.theme.bash");
+        let base = temp.path().join("themes/base.theme.bash");
+        let source = "\
+#!/usr/bin/env bash
+source ./base.theme.bash
+prompt_setter() { printf '%s\\n' local; }
+";
+
+        fs::create_dir_all(main.parent().unwrap()).unwrap();
+        fs::write(&main, source).unwrap();
+        fs::write(&base, "prompt_setter() { printf '%s\\n' imported; }\n").unwrap();
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction)
+                .with_analyzed_paths([main.clone(), base.clone()]),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn imported_helper_collisions_from_different_origins_are_ignored() {
         let temp = tempdir().unwrap();
         let main = temp.path().join("libexec/bats-exec-file");
         let first_helper = temp.path().join("libexec/first.bash");
@@ -603,12 +600,11 @@ runner
             ]),
         );
 
-        assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:?}");
-        assert_eq!(diagnostics[0].rule, Rule::OverwrittenFunction);
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
     #[test]
-    fn nested_helper_library_collisions_with_partial_origin_overlap_still_report() {
+    fn imported_helper_collisions_with_partial_origin_overlap_are_ignored() {
         let temp = tempdir().unwrap();
         let main = temp.path().join("libexec/bats-exec-file");
         let first_helper = temp.path().join("libexec/first.bash");
@@ -650,12 +646,11 @@ runner
             ]),
         );
 
-        assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:?}");
-        assert_eq!(diagnostics[0].rule, Rule::OverwrittenFunction);
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
     #[test]
-    fn sourced_helper_overrides_in_regular_scripts_still_report() {
+    fn sourced_helper_overrides_in_regular_scripts_are_ignored() {
         let temp = tempdir().unwrap();
         let main = temp.path().join("main.sh");
         let helper = temp.path().join("helper.sh");
@@ -675,12 +670,11 @@ helper() { printf '%s\\n' local; }
                 .with_analyzed_paths([main.clone(), helper.clone()]),
         );
 
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].rule, Rule::OverwrittenFunction);
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
     #[test]
-    fn imported_helper_collisions_still_report() {
+    fn imported_helper_collisions_are_ignored() {
         let temp = tempdir().unwrap();
         let main = temp.path().join("libexec/bats-gather-tests");
         let first_helper = temp.path().join("libexec/first.bash");
@@ -714,7 +708,6 @@ source ./second.bash
             ]),
         );
 
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].rule, Rule::OverwrittenFunction);
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 }

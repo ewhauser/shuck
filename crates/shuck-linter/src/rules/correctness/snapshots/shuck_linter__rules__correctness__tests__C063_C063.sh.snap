@@ -1,7 +1,7 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
 ---
-C063 function `myfunc` is overwritten before it can be called
+C063 function `myfunc` is overwritten before any direct call can reach it
  --> <source>:4:1
   |
 4 | myfunc() { return 1; }
