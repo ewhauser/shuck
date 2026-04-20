@@ -1255,6 +1255,36 @@ main
 }
 
 #[test]
+fn reports_wrapper_shadowing_local_subscripts_even_when_outer_callers_have_assoc_bindings() {
+    let source = "\
+#!/bin/bash
+helper() {
+  map[$key]=1
+}
+wrapper() {
+  local map
+  helper
+}
+main() {
+  local key=name
+  declare -A map
+  wrapper
+}
+main
+";
+
+    with_facts(source, None, |_, facts| {
+        let spans = facts
+            .dollar_in_arithmetic_spans()
+            .iter()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(spans, vec!["$key"]);
+    });
+}
+
+#[test]
 fn collects_dollar_spans_for_nested_arithmetic_in_array_access_subscripts() {
     let source = "\
 #!/bin/bash

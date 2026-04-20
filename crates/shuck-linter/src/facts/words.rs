@@ -2301,12 +2301,13 @@ impl<'a> WordFactCollector<'a> {
             }
 
             for call_site in self.semantic.call_sites_for(&function_name) {
-                if self
-                    .semantic
-                    .visible_binding(owner_name, call_site.name_span)
-                    .is_some_and(|binding| binding.attributes.contains(BindingAttributes::ASSOC))
+                if let Some(binding) =
+                    self.visible_binding_for_caller_assoc_lookup(owner_name, call_site.name_span)
                 {
-                    return true;
+                    if binding.attributes.contains(BindingAttributes::ASSOC) {
+                        return true;
+                    }
+                    continue;
                 }
 
                 if let Some(caller_names) = self.named_function_scope_names(call_site.name_span.start.offset)
@@ -2338,6 +2339,24 @@ impl<'a> WordFactCollector<'a> {
                         current_scope,
                         owner_name_span,
                     )
+            })
+            .map(|binding_id| self.semantic.binding(binding_id))
+    }
+
+    fn visible_binding_for_caller_assoc_lookup(
+        &self,
+        owner_name: &Name,
+        span: Span,
+    ) -> Option<&shuck_semantic::Binding> {
+        let current_scope = self.semantic.scope_at(span.start.offset);
+        self.semantic
+            .bindings_for(owner_name)
+            .iter()
+            .rev()
+            .copied()
+            .find(|binding_id| {
+                self.semantic.binding_visible_at(*binding_id, span)
+                    && self.binding_blocks_caller_assoc_lookup(*binding_id, current_scope, None)
             })
             .map(|binding_id| self.semantic.binding(binding_id))
     }

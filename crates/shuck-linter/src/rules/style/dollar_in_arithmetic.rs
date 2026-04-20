@@ -245,6 +245,30 @@ main
     }
 
     #[test]
+    fn reports_wrapper_shadowing_local_subscripts_even_when_outer_callers_have_assoc_bindings() {
+        let source = "\
+#!/bin/bash
+helper() {
+  map[$key]=1
+}
+wrapper() {
+  local map
+  helper
+}
+main() {
+  local key=name
+  declare -A map
+  wrapper
+}
+main
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "$key");
+    }
+
+    #[test]
     fn reports_nested_arithmetic_in_array_access_subscripts() {
         let source = "\
 #!/bin/bash
