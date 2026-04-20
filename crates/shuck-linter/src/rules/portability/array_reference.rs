@@ -21,6 +21,7 @@ pub fn array_reference(checker: &mut Checker) {
         .facts()
         .indexed_array_reference_fragments()
         .iter()
+        .filter(|fragment| fragment.is_plain())
         .map(|fragment| fragment.span())
         .collect::<Vec<_>>();
 

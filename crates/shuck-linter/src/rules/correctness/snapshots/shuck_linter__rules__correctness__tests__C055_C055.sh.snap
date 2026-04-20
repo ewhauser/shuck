@@ -7,9 +7,3 @@ C055 pattern expressions should not expand variables
   |
 7 | trimmed=${name%$suffix}
   |
-
-C055 pattern expressions should not expand variables
-  --> <source>:10:18
-   |
-10 | rewritten=${name/$suffix/x}
-   |

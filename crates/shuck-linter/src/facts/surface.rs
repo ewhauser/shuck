@@ -158,11 +158,16 @@ impl IndirectExpansionFragmentFact {
 #[derive(Debug, Clone, Copy)]
 pub struct IndexedArrayReferenceFragmentFact {
     span: Span,
+    plain: bool,
 }
 
 impl IndexedArrayReferenceFragmentFact {
     pub fn span(&self) -> Span {
         self.span
+    }
+
+    pub fn is_plain(&self) -> bool {
+        self.plain
     }
 }
 
@@ -380,18 +385,19 @@ impl<'a> SurfaceFragmentSink<'a> {
         )
     }
 
-    fn record_array_reference(&mut self, span: Span) {
-        if self
+    fn record_array_reference(&mut self, span: Span, plain: bool) {
+        if let Some(fragment) = self
             .facts
             .indexed_array_references
-            .iter()
-            .any(|fragment| fragment.span() == span)
+            .iter_mut()
+            .find(|fragment| fragment.span() == span)
         {
+            fragment.plain |= plain;
             return;
         }
         self.facts
             .indexed_array_references
-            .push(IndexedArrayReferenceFragmentFact { span });
+            .push(IndexedArrayReferenceFragmentFact { span, plain });
     }
 
     fn record_parameter_pattern_special_target(&mut self, span: Span) {
@@ -679,7 +685,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                     ..
                 } => {
                     if reference_has_array_subscript(reference) {
-                        self.record_array_reference(part.span);
+                        self.record_array_reference(part.span, false);
                     }
                     if parameter_pattern_target_is_special(reference, operator) {
                         self.record_parameter_pattern_special_target(part.span);
@@ -719,7 +725,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                 }
                 WordPart::ArrayAccess(reference) => {
                     if reference_has_array_subscript(reference) {
-                        self.record_array_reference(part.span);
+                        self.record_array_reference(part.span, true);
                         let case_modification_span = parts
                             .get(index + 1)
                             .filter(|next_part| {
@@ -999,7 +1005,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                 .push(NestedParameterExpansionFragmentFact { span });
         }
         if parameter_has_array_reference(parameter) {
-            self.record_array_reference(span);
+            self.record_array_reference(span, parameter_is_plain_array_reference(parameter));
         }
         if parameter_has_substring_expansion(parameter) {
             self.record_substring_expansion(span);
@@ -1532,6 +1538,30 @@ fn parameter_has_array_reference(parameter: &shuck_ast::ParameterExpansion) -> b
             ZshExpansionTarget::Nested(parameter) => parameter_has_array_reference(parameter),
             ZshExpansionTarget::Word(_) | ZshExpansionTarget::Empty => false,
         },
+    }
+}
+
+fn parameter_is_plain_array_reference(parameter: &shuck_ast::ParameterExpansion) -> bool {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference }) => {
+            reference_has_array_subscript(reference)
+        }
+        ParameterExpansionSyntax::Zsh(syntax)
+            if syntax.length_prefix.is_none()
+                && syntax.operation.is_none()
+                && syntax.modifiers.is_empty() =>
+        {
+            match &syntax.target {
+                ZshExpansionTarget::Reference(reference) => {
+                    reference_has_array_subscript(reference)
+                }
+                ZshExpansionTarget::Nested(parameter) => {
+                    parameter_is_plain_array_reference(parameter)
+                }
+                ZshExpansionTarget::Word(_) | ZshExpansionTarget::Empty => false,
+            }
+        }
+        _ => false,
     }
 }
 

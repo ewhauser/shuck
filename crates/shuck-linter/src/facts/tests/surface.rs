@@ -196,9 +196,28 @@ if [[ \"$@\" =~ x ]]; then :; fi
             facts
                 .indexed_array_reference_fragments()
                 .iter()
-                .map(|fragment| fragment.span().slice(source))
+                .map(|fragment| (fragment.span().slice(source), fragment.is_plain()))
                 .collect::<Vec<_>>(),
-            vec!["${arr[0]}", "${arr[@]}", "${arr[*]}"]
+            vec![
+                ("${!arr[*]}", false),
+                ("${arr[0]}", true),
+                ("${arr[@]}", true),
+                ("${arr[*]}", true),
+                ("${#arr[0]}", false),
+                ("${#arr[@]}", false),
+                ("${arr[0]%x}", false),
+                ("${arr[0]:2}", false),
+                ("${arr[0]//x/y}", false),
+                ("${arr[0]:-fallback}", false),
+                ("${!arr[0]}", false),
+                ("${arr[@]:1}", false),
+                ("${arr[0]:1}", false),
+                ("${arr[0]^^}", false),
+                ("${arr[@],,}", false),
+                ("${arr[0]//a/b}", false),
+                ("${arr[@]/a/b}", false),
+                ("${arr[*]//a}", false),
+            ]
         );
         assert!(
             facts.zsh_parameter_index_flag_fragments().is_empty(),
@@ -2203,9 +2222,12 @@ printf '%s\\n' \"${items[@]#$prefix/}\" \"${items[i]%$suffix}\"
             facts
                 .indexed_array_reference_fragments()
                 .iter()
-                .map(|fragment| fragment.span().slice(source))
+                .map(|fragment| (fragment.span().slice(source), fragment.is_plain()))
                 .collect::<Vec<_>>(),
-            vec!["${items[@]#$prefix/}", "${items[i]%$suffix}"]
+            vec![
+                ("${items[@]#$prefix/}", false),
+                ("${items[i]%$suffix}", false),
+            ]
         );
     });
 }
