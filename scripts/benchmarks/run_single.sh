@@ -10,5 +10,4 @@ hyperfine \
     --warmup 5 \
     --runs 20 \
     -n "shuck" "$shuck check --no-cache $file" \
-    -n "shellcheck" "shellcheck --severity=style $file" \
-    -n "shellcheck-no-ext" "shellcheck --severity=style --extended-analysis=false $file"
+    -n "shellcheck" "shellcheck --severity=style $file"

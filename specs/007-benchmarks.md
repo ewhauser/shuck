@@ -279,8 +279,7 @@ for file in "$fixtures_dir"/*.sh; do
         --runs 10 \
         --export-json "$repo_root/.cache/bench-${name}.json" \
         -n "shuck/$name" "$shuck check --no-cache $file" \
-        -n "shellcheck/$name" "shellcheck --severity=style $file" \
-        -n "shellcheck-no-ext/$name" "shellcheck --severity=style --extended-analysis=false $file"
+        -n "shellcheck/$name" "shellcheck --severity=style $file"
 done
 
 # All-files benchmark
@@ -292,11 +291,10 @@ hyperfine \
     --export-json "$repo_root/.cache/bench-all.json" \
     --export-markdown "$repo_root/.cache/bench-all.md" \
     -n "shuck/all" "$shuck check --no-cache $all_files" \
-    -n "shellcheck/all" "shellcheck --severity=style $all_files" \
-    -n "shellcheck-no-ext/all" "shellcheck --severity=style --extended-analysis=false $all_files"
+    -n "shellcheck/all" "shellcheck --severity=style $all_files"
 ```
 
-Note: Three shellcheck variants are benchmarked (matching the Go frontend): default, and with `--extended-analysis=false`. The `--no-cache` flag ensures shuck measures cold parse performance.
+Note: The macro benchmark compares shuck against the default shellcheck CLI invocation. The `--no-cache` flag ensures shuck measures cold parse performance.
 
 #### scripts/benchmarks/run_single.sh
 
@@ -313,8 +311,7 @@ hyperfine \
     --warmup 5 \
     --runs 20 \
     -n "shuck" "$shuck check --no-cache $file" \
-    -n "shellcheck" "shellcheck --severity=style $file" \
-    -n "shellcheck-no-ext" "shellcheck --severity=style --extended-analysis=false $file"
+    -n "shellcheck" "shellcheck --severity=style $file"
 ```
 
 ### Makefile Targets
@@ -363,8 +360,8 @@ This enables `cargo flamegraph` and `samply` on benchmark binaries without losin
 | Micro | Criterion | Parse each fixture | throughput (bytes/s), time (mean ± σ) |
 | Micro | Criterion | Build semantics for each fixture | throughput (bytes/s), time (mean ± σ) |
 | Micro | Criterion | Lint each fixture | throughput (bytes/s), time (mean ± σ) |
-| Macro | Hyperfine | `shuck check` per fixture | wall time (mean ± σ), vs shellcheck (2 variants) |
-| Macro | Hyperfine | `shuck check` all fixtures | wall time (mean ± σ), vs shellcheck (2 variants) |
+| Macro | Hyperfine | `shuck check` per fixture | wall time (mean ± σ), vs shellcheck |
+| Macro | Hyperfine | `shuck check` all fixtures | wall time (mean ± σ), vs shellcheck |
 
 ### What We Don't Measure (Yet)
 
@@ -406,7 +403,7 @@ Once implemented, verify with:
 - **All vendored files load:** Each `TestFile` in `TEST_FILES` has non-empty source (the `include_str!` calls compile).
 - **Throughput reported:** Criterion output includes `throughput: X.XX MiB/s` for each benchmark.
 - **Baseline comparison works:** Run `cargo bench -p shuck-benchmark -- --save-baseline=main`, make a change, then `cargo bench -p shuck-benchmark -- --baseline=main` shows a comparison.
-- **Macro-benchmarks run:** `./scripts/benchmarks/run.sh` produces `bench-*.json` files with timing data for shuck, shellcheck, and shellcheck-no-ext.
+- **Macro-benchmarks run:** `./scripts/benchmarks/run.sh` produces `bench-*.json` files with timing data for shuck and shellcheck.
 - **Per-file and all-files:** The macro-benchmark output includes both individual fixture results and the combined "all" benchmark.
 - **Single-file comparison:** `./scripts/benchmarks/run_single.sh crates/shuck-benchmark/resources/files/nvm.sh` produces hyperfine output comparing shuck vs shellcheck.
 - **Make targets:** `make bench` and `make bench-macro` succeed.
