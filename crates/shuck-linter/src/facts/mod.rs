@@ -22,10 +22,10 @@ use self::{
         CaseModificationFragmentFact, DollarDoubleQuotedFragmentFact,
         IndexedArrayReferenceFragmentFact, IndirectExpansionFragmentFact,
         NestedParameterExpansionFragmentFact, OpenDoubleQuoteFragmentFact,
-        ReplacementExpansionFragmentFact, StarGlobRemovalFragmentFact,
-        SubstringExpansionFragmentFact, SurfaceFragmentFacts, SurfaceFragmentSink,
-        SurfaceScanContext, SuspectClosingQuoteFragmentFact, ZshParameterIndexFlagFragmentFact,
-        build_subscript_index_reference_spans,
+        ParameterPatternSpecialTargetFragmentFact, ReplacementExpansionFragmentFact,
+        StarGlobRemovalFragmentFact, SubstringExpansionFragmentFact, SurfaceFragmentFacts,
+        SurfaceFragmentSink, SurfaceScanContext, SuspectClosingQuoteFragmentFact,
+        ZshParameterIndexFlagFragmentFact, build_subscript_index_reference_spans,
     },
 };
 use crate::FileContext;

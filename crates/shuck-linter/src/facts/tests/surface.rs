@@ -2172,6 +2172,46 @@ printf '%s\\n' ${name%$suffix} `printf backtick`
 }
 
 #[test]
+fn indexed_array_reference_fragments_include_operator_expansions() {
+    let source = "\
+#!/bin/bash
+printf '%s\\n' \"${items[@]#$prefix/}\" \"${items[i]%$suffix}\"
+";
+
+    with_facts(source, None, |_, facts| {
+        assert_eq!(
+            facts
+                .indexed_array_reference_fragments()
+                .iter()
+                .map(|fragment| fragment.span().slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${items[@]#$prefix/}", "${items[i]%$suffix}"]
+        );
+    });
+}
+
+#[test]
+fn parameter_pattern_special_target_fragments_only_mark_host_expansions() {
+    let source = "\
+#!/bin/bash
+scalar=${name#${items[0]}}
+array_trim=\"${items[@]#$prefix/}\"
+script_name=${0##*/}
+";
+
+    with_facts(source, None, |_, facts| {
+        assert_eq!(
+            facts
+                .parameter_pattern_special_target_fragments()
+                .iter()
+                .map(|fragment| fragment.span().slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${items[@]#$prefix/}", "${0##*/}"]
+        );
+    });
+}
+
+#[test]
 fn backtick_fragments_remember_when_the_substitution_body_is_empty() {
     let source = "\
 #!/bin/sh
