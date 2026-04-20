@@ -48,7 +48,7 @@ fn build_linter_facts(input: &PreparedFactsInput) -> usize {
 
     black_box(
         facts.commands().len()
-            + facts.word_facts().len()
+            + facts.word_facts().count()
             + facts.single_quoted_fragments().len()
             + facts.backtick_fragments().len()
             + facts.pattern_charclass_spans().len()
