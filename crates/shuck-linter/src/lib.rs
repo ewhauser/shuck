@@ -21,8 +21,7 @@ pub use context::{
     ContextRegion, ContextRegionKind, FileContext, FileContextTag, classify_file_context,
 };
 pub use diagnostic::{Diagnostic, Severity};
-#[allow(unused_imports)]
-pub(crate) use facts::{
+pub use facts::{
     BacktickFragmentFact, CommandFact, CommandOptionFacts, ConditionalBareWordFact,
     ConditionalBinaryFact, ConditionalFact, ConditionalNodeFact, ConditionalOperandFact,
     ConditionalOperatorFamily, ConditionalPortabilityFacts, ConditionalUnaryFact, ExitCommandFacts,
