@@ -93,7 +93,7 @@ enum StableCommand {
     Check(CheckCommand),
     #[command(hide = true)]
     Format(FormatCommand),
-    /// Remove shuck caches under the provided paths.
+    /// Remove shuck cache entries for the provided paths' projects.
     Clean(CleanCommand),
 }
 
@@ -103,7 +103,7 @@ enum ExperimentalCommand {
     Check(CheckCommand),
     /// Format shell files.
     Format(FormatCommand),
-    /// Remove shuck caches under the provided paths.
+    /// Remove shuck cache entries for the provided paths' projects.
     Clean(CleanCommand),
 }
 
@@ -179,7 +179,7 @@ pub enum Command {
     Check(CheckCommand),
     /// Format shell files.
     Format(FormatCommand),
-    /// Remove shuck caches under the provided paths.
+    /// Remove shuck cache entries for the provided paths' projects.
     Clean(CleanCommand),
 }
 

@@ -56,7 +56,7 @@ shuck --cache-dir .tmp/shuck-cache check .
 
 ```sh
 # Remove cache entries for the current project
-shuck clean .
+shuck clean
 ```
 
 ## Output
@@ -156,7 +156,7 @@ Shuck caches lint results per file in a shared cache root outside the project tr
 
 Override the cache root with `--cache-dir` or `SHUCK_CACHE_DIR`.
 
-Disable caching with `--no-cache` or remove the current project's cache entries with `shuck clean`.
+Disable caching with `--no-cache` or remove a project's cache entries with `shuck clean [PATH]`.
 
 ## Acknowledgements
 
