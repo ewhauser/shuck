@@ -2561,20 +2561,24 @@ impl<'a> Parser<'a> {
         // Determine if next token is a NAME (simple word that is NOT a compound-
         // command keyword and is followed by a compound command start).
         let (name, name_span) = if self.at(TokenKind::Word) {
-            let word = self.current_word_str().unwrap().to_string();
-            let word_span = self.current_span;
-            let is_compound_keyword = matches!(
-                word.as_str(),
-                "if" | "for" | "while" | "until" | "case" | "select" | "time" | "coproc"
-            );
-            let next_is_compound_start = matches!(
-                self.peek_next_kind(),
-                Some(TokenKind::LeftBrace | TokenKind::LeftParen)
-            );
-            if !is_compound_keyword && next_is_compound_start {
-                self.advance(); // consume the NAME
-                self.skip_newlines()?;
-                (Name::from(word), Some(word_span))
+            if let Some(word) = self.current_word_str() {
+                let word = word.to_string();
+                let word_span = self.current_span;
+                let is_compound_keyword = matches!(
+                    word.as_str(),
+                    "if" | "for" | "while" | "until" | "case" | "select" | "time" | "coproc"
+                );
+                let next_is_compound_start = matches!(
+                    self.peek_next_kind(),
+                    Some(TokenKind::LeftBrace | TokenKind::LeftParen)
+                );
+                if !is_compound_keyword && next_is_compound_start {
+                    self.advance(); // consume the NAME
+                    self.skip_newlines()?;
+                    (Name::from(word), Some(word_span))
+                } else {
+                    (Name::new_static("COPROC"), None)
+                }
             } else {
                 (Name::new_static("COPROC"), None)
             }

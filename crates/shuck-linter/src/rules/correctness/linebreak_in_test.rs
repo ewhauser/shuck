@@ -51,10 +51,10 @@ fn linebreak_in_test_span(
     if last_arg_is_closing_bracket || !current.span().slice(source).ends_with('\n') {
         return None;
     }
-    if !source[current.span().end.offset..next.span().start.offset]
-        .chars()
-        .all(|char| matches!(char, ' ' | '\t'))
-    {
+    let Some(between) = source.get(current.span().end.offset..next.span().start.offset) else {
+        return None;
+    };
+    if !between.chars().all(|char| matches!(char, ' ' | '\t')) {
         return None;
     }
 
@@ -109,5 +109,27 @@ mod tests {
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LinebreakInTest));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_recovered_command_ordering_regression() {
+        let source = concat!(
+            "#!/bin/bash\n\n",
+            "# Invalid: the quoted home-relative path stays literal in `[ ]`.\n",
+            "[ \"$profile\" = \"~/.bashrc\" ]\n\n",
+            "# Invalid: either side of the string comparison can carry the quoted `~/...`.\n",
+            "[ \"~/.bash_profile\n",
+            "[[ \"$profile\" == \"~/.zshrc\" ]]\n\n",
+            "# Invalid: single quotes still prevent tilde expansion.\n",
+            "[ \"$porfile\" != '~/.config/fish/config.fish' ]\n\n",
+            "# Valid: an unquoted tilde expands before the comparison.\n",
+            "[ \"$profile\" = ~/.bashr` ]\n\n",
+            "# Valid: `~user` is a different lookup and not interchangeable printf '%s\\n' stamp)suffix\n\n",
+            "printf '%s\\n' \"$(print`f '%s\\n' 'a b')\"\n",
+            "stamp=$(printf '%s\\n' nowith `$HOME`.\n",
+            "[ \"$profile\" = \"~user/.bashrc\" ]\n",
+        );
+
+        let _ = test_snippet(source, &LinterSettings::for_rule(Rule::LinebreakInTest));
     }
 }

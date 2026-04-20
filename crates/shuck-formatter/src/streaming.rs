@@ -5,10 +5,10 @@ use shuck_ast::{
     AlwaysCommand, AnonymousFunctionCommand, ArithmeticCommand, ArithmeticForCommand, Assignment,
     BinaryCommand, BinaryOp, BuiltinCommand, CaseCommand, CaseItem, Command, CompoundCommand,
     ConditionalBinaryExpr, ConditionalCommand, ConditionalExpr, ConditionalParenExpr,
-    ConditionalUnaryExpr, CoprocCommand, DeclClause, DeclOperand, File, ForCommand, ForSyntax,
-    ForeachCommand, ForeachSyntax, FunctionDef, IfCommand, IfSyntax, Pattern, Redirect,
-    RedirectKind, RepeatCommand, RepeatSyntax, SelectCommand, SimpleCommand, Span, Stmt, StmtSeq,
-    StmtTerminator, TimeCommand, UntilCommand, VarRef, WhileCommand, Word,
+    ConditionalUnaryExpr, ConditionalUnaryOp, CoprocCommand, DeclClause, DeclOperand, File,
+    ForCommand, ForSyntax, ForeachCommand, ForeachSyntax, FunctionDef, IfCommand, IfSyntax,
+    Pattern, Redirect, RedirectKind, RepeatCommand, RepeatSyntax, SelectCommand, SimpleCommand,
+    Span, Stmt, StmtSeq, StmtTerminator, TimeCommand, UntilCommand, VarRef, WhileCommand, Word,
 };
 use shuck_format::{IndentStyle, LineEnding};
 
@@ -561,7 +561,19 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
 
         if statements.is_empty() {
             if let Some(attachment) = attachments.as_ref() {
-                self.emit_dangling_comments(attachment.dangling());
+                let comments = attachment.dangling();
+                if let Some((first, rest)) = comments.split_first() {
+                    self.write_comment(first);
+                    let mut previous = first;
+                    for comment in rest {
+                        self.write_line_breaks(line_gap_break_count(
+                            previous.line(),
+                            comment.line(),
+                        ));
+                        self.write_comment(comment);
+                        previous = comment;
+                    }
+                }
             }
             return Ok(());
         }
@@ -1420,7 +1432,8 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
     fn format_conditional(&mut self, command: &ConditionalCommand) -> Result<()> {
         self.write_text("[[ ");
         self.format_conditional_expr(&command.expression)?;
-        self.write_text(" ]]");
+        let tight_close = self.conditional_needs_tight_close(&command.expression);
+        self.write_text(if tight_close { "]]" } else { " ]]" });
         Ok(())
     }
 
@@ -1732,11 +1745,9 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                 );
                 rendered
             };
-            let mut delimiter = String::new();
-            heredoc
-                .delimiter
-                .raw
-                .render_syntax_to_buf(source, &mut delimiter);
+            // The opening redirection keeps delimiter quoting, but the closing
+            // marker line uses the cooked delimiter text after quote removal.
+            let delimiter = heredoc.delimiter.cooked.clone();
             self.pending_heredocs
                 .push(PendingHeredoc { body, delimiter });
         }
@@ -1859,6 +1870,65 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         self.format_conditional_expr(&expression.expr)?;
         self.write_text(")");
         Ok(())
+    }
+
+    fn conditional_needs_tight_close(&mut self, expression: &ConditionalExpr) -> bool {
+        match expression {
+            ConditionalExpr::Word(word) => self.conditional_word_needs_tight_close(word),
+            ConditionalExpr::Unary(expression)
+                if matches!(expression.op, ConditionalUnaryOp::Not) =>
+            {
+                self.conditional_needs_tight_close(&expression.expr)
+            }
+            _ => false,
+        }
+    }
+
+    fn conditional_word_needs_tight_close(&mut self, word: &Word) -> bool {
+        let source_map = self.source_map().clone();
+        let mut rendered = self.take_scratch_buffer();
+        {
+            let facts = self.facts();
+            render_word_syntax_with_facts_to_buf(
+                word,
+                self.source(),
+                self.options(),
+                &source_map,
+                facts,
+                &mut rendered,
+            );
+        }
+        let needs_tight_close = matches!(
+            rendered.as_str(),
+            "!" | "-a"
+                | "-b"
+                | "-c"
+                | "-d"
+                | "-e"
+                | "-f"
+                | "-g"
+                | "-G"
+                | "-h"
+                | "-k"
+                | "-L"
+                | "-N"
+                | "-n"
+                | "-o"
+                | "-O"
+                | "-p"
+                | "-r"
+                | "-R"
+                | "-s"
+                | "-S"
+                | "-t"
+                | "-u"
+                | "-v"
+                | "-w"
+                | "-x"
+                | "-z"
+        );
+        self.restore_scratch_buffer(rendered);
+        needs_tight_close
     }
 
     fn write_case_prefix(&mut self, levels: usize) {
