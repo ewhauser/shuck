@@ -43,6 +43,7 @@ pub(crate) struct DiscoveredFile {
 #[derive(Debug, Default)]
 pub(crate) struct DiscoveryOptions {
     pub exclude_patterns: Vec<String>,
+    pub extend_exclude_patterns: Vec<String>,
     pub respect_gitignore: bool,
     pub force_exclude: bool,
     pub parallel: bool,
@@ -54,7 +55,8 @@ pub(crate) fn discover_files(
     cwd: &Path,
     options: &DiscoveryOptions,
 ) -> Result<Vec<DiscoveredFile>> {
-    let exclude_matcher = ExcludeMatcher::new(&options.exclude_patterns)?;
+    let exclude_matcher =
+        ExcludeMatcher::new(&options.exclude_patterns, &options.extend_exclude_patterns)?;
     let mut explicit_ignore_cache = ExplicitIgnoreCache::new(cwd);
 
     let resolved_inputs = if inputs.is_empty() {
@@ -573,13 +575,13 @@ struct ExcludeMatcher {
 }
 
 impl ExcludeMatcher {
-    fn new(patterns: &[String]) -> Result<Self> {
-        if patterns.is_empty() {
+    fn new(exclude_patterns: &[String], extend_exclude_patterns: &[String]) -> Result<Self> {
+        if exclude_patterns.is_empty() && extend_exclude_patterns.is_empty() {
             return Ok(Self { set: None });
         }
 
         let mut builder = GlobSetBuilder::new();
-        for pattern in patterns {
+        for pattern in exclude_patterns.iter().chain(extend_exclude_patterns) {
             let glob = Glob::new(pattern)
                 .map_err(|err| anyhow!("invalid exclude pattern `{pattern}`: {err}"))?;
             builder.add(glob);

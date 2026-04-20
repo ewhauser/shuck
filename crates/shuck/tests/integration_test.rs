@@ -70,6 +70,33 @@ fn clean_help_describes_project_cache_entries() {
 }
 
 #[test]
+fn check_help_shows_file_selection_options() {
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    cmd.args(["check", "--help"]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("File selection"))
+        .stdout(predicate::str::contains("--exclude <FILE_PATTERN>"))
+        .stdout(predicate::str::contains("--extend-exclude <FILE_PATTERN>"))
+        .stdout(predicate::str::contains("--respect-gitignore"))
+        .stdout(predicate::str::contains("--force-exclude"));
+}
+
+#[test]
+fn format_help_shows_file_selection_options() {
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    enable_experimental(&mut cmd);
+    cmd.args(["format", "--help"]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("File selection"))
+        .stdout(predicate::str::contains("--exclude <FILE_PATTERN>"))
+        .stdout(predicate::str::contains("--extend-exclude <FILE_PATTERN>"))
+        .stdout(predicate::str::contains("--respect-gitignore"))
+        .stdout(predicate::str::contains("--force-exclude"));
+}
+
+#[test]
 fn format_subcommand_requires_experimental_env() {
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     cmd.arg("format");
@@ -518,6 +545,112 @@ fn check_zsh_shebang_parses_with_inferred_zsh_dialect() {
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     cmd.current_dir(tempdir.path()).arg("check");
     cmd.assert().success().stdout("");
+}
+
+#[test]
+fn check_exclude_skips_walked_files_but_not_explicit_files_without_force_exclude() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("ok.sh"), "#!/bin/bash\necho ok\n").unwrap();
+    fs::write(tempdir.path().join("ignored.sh"), "#!/bin/bash\nif true\n").unwrap();
+
+    let mut walked = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut walked, tempdir.path());
+    walked
+        .current_dir(tempdir.path())
+        .args(["check", "--exclude", "ignored.sh"]);
+    walked.assert().success().stdout("");
+
+    let mut explicit = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut explicit, tempdir.path());
+    explicit
+        .current_dir(tempdir.path())
+        .args(["check", "--exclude", "ignored.sh", "ignored.sh"]);
+    explicit
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("--> ignored.sh:2:1"));
+
+    let mut forced = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut forced, tempdir.path());
+    forced.current_dir(tempdir.path()).args([
+        "check",
+        "--exclude",
+        "ignored.sh",
+        "--force-exclude",
+        "ignored.sh",
+    ]);
+    forced.assert().success().stdout("");
+}
+
+#[test]
+fn check_gitignore_and_force_exclude_flags_control_explicit_files() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join(".gitignore"), "ignored.sh\n").unwrap();
+    fs::write(tempdir.path().join("ignored.sh"), "#!/bin/bash\nif true\n").unwrap();
+
+    let mut default_walk = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut default_walk, tempdir.path());
+    default_walk.current_dir(tempdir.path()).arg("check");
+    default_walk.assert().success().stdout("");
+
+    let mut no_respect = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut no_respect, tempdir.path());
+    no_respect
+        .current_dir(tempdir.path())
+        .args(["check", "--no-respect-gitignore"]);
+    no_respect
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("--> ignored.sh:2:1"));
+
+    let mut explicit = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut explicit, tempdir.path());
+    explicit
+        .current_dir(tempdir.path())
+        .args(["check", "ignored.sh"]);
+    explicit
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("--> ignored.sh:2:1"));
+
+    let mut forced = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut forced, tempdir.path());
+    forced
+        .current_dir(tempdir.path())
+        .args(["check", "--force-exclude", "ignored.sh"]);
+    forced.assert().success().stdout("");
+}
+
+#[test]
+fn check_extend_exclude_adds_to_exclude_patterns() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("base.sh"), "#!/bin/bash\nif true\n").unwrap();
+    fs::write(tempdir.path().join("extra.sh"), "#!/bin/bash\nif true\n").unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path()).args([
+        "check",
+        "--exclude",
+        "base.sh",
+        "--extend-exclude",
+        "extra.sh",
+    ]);
+    cmd.assert().success().stdout("");
+}
+
+#[test]
+fn check_invalid_extend_exclude_pattern_reports_discovery_error() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("ok.sh"), "#!/bin/bash\necho ok\n").unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--extend-exclude", "["]);
+    cmd.assert()
+        .code(2)
+        .stderr(predicate::str::contains("invalid exclude pattern `[`"));
 }
 
 #[test]

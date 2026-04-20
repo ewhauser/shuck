@@ -211,6 +211,8 @@ pub struct CheckCommand {
     pub output_format: CheckOutputFormatArg,
     /// Files or directories to check.
     pub paths: Vec<PathBuf>,
+    #[command(flatten)]
+    pub file_selection: FileSelectionArgs,
     /// Disable cache reads and writes.
     #[arg(long = "no-cache", help_heading = "Miscellaneous")]
     pub no_cache: bool,
@@ -220,6 +222,66 @@ pub struct CheckCommand {
     /// Exit with a non-zero status code if any files were modified via fix, even if no lint violations remain.
     #[arg(long = "exit-non-zero-on-fix", help_heading = "Miscellaneous")]
     pub exit_non_zero_on_fix: bool,
+}
+
+impl CheckCommand {
+    pub fn respect_gitignore(&self) -> bool {
+        self.file_selection.respect_gitignore()
+    }
+
+    pub fn force_exclude(&self) -> bool {
+        self.file_selection.force_exclude()
+    }
+}
+
+#[derive(Debug, Clone, Default, ClapArgs)]
+pub struct FileSelectionArgs {
+    /// List of paths, used to omit files and/or directories from analysis.
+    #[arg(
+        long,
+        value_delimiter = ',',
+        value_name = "FILE_PATTERN",
+        help_heading = "File selection"
+    )]
+    pub exclude: Vec<String>,
+    /// Like --exclude, but adds additional files and directories on top of those already excluded.
+    #[arg(
+        long,
+        value_delimiter = ',',
+        value_name = "FILE_PATTERN",
+        help_heading = "File selection"
+    )]
+    pub extend_exclude: Vec<String>,
+    /// Respect file exclusions via `.gitignore` and other standard ignore files.
+    /// Use `--no-respect-gitignore` to disable.
+    #[arg(
+        long,
+        overrides_with = "no_respect_gitignore",
+        help_heading = "File selection"
+    )]
+    pub(crate) respect_gitignore: bool,
+    #[arg(long, overrides_with = "respect_gitignore", hide = true)]
+    pub(crate) no_respect_gitignore: bool,
+    /// Enforce exclusions, even for paths passed to shuck directly on the command-line.
+    /// Use `--no-force-exclude` to disable.
+    #[arg(
+        long,
+        overrides_with = "no_force_exclude",
+        help_heading = "File selection"
+    )]
+    pub(crate) force_exclude: bool,
+    #[arg(long, overrides_with = "force_exclude", hide = true)]
+    pub(crate) no_force_exclude: bool,
+}
+
+impl FileSelectionArgs {
+    pub fn respect_gitignore(&self) -> bool {
+        resolve_bool_flag(self.respect_gitignore, self.no_respect_gitignore, true)
+    }
+
+    pub fn force_exclude(&self) -> bool {
+        resolve_bool_flag(self.force_exclude, self.no_force_exclude, false)
+    }
 }
 
 #[derive(Debug, Clone, ClapArgs)]
@@ -238,9 +300,8 @@ pub struct FormatCommand {
     /// The name of the file when reading the source from stdin.
     #[arg(long)]
     pub stdin_filename: Option<PathBuf>,
-    /// Omit files or directories matching the provided glob patterns.
-    #[arg(long, value_delimiter = ',', value_name = "GLOB")]
-    pub exclude: Vec<String>,
+    #[command(flatten)]
+    pub file_selection: FileSelectionArgs,
     /// Override the auto-discovered shell dialect used for parsing and formatting.
     #[arg(long, value_enum)]
     pub dialect: Option<FormatDialectArg>,
@@ -302,16 +363,6 @@ pub struct FormatCommand {
     /// Emit a compact minified form and drop comments.
     #[arg(long)]
     pub minify: bool,
-    /// Respect file exclusions via `.gitignore` and other standard ignore files.
-    #[arg(long, overrides_with = "no_respect_gitignore")]
-    pub(crate) respect_gitignore: bool,
-    #[arg(long, overrides_with = "respect_gitignore", hide = true)]
-    pub(crate) no_respect_gitignore: bool,
-    /// Enforce exclusions even for paths passed directly on the command line.
-    #[arg(long, overrides_with = "no_force_exclude")]
-    pub(crate) force_exclude: bool,
-    #[arg(long, overrides_with = "force_exclude", hide = true)]
-    pub(crate) no_force_exclude: bool,
 }
 
 impl FormatCommand {
@@ -356,23 +407,11 @@ impl FormatCommand {
     }
 
     pub fn respect_gitignore(&self) -> bool {
-        match (self.respect_gitignore, self.no_respect_gitignore) {
-            (false, false) | (true, false) => true,
-            (false, true) => false,
-            // Clap's `overrides_with` on these paired flags keeps only the
-            // last occurrence, so both booleans cannot remain set here.
-            (true, true) => unreachable!("clap should make this impossible"),
-        }
+        self.file_selection.respect_gitignore()
     }
 
     pub fn force_exclude(&self) -> bool {
-        match (self.force_exclude, self.no_force_exclude) {
-            (false, false) | (false, true) => false,
-            (true, false) => true,
-            // Clap's `overrides_with` on these paired flags keeps only the
-            // last occurrence, so both booleans cannot remain set here.
-            (true, true) => unreachable!("clap should make this impossible"),
-        }
+        self.file_selection.force_exclude()
     }
 }
 
@@ -388,8 +427,64 @@ fn tri_state_bool(positive: bool, negative: bool) -> Option<bool> {
     }
 }
 
+fn resolve_bool_flag(positive: bool, negative: bool, default: bool) -> bool {
+    match (positive, negative) {
+        (false, false) => default,
+        (true, false) => true,
+        (false, true) => false,
+        // Clap's `overrides_with` on these paired flags keeps only the
+        // last occurrence, so both booleans cannot remain set here.
+        (true, true) => unreachable!("clap should make this impossible"),
+    }
+}
+
 #[derive(Debug, Clone, ClapArgs)]
 pub struct CleanCommand {
     /// Files or directories whose project caches should be removed.
     pub paths: Vec<PathBuf>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn check_file_selection_negative_flags_override_positive_flags() {
+        let args = Args::try_parse_from([
+            "shuck",
+            "check",
+            "--respect-gitignore",
+            "--no-respect-gitignore",
+            "--force-exclude",
+            "--no-force-exclude",
+        ])
+        .unwrap();
+
+        let Command::Check(command) = args.command else {
+            panic!("expected check command");
+        };
+
+        assert!(!command.respect_gitignore());
+        assert!(!command.force_exclude());
+    }
+
+    #[test]
+    fn check_file_selection_collects_exclude_and_extend_exclude_patterns() {
+        let args = Args::try_parse_from([
+            "shuck",
+            "check",
+            "--exclude",
+            "base.sh",
+            "--extend-exclude",
+            "extra.sh",
+        ])
+        .unwrap();
+
+        let Command::Check(command) = args.command else {
+            panic!("expected check command");
+        };
+
+        assert_eq!(command.file_selection.exclude, vec!["base.sh"]);
+        assert_eq!(command.file_selection.extend_exclude, vec!["extra.sh"]);
+    }
 }
