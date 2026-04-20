@@ -16375,6 +16375,11 @@ fn word_starts_with_literal_dash(word: &Word, source: &str) -> bool {
     )
 }
 
+fn word_starts_with_static_or_literal_dash(word: &Word, source: &str) -> bool {
+    static_word_text(word, source).is_some_and(|text| text.starts_with('-'))
+        || word_starts_with_literal_dash(word, source)
+}
+
 fn parse_rm_command(args: &[&Word], source: &str) -> Option<RmCommandFacts> {
     let mut index = 0usize;
     let mut recursive = false;
@@ -16420,10 +16425,22 @@ fn parse_rm_command(args: &[&Word], source: &str) -> Option<RmCommandFacts> {
 
 fn parse_ssh_command(args: &[&Word], source: &str) -> Option<SshCommandFacts> {
     let remote_args = ssh_remote_args(args, source)?;
-    let local_expansion_spans = remote_args
-        .last()
-        .filter(|word| word.is_fully_double_quoted())
-        .and_then(|word| double_quoted_expansion_part_spans(word).into_iter().next())
+    let (last_remote_arg, leading_remote_args) = remote_args.split_last()?;
+    if leading_remote_args
+        .iter()
+        .any(|word| word_starts_with_static_or_literal_dash(word, source))
+    {
+        return None;
+    }
+
+    let local_expansion_spans = last_remote_arg
+        .is_fully_double_quoted()
+        .then(|| {
+            double_quoted_expansion_part_spans(last_remote_arg)
+                .into_iter()
+                .next()
+        })
+        .flatten()
         .into_iter()
         .collect::<Vec<_>>();
 
@@ -16547,6 +16564,7 @@ fn su_short_option_takes_argument(flag: char) -> bool {
 
 fn ssh_remote_args<'a>(args: &'a [&'a Word], source: &str) -> Option<&'a [&'a Word]> {
     let mut index = 0usize;
+    let mut saw_local_option = false;
 
     while let Some(word) = args.get(index) {
         let Some(text) = static_word_text(word, source) else {
@@ -16554,6 +16572,7 @@ fn ssh_remote_args<'a>(args: &'a [&'a Word], source: &str) -> Option<&'a [&'a Wo
         };
 
         if text == "--" {
+            saw_local_option = true;
             index += 1;
             break;
         }
@@ -16562,12 +16581,17 @@ fn ssh_remote_args<'a>(args: &'a [&'a Word], source: &str) -> Option<&'a [&'a Wo
             break;
         }
 
+        saw_local_option = true;
         let consumes_next = ssh_option_consumes_next_argument(text.as_str())?;
         index += 1;
         if consumes_next {
             args.get(index)?;
             index += 1;
         }
+    }
+
+    if saw_local_option {
+        return None;
     }
 
     let _destination = args.get(index)?;
@@ -22269,6 +22293,49 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
             .and_then(|fact| fact.options().sudo_family())
             .expect("expected sudo-family facts");
         assert_eq!(doas.invoker, SudoFamilyInvoker::Doas);
+    }
+
+    #[test]
+    fn ssh_command_facts_match_shellcheck_command_shape() {
+        let source = "\
+#!/bin/bash
+ssh host \"echo $HOME\"
+\\ssh host \"echo $USER\"
+ssh -i key host \"echo $PATH\"
+ssh host -t \"echo $PWD\"
+ssh host ls -l \"$TMPDIR\"
+ssh host cmd \"--flag\" \"$HOME\"
+ssh host cmd '-t' \"$USER\"
+";
+
+        with_facts(source, None, |_, facts| {
+            let ssh_commands = facts
+                .commands()
+                .iter()
+                .filter(|fact| fact.effective_name_is("ssh") && fact.wrappers().is_empty())
+                .collect::<Vec<_>>();
+
+            assert_eq!(ssh_commands.len(), 7);
+            assert_eq!(
+                ssh_commands[0]
+                    .options()
+                    .ssh()
+                    .map(|ssh| ssh.local_expansion_spans().len()),
+                Some(1)
+            );
+            assert_eq!(
+                ssh_commands[1]
+                    .options()
+                    .ssh()
+                    .map(|ssh| ssh.local_expansion_spans().len()),
+                Some(1)
+            );
+            assert!(ssh_commands[2].options().ssh().is_none());
+            assert!(ssh_commands[3].options().ssh().is_none());
+            assert!(ssh_commands[4].options().ssh().is_none());
+            assert!(ssh_commands[5].options().ssh().is_none());
+            assert!(ssh_commands[6].options().ssh().is_none());
+        });
     }
 
     #[test]
