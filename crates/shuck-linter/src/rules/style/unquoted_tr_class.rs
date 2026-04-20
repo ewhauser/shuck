@@ -30,7 +30,7 @@ pub fn unquoted_tr_class(checker: &mut Checker) {
                     return None;
                 }
                 let text = static_word_text(word, checker.source())?;
-                is_unquoted_tr_class(text.as_str()).then_some(word.span)
+                is_unquoted_tr_class(text.as_ref()).then_some(word.span)
             })
         })
         .collect::<Vec<_>>();

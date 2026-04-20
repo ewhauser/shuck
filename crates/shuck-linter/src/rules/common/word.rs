@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use shuck_ast::{
     ArithmeticExpr, BourneParameterExpansion, Command, CompoundCommand, ConditionalBinaryOp,
     ConditionalExpr, Pattern, PatternPart, Word, WordPart, WordPartNode,
@@ -60,21 +62,8 @@ impl TestOperandClass {
     }
 }
 
-pub fn static_word_text(word: &Word, source: &str) -> Option<String> {
-    if let [part] = word.parts.as_slice() {
-        match &part.kind {
-            WordPart::Literal(text) => return Some(text.as_str(source, word.span).to_owned()),
-            WordPart::SingleQuoted { value, .. } => return Some(value.slice(source).to_owned()),
-            WordPart::DoubleQuoted { parts, .. } => {
-                let mut result = String::new();
-                return collect_static_word_text(parts, source, &mut result).then_some(result);
-            }
-            _ => {}
-        }
-    }
-
-    let mut result = String::new();
-    collect_static_word_text(&word.parts, source, &mut result).then_some(result)
+pub fn static_word_text<'a>(word: &'a Word, source: &'a str) -> Option<Cow<'a, str>> {
+    static_word_parts_text(&word.parts, source)
 }
 
 pub fn is_shell_variable_name(name: &str) -> bool {
@@ -247,6 +236,24 @@ pub(crate) fn classify_contextual_operand(
     }
 }
 
+fn static_word_parts_text<'a>(parts: &'a [WordPartNode], source: &'a str) -> Option<Cow<'a, str>> {
+    if let [part] = parts {
+        return static_word_part_text(part, source);
+    }
+
+    let mut result = String::new();
+    collect_static_word_text(parts, source, &mut result).then_some(Cow::Owned(result))
+}
+
+fn static_word_part_text<'a>(part: &'a WordPartNode, source: &'a str) -> Option<Cow<'a, str>> {
+    match &part.kind {
+        WordPart::Literal(text) => Some(Cow::Borrowed(text.as_str(source, part.span))),
+        WordPart::SingleQuoted { value, .. } => Some(Cow::Borrowed(value.slice(source))),
+        WordPart::DoubleQuoted { parts, .. } => static_word_parts_text(parts, source),
+        _ => None,
+    }
+}
+
 fn collect_static_word_text(parts: &[WordPartNode], source: &str, out: &mut String) -> bool {
     for part in parts {
         match &part.kind {
@@ -319,6 +326,8 @@ fn classify_pattern_operand(pattern: &Pattern, source: &str) -> TestOperandClass
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Cow;
+
     use shuck_ast::{BuiltinCommand, Command, CompoundCommand};
     use shuck_parser::parser::Parser;
 
@@ -442,6 +451,44 @@ echo \"\\\"$BUILDSCRIPT\\\" --library $(test \"${PKG_DIR%/*}\" = \"gpkg\" && ech
             static_word_text(&else_echo.name, source).as_deref(),
             Some("echo")
         );
+    }
+
+    #[test]
+    fn static_word_text_borrows_literal_and_single_quoted_words() {
+        let source = "printf plain 'single' \"double\"\n";
+        let commands = parse_commands(source);
+        let Command::Simple(command) = &commands[0].command else {
+            panic!("expected simple command");
+        };
+
+        assert!(matches!(
+            static_word_text(&command.args[0], source),
+            Some(Cow::Borrowed("plain"))
+        ));
+        assert!(matches!(
+            static_word_text(&command.args[1], source),
+            Some(Cow::Borrowed("single"))
+        ));
+        assert!(matches!(
+            static_word_text(&command.args[2], source),
+            Some(Cow::Borrowed("double"))
+        ));
+    }
+
+    #[test]
+    fn static_word_text_cooks_concatenated_words_only_when_needed() {
+        let source = "printf \"pre${x}post\" \"ab$cd\" foo\"bar\"\n";
+        let commands = parse_commands(source);
+        let Command::Simple(command) = &commands[0].command else {
+            panic!("expected simple command");
+        };
+
+        assert!(static_word_text(&command.args[0], source).is_none());
+        assert!(static_word_text(&command.args[1], source).is_none());
+        assert!(matches!(
+            static_word_text(&command.args[2], source),
+            Some(Cow::Owned(ref value)) if value == "foobar"
+        ));
     }
 
     #[test]

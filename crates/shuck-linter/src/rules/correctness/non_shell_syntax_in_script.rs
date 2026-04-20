@@ -46,7 +46,7 @@ fn non_shell_syntax_span(
     }
 
     let name = static_word_text(&simple.name, source)?;
-    if !looks_like_c_declaration_keyword(name.as_str()) || simple.args.is_empty() {
+    if !looks_like_c_declaration_keyword(name.as_ref()) || simple.args.is_empty() {
         return None;
     }
 

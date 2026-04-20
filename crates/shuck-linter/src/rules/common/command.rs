@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use shuck_ast::{
     Assignment, BuiltinCommand, Command, DeclClause, DeclOperand, Redirect, SimpleCommand, Span,
     Word,
@@ -50,8 +52,8 @@ pub struct NormalizedDeclaration<'a> {
 
 #[derive(Debug, Clone)]
 pub struct NormalizedCommand<'a> {
-    pub literal_name: Option<String>,
-    pub effective_name: Option<String>,
+    pub literal_name: Option<Cow<'a, str>>,
+    pub effective_name: Option<Cow<'a, str>>,
     pub wrappers: Vec<WrapperKind>,
     pub body_span: Span,
     pub body_word_span: Option<Span>,
@@ -93,22 +95,22 @@ impl<'a> NormalizedCommand<'a> {
     }
 }
 
-pub(crate) fn normalize_command<'a>(command: &'a Command, source: &str) -> NormalizedCommand<'a> {
+pub(crate) fn normalize_command<'a>(
+    command: &'a Command,
+    source: &'a str,
+) -> NormalizedCommand<'a> {
     match command {
         Command::Simple(command) => normalize_simple_command(command, source),
         Command::Decl(command) => normalize_decl_command(command, source),
-        Command::Builtin(command) => {
-            let name = builtin_name(command).to_owned();
-            NormalizedCommand {
-                literal_name: Some(name.clone()),
-                effective_name: Some(name),
-                wrappers: Vec::new(),
-                body_span: builtin_span(command),
-                body_word_span: None,
-                body_words: Vec::new(),
-                declaration: None,
-            }
-        }
+        Command::Builtin(command) => NormalizedCommand {
+            literal_name: Some(Cow::Borrowed(builtin_name(command))),
+            effective_name: Some(Cow::Borrowed(builtin_name(command))),
+            wrappers: Vec::new(),
+            body_span: builtin_span(command),
+            body_word_span: None,
+            body_words: Vec::new(),
+            declaration: None,
+        },
         Command::Binary(command) => empty_normalized_command(command.span),
         Command::Compound(command) => empty_normalized_command(compound_span(command)),
         Command::Function(command) => empty_normalized_command(command.span),
@@ -116,7 +118,10 @@ pub(crate) fn normalize_command<'a>(command: &'a Command, source: &str) -> Norma
     }
 }
 
-fn normalize_simple_command<'a>(command: &'a SimpleCommand, source: &str) -> NormalizedCommand<'a> {
+fn normalize_simple_command<'a>(
+    command: &'a SimpleCommand,
+    source: &'a str,
+) -> NormalizedCommand<'a> {
     let words = std::iter::once(&command.name)
         .chain(command.args.iter())
         .collect::<Vec<_>>();
@@ -125,7 +130,7 @@ fn normalize_simple_command<'a>(command: &'a SimpleCommand, source: &str) -> Nor
 
 pub(crate) fn normalize_command_words<'a>(
     words: &[&'a Word],
-    source: &str,
+    source: &'a str,
 ) -> Option<NormalizedCommand<'a>> {
     let first_word = words.first().copied()?;
     let literal_name = static_command_name_text(first_word, source);
@@ -151,7 +156,7 @@ pub(crate) fn normalize_command_words<'a>(
                 body_span = words[body_index].span;
                 body_word_span = Some(words[body_index].span);
                 body_start = Some(body_index);
-                effective_name = Some(resolved_name);
+                effective_name = Some(Cow::Owned(resolved_name));
                 break;
             }
             CommandResolution::Wrapper { kind, target_index } => {
@@ -188,8 +193,8 @@ pub(crate) fn normalize_command_words<'a>(
     })
 }
 
-fn normalize_decl_command<'a>(command: &'a DeclClause, source: &str) -> NormalizedCommand<'a> {
-    let raw_kind = command.variant.as_ref().to_owned();
+fn normalize_decl_command<'a>(command: &'a DeclClause, source: &'a str) -> NormalizedCommand<'a> {
+    let raw_kind = command.variant.as_ref();
     let assignment_operands = command
         .operands
         .iter()
@@ -200,8 +205,8 @@ fn normalize_decl_command<'a>(command: &'a DeclClause, source: &str) -> Normaliz
         .collect::<Vec<_>>();
 
     NormalizedCommand {
-        literal_name: Some(raw_kind.clone()),
-        effective_name: Some(raw_kind.clone()),
+        literal_name: Some(Cow::Borrowed(raw_kind)),
+        effective_name: Some(Cow::Borrowed(raw_kind)),
         wrappers: Vec::new(),
         body_span: command.variant_span,
         body_word_span: None,
@@ -219,13 +224,13 @@ fn normalize_decl_command<'a>(command: &'a DeclClause, source: &str) -> Normaliz
     }
 }
 
-fn declaration_kind(raw_kind: String) -> DeclarationKind {
-    match raw_kind.as_str() {
+fn declaration_kind(raw_kind: &str) -> DeclarationKind {
+    match raw_kind {
         "export" => DeclarationKind::Export,
         "local" => DeclarationKind::Local,
         "declare" => DeclarationKind::Declare,
         "typeset" => DeclarationKind::Typeset,
-        _ => DeclarationKind::Other(raw_kind),
+        _ => DeclarationKind::Other(raw_kind.to_owned()),
     }
 }
 
@@ -358,7 +363,7 @@ fn command_wrapper_target_index(
             return Some(index);
         };
 
-        match arg.as_str() {
+        match arg.as_ref() {
             "--" => return words.get(index + 1).map(|_| index + 1),
             "-p" => index += 1,
             "-v" | "-V" => return None,
@@ -378,7 +383,7 @@ fn exec_wrapper_target_index(words: &[&Word], current_index: usize, source: &str
             return Some(index);
         };
 
-        match arg.as_str() {
+        match arg.as_ref() {
             "--" => return words.get(index + 1).map(|_| index + 1),
             "-c" | "-l" => index += 1,
             "-a" => {
@@ -404,7 +409,7 @@ fn find_exec_target_index(
         let Some(arg) = static_word_text(words[index], source) else {
             continue;
         };
-        match arg.as_str() {
+        match arg.as_ref() {
             "-exec" | "-ok" => {
                 if fallback.is_none() {
                     fallback = words
@@ -447,11 +452,11 @@ fn sudo_family_target_index(words: &[&Word], current_index: usize, source: &str)
             return Some(index);
         }
 
-        if arg.len() == 2 && matches!(arg.as_str(), "-l" | "-v" | "-V") {
+        if arg.len() == 2 && matches!(arg.as_ref(), "-l" | "-v" | "-V") {
             return None;
         }
 
-        if sudo_option_takes_value(arg.as_str()) {
+        if sudo_option_takes_value(arg.as_ref()) {
             if arg.len() == 2 {
                 words.get(index + 1)?;
                 index += 2;
@@ -461,7 +466,7 @@ fn sudo_family_target_index(words: &[&Word], current_index: usize, source: &str)
             continue;
         }
 
-        if arg.starts_with("--") && !matches!(arg.as_str(), "--preserve-env" | "--login") {
+        if arg.starts_with("--") && !matches!(arg.as_ref(), "--preserve-env" | "--login") {
             return None;
         }
 
@@ -506,7 +511,7 @@ fn mumps_run_resolution(
         .get(current_index + 2)
         .and_then(|word| static_word_text(word, source))?;
 
-    if run_flag == "-run" && matches!(entrypoint.as_str(), "%XCMD" | "LOOP%XCMD") {
+    if run_flag == "-run" && matches!(entrypoint.as_ref(), "%XCMD" | "LOOP%XCMD") {
         Some(CommandResolution::Alias {
             effective_name: format!("mumps -run {entrypoint}"),
             body_index: current_index + 2,
@@ -534,16 +539,19 @@ fn builtin_span(command: &BuiltinCommand) -> Span {
     }
 }
 
-fn static_command_name_text(word: &Word, source: &str) -> Option<String> {
-    static_word_text(word, source)
-        .map(|text| text.strip_prefix('\\').map_or(text.clone(), str::to_owned))
+fn static_command_name_text<'a>(word: &'a Word, source: &'a str) -> Option<Cow<'a, str>> {
+    let text = static_word_text(word, source)?;
+    match text.strip_prefix('\\') {
+        Some(stripped) => Some(Cow::Owned(stripped.to_owned())),
+        None => Some(text),
+    }
 }
 
 fn command_basename(name: &str) -> &str {
     name.rsplit('/').next().unwrap_or(name)
 }
 
-fn static_word_text(word: &Word, source: &str) -> Option<String> {
+fn static_word_text<'a>(word: &'a Word, source: &'a str) -> Option<Cow<'a, str>> {
     super::word::static_word_text(word, source)
 }
 

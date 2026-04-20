@@ -43,8 +43,8 @@ fn targets_posix_dot_shell(shell: ShellDialect) -> bool {
 }
 
 fn static_command_name_text(word: &shuck_ast::Word, source: &str) -> Option<String> {
-    static_word_text(word, source)
-        .map(|text| text.strip_prefix('\\').map_or(text.clone(), str::to_owned))
+    let text = static_word_text(word, source)?;
+    Some(text.strip_prefix('\\').unwrap_or(text.as_ref()).to_owned())
 }
 
 #[cfg(test)]

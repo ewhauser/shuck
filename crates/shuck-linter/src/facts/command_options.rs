@@ -649,10 +649,7 @@ impl<'a> CommandOptionFacts<'a> {
                 .then(|| parse_unset_command(normalized.body_args(), source)),
             find: (normalized.effective_name_is("find")
                 || normalized.literal_name.as_deref() == Some("find"))
-            .then(|| {
-                let args = find_command_args(command, normalized, source);
-                parse_find_command(args.as_slice(), source)
-            }),
+            .then(|| parse_find_command(find_command_args(command, normalized, source), source)),
             find_exec: (normalized.has_wrapper(WrapperKind::FindExec)
                 || normalized.has_wrapper(WrapperKind::FindExecDir))
             .then(|| FindExecCommandFacts {
@@ -779,7 +776,7 @@ fn parse_echo_command<'a>(args: &[&'a Word], source: &str) -> EchoCommandFacts<'
             break;
         };
 
-        if !is_echo_portability_flag(text.as_str()) {
+        if !is_echo_portability_flag(text.as_ref()) {
             break;
         }
 
@@ -1030,7 +1027,7 @@ fn parse_tr_command<'a>(args: &[&'a Word], source: &str) -> TrCommandFacts<'a> {
             break;
         }
 
-        if !is_tr_option(text.as_str()) {
+        if !is_tr_option(text.as_ref()) {
             break;
         }
 
@@ -1156,7 +1153,7 @@ fn parse_su_command(args: &[&Word], source: &str) -> SuCommandFacts {
             continue;
         }
 
-        match text.as_str() {
+        match text.as_ref() {
             "-" | "-l" | "--login" => {
                 return SuCommandFacts {
                     has_login_or_command_flag: true,
@@ -1179,7 +1176,7 @@ fn parse_su_command(args: &[&Word], source: &str) -> SuCommandFacts {
                     };
                 }
             }
-            _ if su_long_option_takes_argument(text.as_str()) => {
+            _ if su_long_option_takes_argument(text.as_ref()) => {
                 pending_option_arg = true;
                 index += 1;
                 continue;
@@ -1265,7 +1262,7 @@ fn ssh_remote_args<'a>(args: &'a [&'a Word], source: &str) -> Option<&'a [&'a Wo
         }
 
         saw_local_option = true;
-        let consumes_next = ssh_option_consumes_next_argument(text.as_str())?;
+        let consumes_next = ssh_option_consumes_next_argument(text.as_ref())?;
         index += 1;
         if consumes_next {
             args.get(index)?;
@@ -1750,7 +1747,7 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
         }
 
         if matches!(
-            text.as_str(),
+            text.as_ref(),
             "--basic-regexp" | "--extended-regexp" | "--perl-regexp"
         ) {
             uses_fixed_strings = false;
@@ -1798,7 +1795,7 @@ fn parse_grep_command<'a>(args: &[&'a Word], source: &str) -> Option<GrepCommand
         }
 
         if text.starts_with("--") {
-            index += if grep_long_option_takes_argument(text.as_str())
+            index += if grep_long_option_takes_argument(text.as_ref())
                 && args.get(index + 1).is_some()
             {
                 2
@@ -1968,11 +1965,11 @@ fn sed_has_explicit_script_source(args: &[&Word], source: &str) -> bool {
     args.iter()
         .filter_map(|word| static_word_text(word, source))
         .any(|text| {
-            matches!(text.as_str(), "-e" | "-f" | "--expression" | "--file")
+            matches!(text.as_ref(), "-e" | "-f" | "--expression" | "--file")
                 || text.starts_with("--expression=")
                 || text.starts_with("--file=")
-                || short_option_cluster_contains_flag(text.as_str(), 'e')
-                || short_option_cluster_contains_flag(text.as_str(), 'f')
+                || short_option_cluster_contains_flag(text.as_ref(), 'e')
+                || short_option_cluster_contains_flag(text.as_ref(), 'f')
         })
 }
 
@@ -1980,9 +1977,9 @@ fn awk_has_file_program_source(args: &[&Word], source: &str) -> bool {
     args.iter()
         .filter_map(|word| static_word_text(word, source))
         .any(|text| {
-            matches!(text.as_str(), "-f" | "--file")
+            matches!(text.as_ref(), "-f" | "--file")
                 || text.starts_with("--file=")
-                || short_option_cluster_contains_flag(text.as_str(), 'f')
+                || short_option_cluster_contains_flag(text.as_ref(), 'f')
         })
 }
 
@@ -2049,7 +2046,7 @@ fn collect_file_operand_words_after_prefix<'a>(
         }
 
         if options_open && text.starts_with('-') && text != "-" {
-            if let Some(action) = option_arg_action(text.as_str()) {
+            if let Some(action) = option_arg_action(text.as_ref()) {
                 pending_option_arg_action = Some(action);
             }
             index += 1;
@@ -2167,7 +2164,7 @@ fn jq_file_operand_words<'a>(args: &[&'a Word], source: &str) -> Vec<&'a Word> {
                 }
             }
 
-            match text.as_str() {
+            match text.as_ref() {
                 "-n" | "--null-input" => {
                     null_input = true;
                 }
@@ -2264,7 +2261,7 @@ fn grep_file_operand_words<'a>(args: &[&'a Word], source: &str) -> Vec<&'a Word>
         if text == "--only-matching"
             || text == "--fixed-strings"
             || matches!(
-                text.as_str(),
+                text.as_ref(),
                 "--basic-regexp" | "--extended-regexp" | "--perl-regexp"
             )
         {
@@ -2285,7 +2282,7 @@ fn grep_file_operand_words<'a>(args: &[&'a Word], source: &str) -> Vec<&'a Word>
         }
 
         if text.starts_with("--") {
-            index += if grep_long_option_takes_argument(text.as_str())
+            index += if grep_long_option_takes_argument(text.as_ref())
                 && args.get(index + 1).is_some()
             {
                 2
@@ -2604,7 +2601,7 @@ fn parse_ps_command(args: &[&Word], source: &str) -> PsCommandFacts {
             break;
         }
 
-        if matches!(text.as_str(), "p" | "q") {
+        if matches!(text.as_ref(), "p" | "q") {
             has_pid_selector = true;
             pending_option_arg = true;
             index += 1;
@@ -2618,13 +2615,13 @@ fn parse_ps_command(args: &[&Word], source: &str) -> PsCommandFacts {
                 continue;
             }
 
-            if text != "-" && ps_bare_pid_selector(text.as_str()) {
+            if text != "-" && ps_bare_pid_selector(text.as_ref()) {
                 has_pid_selector = true;
                 index += 1;
                 continue;
             }
 
-            if ps_bsd_option_cluster(text.as_str()) {
+            if ps_bsd_option_cluster(text.as_ref()) {
                 index += 1;
                 continue;
             }
@@ -2813,7 +2810,7 @@ fn first_nonportable_sh_export_option_span(operands: &[DeclOperand], source: &st
                 }
 
                 if sh_builtin_option_word_is_portable(
-                    text.as_str(),
+                    text.as_ref(),
                     ShBuiltinOptionPolicy::AllowOnly("p"),
                 ) {
                     continue;
@@ -2849,7 +2846,7 @@ fn first_nonportable_sh_option_span_in_words(
             return None;
         }
 
-        if sh_builtin_option_word_is_portable(text.as_str(), policy) {
+        if sh_builtin_option_word_is_portable(text.as_ref(), policy) {
             continue;
         }
 
@@ -3104,7 +3101,7 @@ fn parse_find_exec_shell_command(
             index += 1;
             continue;
         };
-        if !matches!(action.as_str(), "-exec" | "-execdir" | "-ok" | "-okdir") {
+        if !matches!(action.as_ref(), "-exec" | "-execdir" | "-ok" | "-okdir") {
             index += 1;
             continue;
         }
@@ -3117,7 +3114,7 @@ fn parse_find_exec_shell_command(
             .map(|offset| argument_start + offset);
         let argument_end = terminator_index.unwrap_or(words.len());
 
-        if matches!(action.as_str(), "-exec" | "-execdir")
+        if matches!(action.as_ref(), "-exec" | "-execdir")
             && let Some(segment) = words.get(argument_start..argument_end)
         {
             shell_command_spans.extend(find_exec_shell_command_spans(segment, source));
@@ -3156,7 +3153,7 @@ fn find_exec_shell_command_spans(args: &[&Word], source: &str) -> Vec<Span> {
         .windows(2)
         .filter_map(|pair| {
             let flag = static_word_text(pair[0], source)?;
-            if !shell_flag_contains_command_string(flag.as_str()) {
+            if !shell_flag_contains_command_string(flag.as_ref()) {
                 return None;
             }
             let script = pair[1];
@@ -3183,7 +3180,7 @@ fn parse_find_exec_argument_word_spans(command: &Command, source: &str) -> Vec<S
             index += 1;
             continue;
         };
-        if !matches!(action.as_str(), "-exec" | "-ok" | "-execdir" | "-okdir") {
+        if !matches!(action.as_ref(), "-exec" | "-ok" | "-execdir" | "-okdir") {
             index += 1;
             continue;
         }
@@ -3240,19 +3237,42 @@ fn is_find_exec_semicolon_terminator(word: &Word, source: &str) -> bool {
 
 fn find_command_args<'a>(
     command: &'a Command,
-    normalized: &NormalizedCommand<'a>,
+    normalized: &'a NormalizedCommand<'a>,
     source: &'a str,
-) -> Vec<&'a Word> {
+) -> impl Iterator<Item = &'a Word> + 'a {
     if normalized.literal_name.as_deref() == Some("find")
         && let Command::Simple(command) = command
     {
-        return simple_command_body_words(command, source).skip(1).collect();
+        return EitherFindCommandArgs::Simple(simple_command_body_words(command, source).skip(1));
     }
 
-    normalized.body_args().to_vec()
+    EitherFindCommandArgs::Normalized(normalized.body_args().iter().copied())
 }
 
-fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
+enum EitherFindCommandArgs<I, J> {
+    Simple(I),
+    Normalized(J),
+}
+
+impl<'a, I, J> Iterator for EitherFindCommandArgs<I, J>
+where
+    I: Iterator<Item = &'a Word>,
+    J: Iterator<Item = &'a Word>,
+{
+    type Item = &'a Word;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            Self::Simple(iter) => iter.next(),
+            Self::Normalized(iter) => iter.next(),
+        }
+    }
+}
+
+fn parse_find_command<'a>(
+    args: impl IntoIterator<Item = &'a Word>,
+    source: &str,
+) -> FindCommandFacts {
     let mut has_print0 = false;
     let mut has_formatted_output_action = false;
     let mut or_without_grouping_spans = Vec::new();
@@ -3279,7 +3299,7 @@ fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
             {
                 glob_pattern_operand_spans.push(word.span);
             }
-            pending_argument = state.after_consuming(text.as_str());
+            pending_argument = state.after_consuming(text.as_ref());
             continue;
         }
 
@@ -3287,12 +3307,12 @@ fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
             has_print0 = true;
         }
 
-        if is_find_group_open_token(text.as_str()) {
+        if is_find_group_open_token(text.as_ref()) {
             group_stack.push(FindGroupState::default());
             continue;
         }
 
-        if is_find_group_close_token(text.as_str()) {
+        if is_find_group_close_token(text.as_ref()) {
             if let Some(child) = (group_stack.len() > 1).then(|| group_stack.pop()).flatten() {
                 group_stack
                     .last_mut()
@@ -3306,32 +3326,32 @@ fn parse_find_command(args: &[&Word], source: &str) -> FindCommandFacts {
             .last_mut()
             .expect("group stack retains the root frame");
 
-        if is_find_or_token(text.as_str()) {
+        if is_find_or_token(text.as_ref()) {
             state.note_or();
             continue;
         }
 
-        if is_find_and_token(text.as_str()) {
+        if is_find_and_token(text.as_ref()) {
             state.note_and();
             continue;
         }
 
-        if is_find_branch_action_token(text.as_str()) {
-            if matches!(text.as_str(), "-fprint0" | "-printf" | "-fprintf") {
+        if is_find_branch_action_token(text.as_ref()) {
+            if matches!(text.as_ref(), "-fprint0" | "-printf" | "-fprintf") {
                 has_formatted_output_action = true;
             }
             state.note_action(
                 word.span,
-                is_find_reportable_action_token(text.as_str()),
+                is_find_reportable_action_token(text.as_ref()),
                 &mut or_without_grouping_spans,
             );
-            pending_argument = find_pending_argument(text.as_str());
+            pending_argument = find_pending_argument(text.as_ref());
             continue;
         }
 
-        if is_find_predicate_token(text.as_str()) {
+        if is_find_predicate_token(text.as_ref()) {
             state.note_predicate();
-            pending_argument = find_pending_argument(text.as_str());
+            pending_argument = find_pending_argument(text.as_ref());
         }
     }
 
@@ -3603,7 +3623,7 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
         && first_text != "--"
         && !first_text.starts_with('-')
         && !first_text.starts_with('+')
-        && is_shell_variable_name(first_text.as_str())
+        && is_shell_variable_name(first_text.as_ref())
     {
         flags_without_prefix_spans.push(first_word.span);
     }
@@ -3619,7 +3639,7 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
             break;
         }
 
-        match text.as_str() {
+        match text.as_ref() {
             "-o" | "+o" => {
                 let enable = text.starts_with('-');
                 if text.starts_with('+') {
@@ -3730,12 +3750,12 @@ fn parse_directory_change_command(
     ) && normalized.wrappers.is_empty()
         && target
             .as_ref()
-            .is_some_and(|target| is_directory_stack_marker(target.as_str()));
+            .is_some_and(|target| is_directory_stack_marker(target.as_ref()));
 
     let manual_restore_candidate = kind == DirectoryChangeCommandKind::Cd
         && target
             .as_ref()
-            .is_some_and(|target| matches!(target.as_str(), ".." | "-"));
+            .is_some_and(|target| matches!(target.as_ref(), ".." | "-"));
 
     Some(DirectoryChangeCommandFacts {
         kind,
@@ -3759,4 +3779,3 @@ fn is_directory_stack_marker(target: &str) -> bool {
 
     saw_segment
 }
-

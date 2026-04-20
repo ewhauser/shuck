@@ -653,15 +653,15 @@ fn simple_test_effective_operand_text(
 
     let mut text = static_word_text(word, source)?;
     if classify_word(word, source).quote == WordQuote::Unquoted {
-        match text.as_str() {
-            r"\(" => text = "(".to_owned(),
-            r"\)" => text = ")".to_owned(),
-            r"\!" => text = "!".to_owned(),
+        match text.as_ref() {
+            r"\(" => text = "(".into(),
+            r"\)" => text = ")".into(),
+            r"\!" => text = "!".into(),
             _ => {}
         }
     }
 
-    Some(text)
+    Some(text.into_owned())
 }
 
 fn simple_test_effective_unquoted_operand_text(

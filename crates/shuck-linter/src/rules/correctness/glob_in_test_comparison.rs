@@ -32,7 +32,7 @@ fn report_span(simple_test: &crate::SimpleTestFact<'_>, source: &str) -> Option<
     }
 
     let operator = static_word_text(simple_test.effective_operands().get(1)?, source)?;
-    if !matches!(operator.as_str(), "=" | "==" | "!=") {
+    if !matches!(operator.as_ref(), "=" | "==" | "!=") {
         return None;
     }
 

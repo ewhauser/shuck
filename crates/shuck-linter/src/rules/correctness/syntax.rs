@@ -3,7 +3,7 @@ use shuck_ast::{Assignment, SimpleCommand, Word};
 pub use crate::static_word_text;
 
 fn simple_command_name(command: &SimpleCommand, source: &str) -> Option<String> {
-    static_word_text(&command.name, source)
+    static_word_text(&command.name, source).map(|text| text.into_owned())
 }
 
 pub fn assignment_target_name(assignment: &Assignment) -> &str {

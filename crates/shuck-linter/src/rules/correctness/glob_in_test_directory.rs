@@ -137,7 +137,8 @@ fn simple_test_unary_file_test_span(
     if !is_simple_test_file_test_unary_operator(
         simple_test
             .effective_operator_word()
-            .and_then(|word| static_word_text(word, source)),
+            .and_then(|word| static_word_text(word, source))
+            .as_deref(),
     ) {
         return None;
     }
@@ -182,8 +183,8 @@ fn is_file_test_operator(token: Option<&str>) -> bool {
     )
 }
 
-fn is_simple_test_file_test_unary_operator(token: Option<String>) -> bool {
-    matches!(token.as_deref(), Some("-a")) || is_file_test_operator(token.as_deref())
+fn is_simple_test_file_test_unary_operator(token: Option<&str>) -> bool {
+    matches!(token, Some("-a")) || is_file_test_operator(token)
 }
 
 #[cfg(test)]

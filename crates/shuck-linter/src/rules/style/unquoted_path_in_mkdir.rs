@@ -62,7 +62,7 @@ fn mkdir_path_operand_spans(command: &CommandFact<'_>, source: &str) -> Vec<shuc
             continue;
         }
 
-        if options_open && is_mkdir_option(word.span, text.as_str(), &mut expects_mode_operand) {
+        if options_open && is_mkdir_option(word.span, text.as_ref(), &mut expects_mode_operand) {
             continue;
         }
 
