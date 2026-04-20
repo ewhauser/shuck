@@ -1,6 +1,6 @@
 use rustc_hash::FxHashSet;
 
-use crate::{Checker, ExpansionContext, Rule, Violation, word_is_pure_positional_at_splat};
+use crate::{Checker, ExpansionContext, Rule, Violation};
 
 pub struct ExportWithPositionalParams;
 
@@ -26,7 +26,7 @@ pub fn export_with_positional_params(checker: &mut Checker) {
         .facts()
         .expansion_word_facts(ExpansionContext::CommandArgument)
         .filter(|fact| export_ids.contains(&fact.command_id()))
-        .filter(|fact| word_is_pure_positional_at_splat(fact.word()))
+        .filter(|fact| fact.is_pure_positional_at_splat())
         .map(|fact| fact.span())
         .collect::<Vec<_>>();
 

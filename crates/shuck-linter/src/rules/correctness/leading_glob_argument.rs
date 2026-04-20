@@ -25,12 +25,17 @@ pub fn leading_glob_argument(checker: &mut Checker) {
     checker.report_all_dedup(spans, || LeadingGlobArgument);
 }
 
-fn reportable_glob_span(checker: &Checker<'_>, fact: &crate::facts::WordFact<'_>) -> Option<Span> {
+fn reportable_glob_span(
+    checker: &Checker<'_>,
+    fact: crate::facts::WordOccurrenceRef<'_, '_>,
+) -> Option<Span> {
     let command = checker.facts().command(fact.command_id());
     if command_exempts_glob_warning(command.effective_name()) {
         return None;
     }
-    if fact
+    if checker
+        .facts()
+        .command(fact.command_id())
         .zsh_options()
         .is_some_and(|options| options.glob.is_definitely_off())
     {
@@ -50,11 +55,11 @@ fn reportable_glob_span(checker: &Checker<'_>, fact: &crate::facts::WordFact<'_>
         return None;
     }
 
-    if command_has_separator_before(command, fact.word().span, checker.source()) {
+    if command_has_separator_before(command, fact.span(), checker.source()) {
         return None;
     }
 
-    Some(anchor_span(fact.word().span))
+    Some(anchor_span(fact.span()))
 }
 
 fn command_exempts_glob_warning(command: Option<&str>) -> bool {

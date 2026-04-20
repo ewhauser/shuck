@@ -33,8 +33,8 @@ pub use facts::{
     SimpleTestFact, SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax,
     SingleQuotedFragmentFact, SshCommandFacts, StatementFact, SubstitutionFact,
     SubstitutionHostKind, SudoFamilyCommandFacts, SudoFamilyInvoker, UnsetCommandFacts,
-    WaitCommandFacts, WordFact, WordFactContext, WordFactHostKind, XargsCommandFacts,
-    leading_literal_word_prefix,
+    WaitCommandFacts, WordFactContext, WordFactHostKind, WordOccurrence, WordOccurrenceIter,
+    WordOccurrenceRef, XargsCommandFacts, leading_literal_word_prefix,
 };
 pub use facts::{CommandId, FactSpan, LinterFacts};
 pub use registry::{Category, Rule, code_to_rule};

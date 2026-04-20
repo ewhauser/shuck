@@ -1,4 +1,4 @@
-use crate::{Checker, ExpansionContext, Rule, Violation, WordFact, word_unquoted_star_splat_spans};
+use crate::{Checker, ExpansionContext, Rule, Violation, WordOccurrenceRef};
 
 pub struct UnquotedDollarStar;
 
@@ -28,8 +28,8 @@ pub fn unquoted_dollar_star(checker: &mut Checker) {
     checker.report_all_dedup(spans, || UnquotedDollarStar);
 }
 
-fn unquoted_star_splat_spans(fact: &WordFact<'_>) -> Vec<shuck_ast::Span> {
-    word_unquoted_star_splat_spans(fact.word())
+fn unquoted_star_splat_spans(fact: WordOccurrenceRef<'_, '_>) -> Vec<shuck_ast::Span> {
+    fact.unquoted_star_splat_spans()
 }
 
 #[cfg(test)]

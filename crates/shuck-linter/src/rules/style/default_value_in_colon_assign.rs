@@ -1,6 +1,6 @@
 use rustc_hash::FxHashSet;
 
-use crate::{Checker, ExpansionContext, Rule, Violation, word_unquoted_assign_default_spans};
+use crate::{Checker, ExpansionContext, Rule, Violation};
 
 pub struct DefaultValueInColonAssign;
 
@@ -28,7 +28,7 @@ pub fn default_value_in_colon_assign(checker: &mut Checker) {
         .facts()
         .expansion_word_facts(ExpansionContext::CommandArgument)
         .filter(|fact| colon_command_ids.contains(&fact.command_id()))
-        .flat_map(|fact| word_unquoted_assign_default_spans(fact.word()))
+        .flat_map(|fact| fact.unquoted_assign_default_spans())
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || DefaultValueInColonAssign);

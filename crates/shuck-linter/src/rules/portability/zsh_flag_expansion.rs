@@ -1,5 +1,5 @@
 use super::targets_non_zsh_shell;
-use crate::{Checker, Rule, Violation, word_zsh_flag_modifier_spans};
+use crate::{Checker, Rule, Violation};
 
 pub struct ZshFlagExpansion;
 
@@ -22,7 +22,7 @@ pub fn zsh_flag_expansion(checker: &mut Checker) {
         .facts()
         .word_facts()
         .iter()
-        .flat_map(|fact| word_zsh_flag_modifier_spans(fact.word()))
+        .flat_map(|fact| fact.zsh_flag_modifier_spans())
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || ZshFlagExpansion);

@@ -24,9 +24,7 @@ pub fn zsh_prompt_bracket(checker: &mut Checker) {
         .facts()
         .word_facts()
         .iter()
-        .flat_map(|fact| {
-            prompt_bracket_spans(fact.word().span.slice(checker.source()), fact.word().span)
-        })
+        .flat_map(|fact| prompt_bracket_spans(fact.span().slice(checker.source()), fact.span()))
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || ZshPromptBracket);

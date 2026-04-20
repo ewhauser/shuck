@@ -81,13 +81,22 @@ impl<'a> BindingValueFact<'a> {
 
 fn build_bare_command_name_assignment_spans<'a>(
     commands: &[CommandFact<'a>],
-    words: &[WordFact<'a>],
-    word_index: &FxHashMap<FactSpan, Vec<usize>>,
+    word_nodes: &[WordNode<'a>],
+    word_occurrences: &[WordOccurrence],
+    word_index: &FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
     source: &str,
 ) -> Vec<Span> {
     commands
         .iter()
-        .filter_map(|command| bare_command_name_assignment_span(command, words, word_index, source))
+        .filter_map(|command| {
+            bare_command_name_assignment_span(
+                command,
+                word_nodes,
+                word_occurrences,
+                word_index,
+                source,
+            )
+        })
         .collect()
 }
 
@@ -151,8 +160,9 @@ fn assignment_like_command_name_span(word: &Word, source: &str) -> Option<Span> 
 
 fn bare_command_name_assignment_span<'a>(
     command: &CommandFact<'a>,
-    words: &[WordFact<'a>],
-    word_index: &FxHashMap<FactSpan, Vec<usize>>,
+    word_nodes: &[WordNode<'a>],
+    word_occurrences: &[WordOccurrence],
+    word_index: &FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
     source: &str,
 ) -> Option<Span> {
     let (assignment, anchor_full_command) = match command.command() {
@@ -184,19 +194,20 @@ fn bare_command_name_assignment_span<'a>(
     let AssignmentValue::Scalar(word) = &assignment.value else {
         return None;
     };
-    let fact = word_fact_with_context(
-        words,
+    let fact = word_occurrence_with_context(
+        word_nodes,
+        word_occurrences,
         word_index,
         word.span,
         WordFactContext::Expansion(ExpansionContext::AssignmentValue),
     )?;
-    if fact.classification().quote != WordQuote::Unquoted
-        || !fact.classification().is_fixed_literal()
+    let analysis = occurrence_analysis(word_nodes, fact);
+    if analysis.quote != WordQuote::Unquoted || analysis.literalness != WordLiteralness::FixedLiteral
     {
         return None;
     }
 
-    let text = fact.static_text()?;
+    let text = occurrence_static_text(word_nodes, fact, source)?;
     if !is_bare_command_name_assignment_value(text) {
         return None;
     }

@@ -1,8 +1,6 @@
 use rustc_hash::FxHashSet;
 
-use crate::{
-    Checker, ExpansionContext, FactSpan, Rule, Violation, word_unquoted_glob_pattern_spans,
-};
+use crate::{Checker, ExpansionContext, FactSpan, Rule, Violation};
 
 pub struct UnquotedGlobsInFind;
 
@@ -41,10 +39,7 @@ pub fn unquoted_globs_in_find(checker: &mut Checker) {
             fact.unquoted_command_substitution_spans()
                 .iter()
                 .copied()
-                .chain(word_unquoted_glob_pattern_spans(
-                    fact.word(),
-                    checker.source(),
-                ))
+                .chain(fact.unquoted_glob_pattern_spans(checker.source()))
         })
         .collect::<Vec<_>>();
 

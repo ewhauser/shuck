@@ -1,6 +1,4 @@
-use crate::{
-    Checker, ExpansionContext, Rule, Violation, word_folded_positional_at_splat_span_in_source,
-};
+use crate::{Checker, ExpansionContext, Rule, Violation};
 
 pub struct PositionalArgsInString;
 
@@ -21,9 +19,7 @@ pub fn positional_args_in_string(checker: &mut Checker) {
     ]
     .into_iter()
     .flat_map(|context| checker.facts().expansion_word_facts(context))
-    .filter_map(|fact| {
-        word_folded_positional_at_splat_span_in_source(fact.word(), checker.source())
-    })
+    .filter_map(|fact| fact.folded_positional_at_splat_span_in_source(checker.source()))
     .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || PositionalArgsInString);

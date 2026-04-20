@@ -1,4 +1,4 @@
-use crate::{Checker, ExpansionContext, Rule, Violation, word_standalone_literal_backslash_span};
+use crate::{Checker, ExpansionContext, Rule, Violation};
 
 pub struct LiteralBackslash;
 
@@ -21,9 +21,9 @@ pub fn literal_backslash(checker: &mut Checker) {
         .iter()
         .filter(|fact| is_relevant_word_context(fact.expansion_context()))
         .filter(|fact| !fact.is_nested_word_command())
-        .filter(|fact| !is_command_name_word(facts, fact))
-        .filter(|fact| !is_unalias_argument(facts, fact))
-        .filter_map(|fact| word_standalone_literal_backslash_span(fact.word(), source))
+        .filter(|fact| !is_command_name_word(facts, *fact))
+        .filter(|fact| !is_unalias_argument(facts, *fact))
+        .filter_map(|fact| fact.standalone_literal_backslash_span(source))
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || LiteralBackslash);
@@ -42,7 +42,7 @@ fn is_relevant_word_context(context: Option<ExpansionContext>) -> bool {
 
 fn is_command_name_word<'a>(
     facts: &'a crate::facts::LinterFacts<'a>,
-    fact: &crate::facts::WordFact<'a>,
+    fact: crate::facts::WordOccurrenceRef<'_, 'a>,
 ) -> bool {
     facts
         .command(fact.command_id())
@@ -52,7 +52,7 @@ fn is_command_name_word<'a>(
 
 fn is_unalias_argument<'a>(
     facts: &'a crate::facts::LinterFacts<'a>,
-    fact: &crate::facts::WordFact<'a>,
+    fact: crate::facts::WordOccurrenceRef<'_, 'a>,
 ) -> bool {
     fact.expansion_context() == Some(ExpansionContext::CommandArgument)
         && facts

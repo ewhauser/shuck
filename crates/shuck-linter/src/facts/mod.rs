@@ -66,7 +66,8 @@ use shuck_parser::parser::Parser;
 use shuck_semantic::{
     BindingAttributes, BindingId, BindingKind, ScopeId, SemanticModel, ZshOptionState,
 };
-use std::{borrow::Cow, ops::ControlFlow};
+use smallvec::SmallVec;
+use std::{borrow::Cow, cell::OnceCell, ops::ControlFlow};
 
 pub use self::conditional_portability::ConditionalPortabilityFacts;
 pub(crate) use self::escape_scan::{EscapeScanMatch, EscapeScanSourceKind};
@@ -100,7 +101,7 @@ include!("words.rs");
 
 #[allow(unused_imports)]
 pub(crate) mod core {
-    pub use super::{CommandId, FactSpan, SudoFamilyInvoker};
+    pub use super::{CommandId, FactSpan, SudoFamilyInvoker, WordNodeId, WordOccurrenceId};
 }
 
 #[allow(unused_imports)]
@@ -168,5 +169,8 @@ pub(crate) mod commands {
 
 #[allow(unused_imports)]
 pub(crate) mod words {
-    pub use super::{WordFact, WordFactContext, WordFactHostKind, leading_literal_word_prefix};
+    pub use super::{
+        WordFactContext, WordFactHostKind, WordOccurrence, WordOccurrenceIter, WordOccurrenceRef,
+        leading_literal_word_prefix,
+    };
 }

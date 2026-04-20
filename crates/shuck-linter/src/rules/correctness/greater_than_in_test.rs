@@ -3,7 +3,7 @@ use shuck_semantic::{BindingAttributes, BindingId};
 
 use crate::{
     Checker, CommandFact, ConditionalBinaryFact, ConditionalNodeFact, ConditionalOperandFact,
-    RedirectFact, Rule, SimpleTestSyntax, Violation, WordFact, static_word_text,
+    RedirectFact, Rule, SimpleTestSyntax, Violation, WordOccurrenceRef, static_word_text,
 };
 
 pub struct GreaterThanInTest;
@@ -186,7 +186,10 @@ fn operand_is_numeric_literal(
             })
 }
 
-fn word_is_numeric_binding_reference(checker: &Checker<'_>, word_fact: &WordFact<'_>) -> bool {
+fn word_is_numeric_binding_reference(
+    checker: &Checker<'_>,
+    word_fact: WordOccurrenceRef<'_, '_>,
+) -> bool {
     if !word_fact.is_plain_scalar_reference() {
         return false;
     }

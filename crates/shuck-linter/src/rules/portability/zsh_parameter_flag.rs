@@ -24,9 +24,7 @@ pub fn zsh_parameter_flag(checker: &mut Checker) {
         .facts()
         .word_facts()
         .iter()
-        .flat_map(|fact| {
-            parameter_flag_spans(fact.word().span.slice(checker.source()), fact.word().span)
-        })
+        .flat_map(|fact| parameter_flag_spans(fact.span().slice(checker.source()), fact.span()))
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || ZshParameterFlag);

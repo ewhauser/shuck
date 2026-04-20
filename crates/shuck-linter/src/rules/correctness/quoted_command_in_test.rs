@@ -160,7 +160,7 @@ fn simple_test_word_looks_like_quoted_pipeline(checker: &Checker<'_>, span: Span
         .is_some_and(word_fact_looks_like_quoted_pipeline)
 }
 
-fn word_fact_looks_like_quoted_pipeline(fact: &crate::WordFact<'_>) -> bool {
+fn word_fact_looks_like_quoted_pipeline(fact: crate::WordOccurrenceRef<'_, '_>) -> bool {
     fact.classification().quote == WordQuote::FullyQuoted
         && fact.classification().is_fixed_literal()
         && fact

@@ -1,5 +1,5 @@
 use super::targets_non_zsh_shell;
-use crate::{Checker, Rule, Violation, word_nested_zsh_substitution_spans};
+use crate::{Checker, Rule, Violation};
 
 pub struct NestedZshSubstitution;
 
@@ -22,7 +22,7 @@ pub fn nested_zsh_substitution(checker: &mut Checker) {
         .facts()
         .word_facts()
         .iter()
-        .flat_map(|fact| word_nested_zsh_substitution_spans(fact.word()))
+        .flat_map(|fact| fact.nested_zsh_substitution_spans())
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || NestedZshSubstitution);

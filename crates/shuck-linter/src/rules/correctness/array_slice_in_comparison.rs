@@ -2,8 +2,6 @@ use shuck_ast::Span;
 
 use crate::{
     Checker, ConditionalNodeFact, ConditionalOperatorFamily, ExpansionContext, Rule, Violation,
-    command_substitution_part_spans, word_has_direct_all_elements_array_expansion_in_source,
-    word_is_pure_positional_at_splat,
 };
 
 pub struct ArraySliceInComparison;
@@ -23,24 +21,20 @@ pub fn array_slice_in_comparison(checker: &mut Checker) {
         ExpansionContext::StringTestOperand,
         ExpansionContext::RegexOperand,
     ]
-    .into_iter()
-    .flat_map(|context| checker.facts().expansion_word_facts(context))
-    .filter(|fact| !fact.is_nested_word_command())
-    .filter(|fact| {
-        word_has_direct_all_elements_array_expansion_in_source(fact.word(), checker.source())
-    })
-    .map(|fact| fact.span())
-    .collect::<Vec<_>>();
+        .into_iter()
+        .flat_map(|context| checker.facts().expansion_word_facts(context))
+        .filter(|fact| !fact.is_nested_word_command())
+        .filter(|fact| fact.has_direct_all_elements_array_expansion_in_source(checker.source()))
+        .map(|fact| fact.span())
+        .collect::<Vec<_>>();
 
     let risky_pattern_word_spans = checker
         .facts()
         .expansion_word_facts(ExpansionContext::ConditionalPattern)
         .filter(|fact| !fact.is_nested_word_command())
-        .filter(|fact| command_substitution_part_spans(fact.word()).is_empty())
-        .filter(|fact| !word_is_pure_positional_at_splat(fact.word()))
-        .filter(|fact| {
-            word_has_direct_all_elements_array_expansion_in_source(fact.word(), checker.source())
-        })
+        .filter(|fact| fact.command_substitution_spans().is_empty())
+        .filter(|fact| !fact.is_pure_positional_at_splat())
+        .filter(|fact| fact.has_direct_all_elements_array_expansion_in_source(checker.source()))
         .map(|fact| fact.span())
         .collect::<Vec<_>>();
 

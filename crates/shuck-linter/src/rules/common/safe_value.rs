@@ -174,6 +174,22 @@ impl<'a> SafeValueIndex<'a> {
             .all(|(part, span)| self.part_is_safe(part, span, query))
     }
 
+    pub fn word_occurrence_is_safe(
+        &mut self,
+        fact: crate::WordOccurrenceRef<'_, 'a>,
+        query: SafeValueQuery,
+    ) -> bool {
+        let analysis = fact.analysis();
+        if query != SafeValueQuery::Quoted
+            && (analysis.array_valued || analysis.hazards.command_or_process_substitution)
+        {
+            return false;
+        }
+
+        fact.parts_with_spans()
+            .all(|(part, span)| self.part_is_safe(part, span, query))
+    }
+
     fn literal_part_is_safe(&self, part: &WordPart, span: Span, query: SafeValueQuery) -> bool {
         let word = Word {
             parts: vec![WordPartNode::new(part.clone(), span)],
@@ -1031,7 +1047,7 @@ f() {
             })
             .expect("expected loop-body command argument");
 
-        assert!(!safe_values.word_is_safe(word_fact.word(), SafeValueQuery::Argv));
+        assert!(!safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
     }
 
     #[test]
@@ -1059,7 +1075,7 @@ f() {
             })
             .expect("expected direct slice command argument");
 
-        assert!(safe_values.word_is_safe(word_fact.word(), SafeValueQuery::Argv));
+        assert!(safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
     }
 
     #[test]
@@ -1125,7 +1141,7 @@ done
         assert!(
             unsafe_words
                 .iter()
-                .all(|fact| !safe_values.word_is_safe(fact.word(), SafeValueQuery::Argv))
+                .all(|fact| !safe_values.word_occurrence_is_safe(*fact, SafeValueQuery::Argv))
         );
 
         let safe_words = facts
@@ -1140,7 +1156,7 @@ done
         assert!(
             safe_words
                 .iter()
-                .all(|fact| safe_values.word_is_safe(fact.word(), SafeValueQuery::Argv))
+                .all(|fact| safe_values.word_occurrence_is_safe(*fact, SafeValueQuery::Argv))
         );
     }
 
@@ -1182,8 +1198,8 @@ iptables $flag -t nat -N chain
             })
             .expect("expected if/else command argument");
 
-        assert!(!safe_values.word_is_safe(short_circuit_word.word(), SafeValueQuery::Argv));
-        assert!(safe_values.word_is_safe(if_else_word.word(), SafeValueQuery::Argv));
+        assert!(!safe_values.word_occurrence_is_safe(short_circuit_word, SafeValueQuery::Argv));
+        assert!(safe_values.word_occurrence_is_safe(if_else_word, SafeValueQuery::Argv));
     }
 
     #[test]
@@ -1217,7 +1233,7 @@ f() {
             })
             .expect("expected guarded function command argument");
 
-        assert!(!safe_values.word_is_safe(word_fact.word(), SafeValueQuery::Argv));
+        assert!(!safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
     }
 
     #[test]
@@ -1328,7 +1344,7 @@ value=\"$(free ${humanreadable} | awk '{print $2}')\"
             })
             .expect("expected nested command argument fact");
 
-        assert!(safe_values.word_is_safe(word_fact.word(), SafeValueQuery::Argv));
+        assert!(safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
     }
 
     #[test]
@@ -1386,7 +1402,7 @@ fn_backup_compression
             })
             .expect("expected helper-provided command argument fact");
 
-        assert!(safe_values.word_is_safe(word_fact.word(), SafeValueQuery::Argv));
+        assert!(safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
     }
 
     #[test]
@@ -1430,7 +1446,7 @@ unsafe_path
             })
             .expect("expected shared helper-derived command argument fact");
 
-        assert!(!safe_values.word_is_safe(word_fact.word(), SafeValueQuery::Argv));
+        assert!(!safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
     }
 
     #[test]
@@ -1465,7 +1481,7 @@ render() {
             })
             .expect("expected conditionally helper-initialized argument fact");
 
-        assert!(!safe_values.word_is_safe(word_fact.word(), SafeValueQuery::Argv));
+        assert!(!safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
     }
 
     #[test]
@@ -1514,7 +1530,7 @@ safe_path_b
             })
             .expect("expected multi-caller helper-derived argument fact");
 
-        assert!(safe_values.word_is_safe(word_fact.word(), SafeValueQuery::Argv));
+        assert!(safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
     }
 
     #[test]
@@ -1556,7 +1572,7 @@ printf '%s\\n' $pkgname
             })
             .expect("expected imported command argument fact");
 
-        assert!(!safe_values.word_is_safe(word_fact.word(), SafeValueQuery::Argv));
+        assert!(!safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
     }
 
     #[test]
@@ -1582,7 +1598,7 @@ bash ${debug:+\"-x\"} script
             })
             .expect("expected replacement-operator command argument fact");
 
-        assert!(safe_values.word_is_safe(word_fact.word(), SafeValueQuery::Argv));
+        assert!(safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
     }
 
     #[test]
@@ -1608,6 +1624,6 @@ printf '%s\\n' ${debug:+\"a b\"}
             })
             .expect("expected replacement-operator command argument fact");
 
-        assert!(safe_values.word_is_safe(word_fact.word(), SafeValueQuery::Argv));
+        assert!(safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
     }
 }

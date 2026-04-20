@@ -58,7 +58,7 @@ fn binding_assignment_value_context(binding: &Binding) -> Option<WordFactContext
 fn uses_array_to_scalar_conversion_pattern(
     checker: &Checker<'_>,
     binding: &Binding,
-    value_fact: &crate::WordFact<'_>,
+    value_fact: crate::WordOccurrenceRef<'_, '_>,
 ) -> bool {
     value_fact
         .array_expansion_spans()

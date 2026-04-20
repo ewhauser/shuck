@@ -80,14 +80,13 @@ fn collect_conditional_spans(conditional: &crate::ConditionalFact<'_>, source: &
         .collect()
 }
 
-fn word_fact_tilde_span(fact: &crate::WordFact<'_>, source: &str) -> Option<Span> {
+fn word_fact_tilde_span(fact: crate::WordOccurrenceRef<'_, '_>, source: &str) -> Option<Span> {
     let classification = fact.classification();
     (classification.quote != WordQuote::Unquoted && classification.is_fixed_literal())
         .then(|| {
-            let word = fact.word();
             fact.static_text()
                 .filter(|text| text.starts_with("~/"))
-                .and_then(|_| quoted_tilde_span(word.span, source))
+                .and_then(|_| quoted_tilde_span(fact.span(), source))
         })
         .flatten()
 }
