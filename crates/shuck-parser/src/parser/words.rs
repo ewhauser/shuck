@@ -5199,7 +5199,10 @@ impl<'a> Parser<'a> {
                     if !Span::from_positions(part_start, *cursor)
                         .slice(self.input)
                         .ends_with('}')
-                        && self.input[cursor.offset..].starts_with('}')
+                        && self
+                            .input
+                            .get(cursor.offset..)
+                            .is_some_and(|rest| rest.starts_with('}'))
                     {
                         cursor.advance('}');
                     }

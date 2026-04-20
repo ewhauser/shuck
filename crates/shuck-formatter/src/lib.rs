@@ -402,6 +402,15 @@ mod tests {
     }
 
     #[test]
+    fn preserves_quoted_heredoc_delimiters_idempotently() {
+        assert_idempotent(
+            "cat <<'EOF_264'\ndelta\nEOF_264\n",
+            Some(Path::new("quoted_heredoc.sh")),
+            &ShellFormatOptions::default(),
+        );
+    }
+
+    #[test]
     fn formats_decl_heredoc_heads_structurally() {
         let formatted = format_source(
             "declare -x foo=1<<EOF\nhi\nEOF\n",
@@ -1424,10 +1433,68 @@ print hidden &!
     }
 
     #[test]
+    fn preserves_blank_lines_after_multiline_subshells_idempotently() {
+        assert_idempotent(
+            "(\n\techo hi\n)\n\nfoo() {\n\techo bye\n}\n",
+            Some(Path::new("multiline_subshell_gap.sh")),
+            &ShellFormatOptions::default(),
+        );
+    }
+
+    #[test]
+    fn preserves_blank_lines_after_multiline_brace_groups_idempotently() {
+        assert_idempotent(
+            "{\n\techo hi\n}\n\nfoo() {\n\techo bye\n}\n",
+            Some(Path::new("multiline_brace_gap.sh")),
+            &ShellFormatOptions::default(),
+        );
+    }
+
+    #[test]
+    fn preserves_shebang_spacing_before_nested_multiline_groups_idempotently() {
+        assert_idempotent(
+            "#!/usr/bin/env bash\n\n(\n\t(\n\t\techo hi\n\t)\n)\n",
+            Some(Path::new("shebang_nested_groups.bash")),
+            &ShellFormatOptions::default(),
+        );
+    }
+
+    #[test]
     fn preserves_legacy_bracket_arithmetic_idempotently() {
         assert_idempotent(
             "#!/bin/sh\n\ni=$[$i+1]\n",
             Some(Path::new("legacy_bracket_arithmetic.sh")),
+            &ShellFormatOptions::default(),
+        );
+    }
+
+    #[test]
+    fn invalid_shebang_like_line_does_not_move_off_the_first_line() {
+        let source = "#!/bin/bash<echo hi # note\n";
+        let formatted = match format_source(
+            source,
+            Some(Path::new("fuzz.sh")),
+            &ShellFormatOptions::default(),
+        )
+        .unwrap()
+        {
+            FormattedSource::Unchanged => source.to_string(),
+            FormattedSource::Formatted(formatted) => formatted,
+        };
+
+        assert_eq!(formatted, source);
+    }
+
+    #[test]
+    fn preserves_conditional_words_that_look_like_unary_operators() {
+        assert_idempotent(
+            "[[ -n]]\n",
+            Some(Path::new("fuzz.bash")),
+            &ShellFormatOptions::default(),
+        );
+        assert_idempotent(
+            "[[ ! -n]]\n",
+            Some(Path::new("fuzz.bash")),
             &ShellFormatOptions::default(),
         );
     }

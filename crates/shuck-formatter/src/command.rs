@@ -2153,7 +2153,8 @@ pub(crate) fn group_attachment_span(
 ) -> Option<Span> {
     let source = source_map.source();
     let first = commands.first()?;
-    let open_offset = source[..stmt_span(first).start.offset].rfind(open)?;
+    let open_offset =
+        source[..stmt_group_attachment_start_offset(first, source_map)].rfind(open)?;
     let sequence_end = commands
         .last()
         .and_then(|_| {
@@ -2168,6 +2169,26 @@ pub(crate) fn group_attachment_span(
         .map(|offset| offset + close.len_utf8())
         .unwrap_or(sequence_end);
     Some(source_map.span_for_offsets(open_offset, end))
+}
+
+fn stmt_group_attachment_start_offset(
+    stmt: &Stmt,
+    source_map: &crate::comments::SourceMap<'_>,
+) -> usize {
+    let source = source_map.source();
+    match &stmt.command {
+        Command::Compound(CompoundCommand::BraceGroup(commands)) => {
+            group_attachment_span(commands.as_slice(), source_map, '{', '}')
+                .map(|span| span.start.offset)
+                .unwrap_or_else(|| stmt_verbatim_span(stmt, source).start.offset)
+        }
+        Command::Compound(CompoundCommand::Subshell(commands)) => {
+            group_attachment_span(commands.as_slice(), source_map, '(', ')')
+                .map(|span| span.start.offset)
+                .unwrap_or_else(|| stmt_verbatim_span(stmt, source).start.offset)
+        }
+        _ => stmt_verbatim_span(stmt, source).start.offset,
+    }
 }
 
 fn find_group_close_offset(source: &str, sequence_end: usize, close: char) -> Option<usize> {
@@ -2459,12 +2480,31 @@ pub(crate) fn rendered_stmt_end_line(
     source: &str,
     source_map: &crate::comments::SourceMap<'_>,
 ) -> usize {
-    let span = match &stmt.command {
-        Command::Function(_) | Command::AnonymousFunction(_) => stmt_span(stmt),
-        _ if has_heredoc(stmt) => stmt_verbatim_span(stmt, source),
-        _ => stmt_format_span(stmt),
-    };
-    span_render_end_line(span, source, source_map)
+    match &stmt.command {
+        Command::Function(_) | Command::AnonymousFunction(_) => {
+            span_render_end_line(stmt_span(stmt), source, source_map)
+        }
+        _ if has_heredoc(stmt) => {
+            span_render_end_line(stmt_verbatim_span(stmt, source), source, source_map)
+        }
+        Command::Compound(CompoundCommand::Subshell(_) | CompoundCommand::BraceGroup(_)) => {
+            let end_line = span_render_end_line(stmt_format_span(stmt), source, source_map);
+            let close = match &stmt.command {
+                Command::Compound(CompoundCommand::Subshell(_)) => ')',
+                Command::Compound(CompoundCommand::BraceGroup(_)) => '}',
+                _ => unreachable!("only group compounds reach this branch"),
+            };
+            let close_line =
+                find_group_close_offset(source, stmt_format_span(stmt).end.offset, close)
+                    .map(|offset| source_map.line_number_for_offset(offset));
+            if close_line.is_some_and(|line| line > end_line) {
+                end_line + 1
+            } else {
+                end_line
+            }
+        }
+        _ => span_render_end_line(stmt_format_span(stmt), source, source_map),
+    }
 }
 
 pub(crate) fn span_render_end_line(

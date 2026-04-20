@@ -3567,3 +3567,19 @@ fn test_parse_zsh_midfile_setopt_ignore_braces_disables_brace_syntax_collection(
     let command = expect_simple(&output.file.body[1]);
     assert!(command.args[0].brace_syntax.is_empty());
 }
+
+#[test]
+fn test_parse_coproc_with_non_plain_name_candidate_defaults_to_coproc_name() {
+    let source = "coproc 'roc' cat\n";
+    let output = Parser::new(source).parse().unwrap().file;
+
+    let (compound, _) = expect_compound(&output.body[0]);
+    let AstCompoundCommand::Coproc(command) = compound else {
+        panic!("expected coproc command");
+    };
+
+    assert_eq!(command.name.as_str(), "COPROC");
+    let simple = expect_simple(command.body.as_ref());
+    assert_eq!(simple.name.render_syntax(source), "'roc'");
+    assert_eq!(simple.args[0].render(source), "cat");
+}
