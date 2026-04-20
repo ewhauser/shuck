@@ -2368,7 +2368,15 @@ impl<'a> WordFactCollector<'a> {
         owner_name_span: Option<Span>,
     ) -> bool {
         let binding = self.semantic.binding(binding_id);
-        if owner_name_span.is_some_and(|owner_span| binding.span == owner_span) {
+        if owner_name_span.is_some_and(|owner_span| binding.span == owner_span)
+            && matches!(
+                binding.kind,
+                shuck_semantic::BindingKind::Assignment
+                    | shuck_semantic::BindingKind::AppendAssignment
+                    | shuck_semantic::BindingKind::ArrayAssignment
+                    | shuck_semantic::BindingKind::ArithmeticAssignment
+            )
+        {
             return false;
         }
         if binding.scope != current_scope || binding.attributes.contains(BindingAttributes::LOCAL) {

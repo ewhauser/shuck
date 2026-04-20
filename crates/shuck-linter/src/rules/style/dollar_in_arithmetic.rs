@@ -269,6 +269,17 @@ main
     }
 
     #[test]
+    fn ignores_associative_declaration_initializer_subscripts() {
+        let source = "\
+#!/bin/bash
+declare -A map=([$key]=1)
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn reports_nested_arithmetic_in_array_access_subscripts() {
         let source = "\
 #!/bin/bash

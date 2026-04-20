@@ -1285,6 +1285,24 @@ main
 }
 
 #[test]
+fn ignores_associative_declaration_initializer_subscripts_for_dollar_in_arithmetic() {
+    let source = "\
+#!/bin/bash
+declare -A map=([$key]=1)
+";
+
+    with_facts(source, None, |_, facts| {
+        let spans = facts
+            .dollar_in_arithmetic_spans()
+            .iter()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert!(spans.is_empty(), "unexpected spans: {spans:?}");
+    });
+}
+
+#[test]
 fn collects_dollar_spans_for_nested_arithmetic_in_array_access_subscripts() {
     let source = "\
 #!/bin/bash
