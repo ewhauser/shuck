@@ -1,4 +1,7 @@
 reviewed_divergences:
   - side: shuck-only
-    rule_wide: true
+    path_contains: "SlackBuildsOrg__slackbuilds__"
+    reason: "S063 intentionally keeps flagging deep `../` symlink targets on literal `ln -s` operands, while the pinned ShellCheck oracle currently emits no matching diagnostics for this warning family."
+  - side: shuck-only
+    path_contains: "termux__termux-packages__"
     reason: "S063 intentionally keeps flagging deep `../` symlink targets on literal `ln -s` operands, while the pinned ShellCheck oracle currently emits no matching diagnostics for this warning family."
