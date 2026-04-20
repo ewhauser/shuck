@@ -101,6 +101,8 @@ ssh \"$host\" cmd \"$HOME\"
 ssh host -t \"echo $HOME\"
 ssh host ls -l \"$HOME\"
 ssh host cmd --flag \"$HOME\"
+ssh host cmd \"--flag\" \"$HOME\"
+ssh host cmd '-t' \"$USER\"
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SshLocalExpansion));
 

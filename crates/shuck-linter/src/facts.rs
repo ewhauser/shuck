@@ -15834,6 +15834,11 @@ fn word_starts_with_literal_dash(word: &Word, source: &str) -> bool {
     )
 }
 
+fn word_starts_with_static_or_literal_dash(word: &Word, source: &str) -> bool {
+    static_word_text(word, source).is_some_and(|text| text.starts_with('-'))
+        || word_starts_with_literal_dash(word, source)
+}
+
 fn parse_rm_command(args: &[&Word], source: &str) -> Option<RmCommandFacts> {
     let mut index = 0usize;
     let mut recursive = false;
@@ -15882,7 +15887,7 @@ fn parse_ssh_command(args: &[&Word], source: &str) -> Option<SshCommandFacts> {
     let (last_remote_arg, leading_remote_args) = remote_args.split_last()?;
     if leading_remote_args
         .iter()
-        .any(|word| word_starts_with_literal_dash(word, source))
+        .any(|word| word_starts_with_static_or_literal_dash(word, source))
     {
         return None;
     }
@@ -21816,6 +21821,8 @@ ssh host \"echo $HOME\"
 ssh -i key host \"echo $PATH\"
 ssh host -t \"echo $PWD\"
 ssh host ls -l \"$TMPDIR\"
+ssh host cmd \"--flag\" \"$HOME\"
+ssh host cmd '-t' \"$USER\"
 ";
 
         with_facts(source, None, |_, facts| {
@@ -21825,7 +21832,7 @@ ssh host ls -l \"$TMPDIR\"
                 .filter(|fact| fact.effective_name_is("ssh") && fact.wrappers().is_empty())
                 .collect::<Vec<_>>();
 
-            assert_eq!(ssh_commands.len(), 5);
+            assert_eq!(ssh_commands.len(), 7);
             assert_eq!(
                 ssh_commands[0]
                     .options()
@@ -21843,6 +21850,8 @@ ssh host ls -l \"$TMPDIR\"
             assert!(ssh_commands[2].options().ssh().is_none());
             assert!(ssh_commands[3].options().ssh().is_none());
             assert!(ssh_commands[4].options().ssh().is_none());
+            assert!(ssh_commands[5].options().ssh().is_none());
+            assert!(ssh_commands[6].options().ssh().is_none());
         });
     }
 
