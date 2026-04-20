@@ -5,8 +5,8 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "A fast shell script linter and formatter"
-keywords = ["shell", "bash", "linter", "formatter", "cli"]
+description = "A fast shell script linter"
+keywords = ["shell", "bash", "linter", "static-analysis", "cli"]
 categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]

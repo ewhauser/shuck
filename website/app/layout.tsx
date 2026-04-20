@@ -30,22 +30,21 @@ export const metadata: Metadata = {
     },
   },
   title: {
-    default: "shuck - A fast shell script linter and formatter",
+    default: "shuck - A fast shell script linter",
     template: "%s | shuck",
   },
   description:
-    "A fast shell script linter and formatter, built in Rust. Checks for correctness, portability, and style issues in shell scripts.",
+    "A fast shell script linter, built in Rust. Checks for correctness, portability, and style issues in shell scripts.",
   openGraph: {
-    title: "shuck - A fast shell script linter and formatter",
+    title: "shuck - A fast shell script linter",
     description:
-      "A fast shell script linter and formatter, built in Rust. Checks for correctness, portability, and style issues in shell scripts.",
+      "A fast shell script linter, built in Rust. Checks for correctness, portability, and style issues in shell scripts.",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
     title: "shuck",
-    description:
-      "A fast shell script linter and formatter, built in Rust.",
+    description: "A fast shell script linter, built in Rust.",
   },
 };
 

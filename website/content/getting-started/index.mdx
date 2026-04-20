@@ -1,12 +1,11 @@
 # Getting Started
 
-An extremely fast shell script linter and formatter, written in Rust.
+An extremely fast shell script linter, written in Rust.
 
 - ⚡ 20x faster than ShellCheck, with built-in caching for incremental runs
 - 🐚 Multi-dialect support for bash, sh/POSIX, dash, ksh, mksh, and zsh
 - 🤝 ShellCheck suppression compatibility (`# shellcheck disable=SC2086` just works)
 - 🔧 Fix support, for automatic error correction (`--fix` and `--unsafe-fixes`)
-- 🎨 Built-in formatter with configurable indentation, operator placement, and layout
 - 📏 Rules across correctness, style, performance, and portability categories
 - 💾 Per-file caching to avoid re-analyzing unchanged files
 - 📦 Single binary, zero dependencies
@@ -39,25 +38,4 @@ echo 'echo $foo' | shuck check -
 
 # Apply safe fixes automatically
 shuck check --fix .
-
-# Format files in-place
-shuck format .
-
-# Check formatting without modifying files
-shuck format --check .
-```
-
-## Configuration
-
-Create a `.shuck.toml` or `shuck.toml` at your project root:
-
-```toml
-[format]
-indent-style = "space"     # tab | space
-indent-width = 4           # 1-255, used when indent-style = "space"
-binary-next-line = false   # place binary operators on the next line
-switch-case-indent = false # indent case branch bodies
-space-redirects = false    # spaces around redirect operators
-keep-padding = false       # preserve original source padding
-function-next-line = false # opening brace on its own line
 ```

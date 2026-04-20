@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import json
+import os
 import random
 import shlex
 import subprocess
@@ -36,6 +37,7 @@ LITERALS: Final = [
 ]
 VARIABLES: Final = ["foo", "bar", "baz", "count", "path", "item", "name", "value"]
 COMMANDS: Final = ["echo", "printf", "true", "false", "test", "cat", "grep", "mkdir"]
+EXPERIMENTAL_FORMAT_ENV: Final = {"SHUCK_EXPERIMENTAL": "1"}
 
 
 @dataclass(frozen=True)
@@ -89,6 +91,7 @@ def run_command(
     cwd: Path,
     timeout: float,
     input_text: str | None = None,
+    env: dict[str, str] | None = None,
 ) -> CommandResult:
     try:
         completed = subprocess.run(
@@ -98,6 +101,7 @@ def run_command(
             text=True,
             input=input_text,
             timeout=timeout,
+            env=(os.environ | env) if env is not None else None,
         )
     except subprocess.TimeoutExpired as error:
         return CommandResult(
@@ -368,6 +372,7 @@ def evaluate_bug(
             cwd=Path.cwd(),
             timeout=config.timeout,
             input_text=script,
+            env=EXPERIMENTAL_FORMAT_ENV,
         )
         commands.append(format_result)
         bug = classify_command_failure(format_result, allowed_returncodes={0})
@@ -381,6 +386,7 @@ def evaluate_bug(
             cwd=Path.cwd(),
             timeout=config.timeout,
             input_text=formatted,
+            env=EXPERIMENTAL_FORMAT_ENV,
         )
         commands.append(reformatted_result)
         bug = classify_command_failure(reformatted_result, allowed_returncodes={0})
@@ -403,6 +409,7 @@ def evaluate_bug(
             cwd=Path.cwd(),
             timeout=config.timeout,
             input_text=reformatted_result.stdout,
+            env=EXPERIMENTAL_FORMAT_ENV,
         )
         commands.append(format_check_result)
         bug = classify_command_failure(format_check_result, allowed_returncodes={0})
@@ -520,7 +527,7 @@ def save_failure(report: FailureReport) -> Path:
               {shlex.join([report.failing_command[0], 'check', '--no-cache', repro_path.name])}
 
             Run format:
-              {shlex.join([report.failing_command[0], 'format', '--no-cache', '--stdin-filename', repro_path.name, '-'])} < {repro_path.name}
+              SHUCK_EXPERIMENTAL=1 {shlex.join([report.failing_command[0], 'format', '--no-cache', '--stdin-filename', repro_path.name, '-'])} < {repro_path.name}
             """
         )
     )

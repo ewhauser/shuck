@@ -1,7 +1,9 @@
+use std::ffi::OsString;
 use std::path::PathBuf;
 
 use clap::builder::Styles;
 use clap::builder::styling::{AnsiColor, Effects};
+use clap::error::ErrorKind;
 use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
 use shuck_formatter::{IndentStyle, ShellDialect};
 
@@ -12,6 +14,7 @@ const STYLES: Styles = Styles::styled()
     .usage(AnsiColor::Green.on_default().effects(Effects::BOLD))
     .literal(AnsiColor::Cyan.on_default().effects(Effects::BOLD))
     .placeholder(AnsiColor::Cyan.on_default());
+const EXPERIMENTAL_ENV_VAR: &str = "SHUCK_EXPERIMENTAL";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum FormatDialectArg {
@@ -59,15 +62,118 @@ pub enum CheckOutputFormatArg {
 #[command(name = "shuck")]
 #[command(about = "Shell checker CLI for shuck")]
 #[command(styles = STYLES)]
-pub struct Args {
+struct StableCli {
+    #[command(flatten)]
+    global: GlobalArgs,
+    #[command(subcommand)]
+    command: StableCommand,
+}
+
+#[derive(Debug, Parser)]
+#[command(name = "shuck")]
+#[command(about = "Shell checker CLI for shuck")]
+#[command(styles = STYLES)]
+struct ExperimentalCli {
+    #[command(flatten)]
+    global: GlobalArgs,
+    #[command(subcommand)]
+    command: ExperimentalCommand,
+}
+
+#[derive(Debug, Clone, ClapArgs)]
+struct GlobalArgs {
     /// Path to the cache directory.
     #[arg(long, env = "SHUCK_CACHE_DIR", global = true, value_name = "PATH")]
-    pub cache_dir: Option<PathBuf>,
-    #[command(subcommand)]
-    pub command: Command,
+    cache_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Subcommand)]
+enum StableCommand {
+    /// Parse shell files and report syntax failures.
+    Check(CheckCommand),
+    #[command(hide = true)]
+    Format(FormatCommand),
+    /// Remove shuck caches under the provided paths.
+    Clean(CleanCommand),
+}
+
+#[derive(Debug, Subcommand)]
+enum ExperimentalCommand {
+    /// Parse shell files and report syntax failures.
+    Check(CheckCommand),
+    /// Format shell files.
+    Format(FormatCommand),
+    /// Remove shuck caches under the provided paths.
+    Clean(CleanCommand),
+}
+
+#[derive(Debug, Clone)]
+pub struct Args {
+    pub cache_dir: Option<PathBuf>,
+    pub command: Command,
+}
+
+impl Args {
+    pub fn parse() -> Self {
+        Self::try_parse().unwrap_or_else(|err| err.exit())
+    }
+
+    pub fn try_parse() -> Result<Self, clap::Error> {
+        Self::try_parse_from(std::env::args_os())
+    }
+
+    pub fn try_parse_from<I, T>(itr: I) -> Result<Self, clap::Error>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<OsString> + Clone,
+    {
+        if experimental_enabled() {
+            ExperimentalCli::try_parse_from(itr).map(Into::into)
+        } else {
+            let parsed = StableCli::try_parse_from(itr)?;
+            Self::from_stable(parsed)
+        }
+    }
+}
+
+impl Args {
+    fn from_stable(value: StableCli) -> Result<Self, clap::Error> {
+        let command = match value.command {
+            StableCommand::Check(command) => Command::Check(command),
+            StableCommand::Format(_) => {
+                return Err(clap::Error::raw(
+                    ErrorKind::InvalidSubcommand,
+                    format!(
+                        "the `format` subcommand is experimental; set {EXPERIMENTAL_ENV_VAR}=1 to enable it"
+                    ),
+                ));
+            }
+            StableCommand::Clean(command) => Command::Clean(command),
+        };
+
+        Ok(Self {
+            cache_dir: value.global.cache_dir,
+            command,
+        })
+    }
+}
+
+impl From<ExperimentalCli> for Args {
+    fn from(value: ExperimentalCli) -> Self {
+        let command = match value.command {
+            ExperimentalCommand::Check(command) => Command::Check(command),
+            ExperimentalCommand::Format(command) => Command::Format(command),
+            ExperimentalCommand::Clean(command) => Command::Clean(command),
+        };
+
+        Self {
+            cache_dir: value.global.cache_dir,
+            command,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Subcommand)]
 pub enum Command {
     /// Parse shell files and report syntax failures.
     Check(CheckCommand),
@@ -75,6 +181,15 @@ pub enum Command {
     Format(FormatCommand),
     /// Remove shuck caches under the provided paths.
     Clean(CleanCommand),
+}
+
+fn experimental_enabled() -> bool {
+    std::env::var_os(EXPERIMENTAL_ENV_VAR).is_some_and(|value| {
+        !matches!(
+            value.to_string_lossy().trim().to_ascii_lowercase().as_str(),
+            "" | "0" | "false" | "no" | "off"
+        )
+    })
 }
 
 #[derive(Debug, Clone, ClapArgs)]
