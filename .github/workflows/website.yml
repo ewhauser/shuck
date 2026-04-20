@@ -3,12 +3,12 @@ name: Website
 on:
   push:
     branches: [main]
-    paths:
-      - "website/**"
-      - ".github/workflows/website.yml"
   pull_request:
     paths:
       - "website/**"
+      - "scripts/benchmarks/**"
+      - "crates/shuck-benchmark/resources/**"
+      - "Makefile"
       - ".github/workflows/website.yml"
 
 permissions:
@@ -48,7 +48,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
     permissions:
       contents: read
       pages: write
@@ -63,6 +63,45 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install Rust toolchain
+        run: rustup show
+
+      - name: Install benchmark dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y hyperfine shellcheck
+
+      - name: Generate CI benchmark snapshot
+        id: benchmark_snapshot
+        continue-on-error: true
+        working-directory: ${{ github.workspace }}
+        env:
+          SHUCK_BENCHMARK_OUTPUT_DIR: ${{ runner.temp }}/website-benchmarks
+        run: |
+          mkdir -p "$SHUCK_BENCHMARK_OUTPUT_DIR"
+          ./scripts/benchmarks/setup.sh hyperfine shellcheck
+          ./scripts/benchmarks/run.sh
+          python3 ./scripts/benchmarks/export_website_data.py \
+            --repo-root . \
+            --bench-dir "$SHUCK_BENCHMARK_OUTPUT_DIR" \
+            --output website/generated/benchmarks/ci-latest.json \
+            --dataset-id ci-latest \
+            --dataset-name "GitHub Actions latest main snapshot" \
+            --dataset-description "Regenerated during the GitHub Pages deploy on the latest main commit." \
+            --environment-kind ci \
+            --environment-label "GitHub Actions ubuntu-latest" \
+            --source-command "make bench-macro" \
+            --notes "This snapshot is rebuilt during every Pages deploy from the current main commit." \
+            --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+      - name: Note benchmark fallback
+        if: steps.benchmark_snapshot.outcome != 'success'
+        run: echo "Benchmark generation failed; building the site with the checked-in fallback JSON."
 
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
         with:

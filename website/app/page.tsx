@@ -50,6 +50,12 @@ export default function Home() {
               >
                 Docs
               </Link>
+              <Link
+                href="/docs/performance/benchmarks"
+                className="text-accent hover:underline"
+              >
+                Benchmarks
+              </Link>
               <a
                 href="https://github.com/ewhauser/shuck"
                 className="text-accent hover:underline"

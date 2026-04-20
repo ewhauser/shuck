@@ -12,6 +12,12 @@ export const docsNavigation: NavItem[] = [
     ],
   },
   {
+    title: "Performance",
+    items: [
+      { title: "Benchmarks", href: "/docs/performance/benchmarks" },
+    ],
+  },
+  {
     title: "Rules",
     items: [
       { title: "All Rules", href: "/docs/rules" },
