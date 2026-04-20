@@ -1,0 +1,486 @@
+{
+  "schemaVersion": 1,
+  "available": true,
+  "id": "local-m5-max",
+  "name": "Apple M5 Max checked-in snapshot",
+  "description": "Checked-in make bench-macro results captured on an Apple M5 Max macOS development machine.",
+  "generatedAt": "2026-04-20T17:18:44Z",
+  "commit": {
+    "sha": "919615be9bf12ddb67b0d94ad933a70fc4ca38e1",
+    "shortSha": "919615b"
+  },
+  "links": {
+    "repositoryUrl": "https://github.com/ewhauser/shuck",
+    "commitUrl": "https://github.com/ewhauser/shuck/commit/919615be9bf12ddb67b0d94ad933a70fc4ca38e1",
+    "runUrl": null
+  },
+  "environment": {
+    "kind": "local",
+    "label": "Apple M5 Max macOS snapshot",
+    "os": "macOS 26.4",
+    "arch": "arm64",
+    "cpu": "Apple M5 Max",
+    "python": "3.13.12"
+  },
+  "toolVersions": {
+    "shuck": "shuck 0.0.8",
+    "hyperfine": "hyperfine 1.20.0",
+    "shellcheck": "0.11.0"
+  },
+  "methodology": {
+    "benchmarkCommand": "make bench-macro",
+    "benchmarkMode": "compare",
+    "warmupRuns": 3,
+    "measuredRuns": 10,
+    "ignoreFailure": true,
+    "shuckCommand": "shuck check --no-cache <fixture>",
+    "comparisonCommand": "shellcheck --severity=style <fixture>",
+    "notes": "Regenerate this checked-in snapshot on the Apple M5 Max machine when you want to refresh the website's local reference numbers."
+  },
+  "corpus": {
+    "fixtureCount": 5,
+    "totalBytes": 325662,
+    "totalLines": 10671,
+    "fixtures": [
+      {
+        "slug": "homebrew-install",
+        "name": "homebrew-install",
+        "fileName": "homebrew-install.sh",
+        "path": "files/homebrew-install.sh",
+        "bytes": 33212,
+        "lines": 1175,
+        "upstreamRepo": "Homebrew/install",
+        "upstreamPath": "install.sh",
+        "sourceUrl": "https://raw.githubusercontent.com/Homebrew/install/6d5e2670d07961e7985d2079a2f0a484420f3c38/install.sh",
+        "license": "BSD-2-Clause",
+        "commit": "6d5e2670d07961e7985d2079a2f0a484420f3c38",
+        "commitShort": "6d5e267"
+      },
+      {
+        "slug": "nvm",
+        "name": "nvm",
+        "fileName": "nvm.sh",
+        "path": "files/nvm.sh",
+        "bytes": 150227,
+        "lines": 4661,
+        "upstreamRepo": "nvm-sh/nvm",
+        "upstreamPath": "nvm.sh",
+        "sourceUrl": "https://raw.githubusercontent.com/nvm-sh/nvm/977563e97ddc66facf3a8e31c6cff01d236f09bd/nvm.sh",
+        "license": "MIT",
+        "commit": "977563e97ddc66facf3a8e31c6cff01d236f09bd",
+        "commitShort": "977563e"
+      },
+      {
+        "slug": "pyenv-python-build",
+        "name": "pyenv-python-build",
+        "fileName": "pyenv-python-build.sh",
+        "path": "files/pyenv-python-build.sh",
+        "bytes": 81725,
+        "lines": 2740,
+        "upstreamRepo": "pyenv/pyenv",
+        "upstreamPath": "plugins/python-build/bin/python-build",
+        "sourceUrl": "https://raw.githubusercontent.com/pyenv/pyenv/8397a19c6467d11509dbd741cf0528f9a68a5541/plugins/python-build/bin/python-build",
+        "license": "MIT",
+        "commit": "8397a19c6467d11509dbd741cf0528f9a68a5541",
+        "commitShort": "8397a19"
+      },
+      {
+        "slug": "ruby-build",
+        "name": "ruby-build",
+        "fileName": "ruby-build.sh",
+        "path": "files/ruby-build.sh",
+        "bytes": 47738,
+        "lines": 1643,
+        "upstreamRepo": "rbenv/ruby-build",
+        "upstreamPath": "bin/ruby-build",
+        "sourceUrl": "https://raw.githubusercontent.com/rbenv/ruby-build/d099da05144d9f703c27cadd7b710f35f15dfadb/bin/ruby-build",
+        "license": "MIT",
+        "commit": "d099da05144d9f703c27cadd7b710f35f15dfadb",
+        "commitShort": "d099da0"
+      },
+      {
+        "slug": "fzf-install",
+        "name": "fzf-install",
+        "fileName": "fzf-install.sh",
+        "path": "files/fzf-install.sh",
+        "bytes": 12760,
+        "lines": 452,
+        "upstreamRepo": "junegunn/fzf",
+        "upstreamPath": "install",
+        "sourceUrl": "https://raw.githubusercontent.com/junegunn/fzf/55d5b153e627784fa43982fa3c01d0ab86ef0224/install",
+        "license": "MIT",
+        "commit": "55d5b153e627784fa43982fa3c01d0ab86ef0224",
+        "commitShort": "55d5b15"
+      }
+    ]
+  },
+  "summary": {
+    "aggregateCase": "all",
+    "primaryTool": "shuck",
+    "comparisonTool": "shellcheck",
+    "shuckMeanSeconds": 0.056213762420000014,
+    "comparisonMeanSeconds": 7.946037716719999,
+    "speedupRatio": 141.35395630257472,
+    "timeSavedPct": 99.29255605845269
+  },
+  "cases": [
+    {
+      "slug": "all",
+      "name": "all",
+      "kind": "aggregate",
+      "bytes": 325662,
+      "lines": 10671,
+      "fixtureCount": 5,
+      "measurements": [
+        {
+          "tool": "shuck",
+          "command": "shuck/all",
+          "meanSeconds": 0.056213762420000014,
+          "stddevSeconds": 0.0009287319787439515,
+          "medianSeconds": 0.05612473332000001,
+          "minSeconds": 0.054845733320000006,
+          "maxSeconds": 0.058142025320000006,
+          "userSeconds": 0.09534656,
+          "systemSeconds": 0.016890179999999998,
+          "meanMemoryBytes": 101379276,
+          "maxMemoryBytes": 101711872,
+          "runCount": 10,
+          "exitCodes": [
+            1
+          ],
+          "hasFailures": true,
+          "relativeToShuck": 1.0
+        },
+        {
+          "tool": "shellcheck",
+          "command": "shellcheck/all",
+          "meanSeconds": 7.946037716719999,
+          "stddevSeconds": 0.5598110359003017,
+          "medianSeconds": 7.80453008732,
+          "minSeconds": 7.56744777532,
+          "maxSeconds": 9.506410025320001,
+          "userSeconds": 7.609177959999999,
+          "systemSeconds": 0.27072988000000003,
+          "meanMemoryBytes": 2751666585,
+          "maxMemoryBytes": 2751676416,
+          "runCount": 10,
+          "exitCodes": [
+            1
+          ],
+          "hasFailures": true,
+          "relativeToShuck": 141.35395630257472
+        }
+      ]
+    },
+    {
+      "slug": "homebrew-install",
+      "name": "homebrew-install",
+      "kind": "fixture",
+      "bytes": 33212,
+      "lines": 1175,
+      "fixtureCount": 1,
+      "measurements": [
+        {
+          "tool": "shuck",
+          "command": "shuck/homebrew-install",
+          "meanSeconds": 0.00899187172,
+          "stddevSeconds": 0.00015129288149443406,
+          "medianSeconds": 0.008989342720000001,
+          "minSeconds": 0.00875532172,
+          "maxSeconds": 0.009195237720000003,
+          "userSeconds": 0.006397959999999999,
+          "systemSeconds": 0.00389644,
+          "meanMemoryBytes": 17096704,
+          "maxMemoryBytes": 17186816,
+          "runCount": 10,
+          "exitCodes": [
+            1
+          ],
+          "hasFailures": true,
+          "relativeToShuck": 1.0
+        },
+        {
+          "tool": "shellcheck",
+          "command": "shellcheck/homebrew-install",
+          "meanSeconds": 0.31254444251999997,
+          "stddevSeconds": 0.005089874250405611,
+          "medianSeconds": 0.30988957172,
+          "minSeconds": 0.30858390572,
+          "maxSeconds": 0.32225952972000005,
+          "userSeconds": 0.29094826000000007,
+          "systemSeconds": 0.013478239999999999,
+          "meanMemoryBytes": 177356800,
+          "maxMemoryBytes": 177356800,
+          "runCount": 10,
+          "exitCodes": [
+            0
+          ],
+          "hasFailures": false,
+          "relativeToShuck": 34.75855219607158
+        }
+      ],
+      "fixture": {
+        "slug": "homebrew-install",
+        "name": "homebrew-install",
+        "fileName": "homebrew-install.sh",
+        "path": "files/homebrew-install.sh",
+        "bytes": 33212,
+        "lines": 1175,
+        "upstreamRepo": "Homebrew/install",
+        "upstreamPath": "install.sh",
+        "sourceUrl": "https://raw.githubusercontent.com/Homebrew/install/6d5e2670d07961e7985d2079a2f0a484420f3c38/install.sh",
+        "license": "BSD-2-Clause",
+        "commit": "6d5e2670d07961e7985d2079a2f0a484420f3c38",
+        "commitShort": "6d5e267"
+      }
+    },
+    {
+      "slug": "nvm",
+      "name": "nvm",
+      "kind": "fixture",
+      "bytes": 150227,
+      "lines": 4661,
+      "fixtureCount": 1,
+      "measurements": [
+        {
+          "tool": "shuck",
+          "command": "shuck/nvm",
+          "meanSeconds": 0.0457354292,
+          "stddevSeconds": 0.0005677667589407165,
+          "medianSeconds": 0.0458767626,
+          "minSeconds": 0.0446732006,
+          "maxSeconds": 0.0464433246,
+          "userSeconds": 0.039100539999999996,
+          "systemSeconds": 0.00672812,
+          "meanMemoryBytes": 62031462,
+          "maxMemoryBytes": 62144512,
+          "runCount": 10,
+          "exitCodes": [
+            1
+          ],
+          "hasFailures": true,
+          "relativeToShuck": 1.0
+        },
+        {
+          "tool": "shellcheck",
+          "command": "shellcheck/nvm",
+          "meanSeconds": 6.9354836333000005,
+          "stddevSeconds": 0.11518877389945285,
+          "medianSeconds": 6.927159179099999,
+          "minSeconds": 6.8097798246,
+          "maxSeconds": 7.1088154086,
+          "userSeconds": 6.64578834,
+          "systemSeconds": 0.25519751999999996,
+          "meanMemoryBytes": 2828140544,
+          "maxMemoryBytes": 2828140544,
+          "runCount": 10,
+          "exitCodes": [
+            1
+          ],
+          "hasFailures": true,
+          "relativeToShuck": 151.64356724348835
+        }
+      ],
+      "fixture": {
+        "slug": "nvm",
+        "name": "nvm",
+        "fileName": "nvm.sh",
+        "path": "files/nvm.sh",
+        "bytes": 150227,
+        "lines": 4661,
+        "upstreamRepo": "nvm-sh/nvm",
+        "upstreamPath": "nvm.sh",
+        "sourceUrl": "https://raw.githubusercontent.com/nvm-sh/nvm/977563e97ddc66facf3a8e31c6cff01d236f09bd/nvm.sh",
+        "license": "MIT",
+        "commit": "977563e97ddc66facf3a8e31c6cff01d236f09bd",
+        "commitShort": "977563e"
+      }
+    },
+    {
+      "slug": "pyenv-python-build",
+      "name": "pyenv-python-build",
+      "kind": "fixture",
+      "bytes": 81725,
+      "lines": 2740,
+      "fixtureCount": 1,
+      "measurements": [
+        {
+          "tool": "shuck",
+          "command": "shuck/pyenv-python-build",
+          "meanSeconds": 0.025292693319999997,
+          "stddevSeconds": 0.00030118262893321426,
+          "medianSeconds": 0.02523531402,
+          "minSeconds": 0.02489025202,
+          "maxSeconds": 0.02583454302,
+          "userSeconds": 0.020943339999999998,
+          "systemSeconds": 0.004586719999999999,
+          "meanMemoryBytes": 34956902,
+          "maxMemoryBytes": 35045376,
+          "runCount": 10,
+          "exitCodes": [
+            1
+          ],
+          "hasFailures": true,
+          "relativeToShuck": 1.0
+        },
+        {
+          "tool": "shellcheck",
+          "command": "shellcheck/pyenv-python-build",
+          "meanSeconds": 0.033327972520000006,
+          "stddevSeconds": 0.0001556518316380431,
+          "medianSeconds": 0.03330554302000001,
+          "minSeconds": 0.03309187702000001,
+          "maxSeconds": 0.033628585020000004,
+          "userSeconds": 0.017710939999999998,
+          "systemSeconds": 0.0045320199999999995,
+          "meanMemoryBytes": 35045376,
+          "maxMemoryBytes": 35045376,
+          "runCount": 10,
+          "exitCodes": [
+            1
+          ],
+          "hasFailures": true,
+          "relativeToShuck": 1.317691718249957
+        }
+      ],
+      "fixture": {
+        "slug": "pyenv-python-build",
+        "name": "pyenv-python-build",
+        "fileName": "pyenv-python-build.sh",
+        "path": "files/pyenv-python-build.sh",
+        "bytes": 81725,
+        "lines": 2740,
+        "upstreamRepo": "pyenv/pyenv",
+        "upstreamPath": "plugins/python-build/bin/python-build",
+        "sourceUrl": "https://raw.githubusercontent.com/pyenv/pyenv/8397a19c6467d11509dbd741cf0528f9a68a5541/plugins/python-build/bin/python-build",
+        "license": "MIT",
+        "commit": "8397a19c6467d11509dbd741cf0528f9a68a5541",
+        "commitShort": "8397a19"
+      }
+    },
+    {
+      "slug": "ruby-build",
+      "name": "ruby-build",
+      "kind": "fixture",
+      "bytes": 47738,
+      "lines": 1643,
+      "fixtureCount": 1,
+      "measurements": [
+        {
+          "tool": "shuck",
+          "command": "shuck/ruby-build",
+          "meanSeconds": 0.015532289979999999,
+          "stddevSeconds": 0.0002781389001289342,
+          "medianSeconds": 0.015591306580000002,
+          "minSeconds": 0.014956723580000003,
+          "maxSeconds": 0.015951140580000002,
+          "userSeconds": 0.01242422,
+          "systemSeconds": 0.004027659999999999,
+          "meanMemoryBytes": 24802099,
+          "maxMemoryBytes": 24854528,
+          "runCount": 10,
+          "exitCodes": [
+            1
+          ],
+          "hasFailures": true,
+          "relativeToShuck": 1.0
+        },
+        {
+          "tool": "shellcheck",
+          "command": "shellcheck/ruby-build",
+          "meanSeconds": 0.3849325230800001,
+          "stddevSeconds": 0.012766336202273723,
+          "medianSeconds": 0.38390922308000003,
+          "minSeconds": 0.37176668158000004,
+          "maxSeconds": 0.41258251558000003,
+          "userSeconds": 0.36195861999999995,
+          "systemSeconds": 0.01243726,
+          "meanMemoryBytes": 129155072,
+          "maxMemoryBytes": 129155072,
+          "runCount": 10,
+          "exitCodes": [
+            0
+          ],
+          "hasFailures": false,
+          "relativeToShuck": 24.782728340486475
+        }
+      ],
+      "fixture": {
+        "slug": "ruby-build",
+        "name": "ruby-build",
+        "fileName": "ruby-build.sh",
+        "path": "files/ruby-build.sh",
+        "bytes": 47738,
+        "lines": 1643,
+        "upstreamRepo": "rbenv/ruby-build",
+        "upstreamPath": "bin/ruby-build",
+        "sourceUrl": "https://raw.githubusercontent.com/rbenv/ruby-build/d099da05144d9f703c27cadd7b710f35f15dfadb/bin/ruby-build",
+        "license": "MIT",
+        "commit": "d099da05144d9f703c27cadd7b710f35f15dfadb",
+        "commitShort": "d099da0"
+      }
+    },
+    {
+      "slug": "fzf-install",
+      "name": "fzf-install",
+      "kind": "fixture",
+      "bytes": 12760,
+      "lines": 452,
+      "fixtureCount": 1,
+      "measurements": [
+        {
+          "tool": "shuck",
+          "command": "shuck/fzf-install",
+          "meanSeconds": 0.0064536527199999996,
+          "stddevSeconds": 0.00012962550876377166,
+          "medianSeconds": 0.006442411320000001,
+          "minSeconds": 0.00622822332,
+          "maxSeconds": 0.006649890320000001,
+          "userSeconds": 0.0044223199999999995,
+          "systemSeconds": 0.00348754,
+          "meanMemoryBytes": 12599296,
+          "maxMemoryBytes": 12599296,
+          "runCount": 10,
+          "exitCodes": [
+            1
+          ],
+          "hasFailures": true,
+          "relativeToShuck": 1.0
+        },
+        {
+          "tool": "shellcheck",
+          "command": "shellcheck/fzf-install",
+          "meanSeconds": 0.12134578162000001,
+          "stddevSeconds": 0.0003808110910493971,
+          "medianSeconds": 0.12132647332,
+          "minSeconds": 0.12060405632000001,
+          "maxSeconds": 0.12185268132000002,
+          "userSeconds": 0.10003501999999997,
+          "systemSeconds": 0.00672394,
+          "meanMemoryBytes": 60719104,
+          "maxMemoryBytes": 60719104,
+          "runCount": 10,
+          "exitCodes": [
+            1
+          ],
+          "hasFailures": true,
+          "relativeToShuck": 18.802651286758426
+        }
+      ],
+      "fixture": {
+        "slug": "fzf-install",
+        "name": "fzf-install",
+        "fileName": "fzf-install.sh",
+        "path": "files/fzf-install.sh",
+        "bytes": 12760,
+        "lines": 452,
+        "upstreamRepo": "junegunn/fzf",
+        "upstreamPath": "install",
+        "sourceUrl": "https://raw.githubusercontent.com/junegunn/fzf/55d5b153e627784fa43982fa3c01d0ab86ef0224/install",
+        "license": "MIT",
+        "commit": "55d5b153e627784fa43982fa3c01d0ab86ef0224",
+        "commitShort": "55d5b15"
+      }
+    }
+  ]
+}

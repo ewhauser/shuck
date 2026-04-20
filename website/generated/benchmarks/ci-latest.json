@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "available": false,
+  "id": "ci-latest",
+  "name": "GitHub Actions latest main snapshot",
+  "description": "A fresh Linux snapshot is generated during the GitHub Pages deploy on main. Local builds and pull request builds use this placeholder instead.",
+  "generatedAt": "2026-04-20T00:00:00Z",
+  "commit": {
+    "sha": null,
+    "shortSha": null
+  },
+  "links": {
+    "repositoryUrl": "https://github.com/ewhauser/shuck",
+    "commitUrl": null,
+    "runUrl": null
+  },
+  "environment": {
+    "kind": "ci",
+    "label": "GitHub Actions ubuntu-latest",
+    "os": "GitHub Actions",
+    "arch": "x86_64",
+    "cpu": null,
+    "python": "unknown"
+  },
+  "toolVersions": {
+    "shuck": null,
+    "hyperfine": null,
+    "shellcheck": null
+  },
+  "methodology": {
+    "benchmarkCommand": "make bench-macro",
+    "benchmarkMode": "compare",
+    "warmupRuns": 3,
+    "measuredRuns": 10,
+    "ignoreFailure": true,
+    "shuckCommand": "shuck check --no-cache <fixture>",
+    "comparisonCommand": "shellcheck --severity=style <fixture>",
+    "notes": "The website deploy on main overwrites this placeholder with a fresh benchmark snapshot."
+  },
+  "corpus": {
+    "fixtureCount": 0,
+    "totalBytes": 0,
+    "totalLines": 0,
+    "fixtures": []
+  },
+  "summary": null,
+  "cases": []
+}
