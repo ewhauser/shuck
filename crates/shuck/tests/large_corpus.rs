@@ -47,6 +47,15 @@ const LARGE_CORPUS_PROGRESS_BUCKET_COUNT: usize = 100 / LARGE_CORPUS_PROGRESS_PE
 const LARGE_CORPUS_TIMING_LIMIT: usize = 25;
 const RULE_CORPUS_METADATA_DIR: &str = "tests/testdata/corpus-metadata";
 const LARGE_CORPUS_ALLOWED_FAILING_RULE_REASON: &str = "known large-corpus rule allowlist";
+const LARGE_CORPUS_STATIC_IGNORE_SUFFIXES: &[&str] = &[
+    "super-linter__super-linter__test__linters__bash__shell_bad_1.sh",
+    "super-linter__super-linter__test__linters__bash_exec__shell_bad_1.sh",
+    "alpinelinux__aports__community__starship__starship.plugin.zsh",
+];
+const LARGE_CORPUS_STATIC_ZSH_OVERRIDE_SUFFIXES: &[&str] = &[
+    "ohmyzsh__ohmyzsh__oh-my-zsh.sh",
+    "ohmyzsh__ohmyzsh__tools__check_for_upgrade.sh",
+];
 
 const SHELLCHECK_CACHE_SCHEMA: u32 = 2;
 const SHELLCHECK_CACHE_MIGRATION_VERSION: u32 = 1;
@@ -511,29 +520,6 @@ enum CompatibilityClassification {
     ReviewedDivergence,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CorpusNoiseKind {
-    UnsupportedShell,
-    Patch,
-    Fish,
-    ParseAbort,
-    ShellCollapse,
-    InvalidZshFixture,
-}
-
-impl CorpusNoiseKind {
-    fn as_str(&self) -> &'static str {
-        match self {
-            Self::UnsupportedShell => "unsupported-shell",
-            Self::Patch => "patch",
-            Self::Fish => "fish",
-            Self::ParseAbort => "parse-abort",
-            Self::ShellCollapse => "shell-collapse",
-            Self::InvalidZshFixture => "invalid-zsh-fixture",
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // ShellCheck cache
 // ---------------------------------------------------------------------------
@@ -734,7 +720,6 @@ struct FixtureEvaluation {
     implementation_diffs: Vec<String>,
     mapping_issues: Vec<String>,
     reviewed_divergences: Vec<String>,
-    corpus_noise: Vec<String>,
     harness_failure: Option<FixtureFailure>,
 }
 
@@ -743,7 +728,6 @@ struct FixtureFailureCollection {
     implementation_diffs: Vec<String>,
     mapping_issues: Vec<String>,
     reviewed_divergences: Vec<String>,
-    corpus_noise: Vec<String>,
     harness_warnings: Vec<String>,
     harness_failures: Vec<String>,
     unsupported_shells: usize,
@@ -756,10 +740,7 @@ impl FixtureFailureCollection {
     }
 
     fn nonblocking_issue_count(&self) -> usize {
-        self.mapping_issues.len()
-            + self.reviewed_divergences.len()
-            + self.corpus_noise.len()
-            + self.harness_warnings.len()
+        self.mapping_issues.len() + self.reviewed_divergences.len() + self.harness_warnings.len()
     }
 
     fn has_nonblocking_items(&self) -> bool {
@@ -1021,7 +1002,7 @@ fn large_corpus_conforms_with_shellcheck() {
     let timeout_cap_note = timeout_cap_note_suffix(failure_collection.timeout_cap_reached);
 
     eprintln!(
-        "large corpus compatibility summary: blocking={} warnings={} fixtures={} unsupported_shells={} implementation_diffs={} mapping_issues={} reviewed_divergences={} corpus_noise={} harness_warnings={} harness_failures={}",
+        "large corpus compatibility summary: blocking={} warnings={} fixtures={} unsupported_shells={} implementation_diffs={} mapping_issues={} reviewed_divergences={} harness_warnings={} harness_failures={}",
         failure_collection.blocking_failures(),
         failure_collection.nonblocking_issue_count(),
         fixtures.len(),
@@ -1029,7 +1010,6 @@ fn large_corpus_conforms_with_shellcheck() {
         failure_collection.implementation_diffs.len(),
         failure_collection.mapping_issues.len(),
         failure_collection.reviewed_divergences.len(),
-        failure_collection.corpus_noise.len(),
         failure_collection.harness_warnings.len(),
         failure_collection.harness_failures.len(),
     );
@@ -1037,7 +1017,9 @@ fn large_corpus_conforms_with_shellcheck() {
         "large corpus compatibility",
         failure_collection.timeout_cap_reached,
     );
-    if failure_collection.blocking_failures() == 0 && failure_collection.has_nonblocking_items() {
+    if failure_collection.blocking_failures() == 0
+        && failure_collection.nonblocking_issue_count() > 0
+    {
         eprintln!("{}", format_large_corpus_report(&failure_collection));
     }
 
@@ -1312,16 +1294,39 @@ fn evaluate_fixture_compatibility(
             return evaluation;
         }
     };
+    let shellcheck_run = match shuck_run.parse_error.as_deref() {
+        Some(err) if shuck_parse_aborted(err) => {
+            match shellcheck_cache.run_fixture(fixture, shellcheck_path, shellcheck_timeout) {
+                Ok(run) => Some(filter_shellcheck_run(run, shellcheck_filter_codes)),
+                Err(err) => {
+                    evaluation.harness_failure = Some(FixtureFailure {
+                        kind: fixture_failure_kind_for_message(&err, "shellcheck"),
+                        message: format_fixture_failure(
+                            &fixture.path,
+                            &[format!("shellcheck error: {err}")],
+                        ),
+                    });
+                    return evaluation;
+                }
+            }
+        }
+        _ => None,
+    };
     if let Some(ref err) = shuck_run.parse_error {
         if shuck_parse_aborted(err) {
-            let noise_kind = classify_fixture_noise(fixture, &src, true, false);
-            evaluation.corpus_noise.push(format_fixture_failure(
-                &fixture.path,
-                &[
-                    format!("corpus noise [{}]", noise_kind.as_str()),
-                    format!("shuck parse error: {err}"),
-                ],
-            ));
+            let Some(sc_run) = shellcheck_run.as_ref() else {
+                unreachable!("parse-aborted shuck runs should probe shellcheck")
+            };
+            let mut details = vec![format!("shuck parse error: {err}")];
+            if sc_run.parse_aborted {
+                details.push("shellcheck parse aborted".into());
+            } else {
+                details.push("shellcheck parsed fixture successfully".into());
+            }
+            evaluation.harness_failure = Some(FixtureFailure {
+                kind: FixtureFailureKind::Other,
+                message: format_fixture_failure(&fixture.path, &details),
+            });
         } else {
             evaluation.harness_failure = Some(FixtureFailure {
                 kind: FixtureFailureKind::Other,
@@ -1331,16 +1336,20 @@ fn evaluate_fixture_compatibility(
         return evaluation;
     }
 
-    match shellcheck_cache.run_fixture(fixture, shellcheck_path, shellcheck_timeout) {
+    match shellcheck_run.map(Ok).unwrap_or_else(|| {
+        shellcheck_cache
+            .run_fixture(fixture, shellcheck_path, shellcheck_timeout)
+            .map(|run| filter_shellcheck_run(run, shellcheck_filter_codes))
+    }) {
         Ok(sc_run) => {
-            let sc_run = filter_shellcheck_run(sc_run, shellcheck_filter_codes);
             if sc_run.parse_aborted {
-                let noise_kind = classify_fixture_noise(fixture, &src, false, true);
-                let mut details = vec![format!("corpus noise [{}]", noise_kind.as_str())];
-                details.push("shellcheck parse aborted".into());
-                evaluation
-                    .corpus_noise
-                    .push(format_fixture_failure(&fixture.path, &details));
+                evaluation.harness_failure = Some(FixtureFailure {
+                    kind: FixtureFailureKind::Other,
+                    message: format_fixture_failure(
+                        &fixture.path,
+                        &["shellcheck parse aborted".into()],
+                    ),
+                });
                 return evaluation;
             }
 
@@ -1422,17 +1431,16 @@ fn evaluate_fixture_zsh_parse(
     if let Err(err) = parse_result {
         match probe_invalid_zsh_fixture(&fixture.path, shuck_timeout) {
             Ok(Some(zsh_err)) => {
-                evaluation.corpus_noise.push(format_fixture_failure(
-                    &fixture.path,
-                    &[
-                        format!(
-                            "corpus noise [{}]",
-                            CorpusNoiseKind::InvalidZshFixture.as_str()
-                        ),
-                        format!("shuck zsh parse/option extraction error: {err}"),
-                        format!("zsh -n rejected fixture: {zsh_err}"),
-                    ],
-                ));
+                evaluation.harness_failure = Some(FixtureFailure {
+                    kind: FixtureFailureKind::Other,
+                    message: format_fixture_failure(
+                        &fixture.path,
+                        &[
+                            format!("shuck zsh parse/option extraction error: {err}"),
+                            format!("zsh -n parse error: {zsh_err}"),
+                        ],
+                    ),
+                });
             }
             Ok(None) | Err(_) => {
                 evaluation.harness_failure = Some(FixtureFailure {
@@ -1464,11 +1472,16 @@ fn probe_invalid_zsh_fixture(path: &Path, timeout: Duration) -> Result<Option<St
     }
 
     let stderr = String::from_utf8_lossy(&status.stderr).trim().to_owned();
-    Ok(Some(if !stderr.is_empty() {
-        stderr
-    } else {
-        "non-zero exit status".to_owned()
-    }))
+    if stderr.is_empty() || !zsh_stderr_looks_like_parse_error(&stderr) {
+        return Ok(None);
+    }
+
+    Ok(Some(stderr))
+}
+
+fn zsh_stderr_looks_like_parse_error(stderr: &str) -> bool {
+    let lower = stderr.to_ascii_lowercase();
+    lower.contains("parse error") || lower.contains("unmatched ")
 }
 
 fn fixture_failure_kind_for_message(message: &str, label: &str) -> FixtureFailureKind {
@@ -1508,7 +1521,6 @@ fn merge_fixture_evaluation(
     collection
         .reviewed_divergences
         .extend(evaluation.reviewed_divergences);
-    collection.corpus_noise.extend(evaluation.corpus_noise);
     if let Some(failure) = evaluation.harness_failure {
         match failure.kind {
             FixtureFailureKind::Timeout => collection.harness_warnings.push(failure.message),
@@ -1773,53 +1785,6 @@ fn shuck_parse_aborted(error: &str) -> bool {
     !error.starts_with("read error:")
 }
 
-fn classify_fixture_noise(
-    fixture: &LargeCorpusFixture,
-    src: &[u8],
-    _shuck_parse_aborted: bool,
-    _shellcheck_parse_aborted: bool,
-) -> CorpusNoiseKind {
-    if fixture_looks_like_patch(fixture) {
-        CorpusNoiseKind::Patch
-    } else if fixture_looks_like_fish(fixture, src) {
-        CorpusNoiseKind::Fish
-    } else if source_starts_with_unknown_shell_comment(src) {
-        CorpusNoiseKind::ShellCollapse
-    } else {
-        CorpusNoiseKind::ParseAbort
-    }
-}
-
-fn fixture_looks_like_patch(fixture: &LargeCorpusFixture) -> bool {
-    path_is_patch_file(&fixture.path)
-}
-
-fn fixture_looks_like_fish(fixture: &LargeCorpusFixture, src: &[u8]) -> bool {
-    if fixture
-        .path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("fish"))
-    {
-        return true;
-    }
-
-    let first_line = src
-        .split(|&b| b == b'\n')
-        .next()
-        .map(|line| String::from_utf8_lossy(line).to_lowercase())
-        .unwrap_or_default();
-    if first_line.contains("fish") {
-        return true;
-    }
-
-    fixture
-        .path
-        .to_string_lossy()
-        .to_lowercase()
-        .contains("oh-my-fish")
-}
-
 fn format_compatibility_record(record: &CompatibilityRecord, reason: Option<&str>) -> String {
     let reason = reason
         .map(|reason| format!(" reason={reason}"))
@@ -1849,7 +1814,7 @@ fn format_large_corpus_failure_report(collection: &FixtureFailureCollection) -> 
     }
 
     format!(
-        "{}\n\nNonblocking issue buckets were omitted from the failing log output. See the compatibility summary counts above for skipped unsupported shells, mapping issues, reviewed divergences, corpus noise, and harness warnings.",
+        "{}\n\nNonblocking issue buckets were omitted from the failing log output. See the compatibility summary counts above for skipped unsupported shells, mapping issues, reviewed divergences, and harness warnings.",
         report
     )
 }
@@ -1904,18 +1869,6 @@ fn format_large_corpus_report_with_mode(
             sections.push(section);
         }
 
-        let mut corpus_noise = collection.corpus_noise.clone();
-        if collection.unsupported_shells > 0 {
-            corpus_noise.push(format!(
-                "{} skipped: {} fixture(s)",
-                CorpusNoiseKind::UnsupportedShell.as_str(),
-                collection.unsupported_shells
-            ));
-        }
-        if let Some(section) = format_report_section("Corpus Noise", &corpus_noise) {
-            sections.push(section);
-        }
-
         if let Some(section) =
             format_report_section("Harness Warnings", &collection.harness_warnings)
         {
@@ -1954,7 +1907,8 @@ fn fixture_supported_for_large_corpus(
     fixture: &LargeCorpusFixture,
     shellcheck_supported_shells: Option<&HashMap<&'static str, ()>>,
 ) -> bool {
-    if path_is_sample_file(&fixture.path)
+    if path_is_statically_ignored_large_corpus_fixture(&fixture.path)
+        || path_is_sample_file(&fixture.path)
         || path_is_fish_file(&fixture.path)
         || path_is_patch_file(&fixture.path)
         || path_is_guess_file(&fixture.path)
@@ -1971,7 +1925,8 @@ fn fixture_supported_for_large_corpus(
 }
 
 fn fixture_selected_for_large_corpus_zsh_parse(fixture: &LargeCorpusFixture) -> bool {
-    if path_is_sample_file(&fixture.path)
+    if path_is_statically_ignored_large_corpus_fixture(&fixture.path)
+        || path_is_sample_file(&fixture.path)
         || path_is_fish_file(&fixture.path)
         || path_is_patch_file(&fixture.path)
         || path_is_guess_file(&fixture.path)
@@ -2010,11 +1965,28 @@ fn effective_large_corpus_shell(fixture: &LargeCorpusFixture) -> &str {
 }
 
 fn fixture_looks_like_zsh(fixture: &LargeCorpusFixture) -> bool {
+    if path_has_large_corpus_static_zsh_override(&fixture.path) {
+        return true;
+    }
+
     let Some(name) = fixture.path.file_name().and_then(|name| name.to_str()) else {
         return false;
     };
 
     name.ends_with(".zsh") || name.ends_with(".zsh-theme") || name.starts_with(".zsh")
+}
+
+fn path_matches_large_corpus_suffix(path: &Path, suffixes: &[&str]) -> bool {
+    let path = path.to_string_lossy();
+    suffixes.iter().any(|suffix| path.ends_with(suffix))
+}
+
+fn path_is_statically_ignored_large_corpus_fixture(path: &Path) -> bool {
+    path_matches_large_corpus_suffix(path, LARGE_CORPUS_STATIC_IGNORE_SUFFIXES)
+}
+
+fn path_has_large_corpus_static_zsh_override(path: &Path) -> bool {
+    path_matches_large_corpus_suffix(path, LARGE_CORPUS_STATIC_ZSH_OVERRIDE_SUFFIXES)
 }
 
 fn path_is_sample_file(path: &Path) -> bool {
@@ -2269,7 +2241,8 @@ fn collect_fixtures(corpus_dir: &Path) -> Vec<LargeCorpusFixture> {
         }
 
         let path = entry.path().to_path_buf();
-        if path_is_sample_file(&path)
+        if path_is_statically_ignored_large_corpus_fixture(&path)
+            || path_is_sample_file(&path)
             || path_is_fish_file(&path)
             || path_is_patch_file(&path)
             || path_is_appledouble_file(&path)
@@ -2355,6 +2328,9 @@ fn resolve_shell(path: &Path, src: &[u8]) -> String {
         .unwrap_or_default();
 
     if trimmed_first_line.starts_with("#compdef") || trimmed_first_line.starts_with("#autoload") {
+        return "zsh".into();
+    }
+    if path_has_large_corpus_static_zsh_override(path) {
         return "zsh".into();
     }
 
@@ -2961,33 +2937,6 @@ fn compatibility_code_diff(
     }
 }
 
-fn source_starts_with_unknown_shell_comment(src: &[u8]) -> bool {
-    if src.is_empty() {
-        return false;
-    }
-    let text = String::from_utf8_lossy(src);
-    let mut saw_plain_comment = false;
-    for line in text.lines() {
-        let text = line.trim();
-        if text.is_empty() {
-            continue;
-        }
-        if text.starts_with("#!") || text.starts_with("# !") {
-            break;
-        }
-        if let Some(body) = text.strip_prefix('#') {
-            let lower = body.trim().to_lowercase();
-            if lower.starts_with("shellcheck shell=") || lower.starts_with("shuck:") {
-                break;
-            }
-            saw_plain_comment = true;
-        } else {
-            break;
-        }
-    }
-    saw_plain_comment
-}
-
 fn format_range(start_line: usize, start_col: usize, end_line: usize, end_col: usize) -> String {
     let el = if end_line == 0 { start_line } else { end_line };
     let ec = if end_col == 0 { start_col } else { end_col };
@@ -3143,6 +3092,17 @@ mod tests {
     #[test]
     fn resolve_shell_compdef_header_is_zsh() {
         assert_eq!(resolve_shell(Path::new("_wd.sh"), b"#compdef wd\n"), "zsh");
+    }
+
+    #[test]
+    fn resolve_shell_static_zsh_override_is_zsh() {
+        assert_eq!(
+            resolve_shell(
+                Path::new("ohmyzsh__ohmyzsh__oh-my-zsh.sh"),
+                b"# comment only\n",
+            ),
+            "zsh"
+        );
     }
 
     #[test]
@@ -3562,6 +3522,20 @@ mod tests {
     }
 
     #[test]
+    fn static_zsh_override_paths_are_selected_for_large_corpus_zsh_parse() {
+        let fixture = LargeCorpusFixture {
+            path: PathBuf::from("ohmyzsh__ohmyzsh__tools__check_for_upgrade.sh"),
+            cache_rel_path: PathBuf::from("ohmyzsh__ohmyzsh__tools__check_for_upgrade.sh"),
+            shell: "sh".into(),
+            source_hash: String::new(),
+        };
+
+        assert_eq!(effective_large_corpus_shell(&fixture), "zsh");
+        assert!(fixture_selected_for_large_corpus_zsh_parse(&fixture));
+        assert!(!fixture_supported_for_large_corpus(&fixture, None));
+    }
+
+    #[test]
     fn zsh_paths_force_effective_zsh_shell() {
         let fixture = LargeCorpusFixture {
             path: PathBuf::from(".zshrc"),
@@ -3623,6 +3597,24 @@ mod tests {
         };
 
         assert!(path_is_patch_file(&fixture.path));
+        assert!(!fixture_supported_for_large_corpus(&fixture, None));
+        assert!(!fixture_selected_for_large_corpus_zsh_parse(&fixture));
+    }
+
+    #[test]
+    fn static_ignore_paths_are_skipped_for_large_corpus() {
+        let fixture = LargeCorpusFixture {
+            path: PathBuf::from("super-linter__super-linter__test__linters__bash__shell_bad_1.sh"),
+            cache_rel_path: PathBuf::from(
+                "super-linter__super-linter__test__linters__bash__shell_bad_1.sh",
+            ),
+            shell: "bash".into(),
+            source_hash: String::new(),
+        };
+
+        assert!(path_is_statically_ignored_large_corpus_fixture(
+            &fixture.path
+        ));
         assert!(!fixture_supported_for_large_corpus(&fixture, None));
         assert!(!fixture_selected_for_large_corpus_zsh_parse(&fixture));
     }
@@ -4296,7 +4288,6 @@ mod tests {
             reviewed_divergences: vec![
                 "/tmp/reviewed.sh\n  shuck-only C001/SC2000 1:1-1:5 warning reviewed".into(),
             ],
-            corpus_noise: vec!["parse-abort skipped: 1 fixture(s)".into()],
             harness_warnings: vec!["/tmp/timeout.sh\n  shuck error: timed out".into()],
             unsupported_shells: 2,
             ..FixtureFailureCollection::default()
@@ -4305,7 +4296,6 @@ mod tests {
         assert!(report.contains("Implementation Diffs:"));
         assert!(!report.contains("Mapping Issues:"));
         assert!(!report.contains("Reviewed Divergence:"));
-        assert!(!report.contains("Corpus Noise:"));
         assert!(!report.contains("Harness Warnings:"));
         assert!(report.contains("Nonblocking issue buckets were omitted"));
     }
@@ -4399,6 +4389,19 @@ mod tests {
     }
 
     #[test]
+    fn zsh_stderr_parse_error_detection_ignores_non_parse_failures() {
+        assert!(zsh_stderr_looks_like_parse_error(
+            "script.zsh:4: parse error near `foo'"
+        ));
+        assert!(zsh_stderr_looks_like_parse_error(
+            "script.zsh:8: unmatched \""
+        ));
+        assert!(!zsh_stderr_looks_like_parse_error(
+            "script.zsh:32: no such file or directory:"
+        ));
+    }
+
+    #[test]
     fn decode_shellcheck_json_array() {
         let data = br#"[{"code":1091,"line":12,"endLine":12,"column":3,"endColumn":15,"level":"info","message":"missing source"}]"#;
         let diags = decode_shellcheck_diagnostics(data).unwrap();
@@ -4413,56 +4416,6 @@ mod tests {
         let diags = decode_shellcheck_diagnostics(data).unwrap();
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].code, 1091);
-    }
-
-    #[test]
-    fn unknown_shell_comment_detected() {
-        assert!(source_starts_with_unknown_shell_comment(
-            b"# leading comment\necho hi\n"
-        ));
-        assert!(!source_starts_with_unknown_shell_comment(
-            b"#!/bin/sh\necho hi\n"
-        ));
-    }
-
-    #[test]
-    fn classify_fixture_noise_marks_patch_inputs() {
-        let fixture = fixture("example.patch");
-        assert_eq!(
-            classify_fixture_noise(&fixture, b"not shell", true, false),
-            CorpusNoiseKind::Patch
-        );
-    }
-
-    #[test]
-    fn classify_fixture_noise_marks_fish_inputs() {
-        let fixture = fixture("generate-authors.fish");
-        assert_eq!(
-            classify_fixture_noise(&fixture, b"#!/usr/bin/env fish\necho hi\n", true, false),
-            CorpusNoiseKind::Fish
-        );
-    }
-
-    #[test]
-    fn classify_fixture_noise_marks_parse_aborts() {
-        let fixture = fixture("script.sh");
-        assert_eq!(
-            classify_fixture_noise(&fixture, b"#!/bin/sh\necho hi\n", true, false),
-            CorpusNoiseKind::ParseAbort
-        );
-        assert_eq!(
-            classify_fixture_noise(&fixture, b"#!/bin/sh\necho hi\n", false, true),
-            CorpusNoiseKind::ParseAbort
-        );
-    }
-
-    #[test]
-    fn classify_fixture_noise_marks_shell_collapse_inputs() {
-        let fixture = fixture("script.sh");
-        assert_eq!(
-            classify_fixture_noise(&fixture, b"# leading comment\necho hi\n", true, false),
-            CorpusNoiseKind::ShellCollapse
-        );
     }
 
     #[test]
@@ -4692,7 +4645,7 @@ mod tests {
     }
 
     #[test]
-    fn collect_fixtures_skips_sample_fish_patch_appledouble_guess_and_config_sub_files() {
+    fn collect_fixtures_skips_known_non_corpus_inputs() {
         let tempdir = tempfile::tempdir().unwrap();
         let scripts_dir = tempdir.path().join("scripts");
         let nested_dir = scripts_dir.join("nested");
@@ -4723,6 +4676,16 @@ mod tests {
         .unwrap();
         fs::write(scripts_dir.join("config.fish"), "echo skip\n").unwrap();
         fs::write(scripts_dir.join("fixup.patch"), "--- a/file\n+++ b/file\n").unwrap();
+        fs::write(
+            scripts_dir.join("super-linter__super-linter__test__linters__bash__shell_bad_1.sh"),
+            "#!/usr/bin/env bash\necho skip\n",
+        )
+        .unwrap();
+        fs::write(
+            scripts_dir.join("alpinelinux__aports__community__starship__starship.plugin.zsh"),
+            "echo skip\n",
+        )
+        .unwrap();
         fs::write(
             nested_dir.join("post-checkout.sample"),
             "#!/bin/sh\necho skip\n",

@@ -17,7 +17,7 @@ SPEC.loader.exec_module(MODULE)
 
 class LargeCorpusReportParsingTests(unittest.TestCase):
     def test_extract_main_report_body_ignores_sections_after_main_result(self) -> None:
-        log = """large corpus compatibility summary: blocking=0 warnings=0 fixtures=1 unsupported_shells=0 implementation_diffs=0 mapping_issues=0 reviewed_divergences=0 corpus_noise=0 harness_warnings=0 harness_failures=0
+        log = """large corpus compatibility summary: blocking=0 warnings=0 fixtures=1 unsupported_shells=0 implementation_diffs=0 mapping_issues=0 reviewed_divergences=0 harness_warnings=0 harness_failures=0
 test large_corpus_conforms_with_shellcheck ... ok
 Harness Warnings:
 /tmp/zsh-fixture.sh
@@ -27,7 +27,7 @@ Harness Warnings:
         self.assertIsNone(MODULE.extract_main_report_body(log))
 
     def test_extract_main_report_body_stays_within_main_test_span(self) -> None:
-        log = """large corpus compatibility summary: blocking=0 warnings=1 fixtures=1 unsupported_shells=0 implementation_diffs=0 mapping_issues=1 reviewed_divergences=0 corpus_noise=0 harness_warnings=0 harness_failures=0
+        log = """large corpus compatibility summary: blocking=0 warnings=1 fixtures=1 unsupported_shells=0 implementation_diffs=0 mapping_issues=1 reviewed_divergences=0 harness_warnings=0 harness_failures=0
 Mapping Issues:
 /tmp/main-fixture.sh
   shellcheck-only S032/SC2209 1:1-1:5 warning reason=main issue
@@ -44,7 +44,7 @@ Harness Warnings:
         self.assertNotIn("/tmp/zsh-fixture.sh", body)
 
     def test_main_summary_keeps_mapping_and_reviewed_totals_record_based(self) -> None:
-        log = """large corpus compatibility summary: blocking=0 warnings=2 fixtures=1 unsupported_shells=0 implementation_diffs=0 mapping_issues=1 reviewed_divergences=1 corpus_noise=0 harness_warnings=0 harness_failures=0
+        log = """large corpus compatibility summary: blocking=0 warnings=2 fixtures=1 unsupported_shells=0 implementation_diffs=0 mapping_issues=1 reviewed_divergences=1 harness_warnings=0 harness_failures=0
 Mapping Issues:
 /tmp/main-fixture.sh
   shellcheck-only S032/SC2209 1:1-1:5 warning reason=first mapping
@@ -79,12 +79,12 @@ test large_corpus_conforms_with_shellcheck ... ok
         self.assertIn("mapping issues, 2 reviewed divergences", html)
 
     def test_main_summary_falls_back_when_nonblocking_sections_are_omitted(self) -> None:
-        log = """large corpus compatibility summary: blocking=1 warnings=18 fixtures=1 unsupported_shells=2 implementation_diffs=1 mapping_issues=3 reviewed_divergences=4 corpus_noise=5 harness_warnings=6 harness_failures=0
+        log = """large corpus compatibility summary: blocking=1 warnings=13 fixtures=1 unsupported_shells=2 implementation_diffs=1 mapping_issues=3 reviewed_divergences=4 harness_warnings=6 harness_failures=0
 Implementation Diffs:
 /tmp/main-fixture.sh
   shellcheck-only C001/SC2000 1:1-1:5 error reason=blocking
 
-Nonblocking issue buckets were omitted from the failing log output. See the compatibility summary counts above for skipped unsupported shells, mapping issues, reviewed divergences, corpus noise, and harness warnings.
+Nonblocking issue buckets were omitted from the failing log output. See the compatibility summary counts above for skipped unsupported shells, mapping issues, reviewed divergences, and harness warnings.
 test large_corpus_conforms_with_shellcheck ... FAILED
 """
 
@@ -108,7 +108,6 @@ test large_corpus_conforms_with_shellcheck ... FAILED
             html = output_path.read_text(encoding="utf-8")
 
         self.assertIn("3\n        mapping issues, 4 reviewed divergences,", html)
-        self.assertIn("5 corpus-noise parse failures,", html)
         self.assertIn("6 main harness warnings,", html)
 
     def test_reviewed_divergence_filter_keeps_only_known_failures(self) -> None:
@@ -126,7 +125,7 @@ test large_corpus_conforms_with_shellcheck ... FAILED
         self.assertNotIn("/tmp/drop.sh", filtered)
 
     def test_reviewed_divergence_only_run_still_populates_rule_and_fixture_tables(self) -> None:
-        log = """large corpus compatibility summary: blocking=0 warnings=2 fixtures=1 unsupported_shells=0 implementation_diffs=0 mapping_issues=0 reviewed_divergences=2 corpus_noise=0 harness_warnings=0 harness_failures=0
+        log = """large corpus compatibility summary: blocking=0 warnings=2 fixtures=1 unsupported_shells=0 implementation_diffs=0 mapping_issues=0 reviewed_divergences=2 harness_warnings=0 harness_failures=0
 Reviewed Divergence:
 /tmp/main-fixture.sh
   shuck-only C001/SC2034 3:1-3:5 warning reason=known large-corpus rule allowlist
@@ -159,7 +158,7 @@ test large_corpus_conforms_with_shellcheck ... ok
         self.assertIn("known large-corpus rule allowlist", html)
 
     def test_metadata_backed_reviewed_divergence_stays_out_of_detailed_tables(self) -> None:
-        log = """large corpus compatibility summary: blocking=0 warnings=1 fixtures=1 unsupported_shells=0 implementation_diffs=0 mapping_issues=0 reviewed_divergences=1 corpus_noise=0 harness_warnings=0 harness_failures=0
+        log = """large corpus compatibility summary: blocking=0 warnings=1 fixtures=1 unsupported_shells=0 implementation_diffs=0 mapping_issues=0 reviewed_divergences=1 harness_warnings=0 harness_failures=0
 Reviewed Divergence:
 /tmp/main-fixture.sh
   shuck-only C003/SC1091 3:1-3:5 warning reason=metadata-backed reviewed divergence
@@ -190,7 +189,7 @@ test large_corpus_conforms_with_shellcheck ... ok
         self.assertIn("1 reviewed divergences", html)
 
     def test_main_timeout_cap_note_is_rendered(self) -> None:
-        log = """large corpus compatibility summary: blocking=0 warnings=5 fixtures=1 unsupported_shells=0 implementation_diffs=0 mapping_issues=0 reviewed_divergences=0 corpus_noise=0 harness_warnings=5 harness_failures=0
+        log = """large corpus compatibility summary: blocking=0 warnings=5 fixtures=1 unsupported_shells=0 implementation_diffs=0 mapping_issues=0 reviewed_divergences=0 harness_warnings=5 harness_failures=0
 large corpus compatibility note: only the first 5 fixture timeouts were recorded as harness warnings; additional timeout fixtures were omitted.
 Harness Warnings:
 /tmp/main-fixture.sh
