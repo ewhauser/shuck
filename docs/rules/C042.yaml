@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A token like `&name` is parsed as a background operator followed by another command.
 rationale: Put a space after `&` when you mean backgrounding, or escape/quote a literal ampersand.
+safe_fix: true
+fix_description: "Insert a space after `&` so the background operator is explicit."
 source:
   shell_checks_rule: rules/SH-123.yaml
   shell_checks_example: examples/123.sh

@@ -8,6 +8,8 @@ shells:
   - sh
 description: Using `local` in a function ties the script to shells that implement function-scoped variables.
 rationale: Avoid `local` in `/bin/sh`, or require a shell that provides it.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-008.yaml
   shell_checks_example: examples/008.sh

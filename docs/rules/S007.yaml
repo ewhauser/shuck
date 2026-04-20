@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "The format string for `printf` is supplied through a variable, which makes the call harder to audit."
 rationale: Keep the format string literal and pass data in later arguments.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-037.yaml
   shell_checks_example: examples/037.sh

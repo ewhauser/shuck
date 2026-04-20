@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "The `-i` flag for `xargs` is deprecated."
 rationale: "Use `-I{}` instead of `-i` with `xargs`."
+safe_fix: true
+fix_description: "Rewrite deprecated `xargs -i` forms to the equivalent `xargs -I...` form, preserving any inline replacement string and using `{}` for bare `-i`."
 source:
   shell_checks_rule: rules/SH-255.yaml
   shell_checks_example: examples/255.sh

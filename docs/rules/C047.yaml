@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Exit is given a nonnumeric status.
 rationale: Use a numeric code and print any message separately.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-141.yaml
   shell_checks_example: examples/141.sh

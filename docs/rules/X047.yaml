@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "A `for` loop binds more than one variable per iteration."
 rationale: Use a single loop variable and unpack values inside the body.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-180.yaml
   shell_checks_example: examples/180.sh

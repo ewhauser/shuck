@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A variable used in a string comparison may be treated as a glob.
 rationale: Quote the variable to prevent pattern matching.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-206.yaml
   shell_checks_example: examples/206.sh

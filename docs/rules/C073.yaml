@@ -11,6 +11,8 @@ shells:
   - ksh
 description: The shebang line is indented with leading whitespace.
 rationale: Move the shebang to column 1 so the kernel recognises it.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-191.yaml
   shell_checks_example: examples/191.sh

@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A heredoc starts but never gets a closing marker.
 rationale: Add the matching end line before the file ends.
+safe_fix: true
+fix_description: "Append the pending heredoc closing marker(s) at EOF in source order."
 source:
   shell_checks_rule: rules/SH-318.yaml
   shell_checks_example: examples/318.sh

@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A command substitution is nested inside an arithmetic expansion.
 rationale: Assign the command output to a variable first, then use it in the arithmetic.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-195.yaml
   shell_checks_example: examples/195.sh

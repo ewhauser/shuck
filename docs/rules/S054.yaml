@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "The `su` command is used without `-l` or `-c`."
 rationale: "Use `su -l user` or `su -c 'command' user` to start a proper login shell."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-227.yaml
   shell_checks_example: examples/227.sh

@@ -11,6 +11,8 @@ shells:
   - ksh
 description: One argument is assembled from alternating quoted and bare fragments.
 rationale: Use a single explicit word form so the intended text is obvious.
+safe_fix: true
+fix_description: "Rewrite the whole word as one consistent quoted form, escaping literal quote fragments as needed."
 source:
   shell_checks_rule: rules/SH-350.yaml
   shell_checks_example: examples/350.sh

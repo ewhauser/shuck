@@ -9,6 +9,8 @@ shells:
   - dash
 description: A nested default-value expansion is used in POSIX sh.
 rationale: Use intermediate variables instead of nesting expansions.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-291.yaml
   shell_checks_example: examples/291.sh

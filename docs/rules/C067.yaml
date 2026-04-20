@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A function body contains no commands.
 rationale: "Add a colon or `true` as a placeholder command."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-178.yaml
   shell_checks_example: examples/178.sh

@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Uses arithmetic expansion inside an array subscript.
 rationale: Use a plain arithmetic index expression there.
+safe_fix: true
+fix_description: "Remove the redundant `$((...))` wrapper from the indexed array subscript."
 source:
   shell_checks_rule: rules/SH-157.yaml
   shell_checks_example: examples/157.sh

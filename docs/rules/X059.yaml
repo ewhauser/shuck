@@ -9,6 +9,8 @@ shells:
   - dash
 description: "The `=~` regex match operator is used in POSIX sh."
 rationale: "Use `grep` or `case` for pattern matching in POSIX sh."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-266.yaml
   shell_checks_example: examples/266.sh

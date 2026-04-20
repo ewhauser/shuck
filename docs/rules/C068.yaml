@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A closing brace is not preceded by a semicolon or newline.
 rationale: "Put a semicolon or newline before `}` to terminate the command."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-179.yaml
   shell_checks_example: examples/179.sh

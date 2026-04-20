@@ -9,6 +9,8 @@ shells:
   - dash
 description: "In bash, `local` is only valid inside a function body and is not meaningful at script scope."
 rationale: Move the declaration into a function or use a regular assignment when working at top level.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-052.yaml
   shell_checks_example: examples/052.sh

@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "A POSIX `sh` function is written with parameter syntax that ShellCheck rejects."
 rationale: "Use the portable `name() { ...; }` form and read arguments through `$1`, `$2`, and so on."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-107.yaml
   shell_checks_example: examples/107.sh

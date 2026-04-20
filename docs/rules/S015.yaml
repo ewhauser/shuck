@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Putting a fully quoted expansion in a `for` list turns it into a single item instead of a list of fields.
 rationale: Leave the expansion unquoted when you want field splitting, or use the `@` form when you need one item per array element or positional parameter.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-063.yaml
   shell_checks_example: examples/063.sh

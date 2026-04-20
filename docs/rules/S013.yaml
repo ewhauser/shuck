@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Piping ls into grep treats a directory listing like a data format, which is brittle.
 rationale: Use shell patterns or filename-aware tools instead of parsing ls output.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-057.yaml
   shell_checks_example: examples/057.sh

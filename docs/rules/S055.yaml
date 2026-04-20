@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A glob pattern is assigned to a variable without quoting.
 rationale: Quote the assignment or expand the glob explicitly.
+safe_fix: true
+fix_description: "Single-quote the unquoted glob fragment in the assignment value so the stored pattern remains literal."
 source:
   shell_checks_rule: rules/SH-231.yaml
   shell_checks_example: examples/231.sh

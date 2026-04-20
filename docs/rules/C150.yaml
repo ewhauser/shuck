@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A variable is reassigned inside a subshell, so the update does not affect the parent shell.
 rationale: Move the assignment to the current shell or return the value explicitly.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-339.yaml
   shell_checks_example: examples/339.sh

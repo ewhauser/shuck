@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "`eval` is used to execute composed command text."
 rationale: "Avoid `eval`; call the command directly or pass arguments in an array."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-151.yaml
   shell_checks_example: examples/151.sh

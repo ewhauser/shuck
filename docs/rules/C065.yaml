@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "An `else` clause appears without a preceding `then`."
 rationale: "Add `then` after the condition so that `else` is valid."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-176.yaml
   shell_checks_example: examples/176.sh

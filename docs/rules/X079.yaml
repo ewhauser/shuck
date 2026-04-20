@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A zsh-style parameter index flag is used in POSIX sh.
 rationale: Extract the value with cut or awk instead of zsh subscripting.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-303.yaml
   shell_checks_example: examples/303.sh

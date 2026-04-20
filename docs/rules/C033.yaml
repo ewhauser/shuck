@@ -11,6 +11,8 @@ shells:
   - ksh
 description: The here-doc terminator is indented instead of starting at column 1.
 rationale: Align the terminator flush-left so the shell can recognize the end marker.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-104.yaml
   shell_checks_example: examples/104.sh

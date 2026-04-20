@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A case arm handles an option not listed in the getopts string.
 rationale: Add the missing option to the getopts string or remove the case arm.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-313.yaml
   shell_checks_example: examples/313.sh

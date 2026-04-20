@@ -11,6 +11,8 @@ shells:
   - ksh
 description: An unquoted expansion reuses a variable that stores shell-style quoting or escapes.
 rationale: Build argv with arrays, `set --`, or helper functions instead of storing quoting syntax in a scalar.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-308.yaml
   shell_checks_example: examples/308.sh

@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Double parentheses are used to group commands instead of arithmetic.
 rationale: "Use a subshell `( ... )` or brace group `{ ...; }` for grouping."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-188.yaml
   shell_checks_example: examples/188.sh

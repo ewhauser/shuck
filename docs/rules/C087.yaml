@@ -10,6 +10,8 @@ shells:
   - dash
 description: "A `<` or `>` operator inside `[[ ]]` compares lexicographically, not numerically."
 rationale: "Use `-lt` for numeric comparison or a version-aware tool."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-214.yaml
   shell_checks_example: examples/214.sh

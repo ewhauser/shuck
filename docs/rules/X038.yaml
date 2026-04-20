@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Zsh-style conditional bracing is not portable shell syntax.
 rationale: "Use standard `if ...; then ...; fi` structure instead."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-124.yaml
   shell_checks_example: examples/124.sh

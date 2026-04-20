@@ -11,6 +11,8 @@ shells:
   - ksh
 description: An unguarded wildcard can turn into command arguments that begin with a dash after pathname expansion.
 rationale: Put a safe separator or a more explicit file-selection step in front of wildcard-expanded path lists.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-048.yaml
   shell_checks_example: examples/048.sh

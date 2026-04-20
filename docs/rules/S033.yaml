@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "Attaches a here-doc to `echo`"
 rationale: Use a command that reads standard input, or print the text directly.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-135.yaml
   shell_checks_example: examples/135.sh

@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A command reads and writes the same file via redirection.
 rationale: "Use a temporary file or `sponge` to avoid truncating the input."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-222.yaml
   shell_checks_example: examples/222.sh

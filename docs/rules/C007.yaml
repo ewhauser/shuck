@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "Sending raw `find` output into `xargs` assumes file names stay simple and whitespace-free."
 rationale: Use a null-delimited handoff or another safer iteration pattern when file paths may contain spaces or newlines.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-041.yaml
   shell_checks_example: examples/041.sh

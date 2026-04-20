@@ -9,6 +9,8 @@ shells:
   - dash
 description: The script uses the `function` keyword without trailing `()`, which is not part of portable `sh` syntax.
 rationale: Define shell functions with the plain `name() { ...; }` form when portability matters.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-009.yaml
   shell_checks_example: examples/009.sh

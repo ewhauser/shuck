@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Assigns a bare command-like word as a value without quotes.
 rationale: Quote the literal text if you mean a command name, or use `$(...)` if you meant to capture command output.
+safe_fix: true
+fix_description: "Quote the fixed literal assignment value."
 source:
   shell_checks_rule: rules/SH-128.yaml
   shell_checks_example: examples/128.sh

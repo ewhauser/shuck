@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Ordinary scalar parameter expansions such as $1, $foo, and ${foo:-fallback} can split or match path patterns when they are used unquoted in a shell word.
 rationale: Quote scalar parameter expansions in split-sensitive positions, including inside command substitutions. Array-style splats and the outer $(...) form have their own rules.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-001.yaml
   shell_checks_example: examples/001.sh

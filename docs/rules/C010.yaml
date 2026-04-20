@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "Mixing `&&` and `||` can make the fallback depend on the middle command's exit status."
 rationale: "Use an explicit `if` when you need clear branch selection instead of a short-circuit chain."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-045.yaml
   shell_checks_example: examples/045.sh

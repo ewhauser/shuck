@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "A malformed `[` test expression leaves ShellCheck at a parser recovery boundary."
 rationale: Correct the test syntax before relying on any other static checks.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-110.yaml
   shell_checks_example: examples/110.sh

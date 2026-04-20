@@ -9,6 +9,8 @@ shells:
   - dash
 description: The script modifies a parameter's case with a bash-only expansion form.
 rationale: Perform case conversion in another step, or target a shell that supports case-modification expansion.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-032.yaml
   shell_checks_example: examples/032.sh

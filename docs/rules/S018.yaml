@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Feeding raw command output straight into an array can break on whitespace and similar separators.
 rationale: Capture the data with a structured reader instead of arraying command output directly.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-068.yaml
   shell_checks_example: examples/068.sh

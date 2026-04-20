@@ -11,6 +11,8 @@ shells:
   - ksh
 description: The output of a command substitution is used as a condition.
 rationale: "Remove the `$( )` wrapper and test the command exit status directly."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-220.yaml
   shell_checks_example: examples/220.sh

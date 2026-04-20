@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A function that reads positional parameters is called with no arguments.
 rationale: Pass the expected arguments or guard against missing parameters.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-228.yaml
   shell_checks_example: examples/228.sh

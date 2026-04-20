@@ -11,6 +11,8 @@ shells:
   - ksh
 description: An empty test expression has no meaningful operand and cannot describe a runtime condition.
 rationale: Populate the test with the value you intended to check or drop the empty expression.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-075.yaml
   shell_checks_example: examples/075.sh

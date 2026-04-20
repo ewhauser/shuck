@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A sourced file path built at runtime is harder to analyze and easier to drift from the real dependency graph.
 rationale: Keep loaded file names literal when possible, or make sure every possible source target is included in analysis.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-025.yaml
   shell_checks_example: examples/025.sh

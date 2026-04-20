@@ -9,6 +9,8 @@ shells:
   - dash
 description: "The `>&` combined redirect is used in POSIX sh."
 rationale: "Use `>/dev/null 2>&1` for portable output suppression."
+safe_fix: true
+fix_description: "Expand `>& target` into `> target 2>&1` using the same fixed literal target word."
 source:
   shell_checks_rule: rules/SH-270.yaml
   shell_checks_example: examples/270.sh

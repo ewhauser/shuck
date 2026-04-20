@@ -11,6 +11,8 @@ shells:
   - ksh
 description: The shebang does not appear on the first line of the file.
 rationale: Move the shebang to the very first line of the file.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-193.yaml
   shell_checks_example: examples/193.sh

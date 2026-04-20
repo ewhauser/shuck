@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A zsh-style parameter flag is used in POSIX sh.
 rationale: Use standard parameter expansion or sed for text substitution.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-286.yaml
   shell_checks_example: examples/286.sh

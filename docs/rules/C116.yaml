@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A numeric string is used as a variable name in an assignment.
 rationale: Use a valid variable name that starts with a letter or underscore.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-258.yaml
   shell_checks_example: examples/258.sh

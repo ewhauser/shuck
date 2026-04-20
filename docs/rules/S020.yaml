@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A loop that exits immediately is more complicated than the code it wraps.
 rationale: Replace it with the direct command sequence or a simpler conditional structure.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-076.yaml
   shell_checks_example: examples/076.sh

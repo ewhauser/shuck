@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Literal braces appear where bash may treat them as expansion syntax.
 rationale: Quote the text so the braces stay literal.
+safe_fix: true
+fix_description: "Escape each reported literal brace with a backslash."
 source:
   shell_checks_rule: rules/SH-116.yaml
   shell_checks_example: examples/116.sh

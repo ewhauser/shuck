@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "Expanding `find` output in a `for` loop loses pathname boundaries and re-splits file names."
 rationale: "Feed `find` results to a consumer that understands line or NUL boundaries instead of shell word splitting."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-049.yaml
   shell_checks_example: examples/049.sh

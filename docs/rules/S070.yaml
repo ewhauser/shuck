@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A double-quoted variable sits between unquoted text inside a larger double-quoted string.
 rationale: Escape inner quotes or restructure the string to avoid split quoting.
+safe_fix: true
+fix_description: "Merge the reopened double-quoted segments into one quoted word, adding braces around the embedded expansion when needed."
 source:
   shell_checks_rule: rules/SH-306.yaml
   shell_checks_example: examples/306.sh

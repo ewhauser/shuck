@@ -11,6 +11,8 @@ shells:
   - ksh
 description: An assignment value contains a dash that may indicate a typo.
 rationale: Check whether the value was intended as a flag or comparison.
+safe_fix: true
+fix_description: "Quote the literal assignment value so it is explicitly a string."
 source:
   shell_checks_rule: rules/SH-224.yaml
   shell_checks_example: examples/224.sh

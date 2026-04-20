@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "A backslash-escaped `!` is used in a test expression."
 rationale: "Use `!` without the backslash for negation in test."
+safe_fix: true
+fix_description: "Remove the backslash before the leading `!` in the test expression."
 source:
   shell_checks_rule: rules/SH-207.yaml
   shell_checks_example: examples/207.sh

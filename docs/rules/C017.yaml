@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A test that compares only fixed literals cannot react to runtime data and usually adds no value.
 rationale: Compare values that come from the script's inputs or variables instead of hard-coded text when the condition is meant to branch.
+safe_fix: true
+fix_description: "Fold the fixed-literal comparison to its known boolean result and simplify the enclosing test or conditional."
 source:
   shell_checks_rule: rules/SH-069.yaml
   shell_checks_example: examples/069.sh

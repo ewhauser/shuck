@@ -11,6 +11,8 @@ shells:
   - ksh
 description: An `until` loop skips the `do` keyword.
 rationale: Insert `do` before the loop body.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-334.yaml
   shell_checks_example: examples/334.sh

@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A function body is a bare compound command instead of a brace group.
 rationale: "Wrap the function body in `{ ... }` for portability."
+safe_fix: true
+fix_description: "Wrap the existing compound function body in `{ ...; }` without changing the inner command."
 source:
   shell_checks_rule: rules/SH-181.yaml
   shell_checks_example: examples/181.sh

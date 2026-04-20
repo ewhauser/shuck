@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Folding positional parameters into a larger quoted string changes the argument shape.
 rationale: Pass literal text and positional parameters as separate arguments instead.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-077.yaml
   shell_checks_example: examples/077.sh

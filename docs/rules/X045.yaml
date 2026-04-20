@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "Uses `+=` append assignment in a shell mode that does not guarantee it."
 rationale: Rewrite it as an ordinary assignment or explicit string append.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-158.yaml
   shell_checks_example: examples/158.sh

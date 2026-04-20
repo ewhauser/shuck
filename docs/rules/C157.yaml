@@ -8,6 +8,8 @@ shells:
   - sh
 description: The `if` keyword is concatenated with a `[` test.
 rationale: Separate the keyword and test command with whitespace so parsing stays unambiguous.
+safe_fix: true
+fix_description: "Insert a space between `if` and `[`."
 source:
   shell_checks_rule: rules/SH-353.yaml
   shell_checks_example: examples/353.sh

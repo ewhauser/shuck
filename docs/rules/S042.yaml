@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "Setting IFS to `=` with `IFS==` looks like a comparison."
 rationale: "Quote the delimiter or use `IFS='='` to avoid ambiguity."
+safe_fix: true
+fix_description: "Rewrite `IFS==` as `IFS='='`."
 source:
   shell_checks_rule: rules/SH-185.yaml
   shell_checks_example: examples/185.sh

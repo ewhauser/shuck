@@ -9,6 +9,8 @@ shells:
   - dash
 description: The script depends on trapping `ERR`, `DEBUG`, or `RETURN`, which are shell-specific rather than POSIX behavior.
 rationale: Check command statuses explicitly and avoid shell-specific trap hooks in portable code.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-022.yaml
   shell_checks_example: examples/022.sh

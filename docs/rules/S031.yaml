@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A shellcheck directive placed after code is ignored.
 rationale: Put directives on their own comment line before the command.
+safe_fix: true
+fix_description: "Move the inline shellcheck directive onto its own comment line immediately before the current command line."
 source:
   shell_checks_rule: rules/SH-120.yaml
   shell_checks_example: examples/120.sh

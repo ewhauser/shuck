@@ -9,6 +9,8 @@ shells:
   - dash
 description: The script uses indirect parameter expansion, which is a bash extension.
 rationale: Reshape the data flow so the script can name the target variable directly.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-023.yaml
   shell_checks_example: examples/023.sh

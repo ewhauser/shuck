@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "An if-test block is written without a `then` keyword."
 rationale: "Add `then` after the condition to form a valid if-block."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-175.yaml
   shell_checks_example: examples/175.sh

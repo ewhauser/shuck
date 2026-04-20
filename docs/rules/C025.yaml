@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Refers to the tenth positional parameter without braces.
 rationale: Use braces when addressing arguments above nine.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-086.yaml
   shell_checks_example: examples/086.sh

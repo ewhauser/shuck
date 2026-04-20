@@ -9,6 +9,8 @@ shells:
   - dash
 description: A C-style for loop with arithmetic uses bashism syntax in POSIX sh.
 rationale: Use a while loop for portable iteration.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-269.yaml
   shell_checks_example: examples/269.sh

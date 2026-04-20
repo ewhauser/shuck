@@ -9,6 +9,8 @@ shells:
   - dash
 description: The script relies on `let`, which portable `sh` does not define.
 rationale: Prefer arithmetic expansion or another portable arithmetic mechanism instead.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-020.yaml
   shell_checks_example: examples/020.sh

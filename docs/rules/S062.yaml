@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A colon-assign expansion provides a default without quoting.
 rationale: Quote the default value to prevent word splitting.
+safe_fix: true
+fix_description: "Wrap the `${name=...}` or `${name:=...}` expansion in double quotes when it is passed to `:`."
 source:
   shell_checks_rule: rules/SH-251.yaml
   shell_checks_example: examples/251.sh

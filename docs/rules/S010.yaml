@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "Capturing command output directly inside `export` hides the assignment step and mixes two concerns."
 rationale: Store the value first, then export it explicitly.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-050.yaml
   shell_checks_example: examples/050.sh

@@ -7,6 +7,8 @@ shells:
   - bash
 description: "The variable `0` is assigned a value, which is a zsh idiom."
 rationale: "Use a regular variable name instead of `0`."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-260.yaml
   shell_checks_example: examples/260.sh

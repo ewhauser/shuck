@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A function definition is embedded inside an alias string.
 rationale: Define the function separately and alias only the call.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-235.yaml
   shell_checks_example: examples/235.sh

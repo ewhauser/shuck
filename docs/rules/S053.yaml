@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A flag is repeated in the shebang line.
 rationale: Remove the duplicate flag from the shebang.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-223.yaml
   shell_checks_example: examples/223.sh

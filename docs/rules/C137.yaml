@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A Unicode smart single-quote appears inside a single-quoted string.
 rationale: Replace the Unicode quotation mark with an ASCII apostrophe.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-315.yaml
   shell_checks_example: examples/315.sh

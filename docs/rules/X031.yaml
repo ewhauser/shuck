@@ -9,6 +9,8 @@ shells:
   - dash
 description: "A POSIX shell script is relying on `source`, which is not part of the portable shell vocabulary."
 rationale: "Use the portable dot command when you need to include another file, or switch to bash intentionally if you want `source`."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-080.yaml
   shell_checks_example: examples/080.sh

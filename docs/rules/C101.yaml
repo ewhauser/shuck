@@ -11,6 +11,8 @@ shells:
   - ksh
 description: IFS contains literal backslashes instead of separator characters.
 rationale: Backslashes stay literal in IFS. Use real separator characters, `$'...'` in bash, or `printf` when you need escapes.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-234.yaml
   shell_checks_example: examples/234.sh

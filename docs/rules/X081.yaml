@@ -9,6 +9,8 @@ shells:
   - dash
 description: "The `${*%%pattern}` longest-suffix removal is applied to `$*` in POSIX sh."
 rationale: "Assign `$*` to a variable first, then apply parameter expansion."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-305.yaml
   shell_checks_example: examples/305.sh

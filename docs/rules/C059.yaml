@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Redirects output to a filename that shadows a known command.
 rationale: Use a distinct filename or a path prefix to avoid overwriting a command.
+safe_fix: true
+fix_description: "Prefix the redirection target with `./` to make it an explicit relative path."
 source:
   shell_checks_rule: rules/SH-165.yaml
   shell_checks_example: examples/165.sh

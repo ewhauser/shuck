@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A unary string check on a hard-coded word never reflects changing input.
 rationale: Test a variable or path that can change, or drop the check if the literal is intentional.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-072.yaml
   shell_checks_example: examples/072.sh

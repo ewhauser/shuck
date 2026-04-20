@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "Quoting `$@` as a `[ ... ]` or `test` operand folds all arguments together."
 rationale: Use a loop or inspect the arguments one at a time instead.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-249.yaml
   shell_checks_example: examples/249.sh

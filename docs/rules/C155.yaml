@@ -10,6 +10,8 @@ shells:
   - dash
 description: A value is updated inside a pipeline child shell and then read afterward.
 rationale: Keep the update in the main shell or pass the result out explicitly.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-347.yaml
   shell_checks_example: examples/347.sh

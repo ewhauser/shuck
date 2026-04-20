@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A grouped case pattern uses non-POSIX shell syntax.
 rationale: Spell out the alternatives with plain case patterns or use bash.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-111.yaml
   shell_checks_example: examples/111.sh

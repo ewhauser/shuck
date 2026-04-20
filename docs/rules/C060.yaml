@@ -11,6 +11,8 @@ shells:
   - ksh
 description: The shebang line does not start with an absolute path.
 rationale: Use an absolute interpreter path or /usr/bin/env in the shebang.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-166.yaml
   shell_checks_example: examples/166.sh

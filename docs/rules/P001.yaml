@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Using expr to combine numbers spawns a separate process for work the shell can already do itself.
 rationale: Use shell arithmetic expansion when you only need a numeric result.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-055.yaml
   shell_checks_example: examples/055.sh

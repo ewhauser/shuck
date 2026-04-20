@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "An `if` starts on the same line as `else` instead of using `elif`."
 rationale: "Collapse the nested form into a single `elif` branch."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-112.yaml
   shell_checks_example: examples/112.sh

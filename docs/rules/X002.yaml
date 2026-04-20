@@ -9,6 +9,8 @@ shells:
   - dash
 description: The `==` comparison operator inside `[` is not portable in POSIX shells.
 rationale: Use `=` when writing tests for `/bin/sh`.
+safe_fix: true
+fix_description: "Replace each reported `==` comparison operator with `=`."
 source:
   shell_checks_rule: rules/SH-007.yaml
   shell_checks_example: examples/007.sh

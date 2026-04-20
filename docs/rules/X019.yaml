@@ -9,6 +9,8 @@ shells:
   - dash
 description: The script uses a direct array reference, which portable `sh` does not support.
 rationale: Use separate variables or positional parameters instead of array references in portable shell.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-024.yaml
   shell_checks_example: examples/024.sh

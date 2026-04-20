@@ -9,6 +9,8 @@ shells:
   - dash
 description: The script uses a shell builtin option that portable sh does not provide.
 rationale: Avoid shell builtin option forms that POSIX sh does not define, or require a shell that guarantees them.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-030.yaml
   shell_checks_example: examples/030.sh

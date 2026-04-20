@@ -9,6 +9,8 @@ shells:
   - dash
 description: "A C-style `for ((...))` loop is used in a POSIX shell script."
 rationale: "Use a `while` loop with arithmetic for portability."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-263.yaml
   shell_checks_example: examples/263.sh

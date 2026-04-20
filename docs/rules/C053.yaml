@@ -10,6 +10,8 @@ shells:
   - ksh
 description: Spaces around an assignment operator change the meaning.
 rationale: "Write assignments as `name=value` with no spaces."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-147.yaml
   shell_checks_example: examples/147.sh

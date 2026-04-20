@@ -9,6 +9,8 @@ shells:
   - dash
 description: The script uses ANSI C-style quoting, which is a shell extension rather than POSIX syntax.
 rationale: Use ordinary shell quoting and explicit escaping when the script needs to stay portable.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-012.yaml
   shell_checks_example: examples/012.sh

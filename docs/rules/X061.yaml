@@ -9,6 +9,8 @@ shells:
   - dash
 description: "The `-a` file-existence test is used inside `[[ ]]` in POSIX sh."
 rationale: "Use `-e` instead of `-a` for file existence testing."
+safe_fix: true
+fix_description: "Replace unary `-a` with `-e` inside the `[[ ... ]]` file-existence test."
 source:
   shell_checks_rule: rules/SH-268.yaml
   shell_checks_example: examples/268.sh

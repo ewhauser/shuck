@@ -10,6 +10,8 @@ shells:
   - ksh
 description: A zsh prompt escape is used inside a POSIX shell script.
 rationale: Use ANSI escape sequences instead of zsh prompt formatting.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-183.yaml
   shell_checks_example: examples/183.sh

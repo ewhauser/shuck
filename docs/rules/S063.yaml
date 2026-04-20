@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "A symbolic link target uses a relative path with many `../` segments."
 rationale: Use an absolute path or verify the relative target resolves correctly.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-252.yaml
   shell_checks_example: examples/252.sh

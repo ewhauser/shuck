@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "Flags are passed to `set` without a leading dash."
 rationale: "Add a dash before the flags: `set -euo pipefail`."
+safe_fix: true
+fix_description: "Insert `--` before the first bare operand so `set` explicitly assigns positional parameters."
 source:
   shell_checks_rule: rules/SH-229.yaml
   shell_checks_example: examples/229.sh

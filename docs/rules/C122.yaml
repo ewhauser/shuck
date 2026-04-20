@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "The `-a` flag inside `[[ ]]` is ambiguous in POSIX sh."
 rationale: "Use `-e` for file existence or `&&` for boolean conjunction."
+safe_fix: true
+fix_description: "Replace unary `-a` with `-e` inside the `[[ ... ]]` test."
 source:
   shell_checks_rule: rules/SH-290.yaml
   shell_checks_example: examples/290.sh

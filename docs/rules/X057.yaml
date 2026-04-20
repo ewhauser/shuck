@@ -9,6 +9,8 @@ shells:
   - dash
 description: "The legacy `$[...]` arithmetic syntax is used in POSIX sh."
 rationale: "Use `$((...))` for arithmetic expansion."
+safe_fix: true
+fix_description: "Replace each legacy `$[expr]` arithmetic fragment with the equivalent `$((expr))` form."
 source:
   shell_checks_rule: rules/SH-264.yaml
   shell_checks_example: examples/264.sh

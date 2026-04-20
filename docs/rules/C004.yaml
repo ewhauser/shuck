@@ -11,6 +11,8 @@ shells:
   - ksh
 description: The script changes directories without checking whether the move succeeded.
 rationale: Treat directory changes as fallible and branch on the result before continuing.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-027.yaml
   shell_checks_example: examples/027.sh

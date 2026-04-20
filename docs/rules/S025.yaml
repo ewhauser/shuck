@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A backslash before a normal letter gets treated as plain text.
 rationale: Only escape characters that need it, or quote the word instead.
+safe_fix: true
+fix_description: "Delete the leading backslash from the two-character literal word."
 source:
   shell_checks_rule: rules/SH-088.yaml
   shell_checks_example: examples/088.sh

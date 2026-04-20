@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "The `fgrep` command is used instead of `grep -F`."
 rationale: "Replace `fgrep` with `grep -F` as fgrep is deprecated."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-248.yaml
   shell_checks_example: examples/248.sh

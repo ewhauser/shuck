@@ -9,6 +9,8 @@ shells:
   - dash
 description: "The `-v` variable-is-set test is used in POSIX sh."
 rationale: "Use `[ -n \"${var+set}\" ]` for portability."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-267.yaml
   shell_checks_example: examples/267.sh

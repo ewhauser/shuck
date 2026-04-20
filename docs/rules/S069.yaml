@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A getopts case handler has no branch for invalid option flags.
 rationale: Add a catch-all branch or an explicit `\?` arm so unexpected flags do not fall through the getopts dispatch.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-300.yaml
   shell_checks_example: examples/300.sh

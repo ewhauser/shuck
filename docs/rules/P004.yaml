@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A grouped test uses a subshell instead of braces.
 rationale: Replace the subshell parentheses with a brace group to avoid a needless fork.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-164.yaml
   shell_checks_example: examples/164.sh

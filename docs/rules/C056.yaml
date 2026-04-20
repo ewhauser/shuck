@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "Reads `$?` after a test command has already overwritten it."
 rationale: Save the status before running another command in the branch.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-155.yaml
   shell_checks_example: examples/155.sh

@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "A test expression is missing the space before `]`, which ShellCheck flags as a bracket-spacing issue."
 rationale: Keep the test minimal and omit the closing-space mistake so the example isolates this warning.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-100.yaml
   shell_checks_example: examples/100.sh

@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A double-quoted string is opened inside another quoted string and ShellCheck thinks it was never closed.
 rationale: "Avoid embedding raw shell code inside an `echo` string; use a here-doc or escape the nested quotes explicitly."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-113.yaml
   shell_checks_example: examples/113.sh

@@ -11,6 +11,8 @@ shells:
   - ksh
 description: An unquoted command substitution such as $(...) is inserted as a shell word and its output is split before the receiving command sees it.
 rationale: Quote the substitution unless the script intentionally wants the produced text to be split. Expansions inside the substitution body are checked by the parameter and array quoting rules.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-005.yaml
   shell_checks_example: examples/005.sh

@@ -9,6 +9,8 @@ shells:
   - dash
 description: The script relies on `select`, which is a shell-specific menu loop rather than portable `sh` syntax.
 rationale: Build the menu flow with basic shell loops if the script must run in `sh`.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-014.yaml
   shell_checks_example: examples/014.sh

@@ -9,6 +9,8 @@ shells:
   - dash
 description: "A `$\"string\"` locale-translated string is used in POSIX sh."
 rationale: Use plain double quotes for portability.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-262.yaml
   shell_checks_example: examples/262.sh

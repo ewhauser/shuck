@@ -8,6 +8,8 @@ shells:
   - sh
 description: "The `-O` ownership test is used in a POSIX sh script."
 rationale: "Use `stat` or a similar portable check for file ownership."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-282.yaml
   shell_checks_example: examples/282.sh

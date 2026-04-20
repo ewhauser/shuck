@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A variable is being expanded inside a pattern expression.
 rationale: Make the pattern explicit and keep untrusted text out of pattern matching.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-152.yaml
   shell_checks_example: examples/152.sh

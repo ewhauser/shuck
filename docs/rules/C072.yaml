@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A Unicode smart quote appears inside a shell string.
 rationale: Replace the Unicode quotation mark with an ASCII equivalent.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-189.yaml
   shell_checks_example: examples/189.sh

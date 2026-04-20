@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Command substitution captures ls output for processing.
 rationale: Use a glob or find to avoid parsing ls output.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-199.yaml
   shell_checks_example: examples/199.sh

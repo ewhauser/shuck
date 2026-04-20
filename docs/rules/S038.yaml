@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Returns the exit status that the function would already propagate.
 rationale: Omit the explicit return when the last command status is the desired result.
+safe_fix: true
+fix_description: "Delete the trailing `return $?` command."
 source:
   shell_checks_rule: rules/SH-170.yaml
   shell_checks_example: examples/170.sh

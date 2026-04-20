@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Building an array from an unquoted value can split one logical item into several elements.
 rationale: Quote the expansion or use a deliberate splitting step when you need multiple items.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-067.yaml
   shell_checks_example: examples/067.sh
