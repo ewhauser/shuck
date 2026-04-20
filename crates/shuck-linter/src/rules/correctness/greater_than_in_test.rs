@@ -1,7 +1,4 @@
-use shuck_ast::{
-    BourneParameterExpansion, ConditionalBinaryOp, ParameterExpansion, ParameterExpansionSyntax,
-    RedirectKind, Span, Word, WordPart, ZshExpansionTarget,
-};
+use shuck_ast::{ConditionalBinaryOp, RedirectKind, Span};
 use shuck_semantic::{BindingAttributes, BindingId};
 
 use crate::{
@@ -180,18 +177,21 @@ fn operand_is_numeric_literal(
     };
 
     static_word_text(word, source).is_some_and(|text| looks_like_decimal_integer(&text))
-        || word_is_direct_numeric_expansion(word)
-        || word_is_numeric_binding_reference(checker, word.span)
+        || checker
+            .facts()
+            .any_word_fact(word.span)
+            .is_some_and(|word_fact| {
+                word_fact.is_direct_numeric_expansion()
+                    || word_is_numeric_binding_reference(checker, word_fact)
+            })
 }
 
-fn word_is_numeric_binding_reference(checker: &Checker<'_>, span: Span) -> bool {
-    let Some(word_fact) = checker.facts().any_word_fact(span) else {
-        return false;
-    };
-    if !word_fact_is_plain_scalar_reference(word_fact) {
+fn word_is_numeric_binding_reference(checker: &Checker<'_>, word_fact: &WordFact<'_>) -> bool {
+    if !word_fact.is_plain_scalar_reference() {
         return false;
     }
 
+    let span = word_fact.span();
     let mut references = checker.semantic().references().iter().filter(|reference| {
         reference.span.start.offset >= span.start.offset
             && reference.span.end.offset <= span.end.offset
@@ -210,84 +210,6 @@ fn word_is_numeric_binding_reference(checker: &Checker<'_>, span: Span) -> bool 
         && reaching
             .iter()
             .all(|binding_id| binding_is_numeric_literal(checker, *binding_id))
-}
-
-fn word_is_direct_numeric_expansion(word: &Word) -> bool {
-    let [part] = word.parts.as_slice() else {
-        return false;
-    };
-    word_part_is_direct_numeric_expansion(&part.kind)
-}
-
-fn word_part_is_direct_numeric_expansion(part: &WordPart) -> bool {
-    match part {
-        WordPart::DoubleQuoted { parts, .. } => {
-            let [part] = parts.as_slice() else {
-                return false;
-            };
-            word_part_is_direct_numeric_expansion(&part.kind)
-        }
-        WordPart::Length(_) | WordPart::ArrayLength(_) => true,
-        WordPart::Parameter(parameter) => parameter_is_direct_numeric_expansion(parameter),
-        _ => false,
-    }
-}
-
-fn parameter_is_direct_numeric_expansion(parameter: &ParameterExpansion) -> bool {
-    match &parameter.syntax {
-        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Length { .. }) => true,
-        ParameterExpansionSyntax::Zsh(syntax) => syntax.length_prefix.is_some(),
-        _ => false,
-    }
-}
-
-fn word_fact_is_plain_scalar_reference(word_fact: &WordFact<'_>) -> bool {
-    word_is_plain_scalar_reference(word_fact.word())
-}
-
-fn word_is_plain_scalar_reference(word: &Word) -> bool {
-    let [part] = word.parts.as_slice() else {
-        return false;
-    };
-    word_part_is_plain_scalar_reference(&part.kind)
-}
-
-fn word_part_is_plain_scalar_reference(part: &WordPart) -> bool {
-    match part {
-        WordPart::Variable(name) => !matches!(name.as_str(), "@" | "*"),
-        WordPart::DoubleQuoted { parts, .. } => {
-            let [part] = parts.as_slice() else {
-                return false;
-            };
-            word_part_is_plain_scalar_reference(&part.kind)
-        }
-        WordPart::Parameter(parameter) => parameter_is_plain_scalar_reference(parameter),
-        _ => false,
-    }
-}
-
-fn parameter_is_plain_scalar_reference(parameter: &ParameterExpansion) -> bool {
-    match &parameter.syntax {
-        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
-            if reference.subscript.is_none() && !matches!(reference.name.as_str(), "@" | "*") =>
-        {
-            true
-        }
-        ParameterExpansionSyntax::Zsh(syntax)
-            if syntax.length_prefix.is_none()
-                && syntax.operation.is_none()
-                && syntax.modifiers.is_empty()
-                && matches!(
-                    &syntax.target,
-                    ZshExpansionTarget::Reference(reference)
-                        if reference.subscript.is_none()
-                            && !matches!(reference.name.as_str(), "@" | "*")
-                ) =>
-        {
-            true
-        }
-        _ => false,
-    }
 }
 
 fn binding_is_numeric_literal(checker: &Checker<'_>, binding_id: BindingId) -> bool {
