@@ -2445,6 +2445,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             attributes |= BindingAttributes::UPPERCASE;
         }
 
+        let global_like = matches!(
+            builtin,
+            DeclarationBuiltin::Declare | DeclarationBuiltin::Typeset
+        ) && flags.contains(&'g');
         let local_like = matches!(builtin, DeclarationBuiltin::Local)
             || (matches!(
                 builtin,
@@ -2460,6 +2464,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             if local_like {
                 self.nearest_function_scope()
                     .unwrap_or_else(|| self.current_scope())
+            } else if global_like {
+                ScopeId(0)
             } else {
                 self.current_scope()
             },
