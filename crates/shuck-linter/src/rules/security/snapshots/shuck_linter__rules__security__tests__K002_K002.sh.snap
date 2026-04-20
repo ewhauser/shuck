@@ -13,15 +13,3 @@ K002 ssh command text is expanded locally before the remote shell sees it
   |
 3 | \ssh host "echo $HOME"
   |
-
-K002 ssh command text is expanded locally before the remote shell sees it
- --> <source>:5:19
-  |
-5 | ssh -v host "echo $HOME"
-  |
-
-K002 ssh command text is expanded locally before the remote shell sees it
- --> <source>:6:19
-  |
-6 | ssh host -v "echo $HOME"
-  |

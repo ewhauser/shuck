@@ -55,17 +55,16 @@ ssh \"$host\" \"echo $HOME\"
     }
 
     #[test]
-    fn reports_expansions_after_static_ssh_options() {
+    fn ignores_local_ssh_options_before_destination() {
         let source = "\
 #!/bin/sh
 ssh -i \"$key\" \"$host\" \"echo $HOME\"
-ssh -p 2222 host \"echo $USER\"
+ssh -o BatchMode=yes host \"echo $USER\"
+ssh -- host \"echo $PATH\"
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SshLocalExpansion));
 
-        assert_eq!(diagnostics.len(), 2, "{diagnostics:#?}");
-        assert_eq!(diagnostics[0].span.slice(source), "$HOME");
-        assert_eq!(diagnostics[1].span.slice(source), "$USER");
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
 
     #[test]
@@ -93,6 +92,19 @@ ssh \"$host\" cmd \"$HOME\"
         assert_eq!(diagnostics.len(), 2, "{diagnostics:#?}");
         assert_eq!(diagnostics[0].span.slice(source), "$USER");
         assert_eq!(diagnostics[1].span.slice(source), "$HOME");
+    }
+
+    #[test]
+    fn ignores_remote_command_shapes_with_leading_dash_arguments() {
+        let source = "\
+#!/bin/sh
+ssh host -t \"echo $HOME\"
+ssh host ls -l \"$HOME\"
+ssh host cmd --flag \"$HOME\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SshLocalExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
 
     #[test]
