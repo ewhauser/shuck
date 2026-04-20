@@ -196,5 +196,6 @@ mod tests {
             map.code_for_rule(Rule::LeadingGlobInGrepPattern),
             Some(2063)
         );
+        assert_eq!(map.code_for_rule(Rule::MixedAndOrInCondition), None);
     }
 }
