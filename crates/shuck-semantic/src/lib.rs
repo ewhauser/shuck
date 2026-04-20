@@ -4177,6 +4177,26 @@ printf '%s\\n' \"$config_path\" \"$still_missing\"
     }
 
     #[test]
+    fn parameter_reference_spans_exclude_escaped_quotes_in_double_quoted_strings() {
+        let source = "\
+#!/bin/bash
+rvm_info=\"
+  uname: \\\"${_system_info}\\\"
+\"
+";
+        let model = model(source);
+        let reference = model
+            .references()
+            .iter()
+            .find(|reference| reference.name == "_system_info")
+            .unwrap();
+
+        assert_eq!(reference.span.start.line, 3);
+        assert_eq!(reference.span.start.column, 12);
+        assert_eq!(reference.span.slice(source), "${_system_info}");
+    }
+
+    #[test]
     fn default_parameter_operand_reads_are_tracked() {
         let source = "\
 repo_root=$(pwd)

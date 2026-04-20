@@ -2280,6 +2280,24 @@ printf '%s\\n' \"${missing%%/*}\"
     }
 
     #[test]
+    fn undefined_variable_anchors_escaped_quote_parameter_expansions_to_the_parameter() {
+        let source = "\
+#!/bin/bash
+rvm_info=\"
+  uname: \\\"${_system_info}\\\"
+\"
+";
+        let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
+        assert!(diagnostics[0].message.contains("_system_info"));
+        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.column, 12);
+        assert_eq!(diagnostics[0].span.slice(source), "${_system_info}");
+    }
+
+    #[test]
     fn undefined_variable_reports_self_referential_assignments() {
         let diagnostics = lint_for_rule(
             "\
