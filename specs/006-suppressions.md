@@ -15,6 +15,8 @@ Lint rules produce false positives. Users need a way to acknowledge and silence 
 - **shuck native**: `# shuck: disable=C001` — supports disable, enable (region toggle), and disable-file (whole-file)
 - **shellcheck compatible**: `# shellcheck disable=SC2086` — widely used in existing codebases, applies to the next command only
 
+Both directive styles accept either code namespace. Native shuck codes (`C001`, `S001`, `SH-001`) and ShellCheck codes (`SC2086`, `2154`) resolve to the same underlying rules.
+
 The Go frontend implements both. The Rust rewrite must preserve this behavior so users migrating from the Go tool or from shellcheck don't need to rewrite their suppression comments.
 
 Following ruff's architecture, suppression filtering happens **after** the linter produces diagnostics — the checker runs without knowledge of suppressions, and a post-processing step filters the results. This keeps the checker simple and makes suppressions independently testable.
@@ -28,7 +30,7 @@ Following ruff's architecture, suppression filtering happens **after** the linte
 Case-insensitive prefix match on `shuck:`. The body after the prefix is `action=codes` where:
 
 - **action** is one of `disable`, `enable`, or `disable-file`
-- **codes** is a comma-separated list of rule codes (e.g., `C001,S003`)
+- **codes** is a comma-separated list of rule codes (e.g., `C001,S003` or `SC2086,2154`)
 - An optional reason after `#` is stripped: `# shuck: disable=C001 # legacy code`
 
 ```shell
@@ -48,7 +50,7 @@ Case-insensitive prefix match on `shellcheck`. Additional constraints:
 - **Must be an own-line comment** — inline `# shellcheck disable=...` after code is ignored (matches shellcheck's behavior)
 - Only the `disable` action is supported
 - Supports multiple code groups: `# shellcheck disable=SC2086 disable=SC2034`
-- Codes are shellcheck `SC` codes, mapped to shuck codes via a resolution table
+- Codes can be shellcheck `SC` codes or shuck-native codes. ShellCheck codes are mapped to shuck rules via a resolution table, and shuck codes resolve through the native registry.
 
 Scope depends on position:
 

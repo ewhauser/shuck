@@ -107,7 +107,7 @@ Each rule has a short code (e.g., `C006`, `S001`) that appears in diagnostics an
 
 ### ShellCheck compatibility
 
-Where possible, shuck rules align with ShellCheck rules. Shuck supports ShellCheck suppression syntax (`# shellcheck disable=SC2086`) and maps ShellCheck codes to their shuck equivalents, so existing suppression comments continue to work without changes.
+Where possible, shuck rules align with ShellCheck rules. Shuck supports ShellCheck suppression syntax (`# shellcheck disable=SC2086`) and maps ShellCheck codes to their shuck equivalents, so existing suppression comments continue to work without changes. Both suppression syntaxes accept either code namespace, so `# shuck: disable=SC2086` and `# shellcheck disable=S001` target the same rule.
 
 That said, shuck is not a port of ShellCheck. It is a clean-room reimplementation built on its own parser and analysis engine, so results will sometimes differ:
 
@@ -137,6 +137,10 @@ code_here
 
 # ShellCheck-compatible syntax (also works)
 # shellcheck disable=SC2034,SC2086
+
+# Code aliases are interchangeable in either style
+# shuck: disable=SC2086
+# shellcheck disable=S001
 ```
 
 ## File discovery

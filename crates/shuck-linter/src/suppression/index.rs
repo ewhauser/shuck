@@ -558,6 +558,25 @@ echo dead
     }
 
     #[test]
+    fn applies_region_disable_with_shellcheck_codes() {
+        let source = "\
+foo='a b'
+echo $foo
+# shuck: disable=SC2086
+echo $foo
+# shuck: enable=S001
+echo $foo
+";
+        let index = suppression_index(source);
+
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 2));
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 3));
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 4));
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 5));
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 6));
+    }
+
+    #[test]
     fn promotes_shellcheck_directives_before_the_first_statement_to_file_scope() {
         let source = "\
 #!/bin/bash
@@ -584,6 +603,20 @@ echo $foo
 
         assert!(index.is_suppressed(Rule::CompoundTestOperator, 4));
         assert!(index.is_suppressed(Rule::UnquotedExpansion, 5));
+    }
+
+    #[test]
+    fn scopes_shellcheck_disable_with_shuck_codes_to_the_next_command() {
+        let source = "\
+foo='a b'
+# shellcheck disable=S001
+echo $foo
+echo $foo
+";
+        let index = suppression_index(source);
+
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 3));
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 4));
     }
 
     #[test]
