@@ -1232,220 +1232,285 @@ fn build_word_facts_for_command<'a>(
     visit: CommandVisit<'a>,
     source: &'a str,
     semantic: &'a SemanticModel,
-    command_id: CommandId,
-    nested_word_command: bool,
+    context: WordFactCommandContext,
     normalized: &NormalizedCommand<'a>,
-) -> CollectedWordFacts<'a> {
+    command_zsh_options: Option<ZshOptionState>,
+    outputs: WordFactOutputs<'_, 'a>,
+) {
     let mut collector = WordFactCollector::new(
         source,
         semantic,
-        command_id,
-        nested_word_command,
+        context.command_id,
+        context.nested_word_command,
         normalized,
+        command_zsh_options,
+        outputs,
     );
     collector.collect_command(visit.command, visit.redirects);
-    collector.finish()
 }
 
-struct CollectedWordFacts<'a> {
-    facts: Vec<WordFact<'a>>,
-    compound_assignment_value_word_spans: FxHashSet<FactSpan>,
-    array_assignment_split_word_indices: Vec<usize>,
-    case_pattern_expansion_spans: Vec<Span>,
-    pattern_literal_spans: Vec<Span>,
-    pattern_charclass_spans: Vec<Span>,
-    arithmetic: ArithmeticFactSummary,
-    surface: SurfaceFragmentFacts,
+#[cfg(feature = "benchmarking")]
+pub(crate) fn benchmark_collect_word_facts(
+    file: &File,
+    source: &str,
+    semantic: &SemanticModel,
+) -> usize {
+    let mut words = Vec::new();
+    let mut compound_assignment_value_word_spans = FxHashSet::default();
+    let mut array_assignment_split_word_indices = Vec::new();
+    let mut case_pattern_expansion_spans = Vec::new();
+    let mut pattern_literal_spans = Vec::new();
+    let mut arithmetic_summary = ArithmeticFactSummary::default();
+    let mut surface_fragments = SurfaceFragmentSink::new(source);
+
+    for (next_command_id, traversed) in query::iter_commands_with_context(
+        &file.body,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+    )
+    .enumerate()
+    {
+        let visit = traversed.visit;
+        let normalized = command::normalize_command(visit.command, source);
+        let command_zsh_options = effective_command_zsh_options(
+            semantic,
+            command_span(visit.command).start.offset,
+            &normalized,
+        );
+        build_word_facts_for_command(
+            visit,
+            source,
+            semantic,
+            WordFactCommandContext {
+                command_id: CommandId::new(next_command_id),
+                nested_word_command: traversed.context.nested_word_command,
+            },
+            &normalized,
+            command_zsh_options,
+            WordFactOutputs {
+                facts: &mut words,
+                compound_assignment_value_word_spans: &mut compound_assignment_value_word_spans,
+                array_assignment_split_word_indices: &mut array_assignment_split_word_indices,
+                case_pattern_expansion_spans: &mut case_pattern_expansion_spans,
+                pattern_literal_spans: &mut pattern_literal_spans,
+                arithmetic: &mut arithmetic_summary,
+                surface: &mut surface_fragments,
+            },
+        );
+    }
+
+    let surface_fragments = surface_fragments.finish();
+
+    words.len()
+        + compound_assignment_value_word_spans.len()
+        + array_assignment_split_word_indices.len()
+        + case_pattern_expansion_spans.len()
+        + pattern_literal_spans.len()
+        + arithmetic_summary.array_index_arithmetic_spans.len()
+        + arithmetic_summary.arithmetic_score_line_spans.len()
+        + arithmetic_summary.dollar_in_arithmetic_spans.len()
+        + arithmetic_summary.arithmetic_command_substitution_spans.len()
+        + surface_fragments.single_quoted.len()
+        + surface_fragments.backticks.len()
+        + surface_fragments.pattern_charclass_spans.len()
+        + surface_fragments.substring_expansions.len()
+        + surface_fragments.case_modifications.len()
+        + surface_fragments.replacement_expansions.len()
 }
 
-fn extend_surface_fragment_facts(target: &mut SurfaceFragmentFacts, source: SurfaceFragmentFacts) {
-    target.single_quoted.extend(source.single_quoted);
-    target
-        .dollar_double_quoted
-        .extend(source.dollar_double_quoted);
-    target.open_double_quotes.extend(source.open_double_quotes);
-    target
-        .suspect_closing_quotes
-        .extend(source.suspect_closing_quotes);
-    target.backticks.extend(source.backticks);
-    target.legacy_arithmetic.extend(source.legacy_arithmetic);
-    target
-        .positional_parameters
-        .extend(source.positional_parameters);
-    target
-        .positional_parameter_operator_spans
-        .extend(source.positional_parameter_operator_spans);
-    target
-        .unicode_smart_quote_spans
-        .extend(source.unicode_smart_quote_spans);
-    target
-        .pattern_exactly_one_extglob_spans
-        .extend(source.pattern_exactly_one_extglob_spans);
-    target
-        .pattern_charclass_spans
-        .extend(source.pattern_charclass_spans);
-    target
-        .parameter_pattern_spans
-        .extend(source.parameter_pattern_spans);
-    target
-        .nested_pattern_charclass_spans
-        .extend(source.nested_pattern_charclass_spans);
-    target
-        .nested_parameter_expansions
-        .extend(source.nested_parameter_expansions);
-    target
-        .indirect_expansions
-        .extend(source.indirect_expansions);
-    target
-        .indexed_array_references
-        .extend(source.indexed_array_references);
-    target
-        .zsh_parameter_index_flags
-        .extend(source.zsh_parameter_index_flags);
-    target
-        .substring_expansions
-        .extend(source.substring_expansions);
-    target.case_modifications.extend(source.case_modifications);
-    target
-        .replacement_expansions
-        .extend(source.replacement_expansions);
-    target.star_glob_removals.extend(source.star_glob_removals);
-    target.subscript_spans.extend(source.subscript_spans);
+#[derive(Clone, Copy)]
+struct WordFactCommandContext {
+    command_id: CommandId,
+    nested_word_command: bool,
 }
 
-struct WordFactCollector<'a> {
+struct WordFactOutputs<'out, 'a> {
+    facts: &'out mut Vec<WordFact<'a>>,
+    compound_assignment_value_word_spans: &'out mut FxHashSet<FactSpan>,
+    array_assignment_split_word_indices: &'out mut Vec<usize>,
+    case_pattern_expansion_spans: &'out mut Vec<Span>,
+    pattern_literal_spans: &'out mut Vec<Span>,
+    arithmetic: &'out mut ArithmeticFactSummary,
+    surface: &'out mut SurfaceFragmentSink<'a>,
+}
+
+struct DerivedWordFactData {
+    static_text: Option<Box<str>>,
+    starts_with_extglob: bool,
+    has_literal_affixes: bool,
+    contains_shell_quoting_literals: bool,
+    active_expansion_spans: Box<[Span]>,
+    scalar_expansion_spans: Box<[Span]>,
+    unquoted_scalar_expansion_spans: Box<[Span]>,
+    array_expansion_spans: Box<[Span]>,
+    all_elements_array_expansion_spans: Box<[Span]>,
+    direct_all_elements_array_expansion_spans: Box<[Span]>,
+    unquoted_all_elements_array_expansion_spans: Box<[Span]>,
+    unquoted_array_expansion_spans: Box<[Span]>,
+    command_substitution_spans: Box<[Span]>,
+    unquoted_command_substitution_spans: Box<[Span]>,
+    double_quoted_expansion_spans: Box<[Span]>,
+    unquoted_literal_between_double_quoted_segments_spans: Box<[Span]>,
+}
+
+fn derive_word_fact_data(word: &Word, source: &str) -> DerivedWordFactData {
+    DerivedWordFactData {
+        static_text: static_word_text(word, source).map(String::into_boxed_str),
+        starts_with_extglob: span::word_starts_with_extglob(word, source),
+        has_literal_affixes: word_has_literal_affixes(word),
+        contains_shell_quoting_literals: word_contains_shell_quoting_literals(word, source),
+        active_expansion_spans: span::active_expansion_spans_in_source(word, source)
+            .into_boxed_slice(),
+        scalar_expansion_spans: span::scalar_expansion_part_spans(word, source).into_boxed_slice(),
+        unquoted_scalar_expansion_spans: span::unquoted_scalar_expansion_part_spans(word, source)
+            .into_boxed_slice(),
+        array_expansion_spans: span::array_expansion_part_spans(word, source).into_boxed_slice(),
+        all_elements_array_expansion_spans: span::all_elements_array_expansion_part_spans(
+            word, source,
+        )
+        .into_boxed_slice(),
+        direct_all_elements_array_expansion_spans:
+            span::direct_all_elements_array_expansion_part_spans(word, source).into_boxed_slice(),
+        unquoted_all_elements_array_expansion_spans:
+            span::unquoted_all_elements_array_expansion_part_spans(word, source)
+                .into_boxed_slice(),
+        unquoted_array_expansion_spans: span::unquoted_array_expansion_part_spans(word, source)
+            .into_boxed_slice(),
+        command_substitution_spans: span::command_substitution_part_spans_in_source(word, source)
+            .into_boxed_slice(),
+        unquoted_command_substitution_spans:
+            span::unquoted_command_substitution_part_spans_in_source(word, source)
+                .into_boxed_slice(),
+        double_quoted_expansion_spans: double_quoted_expansion_part_spans(word).into_boxed_slice(),
+        unquoted_literal_between_double_quoted_segments_spans:
+            build_unquoted_literal_between_double_quoted_segments_spans(word, source)
+                .into_boxed_slice(),
+    }
+}
+
+struct WordFactCollector<'out, 'a, 'norm> {
     source: &'a str,
     semantic: &'a SemanticModel,
     command_id: CommandId,
     nested_word_command: bool,
-    surface_command_name: Option<Box<str>>,
+    surface_command_name: Option<&'norm str>,
     command_zsh_options: Option<ZshOptionState>,
-    facts: Vec<WordFact<'a>>,
-    array_assignment_split_word_indices: Vec<usize>,
+    facts: &'out mut Vec<WordFact<'a>>,
+    array_assignment_split_word_indices: &'out mut Vec<usize>,
     seen: FxHashSet<(FactSpan, WordFactContext, WordFactHostKind)>,
-    compound_assignment_value_word_spans: FxHashSet<FactSpan>,
-    case_pattern_expansion_spans: Vec<Span>,
-    pattern_literal_spans: Vec<Span>,
-    pattern_charclass_spans: Vec<Span>,
-    arithmetic: ArithmeticFactSummary,
-    surface: SurfaceFragmentSink<'a>,
+    compound_assignment_value_word_spans: &'out mut FxHashSet<FactSpan>,
+    case_pattern_expansion_spans: &'out mut Vec<Span>,
+    pattern_literal_spans: &'out mut Vec<Span>,
+    arithmetic: &'out mut ArithmeticFactSummary,
+    surface: &'out mut SurfaceFragmentSink<'a>,
 }
 
-impl<'a> WordFactCollector<'a> {
+impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
     fn new(
         source: &'a str,
         semantic: &'a SemanticModel,
         command_id: CommandId,
         nested_word_command: bool,
-        normalized: &NormalizedCommand<'a>,
+        normalized: &'norm NormalizedCommand<'a>,
+        command_zsh_options: Option<ZshOptionState>,
+        outputs: WordFactOutputs<'out, 'a>,
     ) -> Self {
         Self {
             source,
             semantic,
             command_id,
             nested_word_command,
-            surface_command_name: normalized
-                .effective_or_literal_name()
-                .map(str::to_owned)
-                .map(String::into_boxed_str),
-            command_zsh_options: effective_command_zsh_options(
-                semantic,
-                normalized.body_span.start.offset,
-                normalized,
-            ),
-            facts: Vec::new(),
-            array_assignment_split_word_indices: Vec::new(),
+            surface_command_name: normalized.effective_or_literal_name(),
+            command_zsh_options,
+            facts: outputs.facts,
+            array_assignment_split_word_indices: outputs.array_assignment_split_word_indices,
             seen: FxHashSet::default(),
-            compound_assignment_value_word_spans: FxHashSet::default(),
-            case_pattern_expansion_spans: Vec::new(),
-            pattern_literal_spans: Vec::new(),
-            pattern_charclass_spans: Vec::new(),
-            arithmetic: ArithmeticFactSummary::default(),
-            surface: SurfaceFragmentSink::new(source),
+            compound_assignment_value_word_spans: outputs.compound_assignment_value_word_spans,
+            case_pattern_expansion_spans: outputs.case_pattern_expansion_spans,
+            pattern_literal_spans: outputs.pattern_literal_spans,
+            arithmetic: outputs.arithmetic,
+            surface: outputs.surface,
         }
     }
 
-    fn finish(self) -> CollectedWordFacts<'a> {
-        CollectedWordFacts {
-            facts: self.facts,
-            compound_assignment_value_word_spans: self.compound_assignment_value_word_spans,
-            array_assignment_split_word_indices: self.array_assignment_split_word_indices,
-            case_pattern_expansion_spans: self.case_pattern_expansion_spans,
-            pattern_literal_spans: self.pattern_literal_spans,
-            pattern_charclass_spans: self.pattern_charclass_spans,
-            arithmetic: self.arithmetic,
-            surface: self.surface.finish(),
-        }
+    fn surface_context(&self) -> SurfaceScanContext<'norm> {
+        SurfaceScanContext::new(self.surface_command_name, self.nested_word_command)
+    }
+
+    fn collect_surface_only_word(
+        &mut self,
+        word: &Word,
+        surface_context: SurfaceScanContext<'_>,
+    ) -> bool {
+        self.surface.collect_word(word, surface_context)
     }
 
     fn collect_command(&mut self, command: &'a Command, redirects: &'a [Redirect]) {
         self.collect_command_name_context_word(command);
         self.collect_argument_context_words(command);
         self.collect_expansion_assignment_value_words(command);
-        let surface_command_name = self.surface_command_name.clone();
-        let surface_context =
-            SurfaceScanContext::new(surface_command_name.as_deref(), self.nested_word_command);
+        let surface_context = self.surface_context();
 
         if let Command::Compound(command) = command {
             match command {
                 CompoundCommand::For(command) => {
                     if let Some(words) = &command.words {
-                        self.surface.collect_words(words, surface_context);
                         for word in words {
-                            self.push_word(
+                            self.push_word_with_surface(
                                 word,
                                 WordFactContext::Expansion(ExpansionContext::ForList),
                                 WordFactHostKind::Direct,
+                                surface_context,
                             );
                         }
                     }
                 }
                 CompoundCommand::Repeat(command) => {
-                    self.surface.collect_word(&command.count, surface_context);
-                    self.push_word(
+                    self.push_word_with_surface(
                         &command.count,
                         WordFactContext::Expansion(ExpansionContext::CommandArgument),
                         WordFactHostKind::Direct,
+                        surface_context,
                     );
                 }
                 CompoundCommand::Foreach(command) => {
-                    self.surface.collect_words(&command.words, surface_context);
                     for word in &command.words {
-                        self.push_word(
+                        self.push_word_with_surface(
                             word,
                             WordFactContext::Expansion(ExpansionContext::ForList),
                             WordFactHostKind::Direct,
+                            surface_context,
                         );
                     }
                 }
                 CompoundCommand::Select(command) => {
-                    self.surface.collect_words(&command.words, surface_context);
                     for word in &command.words {
-                        self.push_word(
+                        self.push_word_with_surface(
                             word,
                             WordFactContext::Expansion(ExpansionContext::SelectList),
                             WordFactHostKind::Direct,
+                            surface_context,
                         );
                     }
                 }
                 CompoundCommand::Case(command) => {
-                    self.surface.collect_word(&command.word, surface_context);
-                    self.push_word(
+                    self.push_word_with_surface(
                         &command.word,
                         WordFactContext::CaseSubject,
                         WordFactHostKind::Direct,
+                        surface_context,
                     );
                     for case in &command.cases {
                         for pattern in &case.patterns {
-                            self.surface.collect_pattern(
-                                pattern,
-                                surface_context.with_pattern_charclass_scan(),
-                            );
+                            let pattern_context = surface_context.with_pattern_charclass_scan();
+                            self.surface.collect_pattern_structure(pattern, pattern_context);
                             self.collect_case_pattern_expansion_spans(pattern);
                             self.collect_pattern_context_words(
                                 pattern,
                                 WordFactContext::Expansion(ExpansionContext::CasePattern),
                                 WordFactHostKind::Direct,
+                                Some(pattern_context),
                             );
                         }
                     }
@@ -1494,19 +1559,34 @@ impl<'a> WordFactCollector<'a> {
             }
         }
 
-        self.surface.collect_redirects(redirects, surface_context);
         for redirect in redirects {
-            let Some(context) = ExpansionContext::from_redirect_kind(redirect.kind) else {
-                continue;
-            };
-            let word = redirect
-                .word_target()
-                .expect("expected non-heredoc redirect target");
-            self.push_word(
-                word,
-                WordFactContext::Expansion(context),
-                WordFactHostKind::Direct,
-            );
+            match redirect.word_target() {
+                Some(word) => {
+                    let Some(context) = ExpansionContext::from_redirect_kind(redirect.kind) else {
+                        continue;
+                    };
+                    let word_context = if redirect.kind == RedirectKind::HereString {
+                        surface_context
+                    } else {
+                        surface_context.without_command_name()
+                    };
+                    self.push_word_with_surface(
+                        word,
+                        WordFactContext::Expansion(context),
+                        WordFactHostKind::Direct,
+                        word_context,
+                    );
+                }
+                None => {
+                    let heredoc = redirect.heredoc().expect("expected heredoc redirect");
+                    if heredoc.delimiter.expands_body {
+                        self.surface.collect_heredoc_body(
+                            &heredoc.body,
+                            surface_context.without_open_double_quote_scan(),
+                        );
+                    }
+                }
+            }
         }
 
         if let Some(action) = trap_action_word(command, self.source) {
@@ -1519,29 +1599,31 @@ impl<'a> WordFactCollector<'a> {
     }
 
     fn collect_command_name_context_word(&mut self, command: &'a Command) {
-        let surface_command_name = self.surface_command_name.clone();
-        let surface_context =
-            SurfaceScanContext::new(surface_command_name.as_deref(), self.nested_word_command);
+        let surface_context = self.surface_context();
         match command {
             Command::Simple(command) => {
-                self.surface.collect_word(&command.name, surface_context);
                 if static_word_text(&command.name, self.source).is_none() {
-                    self.push_word(
+                    self.push_word_with_surface(
                         &command.name,
                         WordFactContext::Expansion(ExpansionContext::CommandName),
                         WordFactHostKind::Direct,
+                        surface_context,
                     );
+                } else {
+                    self.collect_surface_only_word(&command.name, surface_context);
                 }
             }
             Command::Function(function) => {
                 for entry in &function.header.entries {
-                    self.surface.collect_word(&entry.word, surface_context);
                     if static_word_text(&entry.word, self.source).is_none() {
-                        self.push_word(
+                        self.push_word_with_surface(
                             &entry.word,
                             WordFactContext::Expansion(ExpansionContext::CommandName),
                             WordFactHostKind::Direct,
+                            surface_context,
                         );
+                    } else {
+                        self.collect_surface_only_word(&entry.word, surface_context);
                     }
                 }
             }
@@ -1556,22 +1638,19 @@ impl<'a> WordFactCollector<'a> {
     fn collect_argument_context_words(&mut self, command: &'a Command) {
         match command {
             Command::Simple(command) => {
-                let surface_command_name = self.surface_command_name.clone();
-                let surface_context = SurfaceScanContext::new(
-                    surface_command_name.as_deref(),
-                    self.nested_word_command,
-                );
+                let surface_context = self.surface_context();
+                let surface_command_name = surface_context.command_name();
                 let trap_command =
                     static_word_text(&command.name, self.source).as_deref() == Some("trap");
                 let variable_set_operand =
                     surface::simple_command_variable_set_operand(command, self.source);
                 let mut saw_open_double_quote = false;
-                if surface_command_name.as_deref() == Some("unset") {
+                if surface_command_name == Some("unset") {
                     for word in &command.args {
                         self.surface.record_unset_array_target_word(word);
                     }
                 }
-                if matches!(surface_command_name.as_deref(), Some("echo" | "printf")) {
+                if matches!(surface_command_name, Some("echo" | "printf")) {
                     self.surface
                         .collect_split_suspect_closing_quote_fragment_in_words(&command.args);
                 }
@@ -1587,15 +1666,17 @@ impl<'a> WordFactCollector<'a> {
                         && !surface::word_has_reopened_double_quote_window(
                             word,
                             self.source,
-                            surface_command_name.as_deref(),
+                            surface_command_name,
                         ) {
                         base_surface_word_context.without_open_double_quote_scan()
                     } else {
                         base_surface_word_context
                     };
-                    saw_open_double_quote |= self.surface.collect_word(word, surface_word_context);
-                    if !trap_command {
-                        if surface_command_name.as_deref() == Some("eval") {
+                    if trap_command {
+                        saw_open_double_quote |=
+                            self.collect_surface_only_word(word, surface_word_context);
+                    } else {
+                        if surface_command_name == Some("eval") {
                             collect_wrapped_arithmetic_spans_in_word(
                                 word,
                                 self.source,
@@ -1603,11 +1684,13 @@ impl<'a> WordFactCollector<'a> {
                                 &mut self.arithmetic.arithmetic_command_substitution_spans,
                             );
                         }
-                        self.push_word(
+                        let (_, opened) = self.push_word_with_surface(
                             word,
                             WordFactContext::Expansion(ExpansionContext::CommandArgument),
                             WordFactHostKind::Direct,
+                            surface_word_context,
                         );
+                        saw_open_double_quote |= opened;
                     }
                 }
             }
@@ -1615,69 +1698,65 @@ impl<'a> WordFactCollector<'a> {
                 BuiltinCommand::Break(command) => {
                     let surface_context = SurfaceScanContext::new(None, self.nested_word_command);
                     if let Some(word) = &command.depth {
-                        self.surface.collect_word(word, surface_context);
-                        self.push_word(
+                        self.push_word_with_surface(
                             word,
                             WordFactContext::Expansion(ExpansionContext::CommandArgument),
                             WordFactHostKind::Direct,
+                            surface_context,
                         );
                     }
-                    self.surface
-                        .collect_words(&command.extra_args, surface_context);
                     self.collect_words_with_context(
                         &command.extra_args,
                         WordFactContext::Expansion(ExpansionContext::CommandArgument),
+                        surface_context,
                     );
                 }
                 BuiltinCommand::Continue(command) => {
                     let surface_context = SurfaceScanContext::new(None, self.nested_word_command);
                     if let Some(word) = &command.depth {
-                        self.surface.collect_word(word, surface_context);
-                        self.push_word(
+                        self.push_word_with_surface(
                             word,
                             WordFactContext::Expansion(ExpansionContext::CommandArgument),
                             WordFactHostKind::Direct,
+                            surface_context,
                         );
                     }
-                    self.surface
-                        .collect_words(&command.extra_args, surface_context);
                     self.collect_words_with_context(
                         &command.extra_args,
                         WordFactContext::Expansion(ExpansionContext::CommandArgument),
+                        surface_context,
                     );
                 }
                 BuiltinCommand::Return(command) => {
                     let surface_context = SurfaceScanContext::new(None, self.nested_word_command);
                     if let Some(word) = &command.code {
-                        self.surface.collect_word(word, surface_context);
-                        self.push_word(
+                        self.push_word_with_surface(
                             word,
                             WordFactContext::Expansion(ExpansionContext::CommandArgument),
                             WordFactHostKind::Direct,
+                            surface_context,
                         );
                     }
-                    self.surface
-                        .collect_words(&command.extra_args, surface_context);
                     self.collect_words_with_context(
                         &command.extra_args,
                         WordFactContext::Expansion(ExpansionContext::CommandArgument),
+                        surface_context,
                     );
                 }
                 BuiltinCommand::Exit(command) => {
                     let surface_context = SurfaceScanContext::new(None, self.nested_word_command);
                     if let Some(word) = &command.code {
-                        self.surface.collect_word(word, surface_context);
-                        self.push_word(
+                        self.push_word_with_surface(
                             word,
                             WordFactContext::Expansion(ExpansionContext::CommandArgument),
                             WordFactHostKind::Direct,
+                            surface_context,
                         );
                     }
-                    self.surface
-                        .collect_words(&command.extra_args, surface_context);
                     self.collect_words_with_context(
                         &command.extra_args,
                         WordFactContext::Expansion(ExpansionContext::CommandArgument),
+                        surface_context,
                     );
                 }
             },
@@ -1686,14 +1765,14 @@ impl<'a> WordFactCollector<'a> {
                 for operand in &command.operands {
                     match operand {
                         DeclOperand::Flag(word) => {
-                            self.surface.collect_word(word, surface_context);
+                            self.collect_surface_only_word(word, surface_context);
                         }
                         DeclOperand::Dynamic(word) => {
-                            self.surface.collect_word(word, surface_context);
-                            self.push_word(
+                            self.push_word_with_surface(
                                 word,
                                 WordFactContext::Expansion(ExpansionContext::CommandArgument),
                                 WordFactHostKind::Direct,
+                                surface_context,
                             );
                         }
                         DeclOperand::Name(_) | DeclOperand::Assignment(_) => {}
@@ -1702,13 +1781,10 @@ impl<'a> WordFactCollector<'a> {
             }
             Command::Binary(_) | Command::Compound(_) | Command::Function(_) => {}
             Command::AnonymousFunction(function) => {
-                self.surface.collect_words(
-                    &function.args,
-                    SurfaceScanContext::new(None, self.nested_word_command),
-                );
                 self.collect_words_with_context(
                     &function.args,
                     WordFactContext::Expansion(ExpansionContext::CommandArgument),
+                    SurfaceScanContext::new(None, self.nested_word_command),
                 );
             }
         }
@@ -1734,10 +1810,8 @@ impl<'a> WordFactCollector<'a> {
                         reference,
                         self.source,
                         &mut |word| {
-                            self.surface.collect_word(
-                                word,
-                                SurfaceScanContext::new(None, self.nested_word_command),
-                            );
+                            let surface_context =
+                                SurfaceScanContext::new(None, self.nested_word_command);
                             collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
                                 &word.parts,
                                 self.source,
@@ -1747,12 +1821,13 @@ impl<'a> WordFactCollector<'a> {
                                 self.collect_array_index_arithmetic_spans(word);
                                 self.collect_dollar_prefixed_indexed_subscript_spans(word);
                             }
-                            self.push_owned_word(
+                            self.push_owned_word_with_surface(
                                 word.clone(),
                                 WordFactContext::Expansion(
                                     ExpansionContext::DeclarationAssignmentValue,
                                 ),
                                 WordFactHostKind::DeclarationNameSubscript,
+                                surface_context,
                             );
                         },
                     );
@@ -1784,7 +1859,6 @@ impl<'a> WordFactCollector<'a> {
             &assignment.target,
             self.source,
             &mut |word| {
-                self.surface.collect_word(word, surface_context);
                 collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
                     &word.parts,
                     self.source,
@@ -1794,28 +1868,31 @@ impl<'a> WordFactCollector<'a> {
                     self.collect_array_index_arithmetic_spans(word);
                     self.collect_dollar_prefixed_indexed_subscript_spans(word);
                 }
-                self.push_owned_word(
+                self.push_owned_word_with_surface(
                     word.clone(),
                     context,
                     WordFactHostKind::AssignmentTargetSubscript,
+                    surface_context,
                 );
             },
         );
 
         match &assignment.value {
             AssignmentValue::Scalar(word) => {
-                self.surface.collect_word(word, surface_context);
-                self.push_word(word, context, WordFactHostKind::Direct);
+                self.push_word_with_surface(word, context, WordFactHostKind::Direct, surface_context);
             }
             AssignmentValue::Compound(array) => {
                 for element in &array.elements {
                     match element {
                         ArrayElem::Sequential(word) => {
-                            self.surface.collect_word(word, surface_context);
                             self.compound_assignment_value_word_spans
                                 .insert(FactSpan::new(word.span));
-                            if let Some(index) =
-                                self.push_word(word, context, WordFactHostKind::Direct)
+                            if let (Some(index), _) = self.push_word_with_surface(
+                                word,
+                                context,
+                                WordFactHostKind::Direct,
+                                surface_context,
+                            )
                             {
                                 self.array_assignment_split_word_indices.push(index);
                             }
@@ -1827,7 +1904,6 @@ impl<'a> WordFactCollector<'a> {
                                 Some(key),
                             );
                             query::visit_subscript_words(Some(key), self.source, &mut |word| {
-                                self.surface.collect_word(word, surface_context);
                                 collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
                                     &word.parts,
                                     self.source,
@@ -1836,16 +1912,21 @@ impl<'a> WordFactCollector<'a> {
                                 if indexed_semantics {
                                     self.collect_dollar_prefixed_indexed_subscript_spans(word);
                                 }
-                                self.push_owned_word(
+                                self.push_owned_word_with_surface(
                                     word.clone(),
                                     context,
                                     WordFactHostKind::ArrayKeySubscript,
+                                    surface_context,
                                 );
                             });
-                            self.surface.collect_word(value, surface_context);
                             self.compound_assignment_value_word_spans
                                 .insert(FactSpan::new(value.span));
-                            self.push_word(value, context, WordFactHostKind::Direct);
+                            self.push_word_with_surface(
+                                value,
+                                context,
+                                WordFactHostKind::Direct,
+                                surface_context,
+                            );
                         }
                     }
                 }
@@ -1853,9 +1934,14 @@ impl<'a> WordFactCollector<'a> {
         }
     }
 
-    fn collect_words_with_context(&mut self, words: &'a [Word], context: WordFactContext) {
+    fn collect_words_with_context(
+        &mut self,
+        words: &'a [Word],
+        context: WordFactContext,
+        surface_context: SurfaceScanContext<'_>,
+    ) {
         for word in words {
-            self.push_word(word, context, WordFactHostKind::Direct);
+            self.push_word_with_surface(word, context, WordFactHostKind::Direct, surface_context);
         }
     }
 
@@ -1864,6 +1950,7 @@ impl<'a> WordFactCollector<'a> {
         pattern: &Pattern,
         context: WordFactContext,
         host_kind: WordFactHostKind,
+        surface_context: Option<SurfaceScanContext<'_>>,
     ) {
         let is_case_pattern = matches!(
             context,
@@ -1876,11 +1963,25 @@ impl<'a> WordFactCollector<'a> {
             match part {
                 PatternPart::Group { patterns, .. } => {
                     for pattern in patterns {
-                        self.collect_pattern_context_words(pattern, context, host_kind);
+                        self.collect_pattern_context_words(
+                            pattern,
+                            context,
+                            host_kind,
+                            surface_context,
+                        );
                     }
                 }
                 PatternPart::Word(word) => {
-                    self.push_owned_word(word.clone(), context, host_kind);
+                    if let Some(surface_context) = surface_context {
+                        self.push_owned_word_with_surface(
+                            word.clone(),
+                            context,
+                            host_kind,
+                            surface_context,
+                        );
+                    } else {
+                        self.push_owned_word(word.clone(), context, host_kind);
+                    }
                 }
                 PatternPart::Literal(_) | PatternPart::CharClass(_) if is_case_pattern => {}
                 PatternPart::AnyString | PatternPart::AnyChar => {}
@@ -1936,7 +2037,7 @@ impl<'a> WordFactCollector<'a> {
     ) {
         for segment in &glob.segments {
             if let ZshGlobSegment::Pattern(pattern) = segment {
-                self.collect_pattern_context_words(pattern, context, host_kind);
+                self.collect_pattern_context_words(pattern, context, host_kind, None);
             }
         }
     }
@@ -1963,28 +2064,29 @@ impl<'a> WordFactCollector<'a> {
                 self.collect_conditional_expansion_words(&expr.expr, surface_context)
             }
             ConditionalExpr::Word(word) => {
-                self.surface.collect_word(word, surface_context);
-                self.push_word(
+                self.push_word_with_surface(
                     word,
                     WordFactContext::Expansion(ExpansionContext::StringTestOperand),
                     WordFactHostKind::Direct,
+                    surface_context,
                 );
             }
             ConditionalExpr::Regex(word) => {
-                self.surface.collect_word(word, surface_context);
-                self.push_word(
+                self.push_word_with_surface(
                     word,
                     WordFactContext::Expansion(ExpansionContext::RegexOperand),
                     WordFactHostKind::Direct,
+                    surface_context,
                 );
             }
             ConditionalExpr::Pattern(pattern) => {
                 let pattern_context = surface_context.with_pattern_charclass_scan();
-                self.surface.collect_pattern(pattern, pattern_context);
+                self.surface.collect_pattern_structure(pattern, pattern_context);
                 self.collect_pattern_context_words(
                     pattern,
                     WordFactContext::Expansion(ExpansionContext::ConditionalPattern),
                     WordFactHostKind::Direct,
+                    Some(pattern_context),
                 );
             }
             ConditionalExpr::VarRef(reference) => {
@@ -1993,13 +2095,13 @@ impl<'a> WordFactCollector<'a> {
                     reference,
                     self.source,
                     &mut |word| {
-                        self.surface.collect_word(word, surface_context);
-                        self.push_owned_word(
+                        self.push_owned_word_with_surface(
                             word.clone(),
                             WordFactContext::Expansion(
                                 ExpansionContext::ConditionalVarRefSubscript,
                             ),
                             WordFactHostKind::ConditionalVarRefSubscript,
+                            surface_context,
                         );
                     },
                 );
@@ -2072,6 +2174,7 @@ impl<'a> WordFactCollector<'a> {
                 pattern,
                 WordFactContext::Expansion(ExpansionContext::ParameterPattern),
                 host_kind,
+                None,
             ),
             ParameterOp::UseDefault
             | ParameterOp::AssignDefault
@@ -2090,7 +2193,23 @@ impl<'a> WordFactCollector<'a> {
         context: WordFactContext,
         host_kind: WordFactHostKind,
     ) -> Option<usize> {
-        self.push_cow_word(Cow::Borrowed(word), context, host_kind)
+        self.push_cow_word(Cow::Borrowed(word), context, host_kind, None)
+            .0
+    }
+
+    fn push_word_with_surface(
+        &mut self,
+        word: &'a Word,
+        context: WordFactContext,
+        host_kind: WordFactHostKind,
+        surface_context: SurfaceScanContext<'_>,
+    ) -> (Option<usize>, bool) {
+        self.push_cow_word(
+            Cow::Borrowed(word),
+            context,
+            host_kind,
+            Some(surface_context),
+        )
     }
 
     fn push_owned_word(
@@ -2099,7 +2218,18 @@ impl<'a> WordFactCollector<'a> {
         context: WordFactContext,
         host_kind: WordFactHostKind,
     ) -> Option<usize> {
-        self.push_cow_word(Cow::Owned(word), context, host_kind)
+        self.push_cow_word(Cow::Owned(word), context, host_kind, None)
+            .0
+    }
+
+    fn push_owned_word_with_surface(
+        &mut self,
+        word: Word,
+        context: WordFactContext,
+        host_kind: WordFactHostKind,
+        surface_context: SurfaceScanContext<'_>,
+    ) -> (Option<usize>, bool) {
+        self.push_cow_word(Cow::Owned(word), context, host_kind, Some(surface_context))
     }
 
     fn push_cow_word(
@@ -2107,11 +2237,15 @@ impl<'a> WordFactCollector<'a> {
         word: Cow<'a, Word>,
         context: WordFactContext,
         host_kind: WordFactHostKind,
-    ) -> Option<usize> {
+        surface_context: Option<SurfaceScanContext<'_>>,
+    ) -> (Option<usize>, bool) {
         let word_ref = word.as_ref();
+        let opened_double_quote = surface_context
+            .map(|surface_context| self.surface.collect_word(word_ref, surface_context))
+            .unwrap_or(false);
         let key = FactSpan::new(word_ref.span);
         if !self.seen.insert((key, context, host_kind)) {
-            return None;
+            return (None, opened_double_quote);
         }
 
         self.collect_word_parameter_patterns(&word_ref.parts, host_kind);
@@ -2143,58 +2277,30 @@ impl<'a> WordFactCollector<'a> {
             | WordFactContext::CaseSubject
             | WordFactContext::ArithmeticCommand => None,
         };
-        let starts_with_extglob = span::word_starts_with_extglob(word_ref, self.source);
+        let derived = derive_word_fact_data(word_ref, self.source);
         let index = self.facts.len();
         self.facts.push(WordFact {
             key,
-            static_text: static_word_text(word_ref, self.source).map(String::into_boxed_str),
-            starts_with_extglob,
-            has_literal_affixes: word_has_literal_affixes(word_ref),
-            contains_shell_quoting_literals: word_contains_shell_quoting_literals(
-                word_ref,
-                self.source,
-            ),
-            active_expansion_spans: span::active_expansion_spans_in_source(word_ref, self.source)
-                .into_boxed_slice(),
-            scalar_expansion_spans: span::scalar_expansion_part_spans(word_ref, self.source)
-                .into_boxed_slice(),
-            unquoted_scalar_expansion_spans: span::unquoted_scalar_expansion_part_spans(
-                word_ref,
-                self.source,
-            )
-            .into_boxed_slice(),
+            static_text: derived.static_text,
+            starts_with_extglob: derived.starts_with_extglob,
+            has_literal_affixes: derived.has_literal_affixes,
+            contains_shell_quoting_literals: derived.contains_shell_quoting_literals,
+            active_expansion_spans: derived.active_expansion_spans,
+            scalar_expansion_spans: derived.scalar_expansion_spans,
+            unquoted_scalar_expansion_spans: derived.unquoted_scalar_expansion_spans,
             array_assignment_split_scalar_expansion_spans: Box::default(),
-            array_expansion_spans: span::array_expansion_part_spans(word_ref, self.source)
-                .into_boxed_slice(),
-            all_elements_array_expansion_spans: span::all_elements_array_expansion_part_spans(
-                word_ref,
-                self.source,
-            )
-            .into_boxed_slice(),
+            array_expansion_spans: derived.array_expansion_spans,
+            all_elements_array_expansion_spans: derived.all_elements_array_expansion_spans,
             direct_all_elements_array_expansion_spans:
-                span::direct_all_elements_array_expansion_part_spans(word_ref, self.source)
-                    .into_boxed_slice(),
+                derived.direct_all_elements_array_expansion_spans,
             unquoted_all_elements_array_expansion_spans:
-                span::unquoted_all_elements_array_expansion_part_spans(word_ref, self.source)
-                    .into_boxed_slice(),
-            unquoted_array_expansion_spans: span::unquoted_array_expansion_part_spans(
-                word_ref,
-                self.source,
-            )
-            .into_boxed_slice(),
-            command_substitution_spans: span::command_substitution_part_spans_in_source(
-                word_ref,
-                self.source,
-            )
-            .into_boxed_slice(),
-            unquoted_command_substitution_spans:
-                span::unquoted_command_substitution_part_spans_in_source(word_ref, self.source)
-                    .into_boxed_slice(),
-            double_quoted_expansion_spans: double_quoted_expansion_part_spans(word_ref)
-                .into_boxed_slice(),
+                derived.unquoted_all_elements_array_expansion_spans,
+            unquoted_array_expansion_spans: derived.unquoted_array_expansion_spans,
+            command_substitution_spans: derived.command_substitution_spans,
+            unquoted_command_substitution_spans: derived.unquoted_command_substitution_spans,
+            double_quoted_expansion_spans: derived.double_quoted_expansion_spans,
             unquoted_literal_between_double_quoted_segments_spans:
-                build_unquoted_literal_between_double_quoted_segments_spans(word_ref, self.source)
-                    .into_boxed_slice(),
+                derived.unquoted_literal_between_double_quoted_segments_spans,
             word,
             command_id: self.command_id,
             nested_word_command: self.nested_word_command,
@@ -2205,7 +2311,7 @@ impl<'a> WordFactCollector<'a> {
             runtime_literal,
             operand_class,
         });
-        Some(index)
+        (Some(index), opened_double_quote)
     }
 
     fn collect_arithmetic_summary(

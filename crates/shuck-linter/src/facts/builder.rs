@@ -60,7 +60,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut pattern_literal_spans = Vec::new();
         let mut pattern_charclass_spans = Vec::new();
         let mut arithmetic_summary = ArithmeticFactSummary::default();
-        let mut surface_fragments = SurfaceFragmentFacts::default();
+        let mut surface_fragments = SurfaceFragmentSink::new(self.source);
         let mut functions = Vec::new();
         let mut function_body_without_braces_spans = Vec::new();
         let mut redundant_return_status_spans = Vec::new();
@@ -121,44 +121,26 @@ impl<'a> LinterFactsBuilder<'a> {
             if !nested_word_command {
                 structural_command_ids.push(id);
             }
-            let collected_words = build_word_facts_for_command(
+            build_word_facts_for_command(
                 visit,
                 self.source,
                 self.semantic,
-                id,
-                nested_word_command,
+                WordFactCommandContext {
+                    command_id: id,
+                    nested_word_command,
+                },
                 &normalized,
+                command_zsh_options.clone(),
+                WordFactOutputs {
+                    facts: &mut words,
+                    compound_assignment_value_word_spans: &mut compound_assignment_value_word_spans,
+                    array_assignment_split_word_indices: &mut array_assignment_split_word_indices,
+                    case_pattern_expansion_spans: &mut case_pattern_expansion_spans,
+                    pattern_literal_spans: &mut pattern_literal_spans,
+                    arithmetic: &mut arithmetic_summary,
+                    surface: &mut surface_fragments,
+                },
             );
-            compound_assignment_value_word_spans
-                .extend(collected_words.compound_assignment_value_word_spans);
-            let word_index_offset = words.len();
-            array_assignment_split_word_indices.extend(
-                collected_words
-                    .array_assignment_split_word_indices
-                    .iter()
-                    .map(|index| word_index_offset + *index),
-            );
-            words.extend(collected_words.facts);
-            case_pattern_expansion_spans.extend(collected_words.case_pattern_expansion_spans);
-            pattern_literal_spans.extend(collected_words.pattern_literal_spans);
-            pattern_charclass_spans.extend(collected_words.pattern_charclass_spans);
-            arithmetic_summary
-                .array_index_arithmetic_spans
-                .extend(collected_words.arithmetic.array_index_arithmetic_spans);
-            arithmetic_summary
-                .arithmetic_score_line_spans
-                .extend(collected_words.arithmetic.arithmetic_score_line_spans);
-            arithmetic_summary
-                .dollar_in_arithmetic_spans
-                .extend(collected_words.arithmetic.dollar_in_arithmetic_spans);
-            arithmetic_summary
-                .arithmetic_command_substitution_spans
-                .extend(
-                    collected_words
-                        .arithmetic
-                        .arithmetic_command_substitution_spans,
-                );
-            extend_surface_fragment_facts(&mut surface_fragments, collected_words.surface);
             let redirect_facts =
                 build_redirect_facts(visit.redirects, self.source, command_zsh_options.as_ref());
             let options = CommandOptionFacts::build(visit.command, &normalized, self.source);
@@ -410,7 +392,7 @@ impl<'a> LinterFactsBuilder<'a> {
             replacement_expansions,
             star_glob_removals,
             subscript_spans,
-        } = surface_fragments;
+        } = surface_fragments.finish();
         let function_positional_parameter_facts = build_function_positional_parameter_facts(
             self.semantic,
             &commands,
@@ -591,5 +573,3 @@ impl<'a> LinterFactsBuilder<'a> {
         }
     }
 }
-
-

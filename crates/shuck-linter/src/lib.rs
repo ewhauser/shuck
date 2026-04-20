@@ -124,6 +124,39 @@ pub fn analyze_file(
     analyze_file_at_path(file, source, indexer, settings, suppression_index, None)
 }
 
+#[cfg(feature = "benchmarking")]
+#[doc(hidden)]
+#[must_use]
+pub fn benchmark_normalize_commands(file: &File, source: &str) -> usize {
+    use crate::rules::common::{
+        command::normalize_command,
+        query::{self, CommandWalkOptions},
+    };
+
+    query::iter_commands_with_context(
+        &file.body,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+    )
+    .map(|traversed| {
+        let normalized = normalize_command(traversed.visit.command, source);
+        normalized.wrappers.len()
+            + normalized.body_words.len()
+            + usize::from(normalized.literal_name.is_some())
+            + usize::from(normalized.effective_name.is_some())
+            + usize::from(normalized.declaration.is_some())
+    })
+    .sum()
+}
+
+#[cfg(feature = "benchmarking")]
+#[doc(hidden)]
+#[must_use]
+pub fn benchmark_collect_word_facts(file: &File, source: &str, semantic: &SemanticModel) -> usize {
+    facts::benchmark_collect_word_facts(file, source, semantic)
+}
+
 pub fn analyze_file_at_path(
     file: &File,
     source: &str,

@@ -129,62 +129,63 @@ pub(crate) fn normalize_command_words<'a>(
 ) -> Option<NormalizedCommand<'a>> {
     let first_word = words.first().copied()?;
     let literal_name = static_command_name_text(first_word, source);
-    let mut normalized = NormalizedCommand {
-        literal_name: literal_name.clone(),
-        effective_name: literal_name.clone(),
-        wrappers: Vec::new(),
-        body_span: first_word.span,
-        body_word_span: Some(first_word.span),
-        body_words: literal_name
-            .as_ref()
-            .map_or_else(Vec::new, |_| words.to_vec()),
-        declaration: None,
-    };
+    let mut effective_name = literal_name.clone();
+    let mut wrappers = Vec::new();
+    let mut body_span = first_word.span;
+    let mut body_word_span = Some(first_word.span);
+    let mut body_start = literal_name.as_ref().map(|_| 0usize);
     let mut current_index = 0usize;
 
-    while let Some(current_name) = normalized.effective_name.clone() {
+    while let Some(current_name) = effective_name.as_deref() {
         let Some(resolution) =
-            resolve_command_resolution(words, current_index, current_name.as_str(), source)
+            resolve_command_resolution(words, current_index, current_name, source)
         else {
             break;
         };
 
         match resolution {
             CommandResolution::Alias {
-                effective_name,
+                effective_name: resolved_name,
                 body_index,
             } => {
-                normalized.effective_name = Some(effective_name);
-                normalized.body_span = words[body_index].span;
-                normalized.body_word_span = Some(words[body_index].span);
-                normalized.body_words = words[body_index..].to_vec();
+                body_span = words[body_index].span;
+                body_word_span = Some(words[body_index].span);
+                body_start = Some(body_index);
+                effective_name = Some(resolved_name);
                 break;
             }
             CommandResolution::Wrapper { kind, target_index } => {
-                normalized.wrappers.push(kind);
+                wrappers.push(kind);
 
                 let Some(target_index) = target_index else {
-                    normalized.effective_name = None;
-                    normalized.body_word_span = None;
-                    normalized.body_words.clear();
+                    effective_name = None;
+                    body_word_span = None;
+                    body_start = None;
                     break;
                 };
 
-                normalized.body_span = words[target_index].span;
-                normalized.body_word_span = Some(words[target_index].span);
-                normalized.body_words = words[target_index..].to_vec();
-                normalized.effective_name = static_command_name_text(words[target_index], source);
+                body_span = words[target_index].span;
+                body_word_span = Some(words[target_index].span);
+                effective_name = static_command_name_text(words[target_index], source);
+                body_start = effective_name.as_ref().map(|_| target_index);
                 current_index = target_index;
 
-                if normalized.effective_name.is_none() {
-                    normalized.body_words.clear();
+                if effective_name.is_none() {
                     break;
                 }
             }
         }
     }
 
-    Some(normalized)
+    Some(NormalizedCommand {
+        literal_name,
+        effective_name,
+        wrappers,
+        body_span,
+        body_word_span,
+        body_words: body_start.map_or_else(Vec::new, |start| words[start..].to_vec()),
+        declaration: None,
+    })
 }
 
 fn normalize_decl_command<'a>(command: &'a DeclClause, source: &str) -> NormalizedCommand<'a> {

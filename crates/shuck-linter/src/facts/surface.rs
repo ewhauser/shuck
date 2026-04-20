@@ -269,6 +269,10 @@ impl<'a> SurfaceScanContext<'a> {
         }
     }
 
+    pub(super) fn command_name(&self) -> Option<&'a str> {
+        self.command_name
+    }
+
     pub(super) fn with_assignment_target(self, assignment_target: &'a str) -> Self {
         Self {
             assignment_target: Some(assignment_target),
@@ -453,27 +457,6 @@ impl<'a> SurfaceFragmentSink<'a> {
         self.facts
             .star_glob_removals
             .push(StarGlobRemovalFragmentFact { span });
-    }
-
-    pub(super) fn collect_words(&mut self, words: &[Word], context: SurfaceScanContext<'_>) {
-        if context.assignment_target.is_none()
-            && matches!(context.command_name, Some("echo" | "printf"))
-        {
-            self.collect_split_suspect_closing_quote_fragment_in_words(words);
-        }
-        for word in words {
-            self.collect_word(word, context);
-        }
-    }
-
-    pub(super) fn collect_patterns(
-        &mut self,
-        patterns: &[Pattern],
-        context: SurfaceScanContext<'_>,
-    ) {
-        for pattern in patterns {
-            self.collect_pattern(pattern, context);
-        }
     }
 
     pub(super) fn collect_word(&mut self, word: &Word, context: SurfaceScanContext<'_>) -> bool {
@@ -878,17 +861,37 @@ impl<'a> SurfaceFragmentSink<'a> {
     }
 
     pub(super) fn collect_pattern(&mut self, pattern: &Pattern, context: SurfaceScanContext<'_>) {
+        self.collect_pattern_impl(pattern, context, true);
+    }
+
+    pub(super) fn collect_pattern_structure(
+        &mut self,
+        pattern: &Pattern,
+        context: SurfaceScanContext<'_>,
+    ) {
+        self.collect_pattern_impl(pattern, context, false);
+    }
+
+    fn collect_pattern_impl(
+        &mut self,
+        pattern: &Pattern,
+        context: SurfaceScanContext<'_>,
+        collect_words: bool,
+    ) {
         for (part, span) in pattern.parts_with_spans() {
             match part {
                 PatternPart::Group { kind, patterns } => {
                     if *kind == PatternGroupKind::ExactlyOne {
                         self.facts.pattern_exactly_one_extglob_spans.push(span);
                     }
-                    self.collect_patterns(patterns, context);
+                    for pattern in patterns {
+                        self.collect_pattern_impl(pattern, context, collect_words);
+                    }
                 }
-                PatternPart::Word(word) => {
+                PatternPart::Word(word) if collect_words => {
                     self.collect_word(word, context);
                 }
+                PatternPart::Word(_) => {}
                 PatternPart::CharClass(_) if context.collect_pattern_charclasses => {
                     self.facts.pattern_charclass_spans.push(span);
                     if context.nested_word_command {
@@ -935,34 +938,6 @@ impl<'a> SurfaceFragmentSink<'a> {
         for segment in &glob.segments {
             if let ZshGlobSegment::Pattern(pattern) = segment {
                 self.collect_pattern(pattern, context);
-            }
-        }
-    }
-
-    pub(super) fn collect_redirects(
-        &mut self,
-        redirects: &[Redirect],
-        context: SurfaceScanContext<'_>,
-    ) {
-        for redirect in redirects {
-            match redirect.word_target() {
-                Some(word) => {
-                    let word_context = if redirect.kind == RedirectKind::HereString {
-                        context
-                    } else {
-                        context.without_command_name()
-                    };
-                    self.collect_word(word, word_context);
-                }
-                None => {
-                    let heredoc = redirect.heredoc().expect("expected heredoc redirect");
-                    if heredoc.delimiter.expands_body {
-                        self.collect_heredoc_body(
-                            &heredoc.body,
-                            context.without_open_double_quote_scan(),
-                        );
-                    }
-                }
             }
         }
     }
