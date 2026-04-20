@@ -234,7 +234,9 @@ fn parse_case_arg() -> Option<String> {
             value
         }
         "--help" | "-h" => {
-            eprintln!("usage: cargo run -p shuck-benchmark --example parser_memory -- [--case NAME]");
+            eprintln!(
+                "usage: cargo run -p shuck-benchmark --example parser_memory -- [--case NAME]"
+            );
             process::exit(0);
         }
         _ => {
