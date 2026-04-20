@@ -5,4 +5,4 @@ reviewed_divergences:
     end_line: 8965
     column: 70
     end_column: 71
-    reason: "This generated configure script only picks up the warning in the corpus harness after project-closure expansion. The standalone sed fragment does not reproduce the quote-adjacency hit, so this remaining site is tracked as closure-dependent corpus noise."
+    reason: "This generated configure script only picks up the warning in the corpus harness after project-closure expansion. The standalone sed fragment does not reproduce the quote-adjacency hit, so this remaining site is tracked as a closure-dependent corpus mismatch."

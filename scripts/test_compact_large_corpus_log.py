@@ -19,7 +19,7 @@ class CompactLargeCorpusLogTests(unittest.TestCase):
             "Compiling shuck v0.0.7\n",
             "running 2 tests\n",
             "large corpus: processed 41/818 fixtures (5%)\n",
-            "large corpus compatibility summary: blocking=1 warnings=2 fixtures=3 unsupported_shells=0 implementation_diffs=1 mapping_issues=1 reviewed_divergences=1 corpus_noise=0 harness_warnings=0 harness_failures=0\n",
+            "large corpus compatibility summary: blocking=1 warnings=2 fixtures=3 unsupported_shells=0 implementation_diffs=1 mapping_issues=1 reviewed_divergences=1 harness_warnings=0 harness_failures=0\n",
             "test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 72 filtered out; finished in 267.03s\n",
         ]
 

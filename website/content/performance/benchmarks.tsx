@@ -207,6 +207,7 @@ function CaseTable({ dataset }: { dataset: BenchmarkDataset }) {
             <th>shuck</th>
             <th>Comparison</th>
             <th>Speedup</th>
+            <th>shuck RSS</th>
             <th>Comparison RSS</th>
           </tr>
         </thead>
@@ -241,6 +242,7 @@ function CaseTable({ dataset }: { dataset: BenchmarkDataset }) {
                 <td>{measurementText(shuck)}</td>
                 <td>{measurementText(comparison)}</td>
                 <td>{formatRatio(comparison?.relativeToShuck)}</td>
+                <td>{formatMemory(shuck?.meanMemoryBytes)}</td>
                 <td>{formatMemory(comparison?.meanMemoryBytes)}</td>
               </tr>
             );

@@ -56,6 +56,20 @@ fn help_shows_format_when_experimental_enabled() {
 }
 
 #[test]
+fn clean_help_describes_project_cache_entries() {
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    cmd.args(["clean", "--help"]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Remove shuck cache entries for the provided paths' projects",
+        ))
+        .stdout(predicate::str::contains(
+            "Files or directories whose project caches should be removed",
+        ));
+}
+
+#[test]
 fn format_subcommand_requires_experimental_env() {
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     cmd.arg("format");

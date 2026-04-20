@@ -448,12 +448,12 @@ jobs:
       - uses: DeterminateSystems/flakehub-cache-action@main
       - name: "Download large corpus cache"
         run: |
-          gh release download v0.0.0-test-files -R ewhauser/shuck -p 'shuck-cache.tar.zst' -D /tmp
-          echo "d82829eed9a0ba09d5dc5fc30f29f7cb445c5fb82cfaf5d98917ac98b278ab09  /tmp/shuck-cache.tar.zst" | sha256sum -c -
+          gh release download v0.0.0-test-files -R ewhauser/shuck -p 'shuck-cache-v3.tar.zst' -D /tmp
+          echo "880356ce713decb75c894a488c7a5f9cbeef2e3f76e43bb04525ebab4211ccd7  /tmp/shuck-cache-v3.tar.zst" | sha256sum -c -
         env:
           GH_TOKEN: ${{ github.token }}
       - name: "Extract large corpus cache"
-        run: tar --zstd -xf /tmp/shuck-cache.tar.zst -C "$GITHUB_WORKSPACE"
+        run: tar --zstd -xf /tmp/shuck-cache-v3.tar.zst -C "$GITHUB_WORKSPACE"
       - name: "Run large corpus tests"
         id: large-corpus
         shell: bash
