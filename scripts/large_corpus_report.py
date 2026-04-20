@@ -43,6 +43,7 @@ ZSH_FAILURE_RE = re.compile(
     r"large corpus zsh parse had (?P<blocking>\d+) blocking issue\(s\) "
     r"across (?P<fixtures>\d+) fixture\(s\)"
 )
+PROGRESS_RE = re.compile(r"large corpus: processed (?P<done>\d+)/(?P<total>\d+) fixtures")
 WORKER_PANIC_RE = re.compile(
     r"thread '<unnamed>' .*? panicked at (?P<location>[^\n]+):\n(?P<message>[^\n]+)",
     re.DOTALL,
@@ -404,6 +405,13 @@ def rendered_reason_items(summary: RuleSummary) -> str:
         )
 
     return "\n".join(items)
+
+
+def main_fixture_total(text: str, fallback_total: int, unsupported_shells: int) -> int:
+    totals = [int(match.group("total")) for match in PROGRESS_RE.finditer(text)]
+    if totals:
+        return max(totals)
+    return max(fallback_total - unsupported_shells, 0)
 
 
 def worker_panic(text: str) -> tuple[str, str] | None:
@@ -1001,7 +1009,7 @@ def render_html(
         <article class="card">
           <p class="kicker">Fixtures processed</p>
           <p class="value">{format_number(main_processed_fixtures)}</p>
-          <p class="note">Main compatibility summary count after unsupported shells and invalid fixtures were skipped.</p>
+          <p class="note">Main compatibility run total based on the largest observed progress count in the log.</p>
         </article>
         <article class="card">
           <p class="kicker">Rule-coded records</p>
@@ -1184,7 +1192,9 @@ def main() -> int:
         main_blocking=main_blocking,
         main_fixture_entries=main_fixture_entries,
         unsupported_shells=unsupported_shells,
-        main_processed_fixtures=main_fixture_entries,
+        main_processed_fixtures=main_fixture_total(
+            text, main_fixture_entries, unsupported_shells
+        ),
         rule_records=rule_records,
         shellcheck_only=shellcheck_only,
         shuck_only=shuck_only,

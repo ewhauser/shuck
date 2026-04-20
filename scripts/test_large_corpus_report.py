@@ -16,6 +16,26 @@ SPEC.loader.exec_module(MODULE)
 
 
 class LargeCorpusReportParsingTests(unittest.TestCase):
+    def test_main_fixture_total_prefers_progress_total_over_summary_fixture_count(
+        self,
+    ) -> None:
+        log = """large corpus: processed 3/6 fixtures (50%)
+large corpus: processed 6/6 fixtures (100%)
+large corpus compatibility summary: blocking=0 warnings=0 fixtures=10 unsupported_shells=4 implementation_diffs=0 mapping_issues=0 reviewed_divergences=0 harness_warnings=0 harness_failures=0
+test large_corpus_conforms_with_shellcheck ... ok
+"""
+
+        self.assertEqual(MODULE.main_fixture_total(log, 10, 4), 6)
+
+    def test_main_fixture_total_falls_back_to_supported_fixture_count_without_progress(
+        self,
+    ) -> None:
+        log = """large corpus compatibility summary: blocking=0 warnings=0 fixtures=10 unsupported_shells=4 implementation_diffs=0 mapping_issues=0 reviewed_divergences=0 harness_warnings=0 harness_failures=0
+test large_corpus_conforms_with_shellcheck ... ok
+"""
+
+        self.assertEqual(MODULE.main_fixture_total(log, 10, 4), 6)
+
     def test_extract_main_report_body_ignores_sections_after_main_result(self) -> None:
         log = """large corpus compatibility summary: blocking=0 warnings=0 fixtures=1 unsupported_shells=0 implementation_diffs=0 mapping_issues=0 reviewed_divergences=0 harness_warnings=0 harness_failures=0
 test large_corpus_conforms_with_shellcheck ... ok
@@ -109,6 +129,35 @@ test large_corpus_conforms_with_shellcheck ... FAILED
 
         self.assertIn("3\n        mapping issues, 4 reviewed divergences,", html)
         self.assertIn("6 main harness warnings,", html)
+
+    def test_rendered_fixture_card_uses_progress_total(self) -> None:
+        log = """large corpus: processed 3/6 fixtures (50%)
+large corpus: processed 6/6 fixtures (100%)
+large corpus compatibility summary: blocking=0 warnings=0 fixtures=10 unsupported_shells=4 implementation_diffs=0 mapping_issues=0 reviewed_divergences=0 harness_warnings=0 harness_failures=0
+test large_corpus_conforms_with_shellcheck ... ok
+"""
+
+        with tempfile.TemporaryDirectory() as tempdir:
+            log_path = Path(tempdir) / "large-corpus.log"
+            output_path = Path(tempdir) / "report.html"
+            log_path.write_text(log, encoding="utf-8")
+
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT_PATH),
+                    "--log",
+                    str(log_path),
+                    "--output",
+                    str(output_path),
+                ],
+                check=True,
+            )
+
+            html = output_path.read_text(encoding="utf-8")
+
+        self.assertIn('<p class="value">6</p>', html)
+        self.assertIn("largest observed progress count in the log", html)
 
     def test_reviewed_divergence_filter_keeps_only_known_failures(self) -> None:
         section = """/tmp/keep.sh
