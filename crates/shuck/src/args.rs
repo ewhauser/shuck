@@ -83,7 +83,13 @@ struct ExperimentalCli {
 #[derive(Debug, Clone, ClapArgs)]
 struct GlobalArgs {
     /// Path to the cache directory.
-    #[arg(long, env = "SHUCK_CACHE_DIR", global = true, value_name = "PATH")]
+    #[arg(
+        long,
+        env = "SHUCK_CACHE_DIR",
+        global = true,
+        value_name = "PATH",
+        help_heading = "Miscellaneous"
+    )]
     cache_dir: Option<PathBuf>,
 }
 
@@ -200,14 +206,20 @@ pub struct CheckCommand {
     /// Apply unsafe fixes.
     #[arg(long = "unsafe-fixes")]
     pub unsafe_fixes: bool,
-    /// Disable cache reads and writes.
-    #[arg(long = "no-cache")]
-    pub no_cache: bool,
     /// Choose the text output format for reported diagnostics.
     #[arg(long = "output-format", value_enum, default_value_t = CheckOutputFormatArg::Full)]
     pub output_format: CheckOutputFormatArg,
     /// Files or directories to check.
     pub paths: Vec<PathBuf>,
+    /// Disable cache reads and writes.
+    #[arg(long = "no-cache", help_heading = "Miscellaneous")]
+    pub no_cache: bool,
+    /// Exit with status code "0", even upon detecting lint violations.
+    #[arg(short = 'e', long = "exit-zero", help_heading = "Miscellaneous")]
+    pub exit_zero: bool,
+    /// Exit with a non-zero status code if any files were modified via fix, even if no lint violations remain.
+    #[arg(long = "exit-non-zero-on-fix", help_heading = "Miscellaneous")]
+    pub exit_non_zero_on_fix: bool,
 }
 
 #[derive(Debug, Clone, ClapArgs)]

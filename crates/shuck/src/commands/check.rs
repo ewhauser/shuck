@@ -31,11 +31,15 @@ pub(crate) struct CheckReport {
     diagnostics: Vec<DisplayedDiagnostic>,
     cache_hits: usize,
     cache_misses: usize,
+    fixes_applied: usize,
 }
 
 impl CheckReport {
-    fn exit_status(&self) -> ExitStatus {
-        if self.diagnostics.is_empty() {
+    fn exit_status(&self, exit_zero: bool, exit_non_zero_on_fix: bool) -> ExitStatus {
+        if exit_non_zero_on_fix && self.fixes_applied > 0 {
+            return ExitStatus::Failure;
+        }
+        if self.diagnostics.is_empty() || exit_zero {
             ExitStatus::Success
         } else {
             ExitStatus::Failure
@@ -119,7 +123,7 @@ pub(crate) fn check(args: CheckCommand, cache_dir: Option<&Path>) -> Result<Exit
     let cache_root = resolve_cache_root(&cwd, cache_dir)?;
     let report = run_check_with_cwd(&args, &cwd, &cache_root)?;
     print_report(&report, args.output_format)?;
-    Ok(report.exit_status())
+    Ok(report.exit_status(args.exit_zero, args.exit_non_zero_on_fix))
 }
 
 fn print_report(
@@ -252,6 +256,8 @@ pub(crate) fn benchmark_check_paths(
             no_cache: true,
             output_format,
             paths: paths.to_vec(),
+            exit_zero: false,
+            exit_non_zero_on_fix: false,
         },
         cwd,
         &cwd.join("cache"),
@@ -446,6 +452,8 @@ mod tests {
             no_cache,
             output_format,
             paths: Vec::new(),
+            exit_zero: false,
+            exit_non_zero_on_fix: false,
         }
     }
 
@@ -465,7 +473,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(report.exit_status(), ExitStatus::Failure);
+        assert_eq!(report.exit_status(false, false), ExitStatus::Failure);
         assert_eq!(report.diagnostics.len(), 1);
         assert_eq!(report.cache_hits, 0);
         assert_eq!(report.cache_misses, 1);
@@ -705,6 +713,7 @@ mod tests {
             }],
             cache_hits: 0,
             cache_misses: 0,
+            fixes_applied: 0,
         };
 
         let mut output = Vec::new();
@@ -736,6 +745,7 @@ mod tests {
             }],
             cache_hits: 0,
             cache_misses: 0,
+            fixes_applied: 0,
         };
 
         let mut output = Vec::new();
