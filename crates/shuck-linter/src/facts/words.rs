@@ -1232,8 +1232,7 @@ fn build_word_facts_for_command<'a>(
     visit: CommandVisit<'a>,
     source: &'a str,
     semantic: &'a SemanticModel,
-    command_id: CommandId,
-    nested_word_command: bool,
+    context: WordFactCommandContext,
     normalized: &NormalizedCommand<'a>,
     command_zsh_options: Option<ZshOptionState>,
     outputs: WordFactOutputs<'_, 'a>,
@@ -1241,8 +1240,8 @@ fn build_word_facts_for_command<'a>(
     let mut collector = WordFactCollector::new(
         source,
         semantic,
-        command_id,
-        nested_word_command,
+        context.command_id,
+        context.nested_word_command,
         normalized,
         command_zsh_options,
         outputs,
@@ -1263,14 +1262,15 @@ pub(crate) fn benchmark_collect_word_facts(
     let mut pattern_literal_spans = Vec::new();
     let mut arithmetic_summary = ArithmeticFactSummary::default();
     let mut surface_fragments = SurfaceFragmentSink::new(source);
-    let mut next_command_id = 0usize;
 
-    for traversed in query::iter_commands_with_context(
+    for (next_command_id, traversed) in query::iter_commands_with_context(
         &file.body,
         CommandWalkOptions {
             descend_nested_word_commands: true,
         },
-    ) {
+    )
+    .enumerate()
+    {
         let visit = traversed.visit;
         let normalized = command::normalize_command(visit.command, source);
         let command_zsh_options = effective_command_zsh_options(
@@ -1278,14 +1278,14 @@ pub(crate) fn benchmark_collect_word_facts(
             command_span(visit.command).start.offset,
             &normalized,
         );
-        let command_id = CommandId::new(next_command_id);
-        next_command_id += 1;
         build_word_facts_for_command(
             visit,
             source,
             semantic,
-            command_id,
-            traversed.context.nested_word_command,
+            WordFactCommandContext {
+                command_id: CommandId::new(next_command_id),
+                nested_word_command: traversed.context.nested_word_command,
+            },
             &normalized,
             command_zsh_options,
             WordFactOutputs {
@@ -1317,6 +1317,12 @@ pub(crate) fn benchmark_collect_word_facts(
         + surface_fragments.substring_expansions.len()
         + surface_fragments.case_modifications.len()
         + surface_fragments.replacement_expansions.len()
+}
+
+#[derive(Clone, Copy)]
+struct WordFactCommandContext {
+    command_id: CommandId,
+    nested_word_command: bool,
 }
 
 struct WordFactOutputs<'out, 'a> {

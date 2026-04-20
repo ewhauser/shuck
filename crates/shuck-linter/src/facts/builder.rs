@@ -125,8 +125,10 @@ impl<'a> LinterFactsBuilder<'a> {
                 visit,
                 self.source,
                 self.semantic,
-                id,
-                nested_word_command,
+                WordFactCommandContext {
+                    command_id: id,
+                    nested_word_command,
+                },
                 &normalized,
                 command_zsh_options.clone(),
                 WordFactOutputs {
