@@ -51,9 +51,7 @@ fn linebreak_in_test_span(
     if last_arg_is_closing_bracket || !current.span().slice(source).ends_with('\n') {
         return None;
     }
-    let Some(between) = source.get(current.span().end.offset..next.span().start.offset) else {
-        return None;
-    };
+    let between = source.get(current.span().end.offset..next.span().start.offset)?;
     if !between.chars().all(|char| matches!(char, ' ' | '\t')) {
         return None;
     }
