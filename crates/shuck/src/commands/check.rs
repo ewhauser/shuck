@@ -39,6 +39,13 @@ impl CheckReport {
         if exit_non_zero_on_fix && self.fixes_applied > 0 {
             return ExitStatus::Failure;
         }
+        let has_parse_error = self
+            .diagnostics
+            .iter()
+            .any(|d| matches!(d.kind, DisplayedDiagnosticKind::ParseError));
+        if has_parse_error {
+            return ExitStatus::Failure;
+        }
         if self.diagnostics.is_empty() || exit_zero {
             ExitStatus::Success
         } else {
@@ -477,6 +484,54 @@ mod tests {
         assert_eq!(report.diagnostics.len(), 1);
         assert_eq!(report.cache_hits, 0);
         assert_eq!(report.cache_misses, 1);
+    }
+
+    #[test]
+    fn exit_zero_suppresses_lint_only_failures_but_not_parse_errors() {
+        let lint = DisplayedDiagnostic {
+            path: PathBuf::from("warn.sh"),
+            span: DisplaySpan::point(1, 1),
+            message: "lint".to_owned(),
+            kind: DisplayedDiagnosticKind::Lint {
+                code: "C001".to_owned(),
+                severity: "warning".to_owned(),
+            },
+            source: None,
+        };
+        let parse = DisplayedDiagnostic {
+            path: PathBuf::from("broken.sh"),
+            span: DisplaySpan::point(1, 1),
+            message: "parse".to_owned(),
+            kind: DisplayedDiagnosticKind::ParseError,
+            source: None,
+        };
+
+        let lint_only = CheckReport {
+            diagnostics: vec![lint.clone()],
+            ..CheckReport::default()
+        };
+        assert_eq!(lint_only.exit_status(false, false), ExitStatus::Failure);
+        assert_eq!(lint_only.exit_status(true, false), ExitStatus::Success);
+
+        let with_parse_error = CheckReport {
+            diagnostics: vec![lint, parse],
+            ..CheckReport::default()
+        };
+        assert_eq!(
+            with_parse_error.exit_status(true, false),
+            ExitStatus::Failure
+        );
+    }
+
+    #[test]
+    fn exit_non_zero_on_fix_fires_when_fixes_applied() {
+        let report = CheckReport {
+            fixes_applied: 1,
+            ..CheckReport::default()
+        };
+        assert_eq!(report.exit_status(false, false), ExitStatus::Success);
+        assert_eq!(report.exit_status(false, true), ExitStatus::Failure);
+        assert_eq!(report.exit_status(true, true), ExitStatus::Failure);
     }
 
     #[test]
