@@ -64,7 +64,10 @@ def parse_args() -> argparse.Namespace:
 def target_dir(repo_root: Path) -> Path:
     cargo_target_dir = os.environ.get("CARGO_TARGET_DIR")
     if cargo_target_dir:
-        return Path(cargo_target_dir)
+        target = Path(cargo_target_dir)
+        if not target.is_absolute():
+            target = repo_root / target
+        return target
     return repo_root / "target"
 
 
@@ -115,6 +118,11 @@ def print_comparison(current: list[dict], baseline: list[dict]) -> None:
     for case_name in sorted(current_cases):
         current_case = current_cases[case_name]
         baseline_case = baseline_cases[case_name]
+        if current_case["command_count"] != baseline_case["command_count"]:
+            raise SystemExit(
+                "command-count mismatch between current and baseline for "
+                f"{case_name}: {baseline_case['command_count']} != {current_case['command_count']}"
+            )
         print(f"{case_name}: commands={baseline_case['command_count']} -> {current_case['command_count']}")
         for metric_name in PRIMARY_METRICS:
             baseline_value = baseline_case["metrics"][metric_name]
