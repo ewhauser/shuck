@@ -1376,7 +1376,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 );
             }
             WordPart::Parameter(parameter) => {
-                self.visit_parameter_expansion(parameter, kind, flow, nested_regions, span);
+                self.visit_parameter_expansion(
+                    parameter,
+                    kind,
+                    flow,
+                    nested_regions,
+                    parameter.span,
+                );
             }
             WordPart::ParameterExpansion {
                 reference,
@@ -1396,7 +1402,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     },
                     flow,
                     nested_regions,
-                    span,
+                    reference.span,
                 );
                 if parameter_operator_guards_unset_reference(operator) {
                     self.guarded_parameter_refs.insert(reference_id);
@@ -1423,7 +1429,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     },
                     flow,
                     nested_regions,
-                    span,
+                    reference.span,
                 );
             }
             WordPart::ArrayAccess(reference) => {
@@ -1436,7 +1442,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     },
                     flow,
                     nested_regions,
-                    span,
+                    reference.span,
                 );
             }
             WordPart::ArrayIndices(reference) => {
@@ -1449,7 +1455,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     },
                     flow,
                     nested_regions,
-                    span,
+                    reference.span,
                 );
             }
             WordPart::PrefixMatch { prefix, .. } => {
@@ -1479,7 +1485,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     },
                     flow,
                     nested_regions,
-                    span,
+                    reference.span,
                 );
                 self.indirect_expansion_refs.insert(id);
                 if let Some(operator) = operator {
@@ -1508,7 +1514,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     },
                     flow,
                     nested_regions,
-                    span,
+                    reference.span,
                 );
                 self.visit_optional_arithmetic_expr_into(offset_ast.as_ref(), flow, nested_regions);
                 self.visit_optional_arithmetic_expr_into(length_ast.as_ref(), flow, nested_regions);
@@ -1528,7 +1534,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     },
                     flow,
                     nested_regions,
-                    span,
+                    reference.span,
                 );
                 self.visit_optional_arithmetic_expr_into(offset_ast.as_ref(), flow, nested_regions);
                 self.visit_optional_arithmetic_expr_into(length_ast.as_ref(), flow, nested_regions);
@@ -1543,7 +1549,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     },
                     flow,
                     nested_regions,
-                    span,
+                    reference.span,
                 );
             }
         }
@@ -2574,6 +2580,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     }
 
     fn add_reference(&mut self, name: &Name, kind: ReferenceKind, span: Span) -> ReferenceId {
+        let span = self.normalize_reference_span(span);
         let id = ReferenceId(self.references.len() as u32);
         let scope = self.current_scope();
         let resolved = self.resolve_reference(name, scope, span.start.offset);
@@ -2613,6 +2620,28 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         let resolved_binding = resolved.map(|binding| &self.bindings[binding.index()]);
         self.observer.record_reference(reference, resolved_binding);
         id
+    }
+
+    fn normalize_reference_span(&self, span: Span) -> Span {
+        if span.end.offset >= self.source.len() {
+            return span;
+        }
+
+        let syntax = span.slice(self.source);
+        let Some(start_rel) = syntax.find("${") else {
+            return span;
+        };
+        if self.source.as_bytes().get(span.end.offset) != Some(&b'}') {
+            return span;
+        }
+
+        let start = span.start.advanced_by(&syntax[..start_rel]);
+        let end = span.end.advanced_by("}");
+        if start.offset < end.offset {
+            Span::from_positions(start, end)
+        } else {
+            span
+        }
     }
 
     fn add_parameter_default_binding(&mut self, reference: &VarRef) {
