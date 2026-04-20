@@ -2265,6 +2265,33 @@ printf '%s\\n' \"${!var//$'\\n'/' '}\"
     }
 
     #[test]
+    fn indirect_special_parameter_carrier_is_not_reported() {
+        let diagnostics = lint_for_rule(
+            "\
+#!/bin/bash
+set -- last
+printf '%s\\n' \"${!#}\"
+",
+            Rule::UndefinedVariable,
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn special_hash_parameter_operations_are_not_reported() {
+        let diagnostics = lint_for_rule(
+            "\
+#!/bin/bash
+printf '%s\\n' \"${##*/}\"
+",
+            Rule::UndefinedVariable,
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn undefined_variable_anchors_parameter_operator_reports_to_carrier_name() {
         let source = "\
 #!/bin/bash

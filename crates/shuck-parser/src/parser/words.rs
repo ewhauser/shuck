@@ -3768,6 +3768,29 @@ impl<'a> Parser<'a> {
                         continue;
                     }
 
+                    if matches!(
+                        chars.peek().copied(),
+                        Some(':' | '-' | '=' | '+' | '?' | '#' | '%' | '/' | '^' | ',' | '}')
+                    ) {
+                        let raw_part = self.parse_parameter_tail_without_subscript(
+                            &mut chars,
+                            &mut cursor,
+                            source_backed,
+                            part_start,
+                            brace_body_start,
+                            "#",
+                        );
+                        let part = self.parameter_word_part_from_legacy(
+                            raw_part,
+                            part_start,
+                            cursor,
+                            source_backed,
+                        );
+                        Self::push_word_part(parts, part, part_start, cursor);
+                        current_start = cursor;
+                        continue;
+                    }
+
                     if self.zsh_parameter_requires_fallback(&mut chars) {
                         let tail = self.read_brace_operand(&mut chars, &mut cursor, source_backed);
                         let raw_body = self.prefixed_parameter_raw_body(
@@ -3846,7 +3869,7 @@ impl<'a> Parser<'a> {
                         continue;
                     }
 
-                    let var_name = Self::read_word_while(&mut chars, &mut cursor, |c| {
+                    let mut var_name = Self::read_word_while(&mut chars, &mut cursor, |c| {
                         !matches!(
                             c,
                             '}' | '['
@@ -3864,6 +3887,15 @@ impl<'a> Parser<'a> {
                                 | ','
                         )
                     });
+
+                    if var_name.is_empty()
+                        && matches!(
+                            chars.peek().copied(),
+                            Some('?' | '#' | '@' | '*' | '!' | '$' | '-')
+                        )
+                    {
+                        var_name.push(Self::next_word_char_unwrap(&mut chars, &mut cursor));
+                    }
 
                     let subscript = if Self::consume_word_char_if(&mut chars, &mut cursor, '[') {
                         let (index, raw_index) =
@@ -4466,259 +4498,15 @@ impl<'a> Parser<'a> {
                     continue;
                 }
 
-                let part = if let Some(c) = chars.peek().copied() {
-                    match c {
-                        ':' => {
-                            if self.zsh_parameter_suffix_looks_like_modifier(&mut chars) {
-                                let tail =
-                                    self.read_brace_operand(&mut chars, &mut cursor, source_backed);
-                                let raw_body = self.prefixed_parameter_raw_body(
-                                    &var_name,
-                                    brace_body_start,
-                                    tail,
-                                    source_backed,
-                                );
-                                let parameter =
-                                    self.zsh_parameter_word_part(raw_body, part_start, cursor);
-                                Self::push_word_part(parts, parameter, part_start, cursor);
-                                current_start = cursor;
-                                continue;
-                            }
-
-                            Self::next_word_char_unwrap(&mut chars, &mut cursor);
-                            match chars.peek() {
-                                Some(&'-') | Some(&'=') | Some(&'+') | Some(&'?') => {
-                                    let op_char =
-                                        Self::next_word_char_unwrap(&mut chars, &mut cursor);
-                                    let operand = self.read_brace_operand(
-                                        &mut chars,
-                                        &mut cursor,
-                                        source_backed,
-                                    );
-                                    let operator = match op_char {
-                                        '-' => ParameterOp::UseDefault,
-                                        '=' => ParameterOp::AssignDefault,
-                                        '+' => ParameterOp::UseReplacement,
-                                        '?' => ParameterOp::Error,
-                                        _ => unreachable!(),
-                                    };
-                                    self.parameter_expansion_word_part(
-                                        self.parameter_var_ref(
-                                            part_start, "${", &var_name, None, cursor,
-                                        ),
-                                        operator,
-                                        Some(operand),
-                                        true,
-                                    )
-                                }
-                                _ => {
-                                    let (offset, length) = self.read_parameter_slice_parts(
-                                        &mut chars,
-                                        &mut cursor,
-                                        source_backed,
-                                    );
-                                    Self::consume_word_char_if(&mut chars, &mut cursor, '}');
-                                    self.substring_word_part(
-                                        self.parameter_var_ref(
-                                            part_start, "${", &var_name, None, cursor,
-                                        ),
-                                        offset,
-                                        length,
-                                    )
-                                }
-                            }
-                        }
-                        '-' | '=' | '+' | '?' => {
-                            let op_char = Self::next_word_char_unwrap(&mut chars, &mut cursor);
-                            let operand =
-                                self.read_brace_operand(&mut chars, &mut cursor, source_backed);
-                            let operator = match op_char {
-                                '-' => ParameterOp::UseDefault,
-                                '=' => ParameterOp::AssignDefault,
-                                '+' => ParameterOp::UseReplacement,
-                                '?' => ParameterOp::Error,
-                                _ => unreachable!(),
-                            };
-                            self.parameter_expansion_word_part(
-                                self.parameter_var_ref(part_start, "${", &var_name, None, cursor),
-                                operator,
-                                Some(operand),
-                                false,
-                            )
-                        }
-                        '#' => {
-                            Self::next_word_char_unwrap(&mut chars, &mut cursor);
-                            let longest = Self::consume_word_char_if(&mut chars, &mut cursor, '#');
-                            let operand_text =
-                                self.read_brace_operand(&mut chars, &mut cursor, source_backed);
-                            let pattern = self.pattern_from_source_text(&operand_text);
-                            let operator = if longest {
-                                ParameterOp::RemovePrefixLong { pattern }
-                            } else {
-                                ParameterOp::RemovePrefixShort { pattern }
-                            };
-                            self.parameter_expansion_word_part(
-                                self.parameter_var_ref(part_start, "${", &var_name, None, cursor),
-                                operator,
-                                None,
-                                false,
-                            )
-                        }
-                        '%' => {
-                            Self::next_word_char_unwrap(&mut chars, &mut cursor);
-                            let longest = Self::consume_word_char_if(&mut chars, &mut cursor, '%');
-                            let operand_text =
-                                self.read_brace_operand(&mut chars, &mut cursor, source_backed);
-                            let pattern = self.pattern_from_source_text(&operand_text);
-                            let operator = if longest {
-                                ParameterOp::RemoveSuffixLong { pattern }
-                            } else {
-                                ParameterOp::RemoveSuffixShort { pattern }
-                            };
-                            self.parameter_expansion_word_part(
-                                self.parameter_var_ref(part_start, "${", &var_name, None, cursor),
-                                operator,
-                                None,
-                                false,
-                            )
-                        }
-                        '/' => {
-                            Self::next_word_char_unwrap(&mut chars, &mut cursor);
-                            let replace_all =
-                                Self::consume_word_char_if(&mut chars, &mut cursor, '/');
-                            let pattern_text = self.read_replacement_pattern(
-                                &mut chars,
-                                &mut cursor,
-                                source_backed,
-                            );
-                            let pattern = self.pattern_from_source_text(&pattern_text);
-                            let (replacement, consumed_closing_brace) =
-                                if Self::consume_word_char_if(&mut chars, &mut cursor, '/') {
-                                    let replacement = self.read_brace_operand(
-                                        &mut chars,
-                                        &mut cursor,
-                                        source_backed,
-                                    );
-                                    (
-                                        replacement,
-                                        cursor.offset > 0
-                                            && self.input[..cursor.offset].ends_with('}'),
-                                    )
-                                } else {
-                                    (self.empty_source_text(cursor), false)
-                                };
-                            if !consumed_closing_brace {
-                                Self::consume_word_char_if(&mut chars, &mut cursor, '}');
-                            }
-                            if !Span::from_positions(part_start, cursor)
-                                .slice(self.input)
-                                .ends_with('}')
-                                && self.input[cursor.offset..].starts_with('}')
-                            {
-                                cursor.advance('}');
-                            }
-                            let operator = if replace_all {
-                                ParameterOp::ReplaceAll {
-                                    pattern,
-                                    replacement_word_ast: self
-                                        .parse_source_text_as_word(&replacement),
-                                    replacement,
-                                }
-                            } else {
-                                ParameterOp::ReplaceFirst {
-                                    pattern,
-                                    replacement_word_ast: self
-                                        .parse_source_text_as_word(&replacement),
-                                    replacement,
-                                }
-                            };
-                            self.parameter_expansion_word_part(
-                                self.parameter_var_ref(part_start, "${", &var_name, None, cursor),
-                                operator,
-                                None,
-                                false,
-                            )
-                        }
-                        '^' => {
-                            Self::next_word_char_unwrap(&mut chars, &mut cursor);
-                            let operator =
-                                if Self::consume_word_char_if(&mut chars, &mut cursor, '^') {
-                                    ParameterOp::UpperAll
-                                } else {
-                                    ParameterOp::UpperFirst
-                                };
-                            let operand =
-                                if Self::consume_word_char_if(&mut chars, &mut cursor, '}') {
-                                    None
-                                } else {
-                                    Some(self.read_brace_operand(
-                                        &mut chars,
-                                        &mut cursor,
-                                        source_backed,
-                                    ))
-                                };
-                            self.parameter_expansion_word_part(
-                                self.parameter_var_ref(part_start, "${", &var_name, None, cursor),
-                                operator,
-                                operand,
-                                false,
-                            )
-                        }
-                        ',' => {
-                            Self::next_word_char_unwrap(&mut chars, &mut cursor);
-                            let operator =
-                                if Self::consume_word_char_if(&mut chars, &mut cursor, ',') {
-                                    ParameterOp::LowerAll
-                                } else {
-                                    ParameterOp::LowerFirst
-                                };
-                            let operand =
-                                if Self::consume_word_char_if(&mut chars, &mut cursor, '}') {
-                                    None
-                                } else {
-                                    Some(self.read_brace_operand(
-                                        &mut chars,
-                                        &mut cursor,
-                                        source_backed,
-                                    ))
-                                };
-                            self.parameter_expansion_word_part(
-                                self.parameter_var_ref(part_start, "${", &var_name, None, cursor),
-                                operator,
-                                operand,
-                                false,
-                            )
-                        }
-                        '@' => {
-                            Self::next_word_char_unwrap(&mut chars, &mut cursor);
-                            if chars.peek().is_some() {
-                                let operator = Self::next_word_char_unwrap(&mut chars, &mut cursor);
-                                Self::consume_word_char_if(&mut chars, &mut cursor, '}');
-                                WordPart::Transformation {
-                                    reference: self.parameter_var_ref(
-                                        part_start, "${", &var_name, None, cursor,
-                                    ),
-                                    operator,
-                                }
-                            } else {
-                                Self::consume_word_char_if(&mut chars, &mut cursor, '}');
-                                WordPart::Variable(var_name.into())
-                            }
-                        }
-                        '}' => {
-                            Self::next_word_char_unwrap(&mut chars, &mut cursor);
-                            WordPart::Variable(var_name.into())
-                        }
-                        _ => {
-                            while let Some(&next) = chars.peek() {
-                                let consumed = Self::next_word_char_unwrap(&mut chars, &mut cursor);
-                                if next == '}' || consumed == '}' {
-                                    break;
-                                }
-                            }
-                            WordPart::Variable(var_name.into())
-                        }
-                    }
+                let part = if chars.peek().is_some() {
+                    self.parse_parameter_tail_without_subscript(
+                        &mut chars,
+                        &mut cursor,
+                        source_backed,
+                        part_start,
+                        brace_body_start,
+                        &var_name,
+                    )
                 } else {
                     WordPart::Variable(var_name.into())
                 };
@@ -5270,6 +5058,228 @@ impl<'a> Parser<'a> {
             length,
             length_ast,
             length_word_ast,
+        }
+    }
+
+    fn parse_parameter_tail_without_subscript(
+        &mut self,
+        chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+        cursor: &mut Position,
+        source_backed: bool,
+        part_start: Position,
+        brace_body_start: Position,
+        var_name: &str,
+    ) -> WordPart {
+        if let Some(c) = chars.peek().copied() {
+            match c {
+                ':' => {
+                    if self.zsh_parameter_suffix_looks_like_modifier(chars) {
+                        let tail = self.read_brace_operand(chars, cursor, source_backed);
+                        let raw_body = self.prefixed_parameter_raw_body(
+                            var_name,
+                            brace_body_start,
+                            tail,
+                            source_backed,
+                        );
+                        return self.zsh_parameter_word_part(raw_body, part_start, *cursor);
+                    }
+
+                    Self::next_word_char_unwrap(chars, cursor);
+                    match chars.peek() {
+                        Some(&'-') | Some(&'=') | Some(&'+') | Some(&'?') => {
+                            let op_char = Self::next_word_char_unwrap(chars, cursor);
+                            let operand = self.read_brace_operand(chars, cursor, source_backed);
+                            let operator = match op_char {
+                                '-' => ParameterOp::UseDefault,
+                                '=' => ParameterOp::AssignDefault,
+                                '+' => ParameterOp::UseReplacement,
+                                '?' => ParameterOp::Error,
+                                _ => unreachable!(),
+                            };
+                            self.parameter_expansion_word_part(
+                                self.parameter_var_ref(part_start, "${", var_name, None, *cursor),
+                                operator,
+                                Some(operand),
+                                true,
+                            )
+                        }
+                        _ => {
+                            let (offset, length) =
+                                self.read_parameter_slice_parts(chars, cursor, source_backed);
+                            Self::consume_word_char_if(chars, cursor, '}');
+                            self.substring_word_part(
+                                self.parameter_var_ref(part_start, "${", var_name, None, *cursor),
+                                offset,
+                                length,
+                            )
+                        }
+                    }
+                }
+                '-' | '=' | '+' | '?' => {
+                    let op_char = Self::next_word_char_unwrap(chars, cursor);
+                    let operand = self.read_brace_operand(chars, cursor, source_backed);
+                    let operator = match op_char {
+                        '-' => ParameterOp::UseDefault,
+                        '=' => ParameterOp::AssignDefault,
+                        '+' => ParameterOp::UseReplacement,
+                        '?' => ParameterOp::Error,
+                        _ => unreachable!(),
+                    };
+                    self.parameter_expansion_word_part(
+                        self.parameter_var_ref(part_start, "${", var_name, None, *cursor),
+                        operator,
+                        Some(operand),
+                        false,
+                    )
+                }
+                '#' => {
+                    Self::next_word_char_unwrap(chars, cursor);
+                    let longest = Self::consume_word_char_if(chars, cursor, '#');
+                    let operand_text = self.read_brace_operand(chars, cursor, source_backed);
+                    let pattern = self.pattern_from_source_text(&operand_text);
+                    let operator = if longest {
+                        ParameterOp::RemovePrefixLong { pattern }
+                    } else {
+                        ParameterOp::RemovePrefixShort { pattern }
+                    };
+                    self.parameter_expansion_word_part(
+                        self.parameter_var_ref(part_start, "${", var_name, None, *cursor),
+                        operator,
+                        None,
+                        false,
+                    )
+                }
+                '%' => {
+                    Self::next_word_char_unwrap(chars, cursor);
+                    let longest = Self::consume_word_char_if(chars, cursor, '%');
+                    let operand_text = self.read_brace_operand(chars, cursor, source_backed);
+                    let pattern = self.pattern_from_source_text(&operand_text);
+                    let operator = if longest {
+                        ParameterOp::RemoveSuffixLong { pattern }
+                    } else {
+                        ParameterOp::RemoveSuffixShort { pattern }
+                    };
+                    self.parameter_expansion_word_part(
+                        self.parameter_var_ref(part_start, "${", var_name, None, *cursor),
+                        operator,
+                        None,
+                        false,
+                    )
+                }
+                '/' => {
+                    Self::next_word_char_unwrap(chars, cursor);
+                    let replace_all = Self::consume_word_char_if(chars, cursor, '/');
+                    let pattern_text = self.read_replacement_pattern(chars, cursor, source_backed);
+                    let pattern = self.pattern_from_source_text(&pattern_text);
+                    let (replacement, consumed_closing_brace) =
+                        if Self::consume_word_char_if(chars, cursor, '/') {
+                            let replacement = self.read_brace_operand(chars, cursor, source_backed);
+                            (
+                                replacement,
+                                cursor.offset > 0 && self.input[..cursor.offset].ends_with('}'),
+                            )
+                        } else {
+                            (self.empty_source_text(*cursor), false)
+                        };
+                    if !consumed_closing_brace {
+                        Self::consume_word_char_if(chars, cursor, '}');
+                    }
+                    if !Span::from_positions(part_start, *cursor)
+                        .slice(self.input)
+                        .ends_with('}')
+                        && self.input[cursor.offset..].starts_with('}')
+                    {
+                        cursor.advance('}');
+                    }
+                    let operator = if replace_all {
+                        ParameterOp::ReplaceAll {
+                            pattern,
+                            replacement_word_ast: self.parse_source_text_as_word(&replacement),
+                            replacement,
+                        }
+                    } else {
+                        ParameterOp::ReplaceFirst {
+                            pattern,
+                            replacement_word_ast: self.parse_source_text_as_word(&replacement),
+                            replacement,
+                        }
+                    };
+                    self.parameter_expansion_word_part(
+                        self.parameter_var_ref(part_start, "${", var_name, None, *cursor),
+                        operator,
+                        None,
+                        false,
+                    )
+                }
+                '^' => {
+                    Self::next_word_char_unwrap(chars, cursor);
+                    let operator = if Self::consume_word_char_if(chars, cursor, '^') {
+                        ParameterOp::UpperAll
+                    } else {
+                        ParameterOp::UpperFirst
+                    };
+                    let operand = if Self::consume_word_char_if(chars, cursor, '}') {
+                        None
+                    } else {
+                        Some(self.read_brace_operand(chars, cursor, source_backed))
+                    };
+                    self.parameter_expansion_word_part(
+                        self.parameter_var_ref(part_start, "${", var_name, None, *cursor),
+                        operator,
+                        operand,
+                        false,
+                    )
+                }
+                ',' => {
+                    Self::next_word_char_unwrap(chars, cursor);
+                    let operator = if Self::consume_word_char_if(chars, cursor, ',') {
+                        ParameterOp::LowerAll
+                    } else {
+                        ParameterOp::LowerFirst
+                    };
+                    let operand = if Self::consume_word_char_if(chars, cursor, '}') {
+                        None
+                    } else {
+                        Some(self.read_brace_operand(chars, cursor, source_backed))
+                    };
+                    self.parameter_expansion_word_part(
+                        self.parameter_var_ref(part_start, "${", var_name, None, *cursor),
+                        operator,
+                        operand,
+                        false,
+                    )
+                }
+                '@' => {
+                    Self::next_word_char_unwrap(chars, cursor);
+                    if chars.peek().is_some() {
+                        let operator = Self::next_word_char_unwrap(chars, cursor);
+                        Self::consume_word_char_if(chars, cursor, '}');
+                        WordPart::Transformation {
+                            reference: self
+                                .parameter_var_ref(part_start, "${", var_name, None, *cursor),
+                            operator,
+                        }
+                    } else {
+                        Self::consume_word_char_if(chars, cursor, '}');
+                        WordPart::Variable(var_name.into())
+                    }
+                }
+                '}' => {
+                    Self::next_word_char_unwrap(chars, cursor);
+                    WordPart::Variable(var_name.into())
+                }
+                _ => {
+                    while let Some(&next) = chars.peek() {
+                        let consumed = Self::next_word_char_unwrap(chars, cursor);
+                        if next == '}' || consumed == '}' {
+                            break;
+                        }
+                    }
+                    WordPart::Variable(var_name.into())
+                }
+            }
+        } else {
+            WordPart::Variable(var_name.into())
         }
     }
 
