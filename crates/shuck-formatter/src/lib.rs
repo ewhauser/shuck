@@ -226,15 +226,16 @@ mod tests {
         );
     }
 
-    fn assert_idempotent(source: &str, path: Option<&Path>, options: &ShellFormatOptions) {
-        let once = match format_source(source, path, options).unwrap() {
+    fn format_to_string(source: &str, path: Option<&Path>, options: &ShellFormatOptions) -> String {
+        match format_source(source, path, options).unwrap() {
             FormattedSource::Unchanged => source.to_string(),
             FormattedSource::Formatted(formatted) => formatted,
-        };
-        let twice = match format_source(&once, path, options).unwrap() {
-            FormattedSource::Unchanged => once.clone(),
-            FormattedSource::Formatted(formatted) => formatted,
-        };
+        }
+    }
+
+    fn assert_idempotent(source: &str, path: Option<&Path>, options: &ShellFormatOptions) {
+        let once = format_to_string(source, path, options);
+        let twice = format_to_string(&once, path, options);
         assert_eq!(once, twice);
     }
 
@@ -1451,6 +1452,33 @@ print hidden &!
     }
 
     #[test]
+    fn preserves_spacing_after_nested_multiline_subshells_before_simple_commands() {
+        assert_idempotent(
+            "(\n\t(\n\t\tfalse\n\t)\n)\ngrep \"name delta\"\n",
+            Some(Path::new("nested_multiline_subshell_then_stmt.sh")),
+            &ShellFormatOptions::default(),
+        );
+    }
+
+    #[test]
+    fn preserves_spacing_after_nested_multiline_subshells_before_other_groups() {
+        assert_idempotent(
+            "(\n\t(\n\t\tfalse\n\t)\n)\n(\n\twhile true; do\n\t\t:\n\tdone\n)\n",
+            Some(Path::new("nested_multiline_subshell_then_group.bash")),
+            &ShellFormatOptions::default(),
+        );
+    }
+
+    #[test]
+    fn preserves_spacing_after_subshells_that_end_with_function_definitions() {
+        assert_idempotent(
+            "foo() {\n\t(\n\t\tbar() {\n\t\t\techo hi\n\t\t}\n\t)\n\n\tprintf x\n}\n",
+            Some(Path::new("subshell_function_tail_gap.bash")),
+            &ShellFormatOptions::default(),
+        );
+    }
+
+    #[test]
     fn preserves_shebang_spacing_before_nested_multiline_groups_idempotently() {
         assert_idempotent(
             "#!/usr/bin/env bash\n\n(\n\t(\n\t\techo hi\n\t)\n)\n",
@@ -1495,6 +1523,40 @@ print hidden &!
         assert_idempotent(
             "[[ ! -n]]\n",
             Some(Path::new("fuzz.bash")),
+            &ShellFormatOptions::default(),
+        );
+    }
+
+    #[test]
+    fn keeps_unterminated_heredoc_closers_on_their_own_lines() {
+        let source = "x foo=1<<EOF=1<<EOF\nhi";
+        let formatted = format_to_string(
+            source,
+            Some(Path::new("fuzz.sh")),
+            &ShellFormatOptions::default(),
+        );
+
+        assert_eq!(formatted, "x foo=1 <<EOF=1 <<EOF\nhi\nEOF=1\nEOF\n");
+        assert_idempotent(
+            source,
+            Some(Path::new("fuzz.sh")),
+            &ShellFormatOptions::default(),
+        );
+    }
+
+    #[test]
+    fn preserves_body_lines_when_synthesizing_missing_heredoc_closers() {
+        let source = "d8<<EGF\nhi\nEOF";
+        let formatted = format_to_string(
+            source,
+            Some(Path::new("fuzz.sh")),
+            &ShellFormatOptions::default(),
+        );
+
+        assert_eq!(formatted, "d8 <<EGF\nhi\nEOF\nEGF\n");
+        assert_idempotent(
+            source,
+            Some(Path::new("fuzz.sh")),
             &ShellFormatOptions::default(),
         );
     }

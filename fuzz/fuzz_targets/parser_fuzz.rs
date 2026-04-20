@@ -4,15 +4,18 @@
 
 #![no_main]
 
-use libfuzzer_sys::fuzz_target;
+mod common;
 
-fuzz_target!(|data: &[u8]| {
-    if let Ok(input) = std::str::from_utf8(data) {
-        if input.len() > 1_000_000 {
-            return;
-        }
+use libfuzzer_sys::{Corpus, fuzz_target};
 
-        let parser = shuck_parser::parser::Parser::new(input);
-        let _ = parser.parse();
-    }
+fuzz_target!(|data: &[u8]| -> Corpus {
+    let input = match common::filtered_input(data) {
+        Ok(input) => input,
+        Err(reject) => return reject,
+    };
+
+    let parser = shuck_parser::parser::Parser::new(input);
+    let _ = parser.parse();
+
+    Corpus::Keep
 });

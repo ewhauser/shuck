@@ -86,7 +86,7 @@ pub use suppression::{
 pub use violation::Violation;
 
 use rustc_hash::FxHashSet;
-use shuck_ast::{File, TextSize};
+use shuck_ast::{File, Position, Span, TextSize};
 use shuck_indexer::Indexer;
 use shuck_parser::parser::{ParseResult, Parser};
 use shuck_parser::{ShellDialect as ParseShellDialect, ShellProfile};
@@ -250,6 +250,7 @@ fn analyze_file_at_path_with_resolver_and_shell(
     );
     let mut diagnostics = observer.into_diagnostics();
     diagnostics.extend(checker.check());
+    sanitize_diagnostic_spans(&mut diagnostics, source);
     for diagnostic in &mut diagnostics {
         if let Some(&severity) = settings.severity_overrides.get(&diagnostic.rule) {
             diagnostic.severity = severity;
@@ -371,6 +372,7 @@ pub fn lint_file_at_path_with_resolver(
         &settings.rules,
         shell,
     ));
+    sanitize_diagnostic_spans(&mut diagnostics, source);
 
     for diagnostic in &mut diagnostics {
         if let Some(&severity) = settings.severity_overrides.get(&diagnostic.rule) {
@@ -420,6 +422,7 @@ pub fn lint_file_at_path_with_resolver_and_parse_result(
         &settings.rules,
         shell,
     ));
+    sanitize_diagnostic_spans(&mut diagnostics, source);
 
     for diagnostic in &mut diagnostics {
         if let Some(&severity) = settings.severity_overrides.get(&diagnostic.rule) {
@@ -471,6 +474,58 @@ fn filter_suppressed_diagnostics(
 
         !suppression_index.is_suppressed(diagnostic.rule, line)
     });
+}
+
+fn sanitize_diagnostic_spans(diagnostics: &mut [Diagnostic], source: &str) {
+    for diagnostic in diagnostics {
+        diagnostic.span = sanitize_span(diagnostic.span, source);
+    }
+}
+
+fn sanitize_span(span: Span, source: &str) -> Span {
+    let len = source.len();
+    let raw_start = span.start.offset.min(len);
+    let raw_end = span.end.offset.min(len);
+    let (start_offset, end_offset) = if raw_start <= raw_end {
+        (
+            floor_char_boundary(source, raw_start),
+            ceil_char_boundary(source, raw_end),
+        )
+    } else {
+        (
+            floor_char_boundary(source, raw_end),
+            ceil_char_boundary(source, raw_start),
+        )
+    };
+
+    Span::from_positions(
+        position_at_offset(source, start_offset),
+        position_at_offset(source, end_offset),
+    )
+}
+
+fn position_at_offset(source: &str, target_offset: usize) -> Position {
+    let mut position = Position::new();
+    for ch in source[..target_offset].chars() {
+        position.advance(ch);
+    }
+    position
+}
+
+fn floor_char_boundary(source: &str, offset: usize) -> usize {
+    let mut offset = offset.min(source.len());
+    while offset > 0 && !source.is_char_boundary(offset) {
+        offset -= 1;
+    }
+    offset
+}
+
+fn ceil_char_boundary(source: &str, offset: usize) -> usize {
+    let mut offset = offset.min(source.len());
+    while offset < source.len() && !source.is_char_boundary(offset) {
+        offset += 1;
+    }
+    offset
 }
 
 #[cfg(test)]
@@ -1209,6 +1264,90 @@ END
             &LinterSettings::for_rule(Rule::UndefinedVariable),
         );
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn recovered_lint_diagnostics_keep_valid_spans_for_fuzz_regression() {
+        let source = concat!(
+            "$~h) echo help; exit 0 ;;\n",
+            "  esac\n",
+            "done\n",
+            "\n",
+            "# Should not trigger: one arm can handle m   a) alg=le are correlated.\n",
+            "while g$OPTARG ;;\n",
+            "    d) domain=$eultiple options.\n",
+            "while ge}opts ':ab' opt; do\n",
+            "  case \"$opt\" in\n",
+            "   | ) ba: ;;\n",
+            "  esac\n",
+            "doneJ\n",
+            "# Shou#!/bin/sh\n",
+            "\n",
+            "# Should trigger: getopts declares -o, but the matching case never handles itld not trigger: only cases over the getopts variab.\n",
+            "while getopts ':a:d:o:h' OPT; do\n",
+            "  case \"$OPT\" in\n",
+            "    a) alg=le are correlated.\n",
+            "while g$OPTARG ;;\n",
+            "    d) domain=$etoptA "
+        );
+        let cases = [
+            (Some(Path::new("fuzz.sh")), ParseDialect::Posix),
+            (Some(Path::new("fuzz.bash")), ParseDialect::Bash),
+            (Some(Path::new("fuzz.mksh")), ParseDialect::Mksh),
+            (Some(Path::new("fuzz.zsh")), ParseDialect::Zsh),
+            (None, ParseDialect::Posix),
+            (None, ParseDialect::Bash),
+            (None, ParseDialect::Mksh),
+            (None, ParseDialect::Zsh),
+        ];
+
+        for (path, dialect) in cases {
+            let parse_result = Parser::with_dialect(source, dialect).parse();
+            let indexer = Indexer::new(source, &parse_result);
+            let diagnostics = lint_file_at_path_with_parse_result(
+                &parse_result,
+                source,
+                &indexer,
+                &LinterSettings::default(),
+                None,
+                path,
+            );
+
+            for diagnostic in diagnostics {
+                assert!(
+                    diagnostic.span.start.offset <= diagnostic.span.end.offset,
+                    "invalid span ordering for {} with path {:?} and dialect {:?}: {:?}",
+                    diagnostic.code(),
+                    path,
+                    dialect,
+                    diagnostic.span
+                );
+                assert!(
+                    diagnostic.span.end.offset <= source.len(),
+                    "span end out of bounds for {} with path {:?} and dialect {:?}: {:?}",
+                    diagnostic.code(),
+                    path,
+                    dialect,
+                    diagnostic.span
+                );
+                assert!(
+                    source.is_char_boundary(diagnostic.span.start.offset),
+                    "span start not on char boundary for {} with path {:?} and dialect {:?}: {:?}",
+                    diagnostic.code(),
+                    path,
+                    dialect,
+                    diagnostic.span
+                );
+                assert!(
+                    source.is_char_boundary(diagnostic.span.end.offset),
+                    "span end not on char boundary for {} with path {:?} and dialect {:?}: {:?}",
+                    diagnostic.code(),
+                    path,
+                    dialect,
+                    diagnostic.span
+                );
+            }
+        }
     }
 
     #[test]
