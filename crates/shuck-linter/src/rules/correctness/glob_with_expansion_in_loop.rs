@@ -18,7 +18,11 @@ pub fn glob_with_expansion_in_loop(checker: &mut Checker) {
     let spans = checker
         .facts()
         .expansion_word_facts(ExpansionContext::ForList)
-        .filter(|fact| !fact.unquoted_glob_pattern_spans_outside_brace_expansion(source).is_empty())
+        .filter(|fact| {
+            !fact
+                .unquoted_glob_pattern_spans_outside_brace_expansion(source)
+                .is_empty()
+        })
         .flat_map(unquoted_expansion_prefix_spans)
         .collect::<Vec<_>>();
 

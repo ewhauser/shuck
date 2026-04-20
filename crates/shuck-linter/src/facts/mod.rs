@@ -15,7 +15,7 @@ pub(crate) mod surface;
 mod tests;
 
 use self::{
-    conditional_portability::build_conditional_portability_facts,
+    conditional_portability::{ConditionalPortabilityInputs, build_conditional_portability_facts},
     escape_scan::{EscapeScanContext, EscapeScanInputs, build_escape_scan_matches},
     presence::build_presence_tested_names,
     surface::{

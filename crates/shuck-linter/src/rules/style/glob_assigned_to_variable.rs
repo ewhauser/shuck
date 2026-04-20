@@ -1,6 +1,4 @@
-use crate::{
-    Checker, ExpansionContext, Rule, Violation, WordFactHostKind, WordQuote,
-};
+use crate::{Checker, ExpansionContext, Rule, Violation, WordFactHostKind, WordQuote};
 
 pub struct GlobAssignedToVariable;
 

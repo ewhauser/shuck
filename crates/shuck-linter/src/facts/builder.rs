@@ -439,11 +439,13 @@ impl<'a> LinterFactsBuilder<'a> {
         let conditional_portability = build_conditional_portability_facts(
             &commands,
             &elif_condition_command_ids,
-            &word_nodes,
-            &word_occurrences,
-            &pattern_exactly_one_extglob_spans,
-            &pattern_charclass_spans,
-            &nested_pattern_charclass_spans,
+            ConditionalPortabilityInputs {
+                word_nodes: &word_nodes,
+                word_occurrences: &word_occurrences,
+                pattern_exactly_one_extglob_spans: &pattern_exactly_one_extglob_spans,
+                pattern_charclass_spans: &pattern_charclass_spans,
+                nested_pattern_charclass_spans: &nested_pattern_charclass_spans,
+            },
             source,
         );
         let EnvPrefixScopeSpans {

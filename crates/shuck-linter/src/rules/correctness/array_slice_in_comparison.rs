@@ -21,12 +21,12 @@ pub fn array_slice_in_comparison(checker: &mut Checker) {
         ExpansionContext::StringTestOperand,
         ExpansionContext::RegexOperand,
     ]
-        .into_iter()
-        .flat_map(|context| checker.facts().expansion_word_facts(context))
-        .filter(|fact| !fact.is_nested_word_command())
-        .filter(|fact| fact.has_direct_all_elements_array_expansion_in_source(checker.source()))
-        .map(|fact| fact.span())
-        .collect::<Vec<_>>();
+    .into_iter()
+    .flat_map(|context| checker.facts().expansion_word_facts(context))
+    .filter(|fact| !fact.is_nested_word_command())
+    .filter(|fact| fact.has_direct_all_elements_array_expansion_in_source(checker.source()))
+    .map(|fact| fact.span())
+    .collect::<Vec<_>>();
 
     let risky_pattern_word_spans = checker
         .facts()
