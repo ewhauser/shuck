@@ -52,6 +52,7 @@ const LARGE_CORPUS_STATIC_IGNORE_SUFFIXES: &[&str] = &[
     "super-linter__super-linter__test__linters__bash_exec__shell_bad_1.sh",
     "alpinelinux__aports__community__starship__starship.plugin.zsh",
     "google__oss-fuzz__infra__chronos__coverage_test_collection.py",
+    "ohmyzsh__ohmyzsh__plugins__alias-finder__tests__test_run.sh",
 ];
 const LARGE_CORPUS_STATIC_ZSH_OVERRIDE_SUFFIXES: &[&str] = &[
     "ohmyzsh__ohmyzsh__oh-my-zsh.sh",
@@ -75,7 +76,7 @@ const LARGE_CORPUS_REVIEWED_SHELLCHECK_PARSE_ABORT_SUFFIXES: &[&str] = &[
 const LARGE_CORPUS_REVIEWED_SHUCK_PARSE_EXCEPTION_SUFFIXES: &[&str] =
     &["paulirish__dotfiles__.git-completion.bash"];
 
-const SHELLCHECK_CACHE_SCHEMA: u32 = 2;
+const SHELLCHECK_CACHE_SCHEMA: u32 = 3;
 const SHELLCHECK_CACHE_MIGRATION_VERSION: u32 = 1;
 
 // ---------------------------------------------------------------------------
@@ -4744,6 +4745,35 @@ mod tests {
     }
 
     #[test]
+    fn shellcheck_cache_ignores_entries_with_stale_schema() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let fixture = fixture_at(
+            &tempdir
+                .path()
+                .join("worktree/.cache/large-corpus/scripts/example.sh"),
+            Path::new("example.sh"),
+        );
+        let cache = ShellCheckCache::new(tempdir.path(), &probe("version: 0.10.0"));
+        let stale_path = cache.cache_path(&fixture);
+
+        if let Some(parent) = stale_path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(
+            &stale_path,
+            serde_json::to_string(&ShellCheckCacheEntry {
+                schema: SHELLCHECK_CACHE_SCHEMA - 1,
+                diagnostics: vec![shellcheck_diagnostic(1088)],
+                parse_aborted: false,
+            })
+            .unwrap(),
+        )
+        .unwrap();
+
+        assert!(cache.read_cache(&fixture).is_none());
+    }
+
+    #[test]
     fn large_corpus_candidate_resolution_uses_cache_relative_parent_dirs() {
         let resolved = resolve_large_corpus_candidate_cache_rel_path(
             Path::new("repo/pkg/main.sh"),
@@ -4863,6 +4893,11 @@ mod tests {
         fs::write(
             scripts_dir.join("google__oss-fuzz__infra__chronos__coverage_test_collection.py"),
             "#!/bin/bash -eux\nprint('skip')\n",
+        )
+        .unwrap();
+        fs::write(
+            scripts_dir.join("ohmyzsh__ohmyzsh__plugins__alias-finder__tests__test_run.sh"),
+            "#!/usr/bin/env zunit\n@setup {\n  echo skip\n}\n",
         )
         .unwrap();
         fs::write(

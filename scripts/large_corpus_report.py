@@ -407,11 +407,11 @@ def rendered_reason_items(summary: RuleSummary) -> str:
     return "\n".join(items)
 
 
-def main_fixture_total(text: str, fallback_total: int, unsupported_shells: int) -> int:
+def main_fixture_total(text: str, _fallback_total: int, _unsupported_shells: int) -> int:
     totals = [int(match.group("total")) for match in PROGRESS_RE.finditer(text)]
     if totals:
         return max(totals)
-    return max(fallback_total - unsupported_shells, 0)
+    return 0
 
 
 def worker_panic(text: str) -> tuple[str, str] | None:
@@ -1009,7 +1009,7 @@ def render_html(
         <article class="card">
           <p class="kicker">Fixtures processed</p>
           <p class="value">{format_number(main_processed_fixtures)}</p>
-          <p class="note">Main compatibility run total based on the largest observed progress count in the log.</p>
+          <p class="note">Main compatibility run total based on the largest observed progress count in the log, or zero if the run ended before emitting progress.</p>
         </article>
         <article class="card">
           <p class="kicker">Rule-coded records</p>
