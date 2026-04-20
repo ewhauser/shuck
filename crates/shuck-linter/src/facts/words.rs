@@ -2264,11 +2264,58 @@ impl<'a> WordFactCollector<'a> {
             return false;
         }
 
-        !owner_name.is_some_and(|name| {
-            self.semantic
-                .visible_binding(name, subscript.span())
-                .is_some_and(|binding| binding.attributes.contains(BindingAttributes::ASSOC))
-        })
+        !owner_name.is_some_and(|name| self.assoc_binding_visible_for_subscript(name, subscript))
+    }
+
+    fn assoc_binding_visible_for_subscript(&self, owner_name: &Name, subscript: &Subscript) -> bool {
+        self.semantic
+            .visible_binding(owner_name, subscript.span())
+            .is_some_and(|binding| binding.attributes.contains(BindingAttributes::ASSOC))
+            || self.assoc_binding_visible_from_named_callers(owner_name, subscript.span())
+    }
+
+    fn assoc_binding_visible_from_named_callers(&self, owner_name: &Name, span: Span) -> bool {
+        let Some(function_names) = self.named_function_scope_names(span.start.offset) else {
+            return false;
+        };
+
+        let mut seen = FxHashSet::default();
+        let mut worklist = function_names.to_vec();
+
+        while let Some(function_name) = worklist.pop() {
+            if !seen.insert(function_name.clone()) {
+                continue;
+            }
+
+            for call_site in self.semantic.call_sites_for(&function_name) {
+                if self
+                    .semantic
+                    .visible_binding(owner_name, call_site.name_span)
+                    .is_some_and(|binding| binding.attributes.contains(BindingAttributes::ASSOC))
+                {
+                    return true;
+                }
+
+                if let Some(caller_names) = self.named_function_scope_names(call_site.name_span.start.offset)
+                {
+                    worklist.extend(caller_names.iter().cloned());
+                }
+            }
+        }
+
+        false
+    }
+
+    fn named_function_scope_names(&self, offset: usize) -> Option<&[Name]> {
+        let scope = self.semantic.scope_at(offset);
+        self.semantic
+            .ancestor_scopes(scope)
+            .find_map(|scope_id| match &self.semantic.scope(scope_id).kind {
+                shuck_semantic::ScopeKind::Function(
+                    shuck_semantic::FunctionScopeKind::Named(names),
+                ) => Some(names.as_slice()),
+                _ => None,
+            })
     }
 
     fn collect_array_index_arithmetic_spans(&mut self, word: &Word) {

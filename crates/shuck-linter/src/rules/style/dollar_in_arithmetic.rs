@@ -181,6 +181,28 @@ assoc[$key/sfx]=z
     }
 
     #[test]
+    fn ignores_dynamic_scope_associative_assignment_subscripts() {
+        let source = "\
+#!/bin/bash
+helper() {
+  map[${key}]=1
+}
+wrapper() {
+  helper
+}
+main() {
+  local key=name
+  declare -A map
+  wrapper
+}
+main
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn reports_nested_arithmetic_in_array_access_subscripts() {
         let source = "\
 #!/bin/bash

@@ -1171,6 +1171,35 @@ assoc[$key/sfx]=z
 }
 
 #[test]
+fn ignores_dynamic_scope_associative_assignment_subscripts_for_dollar_in_arithmetic() {
+    let source = "\
+#!/bin/bash
+helper() {
+  map[${key}]=1
+}
+wrapper() {
+  helper
+}
+main() {
+  local key=name
+  declare -A map
+  wrapper
+}
+main
+";
+
+    with_facts(source, None, |_, facts| {
+        let spans = facts
+            .dollar_in_arithmetic_spans()
+            .iter()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert!(spans.is_empty(), "unexpected spans: {spans:?}");
+    });
+}
+
+#[test]
 fn collects_dollar_spans_for_nested_arithmetic_in_array_access_subscripts() {
     let source = "\
 #!/bin/bash
