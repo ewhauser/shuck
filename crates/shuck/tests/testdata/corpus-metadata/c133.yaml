@@ -1,4 +1,40 @@
 reviewed_divergences:
   - side: shellcheck-only
-    rule_wide: true
-    reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings are treated as out of scope for this rule."
+    path_contains: "233boy__v2ray__"
+    reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings stay out of scope for this rule."
+  - side: shellcheck-only
+    path_contains: "RetroPie__RetroPie-Setup__"
+    reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings stay out of scope for this rule."
+  - side: shellcheck-only
+    path_contains: "alexanderepstein__Bash-Snippets__"
+    reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings stay out of scope for this rule."
+  - side: shellcheck-only
+    path_contains: "bitnami__containers__"
+    reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings stay out of scope for this rule."
+  - side: shellcheck-only
+    path_contains: "community-scripts__ProxmoxVE__"
+    reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings stay out of scope for this rule."
+  - side: shellcheck-only
+    path_contains: "docker-library__official-images__"
+    reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings stay out of scope for this rule."
+  - side: shellcheck-only
+    path_contains: "gentoo__gentoo__"
+    reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings stay out of scope for this rule."
+  - side: shellcheck-only
+    path_contains: "google__oss-fuzz__"
+    reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings stay out of scope for this rule."
+  - side: shellcheck-only
+    path_contains: "nextcloud__docker__"
+    reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings stay out of scope for this rule."
+  - side: shellcheck-only
+    path_contains: "ohmyzsh__ohmyzsh__"
+    reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings stay out of scope for this rule."
+  - side: shellcheck-only
+    path_contains: "pyenv__pyenv__"
+    reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings stay out of scope for this rule."
+  - side: shellcheck-only
+    path_contains: "rvm__rvm__"
+    reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings stay out of scope for this rule."
+  - side: shellcheck-only
+    path_contains: "void-linux__void-packages__"
+    reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings stay out of scope for this rule."
