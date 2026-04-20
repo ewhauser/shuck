@@ -181,6 +181,105 @@ assoc[$key/sfx]=z
     }
 
     #[test]
+    fn ignores_dynamic_scope_associative_assignment_subscripts() {
+        let source = "\
+#!/bin/bash
+helper() {
+  map[${key}]=1
+}
+wrapper() {
+  helper
+}
+main() {
+  local key=name
+  declare -A map
+  wrapper
+}
+main
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn reports_shadowing_local_subscripts_even_when_callers_have_assoc_bindings() {
+        let source = "\
+#!/bin/bash
+helper() {
+  local map
+  map[$key]=1
+}
+main() {
+  local key=name
+  declare -A map
+  helper
+}
+main
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "$key");
+    }
+
+    #[test]
+    fn ignores_repeated_dynamic_scope_associative_assignment_subscripts() {
+        let source = "\
+#!/bin/bash
+helper() {
+  map[${key}]=1
+  map[${other}]=2
+}
+main() {
+  local key=alpha
+  local other=beta
+  declare -A map
+  helper
+}
+main
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn reports_wrapper_shadowing_local_subscripts_even_when_outer_callers_have_assoc_bindings() {
+        let source = "\
+#!/bin/bash
+helper() {
+  map[$key]=1
+}
+wrapper() {
+  local map
+  helper
+}
+main() {
+  local key=name
+  declare -A map
+  wrapper
+}
+main
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "$key");
+    }
+
+    #[test]
+    fn ignores_associative_declaration_initializer_subscripts() {
+        let source = "\
+#!/bin/bash
+declare -A map=([$key]=1)
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn reports_nested_arithmetic_in_array_access_subscripts() {
         let source = "\
 #!/bin/bash

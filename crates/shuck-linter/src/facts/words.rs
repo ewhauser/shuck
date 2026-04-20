@@ -1804,6 +1804,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                     self.surface.record_var_ref_subscript(reference);
                     let indexed_semantics = self.subscript_uses_index_arithmetic_semantics(
                         Some(&reference.name),
+                        Some(reference.name_span),
                         reference.subscript.as_ref(),
                     );
                     query::visit_var_ref_subscript_words_with_source(
@@ -1853,6 +1854,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         self.surface.record_var_ref_subscript(&assignment.target);
         let indexed_semantics = self.subscript_uses_index_arithmetic_semantics(
             Some(&assignment.target.name),
+            Some(assignment.target.name_span),
             assignment.target.subscript.as_ref(),
         );
         query::visit_var_ref_subscript_words_with_source(
@@ -1901,6 +1903,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                             self.surface.record_subscript(Some(key));
                             let indexed_semantics = self.subscript_uses_index_arithmetic_semantics(
                                 Some(&assignment.target.name),
+                                Some(assignment.target.name_span),
                                 Some(key),
                             );
                             query::visit_subscript_words(Some(key), self.source, &mut |word| {
@@ -2355,6 +2358,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
     fn subscript_uses_index_arithmetic_semantics(
         &self,
         owner_name: Option<&Name>,
+        owner_name_span: Option<Span>,
         subscript: Option<&Subscript>,
     ) -> bool {
         let Some(subscript) = subscript else {
@@ -2370,11 +2374,140 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             return false;
         }
 
-        !owner_name.is_some_and(|name| {
-            self.semantic
-                .visible_binding(name, subscript.span())
-                .is_some_and(|binding| binding.attributes.contains(BindingAttributes::ASSOC))
-        })
+        !owner_name
+            .is_some_and(|name| self.assoc_binding_visible_for_subscript(name, owner_name_span, subscript))
+    }
+
+    fn assoc_binding_visible_for_subscript(
+        &self,
+        owner_name: &Name,
+        owner_name_span: Option<Span>,
+        subscript: &Subscript,
+    ) -> bool {
+        if let Some(binding) =
+            self.prior_visible_binding_for_subscript(owner_name, owner_name_span, subscript.span())
+        {
+            return binding.attributes.contains(BindingAttributes::ASSOC);
+        }
+
+        self.assoc_binding_visible_from_named_callers(owner_name, subscript.span())
+    }
+
+    fn assoc_binding_visible_from_named_callers(&self, owner_name: &Name, span: Span) -> bool {
+        let Some(function_names) = self.named_function_scope_names(span.start.offset) else {
+            return false;
+        };
+
+        let mut seen = FxHashSet::default();
+        let mut worklist = function_names.to_vec();
+
+        while let Some(function_name) = worklist.pop() {
+            if !seen.insert(function_name.clone()) {
+                continue;
+            }
+
+            for call_site in self.semantic.call_sites_for(&function_name) {
+                if let Some(binding) =
+                    self.visible_binding_for_caller_assoc_lookup(owner_name, call_site.name_span)
+                {
+                    if binding.attributes.contains(BindingAttributes::ASSOC) {
+                        return true;
+                    }
+                    continue;
+                }
+
+                if let Some(caller_names) = self.named_function_scope_names(call_site.name_span.start.offset)
+                {
+                    worklist.extend(caller_names.iter().cloned());
+                }
+            }
+        }
+
+        false
+    }
+
+    fn prior_visible_binding_for_subscript(
+        &self,
+        owner_name: &Name,
+        owner_name_span: Option<Span>,
+        span: Span,
+    ) -> Option<&shuck_semantic::Binding> {
+        let current_scope = self.semantic.scope_at(span.start.offset);
+        self.semantic
+            .bindings_for(owner_name)
+            .iter()
+            .rev()
+            .copied()
+            .find(|binding_id| {
+                self.semantic.binding_visible_at(*binding_id, span)
+                    && self.binding_blocks_caller_assoc_lookup(
+                        *binding_id,
+                        current_scope,
+                        owner_name_span,
+                    )
+            })
+            .map(|binding_id| self.semantic.binding(binding_id))
+    }
+
+    fn visible_binding_for_caller_assoc_lookup(
+        &self,
+        owner_name: &Name,
+        span: Span,
+    ) -> Option<&shuck_semantic::Binding> {
+        let current_scope = self.semantic.scope_at(span.start.offset);
+        self.semantic
+            .bindings_for(owner_name)
+            .iter()
+            .rev()
+            .copied()
+            .find(|binding_id| {
+                self.semantic.binding_visible_at(*binding_id, span)
+                    && self.binding_blocks_caller_assoc_lookup(*binding_id, current_scope, None)
+            })
+            .map(|binding_id| self.semantic.binding(binding_id))
+    }
+
+    fn binding_blocks_caller_assoc_lookup(
+        &self,
+        binding_id: shuck_semantic::BindingId,
+        current_scope: shuck_semantic::ScopeId,
+        owner_name_span: Option<Span>,
+    ) -> bool {
+        let binding = self.semantic.binding(binding_id);
+        if owner_name_span.is_some_and(|owner_span| binding.span == owner_span)
+            && matches!(
+                binding.kind,
+                shuck_semantic::BindingKind::Assignment
+                    | shuck_semantic::BindingKind::AppendAssignment
+                    | shuck_semantic::BindingKind::ArrayAssignment
+                    | shuck_semantic::BindingKind::ArithmeticAssignment
+            )
+        {
+            return false;
+        }
+        if binding.scope != current_scope || binding.attributes.contains(BindingAttributes::LOCAL) {
+            return true;
+        }
+
+        !matches!(
+            binding.kind,
+            shuck_semantic::BindingKind::Assignment
+                | shuck_semantic::BindingKind::AppendAssignment
+                | shuck_semantic::BindingKind::ArrayAssignment
+                | shuck_semantic::BindingKind::ArithmeticAssignment
+        )
+    }
+
+    fn named_function_scope_names(&self, offset: usize) -> Option<&[Name]> {
+        let scope = self.semantic.scope_at(offset);
+        self.semantic
+            .ancestor_scopes(scope)
+            .find_map(|scope_id| match &self.semantic.scope(scope_id).kind {
+                shuck_semantic::ScopeKind::Function(
+                    shuck_semantic::FunctionScopeKind::Named(names),
+                ) => Some(names.as_slice()),
+                _ => None,
+            })
     }
 
     fn collect_array_index_arithmetic_spans(&mut self, word: &Word) {
