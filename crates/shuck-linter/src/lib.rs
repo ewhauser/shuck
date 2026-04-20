@@ -87,7 +87,7 @@ pub use violation::Violation;
 
 use rustc_hash::FxHashSet;
 use shuck_ast::{File, Position, Span, TextSize};
-use shuck_indexer::Indexer;
+use shuck_indexer::{Indexer, LineIndex};
 use shuck_parser::parser::{ParseResult, Parser};
 use shuck_parser::{ShellDialect as ParseShellDialect, ShellProfile};
 use shuck_semantic::{
@@ -250,7 +250,6 @@ fn analyze_file_at_path_with_resolver_and_shell(
     );
     let mut diagnostics = observer.into_diagnostics();
     diagnostics.extend(checker.check());
-    sanitize_diagnostic_spans(&mut diagnostics, source);
     for diagnostic in &mut diagnostics {
         if let Some(&severity) = settings.severity_overrides.get(&diagnostic.rule) {
             diagnostic.severity = severity;
@@ -372,7 +371,6 @@ pub fn lint_file_at_path_with_resolver(
         &settings.rules,
         shell,
     ));
-    sanitize_diagnostic_spans(&mut diagnostics, source);
 
     for diagnostic in &mut diagnostics {
         if let Some(&severity) = settings.severity_overrides.get(&diagnostic.rule) {
@@ -422,7 +420,9 @@ pub fn lint_file_at_path_with_resolver_and_parse_result(
         &settings.rules,
         shell,
     ));
-    sanitize_diagnostic_spans(&mut diagnostics, source);
+    if parse_result.is_err() {
+        sanitize_diagnostic_spans_cold(&mut diagnostics, source, indexer);
+    }
 
     for diagnostic in &mut diagnostics {
         if let Some(&severity) = settings.severity_overrides.get(&diagnostic.rule) {
@@ -476,13 +476,31 @@ fn filter_suppressed_diagnostics(
     });
 }
 
-fn sanitize_diagnostic_spans(diagnostics: &mut [Diagnostic], source: &str) {
+#[cold]
+#[inline(never)]
+fn sanitize_diagnostic_spans_cold(diagnostics: &mut [Diagnostic], source: &str, indexer: &Indexer) {
     for diagnostic in diagnostics {
-        diagnostic.span = sanitize_span(diagnostic.span, source);
+        diagnostic.span = sanitize_span(diagnostic.span, source, indexer.line_index());
     }
 }
 
-fn sanitize_span(span: Span, source: &str) -> Span {
+#[cold]
+fn sanitize_span(span: Span, source: &str, line_index: &LineIndex) -> Span {
+    if span.start.offset <= span.end.offset
+        && span.end.offset <= source.len()
+        && source.is_char_boundary(span.start.offset)
+        && source.is_char_boundary(span.end.offset)
+    {
+        return span;
+    }
+
+    let offsets_are_bounded = span.start.offset <= source.len() && span.end.offset <= source.len();
+    let offsets_are_aligned =
+        source.is_char_boundary(span.start.offset) && source.is_char_boundary(span.end.offset);
+    if offsets_are_bounded && offsets_are_aligned && span.start.offset > span.end.offset {
+        return Span::from_positions(span.end, span.start);
+    }
+
     let len = source.len();
     let raw_start = span.start.offset.min(len);
     let raw_end = span.end.offset.min(len);
@@ -499,19 +517,27 @@ fn sanitize_span(span: Span, source: &str) -> Span {
     };
 
     Span::from_positions(
-        position_at_offset(source, start_offset),
-        position_at_offset(source, end_offset),
+        position_at_offset(source, line_index, start_offset),
+        position_at_offset(source, line_index, end_offset),
     )
 }
 
-fn position_at_offset(source: &str, target_offset: usize) -> Position {
-    let mut position = Position::new();
-    for ch in source[..target_offset].chars() {
-        position.advance(ch);
+#[cold]
+fn position_at_offset(source: &str, line_index: &LineIndex, target_offset: usize) -> Position {
+    let line = line_index.line_number(TextSize::new(target_offset as u32));
+    let line_start = line_index
+        .line_start(line)
+        .map(usize::from)
+        .unwrap_or_default();
+
+    Position {
+        line,
+        column: source[line_start..target_offset].chars().count() + 1,
+        offset: target_offset,
     }
-    position
 }
 
+#[cold]
 fn floor_char_boundary(source: &str, offset: usize) -> usize {
     let mut offset = offset.min(source.len());
     while offset > 0 && !source.is_char_boundary(offset) {
@@ -520,6 +546,7 @@ fn floor_char_boundary(source: &str, offset: usize) -> usize {
     offset
 }
 
+#[cold]
 fn ceil_char_boundary(source: &str, offset: usize) -> usize {
     let mut offset = offset.min(source.len());
     while offset < source.len() && !source.is_char_boundary(offset) {
