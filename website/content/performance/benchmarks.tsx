@@ -2,6 +2,7 @@ import localSnapshotJson from "@/generated/benchmarks/local-m5-max.json";
 import ciSnapshotJson from "@/generated/benchmarks/ci-latest.json";
 import type { BenchmarkDataset, BenchmarkMeasurement } from "@/app/lib/benchmarks";
 import {
+  describeRelativePerformance,
   formatBytes,
   formatDate,
   formatDuration,
@@ -161,7 +162,10 @@ function SnapshotDetails({ dataset }: { dataset: BenchmarkDataset }) {
             <th>Aggregate speedup</th>
             <td>
               {dataset.available && comparison
-                ? `${formatRatio(dataset.summary?.speedupRatio)} faster than ${comparison.tool}`
+                ? describeRelativePerformance(
+                    dataset.summary?.speedupRatio,
+                    comparison.tool,
+                  )
                 : "n/a"}
             </td>
           </tr>

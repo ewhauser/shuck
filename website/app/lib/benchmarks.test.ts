@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { pickLatestDatasetWithCorpus, type BenchmarkDataset } from "./benchmarks";
+import {
+  describeRelativePerformance,
+  pickLatestDatasetWithCorpus,
+  type BenchmarkDataset,
+} from "./benchmarks";
 
 const baseDataset: BenchmarkDataset = {
   schemaVersion: 1,
@@ -113,4 +117,25 @@ test("pickLatestDatasetWithCorpus prefers the freshest dataset with fixtures", (
 
   assert.equal(chosen?.id, "ci");
   assert.equal(chosen?.corpus.fixtures[0]?.slug, "ci");
+});
+
+test("describeRelativePerformance reports faster ratios correctly", () => {
+  assert.equal(
+    describeRelativePerformance(1.5, "shellcheck"),
+    "1.50x faster than shellcheck",
+  );
+});
+
+test("describeRelativePerformance reports slower ratios correctly", () => {
+  assert.equal(
+    describeRelativePerformance(0.5, "shellcheck"),
+    "2.00x slower than shellcheck",
+  );
+});
+
+test("describeRelativePerformance reports ties neutrally", () => {
+  assert.equal(
+    describeRelativePerformance(1, "shellcheck"),
+    "roughly tied with shellcheck",
+  );
 });

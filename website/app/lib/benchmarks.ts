@@ -147,6 +147,22 @@ export function formatRatio(ratio: number | null | undefined): string {
   return `${ratio.toFixed(2)}x`;
 }
 
+export function describeRelativePerformance(
+  ratio: number | null | undefined,
+  comparisonTool: string,
+): string {
+  if (!ratio || !Number.isFinite(ratio)) {
+    return "n/a";
+  }
+  if (ratio > 1) {
+    return `${formatRatio(ratio)} faster than ${comparisonTool}`;
+  }
+  if (ratio < 1) {
+    return `${formatRatio(1 / ratio)} slower than ${comparisonTool}`;
+  }
+  return `roughly tied with ${comparisonTool}`;
+}
+
 export function formatBytes(bytes: number | null | undefined): string {
   if (bytes == null) {
     return "n/a";
