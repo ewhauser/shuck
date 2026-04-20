@@ -1,0 +1,592 @@
+use super::*;
+
+#[test]
+fn assignment_value_facts_ignore_line_continuation_backslashes_for_shell_quoting_literals() {
+    let source = "#!/bin/bash\npackages=$foo\\\n$bar\nprintf '%s\\n' \"$packages\"\n";
+
+    with_facts(source, None, |_, facts| {
+        let fact = facts
+            .expansion_word_facts(ExpansionContext::AssignmentValue)
+            .next()
+            .expect("assignment value fact should exist");
+
+        assert!(!fact.contains_shell_quoting_literals());
+    });
+}
+
+#[test]
+fn assignment_value_facts_keep_single_quoted_backslash_newlines_for_shell_quoting_literals() {
+    let source = "#!/bin/bash\npackages='foo\\\nbar'\nprintf '%s\\n' $packages\n";
+
+    with_facts(source, None, |_, facts| {
+        let fact = facts
+            .expansion_word_facts(ExpansionContext::AssignmentValue)
+            .next()
+            .expect("assignment value fact should exist");
+
+        assert!(fact.contains_shell_quoting_literals());
+    });
+}
+
+#[test]
+fn background_semicolon_facts_report_plain_semicolons() {
+    let source = "#!/bin/bash\necho x &;\necho y & ;\n";
+
+    with_facts(source, None, |_, facts| {
+        let spans = facts.background_semicolon_spans();
+
+        assert_eq!(spans.len(), 2);
+        assert_eq!(spans[0].slice(source), ";");
+        assert_eq!(spans[0].start.line, 2);
+        assert_eq!(spans[1].slice(source), ";");
+        assert_eq!(spans[1].start.line, 3);
+    });
+}
+
+#[test]
+fn background_semicolon_facts_ignore_case_item_terminators() {
+    let source = "\
+#!/bin/bash
+case ${1-} in
+  break) printf '%s\\n' ok &;;
+  spaced) printf '%s\\n' ok & ;;
+  fallthrough) printf '%s\\n' ok & ;&
+  continue) printf '%s\\n' ok & ;;&
+esac
+";
+
+    with_facts(source, None, |_, facts| {
+        assert!(facts.background_semicolon_spans().is_empty());
+    });
+}
+
+#[test]
+fn commented_continuation_facts_ignore_plain_comment_only_lines() {
+    let source = "#!/bin/sh\necho hello \\\n  #world\n  foo\n";
+
+    with_facts(source, None, |_, facts| {
+        assert!(facts.commented_continuation_comment_spans().is_empty());
+    });
+}
+
+#[test]
+fn commented_continuation_facts_anchor_at_comment_backslash() {
+    let source = "#!/bin/sh\necho hello \\\n  #world \\\n  foo\n";
+
+    with_facts(source, None, |_, facts| {
+        let spans = facts.commented_continuation_comment_spans();
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].start.line, 3);
+        assert_eq!(spans[0].start.column, 11);
+        assert_eq!(spans[0].start, spans[0].end);
+        assert_eq!(
+            &source[spans[0].start.offset - 1..spans[0].start.offset],
+            "\\"
+        );
+    });
+}
+
+#[test]
+fn builds_command_facts_for_wrapped_and_nested_commands() {
+    let source = "#!/bin/bash\ncommand printf '%s\\n' \"$(echo hi)\"\n";
+    let output = Parser::new(source).parse().unwrap();
+    let indexer = Indexer::new(source, &output);
+    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let file_context = classify_file_context(source, None, ShellDialect::Bash);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+    let outer = facts
+        .structural_commands()
+        .find(|fact| fact.effective_name_is("printf"))
+        .expect("expected structural printf fact");
+
+    assert_eq!(facts.commands().len(), 2);
+    assert_eq!(outer.literal_name(), Some("command"));
+    assert_eq!(outer.effective_name(), Some("printf"));
+    assert_eq!(outer.wrappers(), &[WrapperKind::Command]);
+    assert!(!outer.is_nested_word_command());
+    assert_eq!(
+        outer
+            .options()
+            .printf()
+            .and_then(|printf| printf.format_word)
+            .map(|word| word.span.slice(source)),
+        Some("'%s\\n'")
+    );
+
+    let nested = facts
+        .commands()
+        .iter()
+        .find(|fact| fact.effective_name_is("echo"))
+        .expect("expected nested echo fact");
+    assert!(nested.is_nested_word_command());
+    assert_eq!(
+        facts
+            .commands()
+            .iter()
+            .map(|fact| fact.id())
+            .collect::<Vec<_>>(),
+        vec![CommandId::new(0), CommandId::new(1)]
+    );
+}
+
+#[test]
+
+fn exposes_structural_commands_and_id_lookups() {
+    let source = "#!/bin/bash\necho \"$(printf x)\"\n";
+    let output = Parser::new(source).parse().unwrap();
+    let indexer = Indexer::new(source, &output);
+    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let file_context = classify_file_context(source, None, ShellDialect::Bash);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+    let structural = facts
+        .structural_commands()
+        .map(|fact| fact.effective_or_literal_name().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    let all = facts
+        .commands()
+        .iter()
+        .map(|fact| fact.effective_or_literal_name().unwrap().to_owned())
+        .collect::<Vec<_>>();
+
+    assert_eq!(structural, vec!["echo"]);
+    assert_eq!(all, vec!["echo", "printf"]);
+
+    let echo_id = facts
+        .command_id_for_stmt(&output.file.body[0])
+        .expect("expected command id for top-level stmt");
+    assert_eq!(echo_id, CommandId::new(0));
+    assert_eq!(
+        facts.command(echo_id).effective_or_literal_name(),
+        Some("echo")
+    );
+    assert_eq!(
+        facts.command_id_for_command(&output.file.body[0].command),
+        Some(echo_id)
+    );
+}
+
+#[test]
+fn precomputes_innermost_command_ids_for_nested_offsets() {
+    let source = "#!/bin/bash\necho \"$(printf '%s' \"$(uname)\")\"\n";
+    let output = Parser::new(source).parse().unwrap();
+    let indexer = Indexer::new(source, &output);
+    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let file_context = classify_file_context(source, None, ShellDialect::Bash);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+    let outer_id = facts
+        .commands()
+        .iter()
+        .find(|fact| fact.effective_or_literal_name() == Some("echo"))
+        .map(|fact| fact.id())
+        .expect("expected outer echo command");
+    let middle_id = facts
+        .commands()
+        .iter()
+        .find(|fact| fact.effective_or_literal_name() == Some("printf"))
+        .map(|fact| fact.id())
+        .expect("expected nested printf command");
+    let inner_id = facts
+        .commands()
+        .iter()
+        .find(|fact| fact.effective_or_literal_name() == Some("uname"))
+        .map(|fact| fact.id())
+        .expect("expected nested uname command");
+
+    let command_ids_by_offset = super::build_innermost_command_ids_by_offset(
+        facts.commands(),
+        vec![
+            source.find("echo").expect("expected echo offset"),
+            source.find("printf").expect("expected printf offset"),
+            source.find("uname").expect("expected uname offset"),
+        ],
+    );
+
+    assert_eq!(
+        super::precomputed_command_id_for_offset(
+            &command_ids_by_offset,
+            source.find("echo").expect("expected echo offset"),
+        ),
+        Some(outer_id)
+    );
+    assert_eq!(
+        super::precomputed_command_id_for_offset(
+            &command_ids_by_offset,
+            source.find("printf").expect("expected printf offset"),
+        ),
+        Some(middle_id)
+    );
+    assert_eq!(
+        super::precomputed_command_id_for_offset(
+            &command_ids_by_offset,
+            source.find("uname").expect("expected uname offset"),
+        ),
+        Some(inner_id)
+    );
+}
+
+#[test]
+fn tracks_nested_commands_inside_if_and_elif_conditions() {
+    let source = "\
+#!/bin/bash
+if \"$( [[ -f if_path ]] )\"; then
+  :
+elif \"$( [[ -f elif_path ]] )\"; then
+  :
+fi
+";
+
+    with_facts(source, None, |_, facts| {
+        let if_nested = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.span().slice(source) == "[[ -f if_path ]]")
+            .expect("expected nested if condition command");
+        assert!(if_nested.scope_read_source_words().is_empty());
+        assert!(facts.is_if_condition_command(if_nested.id()));
+        assert!(!facts.is_elif_condition_command(if_nested.id()));
+
+        let elif_nested = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.span().slice(source) == "[[ -f elif_path ]]")
+            .expect("expected nested elif condition command");
+        assert!(elif_nested.scope_read_source_words().is_empty());
+        assert!(facts.is_elif_condition_command(elif_nested.id()));
+    });
+}
+
+#[test]
+fn includes_nested_jq_file_operands_in_writer_scope_reads() {
+    let source = "#!/bin/bash\ncat <<<$(jq '.dns={}' \"$cfg\") >\"$cfg\"\n";
+
+    with_facts(source, None, |_, facts| {
+        let jq = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.effective_name_is("jq"))
+            .expect("expected nested jq command");
+        assert_eq!(
+            jq.file_operand_words()
+                .iter()
+                .map(|word| word.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["\"$cfg\""]
+        );
+
+        let cat = facts
+            .structural_commands()
+            .find(|fact| fact.effective_name_is("cat"))
+            .expect("expected structural cat command");
+        assert_eq!(
+            cat.scope_read_source_words()
+                .iter()
+                .map(|fact| fact.word().span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["\"$cfg\""]
+        );
+    });
+}
+
+#[test]
+fn parses_jq_input_modes_into_file_operands() {
+    let source = "\
+#!/bin/bash
+jq --args '$ARGS.positional[0]' \"$cfg\"
+jq --jsonargs '$ARGS.positional[0]' \"$cfg\"
+jq --indent 2 --args '$ARGS.positional[0]' \"$cfg\"
+jq --rawfile cfg \"$cfg\" '.dns=$cfg'
+jq --slurpfile cfg \"$cfg\" '.dns=$cfg'
+jq --argfile cfg \"$cfg\" '.dns=$cfg'
+jq -nc '.x=1' \"$cfg\"
+jq -Lnewmods '.x=1' \"$cfg\"
+";
+
+    with_facts(source, None, |_, facts| {
+        let jq_commands = facts
+            .structural_commands()
+            .filter(|fact| fact.effective_name_is("jq"))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            jq_commands
+                .iter()
+                .map(|command| {
+                    command
+                        .file_operand_words()
+                        .iter()
+                        .map(|word| word.span.slice(source))
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>(),
+            vec![
+                Vec::<&str>::new(),
+                Vec::<&str>::new(),
+                Vec::<&str>::new(),
+                vec!["\"$cfg\""],
+                vec!["\"$cfg\""],
+                vec!["\"$cfg\""],
+                Vec::<&str>::new(),
+                vec!["\"$cfg\""],
+            ]
+        );
+    });
+}
+
+#[test]
+fn tracks_nested_if_and_elif_conditions_inside_while_conditions() {
+    let source = "\
+#!/bin/bash
+while if \"$( [[ -f if_path ]] )\"; then
+  :
+elif \"$( [[ -f elif_path ]] )\"; then
+  :
+fi; do
+  :
+done
+";
+
+    with_facts(source, None, |_, facts| {
+        let if_nested = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.span().slice(source) == "[[ -f if_path ]]")
+            .expect("expected nested if condition command");
+        assert!(if_nested.scope_read_source_words().is_empty());
+        assert!(facts.is_if_condition_command(if_nested.id()));
+        assert!(!facts.is_elif_condition_command(if_nested.id()));
+
+        let elif_nested = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.span().slice(source) == "[[ -f elif_path ]]")
+            .expect("expected nested elif condition command");
+        assert!(elif_nested.scope_read_source_words().is_empty());
+        assert!(facts.is_elif_condition_command(elif_nested.id()));
+    });
+}
+
+#[test]
+fn tracks_nested_while_and_until_conditions_inside_if_and_elif_conditions() {
+    let source = "\
+#!/bin/bash
+if while [[ -f if_path ]]; do
+  :
+done; then
+  :
+elif until [[ -f elif_path ]]; do
+  :
+done; then
+  :
+fi
+";
+
+    with_facts(source, None, |_, facts| {
+        let if_nested = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.span().slice(source) == "[[ -f if_path ]]")
+            .expect("expected nested while condition command");
+        assert!(if_nested.scope_read_source_words().is_empty());
+        assert!(facts.is_if_condition_command(if_nested.id()));
+        assert!(!facts.is_elif_condition_command(if_nested.id()));
+
+        let elif_nested = facts
+            .commands()
+            .iter()
+            .find(|fact| fact.span().slice(source) == "[[ -f elif_path ]]")
+            .expect("expected nested until condition command");
+        assert!(elif_nested.scope_read_source_words().is_empty());
+        assert!(facts.is_if_condition_command(elif_nested.id()));
+        assert!(facts.is_elif_condition_command(elif_nested.id()));
+    });
+}
+
+#[test]
+fn preserves_condition_related_span_outputs() {
+    let source = "\
+#!/bin/bash
+if [[ -f foo ]]; then
+  echo $?
+elif [[ -f bar ]]; then
+  echo $?
+elif [ $? -eq 1 ]; then
+  :
+fi
+while test -f baz; do
+  echo $?
+done
+if [[ -n $mode ]]; then
+  case $mode in
+    foo) tend $? ;;
+  esac
+fi
+if $(printf one); then
+  :
+fi
+if $(command -v printf) --version >/dev/null 2>&1; then
+  :
+fi
+while $(printf two); do
+  :
+done
+until $(command -v printf) --help >/dev/null 2>&1; do
+  break
+done
+";
+
+    with_facts(source, None, |_, facts| {
+        assert_eq!(
+            facts
+                .condition_command_substitution_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$(printf one)", "$(printf two)"]
+        );
+        assert_eq!(
+            facts
+                .condition_status_capture_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$?", "$?", "$?", "$?", "$?"]
+        );
+    });
+}
+
+#[test]
+fn collects_c107_status_checks_in_reportable_test_contexts() {
+    let source = "\
+#!/bin/bash
+run
+if [ $? -ne 0 ]; then :; fi
+[ $? -ne 0 ]
+run && [ $? -eq 0 ]
+run || [ $? -ne 0 ]
+if (( $? != 0 )); then :; fi
+while [[ $? -ne 0 ]]; do break; done
+";
+
+    with_facts(source, None, |_, facts| {
+        assert_eq!(
+            facts
+                .dollar_question_after_command_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$?", "$?", "$?", "$?", "$?", "$?"]
+        );
+    });
+}
+
+#[test]
+fn keeps_c107_off_plain_function_entry_checks() {
+    let source = "\
+#!/bin/bash
+check_status() {
+  if [ $? -ne 0 ]; then :; fi
+  [ $? -ne 0 ]
+  run && [ $? -ne 0 ]
+}
+";
+
+    with_facts(source, None, |_, facts| {
+        assert_eq!(
+            facts
+                .dollar_question_after_command_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$?", "$?"]
+        );
+    });
+}
+
+#[test]
+fn keeps_getopts_case_facts_when_loop_body_has_nested_command_content() {
+    let source = "\
+#!/bin/bash
+while getopts 'ab' opt; do
+  echo \"$(printf warmup)\"
+  case \"$opt\" in
+    a)
+      ;;
+    b)
+      echo \"$(printf body)\"
+      ;;
+  esac
+done
+";
+
+    with_facts(source, None, |_, facts| {
+        let [case] = facts.getopts_cases() else {
+            panic!("expected one getopts case fact");
+        };
+
+        assert_eq!(
+            case.case_span().slice(source),
+            "case \"$opt\" in\n    a)\n      ;;\n    b)\n      echo \"$(printf body)\"\n      ;;\n  esac"
+        );
+        assert_eq!(
+            case.handled_case_labels()
+                .iter()
+                .map(|label| label.label())
+                .collect::<Vec<_>>(),
+            vec!['a', 'b']
+        );
+        assert!(case.missing_options().is_empty());
+    });
+}
+
+#[test]
+fn records_invalid_flag_handler_coverage_for_getopts_cases() {
+    let source = "\
+#!/bin/sh
+while getopts 'a' opt; do
+  case \"$opt\" in
+    a) : ;;
+  esac
+done
+
+while getopts 'a' opt; do
+  case \"$opt\" in
+    a) : ;;
+    \\?) : ;;
+  esac
+done
+
+while getopts 'a' opt; do
+  case \"$opt\" in
+    a) : ;;
+    *) : ;;
+  esac
+done
+
+while getopts 'ab' opt; do
+  case \"$opt\" in
+    [ab]) : ;;
+  esac
+done
+
+while getopts ':a' opt; do
+  case \"$opt\" in
+    a) : ;;
+    :) : ;;
+  esac
+done
+";
+
+    with_facts(source, None, |_, facts| {
+        let cases = facts.getopts_cases();
+        assert_eq!(cases.len(), 5);
+        assert!(cases[0].missing_invalid_flag_handler());
+        assert!(!cases[1].missing_invalid_flag_handler());
+        assert!(!cases[2].missing_invalid_flag_handler());
+        assert!(cases[3].has_unknown_coverage());
+        assert!(!cases[3].missing_invalid_flag_handler());
+        assert!(cases[4].missing_invalid_flag_handler());
+    });
+}
