@@ -1,14 +1,45 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 285
 ---
-C132 configure option name looks misspelled
- --> <source>:4:13
+C132 this same-command expansion still sees the earlier shell value
+ --> <source>:4:51
   |
-4 | ./configure --with-optmizer="${CFLAGS}"
+4 | CFLAGS="${SLKCFLAGS}" ./configure --with-optmizer=${CFLAGS}
   |
 
-C132 configure option name looks misspelled
+C132 this same-command expansion still sees the earlier shell value
  --> <source>:7:12
   |
-7 | configure "--enable-optmizer=${CFLAGS}"
+7 | PATH=/tmp "$PATH"/bin/tool
   |
+
+C132 this same-command expansion still sees the earlier shell value
+  --> <source>:10:8
+   |
+10 | A=1 B="$A" C="$B" cmd
+   |
+
+C132 this same-command expansion still sees the earlier shell value
+  --> <source>:10:15
+   |
+10 | A=1 B="$A" C="$B" cmd
+   |
+
+C132 this same-command expansion still sees the earlier shell value
+  --> <source>:13:15
+   |
+13 | foo=1 export "$foo"
+   |
+
+C132 this same-command expansion still sees the earlier shell value
+  --> <source>:16:11
+   |
+16 | foo=1 bar[$foo]=x cmd
+   |
+
+C132 this same-command expansion still sees the earlier shell value
+  --> <source>:19:37
+   |
+19 | COUNTDOWN=$[ $COUNTDOWN - 1 ] echo "$COUNTDOWN"
+   |

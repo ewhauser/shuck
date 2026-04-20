@@ -418,7 +418,7 @@ declare_rules! {
         "C132",
         Category::Correctness,
         Severity::Warning,
-        MisspelledOptionName
+        EnvPrefixExpansionOnly
     ),
     (
         "C133",
@@ -915,7 +915,7 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-312" => Some(Rule::GetoptsOptionNotInCase),
         "SH-313" => Some(Rule::CaseArmNotInGetopts),
         "SH-318" => Some(Rule::HeredocMissingEnd),
-        "SH-310" => Some(Rule::MisspelledOptionName),
+        "SH-310" => Some(Rule::EnvPrefixExpansionOnly),
         "SH-055" => Some(Rule::ExprArithmetic),
         "SH-056" => Some(Rule::PsGrepPipeline),
         "SH-057" => Some(Rule::LsGrepPipeline),
@@ -1377,8 +1377,8 @@ mod tests {
         );
         assert_eq!(code_to_rule("C131"), Some(Rule::VariableAsCommandName));
         assert_eq!(code_to_rule("SH-308"), Some(Rule::VariableAsCommandName));
-        assert_eq!(code_to_rule("C132"), Some(Rule::MisspelledOptionName));
-        assert_eq!(code_to_rule("SH-310"), Some(Rule::MisspelledOptionName));
+        assert_eq!(code_to_rule("C132"), Some(Rule::EnvPrefixExpansionOnly));
+        assert_eq!(code_to_rule("SH-310"), Some(Rule::EnvPrefixExpansionOnly));
         assert_eq!(code_to_rule("C133"), Some(Rule::ArrayToStringConversion));
         assert_eq!(code_to_rule("SH-311"), Some(Rule::ArrayToStringConversion));
         assert_eq!(code_to_rule("C148"), Some(Rule::BrokenAssocKey));

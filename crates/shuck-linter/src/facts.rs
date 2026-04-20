@@ -2475,17 +2475,6 @@ impl DirectoryChangeCommandFacts {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct ConfigureCommandFacts {
-    misspelled_option_spans: Box<[Span]>,
-}
-
-impl ConfigureCommandFacts {
-    pub fn misspelled_option_spans(&self) -> &[Span] {
-        &self.misspelled_option_spans
-    }
-}
-
 #[derive(Debug, Clone, Copy, Default)]
 pub struct FunctionPositionalParameterFacts {
     required_arg_count: usize,
@@ -2591,7 +2580,6 @@ pub struct CommandOptionFacts<'a> {
     ps: Option<PsCommandFacts>,
     set: Option<SetCommandFacts>,
     directory_change: Option<DirectoryChangeCommandFacts>,
-    configure: Option<ConfigureCommandFacts>,
     expr: Option<ExprCommandFacts>,
     exit: Option<ExitCommandFacts<'a>>,
     sudo_family: Option<SudoFamilyCommandFacts>,
@@ -2678,10 +2666,6 @@ impl<'a> CommandOptionFacts<'a> {
 
     pub fn directory_change(&self) -> Option<&DirectoryChangeCommandFacts> {
         self.directory_change.as_ref()
-    }
-
-    pub fn configure(&self) -> Option<&ConfigureCommandFacts> {
-        self.configure.as_ref()
     }
 
     pub fn expr(&self) -> Option<&ExprCommandFacts> {
@@ -2784,10 +2768,6 @@ impl<'a> CommandOptionFacts<'a> {
                 .effective_name_is("set")
                 .then(|| parse_set_command(normalized.body_args(), source)),
             directory_change: parse_directory_change_command(normalized, source),
-            configure: normalized
-                .effective_or_literal_name()
-                .is_some_and(is_configure_command_name)
-                .then(|| parse_configure_command(normalized.body_args(), source)),
             expr: normalized
                 .effective_name_is("expr")
                 .then_some(())
@@ -2967,6 +2947,7 @@ pub struct LinterFacts<'a> {
     comma_array_assignment_spans: Vec<Span>,
     ifs_literal_backslash_assignment_value_spans: Vec<Span>,
     env_prefix_assignment_scope_spans: Vec<Span>,
+    env_prefix_expansion_scope_spans: Vec<Span>,
     presence_tested_names: FxHashSet<Name>,
     nested_presence_test_spans: FxHashMap<Name, Vec<Span>>,
     subscript_index_reference_spans: FxHashSet<FactSpan>,
@@ -3156,6 +3137,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn env_prefix_assignment_scope_spans(&self) -> &[Span] {
         &self.env_prefix_assignment_scope_spans
+    }
+
+    pub fn env_prefix_expansion_scope_spans(&self) -> &[Span] {
+        &self.env_prefix_expansion_scope_spans
     }
 
     pub fn is_if_condition_command(&self, id: CommandId) -> bool {
@@ -4009,6 +3994,8 @@ impl<'a> LinterFactsBuilder<'a> {
         );
         let env_prefix_assignment_scope_spans =
             build_env_prefix_assignment_scope_spans(self.semantic, self.source, &commands);
+        let env_prefix_expansion_scope_spans =
+            build_env_prefix_expansion_scope_spans(self.source, &commands);
         let mut word_index = FxHashMap::<FactSpan, Vec<usize>>::default();
         for (index, fact) in words.iter().enumerate() {
             word_index.entry(fact.key()).or_default().push(index);
@@ -4043,6 +4030,7 @@ impl<'a> LinterFactsBuilder<'a> {
             comma_array_assignment_spans,
             ifs_literal_backslash_assignment_value_spans,
             env_prefix_assignment_scope_spans,
+            env_prefix_expansion_scope_spans,
             presence_tested_names: presence_tested_names.global_names,
             nested_presence_test_spans: presence_tested_names.nested_command_spans_by_name,
             subscript_index_reference_spans,
@@ -5405,6 +5393,89 @@ fn build_env_prefix_assignment_scope_spans(
     spans
 }
 
+fn build_env_prefix_expansion_scope_spans(source: &str, commands: &[CommandFact<'_>]) -> Vec<Span> {
+    let mut spans = Vec::new();
+    let mut seen = FxHashSet::default();
+
+    for command in commands {
+        if command_is_assignment_only(command, source) {
+            continue;
+        }
+
+        let assignments = query::command_assignments(command.command());
+        let broken_legacy_bracket_tail = match command.command() {
+            Command::Simple(simple) => broken_legacy_bracket_tail(simple, source),
+            Command::Builtin(_)
+            | Command::Decl(_)
+            | Command::Binary(_)
+            | Command::Compound(_)
+            | Command::Function(_)
+            | Command::AnonymousFunction(_) => None,
+        };
+
+        for (index, assignment) in assignments.iter().enumerate() {
+            for (other_index, other) in assignments.iter().enumerate() {
+                if other_index == index {
+                    continue;
+                }
+
+                collect_assignment_reference_spans_outside_nested_commands(
+                    other,
+                    &assignment.target.name,
+                    &mut spans,
+                    &mut seen,
+                );
+
+                match (command.command(), broken_legacy_bracket_tail) {
+                    (Command::Simple(simple), Some(tail))
+                        if tail.assignment_index == other_index =>
+                    {
+                        collect_broken_legacy_bracket_tail_reference_spans(
+                            simple,
+                            tail,
+                            &assignment.target.name,
+                            &mut spans,
+                            &mut seen,
+                        );
+                    }
+                    (
+                        Command::Builtin(_)
+                        | Command::Decl(_)
+                        | Command::Binary(_)
+                        | Command::Compound(_)
+                        | Command::Function(_)
+                        | Command::AnonymousFunction(_),
+                        _,
+                    )
+                    | (Command::Simple(_), _) => {}
+                }
+            }
+
+            if assignments.iter().enumerate().any(|(other_index, other)| {
+                other_index != index && other.target.name == assignment.target.name
+            }) {
+                collect_assignment_reference_spans_outside_nested_commands(
+                    assignment,
+                    &assignment.target.name,
+                    &mut spans,
+                    &mut seen,
+                );
+            }
+
+            collect_command_body_reference_spans_outside_nested_commands(
+                command,
+                source,
+                &assignment.target.name,
+                &mut spans,
+                &mut seen,
+            );
+        }
+    }
+
+    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    spans
+}
+
 #[derive(Debug, Clone, Copy)]
 struct BrokenLegacyBracketTail {
     assignment_index: usize,
@@ -5546,6 +5617,105 @@ fn broken_legacy_bracket_tail_mentions_name(
         .any(|word| word_mentions_name_outside_nested_commands(word, name))
 }
 
+fn collect_assignment_reference_spans_outside_nested_commands(
+    assignment: &Assignment,
+    name: &Name,
+    spans: &mut Vec<Span>,
+    seen: &mut FxHashSet<FactSpan>,
+) {
+    collect_subscript_reference_spans_outside_nested_commands(
+        assignment.target.subscript.as_ref(),
+        name,
+        spans,
+        seen,
+    );
+
+    match &assignment.value {
+        AssignmentValue::Scalar(word) => {
+            collect_word_reference_spans_outside_nested_commands(word, name, spans, seen);
+        }
+        AssignmentValue::Compound(array) => {
+            for element in &array.elements {
+                match element {
+                    ArrayElem::Sequential(word) => {
+                        collect_word_reference_spans_outside_nested_commands(
+                            word, name, spans, seen,
+                        );
+                    }
+                    ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
+                        collect_subscript_reference_spans_outside_nested_commands(
+                            Some(key),
+                            name,
+                            spans,
+                            seen,
+                        );
+                        collect_word_reference_spans_outside_nested_commands(
+                            value, name, spans, seen,
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn collect_command_body_reference_spans_outside_nested_commands(
+    fact: &CommandFact<'_>,
+    source: &str,
+    name: &Name,
+    spans: &mut Vec<Span>,
+    seen: &mut FxHashSet<FactSpan>,
+) {
+    match fact.command() {
+        Command::Simple(command) => {
+            for word in simple_command_body_words(command, source) {
+                collect_word_reference_spans_outside_nested_commands(word, name, spans, seen);
+            }
+        }
+        Command::Builtin(command) => {
+            for word in builtin_words(command) {
+                collect_word_reference_spans_outside_nested_commands(word, name, spans, seen);
+            }
+        }
+        Command::Decl(command) => {
+            for operand in &command.operands {
+                match operand {
+                    DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
+                        collect_word_reference_spans_outside_nested_commands(
+                            word, name, spans, seen,
+                        );
+                    }
+                    DeclOperand::Assignment(assignment) => {
+                        collect_assignment_reference_spans_outside_nested_commands(
+                            assignment, name, spans, seen,
+                        );
+                    }
+                    DeclOperand::Name(_) => {}
+                }
+            }
+        }
+        Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => {}
+    }
+}
+
+fn collect_broken_legacy_bracket_tail_reference_spans(
+    command: &SimpleCommand,
+    tail: BrokenLegacyBracketTail,
+    name: &Name,
+    spans: &mut Vec<Span>,
+    seen: &mut FxHashSet<FactSpan>,
+) {
+    for word in std::iter::once(&command.name)
+        .chain(command.args.iter())
+        .take(tail.synthetic_word_count.saturating_sub(1))
+    {
+        collect_word_reference_spans_outside_nested_commands(word, name, spans, seen);
+    }
+}
+
 fn builtin_words(command: &BuiltinCommand) -> Vec<&Word> {
     let mut words = Vec::new();
     match command {
@@ -5623,6 +5793,357 @@ fn parameter_is_plain_access_to_name(parameter: &ParameterExpansion, name: &Name
             true
         }
         _ => false,
+    }
+}
+
+fn collect_subscript_reference_spans_outside_nested_commands(
+    subscript: Option<&Subscript>,
+    name: &Name,
+    spans: &mut Vec<Span>,
+    seen: &mut FxHashSet<FactSpan>,
+) {
+    let Some(subscript) = subscript else {
+        return;
+    };
+
+    if let Some(word) = subscript.word_ast() {
+        collect_word_reference_spans_outside_nested_commands(word, name, spans, seen);
+    }
+    if let Some(expr) = subscript.arithmetic_ast.as_ref() {
+        collect_arithmetic_reference_spans_outside_nested_commands(expr, name, spans, seen);
+    }
+}
+
+fn collect_word_reference_spans_outside_nested_commands(
+    word: &Word,
+    name: &Name,
+    spans: &mut Vec<Span>,
+    seen: &mut FxHashSet<FactSpan>,
+) {
+    for part in &word.parts {
+        collect_word_part_reference_spans_outside_nested_commands(part, name, spans, seen);
+    }
+}
+
+fn collect_word_part_reference_spans_outside_nested_commands(
+    part: &WordPartNode,
+    name: &Name,
+    spans: &mut Vec<Span>,
+    seen: &mut FxHashSet<FactSpan>,
+) {
+    match &part.kind {
+        WordPart::Literal(_)
+        | WordPart::SingleQuoted { .. }
+        | WordPart::ZshQualifiedGlob(_)
+        | WordPart::PrefixMatch { .. } => {}
+        WordPart::DoubleQuoted { parts, .. } => {
+            for part in parts {
+                collect_word_part_reference_spans_outside_nested_commands(part, name, spans, seen);
+            }
+        }
+        WordPart::Variable(variable) => {
+            if variable == name {
+                push_fact_span(part.span, spans, seen);
+            }
+        }
+        WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => {}
+        WordPart::ArithmeticExpansion {
+            expression_ast,
+            expression_word_ast,
+            ..
+        } => {
+            if let Some(expr) = expression_ast.as_ref() {
+                collect_arithmetic_reference_spans_outside_nested_commands(expr, name, spans, seen);
+            }
+            collect_word_reference_spans_outside_nested_commands(
+                expression_word_ast,
+                name,
+                spans,
+                seen,
+            );
+        }
+        WordPart::Parameter(parameter) => {
+            collect_parameter_reference_spans_outside_nested_commands(
+                parameter, part.span, name, spans, seen,
+            );
+        }
+        WordPart::ParameterExpansion {
+            reference,
+            operand_word_ast,
+            ..
+        } => {
+            collect_var_ref_reference_spans_outside_nested_commands(
+                reference, part.span, name, spans, seen,
+            );
+            if let Some(word) = operand_word_ast.as_ref() {
+                collect_word_reference_spans_outside_nested_commands(word, name, spans, seen);
+            }
+        }
+        WordPart::Length(reference)
+        | WordPart::ArrayAccess(reference)
+        | WordPart::ArrayLength(reference)
+        | WordPart::ArrayIndices(reference)
+        | WordPart::Transformation { reference, .. } => {
+            collect_var_ref_reference_spans_outside_nested_commands(
+                reference, part.span, name, spans, seen,
+            );
+        }
+        WordPart::Substring {
+            reference,
+            offset_ast,
+            offset_word_ast,
+            length_ast,
+            length_word_ast,
+            ..
+        }
+        | WordPart::ArraySlice {
+            reference,
+            offset_ast,
+            offset_word_ast,
+            length_ast,
+            length_word_ast,
+            ..
+        } => {
+            collect_var_ref_reference_spans_outside_nested_commands(
+                reference, part.span, name, spans, seen,
+            );
+            if let Some(expr) = offset_ast.as_ref() {
+                collect_arithmetic_reference_spans_outside_nested_commands(expr, name, spans, seen);
+            }
+            collect_word_reference_spans_outside_nested_commands(
+                offset_word_ast,
+                name,
+                spans,
+                seen,
+            );
+            if let Some(expr) = length_ast.as_ref() {
+                collect_arithmetic_reference_spans_outside_nested_commands(expr, name, spans, seen);
+            }
+            if let Some(word) = length_word_ast.as_ref() {
+                collect_word_reference_spans_outside_nested_commands(word, name, spans, seen);
+            }
+        }
+        WordPart::IndirectExpansion {
+            reference,
+            operand_word_ast,
+            ..
+        } => {
+            collect_var_ref_reference_spans_outside_nested_commands(
+                reference, part.span, name, spans, seen,
+            );
+            if let Some(word) = operand_word_ast.as_ref() {
+                collect_word_reference_spans_outside_nested_commands(word, name, spans, seen);
+            }
+        }
+    }
+}
+
+fn collect_parameter_reference_spans_outside_nested_commands(
+    parameter: &ParameterExpansion,
+    span: Span,
+    name: &Name,
+    spans: &mut Vec<Span>,
+    seen: &mut FxHashSet<FactSpan>,
+) {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+            BourneParameterExpansion::Access { reference }
+            | BourneParameterExpansion::Length { reference }
+            | BourneParameterExpansion::Indices { reference }
+            | BourneParameterExpansion::Transformation { reference, .. } => {
+                collect_var_ref_reference_spans_outside_nested_commands(
+                    reference, span, name, spans, seen,
+                );
+            }
+            BourneParameterExpansion::Indirect {
+                reference,
+                operand_word_ast,
+                ..
+            }
+            | BourneParameterExpansion::Operation {
+                reference,
+                operand_word_ast,
+                ..
+            } => {
+                collect_var_ref_reference_spans_outside_nested_commands(
+                    reference, span, name, spans, seen,
+                );
+                if let Some(word) = operand_word_ast.as_ref() {
+                    collect_word_reference_spans_outside_nested_commands(word, name, spans, seen);
+                }
+            }
+            BourneParameterExpansion::Slice {
+                reference,
+                offset_ast,
+                length_ast,
+                ..
+            } => {
+                collect_var_ref_reference_spans_outside_nested_commands(
+                    reference, span, name, spans, seen,
+                );
+                if let Some(expr) = offset_ast.as_ref() {
+                    collect_arithmetic_reference_spans_outside_nested_commands(
+                        expr, name, spans, seen,
+                    );
+                }
+                if let Some(expr) = length_ast.as_ref() {
+                    collect_arithmetic_reference_spans_outside_nested_commands(
+                        expr, name, spans, seen,
+                    );
+                }
+            }
+            BourneParameterExpansion::PrefixMatch { .. } => {}
+        },
+        ParameterExpansionSyntax::Zsh(syntax) => {
+            collect_zsh_target_reference_spans_outside_nested_commands(
+                &syntax.target,
+                span,
+                name,
+                spans,
+                seen,
+            );
+        }
+    }
+}
+
+fn collect_zsh_target_reference_spans_outside_nested_commands(
+    target: &ZshExpansionTarget,
+    span: Span,
+    name: &Name,
+    spans: &mut Vec<Span>,
+    seen: &mut FxHashSet<FactSpan>,
+) {
+    match target {
+        ZshExpansionTarget::Reference(reference) => {
+            collect_var_ref_reference_spans_outside_nested_commands(
+                reference, span, name, spans, seen,
+            );
+        }
+        ZshExpansionTarget::Nested(parameter) => {
+            collect_parameter_reference_spans_outside_nested_commands(
+                parameter, span, name, spans, seen,
+            );
+        }
+        ZshExpansionTarget::Word(word) => {
+            collect_word_reference_spans_outside_nested_commands(word, name, spans, seen);
+        }
+        ZshExpansionTarget::Empty => {}
+    }
+}
+
+fn collect_var_ref_reference_spans_outside_nested_commands(
+    reference: &VarRef,
+    span: Span,
+    name: &Name,
+    spans: &mut Vec<Span>,
+    seen: &mut FxHashSet<FactSpan>,
+) {
+    if reference.name == *name {
+        push_fact_span(span, spans, seen);
+    }
+
+    collect_subscript_reference_spans_outside_nested_commands(
+        reference.subscript.as_ref(),
+        name,
+        spans,
+        seen,
+    );
+}
+
+fn collect_arithmetic_reference_spans_outside_nested_commands(
+    expression: &ArithmeticExprNode,
+    name: &Name,
+    spans: &mut Vec<Span>,
+    seen: &mut FxHashSet<FactSpan>,
+) {
+    match &expression.kind {
+        ArithmeticExpr::Number(_) => {}
+        ArithmeticExpr::Variable(variable) => {
+            if variable == name {
+                push_fact_span(expression.span, spans, seen);
+            }
+        }
+        ArithmeticExpr::Indexed {
+            name: variable,
+            index,
+        } => {
+            if variable == name {
+                push_fact_span(expression.span, spans, seen);
+            }
+            collect_arithmetic_reference_spans_outside_nested_commands(index, name, spans, seen);
+        }
+        ArithmeticExpr::ShellWord(word) => {
+            collect_word_reference_spans_outside_nested_commands(word, name, spans, seen);
+        }
+        ArithmeticExpr::Parenthesized { expression } => {
+            collect_arithmetic_reference_spans_outside_nested_commands(
+                expression, name, spans, seen,
+            );
+        }
+        ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
+            collect_arithmetic_reference_spans_outside_nested_commands(expr, name, spans, seen);
+        }
+        ArithmeticExpr::Binary { left, right, .. } => {
+            collect_arithmetic_reference_spans_outside_nested_commands(left, name, spans, seen);
+            collect_arithmetic_reference_spans_outside_nested_commands(right, name, spans, seen);
+        }
+        ArithmeticExpr::Conditional {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
+            collect_arithmetic_reference_spans_outside_nested_commands(
+                condition, name, spans, seen,
+            );
+            collect_arithmetic_reference_spans_outside_nested_commands(
+                then_expr, name, spans, seen,
+            );
+            collect_arithmetic_reference_spans_outside_nested_commands(
+                else_expr, name, spans, seen,
+            );
+        }
+        ArithmeticExpr::Assignment { target, value, .. } => {
+            collect_arithmetic_lvalue_reference_spans_outside_nested_commands(
+                target,
+                expression.span,
+                name,
+                spans,
+                seen,
+            );
+            collect_arithmetic_reference_spans_outside_nested_commands(value, name, spans, seen);
+        }
+    }
+}
+
+fn collect_arithmetic_lvalue_reference_spans_outside_nested_commands(
+    target: &ArithmeticLvalue,
+    span: Span,
+    name: &Name,
+    spans: &mut Vec<Span>,
+    seen: &mut FxHashSet<FactSpan>,
+) {
+    match target {
+        ArithmeticLvalue::Variable(variable) => {
+            if variable == name {
+                push_fact_span(span, spans, seen);
+            }
+        }
+        ArithmeticLvalue::Indexed {
+            name: variable,
+            index,
+        } => {
+            if variable == name {
+                push_fact_span(span, spans, seen);
+            }
+            collect_arithmetic_reference_spans_outside_nested_commands(index, name, spans, seen);
+        }
+    }
+}
+
+fn push_fact_span(span: Span, spans: &mut Vec<Span>, seen: &mut FxHashSet<FactSpan>) {
+    let key = FactSpan::new(span);
+    if seen.insert(key) {
+        spans.push(span);
     }
 }
 
@@ -18211,53 +18732,6 @@ fn is_directory_stack_marker(target: &str) -> bool {
     saw_segment
 }
 
-fn is_configure_command_name(name: &str) -> bool {
-    name == "configure" || name.ends_with("/configure")
-}
-
-fn parse_configure_command(args: &[&Word], source: &str) -> ConfigureCommandFacts {
-    let misspelled_option_spans = args
-        .iter()
-        .filter_map(|word| {
-            let option_name = configure_option_name(word, source)?;
-            configure_option_misspelling(option_name.as_str())
-                .and_then(|_| configure_option_name_span(word, source, option_name.as_str()))
-        })
-        .collect::<Vec<_>>();
-
-    ConfigureCommandFacts {
-        misspelled_option_spans: misspelled_option_spans.into_boxed_slice(),
-    }
-}
-
-fn configure_option_name(word: &Word, source: &str) -> Option<String> {
-    let prefix = leading_literal_word_prefix(word, source);
-    let option_name = prefix
-        .split_once('=')
-        .map_or(prefix.as_str(), |(name, _)| name);
-    option_name
-        .starts_with("--")
-        .then(|| option_name.to_owned())
-}
-
-fn configure_option_name_span(word: &Word, source: &str, option_name: &str) -> Option<Span> {
-    let text = word.span.slice(source);
-    let relative_start = text.find(option_name)?;
-    let start = word.span.start.advanced_by(&text[..relative_start]);
-    let end = start.advanced_by(option_name);
-    Some(Span::from_positions(start, end))
-}
-
-fn configure_option_misspelling(option_name: &str) -> Option<&'static str> {
-    match option_name {
-        "--with-optmizer" => Some("--with-optimizer"),
-        "--without-optmizer" => Some("--without-optimizer"),
-        "--enable-optmizer" => Some("--enable-optimizer"),
-        "--disable-optmizer" => Some("--disable-optimizer"),
-        _ => None,
-    }
-}
-
 pub fn leading_literal_word_prefix(word: &Word, source: &str) -> String {
     let mut prefix = String::new();
     collect_leading_literal_word_parts(&word.parts, source, &mut prefix);
@@ -21247,17 +21721,6 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["euox"]
-        );
-        let configure_option_spans = facts
-            .commands()
-            .iter()
-            .filter_map(|fact| fact.options().configure())
-            .flat_map(|configure| configure.misspelled_option_spans().iter().copied())
-            .map(|span| span.slice(source))
-            .collect::<Vec<_>>();
-        assert_eq!(
-            configure_option_spans,
-            vec!["--with-optmizer", "--enable-optmizer"]
         );
         let ps_pid_selector_flags = facts
             .commands()
@@ -26001,6 +26464,24 @@ X=1 A=$[ $X + 1 ] true
                     "FOO",
                     "COUNTDOWN",
                     "X"
+                ]
+            );
+            assert_eq!(
+                facts
+                    .env_prefix_expansion_scope_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec![
+                    "${CFLAGS}",
+                    "$PATH",
+                    "$A",
+                    "$B",
+                    "$foo",
+                    "$foo",
+                    "$foo",
+                    "$COUNTDOWN",
+                    "$X"
                 ]
             );
         });

@@ -38,6 +38,7 @@ pub mod else_if;
 pub mod else_without_then;
 pub mod empty_function_body;
 pub mod empty_test;
+pub mod env_prefix_expansion_only;
 pub mod escaped_negation_in_test;
 pub mod export_with_positional_params;
 pub mod expr_substr_in_test;
@@ -76,7 +77,6 @@ pub mod missing_bracket_space;
 pub mod missing_done_in_for_loop;
 pub mod missing_fi;
 pub mod missing_semicolon_before_brace;
-pub mod misspelled_option_name;
 pub mod mixed_and_or_in_condition;
 pub mod nested_parameter_expansion;
 pub mod non_absolute_shebang;
@@ -256,7 +256,7 @@ mod tests {
     #[test_case(Rule::CaseArmNotInGetopts, Path::new("C135.sh"))]
     #[test_case(Rule::AppendWithEscapedQuotes, Path::new("C130.sh"))]
     #[test_case(Rule::VariableAsCommandName, Path::new("C131.sh"))]
-    #[test_case(Rule::MisspelledOptionName, Path::new("C132.sh"))]
+    #[test_case(Rule::EnvPrefixExpansionOnly, Path::new("C132.sh"))]
     #[test_case(Rule::ArrayToStringConversion, Path::new("C133.sh"))]
     #[test_case(Rule::LocalCrossReference, Path::new("C136.sh"))]
     #[test_case(Rule::SpacedAssignment, Path::new("C139.sh"))]
