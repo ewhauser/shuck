@@ -458,7 +458,7 @@ impl ReviewedDivergenceRecord {
     fn validate(&self, rule_code: &str, path: &Path, entry_index: usize) -> Result<(), String> {
         match (self.rule_wide, self.has_scope()) {
             (false, false) => Err(format!(
-                "invalid reviewed divergence {} entry {} in {}: add a scope field or set rule-wide: true",
+                "invalid reviewed divergence {} entry {} in {}: add a scope field or set rule_wide: true",
                 rule_code,
                 entry_index,
                 path.display()
@@ -4099,7 +4099,7 @@ mod tests {
             )
             .unwrap_err();
 
-        assert!(error.contains("add a scope field or set rule-wide: true"));
+        assert!(error.contains("add a scope field or set rule_wide: true"));
     }
 
     #[test]
