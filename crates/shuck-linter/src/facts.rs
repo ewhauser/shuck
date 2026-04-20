@@ -11999,10 +11999,7 @@ impl<'a> WordFactCollector<'a> {
             }
         }
 
-        self.surface.collect_redirects(
-            redirects,
-            SurfaceScanContext::new(None, self.nested_word_command),
-        );
+        self.surface.collect_redirects(redirects, surface_context);
         for redirect in redirects {
             let Some(context) = ExpansionContext::from_redirect_kind(redirect.kind) else {
                 continue;
@@ -26017,6 +26014,67 @@ if [[ \"$@\" =~ x ]]; then :; fi
                 .expect("expected pipeline tail");
             assert_eq!(tail.static_utility_name(), Some("kill"));
             assert!(tail.static_utility_name_is("kill"));
+        });
+    }
+
+    #[test]
+    fn surface_facts_ignore_single_quoted_payload_text_in_expanding_heredocs() {
+        let source = "\
+#!/bin/sh
+cat <<EOF
+'$HOME' and '$(pwd)'
+EOF
+cat <<-EOF
+\t'${USER}'
+EOF
+";
+
+        with_facts(source, None, |_, facts| {
+            assert!(
+                facts.single_quoted_fragments().is_empty(),
+                "expected heredoc payload quotes to stay out of single-quoted shell fragments"
+            );
+        });
+    }
+
+    #[test]
+    fn surface_facts_keep_command_context_for_here_string_operands() {
+        let source = "\
+#!/bin/bash
+bash --init-file \"${BASH_IT?}/bash_it.sh\" -i <<< '_bash-it-flash-term \"${#BASH_IT_THEME}\" \"${BASH_IT_THEME}\"'
+";
+
+        with_facts(source, None, |_, facts| {
+            let fragment = facts
+                .single_quoted_fragments()
+                .iter()
+                .find(|fragment| {
+                    fragment
+                        .span()
+                        .slice(source)
+                        .contains("_bash-it-flash-term")
+                })
+                .expect("expected here-string single-quoted fragment");
+
+            assert_eq!(fragment.command_name(), Some("bash"));
+        });
+    }
+
+    #[test]
+    fn surface_facts_do_not_apply_command_context_to_plain_redirect_targets() {
+        let source = "\
+#!/bin/bash
+bash > '$HOME'
+";
+
+        with_facts(source, None, |_, facts| {
+            let fragment = facts
+                .single_quoted_fragments()
+                .iter()
+                .find(|fragment| fragment.span().slice(source) == "'$HOME'")
+                .expect("expected redirect-target single-quoted fragment");
+
+            assert_eq!(fragment.command_name(), None);
         });
     }
 
