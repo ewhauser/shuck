@@ -4040,6 +4040,12 @@ impl<'a> LinterFactsBuilder<'a> {
             assignment_scope_spans: env_prefix_assignment_scope_spans,
             expansion_scope_spans: env_prefix_expansion_scope_spans,
         } = build_env_prefix_scope_spans(self.source, &commands);
+        populate_array_assignment_split_scalar_expansion_spans(
+            &mut words,
+            &array_assignment_split_word_indices,
+            &commands,
+            self.source,
+        );
         let mut word_index = FxHashMap::<FactSpan, Vec<usize>>::default();
         for (index, fact) in words.iter().enumerate() {
             word_index.entry(fact.key()).or_default().push(index);
@@ -11901,49 +11907,54 @@ fn build_word_facts_for_command<'a>(
     collector.finish()
 }
 
-fn collect_array_assignment_nested_scalar_expansion_spans(
-    word: &Word,
+fn populate_array_assignment_split_scalar_expansion_spans(
+    words: &mut [WordFact<'_>],
+    array_assignment_split_word_indices: &[usize],
+    commands: &[CommandFact<'_>],
     source: &str,
-    semantic: &SemanticModel,
-) -> Vec<Span> {
-    let mut spans = Vec::new();
+) {
+    if array_assignment_split_word_indices.is_empty() {
+        return;
+    }
 
-    query::walk_commands_in_word(
-        word,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-        &mut |visit, context| {
-            let normalized = command::normalize_command(visit.command, source);
-            let mut collector = WordFactCollector {
-                source,
-                semantic,
-                command_id: CommandId::new(0),
-                nested_word_command: context.nested_word_command,
-                surface_command_name: normalized
-                    .effective_or_literal_name()
-                    .map(str::to_owned)
-                    .map(String::into_boxed_str),
-                command_zsh_options: None,
-                facts: Vec::new(),
-                array_assignment_split_word_indices: Vec::new(),
-                seen: FxHashSet::default(),
-                compound_assignment_value_word_spans: FxHashSet::default(),
-                case_pattern_expansion_spans: Vec::new(),
-                pattern_literal_spans: Vec::new(),
-                pattern_charclass_spans: Vec::new(),
-                arithmetic: ArithmeticFactSummary::default(),
-                surface: SurfaceFragmentSink::new(source),
-            };
-            collector.collect_command(visit.command, visit.redirects);
-            for fact in collector.finish().facts {
-                spans.extend(fact.scalar_expansion_spans().iter().copied());
+    let command_spans = commands.iter().map(CommandFact::span).collect::<Vec<_>>();
+    let mut word_indices_by_command = vec![Vec::new(); commands.len()];
+    for (index, fact) in words.iter().enumerate() {
+        word_indices_by_command[fact.command_id().index()].push(index);
+    }
+
+    let updated_spans = array_assignment_split_word_indices
+        .iter()
+        .copied()
+        .map(|index| {
+            let fact = &words[index];
+            let mut split_sensitive_spans = fact.unquoted_scalar_expansion_spans().to_vec();
+            let use_replacement_spans =
+                collect_array_assignment_use_replacement_expansion_spans(fact.word());
+
+            if !word_fact_is_double_quoted_command_substitution_only(fact, source) {
+                for nested_command_index in command_spans.iter().enumerate().filter_map(
+                    |(nested_command_index, command_span)| {
+                        contains_span_strictly(fact.span(), *command_span)
+                            .then_some(nested_command_index)
+                    },
+                ) {
+                    for word_index in &word_indices_by_command[nested_command_index] {
+                        split_sensitive_spans
+                            .extend(words[*word_index].scalar_expansion_spans().iter().copied());
+                    }
+                }
             }
-        },
-    );
 
-    sort_and_dedup_spans(&mut spans);
-    spans
+            split_sensitive_spans.retain(|span| !use_replacement_spans.contains(span));
+            sort_and_dedup_spans(&mut split_sensitive_spans);
+            (index, split_sensitive_spans.into_boxed_slice())
+        })
+        .collect::<Vec<_>>();
+
+    for (index, spans) in updated_spans {
+        words[index].array_assignment_split_scalar_expansion_spans = spans;
+    }
 }
 
 fn collect_array_assignment_use_replacement_expansion_spans(word: &Word) -> Vec<Span> {
@@ -12560,28 +12571,6 @@ impl<'a> WordFactCollector<'a> {
                             if let Some(index) =
                                 self.push_word(word, context, WordFactHostKind::Direct)
                             {
-                                let fact = &mut self.facts[index];
-                                let mut split_sensitive_spans =
-                                    fact.unquoted_scalar_expansion_spans().to_vec();
-                                let use_replacement_spans =
-                                    collect_array_assignment_use_replacement_expansion_spans(word);
-                                if !word_fact_is_double_quoted_command_substitution_only(
-                                    fact,
-                                    self.source,
-                                ) {
-                                    split_sensitive_spans.extend(
-                                        collect_array_assignment_nested_scalar_expansion_spans(
-                                            word,
-                                            self.source,
-                                            self.semantic,
-                                        ),
-                                    );
-                                }
-                                split_sensitive_spans
-                                    .retain(|span| !use_replacement_spans.contains(span));
-                                sort_and_dedup_spans(&mut split_sensitive_spans);
-                                fact.array_assignment_split_scalar_expansion_spans =
-                                    split_sensitive_spans.into_boxed_slice();
                                 self.array_assignment_split_word_indices.push(index);
                             }
                         }
@@ -17187,6 +17176,11 @@ fn command_conditional_path_words<'a>(command: &CommandFact<'a>) -> Vec<PathWord
 
 fn contains_span(outer: Span, inner: Span) -> bool {
     outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
+}
+
+fn contains_span_strictly(outer: Span, inner: Span) -> bool {
+    contains_span(outer, inner)
+        && (outer.start.offset < inner.start.offset || inner.end.offset < outer.end.offset)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27658,6 +27652,41 @@ arr=(\"$(printf '%s\\n' \"$x\")\")
                     .map(|span| span.slice(source))
                     .collect::<Vec<_>>(),
                 Vec::<&str>::new()
+            );
+        });
+    }
+
+    #[test]
+    fn array_assignment_split_facts_reuse_inner_command_word_facts() {
+        let source = "\
+#!/bin/bash
+arr=($(printf '%s\\n' \"$x\" ${y} prefix$z))
+";
+
+        with_facts(source, None, |_, facts| {
+            let split_facts = facts
+                .array_assignment_split_word_facts()
+                .collect::<Vec<_>>();
+            assert_eq!(split_facts.len(), 1);
+            let fact = split_facts[0];
+
+            assert_eq!(
+                fact.span().slice(source),
+                "$(printf '%s\\n' \"$x\" ${y} prefix$z)"
+            );
+            assert_eq!(
+                fact.command_substitution_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["$(printf '%s\\n' \"$x\" ${y} prefix$z)"]
+            );
+            assert_eq!(
+                fact.array_assignment_split_scalar_expansion_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+                vec!["$x", "${y}", "$z"]
             );
         });
     }
