@@ -166,7 +166,6 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path, cache_root: &Path) -> Res
             force_exclude: args.force_exclude(),
             parallel: true,
             cache_root: Some(cache_root.to_path_buf()),
-            ..DiscoveryOptions::default()
         },
         cache_root,
         args.no_cache,
