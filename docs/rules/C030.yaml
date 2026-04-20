@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A test bracket is closed without surrounding space.
 rationale: "Keep spaces around `[` and `]` in test expressions."
+safe_fix: false
+fix_description: "Insert a space before the trailing `]` in the reported unary test operand."
 source:
   shell_checks_rule: rules/SH-098.yaml
   shell_checks_example: examples/098.sh

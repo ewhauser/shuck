@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "The shebang has a space between `#` and `!`."
 rationale: "Write `#!` without a space so the kernel treats it as a shebang."
+safe_fix: false
+fix_description: "Delete the whitespace between `#` and `!` so the line starts with `#!`."
 source:
   shell_checks_rule: rules/SH-192.yaml
   shell_checks_example: examples/192.sh

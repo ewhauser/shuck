@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "Code changes back with `cd` instead of isolating the directory change."
 rationale: "Run directory-sensitive work in a subshell so the caller's working directory is restored automatically."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-295.yaml
   shell_checks_example: examples/295.sh

@@ -9,6 +9,8 @@ shells:
   - dash
 description: The script uses the standalone arithmetic command form, which is not defined by POSIX `sh`.
 rationale: Use a portable arithmetic approach or switch to a shell that supports this command form.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-013.yaml
   shell_checks_example: examples/013.sh

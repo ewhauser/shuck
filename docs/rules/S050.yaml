@@ -11,6 +11,8 @@ shells:
   - ksh
 description: An unquoted word continues immediately after single-quoted text.
 rationale: Keep the intended word inside single quotes instead of reopening it unquoted.
+safe_fix: true
+fix_description: "Wrap the reported unquoted literal fragment in single quotes so the adjacent pieces stay one literal word."
 source:
   shell_checks_rule: rules/SH-205.yaml
   shell_checks_example: examples/205.sh

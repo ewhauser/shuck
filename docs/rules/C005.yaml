@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A dollar-sign sequence is wrapped in single quotes, so it stays literal text instead of expanding.
 rationale: Use double quotes when you intend the shell to expand a variable-like value.
+safe_fix: false
+fix_description: "Rewrite the reported single-quoted fragment as an equivalently escaped double-quoted fragment."
 source:
   shell_checks_rule: rules/SH-036.yaml
   shell_checks_example: examples/036.sh

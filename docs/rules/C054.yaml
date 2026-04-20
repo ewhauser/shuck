@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "A lone `*/` token is not valid shell syntax."
 rationale: "Use `#` for comments and avoid stray comment-like delimiters."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-148.yaml
   shell_checks_example: examples/148.sh

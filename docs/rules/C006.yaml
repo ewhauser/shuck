@@ -11,6 +11,8 @@ shells:
   - ksh
 description: The script reads a variable that is never initialized in the file.
 rationale: Initialize the value first or guard the read so typos and missing setup do not pass silently.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-039.yaml
   shell_checks_example: examples/039.sh

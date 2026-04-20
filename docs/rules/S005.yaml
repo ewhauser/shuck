@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Backtick command substitution is a legacy form that is harder to nest and quote cleanly.
 rationale: "Use `$(...)` instead of backticks so substitutions stay readable and composable."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-034.yaml
   shell_checks_example: examples/034.sh

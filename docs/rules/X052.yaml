@@ -9,6 +9,8 @@ shells:
   - dash
 description: "The `function` keyword is used with parentheses in a POSIX shell script."
 rationale: "Remove the `function` keyword or the parentheses for portability."
+safe_fix: true
+fix_description: "Delete the leading `function` keyword and keep the `name()` definition form."
 source:
   shell_checks_rule: rules/SH-226.yaml
   shell_checks_example: examples/226.sh

@@ -9,6 +9,8 @@ shells:
   - ksh
 description: "The bash `let` builtin is an unnecessarily indirect way to perform arithmetic."
 rationale: Use arithmetic expansion or another direct arithmetic form instead.
+safe_fix: false
+fix_description: "Replace the reported bare `let` command with an arithmetic command `(( ... ))`, joining multiple `let` arguments with commas and unquoting fully quoted arithmetic operands."
 source:
   shell_checks_rule: rules/SH-079.yaml
   shell_checks_example: examples/079.sh

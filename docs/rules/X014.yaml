@@ -9,6 +9,8 @@ shells:
   - dash
 description: The script uses a co-process, which is a shell extension rather than POSIX `sh`.
 rationale: Use ordinary background jobs and pipes if the script must remain portable.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-019.yaml
   shell_checks_example: examples/019.sh

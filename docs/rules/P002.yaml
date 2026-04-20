@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Counting matches by piping grep into wc -l adds an unnecessary command stage.
 rationale: Use grep -c when you only need the number of matching lines.
+safe_fix: false
+fix_description: "Replace the reported `grep ... | wc -l` pair with `grep -c ...`, preserving the `grep` arguments and removing the trailing `wc -l` segment."
 source:
   shell_checks_rule: rules/SH-064.yaml
   shell_checks_example: examples/064.sh

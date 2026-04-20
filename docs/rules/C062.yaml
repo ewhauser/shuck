@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A parameter expansion is nested inside another expansion.
 rationale: Use an intermediate variable instead of nesting expansions.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-169.yaml
   shell_checks_example: examples/169.sh

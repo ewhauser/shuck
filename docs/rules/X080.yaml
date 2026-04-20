@@ -9,6 +9,8 @@ shells:
   - dash
 description: "The bash-only `source` command is used inside a function in POSIX sh."
 rationale: "Use the portable `.` (dot) command instead of `source`."
+safe_fix: false
+fix_description: Replace the leading `source` command word with `.`, leaving the remaining operands unchanged.
 source:
   shell_checks_rule: rules/SH-304.yaml
   shell_checks_example: examples/304.sh

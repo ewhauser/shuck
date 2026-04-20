@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "A glob pattern inside a `find` command substitution may expand early."
 rationale: "Quote the glob or use `find -name '*.ext'` with quotes."
+safe_fix: false
+fix_description: "Quote the entire reported `find` pattern operand."
 source:
   shell_checks_rule: rules/SH-209.yaml
   shell_checks_example: examples/209.sh

@@ -9,6 +9,8 @@ shells:
   - dash
 description: The script assigns a shell array, which is not part of standard `sh`.
 rationale: Use separate variables or positional parameters instead of array assignment in portable shell.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-018.yaml
   shell_checks_example: examples/018.sh

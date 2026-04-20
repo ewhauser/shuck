@@ -11,6 +11,8 @@ shells:
   - ksh
 description: The script has no shebang and starts with a comment.
 rationale: "Add a `#!/bin/bash` or `#!/bin/sh` shebang as the first line."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-190.yaml
   shell_checks_example: examples/190.sh

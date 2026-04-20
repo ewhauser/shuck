@@ -10,6 +10,8 @@ shells:
   - ksh
 description: A redirection target is an arithmetic expansion.
 rationale: Write to a normal filename or redirect by descriptor.
+safe_fix: false
+fix_description: "Remove the reported `++` or `--` operator from the arithmetic expression used as the redirection target."
 source:
   shell_checks_rule: rules/SH-144.yaml
   shell_checks_example: examples/144.sh

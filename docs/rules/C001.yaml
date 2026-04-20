@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A variable is assigned but never read later, so the statement has no effect on the script's behavior.
 rationale: Remove dead assignments, or export the value if a child process needs it.
+safe_fix: false
+fix_description: "Rename the reported unused assignment target to `_`."
 source:
   shell_checks_rule: rules/SH-003.yaml
   shell_checks_example: examples/003.sh

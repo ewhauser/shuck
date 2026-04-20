@@ -9,6 +9,8 @@ shells:
   - dash
 description: "A pattern-based `unset -v` is used in POSIX sh."
 rationale: Unset variables individually for portability.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-279.yaml
   shell_checks_example: examples/279.sh

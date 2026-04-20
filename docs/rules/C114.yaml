@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A glob pattern with an embedded variable is used in a for loop.
 rationale: "Quote the variable portion or use `find` for reliable matching."
+safe_fix: false
+fix_description: "Wrap each reported unquoted expansion prefix in double quotes."
 source:
   shell_checks_rule: rules/SH-254.yaml
   shell_checks_example: examples/254.sh

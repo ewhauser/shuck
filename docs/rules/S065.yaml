@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "A test comparison uses the `x$var` idiom for empty-string safety."
 rationale: "Use proper quoting instead of the legacy `x` prefix trick."
+safe_fix: false
+fix_description: "Remove the leading `x` or `X` from both operands of the reported string comparison and double-quote the rewritten operands."
 source:
   shell_checks_rule: rules/SH-256.yaml
   shell_checks_example: examples/256.sh

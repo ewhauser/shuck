@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "A `find` command uses `-o` without grouping the alternatives."
 rationale: "Add parentheses around the `-o` alternatives in `find`."
+safe_fix: true
+fix_description: "Wrap the action-bearing `find` branch in escaped parentheses to make the existing precedence explicit."
 source:
   shell_checks_rule: rules/SH-237.yaml
   shell_checks_example: examples/237.sh

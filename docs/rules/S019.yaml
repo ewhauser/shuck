@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Using grep's printed text as a boolean check ties control flow to formatting instead of success or failure.
 rationale: Use the command's exit status directly or test the match in a simpler way.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-071.yaml
   shell_checks_example: examples/071.sh

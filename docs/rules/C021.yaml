@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A case statement on a fixed literal is redundant because the subject never varies.
 rationale: Switch on a variable or collapse the branch if the outcome is predetermined.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-074.yaml
   shell_checks_example: examples/074.sh

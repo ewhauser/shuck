@@ -11,6 +11,8 @@ shells:
   - ksh
 description: An ssh command string can be expanded by the local shell before the remote host ever sees it.
 rationale: Keep remote command text quoted until the remote shell is meant to interpret it.
+safe_fix: false
+fix_description: "Rewrite the containing fully double-quoted final remote-command argument as an equivalently escaped single-quoted shell word."
 source:
   shell_checks_rule: rules/SH-047.yaml
   shell_checks_example: examples/047.sh

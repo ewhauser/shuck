@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A template placeholder with double braces appears in command position.
 rationale: Replace the template variable before running the script.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-167.yaml
   shell_checks_example: examples/167.sh

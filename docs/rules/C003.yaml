@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A script loads another file directly, but that dependency is not part of the analyzed input set.
 rationale: Pass sourced files to the linter together with the script, or avoid hidden file dependencies.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-026.yaml
   shell_checks_example: examples/026.sh

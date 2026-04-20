@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "A `[` test is split across lines without the required line-continuation backslash."
 rationale: Keep the test on one line or add the backslash before the newline when you must split it.
+safe_fix: false
+fix_description: "Insert a trailing `\\` before the newline so the `[` test continues onto the following standalone `]` line."
 source:
   shell_checks_rule: rules/SH-115.yaml
   shell_checks_example: examples/115.sh

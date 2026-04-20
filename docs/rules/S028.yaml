@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A quote is syntactically closed, but the following character makes ShellCheck flag it as suspicious.
 rationale: Restructure the string generation so the closing quote is unambiguous, or move the embedded script text to a here-doc.
+safe_fix: false
+fix_description: "Rewrite the surrounding split word as one double-quoted word, escaping literal inner quotes and bracing embedded scalar expansions as needed."
 source:
   shell_checks_rule: rules/SH-114.yaml
   shell_checks_example: examples/114.sh

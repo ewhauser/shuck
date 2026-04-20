@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A positional parameter is used as an arithmetic operator.
 rationale: Pass the operator as a distinct argument or use a case dispatch.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-187.yaml
   shell_checks_example: examples/187.sh

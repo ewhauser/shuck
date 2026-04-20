@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Uses a long arithmetic expansion in an assignment.
 rationale: Break complex math into smaller steps if it gets hard to read.
+safe_fix: true
+fix_description: "Remove the outer redundant parentheses from the arithmetic expansion body."
 source:
   shell_checks_rule: rules/SH-161.yaml
   shell_checks_example: examples/161.sh

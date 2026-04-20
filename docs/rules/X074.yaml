@@ -8,6 +8,8 @@ shells:
   - sh
 description: "The `-k` sticky-bit test is used in POSIX sh."
 rationale: "Use `stat` or `ls -l` to check the sticky bit portably."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-281.yaml
   shell_checks_example: examples/281.sh

@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "A `mapfile` command reads from a process substitution."
 rationale: Use a pipe or temporary file if the shell version does not support this.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-244.yaml
   shell_checks_example: examples/244.sh

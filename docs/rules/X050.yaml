@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "A csh-style `set` assignment appears in a POSIX shell script."
 rationale: Use standard variable assignment syntax for sh.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-184.yaml
   shell_checks_example: examples/184.sh

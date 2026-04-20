@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A space after `=` breaks an assignment into separate shell words.
 rationale: "Write assignments without spaces around `=` so the shell keeps parsing them as assignments."
+safe_fix: false
+fix_description: "Delete the whitespace immediately after `=` so the assignment becomes one shell word."
 source:
   shell_checks_rule: rules/SH-084.yaml
   shell_checks_example: examples/084.sh

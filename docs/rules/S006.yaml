@@ -11,6 +11,8 @@ shells:
   - ksh
 description: The script uses the old bracketed arithmetic form instead of the modern arithmetic expansion syntax.
 rationale: "Prefer `$((...))` for arithmetic so the expression reads like arithmetic rather than shell syntax."
+safe_fix: true
+fix_description: "Replace each legacy `$[expr]` arithmetic expansion with the equivalent `$((expr))` form."
 source:
   shell_checks_rule: rules/SH-035.yaml
   shell_checks_example: examples/035.sh

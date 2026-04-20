@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A loop-control command at top level has nowhere to break from and just stops script execution.
 rationale: Keep loop-control commands inside the loop they are meant to manage.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-070.yaml
   shell_checks_example: examples/070.sh

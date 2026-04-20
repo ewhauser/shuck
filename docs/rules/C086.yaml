@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "A numeric comparison uses `<` or `>` instead of `-lt` or `-gt`."
 rationale: "Use `-lt` or `-gt` for integer comparisons. Inside `[ ]`, raw `<` or `>` redirects instead of comparing; inside `[[ ]]`, they order text lexicographically."
+safe_fix: false
+fix_description: "Replace the reported `<` or `>` operator with `-lt` or `-gt`."
 source:
   shell_checks_rule: rules/SH-213.yaml
   shell_checks_example: examples/213.sh

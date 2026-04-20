@@ -9,6 +9,8 @@ shells:
   - dash
 description: The script uses `declare`, which is not available in portable `sh`.
 rationale: Use plain assignments or shell features that your target shell actually supports.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-021.yaml
   shell_checks_example: examples/021.sh

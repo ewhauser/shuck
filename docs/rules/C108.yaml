@@ -11,6 +11,8 @@ shells:
   - ksh
 description: An array-subscript operand is passed to `unset` without being kept literal.
 rationale: "Quote the whole operand, such as `unset 'arr[key]'`, so bracket text is not treated as a pattern."
+safe_fix: false
+fix_description: "Rewrite the reported `unset` operand as a single double-quoted word, for example `unset parts[$key]` to `unset \"parts[$key]\"`."
 source:
   shell_checks_rule: rules/SH-243.yaml
   shell_checks_example: examples/243.sh

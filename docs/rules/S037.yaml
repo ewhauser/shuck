@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Extra spaces between echo arguments are collapsed by the shell.
 rationale: Quote the spaced text or use printf for precise formatting.
+safe_fix: true
+fix_description: "Collapse the repeated spaces between `echo` arguments to a single separator space."
 source:
   shell_checks_rule: rules/SH-168.yaml
   shell_checks_example: examples/168.sh

@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Building loop items from raw command output lets whitespace and pathname characters change the iteration set.
 rationale: Iterate over globs, arrays, or explicit delimiters instead of splitting command output.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-004.yaml
   shell_checks_example: examples/004.sh

@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A control operator starts a new line instead of ending the previous one.
 rationale: Put `&&` at the end of the previous line or keep the command on one line.
+safe_fix: true
+fix_description: "Move the leading `&&`, `||`, or `|` to the end of the previous line."
 source:
   shell_checks_rule: rules/SH-329.yaml
   shell_checks_example: examples/329.sh

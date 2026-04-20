@@ -9,6 +9,8 @@ shells:
   - dash
 description: A function name contains a hyphen, which is not portable.
 rationale: Use underscores instead of hyphens in function names.
+safe_fix: false
+fix_description: Rename the function by replacing hyphens with underscores, and update matching call sites to use the new name.
 source:
   shell_checks_rule: rules/SH-274.yaml
   shell_checks_example: examples/274.sh

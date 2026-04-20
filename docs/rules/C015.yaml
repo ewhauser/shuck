@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A redirection attached to sudo still happens in the current shell before privilege escalation.
 rationale: Move the redirection into the privileged command itself, or pipe data through a helper such as tee when only the write needs elevation.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-060.yaml
   shell_checks_example: examples/060.sh

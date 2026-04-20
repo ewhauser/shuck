@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "A `find -exec` or `-execdir` passes `{}` to shell command text that may mishandle filenames."
 rationale: "Use safe quoting or `-print0` with `xargs -0` instead."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-283.yaml
   shell_checks_example: examples/283.sh

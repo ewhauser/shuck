@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A case pattern uses extended-glob parenthesized alternation.
 rationale: Use separate case arms or a portable glob pattern.
+safe_fix: true
+fix_description: "Expand the embedded parenthesized alternation into equivalent whole `case` patterns separated by `|`."
 source:
   shell_checks_rule: rules/SH-182.yaml
   shell_checks_example: examples/182.sh

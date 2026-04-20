@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Unquoted @-style splats such as $@, ${@:2}, and ${arr[@]} let positional parameters or array elements be split again or treated as path patterns.
 rationale: Quote @-style expansions when each argument or element should stay distinct.
+safe_fix: false
+fix_description: "Wrap the reported `@`-style expansion in double quotes."
 source:
   shell_checks_rule: rules/SH-038.yaml
   shell_checks_example: examples/038.sh

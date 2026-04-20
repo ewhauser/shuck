@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Capturing echo output through command substitution adds an unnecessary extra step.
 rationale: Use a direct emitter such as printf when building substitution output.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-066.yaml
   shell_checks_example: examples/066.sh

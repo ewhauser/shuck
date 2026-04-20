@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Runs a command substitution with redirected output in the subshell.
 rationale: Keep the redirect outside the substitution if possible.
+safe_fix: false
+fix_description: "Delete the stdout-to-`/dev/null` redirection(s) from inside the command substitution so the substitution can capture stdout again."
 source:
   shell_checks_rule: rules/SH-160.yaml
   shell_checks_example: examples/160.sh

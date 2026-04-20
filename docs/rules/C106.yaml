@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "A string is appended to an array variable with `+=` and a space."
 rationale: "Use `+=()` syntax to append an element to an array."
+safe_fix: false
+fix_description: "Rewrite the append assignment to array-element form by wrapping the existing scalar RHS in `(...)`, for example `items+=\" two\"` to `items+=(\" two\")`."
 source:
   shell_checks_rule: rules/SH-241.yaml
   shell_checks_example: examples/241.sh

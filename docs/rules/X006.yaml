@@ -9,6 +9,8 @@ shells:
   - dash
 description: The script relies on process substitution, which is not available in standard `sh`.
 rationale: Replace process substitution with a pipe, temporary file, or another portable data flow.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-011.yaml
   shell_checks_example: examples/011.sh

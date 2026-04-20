@@ -10,6 +10,8 @@ shells:
   - ksh
 description: "A POSIX sh script uses a bash-style `[[ ... ]]` test in an `elif` clause."
 rationale: "Use a portable `[` test or switch the script to bash."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-093.yaml
   shell_checks_example: examples/093.sh

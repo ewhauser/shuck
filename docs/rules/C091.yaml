@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A literal tilde inside quotes is compared instead of the expanded home path.
 rationale: "Expand the tilde outside quotes or use `$HOME`."
+safe_fix: false
+fix_description: "Rewrite the reported quoted `~/...` operand as a double-quoted `$HOME/...` operand."
 source:
   shell_checks_rule: rules/SH-219.yaml
   shell_checks_example: examples/219.sh

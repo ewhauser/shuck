@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "Using `-a` or `-o` inside a single `[` expression compresses boolean logic into a form that is easy to misread."
 rationale: Split the condition into explicit branches so the intended logic stays obvious.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-051.yaml
   shell_checks_example: examples/051.sh

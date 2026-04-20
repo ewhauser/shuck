@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A getopts option string contains an option not handled in the case statement.
 rationale: Add a case arm for each option in the getopts string.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-312.yaml
   shell_checks_example: examples/312.sh

@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A backslash sequence inside single quotes is treated literally.
 rationale: Use double quotes or $'...' if backslash escapes are intended.
+safe_fix: true
+fix_description: "Rewrite the single-quoted fragment as an equivalently escaped double-quoted fragment."
 source:
   shell_checks_rule: rules/SH-172.yaml
   shell_checks_example: examples/172.sh

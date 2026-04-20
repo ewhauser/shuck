@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Else branch has no body
 rationale: Put a command before the final fi.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-327.yaml
   shell_checks_example: examples/327.sh

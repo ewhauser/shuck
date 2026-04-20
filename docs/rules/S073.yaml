@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A `<<-` heredoc uses spaces before its closing marker.
 rationale: Use tabs for the indented marker, or use plain `<<`.
+safe_fix: false
+fix_description: "Delete the leading spaces before the reported `<<-` closing marker so only tabs, if any, remain before the delimiter."
 source:
   shell_checks_rule: rules/SH-330.yaml
   shell_checks_example: examples/330.sh

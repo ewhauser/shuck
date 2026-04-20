@@ -9,6 +9,8 @@ shells:
   - dash
 description: "The `-o` option test is used inside `[[ ]]` in POSIX sh."
 rationale: "Check shell options with a case statement or `set -o` output."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-280.yaml
   shell_checks_example: examples/280.sh

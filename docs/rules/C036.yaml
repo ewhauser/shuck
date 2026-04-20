@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "A malformed `[` test leaves ShellCheck unable to finish parsing the expression."
 rationale: Fix the test syntax first, or keep the test on one line so ShellCheck can continue checking the rest of the script.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-109.yaml
   shell_checks_example: examples/109.sh

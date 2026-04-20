@@ -11,6 +11,8 @@ shells:
   - ksh
 description: The here-document closer appears on the same line as content instead of by itself.
 rationale: Put the here-doc terminator on a line by itself.
+safe_fix: true
+fix_description: "Append the exact heredoc delimiter on its own new line after the current body text."
 source:
   shell_checks_rule: rules/SH-332.yaml
   shell_checks_example: examples/332.sh

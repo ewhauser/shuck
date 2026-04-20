@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A variable path is not quoted in a directory creation command.
 rationale: Quote the variable to handle paths with spaces.
+safe_fix: false
+fix_description: "Wrap each reported unquoted path expansion in double quotes."
 source:
   shell_checks_rule: rules/SH-240.yaml
   shell_checks_example: examples/240.sh

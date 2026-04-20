@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Code appears after all branches exit, making it unreachable.
 rationale: Remove the dead code or restructure the control flow.
+safe_fix: true
+fix_description: "Delete the unreachable statement or definition."
 source:
   shell_checks_rule: rules/SH-293.yaml
   shell_checks_example: examples/293.sh

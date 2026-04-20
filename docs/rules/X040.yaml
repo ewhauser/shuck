@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Uses array-style subscripting in a POSIX shell test
 rationale: Use a portable test or a shell that actually supports arrays.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-126.yaml
   shell_checks_example: examples/126.sh

@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Uses a malformed file-descriptor redirection
 rationale: "Write the redirection in a standard form like `2>&1`."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-129.yaml
   shell_checks_example: examples/129.sh

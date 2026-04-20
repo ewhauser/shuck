@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A grep pattern starts with `*`, which reads like a shell glob instead of a regex.
 rationale: "Use `.*text` to match any prefix in regex mode, or escape a literal `*` if that character is part of the pattern."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-294.yaml
   shell_checks_example: examples/294.sh

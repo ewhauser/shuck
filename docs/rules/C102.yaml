@@ -10,6 +10,8 @@ shells:
   - dash
 description: "A glob pattern inside a unary file test may match multiple paths."
 rationale: Quote the path or use a loop to test each match.
+safe_fix: false
+fix_description: "Rewrite the reported file-test operand as a single double-quoted word so the glob is treated literally."
 source:
   shell_checks_rule: rules/SH-236.yaml
   shell_checks_example: examples/236.sh

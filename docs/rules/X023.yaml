@@ -9,6 +9,8 @@ shells:
   - dash
 description: The script slices a parameter with a bash-only substring form.
 rationale: Use a POSIX-safe transformation or require bash for substring slicing.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-031.yaml
   shell_checks_example: examples/031.sh

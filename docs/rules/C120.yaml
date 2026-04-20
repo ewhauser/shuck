@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "An `expr` string helper is used instead of shell string operations."
 rationale: Prefer shell builtins or parameter expansion over `expr` string helpers.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-287.yaml
   shell_checks_example: examples/287.sh

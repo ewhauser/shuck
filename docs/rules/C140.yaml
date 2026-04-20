@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A variable name starts with an invalid character.
 rationale: Use a valid shell identifier on the left side of `=`.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-320.yaml
   shell_checks_example: examples/320.sh

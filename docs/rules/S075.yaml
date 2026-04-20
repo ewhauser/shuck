@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Multiple commands append to the same file with separate redirections.
 rationale: Group the commands and apply one trailing >> redirection for clearer, more efficient output handling.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-349.yaml
   shell_checks_example: examples/349.sh

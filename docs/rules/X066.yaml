@@ -9,6 +9,8 @@ shells:
   - dash
 description: "The `|&` pipe-stderr operator is used in POSIX sh."
 rationale: "Use `2>&1 |` for portable stderr piping."
+safe_fix: true
+fix_description: "Expand each `|&` operator to `2>&1 |`."
 source:
   shell_checks_rule: rules/SH-273.yaml
   shell_checks_example: examples/273.sh

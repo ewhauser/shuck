@@ -9,6 +9,8 @@ shells:
   - dash
 description: "A `[^...]` negated bracket expression is used in POSIX sh."
 rationale: "Use `[!...]` for portable negation in bracket expressions."
+safe_fix: true
+fix_description: "Replace the leading `^` in each reported bracket expression with `!` to use the portable negated bracket syntax."
 source:
   shell_checks_rule: rules/SH-272.yaml
   shell_checks_example: examples/272.sh

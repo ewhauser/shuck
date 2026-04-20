@@ -9,6 +9,8 @@ shells:
   - dash
 description: The `[[ ... ]]` conditional form is not portable to `/bin/sh`.
 rationale: Use portable `[` or `test`, or switch the script to a shell that supports `[[ ... ]]`.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-006.yaml
   shell_checks_example: examples/006.sh

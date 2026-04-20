@@ -8,6 +8,8 @@ shells:
   - sh
 description: Assigning to the script-name parameter is rejected.
 rationale: Use a normal variable instead of the positional-zero parameter.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-146.yaml
   shell_checks_example: examples/146.sh

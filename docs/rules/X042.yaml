@@ -9,6 +9,8 @@ shells:
   - dash
 description: A sourced file is invoked with extra words.
 rationale: Keep the source path simple and quote dynamic pieces.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-140.yaml
   shell_checks_example: examples/140.sh

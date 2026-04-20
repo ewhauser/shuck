@@ -11,6 +11,8 @@ shells:
   - ksh
 description: An array slice is quoted, preventing word splitting of the elements.
 rationale: "Use `${@:N}` without surrounding double quotes if splitting is needed."
+safe_fix: false
+fix_description: "Remove the double quotes that keep the reported all-elements array slice quoted inside the scalar assignment value."
 source:
   shell_checks_rule: rules/SH-230.yaml
   shell_checks_example: examples/230.sh

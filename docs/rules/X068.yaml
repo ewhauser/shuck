@@ -8,6 +8,8 @@ shells:
   - sh
 description: "The script uses `set -E` or `set -T` in POSIX sh."
 rationale: "Avoid Bash-only trap inheritance flags in `sh`, or switch to a shell that supports them."
+safe_fix: false
+fix_description: Remove the errtrace or functrace option from the reported `set` operand, deleting it or splitting any remaining clustered flags as needed.
 source:
   shell_checks_rule: rules/SH-275.yaml
   shell_checks_example: examples/275.sh

@@ -11,6 +11,8 @@ shells:
   - ksh
 description: An arithmetic expansion inside a conditional test is malformed.
 rationale: "Close the `[[ ]]` properly and use `$(( ))` correctly."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-284.yaml
   shell_checks_example: examples/284.sh

@@ -8,6 +8,8 @@ shells:
   - sh
 description: "A `<` or `>` operator is used inside `[[ ]]` in a POSIX sh script."
 rationale: "Use `-lt`/`-gt` for numeric comparisons, or another portable form for string ordering."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-265.yaml
   shell_checks_example: examples/265.sh

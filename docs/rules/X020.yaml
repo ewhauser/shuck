@@ -9,6 +9,8 @@ shells:
   - dash
 description: The script opens a file descriptor with a brace-based redirection form that portable sh does not support.
 rationale: Use a fixed descriptor or a shell that supports this redirection syntax.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-028.yaml
   shell_checks_example: examples/028.sh

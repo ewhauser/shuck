@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "The `egrep` command is used instead of `grep -E`."
 rationale: "Replace `egrep` with `grep -E` as egrep is deprecated."
+safe_fix: false
+fix_description: "Replace the reported `egrep` command word with `grep -E`."
 source:
   shell_checks_rule: rules/SH-247.yaml
   shell_checks_example: examples/247.sh

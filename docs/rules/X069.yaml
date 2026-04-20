@@ -9,6 +9,8 @@ shells:
   - dash
 description: "A symbolic signal name like `SIGHUP` is used with `trap` in POSIX sh."
 rationale: "Use the numeric signal or omit the `SIG` prefix for portability."
+safe_fix: false
+fix_description: Delete the leading `SIG` prefix from the reported trap signal name.
 source:
   shell_checks_rule: rules/SH-276.yaml
   shell_checks_example: examples/276.sh

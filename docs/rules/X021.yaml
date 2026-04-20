@@ -8,6 +8,8 @@ shells:
   - sh
 description: The script enables pipeline failure handling with a shell option that portable sh does not define.
 rationale: Check command statuses explicitly in sh, or switch to a shell that supports this option.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-029.yaml
   shell_checks_example: examples/029.sh

@@ -10,6 +10,8 @@ shells:
   - ksh
 description: "A `[[ ]]` test mixes `&&` and `||` without grouping."
 rationale: Add explicit parentheses to clarify operator precedence.
+safe_fix: true
+fix_description: "Add parentheses around the parsed `&&`/`||` subexpression to make the current grouping explicit."
 source:
   shell_checks_rule: rules/SH-215.yaml
   shell_checks_example: examples/215.sh

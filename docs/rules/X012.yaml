@@ -9,6 +9,8 @@ shells:
   - dash
 description: The script uses combined stdout-and-stderr redirection syntax that portable `sh` does not provide.
 rationale: Redirect stdout and stderr separately when you need the code to stay portable.
+safe_fix: true
+fix_description: "Replace `&>target` with `>target 2>&1`."
 source:
   shell_checks_rule: rules/SH-017.yaml
   shell_checks_example: examples/017.sh

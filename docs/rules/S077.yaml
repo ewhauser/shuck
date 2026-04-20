@@ -11,6 +11,8 @@ shells:
   - ksh
 description: An unbraced variable expansion is immediately followed by `[` text.
 rationale: Wrap the expansion in braces so the following bracket text is unambiguous.
+safe_fix: true
+fix_description: "Wrap the variable expansion in braces before the adjacent `[` text."
 source:
   shell_checks_rule: rules/SH-354.yaml
   shell_checks_example: examples/354.sh

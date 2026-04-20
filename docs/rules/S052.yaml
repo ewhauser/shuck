@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "A variable expansion is not quoted inside a `[ -n ... ]` test."
 rationale: Quote the variable to avoid syntax errors when it is empty.
+safe_fix: false
+fix_description: "Wrap each reported unquoted scalar expansion in double quotes."
 source:
   shell_checks_rule: rules/SH-212.yaml
   shell_checks_example: examples/212.sh

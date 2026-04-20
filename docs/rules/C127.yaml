@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A here-document is opened without a consuming command.
 rationale: "Prefix the here-doc with a command like `cat` or `:` if the text is intentional."
+safe_fix: false
+fix_description: "Delete the unused here-document redirect and its body."
 source:
   shell_checks_rule: rules/SH-298.yaml
   shell_checks_example: examples/298.sh

@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A shell word contains \n, \r, or \t text that stays literal.
 rationale: Use printf or an actual control character when whitespace is intended.
+safe_fix: false
+fix_description: null
 examples:
   - kind: invalid
     code: |

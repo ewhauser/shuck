@@ -9,6 +9,8 @@ shells:
   - dash
 description: The script depends on brace expansion, which portable `sh` does not expand.
 rationale: Spell out the values explicitly or generate them in a loop instead of using braces.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-015.yaml
   shell_checks_example: examples/015.sh

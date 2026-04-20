@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "An unquoted variable and glob appear in a `find -exec` command."
 rationale: "Quote variables and escape globs passed to `find`."
+safe_fix: false
+fix_description: "Quote the entire `find -exec` argument word that contains the reported unquoted glob or command substitution."
 source:
   shell_checks_rule: rules/SH-200.yaml
   shell_checks_example: examples/200.sh

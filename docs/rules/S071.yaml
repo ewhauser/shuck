@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A command-prefix assignment is reused later in the same command even though later expansions still see the older shell value.
 rationale: Prefix assignments are passed to the invoked command after the shell finishes expanding the rest of the command. Assign the variable earlier or use the intended value directly.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-309.yaml
   shell_checks_example: examples/309.sh

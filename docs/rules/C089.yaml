@@ -10,6 +10,8 @@ shells:
   - ksh
 description: A command pipeline is quoted as a string inside a test bracket.
 rationale: Remove the quotes and use command substitution or a variable.
+safe_fix: false
+fix_description: "Replace the reported quoted pipeline literal with a quoted command substitution of the same text, for example `\"cmd | grep x\"` to `\"$(cmd | grep x)\"`."
 source:
   shell_checks_rule: rules/SH-216.yaml
   shell_checks_example: examples/216.sh

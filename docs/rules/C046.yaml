@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "Pipes data into `kill`"
 rationale: "Collect the PIDs first, then pass them to `kill` directly."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-134.yaml
   shell_checks_example: examples/134.sh

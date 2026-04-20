@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A later redirect makes an earlier one pointless.
 rationale: Keep only the final redirect.
+safe_fix: false
+fix_description: "Delete the earlier redirect that is overridden by the later redirect."
 source:
   shell_checks_rule: rules/SH-145.yaml
   shell_checks_example: examples/145.sh

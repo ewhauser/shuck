@@ -10,6 +10,8 @@ shells:
   - ksh
 description: "An `if` block is opened without a matching `fi`."
 rationale: "Close the conditional with `fi` or rewrite the control flow so it is complete."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-105.yaml
   shell_checks_example: examples/105.sh

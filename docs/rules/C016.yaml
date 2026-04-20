@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A closing control keyword appears without a matching block opener.
 rationale: Remove the unmatched keyword or add the corresponding opener and body.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-065.yaml
   shell_checks_example: examples/065.sh

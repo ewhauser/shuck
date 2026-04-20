@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "A `+` character precedes a variable assignment."
 rationale: "Remove the leading `+` or use valid assignment syntax."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-259.yaml
   shell_checks_example: examples/259.sh

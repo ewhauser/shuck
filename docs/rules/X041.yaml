@@ -10,6 +10,8 @@ shells:
   - ksh
 description: Uses array-style subscripting inside a shell condition
 rationale: Rewrite it with portable parameter handling or a real array-capable shell.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-127.yaml
   shell_checks_example: examples/127.sh

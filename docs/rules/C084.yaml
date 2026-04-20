@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A grep regex contains characters that may be glob-expanded.
 rationale: Quote the regex argument to prevent shell expansion.
+safe_fix: false
+fix_description: "Quote the entire reported grep pattern word."
 source:
   shell_checks_rule: rules/SH-210.yaml
   shell_checks_example: examples/210.sh

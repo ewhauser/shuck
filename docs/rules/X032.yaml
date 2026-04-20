@@ -9,6 +9,8 @@ shells:
   - dash
 description: "A POSIX shell script is using bash's `%q` `printf` conversion."
 rationale: "Keep `printf` format strings within POSIX features when targeting `sh`, or run the script under bash if you need `%q`."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-081.yaml
   shell_checks_example: examples/081.sh

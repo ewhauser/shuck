@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "An `echo` around a command substitution adds an unnecessary wrapper around output that is already available."
 rationale: "Print the command's result directly instead of wrapping it in another `echo` call."
+safe_fix: false
+fix_description: "Replace the enclosing echo wrapper with the inner command from its sole command substitution."
 source:
   shell_checks_rule: rules/SH-040.yaml
   shell_checks_example: examples/040.sh

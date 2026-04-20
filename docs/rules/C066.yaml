@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A closing brace follows a command without a semicolon or newline.
 rationale: "Add a semicolon before `}` so the shell sees the end of the group."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-177.yaml
   shell_checks_example: examples/177.sh

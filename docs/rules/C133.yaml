@@ -11,6 +11,8 @@ shells:
   - ksh
 description: An array variable is converted to a flat string then used as a string.
 rationale: Keep the array intact or explicitly join it with a delimiter.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-311.yaml
   shell_checks_example: examples/311.sh

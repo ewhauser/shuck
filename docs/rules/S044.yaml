@@ -9,6 +9,8 @@ shells:
   - ksh
 description: A plain echo-to-sed rewrite can be folded into shell-native substitution.
 rationale: Prefer the shell's built-in rewrite features over spawning sed for a single inline edit.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-196.yaml
   shell_checks_example: examples/196.sh

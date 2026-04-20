@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A referenced variable looks like a misspelling of one that was assigned.
 rationale: Use the intended variable name consistently so expansions do not silently read an unset variable.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-351.yaml
   shell_checks_example: examples/351.sh

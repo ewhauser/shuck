@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A leading zero can change how the shell interprets a numeric literal in arithmetic.
 rationale: Use an unpadded decimal literal unless you explicitly want octal semantics.
+safe_fix: false
+fix_description: "Remove the leading zeroes from the arithmetic literal, leaving a single `0` if needed."
 source:
   shell_checks_rule: rules/SH-078.yaml
   shell_checks_example: examples/078.sh

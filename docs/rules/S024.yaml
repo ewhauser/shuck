@@ -11,6 +11,8 @@ shells:
   - ksh
 description: Includes a literal backslash inside a quoted shell string.
 rationale: Use a quoting form that preserves the intended literal text.
+safe_fix: true
+fix_description: "Move the trailing backslash out of the single-quoted fragment as an escaped backslash."
 source:
   shell_checks_rule: rules/SH-087.yaml
   shell_checks_example: examples/087.sh

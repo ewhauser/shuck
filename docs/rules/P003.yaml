@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A lone test runs inside a subshell.
 rationale: Drop the parentheses and run the command directly.
+safe_fix: false
+fix_description: "Delete the outer subshell parentheses around the reported test condition."
 source:
   shell_checks_rule: rules/SH-137.yaml
   shell_checks_example: examples/137.sh

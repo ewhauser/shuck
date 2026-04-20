@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "An assignment stores shell-style quotes or escapes that later expansion will not re-parse."
 rationale: Build argv with arrays, `set --`, or helper functions instead of storing shell quoting in a scalar.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-307.yaml
   shell_checks_example: examples/307.sh

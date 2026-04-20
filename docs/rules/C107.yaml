@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "A test command reads `$?` instead of checking the earlier command directly."
 rationale: "Test the command directly, or save its status before using it elsewhere."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-242.yaml
   shell_checks_example: examples/242.sh

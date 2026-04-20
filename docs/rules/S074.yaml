@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A backgrounded command is followed immediately by `;`.
 rationale: End the command with `&` by itself.
+safe_fix: true
+fix_description: "Delete the semicolon that immediately follows the background `&`."
 source:
   shell_checks_rule: rules/SH-335.yaml
   shell_checks_example: examples/335.sh

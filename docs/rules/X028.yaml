@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A lower-case range in tr can depend on locale and may not cover the characters you expect.
 rationale: Use explicit character classes or a fixed character list when mapping characters.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-058.yaml
   shell_checks_example: examples/058.sh

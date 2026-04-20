@@ -11,6 +11,8 @@ shells:
   - ksh
 description: This uses a zsh-only parameter expansion form.
 rationale: Switch to a shell that supports the syntax or rewrite it portably.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-153.yaml
   shell_checks_example: examples/153.sh

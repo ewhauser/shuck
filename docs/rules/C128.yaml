@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A case glob pattern may shadow a later arm.
 rationale: Reorder case arms so more specific patterns come first.
+safe_fix: false
+fix_description: "Delete the reported shadowing case-pattern alternative; if that leaves the arm with no patterns, delete the arm."
 source:
   shell_checks_rule: rules/SH-301.yaml
   shell_checks_example: examples/301.sh

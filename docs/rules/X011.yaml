@@ -9,6 +9,8 @@ shells:
   - dash
 description: The script feeds data with a here-string, which is a bash-style redirection.
 rationale: Use a pipe or temporary file when the same input needs to work in portable shell code.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-016.yaml
   shell_checks_example: examples/016.sh

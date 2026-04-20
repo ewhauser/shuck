@@ -11,6 +11,8 @@ shells:
   - ksh
 description: The heredoc closing marker is only a near match.
 rationale: Use the exact unquoted marker text on the closing line.
+safe_fix: true
+fix_description: "Append the exact unquoted heredoc delimiter on its own new line after the current body text."
 source:
   shell_checks_rule: rules/SH-333.yaml
   shell_checks_example: examples/333.sh

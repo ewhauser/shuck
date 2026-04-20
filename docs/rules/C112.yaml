@@ -11,6 +11,8 @@ shells:
   - ksh
 description: An all-elements array expansion is used inside a `[[ ... ]]` test.
 rationale: Compare individual elements or join the array deliberately before testing it.
+safe_fix: false
+fix_description: "Replace each reported all-elements `@` expansion with the corresponding `*` form, for example `\"$@\"` to `\"$*\"` and `\"${arr[@]}\"` to `\"${arr[*]}\"`."
 source:
   shell_checks_rule: rules/SH-250.yaml
   shell_checks_example: examples/250.sh

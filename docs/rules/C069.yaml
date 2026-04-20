@@ -11,6 +11,8 @@ shells:
   - ksh
 description: A backslash-space appears right before a closing backtick.
 rationale: "Use `$( ... )` instead of backticks for cleaner quoting."
+safe_fix: false
+fix_description: "Delete the backslash before the trailing spaces at the end of the backtick command substitution."
 source:
   shell_checks_rule: rules/SH-186.yaml
   shell_checks_example: examples/186.sh

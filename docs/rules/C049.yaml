@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "The `||` chain can never fail."
 rationale: "Use the matching positive test or a `case`."
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-143.yaml
   shell_checks_example: examples/143.sh

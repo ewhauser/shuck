@@ -11,6 +11,8 @@ shells:
   - ksh
 description: An extended glob pattern appears inside a test expression.
 rationale: Rewrite the condition with a portable pattern or a `case` statement.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-174.yaml
   shell_checks_example: examples/174.sh

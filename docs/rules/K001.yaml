@@ -11,6 +11,8 @@ shells:
   - ksh
 description: "Using a variable-derived path with recursive `rm` can delete more than intended if the prefix collapses into a sensitive subtree."
 rationale: Require the variable path to be non-empty and constrained, or target a narrower known-safe location before deleting recursively.
+safe_fix: false
+fix_description: null
 source:
   shell_checks_rule: rules/SH-044.yaml
   shell_checks_example: examples/044.sh

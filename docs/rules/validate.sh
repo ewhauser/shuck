@@ -153,11 +153,12 @@ check_unique_optional_field() {
 
 validate_file() {
   local file=$1
-  local basename stem legacy_code rule_path example_path doc_shells source_shells failed=0
+  local basename stem legacy_code new_code rule_path example_path doc_shells source_shells failed=0
 
   basename=$(basename "${file}")
   stem=${basename%.yaml}
   legacy_code=$(yq -r '.legacy_code' "${file}")
+  new_code=$(yq -r '.new_code' "${file}")
 
   if ! check_yq "${file}" 'type == "!!map"' "root document must be a mapping"; then
     failed=1
@@ -192,6 +193,15 @@ validate_file() {
   if ! check_yq "${file}" '((.rationale | type) == "!!str") and ((.rationale | length) > 0)' "rationale must be a non-empty string"; then
     failed=1
   fi
+  if ! check_yq "${file}" '(.safe_fix | type) == "!!bool"' "safe_fix must be a boolean"; then
+    failed=1
+  fi
+  if ! check_yq "${file}" '(((.fix_description | type) == "!!str") and ((.fix_description | length) > 0)) or (.fix_description == null)' "fix_description must be a non-empty string or null"; then
+    failed=1
+  fi
+  if ! check_yq "${file}" '(.safe_fix == false) or (((.fix_description | type) == "!!str") and ((.fix_description | length) > 0))' "fix_description must be a non-empty string when safe_fix is true"; then
+    failed=1
+  fi
   if ! check_yq "${file}" '((.source | type) == "!!map") and ((.source.shell_checks_rule | type) == "!!str") and ((.source.shell_checks_rule | length) > 0) and ((.source.shell_checks_example | type) == "!!str") and ((.source.shell_checks_example | length) > 0)' "source must include shell_checks_rule and shell_checks_example"; then
     failed=1
   fi
@@ -199,8 +209,8 @@ validate_file() {
     failed=1
   fi
 
-  if [[ "${stem}" != "${legacy_code}" ]]; then
-    printf 'ERROR %s: filename must match legacy_code (%s)\n' "${basename}" "${legacy_code}" >&2
+  if [[ "${stem}" != "${new_code}" ]]; then
+    printf 'ERROR %s: filename must match new_code (%s)\n' "${basename}" "${new_code}" >&2
     failed=1
   fi
 
