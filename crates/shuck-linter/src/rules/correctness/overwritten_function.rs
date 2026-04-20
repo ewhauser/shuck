@@ -368,6 +368,27 @@ helper() { printf '%s\\n' second; }
     }
 
     #[test]
+    fn shadowed_nested_calls_still_report_outer_overwrites() {
+        let source = "\
+run_case() {
+  helper() { printf '%s\\n' local; }
+  helper
+}
+helper() { printf '%s\\n' first; }
+run_case
+helper() { printf '%s\\n' second; }
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/main.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction),
+        );
+
+        assert_eq!(diagnostics.len(), 1, "diagnostics: {diagnostics:?}");
+        assert_eq!(diagnostics[0].rule, Rule::OverwrittenFunction);
+    }
+
+    #[test]
     fn opaque_helper_calls_before_redefinition_are_suppressed() {
         let source = "\
 \\. ./helpers.sh

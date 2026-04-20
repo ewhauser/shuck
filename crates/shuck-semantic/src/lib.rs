@@ -1087,12 +1087,8 @@ impl<'model> SemanticAnalysis<'model> {
         site: &CallSite,
         binding_id: BindingId,
     ) -> bool {
-        if self
-            .model
-            .visible_binding(name, site.span)
-            .is_some_and(|binding| binding.id == binding_id)
-        {
-            return true;
+        if let Some(binding) = self.model.visible_binding(name, site.span) {
+            return binding.id == binding_id;
         }
 
         let binding = self.model.binding(binding_id);
@@ -2654,6 +2650,25 @@ helper() { echo again; }
 
         assert_eq!(overwritten.len(), 1);
         assert!(overwritten[0].first_called);
+    }
+
+    #[test]
+    fn precise_overwritten_functions_do_not_count_shadowed_nested_calls() {
+        let source = "\
+run_case() {
+  helper() { echo local; }
+  helper
+}
+helper() { echo hi; }
+run_case
+helper() { echo again; }
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let overwritten = analysis.overwritten_functions();
+
+        assert_eq!(overwritten.len(), 1);
+        assert!(!overwritten[0].first_called);
     }
 
     #[test]
