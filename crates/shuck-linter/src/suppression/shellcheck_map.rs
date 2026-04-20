@@ -150,7 +150,10 @@ mod tests {
         );
         assert_eq!(map.resolve_all("SC2362"), vec![Rule::LocalDeclareCombined]);
         assert_eq!(map.resolve_all("SC2250"), vec![Rule::PatternWithVariable]);
-        assert_eq!(map.resolve_all("SC2350"), vec![Rule::XargsWithInlineReplace]);
+        assert_eq!(
+            map.resolve_all("SC2350"),
+            vec![Rule::XargsWithInlineReplace]
+        );
         assert_eq!(
             map.resolve_all("SC2321"),
             vec![Rule::ArrayIndexArithmetic, Rule::FunctionKeywordInSh]

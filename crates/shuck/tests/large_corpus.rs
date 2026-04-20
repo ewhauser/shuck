@@ -3765,7 +3765,7 @@ mod tests {
     }
 
     #[test]
-    fn load_all_rule_corpus_metadata_keeps_rule_wide_review_entries() {
+    fn load_all_rule_corpus_metadata_keeps_scoped_review_entries() {
         let metadata = load_all_rule_corpus_metadata();
 
         assert!(
@@ -3777,7 +3777,12 @@ mod tests {
             metadata
                 .get("C057")
                 .and_then(|rule_metadata| rule_metadata.reviewed_divergences.first())
-                .is_some_and(|entry| entry.rule_wide)
+                .is_some_and(|entry| {
+                    !entry.rule_wide
+                        && entry.path_suffix.as_deref()
+                            == Some("bittorf__kalua__openwrt-addons__etc__kalua__watch")
+                        && entry.line == Some(1336)
+                })
         );
     }
 
