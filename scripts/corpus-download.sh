@@ -3,9 +3,9 @@ set -eu
 
 repo_root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 default_corpus_dir="$repo_root/.cache/large-corpus"
-archive_url="https://github.com/ewhauser/shuck/releases/download/v0.0.0-test-files/shuck-cache.tar.zst"
-sha256="d82829eed9a0ba09d5dc5fc30f29f7cb445c5fb82cfaf5d98917ac98b278ab09"
-tmp_file="/tmp/shuck-cache.tar.zst"
+archive_url="https://github.com/ewhauser/shuck/releases/download/v0.0.0-test-files/shuck-cache-v3.tar.zst"
+sha256="880356ce713decb75c894a488c7a5f9cbeef2e3f76e43bb04525ebab4211ccd7"
+tmp_file="/tmp/shuck-cache-v3.tar.zst"
 
 usage() {
   echo "Usage: $0 [-c] [-l] [corpus-dir]"
