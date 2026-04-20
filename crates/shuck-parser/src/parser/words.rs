@@ -3768,10 +3768,22 @@ impl<'a> Parser<'a> {
                         continue;
                     }
 
-                    if matches!(
-                        chars.peek().copied(),
-                        Some(':' | '-' | '=' | '+' | '?' | '#' | '%' | '/' | '^' | ',' | '}')
-                    ) {
+                    let parses_as_special_parameter_length =
+                        chars.peek().copied().is_some_and(|ch| {
+                            matches!(ch, '?' | '#' | '@' | '*' | '!' | '$' | '-')
+                                || ch.is_ascii_digit()
+                        }) && {
+                            let mut lookahead = chars.clone();
+                            lookahead.next();
+                            matches!(lookahead.next(), Some('}'))
+                        };
+
+                    if !parses_as_special_parameter_length
+                        && matches!(
+                            chars.peek().copied(),
+                            Some(':' | '-' | '=' | '+' | '?' | '#' | '%' | '/' | '^' | ',')
+                        )
+                    {
                         let raw_part = self.parse_parameter_tail_without_subscript(
                             &mut chars,
                             &mut cursor,

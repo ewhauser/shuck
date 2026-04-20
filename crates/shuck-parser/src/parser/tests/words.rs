@@ -1100,6 +1100,34 @@ fn test_parse_special_hash_parameter_prefix_removal() {
 }
 
 #[test]
+fn test_parse_length_of_special_parameters_after_hash_prefix() {
+    let input = "echo ${#-} ${#?} ${##}\n";
+    let script = Parser::new(input).parse().unwrap().file;
+    let command = expect_simple(&script.body[0]);
+
+    let first = expect_parameter(&command.args[0]);
+    assert!(matches!(
+        &first.syntax,
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Length { reference })
+            if reference.name.as_str() == "-"
+    ));
+
+    let second = expect_parameter(&command.args[1]);
+    assert!(matches!(
+        &second.syntax,
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Length { reference })
+            if reference.name.as_str() == "?"
+    ));
+
+    let third = expect_parameter(&command.args[2]);
+    assert!(matches!(
+        &third.syntax,
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Length { reference })
+            if reference.name.as_str() == "#"
+    ));
+}
+
+#[test]
 fn test_parse_special_zero_parameter_prefix_removal_inside_multiline_quote() {
     let input = "\
 usage=\"
