@@ -40,6 +40,15 @@ pub fn run(args: Args) -> Result<ExitStatus> {
     }
 }
 
+#[doc(hidden)]
+pub fn benchmark_check_paths(
+    cwd: &Path,
+    paths: &[PathBuf],
+    output_format: args::CheckOutputFormatArg,
+) -> Result<usize> {
+    commands::check::benchmark_check_paths(cwd, paths, output_format)
+}
+
 fn format(mut args: FormatCommand, cache_dir: Option<&Path>) -> Result<ExitStatus> {
     let stdin = is_stdin(&args.files, args.stdin_filename.as_deref());
     args.files = resolve_default_files(args.files, stdin);

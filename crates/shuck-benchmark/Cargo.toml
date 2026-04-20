@@ -27,6 +27,8 @@ tikv-jemallocator = "0.6"
 criterion = { version = "0.5", features = ["html_reports"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+shuck = { path = "../shuck" }
+tempfile = { workspace = true }
 
 [[example]]
 name = "parser_counts"
@@ -62,4 +64,8 @@ harness = false
 
 [[bench]]
 name = "formatter"
+harness = false
+
+[[bench]]
+name = "check_command"
 harness = false

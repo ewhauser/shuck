@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::{self, BufWriter};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
@@ -240,6 +240,26 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path, cache_root: &Path) -> Res
     Ok(report)
 }
 
+pub(crate) fn benchmark_check_paths(
+    cwd: &Path,
+    paths: &[PathBuf],
+    output_format: crate::args::CheckOutputFormatArg,
+) -> Result<usize> {
+    let report = run_check_with_cwd(
+        &CheckCommand {
+            fix: false,
+            unsafe_fixes: false,
+            no_cache: true,
+            output_format,
+            paths: paths.to_vec(),
+        },
+        cwd,
+        &cwd.join("cache"),
+    )?;
+
+    Ok(report.diagnostics.len())
+}
+
 fn analyze_file(
     pending: PendingProjectFile,
     base_linter_settings: &LinterSettings,
@@ -301,7 +321,7 @@ fn analyze_file(
 
 fn lint_parsed_output(
     pending: &PendingProjectFile,
-    source: &str,
+    source: &Arc<str>,
     parse_result: &ParseResult,
     linter_settings: &LinterSettings,
     shellcheck_map: &ShellCheckCodeMap,
@@ -329,8 +349,7 @@ fn lint_parsed_output(
         suppression_index.as_ref(),
         Some(&pending.file.absolute_path),
     );
-    let diagnostic_source =
-        (!diagnostics.is_empty() && include_source).then(|| Arc::<str>::from(source));
+    let diagnostic_source = (!diagnostics.is_empty() && include_source).then(|| source.clone());
 
     (
         CheckCacheData::Success(
@@ -763,5 +782,31 @@ mod tests {
             second.diagnostics[0].source.as_deref(),
             Some("#!/bin/bash\nunused=1\necho ok\n")
         );
+    }
+
+    #[test]
+    fn lint_diagnostics_share_the_original_source_arc_for_full_output() {
+        let tempdir = tempdir().unwrap();
+        let path = tempdir.path().join("warn.sh");
+        fs::write(&path, "#!/bin/bash\nunused=1\necho ok\n").unwrap();
+
+        let pending = pending_project_file(&path, tempdir.path());
+        let source = read_shared_source(&path).unwrap();
+        let parse_result = Parser::with_dialect(&source, shuck_parser::ShellDialect::Bash).parse();
+
+        let (_, diagnostics) = lint_parsed_output(
+            &pending,
+            &source,
+            &parse_result,
+            &LinterSettings::default(),
+            &ShellCheckCodeMap::default(),
+            true,
+        );
+
+        let diagnostic_source = diagnostics[0]
+            .source
+            .as_ref()
+            .expect("full output should retain source");
+        assert!(Arc::ptr_eq(diagnostic_source, &source));
     }
 }
