@@ -331,6 +331,14 @@ pub struct SemanticAnalysis<'model> {
     overwritten_functions: OnceLock<Vec<OverwrittenFunction>>,
 }
 
+struct OverwriteWindow<'a> {
+    first: BindingId,
+    first_blocks: &'a [BlockId],
+    second_blocks: &'a [BlockId],
+    cfg: &'a ControlFlowGraph,
+    unreachable: &'a FxHashSet<BlockId>,
+}
+
 impl SemanticModel {
     pub fn build(file: &File, source: &str, indexer: &Indexer) -> Self {
         Self::build_with_options(file, source, indexer, SemanticBuildOptions::default())
@@ -1073,6 +1081,134 @@ impl<'model> SemanticAnalysis<'model> {
         dataflow::summarize_scope_provided_functions(&context, exact, scope)
     }
 
+    fn overwrite_call_site_resolves_to_binding(
+        &self,
+        name: &Name,
+        site: &CallSite,
+        binding_id: BindingId,
+    ) -> bool {
+        if let Some(binding) = self.model.visible_binding(name, site.span) {
+            return binding.id == binding_id;
+        }
+
+        let binding = self.model.binding(binding_id);
+        if site.scope == binding.scope {
+            return false;
+        }
+
+        let mut ancestors = self.model.ancestor_scopes(site.scope);
+        let Some(site_scope) = ancestors.next() else {
+            return false;
+        };
+        debug_assert_eq!(site_scope, site.scope);
+
+        for scope in ancestors {
+            if scope == binding.scope {
+                return true;
+            }
+
+            if self.model.scopes[scope.index()].bindings.contains_key(name) {
+                return false;
+            }
+        }
+
+        false
+    }
+
+    fn reachable_call_site_blocks(
+        &self,
+        window: &OverwriteWindow<'_>,
+        site: &CallSite,
+    ) -> Vec<BlockId> {
+        window
+            .cfg
+            .block_ids_for_span(site.span)
+            .iter()
+            .copied()
+            .filter(|block| !window.unreachable.contains(block))
+            .collect()
+    }
+
+    fn nested_call_site_is_viable(
+        &self,
+        scope: ScopeId,
+        site_blocks: &[BlockId],
+        window: &OverwriteWindow<'_>,
+        reachability: &mut ReachabilityCache<'_>,
+    ) -> bool {
+        let Some(&scope_entry) = window.cfg.scope_entries.get(&scope) else {
+            return false;
+        };
+        let Some(scope_exits) = window.cfg.scope_exits(scope) else {
+            return false;
+        };
+
+        blocks_have_path(&[scope_entry], site_blocks, reachability)
+            && blocks_have_path(site_blocks, scope_exits, reachability)
+    }
+
+    fn call_site_executes_between_overwrite(
+        &self,
+        site: &CallSite,
+        window: &OverwriteWindow<'_>,
+        reachability: &mut ReachabilityCache<'_>,
+        visiting_scopes: &mut FxHashSet<ScopeId>,
+    ) -> bool {
+        let site_blocks = self.reachable_call_site_blocks(window, site);
+        if site_blocks.is_empty() {
+            return false;
+        }
+
+        let first_binding = self.model.binding(window.first);
+        if site.scope == first_binding.scope {
+            return blocks_have_path(window.first_blocks, &site_blocks, reachability)
+                && blocks_have_path(&site_blocks, window.second_blocks, reachability);
+        }
+
+        if !matches!(self.model.scope_kind(site.scope), ScopeKind::Function(_)) {
+            return blocks_have_path(window.first_blocks, &site_blocks, reachability)
+                && blocks_have_path(&site_blocks, window.second_blocks, reachability);
+        }
+
+        if !self.nested_call_site_is_viable(site.scope, &site_blocks, window, reachability) {
+            return false;
+        }
+
+        if !visiting_scopes.insert(site.scope) {
+            return false;
+        }
+
+        let executed = self
+            .model
+            .recorded_program
+            .function_body_scopes
+            .iter()
+            .filter_map(|(binding_id, body_scope)| {
+                (*body_scope == site.scope).then_some(*binding_id)
+            })
+            .any(|function_binding| {
+                let function_name = self.model.binding(function_binding).name.clone();
+                self.model
+                    .call_sites_for(&function_name)
+                    .iter()
+                    .any(|caller| {
+                        self.overwrite_call_site_resolves_to_binding(
+                            &function_name,
+                            caller,
+                            function_binding,
+                        ) && self.call_site_executes_between_overwrite(
+                            caller,
+                            window,
+                            reachability,
+                            visiting_scopes,
+                        )
+                    })
+            });
+
+        visiting_scopes.remove(&site.scope);
+        executed
+    }
+
     fn compute_overwritten_functions(&self) -> Vec<OverwrittenFunction> {
         if self.model.functions.is_empty() {
             return Vec::new();
@@ -1115,29 +1251,22 @@ impl<'model> SemanticAnalysis<'model> {
                         continue;
                     }
 
+                    let window = OverwriteWindow {
+                        first,
+                        first_blocks: &first_blocks,
+                        second_blocks: &second_blocks,
+                        cfg,
+                        unreachable: &unreachable,
+                    };
+                    let mut visiting_scopes = FxHashSet::default();
                     let first_called = self.model.call_sites_for(name).iter().any(|site| {
-                        self.model
-                            .visible_binding(name, site.span)
-                            .is_some_and(|binding| binding.id == first)
-                            && {
-                                let site_blocks = cfg
-                                    .block_ids_for_span(site.span)
-                                    .iter()
-                                    .copied()
-                                    .filter(|block| !unreachable.contains(block))
-                                    .collect::<Vec<_>>();
-                                !site_blocks.is_empty()
-                                    && blocks_have_path(
-                                        &first_blocks,
-                                        &site_blocks,
-                                        &mut reachability,
-                                    )
-                                    && blocks_have_path(
-                                        &site_blocks,
-                                        &second_blocks,
-                                        &mut reachability,
-                                    )
-                            }
+                        self.overwrite_call_site_resolves_to_binding(name, site, first)
+                            && self.call_site_executes_between_overwrite(
+                                site,
+                                &window,
+                                &mut reachability,
+                                &mut visiting_scopes,
+                            )
                     });
 
                     overwritten.push(OverwrittenFunction {
@@ -2568,6 +2697,43 @@ f() { echo again; }
 
         assert_eq!(overwritten.len(), 1);
         assert!(overwritten[0].first_called);
+    }
+
+    #[test]
+    fn precise_overwritten_functions_count_nested_calls_from_invoked_wrappers() {
+        let source = "\
+run_case() {
+  helper
+}
+helper() { echo hi; }
+run_case
+helper() { echo again; }
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let overwritten = analysis.overwritten_functions();
+
+        assert_eq!(overwritten.len(), 1);
+        assert!(overwritten[0].first_called);
+    }
+
+    #[test]
+    fn precise_overwritten_functions_do_not_count_shadowed_nested_calls() {
+        let source = "\
+run_case() {
+  helper() { echo local; }
+  helper
+}
+helper() { echo hi; }
+run_case
+helper() { echo again; }
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let overwritten = analysis.overwritten_functions();
+
+        assert_eq!(overwritten.len(), 1);
+        assert!(!overwritten[0].first_called);
     }
 
     #[test]

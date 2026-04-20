@@ -9,8 +9,8 @@ shells:
   - bash
   - dash
   - ksh
-description: A function definition is overwritten before it can be called.
-rationale: Remove the first definition or give the functions distinct names.
+description: A local function definition is overwritten before any reachable direct call can resolve to it.
+rationale: Remove the dead definition, rename one version, or call it before the later local definition replaces it.
 source:
   shell_checks_rule: rules/SH-171.yaml
   shell_checks_example: examples/171.sh

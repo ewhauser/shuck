@@ -1,4 +1,3 @@
-review_all_divergences: true
 reviewed_divergences:
   - side: shuck-only
     path_suffix: "bats-core__bats-core__libexec__bats-core__bats-exec-test"
@@ -48,3 +47,133 @@ reviewed_divergences:
     path_suffix: "termux__termux-packages__scripts__setup-offline-bundle.sh"
     line: 86
     reason: "This offline bundle helper sources the normal archive extractor and then overrides it with a no-op to avoid unpacking sources during cache population."
+  - side: shuck-only
+    path_suffix: "GameServerManagers__LinuxGSM__lgsm__modules__core_modules.sh"
+    line: 439
+    reason: "LinuxGSM core modules intentionally replace selected per-game helpers after sourcing the shared module stack, so this overwrite is part of the framework hook chain."
+  - side: shuck-only
+    path_suffix: "HariSekhon__DevOps-Bash-tools__.bash.d__travis_ci.sh"
+    line: 27
+    reason: "This shell profile re-sources the OS-detection helper stack and keeps compatibility wrappers for multiple naming conventions, so the repeated imports are an intentional bootstrap pattern."
+  - side: shuck-only
+    path_suffix: "HariSekhon__DevOps-Bash-tools__.bashrc"
+    line: 67
+    reason: "This interactive shell bootstrap intentionally reloads shared OS-detection helpers while preserving compatibility aliases, so the repeated import chain is deliberate."
+  - side: shuck-only
+    path_suffix: "HariSekhon__DevOps-Bash-tools__git__git_foreach_branch.sh"
+    line: 21
+    reason: "This Git helper sources a shared navigation library and then replaces a few wrapper helpers for the branch-iteration workflow, so the overwrite is intentional."
+  - side: shuck-only
+    path_suffix: "RetroPie__RetroPie-Setup__retropie_packages.sh"
+    line: 71
+    reason: "RetroPie swaps in its own fatal-error helper for the package-management workflow after sourcing the shared setup library, so the overwrite is intentional."
+  - side: shuck-only
+    path_suffix: "community-scripts__ProxmoxVE__vm__owncloud-vm.sh"
+    line: 452
+    reason: "This ProxmoxVE provisioning script replaces the sourced start helper in a later execution branch as part of its workflow setup."
+  - side: shuck-only
+    path_suffix: "ko1nksm__shellspec__lib__getoptions_base.sh"
+    reason: "ShellSpec's getoptions helper reuses tiny parser-function names inside its DSL-driven option builder, and the remaining C063 hits are framework-scoped helper reuse rather than dead definitions."
+  - side: shuck-only
+    path_suffix: "tj__git-extras__bin__git-sed"
+    line: 15
+    reason: "git-extras intentionally swaps in its own commit helper for this command wrapper after sourcing the shared Git helper library."
+  - side: shuck-only
+    path_contains: "bitnami__containers__"
+    reason: "Bitnami container libraries layer shared service wrappers and per-service overrides through sourced lib*.sh files, so the remaining Shuck-only C063 hits are framework hook replacements rather than dead definitions."
+  - side: shellcheck-only
+    path_contains: "ko1nksm__shellspec__"
+    reason: "ShellSpec's DSL generates transient helper functions and repeatedly reuses example-local names, so SC2329 overstates dead definitions in its spec and helper files."
+  - side: shellcheck-only
+    path_contains: "bitnami__containers__"
+    reason: "Bitnami container libraries expose many sourced service helpers and wrapper entrypoints that are reached indirectly by the container framework, so SC2329 is noisy here."
+  - side: shellcheck-only
+    path_contains: "quickemu-project__quickemu__quickget"
+    reason: "quickget dispatches through computed releases_* and editions_* helper names, which SC2329's direct-call heuristic does not follow."
+  - side: shellcheck-only
+    path_contains: "nvm-sh__nvm__test__"
+    reason: "NVM's test fixtures replace helpers and reach them through runner indirection, so SC2329 overstates dead definitions in these mocks."
+  - side: shellcheck-only
+    path_contains: "xwmx__nb__nb"
+    reason: "nb registers many subcommand handlers through dynamic dispatch, so direct-call analysis misses their real entrypoints."
+  - side: shellcheck-only
+    path_contains: "bittorf__kalua__"
+    reason: "These OpenWrt helper scripts choose handlers from sourced profiles and runtime state, which SC2329 does not model."
+  - side: shellcheck-only
+    path_contains: "moovweb__gvm__examples__native__ltmain.sh"
+    reason: "This libtool-generated example script contains generated helper definitions that are not actionable C063 findings."
+  - side: shellcheck-only
+    path_contains: "swoodford__aws__waf-web-acl-pingdom.sh"
+    reason: "This monitoring script selects action helpers from runtime state and user-driven paths, so SC2329's direct-call heuristic is noisy."
+  - side: shellcheck-only
+    path_contains: "SlackBuildsOrg__slackbuilds__"
+    reason: "These SlackBuild service and network helper scripts define hooks that are reached by external entrypoints rather than explicit in-file calls."
+  - side: shellcheck-only
+    path_contains: "rvm__rvm__"
+    reason: "RVM's sourced function libraries and alias machinery route through indirect helper dispatch, which SC2329 does not follow well."
+  - side: shellcheck-only
+    path_contains: "alpinelinux__aports__main__busybox__default.script"
+    reason: "This BusyBox default script defines externally-called init hooks, so SC2329's direct-call heuristic is noisy."
+  - side: shellcheck-only
+    path_contains: "gentoo__gentoo__"
+    reason: "These Gentoo helper scripts expose externally-called hooks rather than direct in-file calls, so SC2329 is not a useful oracle here."
+  - side: shellcheck-only
+    path_contains: "community-scripts__ProxmoxVE__"
+    reason: "These ProxmoxVE provisioning scripts wire steps and hooks dynamically across sourced helpers, which SC2329 does not track."
+  - side: shellcheck-only
+    path_contains: "233boy__v2ray__install.sh"
+    reason: "This installer drives menu and action helpers indirectly, so SC2329 overstates dead definitions."
+  - side: shellcheck-only
+    path_contains: "termux__termux-packages__"
+    reason: "Termux build scripts intentionally override and invoke package hooks through the build framework rather than direct calls, so SC2329 is noisy here."
+  - side: shellcheck-only
+    path_contains: "openvpn__easy-rsa__"
+    reason: "easy-rsa reaches its sourced command helpers through framework dispatch and generated command tables rather than explicit in-file calls."
+  - side: shellcheck-only
+    path_contains: "pyenv__pyenv__"
+    reason: "These pyenv test and install helpers are selected indirectly through the harness, so SC2329 overstates dead definitions."
+  - side: shellcheck-only
+    path_contains: "dylanaraps__neofetch__"
+    reason: "These temporary helper overrides are intentional rendering-path switches rather than dead definitions."
+  - side: shellcheck-only
+    path_contains: "docker-mailserver__docker-mailserver__"
+    reason: "These setup hooks are invoked by the surrounding entrypoint framework rather than direct in-file calls."
+  - side: shellcheck-only
+    path_contains: "dehydrated-io__dehydrated__"
+    reason: "Dehydrated hook entrypoints are selected externally, so SC2329's direct-call heuristic is noisy."
+  - side: shellcheck-only
+    path_contains: "HariSekhon__DevOps-Bash-tools__"
+    reason: "These dotfile and helper libraries rely on sourced dispatch and compatibility wrappers, which SC2329 does not model."
+  - side: shellcheck-only
+    path_contains: "tj__git-extras__bin__git-sed"
+    reason: "git-extras command helpers are selected by the surrounding Git wrapper, not explicit in-file calls."
+  - side: shellcheck-only
+    path_contains: "spiritLHLS__one-click-installation-script"
+    reason: "This installer chooses action helpers dynamically from user input and environment, which SC2329 does not track."
+  - side: shellcheck-only
+    path_contains: "romkatv__powerlevel10k__"
+    reason: "This generated installer script defines helpers for externally-driven invocation, which SC2329 treats as dead."
+  - side: shellcheck-only
+    path_contains: "google__oss-fuzz__"
+    reason: "This build wrapper defines helper entrypoints for the surrounding fuzzing harness rather than direct in-file calls."
+  - side: shellcheck-only
+    path_contains: "asdf-vm__asdf__"
+    reason: "asdf command handlers are reached through plugin dispatch, not explicit in-file calls."
+  - side: shellcheck-only
+    path_contains: "GameServerManagers__LinuxGSM__"
+    reason: "LinuxGSM selects module helpers through the surrounding game-server framework, so SC2329's direct-call heuristic is noisy."
+  - side: shellcheck-only
+    path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__supplementary__runcommand__runcommand.sh"
+    reason: "RetroPie's runcommand script dispatches mode-processing helpers indirectly from the active video-stack selection, so SC2329 overstates dead definitions."
+  - side: shellcheck-only
+    path_suffix: "alpinelinux__aports__main__libmaxminddb__libmaxminddb.cron"
+    line: 13
+    reason: "This cleanup helper is wired to a trap and invoked on shell exit, so it is not a dead definition."
+  - side: shellcheck-only
+    path_suffix: "nvm-sh__nvm__update_test_mocks.sh"
+    line: 18
+    reason: "This first nvm_make_alias mock is intentionally replaced later after the initial fixture batch is generated, so the overwrite is part of the mock-generation flow."
+  - side: shellcheck-only
+    path_suffix: "tj__git-extras__bin__git-rebase-patch"
+    line: 19
+    reason: "This cleanup helper is wired to an interrupt trap and invoked externally by the shell when the trap fires."
