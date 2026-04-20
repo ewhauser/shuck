@@ -12,7 +12,7 @@ shells:
 description: "A `tr` character class is not quoted and may be expanded as a glob."
 rationale: "Quote the `[:upper:]` and `[:lower:]` arguments."
 safe_fix: false
-fix_description: null
+fix_description: "Wrap the reported `tr` character-class operand in single quotes."
 source:
   shell_checks_rule: rules/SH-208.yaml
   shell_checks_example: examples/208.sh

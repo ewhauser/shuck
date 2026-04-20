@@ -12,7 +12,7 @@ shells:
 description: C-style comment text is not a shell comment.
 rationale: "Use `#` comments in shell scripts instead of `/* ... */`."
 safe_fix: false
-fix_description: null
+fix_description: "Insert `# ` before the reported `/*...` command so the rest of that shell line becomes a comment."
 source:
   shell_checks_rule: rules/SH-121.yaml
   shell_checks_example: examples/121.sh

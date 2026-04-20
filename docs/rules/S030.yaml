@@ -12,7 +12,7 @@ shells:
 description: Trailing whitespace on a here-doc terminator makes the marker sloppy.
 rationale: End the delimiter line cleanly with no extra spaces.
 safe_fix: false
-fix_description: null
+fix_description: "Delete the trailing spaces or tabs after the reported here-doc delimiter line."
 source:
   shell_checks_rule: rules/SH-119.yaml
   shell_checks_example: examples/119.sh

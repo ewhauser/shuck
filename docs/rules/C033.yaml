@@ -12,7 +12,7 @@ shells:
 description: The here-doc terminator is indented instead of starting at column 1.
 rationale: Align the terminator flush-left so the shell can recognize the end marker.
 safe_fix: false
-fix_description: null
+fix_description: "Remove the leading indentation from the reported here-doc terminator line so it starts at column 1."
 source:
   shell_checks_rule: rules/SH-104.yaml
   shell_checks_example: examples/104.sh

@@ -12,7 +12,7 @@ shells:
 description: A variable is being expanded inside a pattern expression.
 rationale: Make the pattern explicit and keep untrusted text out of pattern matching.
 safe_fix: false
-fix_description: null
+fix_description: "Double-quote the reported expansion inside the parameter-pattern operand so that fragment is matched literally."
 source:
   shell_checks_rule: rules/SH-152.yaml
   shell_checks_example: examples/152.sh

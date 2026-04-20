@@ -12,7 +12,7 @@ shells:
 description: A line of C or other non-shell code appears in a shell script.
 rationale: Remove the non-shell code or move it to a separate file.
 safe_fix: false
-fix_description: null
+fix_description: "Delete the whole semicolon-terminated declaration-like simple command."
 source:
   shell_checks_rule: rules/SH-238.yaml
   shell_checks_example: examples/238.sh

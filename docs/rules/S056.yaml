@@ -12,7 +12,7 @@ shells:
 description: An alias definition contains an expansion that resolves while the alias is being declared.
 rationale: Escape the expansion or move the logic into a function so it is evaluated when the alias is used.
 safe_fix: false
-fix_description: null
+fix_description: "Rewrite the containing alias definition as a single-quoted shell word, escaping any embedded single quotes so the expansion text stays literal."
 source:
   shell_checks_rule: rules/SH-233.yaml
   shell_checks_example: examples/233.sh

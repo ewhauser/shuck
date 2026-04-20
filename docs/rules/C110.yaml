@@ -12,7 +12,7 @@ shells:
 description: "A test expression contains `=` that looks like an assignment."
 rationale: Remove the embedded assignment from the test condition.
 safe_fix: false
-fix_description: null
+fix_description: "Remove the leading `name=` affix from each reported quoted comparison operand, for example `\"QT6=${QT6:-no}\"` to `\"${QT6:-no}\"`."
 source:
   shell_checks_rule: rules/SH-246.yaml
   shell_checks_example: examples/246.sh

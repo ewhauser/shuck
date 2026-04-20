@@ -12,7 +12,7 @@ shells:
 description: A function definition is embedded inside an alias string.
 rationale: Define the function separately and alias only the call.
 safe_fix: false
-fix_description: null
+fix_description: "Replace the alias definition with its literal alias body so the embedded function definition becomes real shell code."
 source:
   shell_checks_rule: rules/SH-235.yaml
   shell_checks_example: examples/235.sh

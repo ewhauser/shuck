@@ -12,7 +12,7 @@ shells:
 description: "A `continue` statement appears inside a function but outside a loop."
 rationale: "Use `return` instead of `continue` to exit the function early."
 safe_fix: false
-fix_description: null
+fix_description: "Replace the reported `continue` keyword with `return`, preserving any numeric argument."
 source:
   shell_checks_rule: rules/SH-296.yaml
   shell_checks_example: examples/296.sh

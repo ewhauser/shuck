@@ -12,7 +12,7 @@ shells:
 description: A line continuation is followed by a commented-out argument.
 rationale: Remove the continuation backslash or uncomment the line.
 safe_fix: false
-fix_description: null
+fix_description: "Delete the trailing backslash from the comment-only continuation line."
 source:
   shell_checks_rule: rules/SH-194.yaml
   shell_checks_example: examples/194.sh

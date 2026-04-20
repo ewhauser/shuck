@@ -12,7 +12,7 @@ shells:
 description: "An `if` block is left without its closing `fi`, which ShellCheck reports as an unmatched conditional."
 rationale: "Stop the script after the `then` body so the only issue is the missing terminator."
 safe_fix: false
-fix_description: null
+fix_description: "Append a closing `fi` at end of file."
 source:
   shell_checks_rule: rules/SH-106.yaml
   shell_checks_example: examples/106.sh

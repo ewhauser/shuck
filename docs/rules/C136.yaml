@@ -12,7 +12,7 @@ shells:
 description: A `local` statement assigns from a variable defined earlier on the same line.
 rationale: Split the declarations onto separate lines so each has the correct value.
 safe_fix: false
-fix_description: null
+fix_description: "Split the declaration into sequential declaration commands, one assignment operand per command, preserving the original declaration keyword and options."
 source:
   shell_checks_rule: rules/SH-314.yaml
   shell_checks_example: examples/314.sh

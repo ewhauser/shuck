@@ -12,7 +12,7 @@ shells:
 description: A loop body is opened but never closed.
 rationale: Finish the `do` block with `done`.
 safe_fix: false
-fix_description: null
+fix_description: "Append one closing `done` at end of file."
 source:
   shell_checks_rule: rules/SH-321.yaml
   shell_checks_example: examples/321.sh

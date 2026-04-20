@@ -12,7 +12,7 @@ shells:
 description: "A glob pattern on the right side of `==` inside `[ ]` is not expanded."
 rationale: "Use `[[ ]]` or `case` for pattern matching."
 safe_fix: false
-fix_description: null
+fix_description: "Double-quote the reported right-hand glob operand so the `[ ... ]` comparison becomes a literal string comparison."
 source:
   shell_checks_rule: rules/SH-217.yaml
   shell_checks_example: examples/217.sh

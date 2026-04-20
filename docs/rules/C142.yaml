@@ -12,7 +12,7 @@ shells:
 description: An unfinished `for` loop triggers ShellCheck 1062 when it reaches EOF without a matching `done`.
 rationale: Include the loop body but omit only the closing `done` so ShellCheck reports just the missing terminator.
 safe_fix: false
-fix_description: null
+fix_description: "Append one closing `done` at end of file."
 source:
   shell_checks_rule: rules/SH-322.yaml
   shell_checks_example: examples/322.sh

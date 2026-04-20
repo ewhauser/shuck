@@ -12,7 +12,7 @@ shells:
 description: "The deprecated `tempfile` command is used to create a temporary file."
 rationale: "Use `mktemp` instead of `tempfile`."
 safe_fix: false
-fix_description: null
+fix_description: "Replace the reported `tempfile` command name with `mktemp`."
 source:
   shell_checks_rule: rules/SH-245.yaml
   shell_checks_example: examples/245.sh

@@ -12,7 +12,7 @@ shells:
 description: A case pattern is built from a variable.
 rationale: Use a direct test or a fixed pattern instead.
 safe_fix: false
-fix_description: null
+fix_description: "Rewrite the reported case-pattern word as a single double-quoted word so its expansions are treated as literal text."
 source:
   shell_checks_rule: rules/SH-142.yaml
   shell_checks_example: examples/142.sh

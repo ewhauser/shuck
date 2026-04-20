@@ -12,7 +12,7 @@ shells:
 description: Standard error is redirected before standard output is redirected.
 rationale: "Redirect stdout first, then stderr, or use `&>`."
 safe_fix: false
-fix_description: null
+fix_description: "Move the reported `2>&1` redirect to after the command's stdout-to-file redirects."
 source:
   shell_checks_rule: rules/SH-211.yaml
   shell_checks_example: examples/211.sh

@@ -12,7 +12,7 @@ shells:
 description: A redirect placed before a pipe only affects the left-hand side.
 rationale: Place the redirect after the full pipeline or use a subshell.
 safe_fix: false
-fix_description: null
+fix_description: "Move the reported stdout redirect from the left pipeline segment to the end of the full pipeline, preserving its operator and target."
 source:
   shell_checks_rule: rules/SH-285.yaml
   shell_checks_example: examples/285.sh

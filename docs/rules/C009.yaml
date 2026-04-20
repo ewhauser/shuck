@@ -12,7 +12,7 @@ shells:
 description: Quoting the pattern on the right side of bash's regex match changes how the match is interpreted.
 rationale: Leave the regular expression unquoted when you want bash to treat it as a pattern rather than a literal string.
 safe_fix: false
-fix_description: null
+fix_description: "Remove the surrounding quotes from the right-hand operand of the `[[ ... =~ ... ]]` regex test."
 source:
   shell_checks_rule: rules/SH-043.yaml
   shell_checks_example: examples/043.sh

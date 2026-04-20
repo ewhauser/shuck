@@ -12,7 +12,7 @@ shells:
 description: Runs a command substitution whose output is redirected away.
 rationale: Run the command directly if you only want the side effect.
 safe_fix: false
-fix_description: null
+fix_description: "Delete the stdout redirection(s) from inside the command substitution so the substitution captures stdout again."
 source:
   shell_checks_rule: rules/SH-159.yaml
   shell_checks_example: examples/159.sh

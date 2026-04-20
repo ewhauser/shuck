@@ -12,7 +12,7 @@ shells:
 description: An assignment-like word has stray spaces around `=`.
 rationale: Keep assignment syntax tight with no spaces around `=`.
 safe_fix: false
-fix_description: null
+fix_description: "Delete the whitespace around the reported `=` word so the declaration operand becomes a single `name=value` assignment."
 source:
   shell_checks_rule: rules/SH-319.yaml
   shell_checks_example: examples/319.sh

@@ -12,7 +12,7 @@ shells:
 description: Feeding raw command output straight into an array can break on whitespace and similar separators.
 rationale: Capture the data with a structured reader instead of arraying command output directly.
 safe_fix: false
-fix_description: null
+fix_description: "Wrap the reported command substitution span in double quotes inside the array-assignment word."
 source:
   shell_checks_rule: rules/SH-068.yaml
   shell_checks_example: examples/068.sh

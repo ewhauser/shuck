@@ -12,7 +12,7 @@ shells:
 description: "A `tr` character class is passed without quoting."
 rationale: "Quote the `tr` operands to prevent shell interpretation."
 safe_fix: false
-fix_description: null
+fix_description: "Remove the outer `[` and `]` from the reported `tr` set operand, keeping any surrounding quotes."
 source:
   shell_checks_rule: rules/SH-203.yaml
   shell_checks_example: examples/203.sh

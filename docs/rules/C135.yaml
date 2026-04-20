@@ -12,7 +12,7 @@ shells:
 description: A case arm handles an option not listed in the getopts string.
 rationale: Add the missing option to the getopts string or remove the case arm.
 safe_fix: false
-fix_description: null
+fix_description: "Delete the reported undeclared case-pattern alternative; if it is the arm's only pattern or an invalid multi-character pattern, delete the whole arm."
 source:
   shell_checks_rule: rules/SH-313.yaml
   shell_checks_example: examples/313.sh

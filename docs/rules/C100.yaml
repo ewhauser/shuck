@@ -12,7 +12,7 @@ shells:
 description: "`$BASH_SOURCE` is quoted without array syntax."
 rationale: "Use `${BASH_SOURCE[0]}` for the current script path."
 safe_fix: false
-fix_description: null
+fix_description: "Replace the reported quoted `$BASH_SOURCE` or `${BASH_SOURCE}` expansion with `${BASH_SOURCE[0]}`."
 source:
   shell_checks_rule: rules/SH-232.yaml
   shell_checks_example: examples/232.sh

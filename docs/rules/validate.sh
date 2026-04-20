@@ -196,7 +196,10 @@ validate_file() {
   if ! check_yq "${file}" '(.safe_fix | type) == "!!bool"' "safe_fix must be a boolean"; then
     failed=1
   fi
-  if ! check_yq "${file}" '(.safe_fix == true and ((.fix_description | type) == "!!str") and ((.fix_description | length) > 0)) or (.safe_fix == false and .fix_description == null)' "fix_description must be a non-empty string when safe_fix is true and null when safe_fix is false"; then
+  if ! check_yq "${file}" '(((.fix_description | type) == "!!str") and ((.fix_description | length) > 0)) or (.fix_description == null)' "fix_description must be a non-empty string or null"; then
+    failed=1
+  fi
+  if ! check_yq "${file}" '(.safe_fix == false) or (((.fix_description | type) == "!!str") and ((.fix_description | length) > 0))' "fix_description must be a non-empty string when safe_fix is true"; then
     failed=1
   fi
   if ! check_yq "${file}" '((.source | type) == "!!map") and ((.source.shell_checks_rule | type) == "!!str") and ((.source.shell_checks_rule | length) > 0) and ((.source.shell_checks_example | type) == "!!str") and ((.source.shell_checks_example | length) > 0)' "source must include shell_checks_rule and shell_checks_example"; then

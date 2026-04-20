@@ -12,7 +12,7 @@ shells:
 description: Bracket globs only match individual characters, not whole words or word-like lists.
 rationale: Quote bracketed text like `[appname]` when you mean it literally, or rewrite it as a real single-character pattern.
 safe_fix: false
-fix_description: null
+fix_description: "Single-quote the reported bracket-glob fragment so it is treated as literal text."
 source:
   shell_checks_rule: rules/SH-225.yaml
   shell_checks_example: examples/225.sh

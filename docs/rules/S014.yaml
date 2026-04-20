@@ -12,7 +12,7 @@ shells:
 description: Unquoted *-style splats such as $*, ${*}, and ${arr[*]} join values into one word and then expose the result to splitting and pathname expansion.
 rationale: Use "$@" for positional parameters, or "${arr[@]}" for arrays, when each value must stay separate.
 safe_fix: false
-fix_description: null
+fix_description: "Wrap the reported `*`-style splat expansion in double quotes."
 source:
   shell_checks_rule: rules/SH-062.yaml
   shell_checks_example: examples/062.sh

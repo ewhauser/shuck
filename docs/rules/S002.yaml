@@ -12,7 +12,7 @@ shells:
 description: Reading text without the raw-input option can change literal backslashes before later use.
 rationale: Use `read -r` when the script needs incoming text to stay intact instead of treating backslashes as escapes.
 safe_fix: false
-fix_description: null
+fix_description: "Insert `-r` immediately after the reported `read` command word."
 source:
   shell_checks_rule: rules/SH-002.yaml
   shell_checks_example: examples/002.sh

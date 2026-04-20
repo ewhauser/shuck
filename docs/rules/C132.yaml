@@ -12,7 +12,7 @@ shells:
 description: A later expansion in the same command still reads the shell's earlier value instead of the preceding prefix assignment.
 rationale: Prefix assignments only reach the spawned command environment after the shell has already expanded the rest of the command line.
 safe_fix: false
-fix_description: null
+fix_description: "Rewrite the command by moving each leading prefix assignment onto its own standalone assignment statement immediately before the command."
 source:
   shell_checks_rule: rules/SH-310.yaml
   shell_checks_example: examples/310.sh

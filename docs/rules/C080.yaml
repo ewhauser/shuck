@@ -12,7 +12,7 @@ shells:
 description: A glob character inside a grep pattern may be expanded by the shell.
 rationale: Quote the pattern to prevent glob expansion.
 safe_fix: false
-fix_description: null
+fix_description: "Rewrite the reported grep pattern by changing each glob-style `*` to regex `.*`."
 source:
   shell_checks_rule: rules/SH-204.yaml
   shell_checks_example: examples/204.sh

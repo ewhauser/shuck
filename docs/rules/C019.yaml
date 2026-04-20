@@ -12,7 +12,7 @@ shells:
 description: A unary string check on a hard-coded word never reflects changing input.
 rationale: Test a variable or path that can change, or drop the check if the literal is intentional.
 safe_fix: false
-fix_description: null
+fix_description: "Replace the constant unary string-test operand with an explicit empty or non-empty literal that preserves the current result, such as `-z \"\"`, `-z x`, `-n \"\"`, or `-n x`."
 source:
   shell_checks_rule: rules/SH-072.yaml
   shell_checks_example: examples/072.sh

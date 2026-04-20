@@ -12,7 +12,7 @@ shells:
 description: A backtick command substitution is used as a command name.
 rationale: Remove the backticks and run the command directly or use a variable.
 safe_fix: false
-fix_description: null
+fix_description: "Remove the surrounding backticks from the reported command substitution so the inner command runs directly."
 source:
   shell_checks_rule: rules/SH-221.yaml
   shell_checks_example: examples/221.sh

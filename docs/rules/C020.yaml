@@ -12,7 +12,7 @@ shells:
 description: A one-word test on a fixed literal does not ask a runtime question and is always decided the same way.
 rationale: Check a variable, path, or explicit comparison instead of a bare literal.
 safe_fix: false
-fix_description: null
+fix_description: "Replace the bare test term with `\"\"` or `x` so it keeps the same false or true result inside the surrounding test."
 source:
   shell_checks_rule: rules/SH-073.yaml
   shell_checks_example: examples/073.sh

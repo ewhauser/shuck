@@ -12,7 +12,7 @@ shells:
 description: Leaves a wildcard path unquoted in command position
 rationale: Quote the path or expand it explicitly before using it.
 safe_fix: false
-fix_description: null
+fix_description: "Wrap the wildcard command-path word in quotes."
 source:
   shell_checks_rule: rules/SH-130.yaml
   shell_checks_example: examples/130.sh

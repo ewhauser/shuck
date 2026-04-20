@@ -10,7 +10,7 @@ shells:
 description: "A `[[ ... ]]` numeric comparison uses text instead of a number."
 rationale: "Use `=` or `!=` for text comparisons, or expand arithmetic expressions explicitly before comparing numerically."
 safe_fix: false
-fix_description: null
+fix_description: "Rewrite the surrounding `[[ ... -eq/-ne ... ]]` comparison to `=` or `!=` and quote any reported unquoted string-like operand."
 source:
   shell_checks_rule: rules/SH-288.yaml
   shell_checks_example: examples/288.sh

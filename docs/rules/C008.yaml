@@ -12,7 +12,7 @@ shells:
 description: Expansions inside a double-quoted trap body resolve when the trap is set instead of when it runs.
 rationale: Use single-quoted trap commands when you need values to be evaluated at signal time rather than at definition time.
 safe_fix: false
-fix_description: null
+fix_description: "Rewrite the enclosing fully double-quoted trap action as an equivalently escaped single-quoted trap action."
 source:
   shell_checks_rule: rules/SH-042.yaml
   shell_checks_example: examples/042.sh

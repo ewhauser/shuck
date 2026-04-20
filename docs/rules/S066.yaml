@@ -12,7 +12,7 @@ shells:
 description: "Both `local` and `declare` are used together in one statement."
 rationale: "Use either `local` or `declare`, not both."
 safe_fix: false
-fix_description: null
+fix_description: "Delete the reported `local` or `declare` operand from the declaration statement."
 source:
   shell_checks_rule: rules/SH-289.yaml
   shell_checks_example: examples/289.sh
