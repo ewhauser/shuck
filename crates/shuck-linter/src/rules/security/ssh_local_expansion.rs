@@ -15,7 +15,8 @@ impl Violation for SshLocalExpansion {
 pub fn ssh_local_expansion(checker: &mut Checker) {
     let spans = checker
         .facts()
-        .structural_commands()
+        .commands()
+        .iter()
         .filter_map(|fact| fact.options().ssh())
         .flat_map(|fact| fact.local_expansion_spans().iter().copied())
         .collect::<Vec<_>>();
@@ -65,5 +66,44 @@ ssh -p 2222 host \"echo $USER\"
         assert_eq!(diagnostics.len(), 2, "{diagnostics:#?}");
         assert_eq!(diagnostics[0].span.slice(source), "$HOME");
         assert_eq!(diagnostics[1].span.slice(source), "$USER");
+    }
+
+    #[test]
+    fn ignores_non_terminal_and_assignment_style_remote_expansions() {
+        let source = "\
+#!/bin/sh
+ssh \"$host\" cmd \"$HOME\" --force
+ssh \"$host\" HELLO=\"$HOME\"
+ssh \"$host\" foo=\"$USER\" bar
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SshLocalExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_only_the_final_fully_quoted_remote_argument() {
+        let source = "\
+#!/bin/sh
+ssh \"$host\" \"$HOME\" \"$USER\"
+ssh \"$host\" cmd \"$HOME\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SshLocalExpansion));
+
+        assert_eq!(diagnostics.len(), 2, "{diagnostics:#?}");
+        assert_eq!(diagnostics[0].span.slice(source), "$USER");
+        assert_eq!(diagnostics[1].span.slice(source), "$HOME");
+    }
+
+    #[test]
+    fn reports_expansions_inside_command_substitutions() {
+        let source = "\
+#!/bin/sh
+URL=$(ssh \"$host\" url \"$REPO\")
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SshLocalExpansion));
+
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+        assert_eq!(diagnostics[0].span.slice(source), "$REPO");
     }
 }

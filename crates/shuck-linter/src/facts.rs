@@ -15412,16 +15412,14 @@ fn parse_rm_command(args: &[&Word], source: &str) -> Option<RmCommandFacts> {
 
 fn parse_ssh_command(args: &[&Word], source: &str) -> Option<SshCommandFacts> {
     let remote_args = ssh_remote_args(args, source)?;
-    if remote_args.is_empty() {
-        return None;
-    }
-
     let local_expansion_spans = remote_args
-        .iter()
-        .flat_map(|word| expansion_part_spans(word))
+        .last()
+        .filter(|word| word.is_fully_double_quoted())
+        .and_then(|word| double_quoted_expansion_part_spans(word).into_iter().next())
+        .into_iter()
         .collect::<Vec<_>>();
 
-    Some(SshCommandFacts {
+    (!local_expansion_spans.is_empty()).then_some(SshCommandFacts {
         local_expansion_spans: local_expansion_spans.into_boxed_slice(),
     })
 }
