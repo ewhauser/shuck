@@ -8,7 +8,7 @@ use shuck_ast::{
 use crate::Rule;
 use crate::rules::common::query;
 
-use super::{SuppressionAction, SuppressionDirective, SuppressionSource};
+use super::{SuppressionAction, SuppressionDirective};
 
 /// Per-file suppression index.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -36,9 +36,7 @@ impl SuppressionIndex {
                     .or_insert_with(RuleSuppressionIndex::default);
                 match directive.action {
                     SuppressionAction::DisableFile => index.whole_file = true,
-                    SuppressionAction::Disable
-                        if directive.source == SuppressionSource::ShellCheck =>
-                    {
+                    SuppressionAction::Disable => {
                         if directive.line < first_stmt_line {
                             index.whole_file = true;
                         } else if let Some(range) = next_command_range(file, directive.range.end())
@@ -46,14 +44,6 @@ impl SuppressionIndex {
                             index.ranges.push(range);
                         }
                     }
-                    SuppressionAction::Disable => index.events.push(RegionEvent {
-                        line: directive.line,
-                        suppressed: true,
-                    }),
-                    SuppressionAction::Enable => index.events.push(RegionEvent {
-                        line: directive.line,
-                        suppressed: false,
-                    }),
                 }
             }
         }
@@ -87,7 +77,6 @@ pub fn first_statement_line(file: &File) -> Option<u32> {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 struct RuleSuppressionIndex {
     whole_file: bool,
-    events: Vec<RegionEvent>,
     ranges: Vec<LineRange>,
 }
 
@@ -107,19 +96,8 @@ impl RuleSuppressionIndex {
         {
             return true;
         }
-
-        self.events
-            .partition_point(|event| event.line <= line)
-            .checked_sub(1)
-            .and_then(|index| self.events.get(index))
-            .is_some_and(|event| event.suppressed)
+        false
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct RegionEvent {
-    line: u32,
-    suppressed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -526,20 +504,18 @@ mod tests {
     }
 
     #[test]
-    fn applies_region_disable_until_a_matching_enable() {
+    fn applies_shuck_disable_to_the_next_command() {
         let source = "\
+foo='a b'
 echo $foo
 # shuck: disable=C006
 echo $foo
-# shuck: enable=C006
 echo $foo
 ";
         let index = suppression_index(source);
 
-        assert!(!index.is_suppressed(Rule::UndefinedVariable, 1));
-        assert!(index.is_suppressed(Rule::UndefinedVariable, 2));
-        assert!(index.is_suppressed(Rule::UndefinedVariable, 3));
-        assert!(!index.is_suppressed(Rule::UndefinedVariable, 4));
+        assert!(!index.is_suppressed(Rule::UndefinedVariable, 2));
+        assert!(index.is_suppressed(Rule::UndefinedVariable, 4));
         assert!(!index.is_suppressed(Rule::UndefinedVariable, 5));
     }
 
@@ -549,12 +525,43 @@ echo $foo
 exit 0
 # shuck: disable=SH-293
 echo dead
+echo still_dead
 ";
         let index = suppression_index(source);
 
         assert!(!index.is_suppressed(Rule::UnreachableAfterExit, 1));
-        assert!(index.is_suppressed(Rule::UnreachableAfterExit, 2));
         assert!(index.is_suppressed(Rule::UnreachableAfterExit, 3));
+        assert!(!index.is_suppressed(Rule::UnreachableAfterExit, 4));
+    }
+
+    #[test]
+    fn applies_shuck_disable_with_shellcheck_codes_to_the_next_command() {
+        let source = "\
+foo='a b'
+echo $foo
+# shuck: disable=SC2086
+echo $foo
+echo $foo
+";
+        let index = suppression_index(source);
+
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 2));
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 4));
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 5));
+    }
+
+    #[test]
+    fn promotes_shuck_disable_before_the_first_statement_to_file_scope() {
+        let source = "\
+#!/bin/bash
+# shuck: disable=S001
+
+echo $foo
+";
+        let index = suppression_index(source);
+
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 1));
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 4));
     }
 
     #[test]
@@ -584,6 +591,35 @@ echo $foo
 
         assert!(index.is_suppressed(Rule::CompoundTestOperator, 4));
         assert!(index.is_suppressed(Rule::UnquotedExpansion, 5));
+    }
+
+    #[test]
+    fn scopes_shellcheck_disable_with_shuck_codes_to_the_next_command() {
+        let source = "\
+foo='a b'
+# shellcheck disable=S001
+echo $foo
+echo $foo
+";
+        let index = suppression_index(source);
+
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 3));
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 4));
+    }
+
+    #[test]
+    fn scopes_shuck_disable_after_then_header_to_the_next_command() {
+        let source = "\
+foo='a b'
+if true; then # shuck: disable=S001
+  echo $foo
+fi
+echo $foo
+";
+        let index = suppression_index(source);
+
+        assert!(index.is_suppressed(Rule::UnquotedExpansion, 3));
+        assert!(!index.is_suppressed(Rule::UnquotedExpansion, 5));
     }
 
     #[test]

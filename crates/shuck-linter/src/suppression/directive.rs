@@ -11,7 +11,7 @@ use super::ShellCheckCodeMap;
 /// A parsed suppression directive from a comment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SuppressionDirective {
-    /// The action: disable, enable, or disable-file.
+    /// The action: disable or disable-file.
     pub action: SuppressionAction,
     /// Which directive syntax produced this.
     pub source: SuppressionSource,
@@ -26,7 +26,6 @@ pub struct SuppressionDirective {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SuppressionAction {
     Disable,
-    Enable,
     DisableFile,
 }
 
@@ -50,7 +49,7 @@ pub fn parse_directives(
             continue;
         };
 
-        if let Some(directive) = parse_shuck_directive(&comment) {
+        if let Some(directive) = parse_shuck_directive(source, &comment, file, shellcheck_map) {
             directives.push(directive);
         } else if let Some(directive) =
             parse_shellcheck_directive(source, &comment, file, shellcheck_map)
@@ -120,7 +119,12 @@ fn is_horizontal_whitespace(text: &str) -> bool {
     text.chars().all(|ch| matches!(ch, ' ' | '\t' | '\r'))
 }
 
-fn parse_shuck_directive(comment: &NormalizedComment<'_>) -> Option<SuppressionDirective> {
+fn parse_shuck_directive(
+    source: &str,
+    comment: &NormalizedComment<'_>,
+    file: &File,
+    shellcheck_map: &ShellCheckCodeMap,
+) -> Option<SuppressionDirective> {
     let body = strip_comment_prefix(comment.text);
     let remainder = strip_prefix_ignore_ascii_case(body, "shuck:")?;
     let remainder = remainder
@@ -128,8 +132,16 @@ fn parse_shuck_directive(comment: &NormalizedComment<'_>) -> Option<SuppressionD
         .map_or(remainder, |(before, _)| before);
     let (action, codes) = remainder.split_once('=')?;
     let action = parse_shuck_action(action.trim())?;
-    let codes = parse_codes(codes, resolve_rule_code);
+    let codes = parse_codes(codes, |code| resolve_suppression_code(code, shellcheck_map));
     if codes.is_empty() {
+        return None;
+    }
+
+    if action == SuppressionAction::Disable
+        && !comment.is_own_line
+        && !shellcheck_directive_can_apply_to_following_command(source, file, comment.range)
+        && !is_case_label_directive(comment, file)
+    {
         return None;
     }
 
@@ -161,7 +173,7 @@ fn parse_shellcheck_directive(
                 if code.eq_ignore_ascii_case("all") {
                     codes.extend(Rule::iter());
                 } else {
-                    codes.extend(shellcheck_map.resolve_all(code));
+                    codes.extend(resolve_suppression_code(code, shellcheck_map));
                 }
             }
         }
@@ -593,8 +605,6 @@ fn body_opener_matches(
 fn parse_shuck_action(value: &str) -> Option<SuppressionAction> {
     if value.eq_ignore_ascii_case("disable") {
         Some(SuppressionAction::Disable)
-    } else if value.eq_ignore_ascii_case("enable") {
-        Some(SuppressionAction::Enable)
     } else if value.eq_ignore_ascii_case("disable-file") {
         Some(SuppressionAction::DisableFile)
     } else {
@@ -602,14 +612,28 @@ fn parse_shuck_action(value: &str) -> Option<SuppressionAction> {
     }
 }
 
-fn parse_codes(value: &str, mut resolve: impl FnMut(&str) -> Option<Rule>) -> Vec<Rule> {
+fn parse_codes(value: &str, mut resolve: impl FnMut(&str) -> Vec<Rule>) -> Vec<Rule> {
     value
         .split(',')
-        .filter_map(|code| {
+        .flat_map(|code| {
             let code = code.trim();
-            if code.is_empty() { None } else { resolve(code) }
+            if code.is_empty() {
+                Vec::new()
+            } else {
+                resolve(code)
+            }
         })
         .collect()
+}
+
+fn resolve_suppression_code(code: &str, shellcheck_map: &ShellCheckCodeMap) -> Vec<Rule> {
+    let mut rules = resolve_rule_code(code).into_iter().collect::<Vec<_>>();
+    for rule in shellcheck_map.resolve_all(code) {
+        if !rules.contains(&rule) {
+            rules.push(rule);
+        }
+    }
+    rules
 }
 
 fn resolve_rule_code(code: &str) -> Option<Rule> {
@@ -670,6 +694,27 @@ mod tests {
     }
 
     #[test]
+    fn parses_shellcheck_codes_in_shuck_directives() {
+        let directives = directives(
+            "\
+# shuck: disable=SC2086,2154
+# shuck: disable-file=SC2268
+",
+        );
+
+        assert_eq!(directives.len(), 2);
+        assert_eq!(
+            directives[0].codes,
+            vec![Rule::UnquotedExpansion, Rule::UndefinedVariable]
+        );
+        assert_eq!(directives[1].action, SuppressionAction::DisableFile);
+        assert_eq!(
+            directives[1].codes,
+            vec![Rule::XPrefixInTest, Rule::BackslashBeforeCommand]
+        );
+    }
+
+    #[test]
     fn parses_shellcheck_directives_on_own_line_and_after_code() {
         let source = "\
 # shellcheck disable=SC2086 disable=SC2034 disable=SC7777
@@ -695,9 +740,37 @@ esac
     }
 
     #[test]
+    fn parses_shuck_codes_in_shellcheck_directives() {
+        let directives = directives("# shellcheck disable=S001,SH-039,C124\n");
+
+        assert_eq!(directives.len(), 1);
+        assert_eq!(directives[0].action, SuppressionAction::Disable);
+        assert_eq!(directives[0].source, SuppressionSource::ShellCheck);
+        assert_eq!(
+            directives[0].codes,
+            vec![
+                Rule::UnquotedExpansion,
+                Rule::UndefinedVariable,
+                Rule::UnreachableAfterExit,
+            ]
+        );
+    }
+
+    #[test]
     fn rejects_shellcheck_directives_after_regular_code() {
         let source = "\
 value=1 # shellcheck disable=SC2086
+echo $foo
+";
+        let directives = directives(source);
+
+        assert!(directives.is_empty());
+    }
+
+    #[test]
+    fn rejects_shuck_disable_directives_after_regular_code() {
+        let source = "\
+value=1 # shuck: disable=C006
 echo $foo
 ";
         let directives = directives(source);
@@ -716,6 +789,53 @@ esac
         let directives = directives(source);
 
         assert!(directives.is_empty());
+    }
+
+    #[test]
+    fn parses_shuck_disable_directives_after_control_flow_headers_and_group_openers() {
+        let source = "\
+if # shuck: disable=SC2086
+  echo $foo
+then
+  :
+fi
+if true; then { # shuck: disable=SC2086
+  echo $foo
+}; fi
+while # shuck: disable=SC2086
+  echo $foo
+do
+  :
+done
+{ # shuck: disable=SC2086
+  echo $foo
+}
+";
+        let directives = directives(source);
+
+        assert_eq!(directives.len(), 4);
+        assert!(directives.iter().all(|directive| {
+            directive.source == SuppressionSource::Shuck
+                && directive.action == SuppressionAction::Disable
+                && directive.codes == vec![Rule::UnquotedExpansion]
+        }));
+    }
+
+    #[test]
+    fn parses_shuck_disable_directives_after_case_labels() {
+        let source = "\
+case $x in
+  on) # shuck: disable=SC2086
+    echo $foo
+    ;;
+esac
+";
+        let directives = directives(source);
+
+        assert_eq!(directives.len(), 1);
+        assert_eq!(directives[0].source, SuppressionSource::Shuck);
+        assert_eq!(directives[0].action, SuppressionAction::Disable);
+        assert_eq!(directives[0].codes, vec![Rule::UnquotedExpansion]);
     }
 
     #[test]
@@ -894,6 +1014,7 @@ foreach item (1 2) { # shellcheck disable=SC2086
 # shuck: disable=
 # shuck: foobar=C001
 # shuck disable=C001
+# shuck: enable=SH-039
 # shuck: disable=SH-039
 ";
         let directives = directives(source);

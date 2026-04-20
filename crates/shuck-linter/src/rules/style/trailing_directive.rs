@@ -36,6 +36,17 @@ mod tests {
     }
 
     #[test]
+    fn reports_inline_shuck_disable_directive() {
+        let source = "#!/bin/sh\n: # shuck: disable=C003\nfoo=1\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrailingDirective));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 3);
+        assert_eq!(diagnostics[0].span.slice(source), "#");
+    }
+
+    #[test]
     fn ignores_own_line_directive() {
         let source = "#!/bin/sh\n# shellcheck disable=2034\nfoo=1\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrailingDirective));
@@ -70,6 +81,14 @@ mod tests {
     #[test]
     fn ignores_directive_after_semicolon_separator() {
         let source = "#!/bin/sh\ntrue; # shellcheck disable=SC2317\nfalse\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrailingDirective));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_shuck_disable_after_semicolon_separator() {
+        let source = "#!/bin/sh\ntrue; # shuck: disable=C001\nfalse\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrailingDirective));
 
         assert!(diagnostics.is_empty());
@@ -128,6 +147,15 @@ mod tests {
     #[test]
     fn reports_keyword_like_arguments_with_trailing_directives() {
         let source = "#!/bin/sh\necho if # shellcheck disable=SC2086\necho $foo\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrailingDirective));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+    }
+
+    #[test]
+    fn reports_keyword_like_arguments_with_trailing_shuck_disable() {
+        let source = "#!/bin/sh\necho if # shuck: disable=S001\necho $foo\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrailingDirective));
 
         assert_eq!(diagnostics.len(), 1);
