@@ -3,6 +3,7 @@ use rustc_hash::FxHashSet;
 use crate::{
     Checker, ExpansionContext, Rule, SafeValueIndex, SafeValueQuery, ShellDialect, Violation,
     WordFact, word_unquoted_assign_default_spans, word_unquoted_star_parameter_spans,
+    word_use_replacement_spans,
 };
 
 pub struct UnquotedExpansion;
@@ -87,6 +88,7 @@ fn report_word_expansions(
     } else {
         Default::default()
     };
+    let use_replacement_spans = word_use_replacement_spans(fact.word());
     let star_spans = word_unquoted_star_parameter_spans(fact.word(), array_spans);
     if scalar_spans.is_empty() && star_spans.is_empty() {
         return;
@@ -106,6 +108,9 @@ fn report_word_expansions(
             continue;
         }
         if assign_default_spans.contains(&part_span) {
+            continue;
+        }
+        if use_replacement_spans.contains(&part_span) {
             continue;
         }
         if safe_values.part_is_safe(part, part_span, query) {
@@ -370,6 +375,38 @@ printf '%s\\n' ${z:=fallback}
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["${x:=fallback}", "${y:=out}"]
+        );
+    }
+
+    #[test]
+    fn skips_use_replacement_expansions() {
+        let source = "\
+#!/bin/bash
+foo='a b'
+arr=('left side' right)
+printf '%s\\n' ${foo:+$foo} ${foo:+\"$foo\"} ${arr:+\"${arr[@]}\"}
+tar ${foo:+-C \"$foo\"} -f archive.tar
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn keeps_default_expansions_with_quoted_operands() {
+        let source = "\
+#!/bin/bash
+foo='a b'
+printf '%s\\n' ${foo:-\"$foo\"}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${foo:-\"$foo\"}"]
         );
     }
 
