@@ -15889,7 +15889,11 @@ fn parse_ssh_command(args: &[&Word], source: &str) -> Option<SshCommandFacts> {
 
     let local_expansion_spans = last_remote_arg
         .is_fully_double_quoted()
-        .then(|| double_quoted_expansion_part_spans(last_remote_arg).into_iter().next())
+        .then(|| {
+            double_quoted_expansion_part_spans(last_remote_arg)
+                .into_iter()
+                .next()
+        })
         .flatten()
         .into_iter()
         .collect::<Vec<_>>();
