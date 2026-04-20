@@ -1,6 +1,226 @@
 use super::*;
 use shuck_ast::{HeredocBody, HeredocBodyPart, HeredocBodyPartNode, PatternGroupKind};
 
+#[derive(Debug)]
+pub struct SingleQuotedFragmentFact {
+    span: Span,
+    dollar_quoted: bool,
+    command_name: Option<Box<str>>,
+    assignment_target: Option<Box<str>>,
+    variable_set_operand: bool,
+    literal_backslash_in_single_quotes_span: Option<Span>,
+}
+
+impl SingleQuotedFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn dollar_quoted(&self) -> bool {
+        self.dollar_quoted
+    }
+
+    pub fn command_name(&self) -> Option<&str> {
+        self.command_name.as_deref()
+    }
+
+    pub fn assignment_target(&self) -> Option<&str> {
+        self.assignment_target.as_deref()
+    }
+
+    pub fn variable_set_operand(&self) -> bool {
+        self.variable_set_operand
+    }
+
+    pub fn literal_backslash_in_single_quotes_span(&self) -> Option<Span> {
+        self.literal_backslash_in_single_quotes_span
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct DollarDoubleQuotedFragmentFact {
+    span: Span,
+}
+
+impl DollarDoubleQuotedFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct OpenDoubleQuoteFragmentFact {
+    span: Span,
+}
+
+impl OpenDoubleQuoteFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SuspectClosingQuoteFragmentFact {
+    span: Span,
+}
+
+impl SuspectClosingQuoteFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct BacktickFragmentFact {
+    span: Span,
+    empty: bool,
+}
+
+impl BacktickFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.empty
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct LegacyArithmeticFragmentFact {
+    span: Span,
+}
+
+impl LegacyArithmeticFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PositionalParameterFragmentKind {
+    AboveNine,
+    General,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct PositionalParameterFragmentFact {
+    span: Span,
+    kind: PositionalParameterFragmentKind,
+    guarded: bool,
+}
+
+impl PositionalParameterFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn kind(&self) -> PositionalParameterFragmentKind {
+        self.kind
+    }
+
+    pub fn is_above_nine(&self) -> bool {
+        self.kind == PositionalParameterFragmentKind::AboveNine
+    }
+
+    pub fn is_guarded(&self) -> bool {
+        self.guarded
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct NestedParameterExpansionFragmentFact {
+    span: Span,
+}
+
+impl NestedParameterExpansionFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct IndirectExpansionFragmentFact {
+    span: Span,
+    array_keys: bool,
+}
+
+impl IndirectExpansionFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn array_keys(&self) -> bool {
+        self.array_keys
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct IndexedArrayReferenceFragmentFact {
+    span: Span,
+}
+
+impl IndexedArrayReferenceFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ZshParameterIndexFlagFragmentFact {
+    span: Span,
+}
+
+impl ZshParameterIndexFlagFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SubstringExpansionFragmentFact {
+    span: Span,
+}
+
+impl SubstringExpansionFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CaseModificationFragmentFact {
+    span: Span,
+}
+
+impl CaseModificationFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ReplacementExpansionFragmentFact {
+    span: Span,
+}
+
+impl ReplacementExpansionFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct StarGlobRemovalFragmentFact {
+    span: Span,
+}
+
+impl StarGlobRemovalFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
 #[derive(Debug, Default)]
 pub(super) struct SurfaceFragmentFacts {
     pub(super) single_quoted: Vec<SingleQuotedFragmentFact>,

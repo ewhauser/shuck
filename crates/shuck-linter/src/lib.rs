@@ -25,17 +25,18 @@ pub use facts::{
     BacktickFragmentFact, CommandFact, CommandOptionFacts, ConditionalBareWordFact,
     ConditionalBinaryFact, ConditionalFact, ConditionalNodeFact, ConditionalOperandFact,
     ConditionalOperatorFamily, ConditionalPortabilityFacts, ConditionalUnaryFact, ExitCommandFacts,
-    FactSpan, FindCommandFacts, FindExecCommandFacts, FindExecShellCommandFacts, ForHeaderFact,
+    FindCommandFacts, FindExecCommandFacts, FindExecShellCommandFacts, ForHeaderFact,
     FunctionCallArityFacts, FunctionHeaderFact, GrepPatternSourceKind,
-    LegacyArithmeticFragmentFact, LinterFacts, ListFact, ListOperatorFact, LoopHeaderWordFact,
-    PathWordFact, PipelineFact, PipelineOperatorFact, PipelineSegmentFact,
-    PositionalParameterFragmentFact, PrintfCommandFacts, ReadCommandFacts, RedirectFact,
-    RmCommandFacts, SelectHeaderFact, SimpleTestFact, SimpleTestOperatorFamily, SimpleTestShape,
-    SimpleTestSyntax, SingleQuotedFragmentFact, SshCommandFacts, StatementFact, SubstitutionFact,
+    LegacyArithmeticFragmentFact, ListFact, ListOperatorFact, LoopHeaderWordFact, PathWordFact,
+    PipelineFact, PipelineOperatorFact, PipelineSegmentFact, PositionalParameterFragmentFact,
+    PrintfCommandFacts, ReadCommandFacts, RedirectFact, RmCommandFacts, SelectHeaderFact,
+    SimpleTestFact, SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax,
+    SingleQuotedFragmentFact, SshCommandFacts, StatementFact, SubstitutionFact,
     SubstitutionHostKind, SudoFamilyCommandFacts, SudoFamilyInvoker, UnsetCommandFacts,
     WaitCommandFacts, WordFact, WordFactContext, WordFactHostKind, XargsCommandFacts,
     leading_literal_word_prefix,
 };
+pub use facts::{CommandId, FactSpan, LinterFacts};
 pub use registry::{Category, Rule, code_to_rule};
 pub use rule_selector::{RuleSelector, SelectorParseError};
 pub use rule_set::RuleSet;
