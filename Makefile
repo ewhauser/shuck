@@ -182,7 +182,7 @@ bench-macro:
 	$(NIX_DEVELOP) ./scripts/benchmarks/run.sh
 
 bench-macro-site-local: bench-macro
-	$(NIX_DEVELOP) python3 ./scripts/benchmarks/export_website_data.py --repo-root . --bench-dir .cache --output "$(BENCHMARK_WEBSITE_LOCAL_OUTPUT)" --dataset-id local-m5-max --dataset-name "Apple M5 Max checked-in snapshot" --dataset-description "Checked-in `make bench-macro` results captured on an Apple M5 Max macOS development machine." --environment-kind local --environment-label "Apple M5 Max macOS snapshot" --notes "Regenerate this checked-in snapshot on the Apple M5 Max machine when you want to refresh the website's local reference numbers."
+	$(NIX_DEVELOP) python3 ./scripts/benchmarks/export_website_data.py --repo-root . --bench-dir .cache --output "$(BENCHMARK_WEBSITE_LOCAL_OUTPUT)" --dataset-id local-m5-max --dataset-name "Apple M5 Max checked-in snapshot" --dataset-description "Checked-in make bench-macro results captured on an Apple M5 Max macOS development machine." --environment-kind local --environment-label "Apple M5 Max macOS snapshot" --notes "Regenerate this checked-in snapshot on the Apple M5 Max machine when you want to refresh the website's local reference numbers."
 
 bench-macro-single:
 	test -n "$(BENCH_FILE)"

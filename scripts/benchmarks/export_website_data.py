@@ -244,7 +244,12 @@ def load_cases(
     fixtures: list[dict[str, Any]],
     fixtures_by_slug: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    bench_paths = list(bench_dir.glob("bench-*.json"))
+    allowed_slugs = {"all", *fixtures_by_slug.keys()}
+    bench_paths = [
+        path
+        for path in bench_dir.glob("bench-*.json")
+        if path.stem.removeprefix("bench-") in allowed_slugs
+    ]
     raw_cases: dict[str, list[dict[str, Any]]] = {}
     for bench_path in bench_paths:
         payload = read_json(bench_path)
