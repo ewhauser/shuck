@@ -1,9 +1,6 @@
 reviewed_divergences:
   - side: shuck-only
     path_suffix: "ohmyzsh__ohmyzsh__plugins__alias-finder__tests__test_run.sh"
-    labels:
-      - helper-library
-      - test-harness
     reason: "This zunit test harness is exercising zsh plugin behavior through the `${lines[@]}` capture array, so the remaining X019 hits are test-only array references that appear after the corpus path collapses the helper into portable sh."
   - side: shuck-only
     path_suffix: "pyenv__pyenv__pyenv.d__rehash__source.bash"
@@ -11,13 +8,9 @@ reviewed_divergences:
     end_line: 11
     column: 42
     end_column: 53
-    labels:
-      - project-closure
     reason: "This shim builder is already Bash-specific, and the shell-collapse comparison path still maps the same `${shims[@]}` array use back to slightly different columns between the two analyzers."
   - side: shellcheck-only
     path_suffix: "pyenv__pyenv__pyenv.d__rehash__source.bash"
     line: 11
     end_line: 11
-    labels:
-      - project-closure
     reason: "This rehash helper already depends on bash arrays, `shopt`, and `BASH_SOURCE`, so the remaining SC3054 hit reflects project-closure collapsing a bash helper to POSIX sh more aggressively than Shuck's dialect resolution."

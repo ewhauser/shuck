@@ -2,16 +2,10 @@ reviewed_divergences:
   - side: shuck-only
     path_suffix: "89luca89__distrobox__distrobox-init"
     line: 1886
-    labels:
-      - directive-handling
-      - project-closure
     reason: "This compatibility probe calls `su --version` while deciding whether to install a wrapper. Direct oracle probes still surface SC2117 for that standalone form, so the missing full-file report here is treated as project-closure oracle noise."
   - side: shuck-only
     path_suffix: "89luca89__distrobox__distrobox-init"
     line: 1887
-    labels:
-      - directive-handling
-      - project-closure
     reason: "This compatibility probe calls `su --version` while deciding whether to install a wrapper. Direct oracle probes still surface SC2117 for that standalone form, so the missing full-file report here is treated as project-closure oracle noise."
   - side: shuck-only
     path_suffix: "HariSekhon__DevOps-Bash-tools__install__install_homebrew.sh"
@@ -20,20 +14,12 @@ reviewed_divergences:
   - side: shuck-only
     path_suffix: "bitnami__containers__bitnami__discourse__2026__debian-12__rootfs__opt__bitnami__scripts__discourse__postunpack.sh"
     line: 40
-    labels:
-      - directive-handling
-      - project-closure
     reason: "This command-substitution uses the locally tested `su \"$user\" -s \"$SHELL\" -c ...` shape. The standalone form no longer triggers S054, so the remaining corpus miss is treated as project-closure oracle noise in the full-file run."
   - side: shuck-only
     path_suffix: "bitnami__containers__bitnami__redmine__6.1__debian-12__rootfs__opt__bitnami__scripts__redmine__postunpack.sh"
     line: 45
-    labels:
-      - directive-handling
-      - project-closure
     reason: "This command-substitution uses the locally tested `su \"$user\" -s \"$SHELL\" -c ...` shape. The standalone form no longer triggers S054, so the remaining corpus miss is treated as project-closure oracle noise in the full-file run."
   - side: shuck-only
     path_suffix: "sickcodes__Docker-OSX__tests__test.sh"
     line: 168
-    labels:
-      - test-harness
     reason: "This test harness passes the command as trailing argv after the target user instead of using `-c`. Shuck intentionally keeps preferring explicit command or login forms for S054, while the oracle does not surface SC2117 for this argv-forwarding style."

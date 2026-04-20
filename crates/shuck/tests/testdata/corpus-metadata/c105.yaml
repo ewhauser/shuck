@@ -2,22 +2,14 @@ reviewed_divergences:
   - side: shellcheck-only
     path_suffix: "acmesh-official__acme.sh__acme.sh"
     line: 2484
-    labels:
-      - directive-handling
-      - project-closure
     reason: "C105 is intentionally scoped to positional-parameter @ splats, while the oracle's SC2163 check also flags exporting values through general variable expansion."
   - side: shellcheck-only
     path_suffix: "acmesh-official__acme.sh__acme.sh"
     line: 2490
-    labels:
-      - directive-handling
-      - project-closure
     reason: "C105 is intentionally scoped to positional-parameter @ splats, while the oracle's SC2163 check also flags exporting values through general variable expansion."
   - side: shellcheck-only
     path_suffix: "moovweb__gvm__examples__native__configure"
     line: 1166
-    labels:
-      - project-closure
     reason: "The script validates that ac_envvar holds a shell variable name, assigns through that name, and then exports it via expansion. C105 stays focused on positional-parameter @ splats rather than indirect name export."
   - side: shellcheck-only
     path_suffix: "SlackBuildsOrg__slackbuilds__misc__stardict__stardict-wayland"
@@ -26,38 +18,24 @@ reviewed_divergences:
   - side: shellcheck-only
     path_suffix: "alpinelinux__aports__main__compat-pvgrub__update-pvgrub"
     line: 40
-    labels:
-      - project-closure
     reason: "blkid -o export emits KEY=value records, so exporting the expanded result is a different pattern from C105's positional-parameter @ splat check."
   - side: shellcheck-only
     path_suffix: "alpinelinux__aports__main__compat-pvgrub__update-pvgrub"
     line: 48
-    labels:
-      - project-closure
     reason: "blkid -o export emits KEY=value records, so exporting the expanded result is a different pattern from C105's positional-parameter @ splat check."
   - side: shellcheck-only
     path_suffix: "alpinelinux__aports__main__syslinux__update-extlinux"
     line: 63
-    labels:
-      - project-closure
     reason: "blkid -o export emits KEY=value records, so exporting the expanded result is a different pattern from C105's positional-parameter @ splat check."
   - side: shellcheck-only
     path_suffix: "alpinelinux__aports__main__syslinux__update-extlinux"
     line: 71
-    labels:
-      - project-closure
     reason: "blkid -o export emits KEY=value records, so exporting the expanded result is a different pattern from C105's positional-parameter @ splat check."
   - side: shellcheck-only
     path_suffix: "itzg__docker-minecraft-server__scripts__start-utils"
     line: 218
-    labels:
-      - directive-handling
-      - project-closure
     reason: "The function receives a variable name, assigns through that name with eval, and exports it via expansion. That indirect-name pattern is outside C105's positional-parameter @ splat scope."
   - side: shellcheck-only
     path_suffix: "itzg__docker-minecraft-server__scripts__start-utils"
     line: 228
-    labels:
-      - directive-handling
-      - project-closure
     reason: "The function receives a variable name, assigns through that name with eval, and exports it via expansion. That indirect-name pattern is outside C105's positional-parameter @ splat scope."

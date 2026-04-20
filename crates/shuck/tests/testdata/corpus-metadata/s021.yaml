@@ -3,15 +3,10 @@ reviewed_divergences:
   - side: shuck-only
     path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
     line: 1457
-    labels:
-      - helper-library
-      - project-closure
     reason: "This helper-library project-closure fixture folds positional parameters into a quoted sentence; shuck keeps S021 on this callsite even though the oracle does not emit SC2145 here."
   - side: shellcheck-only
     path_suffix: "moovweb__gvm__scripts__env__pkgset-use"
     line: 54
-    labels:
-      - project-closure
     reason: "This project-closure debug trace mixes an escaped '\\$@' literal with the real '$@' in one quoted word; the oracle keeps SC2145 here, but Shuck does not currently retain S021 on this callsite."
   - side: shellcheck-only
     path_suffix: "RetroPie__RetroPie-Setup__retropie_packages.sh"
@@ -32,9 +27,6 @@ reviewed_divergences:
   - side: shellcheck-only
     path_suffix: "alexanderepstein__Bash-Snippets__gist__gist"
     line: 784
-    labels:
-      - directive-handling
-      - project-closure
     reason: "S021 is scoped to positional-parameter '$@' folding, while this SC2145 finding is for a composed edit argument that mixes in the 'hashtags[@]' array."
   - side: shellcheck-only
     path_suffix: "gentoo__gentoo__app-office__libreoffice-l10n__files__lo_gen_langs.sh"
@@ -47,16 +39,10 @@ reviewed_divergences:
   - side: shellcheck-only
     path_suffix: "gentoo__gentoo__eclass__tests__git-r3_subrepos.sh"
     line: 22
-    labels:
-      - project-closure
-      - test-harness
     reason: "S021 is scoped to positional-parameter '$@' folding, while this SC2145 finding is for array expansions inside a test harness mismatch message."
   - side: shellcheck-only
     path_suffix: "gentoo__gentoo__eclass__tests__python-utils-r1.sh"
     line: 44
-    labels:
-      - project-closure
-      - test-harness
     reason: "S021 is scoped to positional-parameter '$@' folding, while this SC2145 finding is for an 'args[*]' expansion folded into a test description string."
   - side: shellcheck-only
     path_suffix: "gentoo__gentoo__sys-apps__kexec-tools__files__kexec-auto-load"
@@ -65,20 +51,14 @@ reviewed_divergences:
   - side: shellcheck-only
     path_suffix: "google__oss-fuzz__infra__base-images__base-builder__bazel_build_fuzz_tests"
     line: 64
-    labels:
-      - test-harness
     reason: "S021 is scoped to positional-parameter '$@' folding, while this SC2145 finding is for a 'BAZEL_BUILD_FLAGS[@]' array echoed in test-harness output."
   - side: shellcheck-only
     path_suffix: "pyenv__pyenv__pyenv.d__rehash__conda.bash"
     line: 29
-    labels:
-      - shell-collapse
     reason: "S021 is scoped to positional-parameter '$@' folding, while this SC2145 finding is for mixed array expansion inside an eval-generated string."
   - side: shellcheck-only
     path_suffix: "pyenv__pyenv__pyenv.d__rehash__source.bash"
     line: 11
-    labels:
-      - project-closure
     reason: "S021 is scoped to positional-parameter '$@' folding, while this SC2145 finding is for mixed array expansion inside an eval-generated string."
   - side: shellcheck-only
     path_suffix: "rvm__rvm__scripts__extras__rails"
@@ -87,20 +67,14 @@ reviewed_divergences:
   - side: shellcheck-only
     path_suffix: "rvm__rvm__scripts__functions__manage__base_install"
     line: 198
-    labels:
-      - project-closure
     reason: "S021 is scoped to positional-parameter '$@' folding, while this SC2145 finding is for mixed array expansion inside a diagnostic string."
   - side: shellcheck-only
     path_suffix: "rvm__rvm__scripts__functions__support"
     line: 231
-    labels:
-      - project-closure
     reason: "S021 is scoped to positional-parameter '$@' folding, while this SC2145 finding is for mixed array expansion inside a diagnostic string."
   - side: shellcheck-only
     path_suffix: "rvm__rvm__scripts__set"
     line: 198
-    labels:
-      - project-closure
     reason: "S021 is scoped to positional-parameter '$@' folding, while this SC2145 finding is for mixed array expansion in a deprecation message."
   - side: shellcheck-only
     path_suffix: "void-linux__void-packages__srcpkgs__lxc__files__lxc-void"

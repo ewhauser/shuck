@@ -1,6 +1,6 @@
 reviewed_divergences:
   - side: shuck-only
-    reason: "C002 intentionally treats runtime-built source targets as a correctness hazard even when ShellCheck stays silent in package build scripts, helper loaders, and test harness scaffolding. The remaining unlabeled SC1090 mismatches are this same policy shape, so they are tracked as reviewed divergence instead of treated as a rule bug."
+    reason: "C002 intentionally treats runtime-built source targets as a correctness hazard even when they come from package build scripts, helper loaders, test harness scaffolding, or other project-local sourcing paths. ShellCheck stays silent on those SC1090 cases, so we keep them reviewed instead of trying to model every repository-specific source convention."
   - side: shellcheck-only
     path_suffix: "tteck__Proxmox__install__cronicle-install.sh"
     line: 28
@@ -9,6 +9,3 @@ reviewed_divergences:
     path_suffix: "tteck__Proxmox__install__nginxproxymanager-install.sh"
     line: 58
     reason: "ShellCheck warns on source /dev/stdin here-strings even though the source target is fixed"
-  - side: shuck-only
-    labels: ["project-closure"]
-    reason: "Shuck intentionally treats runtime-built source targets as a correctness hazard even when they come from project-local state, helper scripts, directives, or test harnesses. ShellCheck stays silent on these SC1090 cases, so C002 keeps that broader policy as a reviewed divergence instead of trying to model every possible project-closure source path."

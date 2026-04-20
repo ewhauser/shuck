@@ -5,9 +5,6 @@ reviewed_divergences:
     end_line: 103
     column: 71
     end_column: 82
-    labels:
-      - project-closure
-      - shell-collapse
     reason: "This fixture is a zsh startup script. The replacement form is part of zsh-only control flow, so a shell-collapsed sh comparison is not a reliable portability oracle here."
   - side: shuck-only
     path_suffix: "ohmyzsh__ohmyzsh__oh-my-zsh.sh"
@@ -15,7 +12,4 @@ reviewed_divergences:
     end_line: 105
     column: 15
     end_column: 26
-    labels:
-      - project-closure
-      - shell-collapse
     reason: "This fixture is a zsh startup script. The replacement form is part of zsh-only control flow, so a shell-collapsed sh comparison is not a reliable portability oracle here."

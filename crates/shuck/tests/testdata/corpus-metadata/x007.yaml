@@ -3,7 +3,4 @@ reviewed_divergences:
     path_suffix: "void-linux__void-packages__common__xbps-src__shutils__show.sh"
     line: 54
     end_line: 54
-    labels:
-      - project-closure
-      - shell-collapse
     reason: "this helper already uses bash-only `[[ ... =~ ... ]]` syntax at the same site, so treating the nested `$'\\n'` as a standalone sh portability warning is a shell-collapse artifact"

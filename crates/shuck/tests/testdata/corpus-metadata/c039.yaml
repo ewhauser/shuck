@@ -1,23 +1,15 @@
 reviewed_divergences:
   - side: shellcheck-only
     path_suffix: "moovweb__gvm__examples__native__configure"
-    labels:
-      - project-closure
     reason: "This project-closure libtool configure copy still carries SC1078 on nested single-quoted export-script text. C039 stays scoped to reopened double-quoted fragments, so this generated single-quote string remains a reviewed divergence."
   - side: shuck-only
     path_suffix: "moovweb__gvm__examples__native__ltmain.sh"
-    labels:
-      - shell-collapse
     reason: "This libtool wrapper is already shell-collapsed into a malformed quote state before the continued `$ECHO \"\\` block, so the remaining C039 hit is treated as a reviewed shell-collapse artifact."
   - side: shuck-only
     path_suffix: "termux__termux-packages__packages__luvit__build.sh"
-    labels:
-      - project-closure
     reason: "This Termux recipe is compared through a project-closure path that sources `packages/lit/build.sh` inside a quoted URL fragment. Shuck still sees the reopened quote around that sourced command substitution, while the standalone file does not surface SC1078."
   - side: shuck-only
     path_suffix: "tteck__Proxmox__install__heimdall-dashboard-install.sh"
-    labels:
-      - project-closure
     reason: "This Proxmox helper writes a systemd unit with a multiline `echo \"[Unit]...` block. The remaining C039 hit appears only on the project-closure copy, so it stays reviewed instead of broadening the rule."
   - side: shellcheck-only
     path_suffix: "google__oss-fuzz__projects__ox-ruby__build.sh"

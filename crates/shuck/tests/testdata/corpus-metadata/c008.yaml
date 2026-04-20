@@ -4,9 +4,6 @@ reviewed_divergences:
     line: 2734
     column: 14
     end_column: 23
-    labels:
-      - helper-library
-      - project-closure
     reason: "This trap handler is part of a helper script target, and the corpus comparison does not surface the same ShellCheck warning at this site. Keeping it reviewed avoids broadening C008 beyond the trap-action cases ShellCheck and Shuck already agree on."
   - side: shuck-only
     path_suffix: "romkatv__powerlevel10k__gitstatus__install"

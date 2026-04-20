@@ -5,8 +5,6 @@ reviewed_divergences:
     end_line: 143
     column: 49
     end_column: 51
-    labels:
-      - project-closure
     reason: "This fixture's SC2252 record is the unrelated `||`/`&&` warning surfaced in the corpus, not nested zsh substitution syntax."
   - side: shuck-only
     path_suffix: "ohmyzsh__ohmyzsh__plugins__gitfast__git-completion.bash"

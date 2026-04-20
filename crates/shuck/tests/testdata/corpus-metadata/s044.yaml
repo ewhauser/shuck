@@ -4,9 +4,6 @@ reviewed_divergences:
     reason: "The pinned ShellCheck run aborts later in this build script before it reaches the earlier `echo | sed` rewrite, so the remaining S044 hit is treated as an oracle-side parse-abort artifact rather than a live SC2001 mismatch."
   - side: shuck-only
     path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
-    labels:
-      - helper-library
-      - project-closure
     reason: "This python-build helper is compared through helper-library and project-closure context, and the pinned ShellCheck run aborts earlier in the file before it reaches these `echo | sed` rewrites. Shuck keeps the direct S044 reports on the live rewrite sites."
   - side: shellcheck-only
     path_suffix: "google__oss-fuzz__projects__sudoers__build.sh"

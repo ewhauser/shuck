@@ -59,9 +59,9 @@ class RuleSummary:
     description: str
     mismatches: int = 0
     fixtures: set[str] = field(default_factory=set)
-    grouped_reasons: Counter[tuple[str, tuple[str, ...]]] = field(default_factory=Counter)
+    grouped_reasons: Counter[str] = field(default_factory=Counter)
 
-    def top_reason_groups(self, limit: int = 3) -> list[tuple[tuple[str, tuple[str, ...]], int]]:
+    def top_reason_groups(self, limit: int = 3) -> list[tuple[str, int]]:
         return self.grouped_reasons.most_common(limit)
 
 
@@ -202,17 +202,6 @@ def parse_rule_metadata(repo_root: Path, rule_code: str) -> tuple[str, str]:
     return description, shellcheck_code
 
 
-def parse_labels(message: str) -> tuple[str, tuple[str, ...]]:
-    body = message
-    labels: tuple[str, ...] = ()
-    if " labels=" in body:
-        _, label_part = body.split(" labels=", 1)
-        if " reason=" in label_part:
-            label_part, _ = label_part.split(" reason=", 1)
-        labels = tuple(sorted(filter(None, label_part.split(","))))
-    return body, labels
-
-
 def parse_rule_summaries(section: str | None, repo_root: Path) -> list[RuleSummary]:
     if not section:
         return []
@@ -238,11 +227,10 @@ def parse_rule_summaries(section: str | None, repo_root: Path) -> list[RuleSumma
                 description=description,
             )
 
-        _, labels = parse_labels(match.group("message"))
         summary.mismatches += 1
         if current_fixture is not None:
             summary.fixtures.add(current_fixture)
-        summary.grouped_reasons[(match.group("side"), labels)] += 1
+        summary.grouped_reasons[match.group("side")] += 1
 
     return sorted(summaries.values(), key=lambda summary: summary.mismatches, reverse=True)
 
@@ -385,21 +373,6 @@ def format_number(value: int) -> str:
     return f"{value:,}"
 
 
-def label_phrase(labels: tuple[str, ...]) -> str:
-    if not labels:
-        return "plain scripts"
-
-    mapping = {
-        "directive-handling": "directive handling",
-        "helper-library": "helper library",
-        "location-only": "span-only diffs",
-        "project-closure": "project closure",
-        "shell-collapse": "shell collapse",
-        "test-harness": "test harness",
-    }
-    return " + ".join(mapping.get(label, label) for label in labels)
-
-
 def side_phrase(side: str) -> str:
     return "SC-only" if side == "shellcheck-only" else "Shuck-only"
 
@@ -414,12 +387,11 @@ def rendered_reason_items(summary: RuleSummary) -> str:
     top_count = sum(count for _, count in top_groups)
     other_count = summary.mismatches - top_count
 
-    for (side, labels), count in top_groups:
+    for side, count in top_groups:
         items.append(
             "<li>"
             f'<span class="count-tag">{format_number(count)}</span>'
-            f'<span class="{side_class(side)}">{html.escape(side_phrase(side))}</span> '
-            f"in {html.escape(label_phrase(labels))}"
+            f'<span class="{side_class(side)}">{html.escape(side_phrase(side))}</span>'
             "</li>"
         )
 
@@ -1071,10 +1043,8 @@ def render_html(
     <section class="section">
       <h2>How To Read This</h2>
       <p>
-        The grouped-reason bullets show where a rule's mismatches cluster. Labels come from the
-        large-corpus harness and highlight common contexts such as directive handling, project
-        closure, shell collapse, helper libraries, test harness scripts, and span-only location
-        differences.
+        The grouped-reason bullets show whether a rule's mismatches skew toward ShellCheck-only
+        or Shuck-only records.
       </p>
       <div class="legend">
         <div class="legend-item"><span class="sc-only">SC-only</span> = ShellCheck reported it, Shuck did not.</div>
@@ -1189,7 +1159,7 @@ def main() -> int:
     shellcheck_only = sum(
         count
         for summary in rule_summaries
-        for (side, _labels), count in summary.grouped_reasons.items()
+        for side, count in summary.grouped_reasons.items()
         if side == "shellcheck-only"
     )
     shuck_only = rule_records - shellcheck_only

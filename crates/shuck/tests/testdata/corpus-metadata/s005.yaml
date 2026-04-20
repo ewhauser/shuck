@@ -10,10 +10,6 @@ reviewed_divergences:
     reason: "This package recipe writes a post-install maintainer script into a heredoc, so the remaining legacy-backtick site belongs to emitted script text instead of live package-build logic."
   - side: shuck-only
     path_suffix: "bats-core__bats-core__lib__bats-core__warnings.bash"
-    labels:
-      - directive-handling
-      - helper-library
-      - project-closure
     reason: "This helper wrapper is compared through a project-closure path and the remaining backtick spans are treated as reviewed differences for the corpus."
   - side: shuck-only
     path_suffix: "megastep__makeself__makeself-header.sh"
@@ -27,57 +23,36 @@ reviewed_divergences:
     reason: "This generated installer header is evaluated as a large wrapper file, so the corpus keeps the trailing backtick block as a reviewed difference."
   - side: shuck-only
     path_suffix: "nvm-sh__nvm__install.sh"
-    labels:
-      - directive-handling
-      - project-closure
     reason: "The project-closure copy of this installer wrapper is intentionally left as a reviewed S005 divergence."
   - side: shuck-only
     path_suffix: "nvm-sh__nvm__nvm.sh"
     line: 2250
     end_line: 2250
-    labels:
-      - directive-handling
-      - shell-collapse
     reason: "This shell-collapse wrapper is kept as a reviewed S005 divergence in the corpus comparison."
   - side: shellcheck-only
     path_suffix: "ohmyzsh__ohmyzsh__plugins__macos__spotify"
     line: 63
     end_line: 63
-    labels:
-      - helper-library
-      - project-closure
     reason: "This helper-library help text is compared through the project-closure copy, and the corpus treats the backtick style warning as reviewed there."
   - side: shuck-only
     path_suffix: "pyenv__pyenv__libexec__pyenv-init"
     line: 327
     end_line: 327
-    labels:
-      - helper-library
-      - project-closure
     reason: "The helper-library copy of this init script is treated as a reviewed divergence for the corpus comparison."
   - side: shuck-only
     path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
     line: 205
     end_line: 205
-    labels:
-      - helper-library
-      - project-closure
     reason: "This helper-library wrapper is compared through project-closure and the corpus keeps the backtick warning reviewed."
   - side: shuck-only
     path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
     line: 388
     end_line: 388
-    labels:
-      - helper-library
-      - project-closure
     reason: "This helper-library wrapper is compared through project-closure and the corpus keeps the backtick warning reviewed."
   - side: shuck-only
     path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
     line: 1411
     end_line: 1411
-    labels:
-      - helper-library
-      - project-closure
     reason: "This helper-library wrapper is compared through project-closure and the corpus keeps the backtick warning reviewed."
   - side: shuck-only
     path_suffix: "termux__termux-packages__packages__jira-go__build.sh"

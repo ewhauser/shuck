@@ -1,12 +1,6 @@
 reviewed_divergences:
   - side: shellcheck-only
-    labels:
-      - project-closure
-    reason: "These corpus fixtures build helper source paths from repo-local variables, helper roots, or test harness state that ShellCheck still treats as missing explicit inputs. Shuck keeps C003 generic and avoids baking repository-specific path conventions into its source resolver."
-  - side: shellcheck-only
-    labels:
-      - directive-handling
-    reason: "These fixtures rely on directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repo-specific directive heuristics."
+    reason: "These fixtures build helper source paths from repo-local variables or directive hints that still need project-specific path expansion or helper layout knowledge to resolve. We review those ShellCheck-only SC1091 hits instead of teaching C003 repository-specific source resolver heuristics."
   - side: shuck-only
     path_suffix: "dylanaraps__neofetch__neofetch"
     line: 987
@@ -46,16 +40,10 @@ reviewed_divergences:
   - side: shuck-only
     path_suffix: "ohmyzsh__ohmyzsh__oh-my-zsh.sh"
     line: 71
-    labels:
-      - project-closure
-      - shell-collapse
     reason: "This shell-collapsed Oh My Zsh entrypoint loads internal helpers through the repo-root `$ZSH/...` library path. The current oracle run stays silent on those shell-collapse library loads, while Shuck keeps the not-provided helper dependencies visible."
   - side: shuck-only
     path_suffix: "ohmyzsh__ohmyzsh__oh-my-zsh.sh"
     line: 125
-    labels:
-      - project-closure
-      - shell-collapse
     reason: "This shell-collapsed Oh My Zsh entrypoint loads internal helpers through the repo-root `$ZSH/...` library path. The current oracle run stays silent on those shell-collapse library loads, while Shuck keeps the not-provided helper dependencies visible."
   - side: shuck-only
     path_suffix: "romkatv__powerlevel10k__gitstatus__install"
@@ -64,56 +52,36 @@ reviewed_divergences:
   - side: shuck-only
     path_suffix: "dylanaraps__neofetch__neofetch"
     line: 2591
-    labels:
-      - project-closure
     reason: "This macOS probe re-sources a cached GPU detail file under a runtime cache directory rather than a checked project input. ShellCheck stays silent on that user-cache helper path in the full fixture, while Shuck keeps the sourced dependency visible."
   - side: shuck-only
     path_suffix: "dylanaraps__neofetch__neofetch"
     line: 4783
-    labels:
-      - directive-handling
-      - project-closure
     reason: "This config loader conditionally sources a user config file under `XDG_CONFIG_HOME`, which lives outside the analyzed project inputs. ShellCheck stays silent on that full-file user-config path, while Shuck keeps the sourced dependency visible."
   - side: shuck-only
     path_suffix: "dylanaraps__neofetch__neofetch"
     line: 4787
-    labels:
-      - directive-handling
-      - project-closure
     reason: "This config loader conditionally sources a user config file under `XDG_CONFIG_HOME`, which lives outside the analyzed project inputs. ShellCheck stays silent on that full-file user-config path, while Shuck keeps the sourced dependency visible."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__rvmrc"
     line: 3
-    labels:
-      - project-closure
     reason: "This runtime loader sources helper libraries from the tool-managed `rvm_scripts_path` root instead of from the checked project tree. ShellCheck stays silent on those full-file runtime library loads, while Shuck keeps the sourced dependencies visible."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__rvmrc"
     line: 4
-    labels:
-      - project-closure
     reason: "This runtime loader sources helper libraries from the tool-managed `rvm_scripts_path` root instead of from the checked project tree. ShellCheck stays silent on those full-file runtime library loads, while Shuck keeps the sourced dependencies visible."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__rvmrc"
     line: 5
-    labels:
-      - project-closure
     reason: "This runtime loader sources helper libraries from the tool-managed `rvm_scripts_path` root instead of from the checked project tree. ShellCheck stays silent on those full-file runtime library loads, while Shuck keeps the sourced dependencies visible."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__rvmrc"
     line: 6
-    labels:
-      - project-closure
     reason: "This runtime loader sources helper libraries from the tool-managed `rvm_scripts_path` root instead of from the checked project tree. ShellCheck stays silent on those full-file runtime library loads, while Shuck keeps the sourced dependencies visible."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__rvmrc"
     line: 7
-    labels:
-      - project-closure
     reason: "This runtime loader sources helper libraries from the tool-managed `rvm_scripts_path` root instead of from the checked project tree. ShellCheck stays silent on those full-file runtime library loads, while Shuck keeps the sourced dependencies visible."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__rvmrc"
     line: 8
-    labels:
-      - project-closure
     reason: "This runtime loader sources helper libraries from the tool-managed `rvm_scripts_path` root instead of from the checked project tree. ShellCheck stays silent on those full-file runtime library loads, while Shuck keeps the sourced dependencies visible."

@@ -5,6 +5,4 @@ reviewed_divergences:
     end_line: 51
     column: 31
     end_column: 34
-    labels:
-      - patch-file
     reason: "This fixture is a patch payload wrapped by a shell launcher. The matched `EOF` token is part of diff text rather than an executed heredoc closer, so this C144 result is recorded as patch-data noise."

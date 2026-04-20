@@ -5,7 +5,4 @@ reviewed_divergences:
     end_line: 827
     column: 16
     end_column: 16
-    labels:
-      - helper-library
-      - project-closure
     reason: "This helper intentionally builds literal `NAME[@]` text for a later indirect expansion, so the adjacent bracket suffix is deliberate and warning here would be noisy."

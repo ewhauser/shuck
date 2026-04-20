@@ -31,9 +31,6 @@ reviewed_divergences:
     reason: "This helper sources another script from inside a function while project-closure analysis treats the file as POSIX `sh`. Shuck now routes that function-local `source` case to X080, while the current ShellCheck oracle still emits the generic X031 portability code on this path."
   - side: shuck-only
     path_suffix: "ohmyzsh__ohmyzsh__oh-my-zsh.sh"
-    labels:
-      - project-closure
-      - shell-collapse
     reason: "This fixture is an Oh My Zsh startup script. In the shell-collapse comparison path it gets treated like portable `sh`, but these `source` commands belong to Zsh-specific startup loading rather than the POSIX portability target for X031."
   - side: shellcheck-only
     path_suffix: "SlackBuildsOrg__slackbuilds__misc__cwiid__rc.cwiid.new"
@@ -50,14 +47,8 @@ reviewed_divergences:
   - side: shellcheck-only
     path_suffix: "romkatv__powerlevel10k__gitstatus__gitstatus.plugin.sh"
     line: 164
-    labels:
-      - project-closure
-      - shell-collapse
     reason: "This fixture is a bash gitstatus plugin that only shows up through the shell-collapse portability comparison path. The generic POSIX-sh X031 comparison target is not the right match for this function-local `source` call."
   - side: shellcheck-only
     path_suffix: "romkatv__powerlevel10k__gitstatus__gitstatus.plugin.sh"
     line: 206
-    labels:
-      - project-closure
-      - shell-collapse
     reason: "This fixture is a bash gitstatus plugin that only shows up through the shell-collapse portability comparison path. The generic POSIX-sh X031 comparison target is not the right match for this function-local `source` call."

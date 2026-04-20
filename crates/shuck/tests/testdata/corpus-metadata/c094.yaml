@@ -49,8 +49,6 @@ reviewed_divergences:
     reason: "This build helper reuses redirected filename text through shell variables and derived output templates, and the pinned ShellCheck SC2094 oracle treats that text collision as a same-file read/write site even though the command is not reopening the redirect target as input. Shuck keeps C094 scoped to actual file operands and redirect sources."
   - side: shellcheck-only
     path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_table.sh"
-    labels:
-      - project-closure
     reason: "This helper reuses redirected filename tokens as scalar values and formatting placeholders, and the pinned ShellCheck SC2094 oracle treats that text collision as a same-file read/write site even though the command is not reopening that path as input. Shuck keeps C094 scoped to actual file operands and redirect sources."
   - side: shellcheck-only
     path_suffix: "swoodford__aws__s3-restrict-bucket-policy.sh"
