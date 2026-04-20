@@ -10,8 +10,8 @@ edition = "2024"
 license = "MIT"
 authors = ["Eric Hauser"]
 repository = "https://github.com/ewhauser/shuck"
-description = "A fast shell script linter and formatter"
-keywords = ["shell", "bash", "linter", "formatter", "static-analysis"]
+description = "A fast shell script linter"
+keywords = ["shell", "bash", "linter", "static-analysis", "cli"]
 categories = ["command-line-utilities", "development-tools"]
 
 [workspace.dependencies]

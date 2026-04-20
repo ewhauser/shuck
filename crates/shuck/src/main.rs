@@ -1,7 +1,6 @@
 use std::io::Write;
 use std::process::ExitCode;
 
-use clap::Parser;
 use colored::Colorize;
 
 use shuck::args::Args;

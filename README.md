@@ -1,14 +1,14 @@
 # shuck
 
-A shell script linter and formatter, written in Rust.
+A shell script linter, written in Rust.
 
-Shuck parses and analyzes shell scripts to catch common bugs, style issues, and portability problems. It includes a built-in formatter and a caching layer for fast incremental runs.
+Shuck parses and analyzes shell scripts to catch common bugs, style issues, and portability problems. It includes a caching layer for fast incremental runs.
 
 ## Features
 
 - High performance — ~20x faster than ShellCheck
 - Linting with rules across correctness and style categories
-- Formatting with configurable indentation, operator placement, and layout options
+- Safe and unsafe fix support for selected diagnostics
 - Multi-dialect support: bash, sh/POSIX, mksh, zsh
 - Automatic file discovery via extensions and shebang detection
 - ShellCheck suppression compatibility (`# shellcheck disable=SC2086`)
@@ -39,30 +39,17 @@ shuck check .
 # Read from stdin
 echo 'echo $foo' | shuck check -
 
+# Apply safe fixes automatically
+shuck check --fix .
+
+# Apply opt-in unsafe fixes too
+shuck check --unsafe-fixes .
+
 # Skip the cache
 shuck check --no-cache .
 
 # Override the cache location
 shuck --cache-dir .tmp/shuck-cache check .
-```
-
-### Format
-
-```sh
-# Format files in-place
-shuck format .
-
-# Check formatting without modifying files (exit 1 if changes needed)
-shuck format --check .
-
-# Show diffs instead of writing
-shuck format --diff .
-
-# Format with specific options
-shuck format --indent-style space --indent-width 4 .
-
-# Minify (compact form, strip comments)
-shuck format --minify script.sh
 ```
 
 ### Clean caches
@@ -102,7 +89,7 @@ deploy.sh:45:3: warning[S005] legacy backtick command substitution
 | Code | Meaning |
 |------|---------|
 | `0`  | No issues found |
-| `1`  | Lint violations or formatting changes detected |
+| `1`  | Lint violations or parse errors detected |
 | `2`  | Runtime error (bad arguments, I/O failure) |
 
 ## Rules
@@ -152,24 +139,6 @@ code_here
 # shellcheck disable=SC2034,SC2086
 ```
 
-## Configuration
-
-Create a `.shuck.toml` or `shuck.toml` at your project root:
-
-```toml
-[format]
-indent-style = "space"     # tab | space
-indent-width = 4           # 1-255, used when indent-style = "space"
-binary-next-line = false   # place binary operators on the next line
-switch-case-indent = false # indent case branch bodies
-space-redirects = false    # spaces around redirect operators
-keep-padding = false       # preserve original source padding
-function-next-line = false # opening brace on its own line
-never-split = false        # compact single-line layouts
-```
-
-Formatter dialect is auto-discovered from the filename or shebang. Use `shuck format --dialect <shell>` when you need an explicit override, especially for stdin input.
-
 ## File discovery
 
 When given a directory, shuck recursively discovers shell scripts by:
@@ -183,7 +152,7 @@ Gitignore and `.ignore` files are respected by default. Use `--no-respect-gitign
 
 ## Caching
 
-Shuck caches lint and format results per file in a shared cache root outside the project tree by default. The default location follows the OS cache directory convention, which is typically `~/Library/Caches/shuck` on macOS and `$XDG_CACHE_HOME/shuck` or `~/.cache/shuck` on Linux.
+Shuck caches lint results per file in a shared cache root outside the project tree by default. The default location follows the OS cache directory convention, which is typically `~/Library/Caches/shuck` on macOS and `$XDG_CACHE_HOME/shuck` or `~/.cache/shuck` on Linux.
 
 Override the cache root with `--cache-dir` or `SHUCK_CACHE_DIR`.
 
@@ -196,7 +165,6 @@ Shuck builds on ideas and inspiration from several excellent open-source project
 - **[bashkit](https://github.com/everruns/bashkit)** — Source of the bash lexer and parser that powers shuck-parser.
 - **[Ruff](https://github.com/astral-sh/ruff)** — Linter architecture inspiration, particularly around caching, rule organization, and diagnostic output.
 - **[ShellCheck](https://github.com/koalaman/shellcheck)** — An amazing project and the original source of inspiration for shuck. ShellCheck set the standard for shell script analysis.
-- **[shfmt](https://github.com/mvdan/sh)** — Shell formatter whose design informed shuck's formatting approach.
 - **[gbash](https://github.com/ewhauser/gbash)** — A lot of lessons learned from this earlier project carried forward into shuck.
 
 ## License

@@ -22,9 +22,8 @@ export default function Home() {
               className="h-28 w-28 sm:h-36 sm:w-36 mb-5"
             />
             <p className="text-base text-fg-secondary leading-relaxed mb-6">
-              A fast shell script linter and formatter, built in Rust. Checks
-              for correctness, portability, and style issues in your shell
-              scripts.
+              A fast shell script linter, built in Rust. Checks for
+              correctness, portability, and style issues in your shell scripts.
             </p>
 
             {/* Install */}
