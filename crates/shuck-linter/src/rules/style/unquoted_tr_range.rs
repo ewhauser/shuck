@@ -21,7 +21,7 @@ pub fn unquoted_tr_range(checker: &mut Checker) {
         .flat_map(|fact| {
             fact.body_args().iter().filter_map(|word| {
                 let text = static_word_text(word, checker.source())?;
-                is_bracketed_tr_set(text.as_str()).then_some(word.span)
+                is_bracketed_tr_set(text.as_ref()).then_some(word.span)
             })
         })
         .collect::<Vec<_>>();

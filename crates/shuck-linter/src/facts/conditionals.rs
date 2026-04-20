@@ -263,7 +263,7 @@ fn collect_c107_status_spans_in_simple_test(
         return;
     };
     if !matches!(
-        operator.as_str(),
+        operator.as_ref(),
         "=" | "==" | "!=" | "-eq" | "-ne" | "-lt" | "-le" | "-gt" | "-ge"
     ) {
         return;

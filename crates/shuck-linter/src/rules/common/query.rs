@@ -133,44 +133,64 @@ pub(crate) fn declaration_operands(command: &Command) -> &[DeclOperand] {
     }
 }
 
-pub(crate) fn visit_arithmetic_words(
-    expression: &ArithmeticExprNode,
-    visitor: &mut impl FnMut(&Word),
+pub(crate) fn visit_arithmetic_words<'a>(
+    expression: &'a ArithmeticExprNode,
+    visitor: &mut impl FnMut(&'a Word),
 ) {
     visit_arithmetic_words_in_expr(expression, visitor);
 }
 
-pub(crate) fn visit_var_ref_subscript_words(reference: &VarRef, visitor: &mut impl FnMut(&Word)) {
-    let mut words = Vec::new();
-    collect_var_ref_subscript_words(reference, &mut words);
-    for word in words {
+pub(crate) fn visit_var_ref_subscript_words<'a>(
+    reference: &'a VarRef,
+    visitor: &mut impl FnMut(&'a Word),
+) {
+    visit_optional_arithmetic_words(
+        reference
+            .subscript
+            .as_ref()
+            .and_then(|subscript| subscript.arithmetic_ast.as_ref()),
+        visitor,
+    );
+}
+
+pub(crate) fn visit_var_ref_subscript_words_with_source<'a>(
+    reference: &'a VarRef,
+    _source: &'a str,
+    visitor: &mut impl FnMut(&'a Word),
+) {
+    visit_subscript_words(reference.subscript.as_ref(), _source, visitor);
+}
+
+pub(crate) fn visit_subscript_words<'a>(
+    subscript: Option<&'a Subscript>,
+    _source: &'a str,
+    visitor: &mut impl FnMut(&'a Word),
+) {
+    let Some(subscript) = subscript else {
+        return;
+    };
+    if subscript.selector().is_some() {
+        return;
+    }
+    if let Some(expression) = subscript.arithmetic_ast.as_ref() {
+        visit_arithmetic_words_in_expr(expression, visitor);
+        return;
+    }
+
+    if let Some(word) = subscript.word_ast() {
         visitor(word);
+        return;
     }
+
+    debug_assert!(
+        subscript.word_ast().is_some(),
+        "ordinary subscripts should always carry a word AST"
+    );
 }
 
-pub(crate) fn visit_var_ref_subscript_words_with_source(
-    reference: &VarRef,
-    source: &str,
-    visitor: &mut impl FnMut(&Word),
-) {
-    visit_subscript_words(reference.subscript.as_ref(), source, visitor);
-}
-
-pub(crate) fn visit_subscript_words(
-    subscript: Option<&Subscript>,
-    source: &str,
-    visitor: &mut impl FnMut(&Word),
-) {
-    let mut words = Vec::new();
-    collect_subscript_words(subscript, source, &mut words);
-    for word in words {
-        visitor(&word);
-    }
-}
-
-fn visit_arithmetic_words_in_expr(
-    expression: &ArithmeticExprNode,
-    visitor: &mut impl FnMut(&Word),
+fn visit_arithmetic_words_in_expr<'a>(
+    expression: &'a ArithmeticExprNode,
+    visitor: &mut impl FnMut(&'a Word),
 ) {
     match &expression.kind {
         ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_) => {}
@@ -202,39 +222,13 @@ fn visit_arithmetic_words_in_expr(
     }
 }
 
-fn collect_var_ref_subscript_words<'a>(reference: &'a VarRef, words: &mut Vec<&'a Word>) {
-    collect_optional_arithmetic_words(
-        reference
-            .subscript
-            .as_ref()
-            .and_then(|subscript| subscript.arithmetic_ast.as_ref()),
-        words,
-    );
-}
-
-fn collect_subscript_words(subscript: Option<&Subscript>, _source: &str, words: &mut Vec<Word>) {
-    let Some(subscript) = subscript else {
-        return;
-    };
-    if subscript.selector().is_some() {
-        return;
+fn visit_optional_arithmetic_words<'a>(
+    expression: Option<&'a ArithmeticExprNode>,
+    visitor: &mut impl FnMut(&'a Word),
+) {
+    if let Some(expression) = expression {
+        visit_arithmetic_words_in_expr(expression, visitor);
     }
-    if let Some(expression) = subscript.arithmetic_ast.as_ref() {
-        let mut arithmetic_words = Vec::new();
-        collect_arithmetic_words(expression, &mut arithmetic_words);
-        words.extend(arithmetic_words.into_iter().cloned());
-        return;
-    }
-
-    if let Some(word) = subscript.word_ast() {
-        words.push(word.clone());
-        return;
-    }
-
-    debug_assert!(
-        subscript.word_ast().is_some(),
-        "ordinary subscripts should always carry a word AST"
-    );
 }
 
 fn collect_optional_arithmetic_words<'a>(
@@ -244,6 +238,16 @@ fn collect_optional_arithmetic_words<'a>(
     if let Some(expression) = expression {
         collect_arithmetic_words(expression, words);
     }
+}
+
+fn collect_var_ref_subscript_words<'a>(reference: &'a VarRef, words: &mut Vec<&'a Word>) {
+    collect_optional_arithmetic_words(
+        reference
+            .subscript
+            .as_ref()
+            .and_then(|subscript| subscript.arithmetic_ast.as_ref()),
+        words,
+    );
 }
 
 fn collect_arithmetic_lvalue_words<'a>(target: &'a ArithmeticLvalue, words: &mut Vec<&'a Word>) {
@@ -282,7 +286,10 @@ fn collect_arithmetic_words<'a>(expression: &'a ArithmeticExprNode, words: &mut 
     }
 }
 
-fn visit_arithmetic_lvalue_words(target: &ArithmeticLvalue, visitor: &mut impl FnMut(&Word)) {
+fn visit_arithmetic_lvalue_words<'a>(
+    target: &'a ArithmeticLvalue,
+    visitor: &mut impl FnMut(&'a Word),
+) {
     match target {
         ArithmeticLvalue::Variable(_) => {}
         ArithmeticLvalue::Indexed { index, .. } => visit_arithmetic_words_in_expr(index, visitor),

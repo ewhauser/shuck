@@ -1356,7 +1356,8 @@ struct DerivedWordFactData {
 
 fn derive_word_fact_data(word: &Word, source: &str) -> DerivedWordFactData {
     DerivedWordFactData {
-        static_text: static_word_text(word, source).map(String::into_boxed_str),
+        static_text: static_word_text(word, source)
+            .map(|text| text.into_owned().into_boxed_str()),
         starts_with_extglob: span::word_starts_with_extglob(word, source),
         has_literal_affixes: word_has_literal_affixes(word),
         contains_shell_quoting_literals: word_contains_shell_quoting_literals(word, source),
@@ -1822,8 +1823,8 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                                 self.collect_array_index_arithmetic_spans(word);
                                 self.collect_dollar_prefixed_indexed_subscript_spans(word);
                             }
-                            self.push_owned_word_with_surface(
-                                word.clone(),
+                            self.push_word_with_surface(
+                                word,
                                 WordFactContext::Expansion(
                                     ExpansionContext::DeclarationAssignmentValue,
                                 ),
@@ -1870,8 +1871,8 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                     self.collect_array_index_arithmetic_spans(word);
                     self.collect_dollar_prefixed_indexed_subscript_spans(word);
                 }
-                self.push_owned_word_with_surface(
-                    word.clone(),
+                self.push_word_with_surface(
+                    word,
                     context,
                     WordFactHostKind::AssignmentTargetSubscript,
                     surface_context,
@@ -1915,8 +1916,8 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                                 if indexed_semantics {
                                     self.collect_dollar_prefixed_indexed_subscript_spans(word);
                                 }
-                                self.push_owned_word_with_surface(
-                                    word.clone(),
+                                self.push_word_with_surface(
+                                    word,
                                     context,
                                     WordFactHostKind::ArrayKeySubscript,
                                     surface_context,
@@ -1950,7 +1951,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
 
     fn collect_pattern_context_words(
         &mut self,
-        pattern: &Pattern,
+        pattern: &'a Pattern,
         context: WordFactContext,
         host_kind: WordFactHostKind,
         surface_context: Option<SurfaceScanContext<'_>>,
@@ -1976,14 +1977,9 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 }
                 PatternPart::Word(word) => {
                     if let Some(surface_context) = surface_context {
-                        self.push_owned_word_with_surface(
-                            word.clone(),
-                            context,
-                            host_kind,
-                            surface_context,
-                        );
+                        self.push_word_with_surface(word, context, host_kind, surface_context);
                     } else {
-                        self.push_owned_word(word.clone(), context, host_kind);
+                        self.push_word(word, context, host_kind);
                     }
                 }
                 PatternPart::Literal(_) | PatternPart::CharClass(_) if is_case_pattern => {}
@@ -2035,7 +2031,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
 
     fn collect_zsh_qualified_glob_context_words(
         &mut self,
-        glob: &ZshQualifiedGlob,
+        glob: &'a ZshQualifiedGlob,
         context: WordFactContext,
         host_kind: WordFactHostKind,
     ) {
@@ -2099,8 +2095,8 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                     reference,
                     self.source,
                     &mut |word| {
-                        self.push_owned_word_with_surface(
-                            word.clone(),
+                        self.push_word_with_surface(
+                            word,
                             WordFactContext::Expansion(
                                 ExpansionContext::ConditionalVarRefSubscript,
                             ),
@@ -2115,7 +2111,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
 
     fn collect_word_parameter_patterns(
         &mut self,
-        parts: &[WordPartNode],
+        parts: &'a [WordPartNode],
         host_kind: WordFactHostKind,
     ) {
         for part in parts {
@@ -2165,7 +2161,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
 
     fn collect_parameter_operator_patterns(
         &mut self,
-        operator: &ParameterOp,
+        operator: &'a ParameterOp,
         host_kind: WordFactHostKind,
     ) {
         match operator {
@@ -2197,8 +2193,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         context: WordFactContext,
         host_kind: WordFactHostKind,
     ) -> Option<usize> {
-        self.push_cow_word(Cow::Borrowed(word), context, host_kind, None)
-            .0
+        self.push_cow_word(word, context, host_kind, None).0
     }
 
     fn push_word_with_surface(
@@ -2208,58 +2203,32 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         host_kind: WordFactHostKind,
         surface_context: SurfaceScanContext<'_>,
     ) -> (Option<usize>, bool) {
-        self.push_cow_word(
-            Cow::Borrowed(word),
-            context,
-            host_kind,
-            Some(surface_context),
-        )
-    }
-
-    fn push_owned_word(
-        &mut self,
-        word: Word,
-        context: WordFactContext,
-        host_kind: WordFactHostKind,
-    ) -> Option<usize> {
-        self.push_cow_word(Cow::Owned(word), context, host_kind, None)
-            .0
-    }
-
-    fn push_owned_word_with_surface(
-        &mut self,
-        word: Word,
-        context: WordFactContext,
-        host_kind: WordFactHostKind,
-        surface_context: SurfaceScanContext<'_>,
-    ) -> (Option<usize>, bool) {
-        self.push_cow_word(Cow::Owned(word), context, host_kind, Some(surface_context))
+        self.push_cow_word(word, context, host_kind, Some(surface_context))
     }
 
     fn push_cow_word(
         &mut self,
-        word: Cow<'a, Word>,
+        word: &'a Word,
         context: WordFactContext,
         host_kind: WordFactHostKind,
         surface_context: Option<SurfaceScanContext<'_>>,
     ) -> (Option<usize>, bool) {
-        let word_ref = word.as_ref();
         let opened_double_quote = surface_context
-            .map(|surface_context| self.surface.collect_word(word_ref, surface_context))
+            .map(|surface_context| self.surface.collect_word(word, surface_context))
             .unwrap_or(false);
-        let key = FactSpan::new(word_ref.span);
+        let key = FactSpan::new(word.span);
         if !self.seen.insert((key, context, host_kind)) {
             return (None, opened_double_quote);
         }
 
-        self.collect_word_parameter_patterns(&word_ref.parts, host_kind);
-        self.collect_arithmetic_summary(word_ref, context, host_kind);
+        self.collect_word_parameter_patterns(&word.parts, host_kind);
+        self.collect_arithmetic_summary(word, context, host_kind);
 
         let zsh_options = self.command_zsh_options.clone();
-        let analysis = analyze_word(word_ref, self.source, zsh_options.as_ref());
+        let analysis = analyze_word(word, self.source, zsh_options.as_ref());
         let runtime_literal = match context {
             WordFactContext::Expansion(context) => {
-                analyze_literal_runtime(word_ref, self.source, context, zsh_options.as_ref())
+                analyze_literal_runtime(word, self.source, context, zsh_options.as_ref())
             }
             WordFactContext::CaseSubject | WordFactContext::ArithmeticCommand => {
                 RuntimeLiteralAnalysis::default()
@@ -2281,7 +2250,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             | WordFactContext::CaseSubject
             | WordFactContext::ArithmeticCommand => None,
         };
-        let derived = derive_word_fact_data(word_ref, self.source);
+        let derived = derive_word_fact_data(word, self.source);
         let index = self.facts.len();
         self.facts.push(WordFact {
             key,
@@ -2305,7 +2274,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             double_quoted_expansion_spans: derived.double_quoted_expansion_spans,
             unquoted_literal_between_double_quoted_segments_spans:
                 derived.unquoted_literal_between_double_quoted_segments_spans,
-            word,
+            word: Cow::Borrowed(word),
             command_id: self.command_id,
             nested_word_command: self.nested_word_command,
             context,
@@ -4347,7 +4316,7 @@ fn parse_mapfile_command(args: &[&Word], source: &str) -> MapfileCommandFacts {
                 args.get(index)
                     .and_then(|next| static_word_text(next, source))
             } else {
-                Some(remainder.to_owned())
+                Some(remainder.into())
             };
 
             if flag == 'u' {
@@ -4577,7 +4546,7 @@ fn detect_sudo_family_invoker(
         // even when there is no statically known inner command.
         .take_while(|word| scan_all_words || word.span.start.offset < body_start)
         .filter_map(|word| static_word_text(word, source))
-        .map(|word| word.strip_prefix('\\').map_or(word.clone(), str::to_owned))
+        .map(|word| word.strip_prefix('\\').unwrap_or(word.as_ref()).to_owned())
         .filter_map(|word| match word.as_str() {
             "sudo" => Some(SudoFamilyInvoker::Sudo),
             "doas" => Some(SudoFamilyInvoker::Doas),
@@ -4603,7 +4572,7 @@ fn trap_action_word<'a>(command: &'a Command, source: &str) -> Option<&'a Word> 
         .first()
         .and_then(|word| static_word_text(word, source))
     {
-        match first.as_str() {
+        match first.as_ref() {
             "-p" | "-l" => return None,
             "--" => start = 1,
             _ => {}

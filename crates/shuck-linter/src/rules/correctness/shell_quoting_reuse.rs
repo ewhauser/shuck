@@ -391,7 +391,7 @@ fn bracket_v_name_spans(
             let name = static_word_text(operand, checker.source())?;
             let binding_id = checker
                 .semantic()
-                .bindings_for(&Name::from(name.as_str()))
+                .bindings_for(&Name::from(name.as_ref()))
                 .iter()
                 .copied()
                 .filter(|binding_id| {
