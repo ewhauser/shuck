@@ -25,6 +25,7 @@ annotate-snippets = "0.10"
 # Serialization
 serde = { version = "1", features = ["derive"] }
 compact_str = "0.8"
+smallvec = "1.15"
 
 # Checksums
 sha2 = "0.11"

@@ -18,6 +18,7 @@ benchmarking = []
 [dependencies]
 shuck-ast = { path = "../shuck-ast" }
 memchr.workspace = true
+smallvec.workspace = true
 
 [dev-dependencies]
 serde.workspace = true

@@ -4331,8 +4331,8 @@ impl<'a> Parser<'a> {
         self.check_error_token()?;
         let start_span = self.current_span;
 
-        let mut assignments = Vec::with_capacity(1);
-        let mut words = Vec::with_capacity(4);
+        let mut assignments = SmallAssignmentList::new();
+        let mut words = SmallWordList::new();
         let mut redirects = Vec::with_capacity(1);
 
         loop {
@@ -4347,13 +4347,8 @@ impl<'a> Parser<'a> {
                 && self.should_consume_right_brace_as_literal_argument(next_kind_after_right_brace);
             match self.current_token_kind {
                 Some(kind) if kind.is_word_like() => {
-                    let is_literal = kind == TokenKind::LiteralWord;
-                    let word_text = self.current_source_like_word_text().unwrap();
-                    let assignment_shape = (!is_literal && words.is_empty())
-                        .then(|| Self::is_assignment(word_text.as_ref()));
-                    let assignment_shape = assignment_shape.flatten();
-
-                    // Stop if this word cannot start a command (like 'then', 'fi', etc.)
+                    // Bail out before touching word text when the token is a
+                    // reserved word that cannot begin a simple command.
                     if words.is_empty()
                         && self
                             .current_keyword()
@@ -4361,6 +4356,12 @@ impl<'a> Parser<'a> {
                     {
                         break;
                     }
+
+                    let is_literal = kind == TokenKind::LiteralWord;
+                    let word_text = self.current_source_like_word_text().unwrap();
+                    let assignment_shape = (!is_literal && words.is_empty())
+                        .then(|| Self::is_assignment(word_text.as_ref()));
+                    let assignment_shape = assignment_shape.flatten();
 
                     // Check for assignment (only before the command name, not for literal words)
                     if words.is_empty()
@@ -4393,7 +4394,7 @@ impl<'a> Parser<'a> {
                         let saved_span = self.current_span;
                         self.advance();
                         if let Some(word) =
-                            self.try_parse_compound_array_arg(word_text.into_owned(), saved_span)
+                            self.try_parse_compound_array_arg(word_text.as_ref(), saved_span)
                         {
                             words.push(word);
                             continue;
@@ -4524,7 +4525,7 @@ impl<'a> Parser<'a> {
                 name: Word::literal(""),
                 args: Vec::new(),
                 redirects,
-                assignments,
+                assignments: assignments.into_vec(),
                 span: start_span.merge(self.current_span),
             }));
         }
@@ -4533,6 +4534,7 @@ impl<'a> Parser<'a> {
             return Ok(None);
         }
 
+        let mut words = words.into_vec();
         let name = words.remove(0);
         let args = words;
 
@@ -4540,7 +4542,7 @@ impl<'a> Parser<'a> {
             name,
             args,
             redirects,
-            assignments,
+            assignments: assignments.into_vec(),
             span: start_span.merge(self.current_span),
         }))
     }
@@ -4548,7 +4550,7 @@ impl<'a> Parser<'a> {
     /// Extract fd-variable name from `{varname}` pattern in the last word.
     /// If the last word is a single literal `{identifier}`, pop it and return the name.
     /// Used for `exec {var}>file` / `exec {var}>&-` syntax.
-    fn pop_fd_var(&self, words: &mut Vec<Word>) -> (Option<Name>, Option<Span>) {
+    fn pop_fd_var(&self, words: &mut SmallWordList) -> (Option<Name>, Option<Span>) {
         if let Some(last) = words.last()
             && last.parts.len() == 1
             && let WordPart::Literal(ref s) = last.parts[0].kind
@@ -4579,7 +4581,10 @@ impl<'a> Parser<'a> {
             && Self::fd_var_gap_allows_attachment(&self.input[start..end])
     }
 
-    fn pop_line_continuation_fd_var(&self, words: &mut Vec<Word>) -> (Option<Name>, Option<Span>) {
+    fn pop_line_continuation_fd_var(
+        &self,
+        words: &mut SmallWordList,
+    ) -> (Option<Name>, Option<Span>) {
         let Some(last) = words.last() else {
             return (None, None);
         };

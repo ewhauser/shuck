@@ -2765,7 +2765,7 @@ impl<'a> Parser<'a> {
     /// Returns the compound word if successful, or `None` if not a compound assignment.
     pub(super) fn try_parse_compound_array_arg(
         &mut self,
-        saved_w: String,
+        saved_w: &str,
         saved_span: Span,
     ) -> Option<Word> {
         if !self.at(TokenKind::LeftParen) {
@@ -2775,7 +2775,8 @@ impl<'a> Parser<'a> {
         let open_paren_span = self.current_span;
         if let Some(closing_span) = self.scan_compound_array_close(open_paren_span) {
             let paren_text = &self.input[open_paren_span.start.offset..closing_span.end.offset];
-            let mut compound = saved_w;
+            let mut compound = String::with_capacity(saved_w.len() + paren_text.len());
+            compound.push_str(saved_w);
             compound.push_str(paren_text);
             while self.current_token.is_some()
                 && self.current_span.start.offset < closing_span.end.offset
@@ -2787,7 +2788,8 @@ impl<'a> Parser<'a> {
         }
 
         self.advance(); // consume '('
-        let mut compound = saved_w;
+        let mut compound = String::with_capacity(saved_w.len() + 32);
+        compound.push_str(saved_w);
         let mut closing_span = Span::new();
         loop {
             match self.current_token_kind {

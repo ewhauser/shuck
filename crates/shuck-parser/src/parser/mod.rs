@@ -20,6 +20,7 @@ use std::{
 };
 
 use memchr::{memchr, memchr2, memchr3};
+use smallvec::SmallVec;
 
 pub use lexer::{
     HeredocRead, LexedToken, LexedWord, LexedWordSegment, LexedWordSegmentKind, Lexer,
@@ -177,6 +178,9 @@ struct SimpleCommand {
     assignments: Vec<Assignment>,
     span: Span,
 }
+
+type SmallWordList = SmallVec<[Word; 4]>;
+type SmallAssignmentList = SmallVec<[Assignment; 1]>;
 
 #[derive(Debug, Clone)]
 struct BreakCommand {
@@ -2883,8 +2887,8 @@ impl<'a> Parser<'a> {
 
     fn literal_part_from_text(&self, text: &str, span: Span, source_backed: bool) -> WordPartNode {
         WordPartNode::new(
-            WordPart::Literal(self.literal_text(
-                text.to_string(),
+            WordPart::Literal(self.literal_text_from_str(
+                text,
                 span.start,
                 span.end,
                 source_backed,
@@ -2902,7 +2906,7 @@ impl<'a> Parser<'a> {
     ) -> WordPartNode {
         WordPartNode::new(
             WordPart::SingleQuoted {
-                value: self.source_text(text.to_string(), content_span.start, content_span.end),
+                value: self.source_text_from_str(text, content_span.start, content_span.end),
                 dollar,
             },
             wrapper_span,
@@ -5025,12 +5029,59 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn literal_text_from_str(
+        &self,
+        text: &str,
+        start: Position,
+        end: Position,
+        source_backed: bool,
+    ) -> LiteralText {
+        self.literal_text_impl(text, None, start, end, source_backed)
+    }
+
+    fn literal_text_impl(
+        &self,
+        text: &str,
+        owned: Option<String>,
+        start: Position,
+        end: Position,
+        source_backed: bool,
+    ) -> LiteralText {
+        let span = Span::from_positions(start, end);
+        if self.source_matches(span, text) {
+            LiteralText::source()
+        } else if source_backed {
+            LiteralText::cooked_source(owned.unwrap_or_else(|| text.to_owned()))
+        } else {
+            LiteralText::owned(owned.unwrap_or_else(|| text.to_owned()))
+        }
+    }
+
     fn source_text(&self, text: String, start: Position, end: Position) -> SourceText {
         let span = Span::from_positions(start, end);
         if self.source_matches(span, &text) {
             SourceText::source(span)
         } else {
             SourceText::cooked(span, text)
+        }
+    }
+
+    fn source_text_from_str(&self, text: &str, start: Position, end: Position) -> SourceText {
+        self.source_text_impl(text, None, start, end)
+    }
+
+    fn source_text_impl(
+        &self,
+        text: &str,
+        owned: Option<String>,
+        start: Position,
+        end: Position,
+    ) -> SourceText {
+        let span = Span::from_positions(start, end);
+        if self.source_matches(span, text) {
+            SourceText::source(span)
+        } else {
+            SourceText::cooked(span, owned.unwrap_or_else(|| text.to_owned()))
         }
     }
 
