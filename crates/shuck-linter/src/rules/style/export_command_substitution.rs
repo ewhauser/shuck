@@ -1,10 +1,6 @@
-use shuck_ast::AssignmentValue;
 use shuck_semantic::ScopeKind;
 
-use crate::{
-    Checker, DeclarationKind, ExpansionContext, Rule, Violation, WordFactContext,
-    assignment_name_span,
-};
+use crate::{Checker, DeclarationKind, Rule, Violation};
 
 pub struct ExportCommandSubstitution {
     pub name: String,
@@ -21,40 +17,24 @@ impl Violation for ExportCommandSubstitution {
 }
 
 pub fn export_command_substitution(checker: &mut Checker) {
-    let findings = checker
-        .facts()
-        .structural_commands()
-        .filter_map(|fact| {
-            let declaration = fact.declaration()?;
-            should_report_s010_declaration(
-                checker,
-                &declaration.kind,
-                declaration.readonly_flag,
-                fact.span(),
-            )
-            .then_some(declaration)
-        })
-        .flat_map(|declaration| declaration.assignment_operands.iter().copied())
-        .filter_map(|assignment| {
-            let AssignmentValue::Scalar(word) = &assignment.value else {
-                return None;
-            };
+    let mut findings = Vec::new();
 
-            checker
-                .facts()
-                .word_fact(
-                    word.span,
-                    WordFactContext::Expansion(ExpansionContext::DeclarationAssignmentValue),
-                )
-                .filter(|fact| fact.classification().has_command_substitution())
-                .map(|_| {
-                    (
-                        assignment.target.name.to_string(),
-                        assignment_name_span(assignment),
-                    )
-                })
-        })
-        .collect::<Vec<_>>();
+    for fact in checker.facts().structural_commands() {
+        for probe in fact.declaration_assignment_probes() {
+            if !should_report_s010_declaration(
+                checker,
+                probe.kind(),
+                probe.readonly_flag(),
+                fact.span(),
+            ) {
+                continue;
+            }
+
+            if probe.has_command_substitution() {
+                findings.push((probe.target_name().to_owned(), probe.target_name_span()));
+            }
+        }
+    }
 
     for (name, span) in findings {
         checker.report_dedup(ExportCommandSubstitution { name }, span);
@@ -204,6 +184,216 @@ readonly n_version=\"$(./bin/n --version)\"
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["archive_dir_create", "n_version"]
+        );
+    }
+
+    #[test]
+    fn reports_escaped_declaration_builtins_with_command_substitution() {
+        let source = "\
+#!/bin/bash
+export_path() {
+  \\local local_name=\"$(date)\"
+  \\declare declared_name=$(pwd)
+  \\typeset typed_name=\"$(mktemp)\"
+  \\readonly kept_name=$(date)
+}
+\\export exported_name=\"$(printf '%s' hi)\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ExportCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "local_name",
+                "declared_name",
+                "typed_name",
+                "kept_name",
+                "exported_name",
+            ]
+        );
+    }
+
+    #[test]
+    fn ignores_escaped_function_local_readonly_modifier_declarations() {
+        let source = "\
+#!/bin/bash
+demo() {
+  \\local -r temp=\"$(date)\"
+  \\declare -r other=$(date)
+  \\typeset -r home=$(pwd)
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ExportCommandSubstitution),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_escaped_declarations_when_readonly_tokens_appear_after_assignments() {
+        let source = "\
+#!/bin/bash
+demo() {
+  \\declare out=$(date) -r
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ExportCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["out"]
+        );
+    }
+
+    #[test]
+    fn ignores_command_substitutions_in_escaped_assignment_targets() {
+        let source = "\
+#!/bin/bash
+demo() {
+  \\local arr[$(date)]=1
+  \\declare map[${key:-$(printf '%s' fallback)}]=literal
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ExportCommandSubstitution),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_escaped_declarations_with_nested_subscript_brackets() {
+        let source = "\
+#!/bin/bash
+\\declare name[${x:-]}]=$(date)
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ExportCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["name"]
+        );
+    }
+
+    #[test]
+    fn reports_escaped_declarations_with_literal_braces_inside_command_subscripts() {
+        let source = "\
+#!/bin/bash
+\\declare arr[$(echo {)]=$(date)
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ExportCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["arr"]
+        );
+    }
+
+    #[test]
+    fn reports_escaped_declarations_with_utf8_escaped_subscript_chars() {
+        let source = "\
+#!/bin/bash
+\\declare arr[\\\u{00e9}]=$(date)
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ExportCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["arr"]
+        );
+    }
+
+    #[test]
+    fn reports_escaped_declarations_with_nested_parameter_subscript_commands() {
+        let source = "\
+#!/bin/bash
+\\declare arr[${k:-$(printf '}')}]=$(date)
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ExportCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["arr"]
+        );
+    }
+
+    #[test]
+    fn reports_escaped_declarations_with_parameter_expansion_parens_inside_command_subscripts() {
+        let source = "\
+#!/bin/bash
+shopt -s extglob
+\\declare arr[$(printf %s ${x//@(a)/b})]=$(date)
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ExportCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["arr"]
+        );
+    }
+
+    #[test]
+    fn reports_escaped_declarations_with_process_substitution_subscripts() {
+        let source = "\
+#!/bin/bash
+\\declare -A arr[<(printf \"]\")]=$(date)
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ExportCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["arr"]
         );
     }
 }

@@ -63,6 +63,7 @@ use shuck_ast::{
     ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
 };
 use shuck_indexer::Indexer;
+use shuck_parser::parser::Parser;
 use shuck_semantic::{
     BindingAttributes, BindingId, BindingKind, ScopeId, SemanticModel, ZshOptionState,
 };
@@ -951,6 +952,37 @@ impl<'a> PathWordFact<'a> {
 
     pub fn context(&self) -> ExpansionContext {
         self.context
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DeclarationAssignmentProbe {
+    kind: command::DeclarationKind,
+    readonly_flag: bool,
+    target_name: Box<str>,
+    target_name_span: Span,
+    has_command_substitution: bool,
+}
+
+impl DeclarationAssignmentProbe {
+    pub fn kind(&self) -> &command::DeclarationKind {
+        &self.kind
+    }
+
+    pub fn readonly_flag(&self) -> bool {
+        self.readonly_flag
+    }
+
+    pub fn target_name(&self) -> &str {
+        &self.target_name
+    }
+
+    pub fn target_name_span(&self) -> Span {
+        self.target_name_span
+    }
+
+    pub fn has_command_substitution(&self) -> bool {
+        self.has_command_substitution
     }
 }
 
@@ -2823,6 +2855,7 @@ pub struct CommandFact<'a> {
     substitution_facts: Box<[SubstitutionFact]>,
     options: CommandOptionFacts<'a>,
     scope_read_source_words: Box<[PathWordFact<'a>]>,
+    declaration_assignment_probes: Box<[DeclarationAssignmentProbe]>,
     glued_closing_bracket_operand_span: Option<Span>,
     simple_test: Option<SimpleTestFact<'a>>,
     conditional: Option<ConditionalFact<'a>>,
@@ -2883,6 +2916,10 @@ impl<'a> CommandFact<'a> {
 
     pub fn scope_read_source_words(&self) -> &[PathWordFact<'a>] {
         &self.scope_read_source_words
+    }
+
+    pub fn declaration_assignment_probes(&self) -> &[DeclarationAssignmentProbe] {
+        &self.declaration_assignment_probes
     }
 
     pub fn glued_closing_bracket_operand_span(&self) -> Option<Span> {
@@ -3721,6 +3758,12 @@ impl<'a> LinterFactsBuilder<'a> {
             let redirect_facts =
                 build_redirect_facts(visit.redirects, self.source, command_zsh_options.as_ref());
             let options = CommandOptionFacts::build(visit.command, &normalized, self.source);
+            let declaration_assignment_probes = build_declaration_assignment_probes(
+                visit.command,
+                &normalized,
+                self.source,
+                command_zsh_options.as_ref(),
+            );
             let glued_closing_bracket_operand_span =
                 build_glued_closing_bracket_operand_span(visit.command, self.source);
             let simple_test =
@@ -3737,6 +3780,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 substitution_facts: Vec::new().into_boxed_slice(),
                 options,
                 scope_read_source_words: Vec::new().into_boxed_slice(),
+                declaration_assignment_probes,
                 glued_closing_bracket_operand_span,
                 simple_test,
                 conditional,
@@ -9021,36 +9065,53 @@ fn find_runtime_parameter_closing_brace(text: &str, start_offset: usize) -> Opti
         return None;
     }
 
+    let bytes = text.as_bytes();
     let mut index = start_offset + "${".len();
     let mut depth = 1usize;
 
-    while index < text.len() {
-        if text[index..].starts_with("${") {
+    while index < bytes.len() {
+        if bytes[index] == b'\\' {
+            index = advance_escaped_char_boundary(text, index);
+            continue;
+        }
+
+        if index + 2 < bytes.len()
+            && is_unescaped_dollar(bytes, index)
+            && bytes[index + 1] == b'('
+            && bytes[index + 2] == b'('
+        {
+            index = find_wrapped_arithmetic_end(bytes, index)?;
+            continue;
+        }
+
+        if index + 1 < bytes.len() && is_unescaped_dollar(bytes, index) && bytes[index + 1] == b'('
+        {
+            index = find_command_substitution_end(bytes, index)?;
+            continue;
+        }
+
+        if index + 1 < bytes.len() && is_unescaped_dollar(bytes, index) && bytes[index + 1] == b'{'
+        {
             depth += 1;
             index += "${".len();
             continue;
         }
 
-        let ch = text[index..].chars().next()?;
-
-        if ch == '\\' {
-            index += ch.len_utf8();
-            if let Some(escaped) = text[index..].chars().next() {
-                index += escaped.len_utf8();
+        match bytes[index] {
+            b'\'' => index = skip_single_quoted(bytes, index + 1)?,
+            b'"' => index = skip_double_quoted(bytes, index + 1)?,
+            b'`' => index = skip_backticks(bytes, index + 1)?,
+            b'}' => {
+                depth -= 1;
+                index += '}'.len_utf8();
+                if depth == 0 {
+                    return Some(index);
+                }
             }
-            continue;
-        }
-
-        if ch == '}' {
-            depth -= 1;
-            index += ch.len_utf8();
-            if depth == 0 {
-                return Some(index);
+            _ => {
+                index += text[index..].chars().next()?.len_utf8();
             }
-            continue;
         }
-
-        index += ch.len_utf8();
     }
 
     None
@@ -11209,6 +11270,314 @@ fn brace_fd_gap_allows_attachment(gap: &str) -> bool {
     true
 }
 
+fn build_declaration_assignment_probes<'a>(
+    command: &'a Command,
+    normalized: &NormalizedCommand<'a>,
+    source: &str,
+    zsh_options: Option<&ZshOptionState>,
+) -> Box<[DeclarationAssignmentProbe]> {
+    if let Some(declaration) = normalized.declaration.as_ref() {
+        return declaration
+            .assignment_operands
+            .iter()
+            .filter_map(|assignment| {
+                let AssignmentValue::Scalar(word) = &assignment.value else {
+                    return None;
+                };
+
+                Some(DeclarationAssignmentProbe {
+                    kind: declaration.kind.clone(),
+                    readonly_flag: declaration.readonly_flag,
+                    target_name: assignment.target.name.as_str().into(),
+                    target_name_span: assignment.target.name_span,
+                    has_command_substitution: word_has_command_substitution(
+                        word,
+                        source,
+                        zsh_options,
+                    ),
+                })
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+    }
+
+    build_simple_command_declaration_assignment_probes(command, normalized, source, zsh_options)
+}
+
+fn build_simple_command_declaration_assignment_probes<'a>(
+    command: &'a Command,
+    normalized: &NormalizedCommand<'a>,
+    source: &str,
+    zsh_options: Option<&ZshOptionState>,
+) -> Box<[DeclarationAssignmentProbe]> {
+    let Command::Simple(_) = command else {
+        return Vec::new().into_boxed_slice();
+    };
+
+    if !normalized.wrappers.is_empty() {
+        return Vec::new().into_boxed_slice();
+    }
+
+    let Some(kind) = simple_command_declaration_kind(normalized.effective_or_literal_name()) else {
+        return Vec::new().into_boxed_slice();
+    };
+    let word_groups = contiguous_word_groups(normalized.body_args());
+    let readonly_flag = matches!(
+        kind,
+        command::DeclarationKind::Local
+            | command::DeclarationKind::Declare
+            | command::DeclarationKind::Typeset
+    ) && simple_command_declaration_readonly_flag(&word_groups, source);
+
+    word_groups
+        .iter()
+        .filter_map(|words| {
+            let first = *words.first()?;
+            let text = words
+                .iter()
+                .map(|word| word.span.slice(source))
+                .collect::<String>();
+            let parsed = parse_assignment_word(&text)?;
+            let value_text = &text[parsed.value_offset..];
+            Some(DeclarationAssignmentProbe {
+                kind: kind.clone(),
+                readonly_flag,
+                target_name: parsed.name.into(),
+                target_name_span: Span::from_positions(
+                    first.span.start,
+                    first.span.start.advanced_by(parsed.name),
+                ),
+                has_command_substitution: parsed_assignment_value_has_command_substitution(
+                    value_text,
+                    zsh_options,
+                ),
+            })
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice()
+}
+
+fn contiguous_word_groups<'a>(words: &'a [&'a Word]) -> Vec<&'a [&'a Word]> {
+    let mut groups = Vec::new();
+    let mut start = 0usize;
+
+    while start < words.len() {
+        let mut end = start + 1;
+        while let Some(next) = words.get(end).copied() {
+            if words[end - 1].span.end.offset != next.span.start.offset {
+                break;
+            }
+            end += 1;
+        }
+        groups.push(&words[start..end]);
+        start = end;
+    }
+
+    groups
+}
+
+fn simple_command_declaration_kind(name: Option<&str>) -> Option<command::DeclarationKind> {
+    match name? {
+        "export" => Some(command::DeclarationKind::Export),
+        "local" => Some(command::DeclarationKind::Local),
+        "declare" => Some(command::DeclarationKind::Declare),
+        "typeset" => Some(command::DeclarationKind::Typeset),
+        "readonly" => Some(command::DeclarationKind::Other("readonly".to_owned())),
+        _ => None,
+    }
+}
+
+fn simple_command_declaration_readonly_flag(word_groups: &[&[&Word]], source: &str) -> bool {
+    let mut readonly_flag = false;
+
+    for words in word_groups {
+        let [word] = words else {
+            break;
+        };
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+
+        // Bash stops parsing declaration options after the first name[=value] operand,
+        // so later "-r" words must not retroactively mark earlier assignments readonly.
+        if text == "--" {
+            break;
+        }
+
+        if !simple_command_declaration_option_word(&text) {
+            break;
+        }
+
+        if declaration_flag_sets_readonly_text(&text) {
+            readonly_flag = true;
+        }
+    }
+
+    readonly_flag
+}
+
+fn simple_command_declaration_option_word(text: &str) -> bool {
+    let mut chars = text.chars();
+    let Some(prefix) = chars.next() else {
+        return false;
+    };
+
+    if !matches!(prefix, '-' | '+') {
+        return false;
+    }
+
+    let rest = chars.as_str();
+    !rest.is_empty() && rest.chars().all(|ch| ch.is_ascii_alphabetic())
+}
+
+fn declaration_flag_sets_readonly_text(text: &str) -> bool {
+    text.starts_with('-') && text.contains('r')
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ParsedAssignmentWord<'a> {
+    name: &'a str,
+    value_offset: usize,
+}
+
+fn parse_assignment_word(word: &str) -> Option<ParsedAssignmentWord<'_>> {
+    if !word.contains('=') {
+        return None;
+    }
+
+    let mut chars = word.char_indices();
+    let (_, first) = chars.next()?;
+    if !first.is_ascii_alphabetic() && first != '_' {
+        return None;
+    }
+
+    let mut ident_end = first.len_utf8();
+    for (index, ch) in chars {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            ident_end = index + ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+
+    let name = &word[..ident_end];
+    let mut cursor = ident_end;
+
+    if word[cursor..].starts_with('[') {
+        let bytes = word.as_bytes();
+        let mut close_index = None;
+        let mut bracket_depth = 0usize;
+        let mut index = cursor + 1;
+
+        while index < bytes.len() {
+            if bytes[index] == b'\\' {
+                index = advance_escaped_char_boundary(word, index);
+                continue;
+            }
+
+            if index + 2 < bytes.len()
+                && is_unescaped_dollar(bytes, index)
+                && bytes[index + 1] == b'('
+                && bytes[index + 2] == b'('
+            {
+                index = find_wrapped_arithmetic_end(bytes, index)?;
+                continue;
+            }
+
+            if index + 1 < bytes.len()
+                && is_unescaped_dollar(bytes, index)
+                && bytes[index + 1] == b'('
+            {
+                index = find_command_substitution_end(bytes, index)?;
+                continue;
+            }
+
+            if index + 1 < bytes.len()
+                && is_unescaped_dollar(bytes, index)
+                && bytes[index + 1] == b'{'
+            {
+                index = find_runtime_parameter_closing_brace(word, index)?;
+                continue;
+            }
+
+            if index + 1 < bytes.len()
+                && matches!(bytes[index], b'<' | b'>')
+                && bytes[index + 1] == b'('
+            {
+                index = find_process_substitution_end(bytes, index)?;
+                continue;
+            }
+
+            match bytes[index] {
+                b'\'' => index = skip_single_quoted(bytes, index + 1)?,
+                b'"' => index = skip_double_quoted(bytes, index + 1)?,
+                b'`' => index = skip_backticks(bytes, index + 1)?,
+                b'[' => {
+                    bracket_depth += 1;
+                    index += 1;
+                }
+                b']' if bracket_depth == 0 => {
+                    close_index = Some(index);
+                    break;
+                }
+                b']' => {
+                    bracket_depth -= 1;
+                    index += 1;
+                }
+                _ => {
+                    index += word[index..].chars().next()?.len_utf8();
+                }
+            }
+        }
+
+        cursor = close_index? + 1;
+    }
+
+    if word[cursor..].starts_with("+=") || word[cursor..].starts_with('=') {
+        Some(ParsedAssignmentWord {
+            name,
+            value_offset: cursor
+                + if word[cursor..].starts_with("+=") {
+                    2
+                } else {
+                    1
+                },
+        })
+    } else {
+        None
+    }
+}
+
+fn advance_escaped_char_boundary(text: &str, start: usize) -> usize {
+    let next = start + '\\'.len_utf8();
+    if next >= text.len() {
+        return next;
+    }
+
+    next + text[next..].chars().next().map_or(0, char::len_utf8)
+}
+
+fn word_has_command_substitution(
+    word: &Word,
+    source: &str,
+    zsh_options: Option<&ZshOptionState>,
+) -> bool {
+    word_classification_from_analysis(analyze_word(word, source, zsh_options))
+        .has_command_substitution()
+}
+
+fn parsed_assignment_value_has_command_substitution(
+    value_text: &str,
+    zsh_options: Option<&ZshOptionState>,
+) -> bool {
+    if value_text.is_empty() {
+        return false;
+    }
+
+    let word = Parser::parse_word_string(value_text);
+    word_classification_from_analysis(analyze_word(&word, value_text, zsh_options))
+        .has_command_substitution()
+}
 fn redirect_operator_span(redirect: &Redirect) -> Span {
     let operator_start = redirect
         .fd_var_span
@@ -13689,6 +14058,7 @@ fn is_unescaped_dollar(bytes: &[u8], index: usize) -> bool {
 }
 
 fn find_command_substitution_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let text = std::str::from_utf8(bytes).ok()?;
     let mut paren_depth = 0usize;
     let mut cursor = start + 2;
 
@@ -13715,6 +14085,22 @@ fn find_command_substitution_end(bytes: &[u8], start: usize) -> Option<usize> {
             continue;
         }
 
+        if cursor + 1 < bytes.len()
+            && is_unescaped_dollar(bytes, cursor)
+            && bytes[cursor + 1] == b'{'
+        {
+            cursor = find_runtime_parameter_closing_brace(text, cursor)?;
+            continue;
+        }
+
+        if cursor + 1 < bytes.len()
+            && matches!(bytes[cursor], b'<' | b'>')
+            && bytes[cursor + 1] == b'('
+        {
+            cursor = find_process_substitution_end(bytes, cursor)?;
+            continue;
+        }
+
         match bytes[cursor] {
             b'\'' => cursor = skip_single_quoted(bytes, cursor + 1)?,
             b'"' => cursor = skip_double_quoted(bytes, cursor + 1)?,
@@ -13736,6 +14122,7 @@ fn find_command_substitution_end(bytes: &[u8], start: usize) -> Option<usize> {
 }
 
 fn find_wrapped_arithmetic_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let text = std::str::from_utf8(bytes).ok()?;
     let mut paren_depth = 0usize;
     let mut cursor = start + 3;
 
@@ -13762,6 +14149,22 @@ fn find_wrapped_arithmetic_end(bytes: &[u8], start: usize) -> Option<usize> {
             continue;
         }
 
+        if cursor + 1 < bytes.len()
+            && is_unescaped_dollar(bytes, cursor)
+            && bytes[cursor + 1] == b'{'
+        {
+            cursor = find_runtime_parameter_closing_brace(text, cursor)?;
+            continue;
+        }
+
+        if cursor + 1 < bytes.len()
+            && matches!(bytes[cursor], b'<' | b'>')
+            && bytes[cursor + 1] == b'('
+        {
+            cursor = find_process_substitution_end(bytes, cursor)?;
+            continue;
+        }
+
         match bytes[cursor] {
             b'\'' => cursor = skip_single_quoted(bytes, cursor + 1)?,
             b'"' => cursor = skip_double_quoted(bytes, cursor + 1)?,
@@ -13774,6 +14177,70 @@ fn find_wrapped_arithmetic_end(bytes: &[u8], start: usize) -> Option<usize> {
                 return Some(cursor + 2);
             }
             b')' if paren_depth > 0 => {
+                paren_depth -= 1;
+                cursor += 1;
+            }
+            _ => cursor += 1,
+        }
+    }
+
+    None
+}
+
+fn find_process_substitution_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let text = std::str::from_utf8(bytes).ok()?;
+    let mut paren_depth = 0usize;
+    let mut cursor = start + 2;
+
+    while cursor < bytes.len() {
+        if bytes[cursor] == b'\\' {
+            cursor = (cursor + 2).min(bytes.len());
+            continue;
+        }
+
+        if cursor + 2 < bytes.len()
+            && is_unescaped_dollar(bytes, cursor)
+            && bytes[cursor + 1] == b'('
+            && bytes[cursor + 2] == b'('
+        {
+            cursor = find_wrapped_arithmetic_end(bytes, cursor)?;
+            continue;
+        }
+
+        if cursor + 1 < bytes.len()
+            && is_unescaped_dollar(bytes, cursor)
+            && bytes[cursor + 1] == b'('
+        {
+            cursor = find_command_substitution_end(bytes, cursor)?;
+            continue;
+        }
+
+        if cursor + 1 < bytes.len()
+            && is_unescaped_dollar(bytes, cursor)
+            && bytes[cursor + 1] == b'{'
+        {
+            cursor = find_runtime_parameter_closing_brace(text, cursor)?;
+            continue;
+        }
+
+        if cursor + 1 < bytes.len()
+            && matches!(bytes[cursor], b'<' | b'>')
+            && bytes[cursor + 1] == b'('
+        {
+            cursor = find_process_substitution_end(bytes, cursor)?;
+            continue;
+        }
+
+        match bytes[cursor] {
+            b'\'' => cursor = skip_single_quoted(bytes, cursor + 1)?,
+            b'"' => cursor = skip_double_quoted(bytes, cursor + 1)?,
+            b'`' => cursor = skip_backticks(bytes, cursor + 1)?,
+            b'(' => {
+                paren_depth += 1;
+                cursor += 1;
+            }
+            b')' if paren_depth == 0 => return Some(cursor + 1),
+            b')' => {
                 paren_depth -= 1;
                 cursor += 1;
             }
@@ -27062,5 +27529,58 @@ echo \"Resolve the conflict and run ``${PROGRAM} --continue`` plus `date`.\"
                 vec![("``", true), ("``", true), ("`date`", false)]
             );
         });
+    }
+
+    #[test]
+    fn collects_declaration_assignment_probes_for_process_substitution_subscripts() {
+        let source = "\
+#!/bin/bash
+\\declare -A arr[<(printf \"]\")]=$(date)
+";
+
+        with_facts(source, None, |_, facts| {
+            let probes = facts
+                .structural_commands()
+                .flat_map(|fact| fact.declaration_assignment_probes().iter())
+                .map(|probe| (probe.target_name(), probe.has_command_substitution()))
+                .collect::<Vec<_>>();
+
+            assert_eq!(probes, vec![("arr", true)]);
+        });
+    }
+
+    #[test]
+    fn ignores_readonly_like_tokens_after_escaped_declaration_assignments() {
+        let source = "\
+#!/bin/bash
+demo() {
+  \\declare out=$(date) -r
+}
+";
+
+        with_facts(source, None, |_, facts| {
+            let probes = facts
+                .structural_commands()
+                .flat_map(|fact| fact.declaration_assignment_probes().iter())
+                .map(|probe| {
+                    (
+                        probe.target_name(),
+                        probe.readonly_flag(),
+                        probe.has_command_substitution(),
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(probes, vec![("out", false, true)]);
+        });
+    }
+
+    #[test]
+    fn parses_assignment_words_with_process_substitution_subscripts() {
+        let word = "arr[<(printf \"]\")]=$(date)";
+        let parsed = super::parse_assignment_word(word)
+            .map(|parsed| (parsed.name, &word[parsed.value_offset..]));
+
+        assert_eq!(parsed, Some(("arr", "$(date)")));
     }
 }
