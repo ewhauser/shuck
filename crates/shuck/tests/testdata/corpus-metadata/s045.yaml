@@ -1,4 +1,4 @@
-review_all_divergences: true
+review_all_divergences: false
 reviewed_divergences:
   - side: shuck-only
     path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
@@ -128,3 +128,19 @@ reviewed_divergences:
   - side: shuck-only
     path_suffix: "tmux-plugins__tmux-resurrect__scripts__tmux_spinner.sh"
     reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
+  - side: shuck-only
+    path_suffix: "docker-library__official-images__naughty-commits.sh"
+    line: 87
+    reason: "This loop-scoped associative map appends through keyed writes after a grouped `declare -A` declaration. The current ShellCheck oracle stays silent on those keyed appends, while Shuck still treats the subscripts as arithmetic-style indexed writes at this site."
+  - side: shuck-only
+    path_suffix: "docker-library__official-images__naughty-commits.sh"
+    line: 90
+    reason: "This loop-scoped associative map appends through keyed writes after a grouped `declare -A` declaration. The current ShellCheck oracle stays silent on those keyed appends, while Shuck still treats the subscripts as arithmetic-style indexed writes at this site."
+  - side: shuck-only
+    path_suffix: "rvm__rvm__scripts__hash"
+    line: 32
+    reason: "This eval-built arithmetic string mixes dynamic variable names with array-length expansion. The current ShellCheck oracle does not emit SC2004 for that generated expression, while Shuck still reports the dollar-prefixed operands inside the eval payload."
+  - side: shuck-only
+    path_suffix: "v1s1t0r1sh3r3__airgeddon__airgeddon.sh"
+    line: 15602
+    reason: "This helper records an interface key in a global associative map immediately after declaring it with `declare -gA`. The current ShellCheck oracle does not flag that keyed write, while Shuck still treats the subscript as indexed arithmetic at this site."

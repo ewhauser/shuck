@@ -97,6 +97,22 @@ mod tests {
     }
 
     #[test]
+    fn ignores_plain_substring_offset_parameter_expansions() {
+        let source = "#!/bin/bash\nrest=abcdef\nlen=2\nprintf '%s\\n' \"${rest:${len}:1}\"\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_plain_positional_slice_parameter_expansions() {
+        let source = "#!/bin/bash\nargs_offset=$#\nprintf '%s\\n' \"${@:1:${args_offset}}\"\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn reports_dollar_prefixed_variables_in_parameter_replacement_arithmetic() {
         let source = "#!/bin/bash\noffset=1\nindex=2\nline=x\necho \"${line/ $index / $(($offset + $index)) }\"\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
@@ -174,6 +190,90 @@ lang=en
 assoc[$key]=x
 assoc[${lang},27]=y
 assoc[$key/sfx]=z
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_quoted_indexed_assignment_subscripts() {
+        let source = "\
+#!/bin/bash
+declare -a arr
+wash_counter=1
+arr[\"${wash_counter}\"]=x
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_command_substitutions_in_indexed_assignment_subscripts() {
+        let source = "\
+#!/bin/bash
+declare -a arr
+i=file
+arr[$(printf '%s' \"$i\")]=x
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_multi_declared_associative_append_assignment_subscripts() {
+        let source = "\
+#!/bin/bash
+declare -A one=() two=() seen=()
+key=name
+one[$key]+=x
+two[$key]+=y
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_globally_declared_associative_assignment_subscripts() {
+        let source = "\
+#!/bin/bash
+init() {
+  declare -gA map
+}
+helper() {
+  map[$key]=1
+}
+main() {
+  key=name
+  init
+  helper
+}
+main
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_globally_declared_associative_assignment_subscripts_with_combined_flags() {
+        let source = "\
+#!/bin/bash
+init() {
+  declare -Ag map=()
+}
+helper() {
+  map[$key/field]=1
+}
+main() {
+  key=name
+  init
+  helper
+}
+main
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
 

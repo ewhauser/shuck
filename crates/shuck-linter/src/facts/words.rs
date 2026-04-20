@@ -2517,8 +2517,8 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
     }
 
     fn collect_dollar_prefixed_indexed_subscript_spans(&mut self, word: &Word) {
-        collect_dollar_prefixed_arithmetic_variable_spans(
-            word.span,
+        collect_dollar_prefixed_indexed_subscript_word_spans(
+            word,
             self.source,
             &mut self.arithmetic.dollar_in_arithmetic_spans,
         );
@@ -2710,6 +2710,28 @@ fn collect_arithmetic_command_spans(
     });
 }
 
+fn collect_slice_arithmetic_expression_spans(
+    expression: &ArithmeticExprNode,
+    source: &str,
+    dollar_spans: &mut Vec<Span>,
+    command_substitution_spans: &mut Vec<Span>,
+) {
+    query::visit_arithmetic_words(expression, &mut |word| {
+        collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
+            &word.parts,
+            source,
+            dollar_spans,
+        );
+        collect_arithmetic_context_spans_in_word(
+            word,
+            source,
+            false,
+            dollar_spans,
+            command_substitution_spans,
+        );
+    });
+}
+
 fn collect_arithmetic_spans_in_fragment(
     word: Option<&Word>,
     text: Option<&SourceText>,
@@ -2824,6 +2846,53 @@ fn collect_dollar_prefixed_arithmetic_variable_spans(
         let end = start.advanced_by(&text[index..match_end]);
         spans.push(Span::from_positions(start, end));
         index = match_end;
+    }
+}
+
+fn collect_dollar_prefixed_indexed_subscript_word_spans(
+    word: &Word,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for part in &word.parts {
+        match &part.kind {
+            WordPart::Variable(name) if is_shell_variable_name(name.as_str()) => {
+                spans.push(part.span);
+            }
+            WordPart::Variable(_) => {}
+            WordPart::Parameter(parameter) => {
+                if matches!(
+                    parameter.bourne(),
+                    Some(BourneParameterExpansion::Access { reference })
+                        if is_shell_variable_name(reference.name.as_str())
+                            && reference
+                                .subscript
+                                .as_ref()
+                                .is_none_or(|subscript| {
+                                    is_simple_arithmetic_reference_subscript(subscript, source)
+                                })
+                ) {
+                    spans.push(part.span);
+                }
+            }
+            WordPart::Literal(_)
+            | WordPart::DoubleQuoted { .. }
+            | WordPart::SingleQuoted { .. }
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::Transformation { .. }
+            | WordPart::ZshQualifiedGlob(_) => {}
+        }
     }
 }
 
@@ -3475,33 +3544,43 @@ fn collect_arithmetic_expansion_spans_from_parts(
                     command_substitution_spans,
                 );
                 if let Some(expression) = offset_ast {
-                    collect_arithmetic_command_spans(
+                    collect_slice_arithmetic_expression_spans(
                         expression,
                         source,
                         dollar_spans,
                         command_substitution_spans,
                     );
                 } else {
+                    collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
+                        &offset_word_ast.parts,
+                        source,
+                        dollar_spans,
+                    );
                     collect_arithmetic_expansion_spans_from_parts(
                         &offset_word_ast.parts,
                         source,
-                        collect_dollar_spans,
+                        false,
                         dollar_spans,
                         command_substitution_spans,
                     );
                 }
                 if let Some(expression) = length_ast {
-                    collect_arithmetic_command_spans(
+                    collect_slice_arithmetic_expression_spans(
                         expression,
                         source,
                         dollar_spans,
                         command_substitution_spans,
                     );
                 } else if let Some(length_word_ast) = length_word_ast {
+                    collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
+                        &length_word_ast.parts,
+                        source,
+                        dollar_spans,
+                    );
                     collect_arithmetic_expansion_spans_from_parts(
                         &length_word_ast.parts,
                         source,
-                        collect_dollar_spans,
+                        false,
                         dollar_spans,
                         command_substitution_spans,
                     );
@@ -3866,33 +3945,43 @@ fn collect_arithmetic_spans_in_parameter_expansion(
                     command_substitution_spans,
                 );
                 if let Some(expression) = offset_ast {
-                    collect_arithmetic_command_spans(
+                    collect_slice_arithmetic_expression_spans(
                         expression,
                         source,
                         dollar_spans,
                         command_substitution_spans,
                     );
                 } else {
+                    collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
+                        &offset_word_ast.parts,
+                        source,
+                        dollar_spans,
+                    );
                     collect_arithmetic_expansion_spans_from_parts(
                         &offset_word_ast.parts,
                         source,
-                        collect_dollar_spans,
+                        false,
                         dollar_spans,
                         command_substitution_spans,
                     );
                 }
                 if let Some(expression) = length_ast {
-                    collect_arithmetic_command_spans(
+                    collect_slice_arithmetic_expression_spans(
                         expression,
                         source,
                         dollar_spans,
                         command_substitution_spans,
                     );
                 } else if let Some(length_word_ast) = length_word_ast {
+                    collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
+                        &length_word_ast.parts,
+                        source,
+                        dollar_spans,
+                    );
                     collect_arithmetic_expansion_spans_from_parts(
                         &length_word_ast.parts,
                         source,
-                        collect_dollar_spans,
+                        false,
                         dollar_spans,
                         command_substitution_spans,
                     );

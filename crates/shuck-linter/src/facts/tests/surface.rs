@@ -1058,6 +1058,36 @@ fn collects_dollar_spans_for_wrapped_substring_length_arithmetic() {
 }
 
 #[test]
+fn ignores_plain_substring_offset_parameter_expansions_for_dollar_in_arithmetic() {
+    let source = "#!/bin/bash\nrest=abcdef\nlen=2\nprintf '%s\\n' \"${rest:${len}:1}\"\n";
+
+    with_facts(source, None, |_, facts| {
+        let spans = facts
+            .dollar_in_arithmetic_spans()
+            .iter()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert!(spans.is_empty(), "unexpected spans: {spans:?}");
+    });
+}
+
+#[test]
+fn ignores_plain_positional_slice_parameter_expansions_for_dollar_in_arithmetic() {
+    let source = "#!/bin/bash\nargs_offset=$#\nprintf '%s\\n' \"${@:1:${args_offset}}\"\n";
+
+    with_facts(source, None, |_, facts| {
+        let spans = facts
+            .dollar_in_arithmetic_spans()
+            .iter()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert!(spans.is_empty(), "unexpected spans: {spans:?}");
+    });
+}
+
+#[test]
 fn collects_dollar_spans_for_parameter_replacement_arithmetic() {
     let source = "#!/bin/bash\noffset=1\nindex=2\nline=x\necho \"${line/ $index / $(($offset + $index)) }\"\n";
 
@@ -1157,6 +1187,125 @@ lang=en
 assoc[$key]=x
 assoc[${lang},27]=y
 assoc[$key/sfx]=z
+";
+
+    with_facts(source, None, |_, facts| {
+        let spans = facts
+            .dollar_in_arithmetic_spans()
+            .iter()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert!(spans.is_empty(), "unexpected spans: {spans:?}");
+    });
+}
+
+#[test]
+fn ignores_quoted_indexed_assignment_subscripts_for_dollar_in_arithmetic() {
+    let source = "\
+#!/bin/bash
+declare -a arr
+wash_counter=1
+arr[\"${wash_counter}\"]=x
+";
+
+    with_facts(source, None, |_, facts| {
+        let spans = facts
+            .dollar_in_arithmetic_spans()
+            .iter()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert!(spans.is_empty(), "unexpected spans: {spans:?}");
+    });
+}
+
+#[test]
+fn ignores_command_substitutions_in_indexed_assignment_subscripts_for_dollar_in_arithmetic() {
+    let source = "\
+#!/bin/bash
+declare -a arr
+i=file
+arr[$(printf '%s' \"$i\")]=x
+";
+
+    with_facts(source, None, |_, facts| {
+        let spans = facts
+            .dollar_in_arithmetic_spans()
+            .iter()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert!(spans.is_empty(), "unexpected spans: {spans:?}");
+    });
+}
+
+#[test]
+fn ignores_multi_declared_associative_append_assignment_subscripts_for_dollar_in_arithmetic() {
+    let source = "\
+#!/bin/bash
+declare -A one=() two=() seen=()
+key=name
+one[$key]+=x
+two[$key]+=y
+";
+
+    with_facts(source, None, |_, facts| {
+        let spans = facts
+            .dollar_in_arithmetic_spans()
+            .iter()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert!(spans.is_empty(), "unexpected spans: {spans:?}");
+    });
+}
+
+#[test]
+fn ignores_globally_declared_associative_assignment_subscripts_for_dollar_in_arithmetic() {
+    let source = "\
+#!/bin/bash
+init() {
+  declare -gA map
+}
+helper() {
+  map[$key]=1
+}
+main() {
+  key=name
+  init
+  helper
+}
+main
+";
+
+    with_facts(source, None, |_, facts| {
+        let spans = facts
+            .dollar_in_arithmetic_spans()
+            .iter()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert!(spans.is_empty(), "unexpected spans: {spans:?}");
+    });
+}
+
+#[test]
+fn ignores_globally_declared_associative_assignment_subscripts_with_combined_flags() {
+    let source = "\
+#!/bin/bash
+init() {
+  declare -Ag map=()
+}
+helper() {
+  map[$key/field]=1
+}
+main() {
+  key=name
+  init
+  helper
+}
+main
 ";
 
     with_facts(source, None, |_, facts| {
