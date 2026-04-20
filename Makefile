@@ -152,6 +152,12 @@ bench-save:
 bench-compare:
 	python3 scripts/benchmarks/run_criterion.py --repo-root . --baseline main
 
+bench-memory-save:
+	python3 scripts/benchmarks/run_parser_memory.py --repo-root . --save-baseline main --release
+
+bench-memory-compare:
+	python3 scripts/benchmarks/run_parser_memory.py --repo-root . --baseline main --release
+
 bench-parser:
 	cargo bench -p shuck-benchmark --bench parser
 
