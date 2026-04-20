@@ -89,16 +89,6 @@ pub(crate) fn iter_commands<'a>(
     iter_commands_with_context(commands, options).map(|visit| visit.visit)
 }
 
-pub(crate) fn walk_commands_in_word<'a, F>(
-    word: &'a Word,
-    options: CommandWalkOptions,
-    visitor: &mut F,
-) where
-    F: FnMut(CommandVisit<'a>, CommandTraversalContext),
-{
-    collect_word_visits(word, options, CommandTraversalContext::default(), visitor);
-}
-
 pub(crate) fn pipeline_segments(command: &Command) -> Option<Vec<&Stmt>> {
     let Command::Binary(command) = command else {
         return None;
