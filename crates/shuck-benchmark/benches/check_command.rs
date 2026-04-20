@@ -47,14 +47,18 @@ fn bench_check_command(c: &mut Criterion) {
             group.throughput(Throughput::Bytes(case.total_bytes()));
             let prepared = prepare_check_case(*case);
 
-            group.bench_with_input(BenchmarkId::from_parameter(case.name), &prepared, |b, input| {
-                b.iter(|| {
-                    black_box(
-                        shuck::benchmark_check_paths(&input.cwd, &input.paths, output_format)
-                            .expect("check benchmark should succeed"),
-                    )
-                });
-            });
+            group.bench_with_input(
+                BenchmarkId::from_parameter(case.name),
+                &prepared,
+                |b, input| {
+                    b.iter(|| {
+                        black_box(
+                            shuck::benchmark_check_paths(&input.cwd, &input.paths, output_format)
+                                .expect("check benchmark should succeed"),
+                        )
+                    });
+                },
+            );
         }
 
         group.finish();
