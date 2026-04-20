@@ -69,7 +69,7 @@ ensure_rustup() {
   fi
 
   if [[ -r "${HOME}/.cargo/env" ]]; then
-    # shellcheck disable=SC1090
+    # shellcheck disable=SC1091
     source "${HOME}/.cargo/env"
   fi
 
@@ -89,7 +89,7 @@ ensure_rustup() {
 
   export PATH="${HOME}/.cargo/bin:${PATH}"
   if [[ -r "${HOME}/.cargo/env" ]]; then
-    # shellcheck disable=SC1090
+    # shellcheck disable=SC1091
     source "${HOME}/.cargo/env"
   fi
 
