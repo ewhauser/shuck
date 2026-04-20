@@ -35,7 +35,6 @@ MAIN_SUMMARY_RE = re.compile(
     r"implementation_diffs=(?P<implementation>\d+) "
     r"mapping_issues=(?P<mapping>\d+) "
     r"reviewed_divergences=(?P<reviewed>\d+) "
-    r"corpus_noise=(?P<noise>\d+) "
     r"harness_warnings=(?P<harness_warnings>\d+) "
     r"harness_failures=(?P<harness_failures>\d+)"
 )
@@ -93,11 +92,12 @@ _SECTION_ORDER = [
     "Implementation Diffs",
     "Mapping Issues",
     "Reviewed Divergence",
-    "Corpus Noise",
     "Harness Warnings",
     "Harness Failures",
 ]
-_OMITTED_NOTE_MARKER = "\n\nNonblocking issue buckets were omitted from the failing log output."
+_OMITTED_NOTE_MARKER = (
+    "\n\nNonblocking issue buckets were omitted from the failing log output."
+)
 
 
 def extract_sections(text: str) -> dict[str, str]:
@@ -407,11 +407,11 @@ def rendered_reason_items(summary: RuleSummary) -> str:
     return "\n".join(items)
 
 
-def main_fixture_total(text: str) -> int:
+def main_fixture_total(text: str, _fallback_total: int, _unsupported_shells: int) -> int:
     totals = [int(match.group("total")) for match in PROGRESS_RE.finditer(text)]
-    if not totals:
-        return 0
-    return max(totals)
+    if totals:
+        return max(totals)
+    return 0
 
 
 def worker_panic(text: str) -> tuple[str, str] | None:
@@ -450,7 +450,6 @@ def render_html(
     shuck_only: int,
     mapping_issues: int,
     reviewed_divergences: int,
-    corpus_noise: int,
     main_harness_warnings: int,
     main_harness_failures: int,
     main_timeout_note: str | None,
@@ -1010,7 +1009,7 @@ def render_html(
         <article class="card">
           <p class="kicker">Fixtures processed</p>
           <p class="value">{format_number(main_processed_fixtures)}</p>
-          <p class="note">Main compatibility run reached the highest observed fixture count in the log.</p>
+          <p class="note">Main compatibility run total based on the largest observed progress count in the log, or zero if the run ended before emitting progress.</p>
         </article>
         <article class="card">
           <p class="kicker">Rule-coded records</p>
@@ -1074,7 +1073,6 @@ def render_html(
       <p>
         The rule table above covers implementation diffs plus allowlisted known failures. This log also reported {format_number(mapping_issues)}
         mapping issues, {format_number(reviewed_divergences)} reviewed divergences,
-        {format_number(corpus_noise)} corpus-noise parse failures,
         {format_number(main_harness_warnings)} main harness warnings,
         {format_number(main_harness_failures)} main harness failures, and {panic_text}.
       </p>
@@ -1131,7 +1129,6 @@ def main() -> int:
     known_failure_section = filter_reviewed_divergence_section_for_known_failures(
         reviewed_section
     )
-    corpus_noise_section = sections.get("Corpus Noise")
     harness_warning_section = sections.get("Harness Warnings")
     main_harness_section = sections.get("Harness Failures")
     zsh_harness_section = optional_zsh_harness_section(text)
@@ -1176,11 +1173,6 @@ def main() -> int:
         and main_summary_match
     ):
         reviewed_divergence_count = int(main_summary_match.group("reviewed"))
-    corpus_noise_count = (
-        int(main_summary_match.group("noise"))
-        if main_summary_match
-        else count_fixture_entries(corpus_noise_section)
-    )
     main_harness_warning_count = (
         int(main_summary_match.group("harness_warnings"))
         if main_summary_match
@@ -1200,13 +1192,14 @@ def main() -> int:
         main_blocking=main_blocking,
         main_fixture_entries=main_fixture_entries,
         unsupported_shells=unsupported_shells,
-        main_processed_fixtures=main_fixture_total(text),
+        main_processed_fixtures=main_fixture_total(
+            text, main_fixture_entries, unsupported_shells
+        ),
         rule_records=rule_records,
         shellcheck_only=shellcheck_only,
         shuck_only=shuck_only,
         mapping_issues=mapping_issue_count,
         reviewed_divergences=reviewed_divergence_count,
-        corpus_noise=corpus_noise_count,
         main_harness_warnings=main_harness_warning_count,
         main_harness_failures=main_harness_failure_count,
         main_timeout_note=main_timeout_note_match.group("note")

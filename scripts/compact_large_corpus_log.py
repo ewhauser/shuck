@@ -12,7 +12,6 @@ SECTION_HEADERS = {
     "Implementation Diffs:",
     "Mapping Issues:",
     "Reviewed Divergence:",
-    "Corpus Noise:",
     "Harness Warnings:",
     "Harness Failures:",
 }
