@@ -4,6 +4,7 @@
     "security:only-security-updates",
     "helpers:pinGitHubActionDigests"
   ],
+  "dependencyDashboard": false,
   "packageRules": [
     {
       "description": "Keep GitHub Action updates together so digest refreshes stay readable.",
