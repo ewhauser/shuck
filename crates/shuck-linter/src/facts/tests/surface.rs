@@ -980,15 +980,14 @@ esac
 }
 
 #[test]
-fn builds_case_pattern_expansion_spans_for_mixed_and_quoted_patterns() {
+fn builds_case_pattern_expansion_spans_for_simple_dynamic_patterns() {
     let source = "\
 #!/bin/sh
 case $value in
+  $pat) : ;;
   x$pat) : ;;
-  \"$quoted\") : ;;
+  $(printf '%s' foo)) : ;;
   \"$left\"$right) : ;;
-  x$left@(foo|bar)) : ;;
-  @($nested|\"$ignored\")) : ;;
 esac
 ";
 
@@ -999,8 +998,29 @@ esac
                 .iter()
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["x$pat", "\"$left\"$right", "x$left@(foo|bar)", "$nested"]
+            vec!["$pat", "x$pat", "$(printf '%s' foo)", "\"$left\"$right"]
         );
+    });
+}
+
+#[test]
+fn ignores_case_pattern_expansions_when_real_globs_are_present() {
+    let source = "\
+#!/bin/bash
+case $value in
+  gm$MAMEVER*) : ;;
+  *${IDN_ITEM}*) : ;;
+  ${pat}*) : ;;
+  *${pat}) : ;;
+  x${pat}*) : ;;
+  [$hex]) : ;;
+  @($pat|bar)) : ;;
+  x$left@(foo|bar)) : ;;
+esac
+";
+
+    with_facts(source, None, |_, facts| {
+        assert!(facts.case_pattern_expansion_spans().is_empty());
     });
 }
 

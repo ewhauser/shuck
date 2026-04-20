@@ -1994,6 +1994,14 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
     }
 
     fn collect_case_pattern_expansion_spans(&mut self, pattern: &Pattern) {
+        if pattern_has_glob_structure(pattern, self.source) {
+            return;
+        }
+
+        if pattern_is_arithmetic_only(pattern) {
+            return;
+        }
+
         let expanded_word_spans = pattern
             .parts
             .iter()
@@ -2014,13 +2022,6 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             .collect::<Vec<_>>();
 
         if expanded_word_spans.is_empty() {
-            for part in &pattern.parts {
-                if let PatternPart::Group { patterns, .. } = &part.kind {
-                    for nested in patterns {
-                        self.collect_case_pattern_expansion_spans(nested);
-                    }
-                }
-            }
             return;
         }
 
@@ -2522,6 +2523,60 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             self.source,
             &mut self.arithmetic.dollar_in_arithmetic_spans,
         );
+    }
+}
+
+fn pattern_has_glob_structure(pattern: &Pattern, source: &str) -> bool {
+    pattern.parts_with_spans().any(|(part, span)| match part {
+        PatternPart::AnyString | PatternPart::AnyChar | PatternPart::CharClass(_) => true,
+        PatternPart::Group { .. } => true,
+        PatternPart::Literal(text) => literal_text_has_glob_bracket(text.as_str(source, span)),
+        PatternPart::Word(word) => word.parts.iter().any(|part| {
+            matches!(
+                &part.kind,
+                WordPart::Literal(text)
+                    if literal_text_has_glob_bracket(text.as_str(source, part.span))
+            )
+        }),
+    })
+}
+
+fn literal_text_has_glob_bracket(text: &str) -> bool {
+    text.contains('[') || text.contains(']')
+}
+
+fn pattern_is_arithmetic_only(pattern: &Pattern) -> bool {
+    pattern.parts.iter().all(|part| match &part.kind {
+        PatternPart::Literal(_) | PatternPart::AnyString | PatternPart::AnyChar => true,
+        PatternPart::Word(word) => word_is_arithmetic_only(word),
+        PatternPart::CharClass(_) | PatternPart::Group { .. } => false,
+    })
+}
+
+fn word_is_arithmetic_only(word: &Word) -> bool {
+    word.parts.iter().all(word_part_is_arithmetic_only)
+}
+
+fn word_part_is_arithmetic_only(part: &WordPartNode) -> bool {
+    match &part.kind {
+        WordPart::Literal(_) | WordPart::SingleQuoted { .. } => true,
+        WordPart::ArithmeticExpansion { .. } => true,
+        WordPart::DoubleQuoted { parts, .. } => parts.iter().all(word_part_is_arithmetic_only),
+        WordPart::Variable(_)
+        | WordPart::Parameter(_)
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ParameterExpansion { .. }
+        | WordPart::Length(_)
+        | WordPart::ArrayAccess(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::Substring { .. }
+        | WordPart::ArraySlice { .. }
+        | WordPart::IndirectExpansion { .. }
+        | WordPart::PrefixMatch { .. }
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::Transformation { .. }
+        | WordPart::ZshQualifiedGlob(_) => false,
     }
 }
 
