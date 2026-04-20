@@ -222,22 +222,26 @@ fn single_case_report(case_name: &str) -> Option<CaseReport> {
 
 fn parse_case_arg() -> Option<String> {
     let mut args = std::env::args().skip(1);
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
-            "--case" => return args.next(),
-            "--help" | "-h" => {
-                eprintln!(
-                    "usage: cargo run -p shuck-benchmark --example parser_memory -- [--case NAME]"
-                );
-                process::exit(0);
-            }
-            _ => {
-                eprintln!("unknown argument `{arg}`");
+    let arg = args.next()?;
+
+    match arg.as_str() {
+        "--case" => {
+            let value = args.next();
+            if let Some(extra) = args.next() {
+                eprintln!("unknown argument `{extra}`");
                 process::exit(2);
             }
+            value
+        }
+        "--help" | "-h" => {
+            eprintln!("usage: cargo run -p shuck-benchmark --example parser_memory -- [--case NAME]");
+            process::exit(0);
+        }
+        _ => {
+            eprintln!("unknown argument `{arg}`");
+            process::exit(2);
         }
     }
-    None
 }
 
 fn main() {
