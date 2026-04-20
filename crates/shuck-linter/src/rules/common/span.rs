@@ -440,6 +440,12 @@ pub fn word_unquoted_assign_default_spans(word: &Word) -> Vec<Span> {
     spans
 }
 
+pub fn word_use_replacement_spans(word: &Word) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_use_replacement_spans(&word.parts, &mut spans);
+    spans
+}
+
 pub fn word_unquoted_word_after_single_quoted_segment_spans(
     word: &Word,
     source: &str,
@@ -1634,6 +1640,40 @@ fn collect_scalar_expansion_spans(
                 }
             }
             WordPart::ArrayIndices(_) | WordPart::ArraySlice { .. } => {}
+        }
+    }
+}
+
+fn collect_use_replacement_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) {
+    for part in parts {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => collect_use_replacement_spans(parts, spans),
+            WordPart::Parameter(parameter) if parameter_uses_replacement_operator(parameter) => {
+                spans.push(part.span);
+            }
+            WordPart::ParameterExpansion { operator, .. }
+            | WordPart::IndirectExpansion {
+                operator: Some(operator),
+                ..
+            } if matches!(operator, ParameterOp::UseReplacement) => spans.push(part.span),
+            WordPart::Literal(_)
+            | WordPart::SingleQuoted { .. }
+            | WordPart::Variable(_)
+            | WordPart::ZshQualifiedGlob(_)
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::Transformation { .. } => {}
+            WordPart::Parameter(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::IndirectExpansion { .. } => {}
         }
     }
 }
@@ -3000,6 +3040,29 @@ fn parameter_is_scalar_like(parameter: &ParameterExpansion) -> bool {
             BourneParameterExpansion::Slice { reference, .. } => !reference.has_array_selector(),
         },
         ParameterExpansionSyntax::Zsh(_) => true,
+    }
+}
+
+fn parameter_uses_replacement_operator(parameter: &ParameterExpansion) -> bool {
+    let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax else {
+        return false;
+    };
+
+    match syntax {
+        BourneParameterExpansion::Indirect {
+            operator: Some(operator),
+            ..
+        }
+        | BourneParameterExpansion::Operation { operator, .. } => {
+            matches!(operator, ParameterOp::UseReplacement)
+        }
+        BourneParameterExpansion::Access { .. }
+        | BourneParameterExpansion::Length { .. }
+        | BourneParameterExpansion::Indices { .. }
+        | BourneParameterExpansion::PrefixMatch { .. }
+        | BourneParameterExpansion::Slice { .. }
+        | BourneParameterExpansion::Transformation { .. }
+        | BourneParameterExpansion::Indirect { operator: None, .. } => false,
     }
 }
 
