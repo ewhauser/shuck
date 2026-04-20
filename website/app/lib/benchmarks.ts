@@ -99,6 +99,17 @@ export type BenchmarkDataset = {
   cases: BenchmarkCase[];
 };
 
+export function pickLatestDatasetWithCorpus(
+  datasets: BenchmarkDataset[],
+): BenchmarkDataset | undefined {
+  return datasets
+    .filter((dataset) => dataset.corpus.fixtures.length > 0)
+    .sort(
+      (left, right) =>
+        Date.parse(right.generatedAt) - Date.parse(left.generatedAt),
+    )[0];
+}
+
 export function getAggregateCase(dataset: BenchmarkDataset): BenchmarkCase | undefined {
   return dataset.cases.find((candidate) => candidate.slug === "all");
 }

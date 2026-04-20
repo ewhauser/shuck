@@ -26,6 +26,7 @@ LARGE_CORPUS_REPORT_DIR ?= target/large-corpus-report
 LARGE_CORPUS_REPORT_LOG ?= $(LARGE_CORPUS_REPORT_DIR)/latest.log
 LARGE_CORPUS_REPORT_HTML ?= $(LARGE_CORPUS_REPORT_DIR)/index.html
 BENCHMARK_WEBSITE_LOCAL_OUTPUT ?= website/generated/benchmarks/local-m5-max.json
+BENCHMARK_WEBSITE_BENCH_DIR ?= $(or $(SHUCK_BENCHMARK_OUTPUT_DIR),.cache)
 
 setup-hooks:
 	git config core.hooksPath .githooks
@@ -182,7 +183,7 @@ bench-macro:
 	$(NIX_DEVELOP) ./scripts/benchmarks/run.sh
 
 bench-macro-site-local: bench-macro
-	$(NIX_DEVELOP) python3 ./scripts/benchmarks/export_website_data.py --repo-root . --bench-dir .cache --output "$(BENCHMARK_WEBSITE_LOCAL_OUTPUT)" --dataset-id local-m5-max --dataset-name "Apple M5 Max checked-in snapshot" --dataset-description "Checked-in make bench-macro results captured on an Apple M5 Max macOS development machine." --environment-kind local --environment-label "Apple M5 Max macOS snapshot" --notes "Regenerate this checked-in snapshot on the Apple M5 Max machine when you want to refresh the website's local reference numbers."
+	$(NIX_DEVELOP) python3 ./scripts/benchmarks/export_website_data.py --repo-root . --bench-dir "$(BENCHMARK_WEBSITE_BENCH_DIR)" --output "$(BENCHMARK_WEBSITE_LOCAL_OUTPUT)" --dataset-id local-m5-max --dataset-name "Apple M5 Max checked-in snapshot" --dataset-description "Checked-in make bench-macro results captured on an Apple M5 Max macOS development machine." --environment-kind local --environment-label "Apple M5 Max macOS snapshot" --notes "Regenerate this checked-in snapshot on the Apple M5 Max machine when you want to refresh the website's local reference numbers."
 
 bench-macro-single:
 	test -n "$(BENCH_FILE)"

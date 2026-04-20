@@ -11,15 +11,13 @@ import {
   getAggregateCase,
   getComparisonMeasurement,
   getMeasurement,
+  pickLatestDatasetWithCorpus,
 } from "@/app/lib/benchmarks";
 
 const localSnapshot = localSnapshotJson as BenchmarkDataset;
 const ciSnapshot = ciSnapshotJson as BenchmarkDataset;
 const snapshots = [localSnapshot, ciSnapshot];
-const corpus =
-  localSnapshot.corpus.fixtures.length > 0
-    ? localSnapshot.corpus
-    : ciSnapshot.corpus;
+const corpus = (pickLatestDatasetWithCorpus(snapshots) ?? localSnapshot).corpus;
 
 function measurementText(measurement: BenchmarkMeasurement | undefined) {
   if (!measurement) {
