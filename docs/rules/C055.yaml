@@ -3,7 +3,7 @@ legacy_name: pattern-with-variable
 new_category: Correctness
 new_code: C055
 runtime_kind: ast
-shellcheck_code: SC2250
+shellcheck_code: SC2295
 shells:
   - sh
   - bash

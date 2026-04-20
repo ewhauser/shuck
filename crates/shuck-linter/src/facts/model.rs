@@ -92,6 +92,7 @@ pub struct LinterFacts<'a> {
     nested_parameter_expansion_fragments: Vec<NestedParameterExpansionFragmentFact>,
     indirect_expansion_fragments: Vec<IndirectExpansionFragmentFact>,
     indexed_array_reference_fragments: Vec<IndexedArrayReferenceFragmentFact>,
+    parameter_pattern_special_target_fragments: Vec<ParameterPatternSpecialTargetFragmentFact>,
     zsh_parameter_index_flag_fragments: Vec<ZshParameterIndexFlagFragmentFact>,
     substring_expansion_fragments: Vec<SubstringExpansionFragmentFact>,
     case_modification_fragments: Vec<CaseModificationFragmentFact>,
@@ -580,6 +581,12 @@ impl<'a> LinterFacts<'a> {
         &self.indexed_array_reference_fragments
     }
 
+    pub fn parameter_pattern_special_target_fragments(
+        &self,
+    ) -> &[ParameterPatternSpecialTargetFragmentFact] {
+        &self.parameter_pattern_special_target_fragments
+    }
+
     pub fn zsh_parameter_index_flag_fragments(&self) -> &[ZshParameterIndexFlagFragmentFact] {
         &self.zsh_parameter_index_flag_fragments
     }
@@ -604,5 +611,4 @@ impl<'a> LinterFacts<'a> {
         &self.conditional_portability
     }
 }
-
 

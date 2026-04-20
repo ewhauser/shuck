@@ -1,4 +1,19 @@
 reviewed_divergences:
   - side: shuck-only
-    rule_wide: true
-    reason: "the current nix-provided ShellCheck build does not expose array-style subscripts in POSIX test brackets under a stable dedicated compatibility code, so Shuck's X040 portability hits stay reviewed until the oracle has a directly comparable warning"
+    path_contains: "SlackBuildsOrg__slackbuilds__"
+    reason: "The current nix-provided ShellCheck build does not expose array-style subscripts in POSIX test brackets under a stable dedicated compatibility code, so these X040 portability hits stay reviewed until the oracle has a directly comparable warning."
+  - side: shuck-only
+    path_contains: "bittorf__kalua__"
+    reason: "The current nix-provided ShellCheck build does not expose array-style subscripts in POSIX test brackets under a stable dedicated compatibility code, so these X040 portability hits stay reviewed until the oracle has a directly comparable warning."
+  - side: shuck-only
+    path_contains: "rupa__z__"
+    reason: "The current nix-provided ShellCheck build does not expose array-style subscripts in POSIX test brackets under a stable dedicated compatibility code, so these X040 portability hits stay reviewed until the oracle has a directly comparable warning."
+  - side: shuck-only
+    path_contains: "termux__termux-packages__"
+    reason: "The current nix-provided ShellCheck build does not expose array-style subscripts in POSIX test brackets under a stable dedicated compatibility code, so these X040 portability hits stay reviewed until the oracle has a directly comparable warning."
+  - side: shuck-only
+    path_contains: "tmux-plugins__tpm__"
+    reason: "The current nix-provided ShellCheck build does not expose array-style subscripts in POSIX test brackets under a stable dedicated compatibility code, so these X040 portability hits stay reviewed until the oracle has a directly comparable warning."
+  - side: shuck-only
+    path_contains: "void-linux__void-packages__"
+    reason: "The current nix-provided ShellCheck build does not expose array-style subscripts in POSIX test brackets under a stable dedicated compatibility code, so these X040 portability hits stay reviewed until the oracle has a directly comparable warning."

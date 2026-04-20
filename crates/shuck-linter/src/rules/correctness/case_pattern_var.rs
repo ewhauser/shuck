@@ -25,12 +25,14 @@ mod tests {
     use crate::{LinterSettings, Rule};
 
     #[test]
-    fn reports_nested_case_pattern_groups_and_substitutions() {
+    fn reports_simple_case_pattern_expansions() {
         let source = "\
 #!/bin/bash
 pat=foo
 case $value in
-  @($pat|$(printf '%s' bar))) : ;;
+  $pat) : ;;
+  $(printf '%s' bar)) : ;;
+  \"$left\"$right) : ;;
 esac
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CasePatternVar));
@@ -40,7 +42,7 @@ esac
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$pat", "$(printf '%s' bar)"]
+            vec!["$pat", "$(printf '%s' bar)", "\"$left\"$right"]
         );
     }
 
@@ -67,24 +69,38 @@ esac
     }
 
     #[test]
-    fn anchors_mixed_case_patterns_to_the_full_pattern_span() {
+    fn ignores_case_patterns_with_real_glob_structure() {
         let source = "\
 #!/bin/sh
 case $value in
-  x$pat) : ;;
-  \"$left\"$right) : ;;
+  gm$MAMEVER*) : ;;
+  *${IDN_ITEM}*) : ;;
+  ${pat}*) : ;;
+  *${pat}) : ;;
+  x${pat}*) : ;;
+  [$hex]) : ;;
+  @($pat|bar)) : ;;
   x$left@(foo|bar)) : ;;
 esac
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CasePatternVar));
 
-        assert_eq!(
-            diagnostics
-                .iter()
-                .map(|diagnostic| diagnostic.span.slice(source))
-                .collect::<Vec<_>>(),
-            vec!["x$pat", "\"$left\"$right", "x$left@(foo|bar)"]
-        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_case_patterns_built_from_arithmetic_expansions() {
+        let source = "\
+#!/bin/bash
+case $value in
+  $((error_code <= 125))) : ;;
+  $((__git_cmd_idx+1))) : ;;
+  x$((1))) : ;;
+esac
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::CasePatternVar));
+
+        assert!(diagnostics.is_empty());
     }
 
     #[test]

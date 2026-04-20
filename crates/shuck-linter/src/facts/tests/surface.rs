@@ -196,9 +196,28 @@ if [[ \"$@\" =~ x ]]; then :; fi
             facts
                 .indexed_array_reference_fragments()
                 .iter()
-                .map(|fragment| fragment.span().slice(source))
+                .map(|fragment| (fragment.span().slice(source), fragment.is_plain()))
                 .collect::<Vec<_>>(),
-            vec!["${arr[0]}", "${arr[@]}", "${arr[*]}"]
+            vec![
+                ("${!arr[*]}", false),
+                ("${arr[0]}", true),
+                ("${arr[@]}", true),
+                ("${arr[*]}", true),
+                ("${#arr[0]}", false),
+                ("${#arr[@]}", false),
+                ("${arr[0]%x}", false),
+                ("${arr[0]:2}", false),
+                ("${arr[0]//x/y}", false),
+                ("${arr[0]:-fallback}", false),
+                ("${!arr[0]}", false),
+                ("${arr[@]:1}", false),
+                ("${arr[0]:1}", false),
+                ("${arr[0]^^}", false),
+                ("${arr[@],,}", false),
+                ("${arr[0]//a/b}", false),
+                ("${arr[@]/a/b}", false),
+                ("${arr[*]//a}", false),
+            ]
         );
         assert!(
             facts.zsh_parameter_index_flag_fragments().is_empty(),
@@ -980,15 +999,14 @@ esac
 }
 
 #[test]
-fn builds_case_pattern_expansion_spans_for_mixed_and_quoted_patterns() {
+fn builds_case_pattern_expansion_spans_for_simple_dynamic_patterns() {
     let source = "\
 #!/bin/sh
 case $value in
+  $pat) : ;;
   x$pat) : ;;
-  \"$quoted\") : ;;
+  $(printf '%s' foo)) : ;;
   \"$left\"$right) : ;;
-  x$left@(foo|bar)) : ;;
-  @($nested|\"$ignored\")) : ;;
 esac
 ";
 
@@ -999,8 +1017,29 @@ esac
                 .iter()
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["x$pat", "\"$left\"$right", "x$left@(foo|bar)", "$nested"]
+            vec!["$pat", "x$pat", "$(printf '%s' foo)", "\"$left\"$right"]
         );
+    });
+}
+
+#[test]
+fn ignores_case_pattern_expansions_when_real_globs_are_present() {
+    let source = "\
+#!/bin/bash
+case $value in
+  gm$MAMEVER*) : ;;
+  *${IDN_ITEM}*) : ;;
+  ${pat}*) : ;;
+  *${pat}) : ;;
+  x${pat}*) : ;;
+  [$hex]) : ;;
+  @($pat|bar)) : ;;
+  x$left@(foo|bar)) : ;;
+esac
+";
+
+    with_facts(source, None, |_, facts| {
+        assert!(facts.case_pattern_expansion_spans().is_empty());
     });
 }
 
@@ -2316,6 +2355,50 @@ printf '%s\\n' ${name%$suffix} `printf backtick`
                 .map(|fragment| fragment.span().slice(source))
                 .collect::<Vec<_>>(),
             vec!["`printf backtick`"]
+        );
+    });
+}
+
+#[test]
+fn indexed_array_reference_fragments_include_operator_expansions() {
+    let source = "\
+#!/bin/bash
+printf '%s\\n' \"${items[@]#$prefix/}\" \"${items[i]%$suffix}\"
+";
+
+    with_facts(source, None, |_, facts| {
+        assert_eq!(
+            facts
+                .indexed_array_reference_fragments()
+                .iter()
+                .map(|fragment| (fragment.span().slice(source), fragment.is_plain()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("${items[@]#$prefix/}", false),
+                ("${items[i]%$suffix}", false),
+            ]
+        );
+    });
+}
+
+#[test]
+fn parameter_pattern_special_target_fragments_only_mark_direct_pattern_operands() {
+    let source = "\
+#!/bin/bash
+scalar=${name#${items[0]}}
+array_trim=\"${items[@]#$prefix/}\"
+script_name=${0##*/}
+nested=${items[i]%${name%$suffix}}
+";
+
+    with_facts(source, None, |_, facts| {
+        assert_eq!(
+            facts
+                .parameter_pattern_special_target_fragments()
+                .iter()
+                .map(|fragment| fragment.span().slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$prefix", "${name%$suffix}"]
         );
     });
 }

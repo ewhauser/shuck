@@ -158,9 +158,25 @@ impl IndirectExpansionFragmentFact {
 #[derive(Debug, Clone, Copy)]
 pub struct IndexedArrayReferenceFragmentFact {
     span: Span,
+    plain: bool,
 }
 
 impl IndexedArrayReferenceFragmentFact {
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn is_plain(&self) -> bool {
+        self.plain
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ParameterPatternSpecialTargetFragmentFact {
+    span: Span,
+}
+
+impl ParameterPatternSpecialTargetFragmentFact {
     pub fn span(&self) -> Span {
         self.span
     }
@@ -239,6 +255,7 @@ pub(super) struct SurfaceFragmentFacts {
     pub(super) nested_parameter_expansions: Vec<NestedParameterExpansionFragmentFact>,
     pub(super) indirect_expansions: Vec<IndirectExpansionFragmentFact>,
     pub(super) indexed_array_references: Vec<IndexedArrayReferenceFragmentFact>,
+    pub(super) parameter_pattern_special_targets: Vec<ParameterPatternSpecialTargetFragmentFact>,
     pub(super) zsh_parameter_index_flags: Vec<ZshParameterIndexFlagFragmentFact>,
     pub(super) substring_expansions: Vec<SubstringExpansionFragmentFact>,
     pub(super) case_modifications: Vec<CaseModificationFragmentFact>,
@@ -368,18 +385,33 @@ impl<'a> SurfaceFragmentSink<'a> {
         )
     }
 
-    fn record_array_reference(&mut self, span: Span) {
-        if self
+    fn record_array_reference(&mut self, span: Span, plain: bool) {
+        if let Some(fragment) = self
             .facts
             .indexed_array_references
-            .iter()
-            .any(|fragment| fragment.span() == span)
+            .iter_mut()
+            .find(|fragment| fragment.span() == span)
         {
+            fragment.plain |= plain;
             return;
         }
         self.facts
             .indexed_array_references
-            .push(IndexedArrayReferenceFragmentFact { span });
+            .push(IndexedArrayReferenceFragmentFact { span, plain });
+    }
+
+    fn record_parameter_pattern_special_target(&mut self, operand_span: Span) {
+        if self
+            .facts
+            .parameter_pattern_special_targets
+            .iter()
+            .any(|fragment| fragment.span() == operand_span)
+        {
+            return;
+        }
+        self.facts
+            .parameter_pattern_special_targets
+            .push(ParameterPatternSpecialTargetFragmentFact { span: operand_span });
     }
 
     fn record_substring_expansion(&mut self, span: Span) {
@@ -652,6 +684,14 @@ impl<'a> SurfaceFragmentSink<'a> {
                     operand_word_ast,
                     ..
                 } => {
+                    if reference_has_array_subscript(reference) {
+                        self.record_array_reference(part.span, false);
+                    }
+                    if parameter_pattern_target_is_special(reference, operator) {
+                        for pattern_span in parameter_operator_special_target_word_spans(operator) {
+                            self.record_parameter_pattern_special_target(pattern_span);
+                        }
+                    }
                     if matches!(
                         operator,
                         ParameterOp::UpperFirst
@@ -687,7 +727,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                 }
                 WordPart::ArrayAccess(reference) => {
                     if reference_has_array_subscript(reference) {
-                        self.record_array_reference(part.span);
+                        self.record_array_reference(part.span, true);
                         let case_modification_span = parts
                             .get(index + 1)
                             .filter(|next_part| {
@@ -967,7 +1007,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                 .push(NestedParameterExpansionFragmentFact { span });
         }
         if parameter_has_array_reference(parameter) {
-            self.record_array_reference(span);
+            self.record_array_reference(span, parameter_is_plain_array_reference(parameter));
         }
         if parameter_has_substring_expansion(parameter) {
             self.record_substring_expansion(span);
@@ -998,17 +1038,24 @@ impl<'a> SurfaceFragmentSink<'a> {
             }
             match syntax {
                 BourneParameterExpansion::Operation {
+                    reference,
                     operator,
                     operand,
                     operand_word_ast,
                     ..
                 }
                 | BourneParameterExpansion::Indirect {
+                    reference,
                     operator: Some(operator),
                     operand,
                     operand_word_ast,
                     ..
                 } => {
+                    if parameter_pattern_target_is_special(reference, operator) {
+                        for pattern_span in parameter_operator_special_target_word_spans(operator) {
+                            self.record_parameter_pattern_special_target(pattern_span);
+                        }
+                    }
                     self.collect_parameter_operator_patterns(
                         operator,
                         operand.as_ref(),
@@ -1479,15 +1526,15 @@ fn parameter_operator_guards_unset_reference(operator: &ParameterOp) -> bool {
 fn parameter_has_array_reference(parameter: &shuck_ast::ParameterExpansion) -> bool {
     match &parameter.syntax {
         ParameterExpansionSyntax::Bourne(syntax) => match syntax {
-            BourneParameterExpansion::Access { reference } => {
+            BourneParameterExpansion::Access { reference }
+            | BourneParameterExpansion::Length { reference }
+            | BourneParameterExpansion::Indices { reference }
+            | BourneParameterExpansion::Indirect { reference, .. }
+            | BourneParameterExpansion::Slice { reference, .. }
+            | BourneParameterExpansion::Operation { reference, .. }
+            | BourneParameterExpansion::Transformation { reference, .. } => {
                 reference_has_array_subscript(reference)
             }
-            BourneParameterExpansion::Length { .. }
-            | BourneParameterExpansion::Indices { .. }
-            | BourneParameterExpansion::Indirect { .. }
-            | BourneParameterExpansion::Slice { .. }
-            | BourneParameterExpansion::Operation { .. }
-            | BourneParameterExpansion::Transformation { .. } => false,
             BourneParameterExpansion::PrefixMatch { .. } => false,
         },
         ParameterExpansionSyntax::Zsh(syntax) => match &syntax.target {
@@ -1496,6 +1543,89 @@ fn parameter_has_array_reference(parameter: &shuck_ast::ParameterExpansion) -> b
             ZshExpansionTarget::Word(_) | ZshExpansionTarget::Empty => false,
         },
     }
+}
+
+fn parameter_is_plain_array_reference(parameter: &shuck_ast::ParameterExpansion) -> bool {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference }) => {
+            reference_has_array_subscript(reference)
+        }
+        ParameterExpansionSyntax::Zsh(syntax)
+            if syntax.length_prefix.is_none()
+                && syntax.operation.is_none()
+                && syntax.modifiers.is_empty() =>
+        {
+            match &syntax.target {
+                ZshExpansionTarget::Reference(reference) => {
+                    reference_has_array_subscript(reference)
+                }
+                ZshExpansionTarget::Nested(parameter) => {
+                    parameter_is_plain_array_reference(parameter)
+                }
+                ZshExpansionTarget::Word(_) | ZshExpansionTarget::Empty => false,
+            }
+        }
+        _ => false,
+    }
+}
+
+fn parameter_operator_has_pattern(operator: &ParameterOp) -> bool {
+    matches!(
+        operator,
+        ParameterOp::RemovePrefixShort { .. }
+            | ParameterOp::RemovePrefixLong { .. }
+            | ParameterOp::RemoveSuffixShort { .. }
+            | ParameterOp::RemoveSuffixLong { .. }
+            | ParameterOp::ReplaceFirst { .. }
+            | ParameterOp::ReplaceAll { .. }
+    )
+}
+
+fn parameter_operator_special_target_word_spans(operator: &ParameterOp) -> Vec<Span> {
+    match operator {
+        ParameterOp::RemovePrefixShort { pattern }
+        | ParameterOp::RemovePrefixLong { pattern }
+        | ParameterOp::RemoveSuffixShort { pattern }
+        | ParameterOp::RemoveSuffixLong { pattern }
+        | ParameterOp::ReplaceFirst { pattern, .. }
+        | ParameterOp::ReplaceAll { pattern, .. } => pattern_special_target_word_spans(pattern),
+        ParameterOp::UseDefault
+        | ParameterOp::AssignDefault
+        | ParameterOp::UseReplacement
+        | ParameterOp::Error
+        | ParameterOp::UpperFirst
+        | ParameterOp::UpperAll
+        | ParameterOp::LowerFirst
+        | ParameterOp::LowerAll => Vec::new(),
+    }
+}
+
+fn pattern_special_target_word_spans(pattern: &Pattern) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_pattern_special_target_word_spans(pattern, &mut spans);
+    spans
+}
+
+fn collect_pattern_special_target_word_spans(pattern: &Pattern, spans: &mut Vec<Span>) {
+    for (part, span) in pattern.parts_with_spans() {
+        match part {
+            PatternPart::Group { patterns, .. } => {
+                for pattern in patterns {
+                    collect_pattern_special_target_word_spans(pattern, spans);
+                }
+            }
+            PatternPart::Word(_) => spans.push(span),
+            PatternPart::Literal(_)
+            | PatternPart::AnyString
+            | PatternPart::AnyChar
+            | PatternPart::CharClass(_) => {}
+        }
+    }
+}
+
+fn parameter_pattern_target_is_special(reference: &VarRef, operator: &ParameterOp) -> bool {
+    parameter_operator_has_pattern(operator)
+        && (reference_has_array_subscript(reference) || reference.name.as_str() == "0")
 }
 
 fn parameter_has_substring_expansion(parameter: &shuck_ast::ParameterExpansion) -> bool {

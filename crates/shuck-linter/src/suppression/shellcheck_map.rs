@@ -7,8 +7,10 @@ include!(concat!(env!("OUT_DIR"), "/shellcheck_map_data.rs"));
 const SUPPRESSION_ALIAS_CODES: &[(u32, Rule)] = &[
     // Older ShellCheck compatibility codes still appear in user suppressions.
     (2268, Rule::BackslashBeforeCommand),
+    (2250, Rule::PatternWithVariable),
+    (2350, Rule::XargsWithInlineReplace),
     (2316, Rule::BacktickInCommandPosition),
-    (2316, Rule::LocalDeclareCombined),
+    (2362, Rule::LocalDeclareCombined),
     (2321, Rule::FunctionKeywordInSh),
     (2234, Rule::SingleTestSubshell),
     (2351, Rule::XPrefixInTest),
@@ -144,7 +146,13 @@ mod tests {
         );
         assert_eq!(
             map.resolve_all("SC2316"),
-            vec![Rule::BacktickInCommandPosition, Rule::LocalDeclareCombined]
+            vec![Rule::LocalDeclareCombined, Rule::BacktickInCommandPosition]
+        );
+        assert_eq!(map.resolve_all("SC2362"), vec![Rule::LocalDeclareCombined]);
+        assert_eq!(map.resolve_all("SC2250"), vec![Rule::PatternWithVariable]);
+        assert_eq!(
+            map.resolve_all("SC2350"),
+            vec![Rule::XargsWithInlineReplace]
         );
         assert_eq!(
             map.resolve_all("SC2321"),
