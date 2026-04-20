@@ -12252,7 +12252,8 @@ impl<'a> WordFactCollector<'a> {
                                 &mut self.arithmetic.dollar_in_arithmetic_spans,
                             );
                             if indexed_semantics {
-                                self.collect_indexed_subscript_arithmetic_spans(word);
+                                self.collect_array_index_arithmetic_spans(word);
+                                self.collect_dollar_prefixed_indexed_subscript_spans(word);
                             }
                             self.push_owned_word(
                                 word.clone(),
@@ -12298,7 +12299,8 @@ impl<'a> WordFactCollector<'a> {
                     &mut self.arithmetic.dollar_in_arithmetic_spans,
                 );
                 if indexed_semantics {
-                    self.collect_indexed_subscript_arithmetic_spans(word);
+                    self.collect_array_index_arithmetic_spans(word);
+                    self.collect_dollar_prefixed_indexed_subscript_spans(word);
                 }
                 self.push_owned_word(
                     word.clone(),
@@ -12350,8 +12352,10 @@ impl<'a> WordFactCollector<'a> {
                         }
                         ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
                             self.surface.record_subscript(Some(key));
-                            let indexed_semantics =
-                                self.subscript_uses_index_arithmetic_semantics(None, Some(key));
+                            let indexed_semantics = self.subscript_uses_index_arithmetic_semantics(
+                                Some(&assignment.target.name),
+                                Some(key),
+                            );
                             query::visit_subscript_words(Some(key), self.source, &mut |word| {
                                 self.surface.collect_word(word, surface_context);
                                 collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
@@ -12360,7 +12364,7 @@ impl<'a> WordFactCollector<'a> {
                                     &mut self.arithmetic.dollar_in_arithmetic_spans,
                                 );
                                 if indexed_semantics {
-                                    self.collect_indexed_subscript_arithmetic_spans(word);
+                                    self.collect_dollar_prefixed_indexed_subscript_spans(word);
                                 }
                                 self.push_owned_word(
                                     word.clone(),
@@ -12803,8 +12807,7 @@ impl<'a> WordFactCollector<'a> {
             .extend(span::arithmetic_expansion_part_spans(word));
     }
 
-    fn collect_indexed_subscript_arithmetic_spans(&mut self, word: &Word) {
-        self.collect_array_index_arithmetic_spans(word);
+    fn collect_dollar_prefixed_indexed_subscript_spans(&mut self, word: &Word) {
         collect_dollar_prefixed_arithmetic_variable_spans(
             word.span,
             self.source,
@@ -13853,8 +13856,7 @@ fn is_shell_variable_name(name: &str) -> bool {
 fn is_scannable_simple_arithmetic_subscript_text(text: &str) -> bool {
     let trimmed = text.trim();
     !trimmed.is_empty()
-        && (is_shell_variable_name(trimmed)
-            || trimmed.bytes().all(|byte| byte.is_ascii_digit()))
+        && (is_shell_variable_name(trimmed) || trimmed.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
 fn is_simple_arithmetic_reference_subscript(subscript: &Subscript, source: &str) -> bool {
