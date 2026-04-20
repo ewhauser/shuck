@@ -5,9 +5,6 @@ reviewed_divergences:
     end_line: 4919
     column: 33
     end_column: 38
-    labels:
-      - directive-handling
-      - project-closure
     reason: "PPID is a shell-provided parent-process variable here, so the uppercase read can be intentional even though a lowercase helper binding exists elsewhere in the script."
   - side: shellcheck-only
     path_suffix: "ohmyzsh__ohmyzsh__plugins__drush__drush.complete.sh"
@@ -15,9 +12,6 @@ reviewed_divergences:
     end_line: 24
     column: 20
     end_column: 32
-    labels:
-      - helper-library
-      - shell-collapse
     reason: "This helper intentionally mirrors a project-specific double-underscore variable name, and shuck keeps C156 narrower than ShellCheck's helper-name guessing in collapsed plugin code."
   - side: shellcheck-only
     path_suffix: "ohmyzsh__ohmyzsh__plugins__macos__spotify"
@@ -25,9 +19,6 @@ reviewed_divergences:
     end_line: 197
     column: 67
     end_column: 85
-    labels:
-      - helper-library
-      - project-closure
     reason: "This is a one-off string typo inside helper code, but shuck does not broaden C156 into a general edit-distance spell checker for arbitrary uppercase names."
   - side: shuck-only
     path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
@@ -35,9 +26,6 @@ reviewed_divergences:
     end_line: 116
     column: 11
     end_column: 16
-    labels:
-      - helper-library
-      - project-closure
     reason: "NAME is populated by the sourced os-release file in this branch, so matching it against an unrelated lowercase helper name elsewhere in the file is misleading."
   - side: shellcheck-only
     path_suffix: "romkatv__powerlevel10k__gitstatus__gitstatus.plugin.sh"
@@ -45,9 +33,6 @@ reviewed_divergences:
     end_line: 423
     column: 35
     end_column: 67
-    labels:
-      - project-closure
-      - shell-collapse
     reason: "The trailing-underscore variant is a project-specific helper naming convention, and shuck intentionally avoids teaching C156 every collapsed helper suffix pattern."
   - side: shellcheck-only
     path_suffix: "termux__termux-packages__packages__alpine__build.sh"
@@ -111,8 +96,6 @@ reviewed_divergences:
     end_line: 11
     column: 76
     end_column: 97
-    labels:
-      - directive-handling
     reason: "This sourced build helper intentionally threads different TERMUX_* variables together, and shuck does not treat those project-specific name shifts as misspellings."
   - side: shellcheck-only
     path_suffix: "termux__termux-packages__scripts__build__toolchain__termux_setup_toolchain_23c.sh"
@@ -141,9 +124,6 @@ reviewed_divergences:
     end_line: 417
     column: 70
     end_column: 87
-    labels:
-      - project-closure
-      - shell-collapse
     reason: "These cross-build helper names intentionally switch between *_CMD and *_XCMD forms, and shuck does not guess across that project-specific naming family."
   - side: shellcheck-only
     path_suffix: "void-linux__void-packages__common__xbps-src__shutils__common.sh"
@@ -151,9 +131,6 @@ reviewed_divergences:
     end_line: 418
     column: 68
     end_column: 83
-    labels:
-      - project-closure
-      - shell-collapse
     reason: "These cross-build helper names intentionally switch between *_CMD and *_XCMD forms, and shuck does not guess across that project-specific naming family."
   - side: shellcheck-only
     path_suffix: "void-linux__void-packages__common__xbps-src__shutils__common.sh"
@@ -161,9 +138,6 @@ reviewed_divergences:
     end_line: 419
     column: 74
     end_column: 95
-    labels:
-      - project-closure
-      - shell-collapse
     reason: "These cross-build helper names intentionally switch between *_CMD and *_XCMD forms, and shuck does not guess across that project-specific naming family."
   - side: shellcheck-only
     path_suffix: "void-linux__void-packages__common__xbps-src__shutils__common.sh"
@@ -171,9 +145,6 @@ reviewed_divergences:
     end_line: 420
     column: 69
     end_column: 85
-    labels:
-      - project-closure
-      - shell-collapse
     reason: "These cross-build helper names intentionally switch between *_CMD and *_XCMD forms, and shuck does not guess across that project-specific naming family."
   - side: shellcheck-only
     path_suffix: "void-linux__void-packages__common__xbps-src__shutils__common.sh"
@@ -181,9 +152,6 @@ reviewed_divergences:
     end_line: 421
     column: 69
     end_column: 85
-    labels:
-      - project-closure
-      - shell-collapse
     reason: "These cross-build helper names intentionally switch between *_CMD and *_XCMD forms, and shuck does not guess across that project-specific naming family."
   - side: shellcheck-only
     path_suffix: "void-linux__void-packages__common__xbps-src__shutils__common.sh"
@@ -191,9 +159,6 @@ reviewed_divergences:
     end_line: 435
     column: 28
     end_column: 45
-    labels:
-      - project-closure
-      - shell-collapse
     reason: "These cross-build helper names intentionally switch between *_CMD and *_XCMD forms, and shuck does not guess across that project-specific naming family."
   - side: shellcheck-only
     path_suffix: "void-linux__void-packages__common__xbps-src__shutils__common.sh"
@@ -201,9 +166,6 @@ reviewed_divergences:
     end_line: 436
     column: 30
     end_column: 49
-    labels:
-      - project-closure
-      - shell-collapse
     reason: "These cross-build helper names intentionally switch between *_CMD and *_XCMD forms, and shuck does not guess across that project-specific naming family."
   - side: shuck-only
     path_suffix: "void-linux__void-packages__common__xbps-src__shutils__common.sh"
@@ -211,9 +173,6 @@ reviewed_divergences:
     end_line: 128
     column: 17
     end_column: 32
-    labels:
-      - project-closure
-      - shell-collapse
     reason: "FUNCNAME is a Bash runtime array in this error helper, so matching it against an unrelated lowercase helper variable elsewhere in the file is too aggressive."
   - side: shellcheck-only
     path_suffix: "void-linux__void-packages__common__xbps-src__shutils__cross.sh"
@@ -221,8 +180,6 @@ reviewed_divergences:
     end_line: 131
     column: 5
     end_column: 21
-    labels:
-      - shell-collapse
     reason: "This cross-build helper intentionally distinguishes *_XCMD from *_CMD names, and shuck keeps C156 narrower than ShellCheck's project-specific helper guess."
   - side: shellcheck-only
     path_suffix: "termux__termux-packages__disabled-packages__botan2__build.sh"

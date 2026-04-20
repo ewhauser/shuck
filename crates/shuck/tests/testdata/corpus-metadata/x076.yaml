@@ -5,7 +5,4 @@ reviewed_divergences:
     end_line: 51
     column: 44
     end_column: 45
-    labels:
-      - project-closure
-      - shell-collapse
     reason: "This bootstrap file is sourced by zsh entrypoints despite its `.sh` suffix, so the nested `${${(%):-%x}:a:h}` path setup is intentional project-specific zsh code."

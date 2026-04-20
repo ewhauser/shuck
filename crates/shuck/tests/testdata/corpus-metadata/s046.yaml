@@ -5,6 +5,4 @@ reviewed_divergences:
     column: 2
     end_line: 256
     end_column: 4
-    labels:
-      - shell-collapse
     reason: "ShellCheck 0.11.0 does not report SC2293 for this raw ls-to-xargs pipeline, but shuck follows the repo-authored S046 scope and flags the unsafe pipeline shape."

@@ -432,8 +432,6 @@ struct ReviewedDivergenceRecord {
     column: Option<usize>,
     #[serde(default)]
     end_column: Option<usize>,
-    #[serde(default)]
-    labels: Vec<String>,
     reason: String,
 }
 
@@ -459,7 +457,6 @@ struct CompatibilityRecord {
     shellcheck_code: String,
     range: DiagnosticRange,
     message: String,
-    labels: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -1308,22 +1305,12 @@ fn evaluate_fixture_compatibility(
                 return evaluation;
             }
 
-            let labels = compatibility_context_labels(&fixture.cache_rel_path, &src);
-            let shellcheck_records = shellcheck_compatibility_records(
-                &sc_run.diagnostics,
-                shellcheck_rule_index,
-                &labels,
-            );
+            let shellcheck_records =
+                shellcheck_compatibility_records(&sc_run.diagnostics, shellcheck_rule_index);
             let shuck_records =
-                shuck_compatibility_records(&shuck_run.diagnostics, shellcheck_index, &labels);
+                shuck_compatibility_records(&shuck_run.diagnostics, shellcheck_index);
             let (shellcheck_only, shuck_only) =
                 unmatched_compatibility_records(&shellcheck_records, &shuck_records);
-            let location_only_codes = location_only_shellcheck_codes(
-                &shellcheck_records,
-                &shuck_records,
-                &shellcheck_only,
-                &shuck_only,
-            );
 
             let cache_rel_path = fixture.cache_rel_path_key();
             let mut implementation_details = Vec::new();
@@ -1333,12 +1320,7 @@ fn evaluate_fixture_compatibility(
             for record in shellcheck_only.into_iter().chain(shuck_only) {
                 let (classification, reason) =
                     classify_compatibility_record(&record, &cache_rel_path, corpus_metadata);
-                let detail = format_compatibility_record(
-                    &record,
-                    reason.as_deref(),
-                    classification == CompatibilityClassification::Implementation
-                        && location_only_codes.contains(record.shellcheck_code.as_str()),
-                );
+                let detail = format_compatibility_record(&record, reason.as_deref());
                 match classification {
                     CompatibilityClassification::Implementation => {
                         implementation_details.push(detail)
@@ -1562,13 +1544,7 @@ fn reviewed_divergence_reason<'a>(
                 .is_none_or(|column| column == record.range.column)
             && entry
                 .end_column
-                .is_none_or(|end_column| end_column == record.range.end_column)
-            && entry.labels.iter().all(|label| {
-                record
-                    .labels
-                    .iter()
-                    .any(|record_label| record_label == label)
-            }))
+                .is_none_or(|end_column| end_column == record.range.end_column))
         .then_some(entry.reason.as_str())
     })
 }
@@ -1630,7 +1606,6 @@ fn classify_compatibility_record(
 fn shellcheck_compatibility_records(
     diagnostics: &[ShellCheckDiagnostic],
     shellcheck_rule_index: &HashMap<u32, Vec<String>>,
-    labels: &[String],
 ) -> Vec<CompatibilityRecord> {
     diagnostics
         .iter()
@@ -1651,7 +1626,6 @@ fn shellcheck_compatibility_records(
                     end_column: diag.end_column,
                 },
                 message: format!("{} {}", diag.level, diag.message),
-                labels: labels.to_vec(),
             }
         })
         .collect()
@@ -1660,7 +1634,6 @@ fn shellcheck_compatibility_records(
 fn shuck_compatibility_records(
     diagnostics: &[shuck_linter::Diagnostic],
     shellcheck_index: &HashMap<String, String>,
-    labels: &[String],
 ) -> Vec<CompatibilityRecord> {
     diagnostics
         .iter()
@@ -1679,7 +1652,6 @@ fn shuck_compatibility_records(
                         end_column: diag.span.end.column,
                     },
                     message: diag.message.clone(),
-                    labels: labels.to_vec(),
                 })
         })
         .collect()
@@ -1753,66 +1725,6 @@ fn unmatched_compatibility_records(
     (shellcheck_only, shuck_only)
 }
 
-fn location_only_shellcheck_codes(
-    shellcheck_records: &[CompatibilityRecord],
-    shuck_records: &[CompatibilityRecord],
-    shellcheck_only: &[CompatibilityRecord],
-    shuck_only: &[CompatibilityRecord],
-) -> HashSet<String> {
-    let shellcheck_counts = count_codes(
-        &shellcheck_records
-            .iter()
-            .map(|record| record.shellcheck_code.clone())
-            .collect::<Vec<_>>(),
-    );
-    let shuck_counts = count_codes(
-        &shuck_records
-            .iter()
-            .map(|record| record.shellcheck_code.clone())
-            .collect::<Vec<_>>(),
-    );
-    let shellcheck_unmatched = count_codes(
-        &shellcheck_only
-            .iter()
-            .map(|record| record.shellcheck_code.clone())
-            .collect::<Vec<_>>(),
-    );
-    let shuck_unmatched = count_codes(
-        &shuck_only
-            .iter()
-            .map(|record| record.shellcheck_code.clone())
-            .collect::<Vec<_>>(),
-    );
-
-    shellcheck_counts
-        .keys()
-        .chain(shuck_counts.keys())
-        .filter(|code| {
-            shellcheck_counts.get(*code) == shuck_counts.get(*code)
-                && shellcheck_unmatched.get(*code).copied().unwrap_or(0) > 0
-                && shuck_unmatched.get(*code).copied().unwrap_or(0) > 0
-        })
-        .cloned()
-        .collect()
-}
-
-fn compatibility_context_labels(path: &Path, src: &[u8]) -> Vec<String> {
-    let mut labels = Vec::new();
-    let source = String::from_utf8_lossy(src);
-    let shell = shuck_linter::ShellDialect::from_name(resolve_shell(path, src).as_str());
-    let file_context = shuck_linter::classify_file_context(&source, Some(path), shell);
-
-    for tag in file_context.tags() {
-        labels.push(tag.label().to_owned());
-    }
-    if source_starts_with_unknown_shell_comment(src) {
-        labels.push("shell-collapse".into());
-    }
-    labels.sort();
-    labels.dedup();
-    labels
-}
-
 fn shuck_parse_aborted(error: &str) -> bool {
     !error.starts_with("read error:")
 }
@@ -1864,22 +1776,7 @@ fn fixture_looks_like_fish(fixture: &LargeCorpusFixture, src: &[u8]) -> bool {
         .contains("oh-my-fish")
 }
 
-fn format_compatibility_record(
-    record: &CompatibilityRecord,
-    reason: Option<&str>,
-    location_only: bool,
-) -> String {
-    let mut labels = record.labels.clone();
-    if location_only {
-        labels.push("location-only".into());
-    }
-    labels.sort();
-    labels.dedup();
-    let labels = if labels.is_empty() {
-        String::new()
-    } else {
-        format!(" labels={}", labels.join(","))
-    };
+fn format_compatibility_record(record: &CompatibilityRecord, reason: Option<&str>) -> String {
     let reason = reason
         .map(|reason| format!(" reason={reason}"))
         .unwrap_or_default();
@@ -1890,13 +1787,12 @@ fn format_compatibility_record(
         rule_codes.join(",")
     };
     format!(
-        "{} {}/{} {} {}{}{}",
+        "{} {}/{} {} {}{}",
         record.side.as_str(),
         rule_code,
         record.shellcheck_code,
         record.range.display(),
         record.message,
-        labels,
         reason,
     )
 }
@@ -3849,7 +3745,6 @@ mod tests {
                     end_line: Some(19),
                     column: Some(1),
                     end_column: Some(14),
-                    labels: Vec::new(),
                     reason: "exact-match reviewed divergence".into(),
                 }],
             },
@@ -3866,7 +3761,6 @@ mod tests {
                 end_column: 14,
             },
             message: "warning reviewed divergence".into(),
-            labels: Vec::new(),
         };
 
         let (classification, reason) =
@@ -3893,7 +3787,6 @@ mod tests {
                     end_line: Some(19),
                     column: Some(1),
                     end_column: Some(14),
-                    labels: Vec::new(),
                     reason: "scripts-prefixed reviewed divergence".into(),
                 }],
             },
@@ -3910,7 +3803,6 @@ mod tests {
                 end_column: 14,
             },
             message: "warning reviewed divergence".into(),
-            labels: Vec::new(),
         };
 
         let (classification, reason) =
@@ -3927,7 +3819,7 @@ mod tests {
     }
 
     #[test]
-    fn reviewed_divergence_classification_matches_label_qualified_record() {
+    fn reviewed_divergence_classification_matches_rule_wide_record() {
         let metadata = HashMap::from([(
             "C999".to_string(),
             RuleCorpusMetadataDocument {
@@ -3940,12 +3832,11 @@ mod tests {
                     end_line: None,
                     column: None,
                     end_column: None,
-                    labels: vec!["project-closure".into()],
-                    reason: "label-qualified reviewed divergence".into(),
+                    reason: "rule-wide reviewed divergence".into(),
                 }],
             },
         )]);
-        let matching = CompatibilityRecord {
+        let record = CompatibilityRecord {
             side: CompatibilitySide::ShuckOnly,
             rule_code: Some("C999".into()),
             rule_codes: Vec::new(),
@@ -3957,30 +3848,20 @@ mod tests {
                 end_column: 10,
             },
             message: "dynamic source path".into(),
-            labels: vec!["project-closure".into()],
-        };
-        let non_matching = CompatibilityRecord {
-            labels: Vec::new(),
-            ..matching.clone()
         };
 
-        let (matching_classification, _) =
-            classify_compatibility_record(&matching, "repo__script.sh", &metadata);
-        let (non_matching_classification, _) =
-            classify_compatibility_record(&non_matching, "repo__script.sh", &metadata);
+        let (classification, reason) =
+            classify_compatibility_record(&record, "repo__script.sh", &metadata);
 
         assert_eq!(
-            matching_classification,
+            classification,
             CompatibilityClassification::ReviewedDivergence
         );
-        assert_eq!(
-            non_matching_classification,
-            CompatibilityClassification::Implementation
-        );
+        assert_eq!(reason.as_deref(), Some("rule-wide reviewed divergence"));
     }
 
     #[test]
-    fn reviewed_divergence_classification_requires_path_line_and_label_constraints() {
+    fn reviewed_divergence_classification_requires_path_and_line_constraints() {
         let metadata = HashMap::from([(
             "X065".to_string(),
             RuleCorpusMetadataDocument {
@@ -3993,7 +3874,6 @@ mod tests {
                     end_line: Some(120),
                     column: None,
                     end_column: None,
-                    labels: vec!["project-closure".into()],
                     reason: "scoped reviewed divergence".into(),
                 }],
             },
@@ -4010,7 +3890,6 @@ mod tests {
                 end_column: 34,
             },
             message: "caret negation in bracket expressions is not portable to POSIX sh".into(),
-            labels: vec!["project-closure".into()],
         };
         let wrong_path = CompatibilityRecord { ..matching.clone() };
         let wrong_line = CompatibilityRecord {
@@ -4020,10 +3899,6 @@ mod tests {
                 column: 22,
                 end_column: 34,
             },
-            ..matching.clone()
-        };
-        let missing_label = CompatibilityRecord {
-            labels: Vec::new(),
             ..matching.clone()
         };
 
@@ -4036,11 +3911,6 @@ mod tests {
             classify_compatibility_record(&wrong_path, "other__repo__script.sh", &metadata);
         let (wrong_line_classification, wrong_line_reason) = classify_compatibility_record(
             &wrong_line,
-            "alpinelinux__aports__scripts__mkimage.sh",
-            &metadata,
-        );
-        let (missing_label_classification, missing_label_reason) = classify_compatibility_record(
-            &missing_label,
             "alpinelinux__aports__scripts__mkimage.sh",
             &metadata,
         );
@@ -4063,11 +3933,6 @@ mod tests {
             CompatibilityClassification::Implementation
         );
         assert!(wrong_line_reason.is_none());
-        assert_eq!(
-            missing_label_classification,
-            CompatibilityClassification::Implementation
-        );
-        assert!(missing_label_reason.is_none());
     }
 
     #[test]
@@ -4084,7 +3949,6 @@ mod tests {
                     end_line: None,
                     column: None,
                     end_column: None,
-                    labels: Vec::new(),
                     reason: "path-contains reviewed divergence".into(),
                 }],
             },
@@ -4101,7 +3965,6 @@ mod tests {
                 end_column: 32,
             },
             message: "warning termux variable".into(),
-            labels: Vec::new(),
         };
 
         let (classification, reason) = classify_compatibility_record(
@@ -4131,7 +3994,6 @@ mod tests {
                     end_line: None,
                     column: None,
                     end_column: None,
-                    labels: Vec::new(),
                     reason: "path-contains reviewed divergence".into(),
                 }],
             },
@@ -4148,7 +4010,6 @@ mod tests {
                 end_column: 32,
             },
             message: "warning unrelated variable".into(),
-            labels: Vec::new(),
         };
 
         let (classification, reason) =
@@ -4179,7 +4040,6 @@ mod tests {
                 end_column: 32,
             },
             message: "warning unused assignment".into(),
-            labels: Vec::new(),
         };
 
         let (classification, reason) =
@@ -4216,7 +4076,6 @@ mod tests {
                 end_column: 32,
             },
             message: "warning mixed mappings".into(),
-            labels: Vec::new(),
         };
 
         let (classification, reason) =
@@ -4439,29 +4298,6 @@ mod tests {
         let diags = decode_shellcheck_diagnostics(data).unwrap();
         assert_eq!(diags.len(), 1);
         assert_eq!(diags[0].code, 1091);
-    }
-
-    #[test]
-    fn compatibility_labels_include_shared_context_tags() {
-        let labels = compatibility_context_labels(
-            Path::new("ko1nksm__shellspec__spec__core__clone_spec.sh"),
-            b"#!/bin/sh\n# shellcheck disable=SC2086\nDescribe 'clone'\nParameters\n  \"test\"\nEnd\nsource ./helper.sh\n",
-        );
-
-        assert!(labels.contains(&"directive-handling".to_owned()));
-        assert!(labels.contains(&"project-closure".to_owned()));
-        assert!(labels.contains(&"shellspec".to_owned()));
-        assert!(labels.contains(&"test-harness".to_owned()));
-    }
-
-    #[test]
-    fn compatibility_labels_include_generated_configure() {
-        let labels = compatibility_context_labels(
-            Path::new("examples/native/configure"),
-            b"# Generated by GNU Autoconf 2.71\nas_lineno=${as_lineno-$LINENO}\n",
-        );
-
-        assert!(labels.contains(&"generated-configure".to_owned()));
     }
 
     #[test]

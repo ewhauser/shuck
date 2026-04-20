@@ -5,8 +5,6 @@ reviewed_divergences:
     end_line: 52
     column: 7
     end_column: 53
-    labels:
-      - project-closure
     reason: "This alias value defines a helper function before sourcing another script, so it remains an S057 hit even though the oracle does not surface a matching comparison record for that profile helper."
   - side: shellcheck-only
     path_suffix: "moovweb__gvm__examples__native__configure"
@@ -14,8 +12,6 @@ reviewed_divergences:
     end_line: 22
     column: 12
     end_column: 30
-    labels:
-      - project-closure
     reason: "This zsh bootstrap alias rewrites positional-parameter forwarding, but it does not define a function inside the alias value, so it falls outside S057's independently authored scope."
   - side: shellcheck-only
     path_suffix: "moovweb__gvm__examples__native__ltmain.sh"
@@ -23,6 +19,4 @@ reviewed_divergences:
     end_line: 93
     column: 12
     end_column: 30
-    labels:
-      - shell-collapse
     reason: "This zsh bootstrap alias rewrites positional-parameter forwarding, but it does not define a function inside the alias value, so it falls outside S057's independently authored scope."

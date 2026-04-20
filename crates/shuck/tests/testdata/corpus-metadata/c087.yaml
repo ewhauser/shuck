@@ -2,6 +2,4 @@ reviewed_divergences:
   - side: shuck-only
     path_suffix: "community-scripts__ProxmoxVE__ct__immich.sh"
     line: 114
-    labels:
-      - project-closure
     reason: "This Proxmox update helper reads a saved version string through `$(cat ~/.immich)` and then compares it lexically against `2.5.1`. Shuck intentionally keeps the version-comparison warning for that file-backed value, while the current oracle stays silent on this project-closure fixture."

@@ -2,8 +2,4 @@ reviewed_divergences:
   - side: shuck-only
     path_suffix: "scripts/ko1nksm__shellspec__lib__libexec__list.sh"
     line: 52
-    labels:
-      - directive-handling
-      - helper-library
-      - project-closure
     reason: "This shared helper is compared through the project-closure harness, and the oracle does not emit the arithmetic-base warning for this file. Shuck keeps the portable arithmetic check visible on the helper itself, so this reviewed divergence narrows the corpus mismatch to this sourced library path."

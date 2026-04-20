@@ -2,20 +2,14 @@ reviewed_divergences:
   - side: shuck-only
     path_suffix: "void-linux__void-packages__xbps-src"
     line: 361
-    labels:
-      - project-closure
     reason: "This early loop control is only relevant in the package-manager flow around this helper, and ShellCheck does not flag it in the corpus fixture."
   - side: shuck-only
     path_suffix: "void-linux__void-packages__xbps-src"
     line: 365
-    labels:
-      - project-closure
     reason: "This early loop control is only relevant in the package-manager flow around this helper, and ShellCheck does not flag it in the corpus fixture."
   - side: shuck-only
     path_suffix: "void-linux__void-packages__xbps-src"
     line: 428
-    labels:
-      - project-closure
     reason: "This command-line parser exit path is treated as reviewed divergence because ShellCheck stays quiet on the corpus fixture."
   - side: shuck-only
     path_suffix: "void-linux__void-packages__srcpkgs__xbps-triggers__files__gdk-pixbuf-loaders"

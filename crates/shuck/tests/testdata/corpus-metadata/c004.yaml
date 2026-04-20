@@ -5,12 +5,10 @@ reviewed_divergences:
     reason: "This installer unpacks a release tarball in a throwaway subshell, changes into the extracted tree, then immediately tears it back down. We review Shuck's stricter directory-hop warning for this project-specific upgrade helper."
   - side: shuck-only
     path_suffix: "leebaird__discover__passive.sh"
-    labels: ["directive-handling", "project-closure"]
     reason: "This reconnaissance workflow intentionally steps into theHarvester's checkout to sync and run it, then switches back into the Discover output directory before continuing the report pipeline. We review Shuck's stricter unchecked directory-change warnings for this tool-specific handoff."
   - side: shuck-only
     path_suffix: "ohmyzsh__ohmyzsh__oh-my-zsh.sh"
     line: 114
-    labels: ["project-closure", "shell-collapse"]
     reason: "This shell-collapsed Oh My Zsh bootstrap file trips the current ShellCheck 0.11.0 oracle's POSIX parse stop earlier in the file, so the later command-substitution directory hop never gets compared there. Shuck recovers far enough to keep that project-specific directory change visible."
   - side: shuck-only
     path_suffix: "nvm-sh__nvm__nvm.sh"

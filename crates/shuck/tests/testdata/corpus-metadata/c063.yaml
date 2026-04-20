@@ -23,9 +23,6 @@ reviewed_divergences:
   - side: shuck-only
     path_suffix: "ohmyzsh__ohmyzsh__oh-my-zsh.sh"
     line: 3
-    labels:
-      - project-closure
-      - shell-collapse
     reason: "This formatter helper is replaced with a no-op only on the non-terminal branch, while terminal output still uses the original definition later in the file."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__requirements__openindiana"

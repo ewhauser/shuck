@@ -5,9 +5,6 @@ reviewed_divergences:
     end_line: 74
     column: 21
     end_column: 87
-    labels:
-      - directive-handling
-      - shell-collapse
     reason: "This helper stores a bootstrap shell snippet in ANSI-C quoted text for later installation, so the embedded `$(trap -p DEBUG)` is payload rather than something meant to expand during the assignment itself."
   - side: shuck-only
     path_suffix: "bitnami__containers__bitnami__appsmith__1__debian-12__rootfs__opt__bitnami__scripts__appsmith__setup.sh"
@@ -15,9 +12,6 @@ reviewed_divergences:
     end_line: 49
     column: 36
     end_column: 2
-    labels:
-      - directive-handling
-      - project-closure
     reason: "This option passes an Nginx configuration block through ANSI-C quoting, and names like `$http_x_forwarded_proto`, `$scheme`, and `$host` belong to Nginx's config language rather than the shell."
   - side: shuck-only
     path_suffix: "bitnami__containers__bitnami__drupal__11__debian-12__rootfs__opt__bitnami__scripts__libdrupal.sh"
@@ -25,9 +19,6 @@ reviewed_divergences:
     end_line: 509
     column: 31
     end_column: 87
-    labels:
-      - directive-handling
-      - project-closure
     reason: "This helper builds a literal search pattern for later config editing, so the `$databases...` text and trailing `$` are pattern syntax that should stay literal inside the ANSI-C quoted string."
   - side: shuck-only
     path_suffix: "lmc999__RegionRestrictionCheck__check.sh"
@@ -35,18 +26,12 @@ reviewed_divergences:
     end_line: 3610
     column: 2257
     end_column: 3967
-    labels:
-      - project-closure
     reason: "This `curl --data-raw $'...'` body embeds GraphQL variable names like `$repFullPackIds` as request text, so those dollar-prefixed tokens are protocol payload rather than intended shell expansion."
   - side: shellcheck-only
     path_suffix: "moovweb__gvm__examples__native__configure"
-    labels:
-      - project-closure
     reason: "This generated Autoconf script carries the same sed program across backslash-continued lines, and the remaining comparison differences are location-only anchors between ShellCheck's collapsed assignment line and Shuck's continued `-e '...'` lines."
   - side: shuck-only
     path_suffix: "moovweb__gvm__examples__native__configure"
-    labels:
-      - project-closure
     reason: "This generated Autoconf script carries the same sed program across backslash-continued lines, and the remaining comparison differences are location-only anchors between ShellCheck's collapsed assignment line and Shuck's continued `-e '...'` lines."
   - side: shellcheck-only
     path_suffix: "moovweb__gvm__examples__native__ltmain.sh"
@@ -54,8 +39,6 @@ reviewed_divergences:
     end_line: 8976
     column: 80
     end_column: 109
-    labels:
-      - shell-collapse
     reason: "This generated libtool helper leaves one shell-collapse span mismatch inside a sed replacement string, so the remaining comparison here is a location-only oracle difference."
   - side: shuck-only
     path_suffix: "moovweb__gvm__examples__native__ltmain.sh"
@@ -63,8 +46,6 @@ reviewed_divergences:
     end_line: 8976
     column: 80
     end_column: 111
-    labels:
-      - shell-collapse
     reason: "This generated libtool helper leaves one shell-collapse span mismatch inside a sed replacement string, so the remaining comparison here is a location-only oracle difference."
   - side: shellcheck-only
     path_suffix: "scop__bash-completion__completions-core__tmux.bash"
@@ -72,6 +53,4 @@ reviewed_divergences:
     end_line: 216
     column: 29
     end_column: 47
-    labels:
-      - shell-collapse
     reason: "This bash-completion helper is already reduced through the shell-collapse path in the corpus run, and the remaining SC2016 hit depends on that collapsed quoting shape rather than a stable core-rule behavior."

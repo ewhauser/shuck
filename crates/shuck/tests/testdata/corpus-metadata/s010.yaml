@@ -5,9 +5,6 @@ reviewed_divergences:
     end_line: 12
     column: 10
     end_column: 28
-    labels:
-      - project-closure
-      - test-harness
     reason: "This harness file is a full-script test fixture; the corpus comparison treats the top-level readonly assignment as a ShellCheck-only hit here."
   - side: shellcheck-only
     path_suffix: "megastep__makeself__test__appendtest"
@@ -15,9 +12,6 @@ reviewed_divergences:
     end_line: 13
     column: 10
     end_column: 28
-    labels:
-      - project-closure
-      - test-harness
     reason: "This harness file is a full-script test fixture; the corpus comparison treats the top-level readonly assignment as a ShellCheck-only hit here."
   - side: shellcheck-only
     path_suffix: "tj__n__bin__dev__release"
@@ -39,8 +33,6 @@ reviewed_divergences:
     end_line: 15
     column: 18
     end_column: 30
-    labels:
-      - project-closure
     reason: "The harness context around this package builder makes the top-level readonly assignment diverge from the corpus comparison."
   - side: shellcheck-only
     path_suffix: "void-linux__void-packages__xbps-src"
@@ -48,8 +40,6 @@ reviewed_divergences:
     end_line: 470
     column: 18
     end_column: 30
-    labels:
-      - project-closure
     reason: "The harness context around this package builder makes the top-level readonly assignment diverge from the corpus comparison."
   - side: shellcheck-only
     path_suffix: "scop__bash-completion__completions-core__tmux.bash"
@@ -57,8 +47,6 @@ reviewed_divergences:
     end_line: 195
     column: 11
     end_column: 16
-    labels:
-      - shell-collapse
     reason: "This bash-completion helper is compared through a shell-collapsed compatibility path, and the remaining `local usage=$(...)` declaration warning stays on the oracle side in that collapsed helper context."
   - side: shuck-only
     path_suffix: "nvm-sh__nvm__test__install_script__install_nvm_from_git"
@@ -66,14 +54,9 @@ reviewed_divergences:
     end_line: 63
     column: 9
     end_column: 17
-    labels:
-      - test-harness
     reason: "The surrounding test fixture stops ShellCheck on a malformed conditional later in the file, so this declaration assignment is not reliably comparable."
   - side: shuck-only
     path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
-    labels:
-      - helper-library
-      - project-closure
     reason: "ShellCheck aborts on earlier syntax errors in this helper, so the later declaration-assignment warnings are not stable comparison targets."
   - side: shuck-only
     path_suffix: "alpinelinux__aports__community__dnscrypt-proxy__dnscrypt-proxy.setup"
@@ -94,13 +77,7 @@ reviewed_divergences:
   - side: shuck-only
     path_suffix: "bittorf__kalua__openwrt-addons__www__cgi-bin-status.sh"
     line: 69
-    labels:
-      - project-closure
     reason: "This CGI helper is compared through a project-closure path, and the pinned ShellCheck run does not surface SC2155 for the `local mult_list` aggregation in that closure context. Shuck still reports the declaration-assignment combination on the helper itself."
   - side: shuck-only
     path_suffix: "paulirish__dotfiles__.git-completion.bash"
-    labels:
-      - directive-handling
-      - helper-library
-      - shell-collapse
     reason: "This Git completion helper carries a file-wide `shellcheck disable=all`, so the pinned oracle stays silent on SC2155 throughout the shell-collapsed helper-library copy. Shuck still reports the live declaration assignments there."

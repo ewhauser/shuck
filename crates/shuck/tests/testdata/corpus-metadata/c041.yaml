@@ -1,5 +1,4 @@
 reviewed_divergences:
   - side: shellcheck-only
     path_suffix: "termux__termux-packages__packages__tsocks__04_getpeername.patch"
-    labels: ["patch-file"]
     reason: "This fixture is a unified diff containing C source fragments, so SC1127 hits C-style comment markers that are not shell syntax we lint in patch-file context."

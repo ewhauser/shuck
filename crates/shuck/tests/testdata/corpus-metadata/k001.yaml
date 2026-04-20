@@ -5,8 +5,6 @@ reviewed_divergences:
     end_line: 683
     column: 9
     end_column: 53
-    labels:
-      - shell-collapse
     reason: "the sysroot path is built from a fixed /usr/<target> staging prefix, so this delete is constrained to the build sysroot rather than an arbitrary user-controlled directory"
   - side: shellcheck-only
     path_suffix: "SlackBuildsOrg__slackbuilds__development__ciforth__ciforth.SlackBuild"
@@ -42,6 +40,4 @@ reviewed_divergences:
     end_line: 32
     column: 8
     end_column: 19
-    labels:
-      - project-closure
     reason: "This project-closure helper removes the archive staging directory ${PACKAGE}/ directly. K001 keeps those lone staging-root cleanups out of scope until it can distinguish them from real system-root deletes."

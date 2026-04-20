@@ -2,7 +2,4 @@ reviewed_divergences:
   - side: shuck-only
     path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
     line: 2543
-    labels:
-      - helper-library
-      - project-closure
     reason: "This helper-library fixture folds `${PYTHON_CONFIGURE_OPTS_ARRAY[@]}` into a project-scoped `[[ ... ]]` operand, but the current ShellCheck 0.11.0 oracle emits no SC2199 finding for that source-closure path, so we treat it as a reviewed divergence rather than narrowing C112."

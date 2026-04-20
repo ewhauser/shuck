@@ -54,9 +54,6 @@ reviewed_divergences:
     column: 14
     end_line: 889
     end_column: 19
-    labels:
-      - directive-handling
-      - project-closure
     reason: "This directive-driven assignment is treated as a known project-specific exception."
   - side: shuck-only
     path_suffix: "google__oss-fuzz__projects__llvm__build.sh"

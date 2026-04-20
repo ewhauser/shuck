@@ -26,14 +26,9 @@ reviewed_divergences:
     reason: "The remaining shellcheck-only Bats sites depend on the outer harness contract and sourced helper plumbing that Shuck does not treat as ordinary dead assignments."
   - side: shuck-only
     path_suffix: "dylanaraps__neofetch__neofetch"
-    labels:
-      - directive-handling
-      - project-closure
     reason: "This Neofetch script builds a generated config surface and then interprets those option variables and helper names through later config-driven entrypoints. The remaining C001 hits are reviewed config-template state rather than dead assignments."
   - side: shuck-only
     path_contains: "megastep__makeself__"
-    labels:
-      - project-closure
     reason: "Makeself threads header flags and archive settings through generated stub output and later extraction-time behavior. The remaining C001 hits are reviewed archive-metadata handoffs rather than dead assignments in the local file."
   - side: shuck-only
     path_suffix: "dehydrated-io__dehydrated__docs__examples__hook.sh"

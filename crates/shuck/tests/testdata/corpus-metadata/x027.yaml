@@ -3,15 +3,11 @@ reviewed_divergences:
     path_suffix: "nvm-sh__nvm__test__install_script__install_nvm_from_git"
     line: 14
     end_line: 14
-    labels:
-      - test-harness
     reason: "The shell-collapse comparison forces this NVM test helper through POSIX sh, but the pinned ShellCheck oracle stops at a later malformed test expression and never reports the earlier `echo -e` site. Shuck still reaches the echo command facts, so this harness-only gap is reviewed narrowly on the affected test file."
   - side: shuck-only
     path_suffix: "nvm-sh__nvm__test__install_script__install_nvm_from_git"
     line: 24
     end_line: 24
-    labels:
-      - test-harness
     reason: "The shell-collapse comparison forces this NVM test helper through POSIX sh, but the pinned ShellCheck oracle stops at a later malformed test expression and never reports the earlier `echo -e` site. Shuck still reaches the echo command facts, so this harness-only gap is reviewed narrowly on the affected test file."
   - side: shuck-only
     path_suffix: "romkatv__powerlevel10k__gitstatus__install"

@@ -5,6 +5,4 @@ reviewed_divergences:
     end_line: 33
     column: 43
     end_column: 48
-    labels:
-      - patch-file
     reason: "This fixture is a patch payload embedded in a shell wrapper. The heredoc token appears inside diff context text rather than live shell syntax, so this C138 hit is treated as patch-data noise."

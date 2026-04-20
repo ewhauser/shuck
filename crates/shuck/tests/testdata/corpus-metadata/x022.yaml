@@ -5,12 +5,7 @@ reviewed_divergences:
     reason: "This Termux build helper uses Bash arrays and `[[ ... ]]` conditionals in a file without a concrete shell header. Shuck still reaches the `wait -n` site through its collapsed-shell path, while the current ShellCheck oracle leaves that Bash-specific helper unclassified for X022."
   - side: shuck-only
     path_suffix: "oh-my-fish__oh-my-fish__bin__install"
-    labels:
-      - project-closure
     reason: "This installer is a fish script with fish-specific `read -g` and `read -l` flag usage. Shuck can still see those helper paths through project-closure analysis, but they are outside the POSIX sh portability target for X022."
   - side: shuck-only
     path_suffix: "ohmyzsh__ohmyzsh__tools__check_for_upgrade.sh"
-    labels:
-      - project-closure
-      - shell-collapse
     reason: "This upgrade helper belongs to a zsh codebase and uses zsh-specific syntax such as `[[ ... ]]` patterns alongside `read -k`. X022 intentionally stays scoped to files Shuck actually treats as sh or dash instead of collapsing that helper to POSIX sh."
