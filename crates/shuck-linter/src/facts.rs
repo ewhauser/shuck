@@ -5927,7 +5927,11 @@ fn word_parts_contain_echo_backslash_escape(
                             echo_escape_is_quote_like,
                         ))
                     || text_contains_echo_double_backslash(rendered_text)
-                    || literal_backslash_touches_double_quoted_fragment(parts, index, rendered_text)
+                    || literal_double_backslash_touches_double_quoted_fragment(
+                        parts,
+                        index,
+                        rendered_text,
+                    )
             }
             WordPart::SingleQuoted { value, .. } => {
                 text_contains_echo_backslash_escape(value.slice(source), echo_escape_is_core_family)
@@ -5950,20 +5954,35 @@ fn echo_escape_is_quote_like(byte: u8) -> bool {
     matches!(byte, b'`' | b'\'')
 }
 
-fn literal_backslash_touches_double_quoted_fragment(
+fn literal_double_backslash_touches_double_quoted_fragment(
     parts: &[WordPartNode],
     index: usize,
     rendered_text: &str,
 ) -> bool {
-    (rendered_text.ends_with('\\')
+    (trailing_backslash_count(rendered_text) >= 2
         && parts
             .get(index + 1)
             .is_some_and(|part| matches!(part.kind, WordPart::DoubleQuoted { .. })))
-        || (rendered_text.starts_with('\\')
+        || (leading_backslash_count(rendered_text) >= 2
             && index
                 .checked_sub(1)
                 .and_then(|prev| parts.get(prev))
                 .is_some_and(|part| matches!(part.kind, WordPart::DoubleQuoted { .. })))
+}
+
+fn leading_backslash_count(text: &str) -> usize {
+    text.as_bytes()
+        .iter()
+        .take_while(|byte| **byte == b'\\')
+        .count()
+}
+
+fn trailing_backslash_count(text: &str) -> usize {
+    text.as_bytes()
+        .iter()
+        .rev()
+        .take_while(|byte| **byte == b'\\')
+        .count()
 }
 
 fn text_contains_echo_double_backslash(text: &str) -> bool {
@@ -21907,6 +21926,27 @@ g=($(printf %s `echo foo)`; printf %s 13,14))
     #[test]
     fn ignores_json_like_backslash_quote_wrappers_around_variables() {
         let source = "#!/bin/bash\necho \"LABEL com.dokku.docker-image-labeler/alternate-tags=[\\\\\\\"$DOCKER_IMAGE\\\\\\\"]\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+        assert!(facts.echo_backslash_escape_word_spans().is_empty());
+    }
+
+    #[test]
+    fn ignores_quote_plumbing_around_adjacent_quoted_fragments() {
+        let source = "\
+#!/bin/bash
+echo \"$1\"=\\\"\"${PWD}\"\\\"
+echo pin=\\'\"${new_pinned[*]}\"\\'
+echo 'set -gx PATH '\\''\"${PYENV_ROOT}/shims\"\\'' $PATH'
+echo SHOBJ_CC=\\'\"$SHOBJ_CC\"\\'
+echo aws cloudwatch put-metric-alarm --alarm-actions \\'\"$ALARMACTION\"\\' --output=json
+echo \"Rule \"\\#$COUNT
+echo Saved to \\\"\"$FILENAME\"\\\" \\(\"$(du -h \"$OUTPUT\" | cut -f1)\"\\)
+";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
         let semantic = SemanticModel::build(&output.file, source, &indexer);

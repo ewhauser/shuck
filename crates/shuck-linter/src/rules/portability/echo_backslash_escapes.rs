@@ -57,6 +57,13 @@ echo \u1234
 echo -n "\"${shortname}\""
 echo "include \"$TERMUX_PREFIX/share/nano/*nanorc\""
 echo "  .TargetPath = \"\\host.lan\\Data\""
+echo "$1"=\""${PWD}"\"
+echo pin=\'"${new_pinned[*]}"\'
+echo 'set -gx PATH '\'"${PYENV_ROOT}/shims"\'' $PATH'
+echo SHOBJ_CC=\'"$SHOBJ_CC"\'
+echo aws cloudwatch put-metric-alarm --alarm-actions \'"$ALARMACTION"\' --output=json
+echo "Rule "\#$COUNT
+echo Saved to \""$FILENAME"\" \("$(du -h "$OUTPUT" | cut -f1)"\)
 command echo \n
 builtin echo \n
 printf '%s\n' \n
