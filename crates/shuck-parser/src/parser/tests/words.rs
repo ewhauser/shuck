@@ -8,6 +8,51 @@ fn word_part_tree_contains_variable(parts: &[WordPartNode], expected: &str) -> b
     })
 }
 
+fn collect_bourne_parameter_names(parts: &[WordPartNode], names: &mut Vec<String>) {
+    for part in parts {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => collect_bourne_parameter_names(parts, names),
+            WordPart::Parameter(parameter) => {
+                let name = match &parameter.syntax {
+                    ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access {
+                        reference,
+                    })
+                    | ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Length {
+                        reference,
+                    })
+                    | ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Indices {
+                        reference,
+                    })
+                    | ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Indirect {
+                        reference,
+                        ..
+                    })
+                    | ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
+                        reference,
+                        ..
+                    })
+                    | ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Slice {
+                        reference,
+                        ..
+                    })
+                    | ParameterExpansionSyntax::Bourne(
+                        BourneParameterExpansion::Transformation { reference, .. },
+                    ) => Some(reference.name.to_string()),
+                    ParameterExpansionSyntax::Bourne(BourneParameterExpansion::PrefixMatch {
+                        prefix,
+                        ..
+                    }) => Some(prefix.to_string()),
+                    ParameterExpansionSyntax::Zsh(_) => None,
+                };
+                if let Some(name) = name {
+                    names.push(name);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 #[test]
 fn test_current_word_cache_tracks_token_changes() {
     let input = "\"$foo\" bar\n";
@@ -1007,6 +1052,104 @@ fn test_parse_word_fragment_rebases_indirect_operator_spans() {
     assert_eq!(replacement.slice(source), "' '");
     assert_eq!(replacement_word_ast.render_syntax(source), "' '");
     assert_eq!(replacement_word_ast.span.slice(source), "' '");
+}
+
+#[test]
+fn test_parse_indirect_special_hash_parameter() {
+    let input = "echo ${!#}\n";
+    let script = Parser::new(input).parse().unwrap().file;
+    let command = expect_simple(&script.body[0]);
+    let parameter = expect_parameter(&command.args[0]);
+
+    let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Indirect {
+        reference,
+        operator,
+        operand,
+        ..
+    }) = &parameter.syntax
+    else {
+        panic!("expected indirect special-parameter expansion");
+    };
+
+    assert_eq!(reference.name.as_str(), "#");
+    assert!(operator.is_none());
+    assert!(operand.is_none());
+}
+
+#[test]
+fn test_parse_special_hash_parameter_prefix_removal() {
+    let input = "echo ${##*/}\n";
+    let script = Parser::new(input).parse().unwrap().file;
+    let command = expect_simple(&script.body[0]);
+    let parameter = expect_parameter(&command.args[0]);
+
+    let ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
+        reference,
+        operator,
+        ..
+    }) = &parameter.syntax
+    else {
+        panic!("expected special-parameter operation expansion");
+    };
+
+    assert_eq!(reference.name.as_str(), "#");
+    match operator {
+        ParameterOp::RemovePrefixShort { pattern } => assert_eq!(pattern.render(input), "*/"),
+        other => panic!("expected short prefix removal, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_parse_length_of_special_parameters_after_hash_prefix() {
+    let input = "echo ${#-} ${#?} ${##}\n";
+    let script = Parser::new(input).parse().unwrap().file;
+    let command = expect_simple(&script.body[0]);
+
+    let first = expect_parameter(&command.args[0]);
+    assert!(matches!(
+        &first.syntax,
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Length { reference })
+            if reference.name.as_str() == "-"
+    ));
+
+    let second = expect_parameter(&command.args[1]);
+    assert!(matches!(
+        &second.syntax,
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Length { reference })
+            if reference.name.as_str() == "?"
+    ));
+
+    let third = expect_parameter(&command.args[2]);
+    assert!(matches!(
+        &third.syntax,
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Length { reference })
+            if reference.name.as_str() == "#"
+    ));
+}
+
+#[test]
+fn test_parse_special_zero_parameter_prefix_removal_inside_multiline_quote() {
+    let input = "\
+usage=\"
+Example:
+  ${0##*/} github_repository
+Terraform:
+  data \\\"external\\\" \\\"github_repos\\\" {
+    program = [\\\"/path/to/${0##*/}\\\", \\\"github_repository\\\"]
+  }
+usage: ${0##*/} <resource_type>
+\"
+";
+    let script = Parser::new(input).parse().unwrap().file;
+    let command = expect_simple(&script.body[0]);
+    let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+        panic!("expected scalar assignment");
+    };
+
+    let mut names = Vec::new();
+    collect_bourne_parameter_names(&word.parts, &mut names);
+
+    assert_eq!(names, vec!["0", "0", "0"]);
 }
 
 #[test]
