@@ -1,5 +1,6 @@
 reviewed_divergences:
   - side: shellcheck-only
+    rule_wide: true
     reason: "The remaining ShellCheck-only SC3009 corpus hits come from sourced Termux package recipes and build helpers that the comparison path collapses to POSIX sh more aggressively than Shuck's project-aware dialect resolution. X010 intentionally stays tied to files Shuck actually treats as sh or dash."
   - side: shuck-only
     path_suffix: "ohmyzsh__ohmyzsh__oh-my-zsh.sh"

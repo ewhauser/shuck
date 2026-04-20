@@ -1,3 +1,4 @@
 reviewed_divergences:
   - side: shuck-only
+    rule_wide: true
     reason: "the current nix-provided ShellCheck build does not expose array-style subscripts in POSIX test brackets under a stable dedicated compatibility code, so Shuck's X040 portability hits stay reviewed until the oracle has a directly comparable warning"

@@ -1,5 +1,6 @@
 reviewed_divergences:
   - side: shellcheck-only
+    rule_wide: true
     reason: "C100 is intentionally scoped to quoted BASH_SOURCE scalar expansions, while the oracle's SC2128 check also reports broader unindexed array and array-to-scalar patterns."
   - side: shuck-only
     path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"

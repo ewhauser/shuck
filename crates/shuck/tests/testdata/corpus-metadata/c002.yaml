@@ -1,5 +1,6 @@
 reviewed_divergences:
   - side: shuck-only
+    rule_wide: true
     reason: "C002 intentionally treats runtime-built source targets as a correctness hazard even when they come from package build scripts, helper loaders, test harness scaffolding, or other project-local sourcing paths. ShellCheck stays silent on those SC1090 cases, so we keep them reviewed instead of trying to model every repository-specific source convention."
   - side: shellcheck-only
     path_suffix: "tteck__Proxmox__install__cronicle-install.sh"

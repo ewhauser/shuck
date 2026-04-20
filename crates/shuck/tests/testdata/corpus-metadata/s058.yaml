@@ -1,3 +1,4 @@
 reviewed_divergences:
   - side: shuck-only
+    rule_wide: true
     reason: "S058 intentionally keeps a dedicated mkdir-path quoting diagnostic, while the current ShellCheck comparison target reports overlapping cases through SC2086 instead of SC2335."

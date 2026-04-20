@@ -1,3 +1,4 @@
 reviewed_divergences:
   - side: shellcheck-only
+    rule_wide: true
     reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings are treated as out of scope for this rule."

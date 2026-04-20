@@ -1,3 +1,4 @@
 reviewed_divergences:
   - side: shuck-only
+    rule_wide: true
     reason: "This rule intentionally keeps the dedicated function-local `source` portability split, but the current ShellCheck comparison target only exposes the broader `source` portability family on these sites, so X080 reports are reviewed divergence noise for corpus parity."

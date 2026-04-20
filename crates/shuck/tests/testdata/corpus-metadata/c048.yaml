@@ -1,3 +1,4 @@
 reviewed_divergences:
   - side: shuck-only
+    rule_wide: true
     reason: "Variable-built case patterns are currently reviewed Shuck-side strictness rather than a parity bug."

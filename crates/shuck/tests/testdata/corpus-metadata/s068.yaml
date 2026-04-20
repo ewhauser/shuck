@@ -1,3 +1,4 @@
 reviewed_divergences:
   - side: shuck-only
+    rule_wide: true
     reason: "S068 intentionally flags literal numeric trap signal IDs, while the pinned ShellCheck oracle currently emits no matching diagnostics for this warning family."

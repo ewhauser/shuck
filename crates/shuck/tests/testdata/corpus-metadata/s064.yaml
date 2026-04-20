@@ -1,3 +1,4 @@
 reviewed_divergences:
   - side: shuck-only
+    rule_wide: true
     reason: "S064 intentionally reports deprecated short `xargs -i` forms while the corpus comparison target remains authored SC2350 and current ShellCheck emits this warning family under SC2267."

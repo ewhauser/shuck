@@ -1,3 +1,4 @@
 reviewed_divergences:
   - side: shuck-only
+    rule_wide: true
     reason: "C058 intentionally flags command substitutions that discard or reroute stdout inside the subshell, even when they appear in helper wrappers, project-closure scripts, or test harnesses. ShellCheck stays silent on these SC2256 cases, and the remaining corpus hits are all the same policy shape, so one broad reviewed divergence captures the stricter Shuck behavior without hiding a distinct implementation bug."
