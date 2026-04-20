@@ -312,7 +312,7 @@ impl<'a> Analyzer<'a> {
             RecordedCommandKind::Linear
             | RecordedCommandKind::Break { .. }
             | RecordedCommandKind::Continue { .. }
-            | RecordedCommandKind::Return
+            | RecordedCommandKind::Return { .. }
             | RecordedCommandKind::Exit => self.analyze_linear_command(scope, command, state, leak),
             RecordedCommandKind::List { first, rest } => {
                 let mut list_state = self.analyze_command(scope, *first, state, leak);

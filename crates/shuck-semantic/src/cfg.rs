@@ -200,7 +200,9 @@ pub(crate) enum RecordedCommandKind {
     Continue {
         depth: usize,
     },
-    Return,
+    Return {
+        in_function: bool,
+    },
     Exit,
     List {
         first: RecordedCommandId,
@@ -422,6 +424,31 @@ struct SequenceResult {
     exits: Vec<BlockId>,
 }
 
+struct ConditionalSequenceResult {
+    entry: Option<BlockId>,
+    true_exits: Vec<BlockId>,
+    false_exits: Vec<BlockId>,
+}
+
+impl ConditionalSequenceResult {
+    fn from_sequence(sequence: SequenceResult) -> Self {
+        Self {
+            entry: sequence.entry,
+            true_exits: sequence.exits.clone(),
+            false_exits: sequence.exits,
+        }
+    }
+
+    fn into_sequence(self) -> SequenceResult {
+        let mut exits = self.true_exits;
+        exits.extend(self.false_exits);
+        SequenceResult {
+            entry: self.entry,
+            exits,
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct LoopTarget {
     continue_target: BlockId,
@@ -548,42 +575,62 @@ impl<'a> GraphBuilder<'a> {
         command_id: RecordedCommandId,
         loops: &[LoopTarget],
     ) -> SequenceResult {
+        self.build_command_conditional(command_id, loops)
+            .into_sequence()
+    }
+
+    fn build_command_conditional(
+        &mut self,
+        command_id: RecordedCommandId,
+        loops: &[LoopTarget],
+    ) -> ConditionalSequenceResult {
         let command = self.program.command(command_id);
         match &command.kind {
             RecordedCommandKind::Linear => {
                 let block = self.command_block(command.span);
                 self.attach_nested_regions(block, command.nested_regions, loops);
-                SequenceResult {
+                ConditionalSequenceResult::from_sequence(SequenceResult {
                     entry: Some(block),
                     exits: vec![block],
-                }
+                })
             }
             RecordedCommandKind::Break { depth } => {
                 let block = self.command_block(command.span);
                 if let Some(target) = resolve_break_target(loops, *depth) {
                     self.add_edge(block, target.break_target, EdgeKind::LoopExit);
                 }
-                SequenceResult {
+                ConditionalSequenceResult::from_sequence(SequenceResult {
                     entry: Some(block),
                     exits: Vec::new(),
-                }
+                })
             }
             RecordedCommandKind::Continue { depth } => {
                 let block = self.command_block(command.span);
                 if let Some(target) = resolve_break_target(loops, *depth) {
                     self.add_edge(block, target.continue_target, EdgeKind::LoopBack);
                 }
-                SequenceResult {
+                ConditionalSequenceResult::from_sequence(SequenceResult {
                     entry: Some(block),
                     exits: Vec::new(),
-                }
+                })
             }
-            RecordedCommandKind::Return | RecordedCommandKind::Exit => {
+            RecordedCommandKind::Return { in_function } => {
                 let block = self.command_block(command.span);
-                SequenceResult {
+                ConditionalSequenceResult::from_sequence(SequenceResult {
+                    entry: Some(block),
+                    exits: if *in_function {
+                        Vec::new()
+                    } else {
+                        vec![block]
+                    },
+                })
+            }
+            RecordedCommandKind::Exit => {
+                let block = self.command_block(command.span);
+                ConditionalSequenceResult::from_sequence(SequenceResult {
                     entry: Some(block),
                     exits: Vec::new(),
-                }
+                })
             }
             RecordedCommandKind::List { first, rest } => {
                 self.build_list(command_id, *first, *rest, loops)
@@ -593,29 +640,39 @@ impl<'a> GraphBuilder<'a> {
                 then_branch,
                 elif_branches,
                 else_branch,
-            } => self.build_if(
+            } => ConditionalSequenceResult::from_sequence(self.build_if(
                 command_id,
                 *condition,
                 *then_branch,
                 *elif_branches,
                 *else_branch,
                 loops,
-            ),
+            )),
             RecordedCommandKind::While { condition, body } => {
-                self.build_while_like(command_id, *condition, *body, loops, true)
+                ConditionalSequenceResult::from_sequence(
+                    self.build_while_like(command_id, *condition, *body, loops, true),
+                )
             }
             RecordedCommandKind::Until { condition, body } => {
-                self.build_while_like(command_id, *condition, *body, loops, false)
+                ConditionalSequenceResult::from_sequence(
+                    self.build_while_like(command_id, *condition, *body, loops, false),
+                )
             }
             RecordedCommandKind::For { body }
             | RecordedCommandKind::Select { body }
             | RecordedCommandKind::ArithmeticFor { body } => {
-                self.build_loop_command(command_id, *body, loops)
+                ConditionalSequenceResult::from_sequence(
+                    self.build_loop_command(command_id, *body, loops),
+                )
             }
-            RecordedCommandKind::Case { arms } => self.build_case(command_id, *arms, loops),
+            RecordedCommandKind::Case { arms } => {
+                ConditionalSequenceResult::from_sequence(self.build_case(command_id, *arms, loops))
+            }
             RecordedCommandKind::BraceGroup { body } => {
                 let sequence = self.build_sequence(*body, loops);
-                self.wrap_sequence_with_command_header(command_id, sequence, loops)
+                ConditionalSequenceResult::from_sequence(
+                    self.wrap_sequence_with_command_header(command_id, sequence, loops),
+                )
             }
             RecordedCommandKind::Subshell { body, .. } => {
                 let block = self.command_block(command.span);
@@ -624,10 +681,10 @@ impl<'a> GraphBuilder<'a> {
                 if let Some(body_entry) = body_sequence.entry {
                     self.add_edge(block, body_entry, EdgeKind::Sequential);
                 }
-                SequenceResult {
+                ConditionalSequenceResult::from_sequence(SequenceResult {
                     entry: Some(block),
                     exits: vec![block],
-                }
+                })
             }
             RecordedCommandKind::Pipeline { segments } => {
                 let block = self.command_block(command.span);
@@ -641,10 +698,10 @@ impl<'a> GraphBuilder<'a> {
                         self.add_edge(block, segment_entry, EdgeKind::Sequential);
                     }
                 }
-                SequenceResult {
+                ConditionalSequenceResult::from_sequence(SequenceResult {
                     entry: Some(block),
                     exits: vec![block],
-                }
+                })
             }
         }
     }
@@ -671,39 +728,76 @@ impl<'a> GraphBuilder<'a> {
         sequence
     }
 
+    fn wrap_conditional_sequence_with_command_header(
+        &mut self,
+        command_id: RecordedCommandId,
+        mut sequence: ConditionalSequenceResult,
+        loops: &[LoopTarget],
+    ) -> ConditionalSequenceResult {
+        let command = self.program.command(command_id);
+        if command.nested_regions.is_empty() {
+            return sequence;
+        }
+
+        let header = self.command_block(command.span);
+        self.attach_nested_regions(header, command.nested_regions, loops);
+        if let Some(entry) = sequence.entry {
+            self.add_edge(header, entry, EdgeKind::Sequential);
+        } else {
+            sequence.true_exits = vec![header];
+            sequence.false_exits = vec![header];
+        }
+        sequence.entry = Some(header);
+        sequence
+    }
+
     fn build_list(
         &mut self,
         command: RecordedCommandId,
         first: RecordedCommandId,
         rest: RecordedListItemRange,
         loops: &[LoopTarget],
-    ) -> SequenceResult {
-        let mut current = self.build_command(first, loops);
+    ) -> ConditionalSequenceResult {
+        let mut current = self.build_command_conditional(first, loops);
         let entry = current.entry;
-        let mut shortcut_exits = Vec::new();
 
         for item in self.program.list_items(rest) {
-            let next = self.build_command(item.command, loops);
-            if let Some(next_entry) = next.entry {
-                for exit in &current.exits {
-                    let edge = match item.operator {
-                        RecordedListOperator::And => EdgeKind::ConditionalTrue,
-                        RecordedListOperator::Or => EdgeKind::ConditionalFalse,
+            let next = self.build_command_conditional(item.command, loops);
+            match item.operator {
+                RecordedListOperator::And => {
+                    if let Some(next_entry) = next.entry {
+                        for exit in &current.true_exits {
+                            self.add_edge(*exit, next_entry, EdgeKind::ConditionalTrue);
+                        }
+                    }
+
+                    let mut false_exits = current.false_exits;
+                    false_exits.extend(next.false_exits);
+                    current = ConditionalSequenceResult {
+                        entry,
+                        true_exits: next.true_exits,
+                        false_exits,
                     };
-                    self.add_edge(*exit, next_entry, edge);
+                }
+                RecordedListOperator::Or => {
+                    if let Some(next_entry) = next.entry {
+                        for exit in &current.false_exits {
+                            self.add_edge(*exit, next_entry, EdgeKind::ConditionalFalse);
+                        }
+                    }
+
+                    let mut true_exits = current.true_exits;
+                    true_exits.extend(next.true_exits);
+                    current = ConditionalSequenceResult {
+                        entry,
+                        true_exits,
+                        false_exits: next.false_exits,
+                    };
                 }
             }
-
-            shortcut_exits.extend(current.exits.clone());
-            current = SequenceResult {
-                entry,
-                exits: next.exits,
-            };
         }
 
-        let mut exits = current.exits;
-        exits.extend(shortcut_exits);
-        self.wrap_sequence_with_command_header(command, SequenceResult { entry, exits }, loops)
+        self.wrap_conditional_sequence_with_command_header(command, current, loops)
     }
 
     fn build_if(

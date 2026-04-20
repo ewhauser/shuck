@@ -384,7 +384,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     &command.extra_args,
                     flow,
                 );
-                self.record_command(command.span, nested_regions, RecordedCommandKind::Return)
+                self.record_command(
+                    command.span,
+                    nested_regions,
+                    RecordedCommandKind::Return {
+                        in_function: flow.in_function,
+                    },
+                )
             }
             BuiltinCommand::Exit(command) => {
                 let nested_regions = self.visit_builtin_parts(
@@ -2789,7 +2795,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             RecordedCommandKind::Linear
             | RecordedCommandKind::Break { .. }
             | RecordedCommandKind::Continue { .. }
-            | RecordedCommandKind::Return
+            | RecordedCommandKind::Return { .. }
             | RecordedCommandKind::Exit => {}
             RecordedCommandKind::List { first, rest } => {
                 regions.extend(self.flatten_recorded_regions(first));

@@ -3987,6 +3987,40 @@ printf '%s\\n' \"$cache_dir\"
     }
 
     #[test]
+    fn short_circuit_lists_preserve_reachable_commands_after_continue() {
+        let source = "\
+#!/bin/bash
+for line in a b; do
+  [ \"$last_line\" = \"$line\" ] && continue || last_line=$line
+  printf '%s\\n' \"$line\"
+done
+";
+        let model = model(source);
+
+        assert!(
+            model.analysis().dead_code().is_empty(),
+            "dead code: {:?}",
+            model.analysis().dead_code()
+        );
+    }
+
+    #[test]
+    fn top_level_return_does_not_mark_following_commands_unreachable() {
+        let source = "\
+#!/usr/bin/env bash
+return 0
+echo after
+";
+        let model = model(source);
+
+        assert!(
+            model.analysis().dead_code().is_empty(),
+            "dead code: {:?}",
+            model.analysis().dead_code()
+        );
+    }
+
+    #[test]
     fn deferred_function_bodies_resolve_later_file_scope_bindings() {
         let source = "f() { echo $X; }\nX=1\nf\n";
         let model = model(source);
