@@ -1,8 +1,6 @@
 use rustc_hash::FxHashSet;
 
-use crate::{
-    Checker, ExpansionContext, FactSpan, Rule, Violation, word_has_quoted_all_elements_array_slice,
-};
+use crate::{Checker, ExpansionContext, FactSpan, Rule, Violation};
 
 pub struct QuotedArraySlice;
 
@@ -32,7 +30,7 @@ pub fn quoted_array_slice(checker: &mut Checker) {
     .into_iter()
     .flat_map(|context| checker.facts().expansion_word_facts(context))
     .filter(|fact| scalar_assignment_value_spans.contains(&fact.key()))
-    .filter(|fact| word_has_quoted_all_elements_array_slice(fact.word()))
+    .filter(|fact| fact.has_quoted_all_elements_array_slice())
     .map(|fact| fact.span())
     .collect::<Vec<_>>();
 

@@ -43,6 +43,7 @@ impl<'a> LinterFactsBuilder<'a> {
     }
 
     fn build(self) -> LinterFacts<'a> {
+        let source = self.source;
         let mut commands = Vec::new();
         let mut structural_command_ids = Vec::new();
         let mut command_ids_by_span = CommandLookupIndex::default();
@@ -52,9 +53,11 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut broken_assoc_key_spans = Vec::new();
         let mut comma_array_assignment_spans = Vec::new();
         let mut ifs_literal_backslash_assignment_value_spans = Vec::new();
-        let mut words = Vec::new();
+        let mut word_nodes = Vec::new();
+        let mut word_node_ids_by_span = FxHashMap::default();
+        let mut word_occurrences = Vec::new();
         let mut compound_assignment_value_word_spans = FxHashSet::default();
-        let mut array_assignment_split_word_indices = Vec::new();
+        let mut array_assignment_split_word_ids = Vec::new();
         let mut pattern_exactly_one_extglob_spans = Vec::new();
         let mut case_pattern_expansion_spans = Vec::new();
         let mut pattern_literal_spans = Vec::new();
@@ -132,9 +135,11 @@ impl<'a> LinterFactsBuilder<'a> {
                 &normalized,
                 command_zsh_options.clone(),
                 WordFactOutputs {
-                    facts: &mut words,
+                    word_nodes: &mut word_nodes,
+                    word_node_ids_by_span: &mut word_node_ids_by_span,
+                    word_occurrences: &mut word_occurrences,
                     compound_assignment_value_word_spans: &mut compound_assignment_value_word_spans,
-                    array_assignment_split_word_indices: &mut array_assignment_split_word_indices,
+                    array_assignment_split_word_ids: &mut array_assignment_split_word_ids,
                     case_pattern_expansion_spans: &mut case_pattern_expansion_spans,
                     pattern_literal_spans: &mut pattern_literal_spans,
                     arithmetic: &mut arithmetic_summary,
@@ -364,9 +369,10 @@ impl<'a> LinterFactsBuilder<'a> {
             build_heredoc_fact_summary(&commands, self.source, self.file.span.end.offset);
         let plus_equals_assignment_spans = build_plus_equals_assignment_spans(&commands);
         let literal_brace_spans = build_literal_brace_spans(
-            &words,
+            &word_nodes,
+            &word_occurrences,
             &commands,
-            self.source,
+            source,
             self._indexer.region_index().heredoc_ranges(),
         );
         let SurfaceFragmentFacts {
@@ -410,7 +416,8 @@ impl<'a> LinterFactsBuilder<'a> {
         pattern_charclass_spans.extend(surface_pattern_charclass_spans);
         let escape_scan_matches = build_escape_scan_matches(
             &commands,
-            &words,
+            &word_nodes,
+            &word_occurrences,
             EscapeScanInputs {
                 pattern_literal_spans: &pattern_literal_spans,
                 pattern_charclass_spans: &pattern_charclass_spans,
@@ -432,46 +439,68 @@ impl<'a> LinterFactsBuilder<'a> {
         let conditional_portability = build_conditional_portability_facts(
             &commands,
             &elif_condition_command_ids,
-            &words,
-            &pattern_exactly_one_extglob_spans,
-            &pattern_charclass_spans,
-            &nested_pattern_charclass_spans,
-            self.source,
+            ConditionalPortabilityInputs {
+                word_nodes: &word_nodes,
+                word_occurrences: &word_occurrences,
+                pattern_exactly_one_extglob_spans: &pattern_exactly_one_extglob_spans,
+                pattern_charclass_spans: &pattern_charclass_spans,
+                nested_pattern_charclass_spans: &nested_pattern_charclass_spans,
+            },
+            source,
         );
         let EnvPrefixScopeSpans {
             assignment_scope_spans: env_prefix_assignment_scope_spans,
             expansion_scope_spans: env_prefix_expansion_scope_spans,
         } = build_env_prefix_scope_spans(self.source, &commands);
-        populate_array_assignment_split_scalar_expansion_spans(
-            &mut words,
-            &array_assignment_split_word_indices,
-            &commands,
-            self.source,
-        );
-        let mut word_index = FxHashMap::<FactSpan, Vec<usize>>::default();
-        for (index, fact) in words.iter().enumerate() {
-            word_index.entry(fact.key()).or_default().push(index);
+        let mut word_index = FxHashMap::<FactSpan, SmallVec<[WordOccurrenceId; 2]>>::default();
+        let mut word_occurrence_ids_by_command =
+            vec![SmallVec::<[WordOccurrenceId; 4]>::new(); commands.len()];
+        for (index, fact) in word_occurrences.iter().enumerate() {
+            let id = WordOccurrenceId::new(index);
+            word_index
+                .entry(occurrence_key(&word_nodes, fact))
+                .or_default()
+                .push(id);
+            word_occurrence_ids_by_command[fact.command_id.index()].push(id);
         }
         let echo_to_sed_substitution_spans = build_echo_to_sed_substitution_spans(
             &commands,
             &pipelines,
             &backticks,
-            &words,
+            &word_nodes,
+            &word_occurrences,
             &word_index,
-            self.source,
+            source,
         );
         let assignment_like_command_name_spans =
             build_assignment_like_command_name_spans(&commands, self.source);
         let bare_command_name_assignment_spans =
-            build_bare_command_name_assignment_spans(&commands, &words, &word_index, self.source);
+            build_bare_command_name_assignment_spans(
+                &commands,
+                &word_nodes,
+                &word_occurrences,
+                &word_index,
+                source,
+            );
         let unquoted_command_argument_use_offsets =
-            build_unquoted_command_argument_use_offsets(self.semantic, &words);
+            build_unquoted_command_argument_use_offsets(
+                self.semantic,
+                &word_nodes,
+                &word_occurrences,
+            );
         let brace_variable_before_bracket_spans =
-            build_brace_variable_before_bracket_spans(&words, self.source);
+            build_brace_variable_before_bracket_spans(&word_nodes, &word_occurrences, source);
         let alias_definition_expansion_spans =
-            build_alias_definition_expansion_spans(&commands, &words, &word_index, self.source);
+            build_alias_definition_expansion_spans(
+                &commands,
+                &word_nodes,
+                &word_occurrences,
+                &word_index,
+                source,
+            );
 
         LinterFacts {
+            source,
             commands,
             structural_command_ids,
             command_ids_by_span,
@@ -487,10 +516,12 @@ impl<'a> LinterFactsBuilder<'a> {
             nested_presence_test_spans: presence_tested_names.nested_command_spans_by_name,
             subscript_index_reference_spans,
             compound_assignment_value_word_spans,
-            words,
+            word_nodes,
+            word_occurrences,
             word_index,
+            word_occurrence_ids_by_command,
             unquoted_command_argument_use_offsets,
-            array_assignment_split_word_indices,
+            array_assignment_split_word_ids,
             brace_variable_before_bracket_spans,
             function_headers,
             function_in_alias_spans,

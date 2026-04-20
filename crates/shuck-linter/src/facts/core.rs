@@ -33,6 +33,32 @@ impl CommandId {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct WordNodeId(u32);
+
+impl WordNodeId {
+    fn new(index: usize) -> Self {
+        Self(index as u32)
+    }
+
+    fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct WordOccurrenceId(u32);
+
+impl WordOccurrenceId {
+    fn new(index: usize) -> Self {
+        Self(index as u32)
+    }
+
+    fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum CommandLookupKind {
     Simple,
     Builtin(BuiltinLookupKind),

@@ -79,8 +79,8 @@ fn simple_test_operand_looks_like_assignment_like(
         )
         .is_some_and(|fact| {
             let classification = fact.classification();
-            word_looks_like_assignment_like(
-                fact.word(),
+            word_fact_looks_like_assignment_like(
+                fact,
                 classification.quote,
                 classification.is_fixed_literal(),
                 source,
@@ -142,6 +142,28 @@ fn word_looks_like_assignment_like(
     }
 
     let Some(prefix_span) = double_quoted_scalar_affix_span(word) else {
+        return false;
+    };
+    let prefix = prefix_span.slice(source);
+    if !prefix.ends_with('=') {
+        return false;
+    }
+
+    let name = prefix.trim_end_matches('=');
+    is_shell_variable_name(name)
+}
+
+fn word_fact_looks_like_assignment_like(
+    fact: crate::WordOccurrenceRef<'_, '_>,
+    quote: WordQuote,
+    is_fixed_literal: bool,
+    source: &str,
+) -> bool {
+    if quote != WordQuote::FullyQuoted || is_fixed_literal {
+        return false;
+    }
+
+    let Some(prefix_span) = fact.double_quoted_scalar_affix_span() else {
         return false;
     };
     let prefix = prefix_span.slice(source);

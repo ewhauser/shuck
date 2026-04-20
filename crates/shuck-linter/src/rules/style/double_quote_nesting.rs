@@ -1,7 +1,4 @@
-use crate::{
-    Checker, ExpansionContext, Rule, Violation, word_nested_dynamic_double_quote_spans,
-    word_unquoted_scalar_between_double_quoted_segments_spans,
-};
+use crate::{Checker, ExpansionContext, Rule, Violation};
 
 pub struct DoubleQuoteNesting;
 
@@ -53,9 +50,9 @@ pub fn double_quote_nesting(checker: &mut Checker) {
 
             let host_substitution_spans = fact.command_substitution_spans();
 
-            word_unquoted_scalar_between_double_quoted_segments_spans(fact.word(), &candidate_spans)
+            fact.unquoted_scalar_between_double_quoted_segments_spans(&candidate_spans)
                 .into_iter()
-                .chain(word_nested_dynamic_double_quote_spans(fact.word()))
+                .chain(fact.nested_dynamic_double_quote_spans())
                 .filter(|span| {
                     !host_substitution_spans
                         .iter()

@@ -31,9 +31,7 @@ pub fn brace_expansion(checker: &mut Checker) {
                 )
             )
         })
-        .flat_map(|fact| fact.word().brace_syntax().iter().copied())
-        .filter(|brace| brace.expands())
-        .map(|brace| brace.span)
+        .flat_map(|fact| fact.brace_expansion_spans())
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || BraceExpansion);

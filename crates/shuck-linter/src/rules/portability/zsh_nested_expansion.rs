@@ -1,5 +1,5 @@
 use super::targets_non_zsh_shell;
-use crate::{Checker, Rule, Violation, word_zsh_nested_expansion_spans};
+use crate::{Checker, Rule, Violation};
 
 pub struct ZshNestedExpansion;
 
@@ -22,7 +22,7 @@ pub fn zsh_nested_expansion(checker: &mut Checker) {
         .facts()
         .word_facts()
         .iter()
-        .flat_map(|fact| word_zsh_nested_expansion_spans(fact.word()))
+        .flat_map(|fact| fact.zsh_nested_expansion_spans())
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || ZshNestedExpansion);

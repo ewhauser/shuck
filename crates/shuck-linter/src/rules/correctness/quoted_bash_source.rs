@@ -1,6 +1,4 @@
-use crate::{
-    Checker, Rule, Violation, WordFactContext, word_quoted_unindexed_bash_source_span_in_source,
-};
+use crate::{Checker, Rule, Violation, WordFactContext};
 
 pub struct QuotedBashSource;
 
@@ -20,9 +18,7 @@ pub fn quoted_bash_source(checker: &mut Checker) {
         .word_facts()
         .iter()
         .filter(|fact| matches!(fact.context(), WordFactContext::Expansion(_)))
-        .filter_map(|fact| {
-            word_quoted_unindexed_bash_source_span_in_source(fact.word(), checker.source())
-        })
+        .filter_map(|fact| fact.quoted_unindexed_bash_source_span_in_source(checker.source()))
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || QuotedBashSource);

@@ -1,8 +1,11 @@
 use shuck_ast::Span;
 
-use super::{BacktickFragmentFact, CommandFact, SingleQuotedFragmentFact, WordFact};
+use super::{
+    BacktickFragmentFact, CommandFact, SingleQuotedFragmentFact, WordNode, WordOccurrence,
+};
 use crate::FileContext;
 use crate::context::FileContextTag;
+use crate::facts::{occurrence_span, occurrence_word};
 use crate::rules::common::expansion::ExpansionContext;
 use crate::rules::common::span::{
     word_has_single_literal_part, word_literal_part_spans_excluding_parameter_operator_tails,
@@ -87,7 +90,8 @@ struct EscapeScanMatchContext {
 
 pub(super) fn build_escape_scan_matches(
     commands: &[CommandFact<'_>],
-    words: &[WordFact<'_>],
+    nodes: &[WordNode<'_>],
+    occurrences: &[WordOccurrence],
     inputs: EscapeScanInputs<'_>,
     context: EscapeScanContext<'_>,
 ) -> Vec<EscapeScanMatch> {
@@ -97,21 +101,29 @@ pub(super) fn build_escape_scan_matches(
 
     let mut matches = Vec::new();
 
-    for fact in words
-        .iter()
-        .filter(|fact| is_relevant_word_context(fact.expansion_context()))
-    {
-        let grep_style_argument = is_grep_style_argument(commands, fact);
-        let tr_operand_argument = is_tr_operand_argument(commands, fact);
-        if is_regex_like_context(fact.expansion_context()) {
+    for fact in occurrences.iter().filter(|fact| {
+        is_relevant_word_context(match fact.context {
+            super::WordFactContext::Expansion(context) => Some(context),
+            super::WordFactContext::CaseSubject | super::WordFactContext::ArithmeticCommand => None,
+        })
+    }) {
+        let grep_style_argument = is_grep_style_argument(commands, nodes, fact);
+        let tr_operand_argument = is_tr_operand_argument(commands, nodes, fact);
+        let expansion_context = match fact.context {
+            super::WordFactContext::Expansion(context) => Some(context),
+            super::WordFactContext::CaseSubject | super::WordFactContext::ArithmeticCommand => None,
+        };
+        if is_regex_like_context(expansion_context) {
             continue;
         }
 
-        let host_contains_single_quoted_fragment =
-            span_contains_single_quoted_fragment(fact.span(), inputs.single_quoted_fragments);
+        let word = occurrence_word(nodes, fact);
+        let host_contains_single_quoted_fragment = span_contains_single_quoted_fragment(
+            occurrence_span(nodes, fact),
+            inputs.single_quoted_fragments,
+        );
 
-        for span in
-            word_literal_part_spans_excluding_parameter_operator_tails(fact.word(), context.source)
+        for span in word_literal_part_spans_excluding_parameter_operator_tails(word, context.source)
         {
             append_escape_scan_matches(
                 &mut matches,
@@ -128,24 +140,26 @@ pub(super) fn build_escape_scan_matches(
         }
     }
 
-    for fact in words
-        .iter()
-        .filter(|fact| is_assignment_value_context(fact.expansion_context()))
-    {
-        if !word_has_single_literal_part(fact.word()) {
+    for fact in occurrences.iter().filter(|fact| {
+        is_assignment_value_context(match fact.context {
+            super::WordFactContext::Expansion(context) => Some(context),
+            super::WordFactContext::CaseSubject | super::WordFactContext::ArithmeticCommand => None,
+        })
+    }) {
+        if !word_has_single_literal_part(occurrence_word(nodes, fact)) {
             continue;
         }
 
         append_escape_scan_matches(
             &mut matches,
-            fact.span(),
+            occurrence_span(nodes, fact),
             context.source,
             EscapeScanMatchContext {
                 source_kind: EscapeScanSourceKind::SingleLiteralAssignmentWord,
-                grep_style_argument: is_grep_style_argument(commands, fact),
-                tr_operand_argument: is_tr_operand_argument(commands, fact),
+                grep_style_argument: is_grep_style_argument(commands, nodes, fact),
+                tr_operand_argument: is_tr_operand_argument(commands, nodes, fact),
                 host_contains_single_quoted_fragment: span_contains_single_quoted_fragment(
-                    fact.span(),
+                    occurrence_span(nodes, fact),
                     inputs.single_quoted_fragments,
                 ),
             },
@@ -153,22 +167,30 @@ pub(super) fn build_escape_scan_matches(
         );
     }
 
-    for fact in words.iter().filter(|fact| {
+    for fact in occurrences.iter().filter(|fact| {
         matches!(
-            fact.expansion_context(),
-            Some(ExpansionContext::RedirectTarget(_))
+            fact.context,
+            super::WordFactContext::Expansion(ExpansionContext::RedirectTarget(_))
         )
     }) {
-        let grep_style_argument = is_grep_style_argument(commands, fact);
-        let tr_operand_argument = is_tr_operand_argument(commands, fact);
-        if is_regex_like_context(fact.expansion_context()) {
+        let grep_style_argument = is_grep_style_argument(commands, nodes, fact);
+        let tr_operand_argument = is_tr_operand_argument(commands, nodes, fact);
+        if is_regex_like_context(match fact.context {
+            super::WordFactContext::Expansion(context) => Some(context),
+            super::WordFactContext::CaseSubject | super::WordFactContext::ArithmeticCommand => None,
+        }) {
             continue;
         }
 
-        let host_contains_single_quoted_fragment =
-            span_contains_single_quoted_fragment(fact.span(), inputs.single_quoted_fragments);
+        let host_contains_single_quoted_fragment = span_contains_single_quoted_fragment(
+            occurrence_span(nodes, fact),
+            inputs.single_quoted_fragments,
+        );
 
-        for span in word_literal_scan_segments_excluding_expansions(fact.word(), context.source) {
+        for span in word_literal_scan_segments_excluding_expansions(
+            occurrence_word(nodes, fact),
+            context.source,
+        ) {
             append_escape_scan_matches(
                 &mut matches,
                 span,
@@ -410,15 +432,19 @@ fn span_within_any(span: Span, hosts: &[Span]) -> bool {
         .any(|host| span.start.offset >= host.start.offset && span.end.offset <= host.end.offset)
 }
 
-fn is_grep_style_argument(commands: &[CommandFact<'_>], fact: &WordFact<'_>) -> bool {
-    if fact.expansion_context() != Some(ExpansionContext::CommandArgument) {
+fn is_grep_style_argument(
+    commands: &[CommandFact<'_>],
+    nodes: &[WordNode<'_>],
+    fact: &WordOccurrence,
+) -> bool {
+    if fact.context != super::WordFactContext::Expansion(ExpansionContext::CommandArgument) {
         return false;
     }
 
-    let command = &commands[fact.command_id().index()];
+    let command = &commands[fact.command_id.index()];
     if command
         .body_name_word()
-        .is_some_and(|word| word.span == fact.span())
+        .is_some_and(|word| word.span == occurrence_span(nodes, fact))
     {
         return false;
     }
@@ -428,18 +454,22 @@ fn is_grep_style_argument(commands: &[CommandFact<'_>], fact: &WordFact<'_>) -> 
         .is_some_and(|name| name.contains("grep"))
 }
 
-fn is_tr_operand_argument(commands: &[CommandFact<'_>], fact: &WordFact<'_>) -> bool {
-    if fact.expansion_context() != Some(ExpansionContext::CommandArgument) {
+fn is_tr_operand_argument(
+    commands: &[CommandFact<'_>],
+    nodes: &[WordNode<'_>],
+    fact: &WordOccurrence,
+) -> bool {
+    if fact.context != super::WordFactContext::Expansion(ExpansionContext::CommandArgument) {
         return false;
     }
 
-    commands[fact.command_id().index()]
+    commands[fact.command_id.index()]
         .options()
         .tr()
         .is_some_and(|tr| {
             tr.operand_words()
                 .iter()
-                .any(|word| word.span == fact.span())
+                .any(|word| word.span == occurrence_span(nodes, fact))
         })
 }
 

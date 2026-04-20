@@ -3,7 +3,7 @@ use shuck_ast::{ConditionalBinaryOp, ConditionalUnaryOp, Span};
 
 use super::{
     CommandFact, CommandId, ConditionalFact, ConditionalNodeFact, FactSpan, SimpleTestFact,
-    SimpleTestSyntax, WordFact,
+    SimpleTestSyntax, WordNode, WordOccurrence,
 };
 use crate::rules::common::expansion::ExpansionContext;
 use crate::rules::common::span::{
@@ -11,8 +11,8 @@ use crate::rules::common::span::{
     word_exactly_one_extglob_span,
 };
 use crate::{
-    conditional_array_subscript_span, conditional_extglob_span, static_word_text,
-    word_array_subscript_span, word_extglob_span,
+    conditional_array_subscript_span, conditional_extglob_span, facts::occurrence_word,
+    static_word_text, word_array_subscript_span, word_extglob_span,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -96,13 +96,18 @@ impl ConditionalPortabilityFacts {
     }
 }
 
+pub(super) struct ConditionalPortabilityInputs<'a> {
+    pub word_nodes: &'a [WordNode<'a>],
+    pub word_occurrences: &'a [WordOccurrence],
+    pub pattern_exactly_one_extglob_spans: &'a [Span],
+    pub pattern_charclass_spans: &'a [Span],
+    pub nested_pattern_charclass_spans: &'a FxHashSet<FactSpan>,
+}
+
 pub(super) fn build_conditional_portability_facts<'a>(
     commands: &[CommandFact<'a>],
     elif_condition_command_ids: &FxHashSet<CommandId>,
-    word_facts: &[WordFact<'a>],
-    pattern_exactly_one_extglob_spans: &[Span],
-    pattern_charclass_spans: &[Span],
-    nested_pattern_charclass_spans: &FxHashSet<FactSpan>,
+    inputs: ConditionalPortabilityInputs<'a>,
     source: &str,
 ) -> ConditionalPortabilityFacts {
     let mut facts = ConditionalPortabilityFacts::default();
@@ -145,27 +150,37 @@ pub(super) fn build_conditional_portability_facts<'a>(
 
     facts
         .extglob_in_sh
-        .extend(pattern_exactly_one_extglob_spans.iter().copied());
+        .extend(inputs.pattern_exactly_one_extglob_spans.iter().copied());
 
     facts.caret_negation_in_bracket.extend(
-        pattern_charclass_spans
+        inputs
+            .pattern_charclass_spans
             .iter()
-            .filter(|span| !nested_pattern_charclass_spans.contains(&FactSpan::new(**span)))
+            .filter(|span| {
+                !inputs
+                    .nested_pattern_charclass_spans
+                    .contains(&FactSpan::new(**span))
+            })
             .filter(|span| text_looks_like_caret_negated_bracket(span.slice(source)))
             .copied(),
     );
 
-    for fact in word_facts {
-        if supports_extglob_portability_context(fact.expansion_context())
-            && let Some(span) = word_exactly_one_extglob_span(fact.word(), source)
+    for fact in inputs.word_occurrences {
+        let expansion_context = match fact.context {
+            super::WordFactContext::Expansion(context) => Some(context),
+            super::WordFactContext::CaseSubject | super::WordFactContext::ArithmeticCommand => None,
+        };
+        let word = occurrence_word(inputs.word_nodes, fact);
+        if supports_extglob_portability_context(expansion_context)
+            && let Some(span) = word_exactly_one_extglob_span(word, source)
         {
             facts.extglob_in_sh.push(span);
         }
 
-        if supports_bracket_glob_portability_context(fact.expansion_context()) {
+        if supports_bracket_glob_portability_context(expansion_context) {
             facts
                 .caret_negation_in_bracket
-                .extend(word_caret_negated_bracket_spans(fact.word(), source));
+                .extend(word_caret_negated_bracket_spans(word, source));
         }
     }
 

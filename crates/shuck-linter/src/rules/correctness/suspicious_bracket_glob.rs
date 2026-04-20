@@ -49,7 +49,7 @@ pub fn suspicious_bracket_glob(checker: &mut Checker) {
                 .iter()
                 .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
                 .filter(|fact| supports_suspicious_bracket_glob_context(fact.expansion_context()))
-                .flat_map(|fact| word_suspicious_bracket_glob_spans(fact.word(), source)),
+                .flat_map(|fact| fact.suspicious_bracket_glob_spans(source)),
         )
         .collect::<Vec<_>>();
 

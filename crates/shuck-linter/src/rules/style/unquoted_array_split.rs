@@ -27,8 +27,7 @@ pub fn unquoted_array_split(checker: &mut Checker) {
                 .chain(fact.unquoted_array_expansion_spans().iter().copied())
                 .collect::<Vec<_>>();
             let command_substitution_spans = fact.command_substitution_spans();
-            fact.word()
-                .parts_with_spans()
+            fact.parts_with_spans()
                 .filter_map(|(part, part_span)| {
                     candidate_spans
                         .contains(&part_span)

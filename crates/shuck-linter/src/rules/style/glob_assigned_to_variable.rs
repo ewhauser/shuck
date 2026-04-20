@@ -1,7 +1,4 @@
-use crate::{
-    Checker, ExpansionContext, Rule, Violation, WordFactHostKind, WordQuote,
-    word_unquoted_glob_pattern_spans,
-};
+use crate::{Checker, ExpansionContext, Rule, Violation, WordFactHostKind, WordQuote};
 
 pub struct GlobAssignedToVariable;
 
@@ -26,9 +23,9 @@ pub fn glob_assigned_to_variable(checker: &mut Checker) {
                 .expansion_word_facts(ExpansionContext::DeclarationAssignmentValue),
         )
         .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
-        .filter(|fact| !checker.facts().is_compound_assignment_value_word(fact))
+        .filter(|fact| !checker.facts().is_compound_assignment_value_word(*fact))
         .filter(|fact| fact.classification().quote != WordQuote::FullyQuoted)
-        .filter(|fact| !word_unquoted_glob_pattern_spans(fact.word(), source).is_empty())
+        .filter(|fact| !fact.unquoted_glob_pattern_spans(source).is_empty())
         .map(|fact| fact.span())
         .collect::<Vec<_>>();
 

@@ -1,20 +1,22 @@
 fn build_literal_brace_spans(
-    words: &[WordFact<'_>],
+    nodes: &[WordNode<'_>],
+    occurrences: &[WordOccurrence],
     commands: &[CommandFact<'_>],
     source: &str,
     heredoc_ranges: &[TextRange],
 ) -> Vec<Span> {
     let mut spans = Vec::new();
 
-    for fact in words {
-        if fact.expansion_context() == Some(ExpansionContext::RegexOperand) {
+    for fact in occurrences {
+        if fact.context == WordFactContext::Expansion(ExpansionContext::RegexOperand) {
             continue;
         }
 
-        let is_find_exec_placeholder_word = is_find_exec_placeholder_word(commands, fact, source);
-        let is_xargs_replacement_word = is_xargs_replacement_word(commands, fact, source);
-        let direct_spans = fact
-            .word()
+        let word = occurrence_word(nodes, fact);
+        let is_find_exec_placeholder_word =
+            is_find_exec_placeholder_word(commands, nodes, fact, source);
+        let is_xargs_replacement_word = is_xargs_replacement_word(commands, nodes, fact, source);
+        let direct_spans = word
             .brace_syntax()
             .iter()
             .copied()
@@ -33,37 +35,25 @@ fn build_literal_brace_spans(
                     && !is_xargs_replacement_word
             })
             .flat_map(|brace| brace_character_spans(brace.span, source))
-            .filter(|span| {
-                !span_inside_nested_escaped_parameter_template(fact.word(), *span, source)
-            })
-            .filter(|span| {
-                !brace_span_is_plain_parameter_expansion_edge(fact.word(), *span, source)
-            })
-            .filter(|span| !word_span_is_inside_command_substitution(fact, *span))
+            .filter(|span| !span_inside_nested_escaped_parameter_template(word, *span, source))
+            .filter(|span| !brace_span_is_plain_parameter_expansion_edge(word, *span, source))
+            .filter(|span| !word_span_is_inside_command_substitution(nodes, fact, *span, source))
             .collect::<Vec<_>>();
         spans.extend(direct_spans);
 
         if !is_find_exec_placeholder_word && !is_xargs_replacement_word {
-            let unclassified = unclassified_literal_brace_spans(fact.word(), source)
+            let unclassified = unclassified_literal_brace_spans(word, source)
                 .into_iter()
-                .filter(|span| {
-                    !span_inside_nested_escaped_parameter_template(fact.word(), *span, source)
-                })
-                .filter(|span| {
-                    !brace_span_is_plain_parameter_expansion_edge(fact.word(), *span, source)
-                })
-                .filter(|span| !word_span_is_inside_command_substitution(fact, *span))
+                .filter(|span| !span_inside_nested_escaped_parameter_template(word, *span, source))
+                .filter(|span| !brace_span_is_plain_parameter_expansion_edge(word, *span, source))
+                .filter(|span| !word_span_is_inside_command_substitution(nodes, fact, *span, source))
                 .collect::<Vec<_>>();
             spans.extend(unclassified);
-            let escaped = escaped_parameter_expansion_brace_edge_spans(fact.word(), source)
+            let escaped = escaped_parameter_expansion_brace_edge_spans(word, source)
                 .into_iter()
-                .filter(|span| {
-                    !span_inside_nested_escaped_parameter_template(fact.word(), *span, source)
-                })
-                .filter(|span| {
-                    !brace_span_is_plain_parameter_expansion_edge(fact.word(), *span, source)
-                })
-                .filter(|span| !word_span_is_inside_command_substitution(fact, *span))
+                .filter(|span| !span_inside_nested_escaped_parameter_template(word, *span, source))
+                .filter(|span| !brace_span_is_plain_parameter_expansion_edge(word, *span, source))
+                .filter(|span| !word_span_is_inside_command_substitution(nodes, fact, *span, source))
                 .collect::<Vec<_>>();
             spans.extend(escaped);
         }
@@ -84,8 +74,14 @@ fn build_literal_brace_spans(
     spans
 }
 
-fn word_span_is_inside_command_substitution(fact: &WordFact<'_>, span: Span) -> bool {
-    fact.command_substitution_spans()
+fn word_span_is_inside_command_substitution(
+    nodes: &[WordNode<'_>],
+    fact: &WordOccurrence,
+    span: Span,
+    source: &str,
+) -> bool {
+    word_node_derived(&nodes[fact.node_id.index()], source)
+        .command_substitution_spans
         .iter()
         .copied()
         .any(|substitution| contains_span(substitution, span))
@@ -194,26 +190,27 @@ fn span_is_active_brace_expansion_edge_in_source(span: Span, source: &str) -> bo
 
 fn is_find_exec_placeholder_word(
     commands: &[CommandFact<'_>],
-    fact: &WordFact<'_>,
+    nodes: &[WordNode<'_>],
+    fact: &WordOccurrence,
     source: &str,
 ) -> bool {
-    if !word_is_empty_brace_pair_variant(fact.word(), source) {
+    if !word_is_empty_brace_pair_variant(occurrence_word(nodes, fact), source) {
         return false;
     }
-    if fact.expansion_context() != Some(ExpansionContext::CommandArgument) {
+    if fact.context != WordFactContext::Expansion(ExpansionContext::CommandArgument) {
         return false;
     }
 
-    let command = &commands[fact.command_id().index()];
+    let command = &commands[fact.command_id.index()];
     if command.has_wrapper(WrapperKind::FindExec) || command.has_wrapper(WrapperKind::FindExecDir) {
         return true;
     }
 
     commands.iter().any(|command| {
-        command.stmt().span.start.offset <= fact.span().start.offset
-            && command.stmt().span.end.offset >= fact.span().end.offset
+        command.stmt().span.start.offset <= occurrence_span(nodes, fact).start.offset
+            && command.stmt().span.end.offset >= occurrence_span(nodes, fact).end.offset
             && is_find_exec_command(command, source)
-    }) || line_has_find_exec_placeholder_context(source, fact.span())
+    }) || line_has_find_exec_placeholder_context(source, occurrence_span(nodes, fact))
 }
 
 fn is_find_exec_command(command: &CommandFact<'_>, source: &str) -> bool {
@@ -282,21 +279,22 @@ fn line_has_find_exec_placeholder_context(source: &str, brace_span: Span) -> boo
 
 fn is_xargs_replacement_word(
     commands: &[CommandFact<'_>],
-    fact: &WordFact<'_>,
+    nodes: &[WordNode<'_>],
+    fact: &WordOccurrence,
     source: &str,
 ) -> bool {
-    if fact.expansion_context() != Some(ExpansionContext::CommandArgument) {
+    if fact.context != WordFactContext::Expansion(ExpansionContext::CommandArgument) {
         return false;
     }
 
-    let command = &commands[fact.command_id().index()];
+    let command = &commands[fact.command_id.index()];
     if !command.effective_name_is("xargs") {
         return false;
     }
 
     xargs_replacement_spans(command.body_args(), source)
         .into_iter()
-        .any(|span| span == fact.word().span)
+        .any(|span| span == occurrence_span(nodes, fact))
 }
 
 fn xargs_replacement_spans(args: &[&Word], source: &str) -> Vec<Span> {
@@ -1626,5 +1624,3 @@ fn strip_prefix_ignore_ascii_case<'a>(text: &'a str, prefix: &str) -> Option<&'a
         .eq_ignore_ascii_case(prefix)
         .then(|| &text[prefix.len()..])
 }
-
-

@@ -1,4 +1,6 @@
-use crate::{Checker, ExpansionContext, Rule, ShellDialect, Violation, WordFact, WordFactHostKind};
+use crate::{
+    Checker, ExpansionContext, Rule, ShellDialect, Violation, WordFactHostKind, WordOccurrenceRef,
+};
 
 pub struct UnquotedCommandSubstitution;
 
@@ -66,7 +68,7 @@ pub fn unquoted_command_substitution(checker: &mut Checker) {
 
 fn should_report_unquoted_command_substitution(
     checker: &Checker,
-    fact: &WordFact<'_>,
+    fact: WordOccurrenceRef<'_, '_>,
     span: shuck_ast::Span,
     arithmetic_spans: &[shuck_ast::Span],
     pgrep_spans: &[shuck_ast::Span],

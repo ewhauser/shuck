@@ -1,7 +1,4 @@
-use crate::{
-    Checker, ExpansionContext, Rule, Violation, WordFact,
-    word_unquoted_glob_pattern_spans_outside_brace_expansion,
-};
+use crate::{Checker, ExpansionContext, Rule, Violation, WordOccurrenceRef};
 use shuck_ast::Span;
 
 pub struct GlobWithExpansionInLoop;
@@ -22,7 +19,8 @@ pub fn glob_with_expansion_in_loop(checker: &mut Checker) {
         .facts()
         .expansion_word_facts(ExpansionContext::ForList)
         .filter(|fact| {
-            !word_unquoted_glob_pattern_spans_outside_brace_expansion(fact.word(), source)
+            !fact
+                .unquoted_glob_pattern_spans_outside_brace_expansion(source)
                 .is_empty()
         })
         .flat_map(unquoted_expansion_prefix_spans)
@@ -31,7 +29,7 @@ pub fn glob_with_expansion_in_loop(checker: &mut Checker) {
     checker.report_all_dedup(spans, || GlobWithExpansionInLoop);
 }
 
-fn unquoted_expansion_prefix_spans(fact: &WordFact<'_>) -> Vec<Span> {
+fn unquoted_expansion_prefix_spans(fact: WordOccurrenceRef<'_, '_>) -> Vec<Span> {
     let quoted = fact.double_quoted_expansion_spans();
     let mut spans = fact
         .scalar_expansion_spans()

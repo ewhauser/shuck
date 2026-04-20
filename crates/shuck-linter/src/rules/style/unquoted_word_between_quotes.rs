@@ -1,4 +1,4 @@
-use crate::{Checker, Rule, Violation, word_unquoted_word_after_single_quoted_segment_spans};
+use crate::{Checker, Rule, Violation};
 
 pub struct UnquotedWordBetweenQuotes;
 
@@ -18,7 +18,7 @@ pub fn unquoted_word_between_quotes(checker: &mut Checker) {
         .facts()
         .word_facts()
         .iter()
-        .flat_map(|fact| word_unquoted_word_after_single_quoted_segment_spans(fact.word(), source))
+        .flat_map(|fact| fact.unquoted_word_after_single_quoted_segment_spans(source))
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || UnquotedWordBetweenQuotes);

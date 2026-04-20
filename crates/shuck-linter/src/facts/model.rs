@@ -1,4 +1,5 @@
 pub struct LinterFacts<'a> {
+    source: &'a str,
     commands: Vec<CommandFact<'a>>,
     structural_command_ids: Vec<CommandId>,
     #[cfg_attr(not(test), allow(dead_code))]
@@ -15,10 +16,12 @@ pub struct LinterFacts<'a> {
     nested_presence_test_spans: FxHashMap<Name, Vec<Span>>,
     subscript_index_reference_spans: FxHashSet<FactSpan>,
     compound_assignment_value_word_spans: FxHashSet<FactSpan>,
-    words: Vec<WordFact<'a>>,
-    word_index: FxHashMap<FactSpan, Vec<usize>>,
+    word_nodes: Vec<WordNode<'a>>,
+    word_occurrences: Vec<WordOccurrence>,
+    word_index: FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
+    word_occurrence_ids_by_command: Vec<SmallVec<[WordOccurrenceId; 4]>>,
     unquoted_command_argument_use_offsets: FxHashMap<Name, Vec<usize>>,
-    array_assignment_split_word_indices: Vec<usize>,
+    array_assignment_split_word_ids: Vec<WordOccurrenceId>,
     brace_variable_before_bracket_spans: Vec<Span>,
     function_headers: Vec<FunctionHeaderFact<'a>>,
     function_in_alias_spans: Vec<Span>,
@@ -237,11 +240,18 @@ impl<'a> LinterFacts<'a> {
             .contains(&FactSpan::new(span))
     }
 
-    pub fn word_facts(&self) -> &[WordFact<'a>] {
-        &self.words
+    pub fn word_facts(&self) -> WordOccurrenceIter<'_, 'a> {
+        WordOccurrenceIter {
+            inner: Box::new(
+                self.word_occurrences
+                    .iter()
+                    .enumerate()
+                    .map(|(index, _)| self.word_occurrence_ref(WordOccurrenceId::new(index))),
+            ),
+        }
     }
 
-    pub fn is_compound_assignment_value_word(&self, fact: &WordFact<'_>) -> bool {
+    pub fn is_compound_assignment_value_word(&self, fact: WordOccurrenceRef<'_, '_>) -> bool {
         self.compound_assignment_value_word_spans
             .contains(&fact.key())
     }
@@ -249,30 +259,40 @@ impl<'a> LinterFacts<'a> {
     pub fn expansion_word_facts(
         &self,
         context: ExpansionContext,
-    ) -> impl Iterator<Item = &WordFact<'a>> + '_ {
-        self.words
-            .iter()
-            .filter(move |fact| fact.expansion_context() == Some(context))
+    ) -> WordOccurrenceIter<'_, 'a> {
+        WordOccurrenceIter {
+            inner: Box::new(
+                self.word_facts()
+                    .filter(move |fact| fact.expansion_context() == Some(context)),
+            ),
+        }
     }
 
-    pub fn case_subject_facts(&self) -> impl Iterator<Item = &WordFact<'a>> + '_ {
-        self.words.iter().filter(|fact| fact.is_case_subject())
+    pub fn case_subject_facts(&self) -> WordOccurrenceIter<'_, 'a> {
+        WordOccurrenceIter {
+            inner: Box::new(self.word_facts().filter(|fact| fact.is_case_subject())),
+        }
     }
 
-    pub fn word_fact(&self, span: Span, context: WordFactContext) -> Option<&WordFact<'a>> {
+    pub fn word_fact(
+        &self,
+        span: Span,
+        context: WordFactContext,
+    ) -> Option<WordOccurrenceRef<'_, 'a>> {
         self.word_index
             .get(&FactSpan::new(span))
             .into_iter()
             .flat_map(|indices| indices.iter())
-            .map(|&index| &self.words[index])
+            .copied()
+            .map(|id| self.word_occurrence_ref(id))
             .find(|fact| fact.context() == context)
     }
 
-    pub fn any_word_fact(&self, span: Span) -> Option<&WordFact<'a>> {
+    pub fn any_word_fact(&self, span: Span) -> Option<WordOccurrenceRef<'_, 'a>> {
         self.word_index
             .get(&FactSpan::new(span))
             .and_then(|indices| indices.first().copied())
-            .map(|index| &self.words[index])
+            .map(|id| self.word_occurrence_ref(id))
     }
 
     pub fn has_later_unquoted_command_argument_use(
@@ -287,10 +307,76 @@ impl<'a> LinterFacts<'a> {
             })
     }
 
-    pub fn array_assignment_split_word_facts(&self) -> impl Iterator<Item = &WordFact<'a>> + '_ {
-        self.array_assignment_split_word_indices
-            .iter()
-            .map(|&index| &self.words[index])
+    pub fn array_assignment_split_word_facts(
+        &self,
+    ) -> WordOccurrenceIter<'_, 'a> {
+        WordOccurrenceIter {
+            inner: Box::new(
+                self.array_assignment_split_word_ids
+                    .iter()
+                    .copied()
+                    .map(|id| self.word_occurrence_ref(id)),
+            ),
+        }
+    }
+
+    fn word_occurrence_ref(&self, id: WordOccurrenceId) -> WordOccurrenceRef<'_, 'a> {
+        WordOccurrenceRef { facts: self, id }
+    }
+
+    fn word_occurrence(&self, id: WordOccurrenceId) -> &WordOccurrence {
+        &self.word_occurrences[id.index()]
+    }
+
+    fn word_occurrence_ids_for_command(
+        &self,
+        id: CommandId,
+    ) -> &[WordOccurrenceId] {
+        self.word_occurrence_ids_by_command
+            .get(id.index())
+            .map_or(&[], SmallVec::as_slice)
+    }
+
+    fn word_node(&self, id: WordNodeId) -> &WordNode<'a> {
+        &self.word_nodes[id.index()]
+    }
+
+    fn word_node_derived(&self, id: WordNodeId) -> &WordNodeDerived {
+        word_node_derived(self.word_node(id), self.source)
+    }
+
+    fn compute_array_assignment_split_scalar_expansion_spans(
+        &self,
+        id: WordOccurrenceId,
+    ) -> Box<[Span]> {
+        let fact = self.word_occurrence_ref(id);
+        let mut split_sensitive_spans = fact.unquoted_scalar_expansion_spans().to_vec();
+        let use_replacement_spans = collect_array_assignment_use_replacement_expansion_spans(
+            occurrence_word(&self.word_nodes, self.word_occurrence(id)),
+        );
+
+        if !word_occurrence_is_double_quoted_command_substitution_only(
+            &self.word_nodes,
+            self.word_occurrence(id),
+            self.source,
+        ) {
+            for command in &self.commands {
+                if contains_span_strictly(fact.span(), command.span()) {
+                    for nested_id in self.word_occurrence_ids_for_command(command.id()) {
+                        split_sensitive_spans.extend(
+                            self.word_occurrence_ref(*nested_id)
+                                .scalar_expansion_spans()
+                                .iter()
+                                .copied(),
+                        );
+                    }
+                }
+            }
+        }
+
+        split_sensitive_spans.retain(|span| !use_replacement_spans.contains(span));
+        sort_and_dedup_spans(&mut split_sensitive_spans);
+        split_sensitive_spans.into_boxed_slice()
     }
 
     pub fn brace_variable_before_bracket_spans(&self) -> &[Span] {
@@ -611,4 +697,3 @@ impl<'a> LinterFacts<'a> {
         &self.conditional_portability
     }
 }
-

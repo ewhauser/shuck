@@ -14,18 +14,16 @@ pub enum WordFactHostKind {
     ConditionalVarRefSubscript,
 }
 
-#[derive(Debug, Clone)]
-pub struct WordFact<'a> {
+#[derive(Debug)]
+pub struct WordNode<'a> {
     key: FactSpan,
-    word: Cow<'a, Word>,
-    command_id: CommandId,
-    nested_word_command: bool,
-    context: WordFactContext,
-    host_kind: WordFactHostKind,
-    zsh_options: Option<ZshOptionState>,
+    word: &'a Word,
     analysis: ExpansionAnalysis,
-    runtime_literal: RuntimeLiteralAnalysis,
-    operand_class: Option<TestOperandClass>,
+    derived: OnceCell<WordNodeDerived>,
+}
+
+#[derive(Debug)]
+pub(crate) struct WordNodeDerived {
     static_text: Option<Box<str>>,
     starts_with_extglob: bool,
     has_literal_affixes: bool,
@@ -33,7 +31,6 @@ pub struct WordFact<'a> {
     active_expansion_spans: Box<[Span]>,
     scalar_expansion_spans: Box<[Span]>,
     unquoted_scalar_expansion_spans: Box<[Span]>,
-    array_assignment_split_scalar_expansion_spans: Box<[Span]>,
     array_expansion_spans: Box<[Span]>,
     all_elements_array_expansion_spans: Box<[Span]>,
     direct_all_elements_array_expansion_spans: Box<[Span]>,
@@ -45,158 +42,348 @@ pub struct WordFact<'a> {
     unquoted_literal_between_double_quoted_segments_spans: Box<[Span]>,
 }
 
-impl<'a> WordFact<'a> {
-    pub fn key(&self) -> FactSpan {
-        self.key
+#[derive(Debug)]
+pub struct WordOccurrence {
+    node_id: WordNodeId,
+    command_id: CommandId,
+    nested_word_command: bool,
+    context: WordFactContext,
+    host_kind: WordFactHostKind,
+    runtime_literal: RuntimeLiteralAnalysis,
+    operand_class: Option<TestOperandClass>,
+    array_assignment_split_scalar_expansion_spans: OnceCell<Box<[Span]>>,
+}
+
+#[derive(Clone, Copy)]
+pub struct WordOccurrenceRef<'facts, 'a> {
+    facts: &'facts LinterFacts<'a>,
+    id: WordOccurrenceId,
+}
+
+pub struct WordOccurrenceIter<'facts, 'a> {
+    inner: Box<dyn Iterator<Item = WordOccurrenceRef<'facts, 'a>> + 'facts>,
+}
+
+impl<'facts, 'a> WordOccurrenceIter<'facts, 'a> {
+    pub fn iter(self) -> Self {
+        self
+    }
+}
+
+impl<'facts, 'a> Iterator for WordOccurrenceIter<'facts, 'a> {
+    type Item = WordOccurrenceRef<'facts, 'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.inner.next()
+    }
+}
+
+impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
+    fn occurrence(self) -> &'facts WordOccurrence {
+        self.facts.word_occurrence(self.id)
     }
 
-    pub fn word(&self) -> &Word {
-        self.word.as_ref()
+    fn node(self) -> &'facts WordNode<'a> {
+        self.facts.word_node(self.occurrence().node_id)
     }
 
-    pub fn span(&self) -> Span {
-        self.word.span
+    fn derived(self) -> &'facts WordNodeDerived {
+        self.facts.word_node_derived(self.occurrence().node_id)
     }
 
-    pub fn command_id(&self) -> CommandId {
-        self.command_id
+    fn word(self) -> &'a Word {
+        self.node().word
     }
 
-    pub fn is_nested_word_command(&self) -> bool {
-        self.nested_word_command
+    pub fn key(self) -> FactSpan {
+        self.node().key
     }
 
-    pub fn context(&self) -> WordFactContext {
-        self.context
+    pub fn span(self) -> Span {
+        self.word().span
     }
 
-    pub fn expansion_context(&self) -> Option<ExpansionContext> {
-        match self.context {
+    pub fn command_id(self) -> CommandId {
+        self.occurrence().command_id
+    }
+
+    pub fn is_nested_word_command(self) -> bool {
+        self.occurrence().nested_word_command
+    }
+
+    pub fn context(self) -> WordFactContext {
+        self.occurrence().context
+    }
+
+    pub fn expansion_context(self) -> Option<ExpansionContext> {
+        match self.context() {
             WordFactContext::Expansion(context) => Some(context),
             WordFactContext::CaseSubject => None,
             WordFactContext::ArithmeticCommand => None,
         }
     }
 
-    pub fn is_case_subject(&self) -> bool {
-        self.context == WordFactContext::CaseSubject
+    pub fn is_case_subject(self) -> bool {
+        self.context() == WordFactContext::CaseSubject
     }
 
-    pub fn is_arithmetic_command(&self) -> bool {
-        self.context == WordFactContext::ArithmeticCommand
+    pub fn is_arithmetic_command(self) -> bool {
+        self.context() == WordFactContext::ArithmeticCommand
     }
 
-    pub fn host_kind(&self) -> WordFactHostKind {
-        self.host_kind
+    pub fn host_kind(self) -> WordFactHostKind {
+        self.occurrence().host_kind
     }
 
-    pub fn analysis(&self) -> ExpansionAnalysis {
-        self.analysis
+    pub fn analysis(self) -> ExpansionAnalysis {
+        self.node().analysis
     }
 
-    pub fn runtime_literal(&self) -> RuntimeLiteralAnalysis {
-        self.runtime_literal
+    pub fn runtime_literal(self) -> RuntimeLiteralAnalysis {
+        self.occurrence().runtime_literal
     }
 
-    pub fn zsh_options(&self) -> Option<&ZshOptionState> {
-        self.zsh_options.as_ref()
+    pub fn classification(self) -> WordClassification {
+        word_classification_from_analysis(self.analysis())
     }
 
-    pub fn classification(&self) -> WordClassification {
-        word_classification_from_analysis(self.analysis)
+    pub fn operand_class(self) -> Option<TestOperandClass> {
+        self.occurrence().operand_class
     }
 
-    pub fn operand_class(&self) -> Option<TestOperandClass> {
-        self.operand_class
+    pub fn static_text(self) -> Option<&'facts str> {
+        self.derived().static_text.as_deref()
     }
 
-    pub fn static_text(&self) -> Option<&str> {
-        self.static_text.as_deref()
-    }
-
-    pub fn is_plain_scalar_reference(&self) -> bool {
+    pub fn is_plain_scalar_reference(self) -> bool {
         word_is_plain_scalar_reference(self.word())
     }
 
-    pub fn is_direct_numeric_expansion(&self) -> bool {
+    pub fn is_direct_numeric_expansion(self) -> bool {
         word_is_direct_numeric_expansion(self.word())
     }
 
-    pub fn starts_with_extglob(&self) -> bool {
-        self.starts_with_extglob
+    pub fn starts_with_extglob(self) -> bool {
+        self.derived().starts_with_extglob
     }
 
-    pub fn has_literal_affixes(&self) -> bool {
-        self.has_literal_affixes
+    pub fn has_literal_affixes(self) -> bool {
+        self.derived().has_literal_affixes
     }
 
-    pub fn contains_shell_quoting_literals(&self) -> bool {
-        self.contains_shell_quoting_literals
+    pub fn contains_shell_quoting_literals(self) -> bool {
+        self.derived().contains_shell_quoting_literals
     }
 
-    pub fn active_expansion_spans(&self) -> &[Span] {
-        &self.active_expansion_spans
+    pub fn active_expansion_spans(self) -> &'facts [Span] {
+        &self.derived().active_expansion_spans
     }
 
-    pub fn scalar_expansion_spans(&self) -> &[Span] {
-        &self.scalar_expansion_spans
+    pub fn scalar_expansion_spans(self) -> &'facts [Span] {
+        &self.derived().scalar_expansion_spans
     }
 
-    pub fn unquoted_scalar_expansion_spans(&self) -> &[Span] {
-        &self.unquoted_scalar_expansion_spans
+    pub fn unquoted_scalar_expansion_spans(self) -> &'facts [Span] {
+        &self.derived().unquoted_scalar_expansion_spans
     }
 
-    pub fn array_assignment_split_scalar_expansion_spans(&self) -> &[Span] {
-        &self.array_assignment_split_scalar_expansion_spans
+    pub fn array_assignment_split_scalar_expansion_spans(self) -> &'facts [Span] {
+        self.occurrence()
+            .array_assignment_split_scalar_expansion_spans
+            .get_or_init(|| self.facts.compute_array_assignment_split_scalar_expansion_spans(self.id))
+            .as_ref()
     }
 
-    pub fn array_expansion_spans(&self) -> &[Span] {
-        &self.array_expansion_spans
+    pub fn array_expansion_spans(self) -> &'facts [Span] {
+        &self.derived().array_expansion_spans
     }
 
-    pub fn all_elements_array_expansion_spans(&self) -> &[Span] {
-        &self.all_elements_array_expansion_spans
+    pub fn all_elements_array_expansion_spans(self) -> &'facts [Span] {
+        &self.derived().all_elements_array_expansion_spans
     }
 
-    pub fn direct_all_elements_array_expansion_spans(&self) -> &[Span] {
-        &self.direct_all_elements_array_expansion_spans
+    pub fn direct_all_elements_array_expansion_spans(self) -> &'facts [Span] {
+        &self.derived().direct_all_elements_array_expansion_spans
     }
 
-    pub fn unquoted_all_elements_array_expansion_spans(&self) -> &[Span] {
-        &self.unquoted_all_elements_array_expansion_spans
+    pub fn unquoted_all_elements_array_expansion_spans(self) -> &'facts [Span] {
+        &self.derived().unquoted_all_elements_array_expansion_spans
     }
 
-    pub fn unquoted_array_expansion_spans(&self) -> &[Span] {
-        &self.unquoted_array_expansion_spans
+    pub fn unquoted_array_expansion_spans(self) -> &'facts [Span] {
+        &self.derived().unquoted_array_expansion_spans
     }
 
-    pub fn command_substitution_spans(&self) -> &[Span] {
-        &self.command_substitution_spans
+    pub fn command_substitution_spans(self) -> &'facts [Span] {
+        &self.derived().command_substitution_spans
     }
 
-    pub fn unquoted_command_substitution_spans(&self) -> &[Span] {
-        &self.unquoted_command_substitution_spans
+    pub fn unquoted_command_substitution_spans(self) -> &'facts [Span] {
+        &self.derived().unquoted_command_substitution_spans
     }
 
-    pub fn double_quoted_expansion_spans(&self) -> &[Span] {
-        &self.double_quoted_expansion_spans
+    pub fn double_quoted_expansion_spans(self) -> &'facts [Span] {
+        &self.derived().double_quoted_expansion_spans
     }
 
-    pub fn unquoted_literal_between_double_quoted_segments_spans(&self) -> &[Span] {
-        &self.unquoted_literal_between_double_quoted_segments_spans
+    pub fn unquoted_literal_between_double_quoted_segments_spans(self) -> &'facts [Span] {
+        &self
+            .derived()
+            .unquoted_literal_between_double_quoted_segments_spans
+    }
+
+    pub fn has_single_part(self) -> bool {
+        self.word().parts.len() == 1
+    }
+
+    pub fn parts_len(self) -> usize {
+        self.word().parts.len()
+    }
+
+    pub fn parts_with_spans(self) -> impl Iterator<Item = (&'a WordPart, Span)> + 'a {
+        self.word().parts_with_spans()
+    }
+
+    pub fn has_direct_all_elements_array_expansion_in_source(self, source: &str) -> bool {
+        crate::word_has_direct_all_elements_array_expansion_in_source(self.word(), source)
+    }
+
+    pub fn has_quoted_all_elements_array_slice(self) -> bool {
+        crate::word_has_quoted_all_elements_array_slice(self.word())
+    }
+
+    pub fn double_quoted_scalar_affix_span(self) -> Option<Span> {
+        crate::double_quoted_scalar_affix_span(self.word())
+    }
+
+    pub fn is_pure_positional_at_splat(self) -> bool {
+        crate::word_is_pure_positional_at_splat(self.word())
+    }
+
+    pub fn quoted_unindexed_bash_source_span_in_source(self, source: &str) -> Option<Span> {
+        crate::word_quoted_unindexed_bash_source_span_in_source(self.word(), source)
+    }
+
+    pub fn unquoted_glob_pattern_spans(self, source: &str) -> Vec<Span> {
+        crate::word_unquoted_glob_pattern_spans(self.word(), source)
+    }
+
+    pub fn unquoted_glob_pattern_spans_outside_brace_expansion(self, source: &str) -> Vec<Span> {
+        crate::word_unquoted_glob_pattern_spans_outside_brace_expansion(self.word(), source)
+    }
+
+    pub fn suspicious_bracket_glob_spans(self, source: &str) -> Vec<Span> {
+        crate::word_suspicious_bracket_glob_spans(self.word(), source)
+    }
+
+    pub fn standalone_literal_backslash_span(self, source: &str) -> Option<Span> {
+        crate::word_standalone_literal_backslash_span(self.word(), source)
+    }
+
+    pub fn unquoted_assign_default_spans(self) -> Vec<Span> {
+        crate::word_unquoted_assign_default_spans(self.word())
+    }
+
+    pub fn use_replacement_spans(self) -> Vec<Span> {
+        crate::word_use_replacement_spans(self.word())
+    }
+
+    pub fn unquoted_star_parameter_spans(self) -> Vec<Span> {
+        crate::word_unquoted_star_parameter_spans(self.word(), self.unquoted_array_expansion_spans())
+    }
+
+    pub fn unquoted_star_splat_spans(self) -> Vec<Span> {
+        crate::word_unquoted_star_splat_spans(self.word())
+    }
+
+    pub fn unquoted_word_after_single_quoted_segment_spans(self, source: &str) -> Vec<Span> {
+        crate::word_unquoted_word_after_single_quoted_segment_spans(self.word(), source)
+    }
+
+    pub fn unquoted_scalar_between_double_quoted_segments_spans(
+        self,
+        candidate_spans: &[Span],
+    ) -> Vec<Span> {
+        crate::word_unquoted_scalar_between_double_quoted_segments_spans(
+            self.word(),
+            candidate_spans,
+        )
+    }
+
+    pub fn nested_dynamic_double_quote_spans(self) -> Vec<Span> {
+        crate::word_nested_dynamic_double_quote_spans(self.word())
+    }
+
+    pub fn folded_positional_at_splat_span_in_source(self, source: &str) -> Option<Span> {
+        crate::word_folded_positional_at_splat_span_in_source(self.word(), source)
+    }
+
+    pub fn zsh_flag_modifier_spans(self) -> Vec<Span> {
+        crate::word_zsh_flag_modifier_spans(self.word())
+    }
+
+    pub fn zsh_nested_expansion_spans(self) -> Vec<Span> {
+        crate::word_zsh_nested_expansion_spans(self.word())
+    }
+
+    pub fn nested_zsh_substitution_spans(self) -> Vec<Span> {
+        crate::word_nested_zsh_substitution_spans(self.word())
+    }
+
+    pub fn brace_expansion_spans(self) -> Vec<Span> {
+        self.word()
+            .brace_syntax()
+            .iter()
+            .copied()
+            .filter(|brace| brace.expands())
+            .map(|brace| brace.span)
+            .collect()
     }
 }
 
 
-fn build_brace_variable_before_bracket_spans(words: &[WordFact<'_>], source: &str) -> Vec<Span> {
-    let mut spans = words
+fn build_brace_variable_before_bracket_spans<'a>(
+    nodes: &[WordNode<'a>],
+    occurrences: &[WordOccurrence],
+    source: &str,
+) -> Vec<Span> {
+    let mut spans = occurrences
         .iter()
-        .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
-        .filter(|fact| !fact.is_arithmetic_command())
-        .flat_map(|fact| word_unbraced_variable_before_bracket_spans(fact.word(), source))
+        .filter(|fact| fact.host_kind == WordFactHostKind::Direct)
+        .filter(|fact| fact.context != WordFactContext::ArithmeticCommand)
+        .flat_map(|fact| {
+            word_unbraced_variable_before_bracket_spans(occurrence_word(nodes, fact), source)
+        })
         .collect::<Vec<_>>();
     sort_and_dedup_spans(&mut spans);
     spans
+}
+
+pub(crate) fn occurrence_word<'a>(
+    nodes: &[WordNode<'a>],
+    occurrence: &WordOccurrence,
+) -> &'a Word {
+    nodes[occurrence.node_id.index()].word
+}
+
+pub(crate) fn occurrence_key(nodes: &[WordNode<'_>], occurrence: &WordOccurrence) -> FactSpan {
+    nodes[occurrence.node_id.index()].key
+}
+
+pub(crate) fn occurrence_span(nodes: &[WordNode<'_>], occurrence: &WordOccurrence) -> Span {
+    occurrence_word(nodes, occurrence).span
+}
+
+pub(crate) fn occurrence_analysis(
+    nodes: &[WordNode<'_>],
+    occurrence: &WordOccurrence,
+) -> ExpansionAnalysis {
+    nodes[occurrence.node_id.index()].analysis
+}
+
+pub(crate) fn word_node_derived<'a>(node: &'a WordNode<'_>, source: &str) -> &'a WordNodeDerived {
+    node.derived
+        .get_or_init(|| derive_word_fact_data(node.word, source))
 }
 
 fn word_is_plain_scalar_reference(word: &Word) -> bool {
@@ -286,8 +473,9 @@ fn build_function_in_alias_spans(commands: &[CommandFact<'_>], source: &str) -> 
 
 fn build_alias_definition_expansion_spans(
     commands: &[CommandFact<'_>],
-    words: &[WordFact<'_>],
-    word_index: &FxHashMap<FactSpan, Vec<usize>>,
+    nodes: &[WordNode<'_>],
+    occurrences: &[WordOccurrence],
+    word_index: &FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
     source: &str,
 ) -> Vec<Span> {
     let mut spans = commands
@@ -302,13 +490,19 @@ fn build_alias_definition_expansion_spans(
                         .get(&FactSpan::new(candidate.span))
                         .into_iter()
                         .flat_map(|indices| indices.iter().copied())
-                        .map(|index| &words[index])
+                        .map(|id| &occurrences[id.index()])
                         .filter(move |fact| {
-                            fact.expansion_context() == Some(ExpansionContext::CommandArgument)
-                                && fact.span() == candidate.span
+                            fact.context
+                                == WordFactContext::Expansion(ExpansionContext::CommandArgument)
+                                && occurrence_span(nodes, fact) == candidate.span
                         })
                 })
-                .flat_map(|fact| fact.active_expansion_spans().iter().copied())
+                .flat_map(|fact| {
+                    word_node_derived(&nodes[fact.node_id.index()], source)
+                        .active_expansion_spans
+                        .iter()
+                        .copied()
+                })
                 .min_by_key(|span| (span.start.offset, span.end.offset))
         })
         .collect::<Vec<_>>();
@@ -675,8 +869,9 @@ fn build_echo_to_sed_substitution_spans<'a>(
     commands: &[CommandFact<'a>],
     pipelines: &[PipelineFact<'a>],
     backticks: &[BacktickFragmentFact],
-    words: &[WordFact<'a>],
-    word_index: &FxHashMap<FactSpan, Vec<usize>>,
+    nodes: &[WordNode<'a>],
+    occurrences: &[WordOccurrence],
+    word_index: &FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
     source: &str,
 ) -> Vec<Span> {
     let mut spans = Vec::new();
@@ -684,7 +879,15 @@ fn build_echo_to_sed_substitution_spans<'a>(
 
     for pipeline in pipelines {
         if let Some(span) =
-            sc2001_like_pipeline_span(commands, pipeline, backticks, words, word_index, source)
+            sc2001_like_pipeline_span(
+                commands,
+                pipeline,
+                backticks,
+                nodes,
+                occurrences,
+                word_index,
+                source,
+            )
         {
             spans.push(span);
             if let Some(last_segment) = pipeline.last_segment() {
@@ -707,8 +910,9 @@ fn sc2001_like_pipeline_span<'a>(
     commands: &[CommandFact<'a>],
     pipeline: &PipelineFact<'a>,
     backticks: &[BacktickFragmentFact],
-    words: &[WordFact<'a>],
-    word_index: &FxHashMap<FactSpan, Vec<usize>>,
+    nodes: &[WordNode<'a>],
+    occurrences: &[WordOccurrence],
+    word_index: &FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
     source: &str,
 ) -> Option<Span> {
     let [left_segment, right_segment] = pipeline.segments() else {
@@ -739,25 +943,29 @@ fn sc2001_like_pipeline_span<'a>(
         return None;
     };
 
-    let word_fact = word_fact_with_context(
-        words,
+    let word_fact = word_occurrence_with_context(
+        nodes,
+        occurrences,
         word_index,
         argument.span,
         WordFactContext::Expansion(ExpansionContext::CommandArgument),
     )?;
 
-    if word_fact.static_text().is_some() {
+    if occurrence_static_text(nodes, word_fact, source).is_some() {
         return None;
     }
 
-    if word_fact.scalar_expansion_spans().is_empty()
-        && word_fact.array_expansion_spans().is_empty()
-        && word_fact.command_substitution_spans().is_empty()
+    let derived = word_node_derived(&nodes[word_fact.node_id.index()], source);
+    if derived.scalar_expansion_spans.is_empty()
+        && derived.array_expansion_spans.is_empty()
+        && derived.command_substitution_spans.is_empty()
     {
         return None;
     }
 
-    if word_fact.has_literal_affixes() && !word_fact_is_pure_quoted_dynamic(word_fact, source) {
+    if derived.has_literal_affixes
+        && !word_occurrence_is_pure_quoted_dynamic(nodes, word_fact, source)
+    {
         return None;
     }
 
@@ -824,25 +1032,41 @@ fn command_is_inside_backtick_fragment(
     })
 }
 
-fn word_fact_with_context<'a>(
-    words: &'a [WordFact<'a>],
-    word_index: &FxHashMap<FactSpan, Vec<usize>>,
+fn word_occurrence_with_context<'a>(
+    nodes: &[WordNode<'a>],
+    occurrences: &'a [WordOccurrence],
+    word_index: &FxHashMap<FactSpan, SmallVec<[WordOccurrenceId; 2]>>,
     span: Span,
     context: WordFactContext,
-) -> Option<&'a WordFact<'a>> {
+) -> Option<&'a WordOccurrence> {
     word_index
         .get(&FactSpan::new(span))
         .into_iter()
-        .flat_map(|indices| indices.iter())
-        .map(|&index| &words[index])
-        .find(|fact| fact.context() == context)
+        .flat_map(|indices| indices.iter().copied())
+        .map(|id| &occurrences[id.index()])
+        .find(|fact| occurrence_span(nodes, fact) == span && fact.context == context)
 }
 
-fn word_fact_is_pure_quoted_dynamic(fact: &WordFact<'_>, source: &str) -> bool {
-    !span::word_double_quoted_scalar_only_expansion_spans(fact.word()).is_empty()
-        || !span::word_quoted_all_elements_array_slice_spans(fact.word()).is_empty()
-        || word_fact_is_double_quoted_command_substitution_only(fact, source)
-        || word_fact_is_backtick_escaped_double_quoted_dynamic(fact, source)
+pub(crate) fn occurrence_static_text<'a>(
+    nodes: &'a [WordNode<'a>],
+    occurrence: &WordOccurrence,
+    source: &str,
+) -> Option<&'a str> {
+    word_node_derived(&nodes[occurrence.node_id.index()], source)
+        .static_text
+        .as_deref()
+}
+
+pub(crate) fn word_occurrence_is_pure_quoted_dynamic(
+    nodes: &[WordNode<'_>],
+    fact: &WordOccurrence,
+    source: &str,
+) -> bool {
+    let word = occurrence_word(nodes, fact);
+    !span::word_double_quoted_scalar_only_expansion_spans(word).is_empty()
+        || !span::word_quoted_all_elements_array_slice_spans(word).is_empty()
+        || word_occurrence_is_double_quoted_command_substitution_only(nodes, fact, source)
+        || word_occurrence_is_backtick_escaped_double_quoted_dynamic(nodes, fact, source)
 }
 
 fn build_unquoted_literal_between_double_quoted_segments_spans(
@@ -1137,33 +1361,43 @@ fn mixed_quote_trailing_line_join_between_double_quotes_span(
 }
 
 
-fn word_fact_is_double_quoted_command_substitution_only(fact: &WordFact<'_>, source: &str) -> bool {
-    let [command_substitution] = fact.command_substitution_spans() else {
+pub(crate) fn word_occurrence_is_double_quoted_command_substitution_only(
+    nodes: &[WordNode<'_>],
+    fact: &WordOccurrence,
+    source: &str,
+) -> bool {
+    let derived = word_node_derived(&nodes[fact.node_id.index()], source);
+    let [command_substitution] = derived.command_substitution_spans.as_ref() else {
         return false;
     };
 
-    if !fact.scalar_expansion_spans().is_empty() || !fact.array_expansion_spans().is_empty() {
+    if !derived.scalar_expansion_spans.is_empty() || !derived.array_expansion_spans.is_empty() {
         return false;
     }
 
-    let word_text = fact.span().slice(source);
+    let word_text = occurrence_span(nodes, fact).slice(source);
     word_text.len() == command_substitution.slice(source).len() + 2
         && word_text.starts_with('"')
         && word_text.ends_with('"')
         && &word_text[1..word_text.len() - 1] == command_substitution.slice(source)
 }
 
-fn word_fact_is_backtick_escaped_double_quoted_dynamic(fact: &WordFact<'_>, source: &str) -> bool {
-    let word_text = fact.span().slice(source);
+pub(crate) fn word_occurrence_is_backtick_escaped_double_quoted_dynamic(
+    nodes: &[WordNode<'_>],
+    fact: &WordOccurrence,
+    source: &str,
+) -> bool {
+    let derived = word_node_derived(&nodes[fact.node_id.index()], source);
+    let word_text = occurrence_span(nodes, fact).slice(source);
     if !word_text.starts_with("\\\"") || !word_text.ends_with("\\\"") {
         return false;
     }
 
     let inner = &word_text[2..word_text.len() - 2];
     match (
-        fact.scalar_expansion_spans(),
-        fact.array_expansion_spans(),
-        fact.command_substitution_spans(),
+        derived.scalar_expansion_spans.as_ref(),
+        derived.array_expansion_spans.as_ref(),
+        derived.command_substitution_spans.as_ref(),
     ) {
         ([scalar], [], []) => inner == scalar.slice(source),
         ([], [array], []) => inner == array.slice(source),
@@ -1174,13 +1408,14 @@ fn word_fact_is_backtick_escaped_double_quoted_dynamic(fact: &WordFact<'_>, sour
 
 fn build_unquoted_command_argument_use_offsets(
     semantic: &SemanticModel,
-    words: &[WordFact<'_>],
+    nodes: &[WordNode<'_>],
+    occurrences: &[WordOccurrence],
 ) -> FxHashMap<Name, Vec<usize>> {
-    let unquoted_command_argument_word_spans = words
+    let unquoted_command_argument_word_spans = occurrences
         .iter()
-        .filter(|fact| fact.expansion_context() == Some(ExpansionContext::CommandArgument))
-        .filter(|fact| fact.classification().quote == WordQuote::Unquoted)
-        .map(WordFact::span)
+        .filter(|fact| fact.context == WordFactContext::Expansion(ExpansionContext::CommandArgument))
+        .filter(|fact| occurrence_analysis(nodes, fact).quote == WordQuote::Unquoted)
+        .map(|fact| occurrence_span(nodes, fact))
         .collect::<Vec<_>>();
     if unquoted_command_argument_word_spans.is_empty() {
         return FxHashMap::default();
@@ -1255,9 +1490,11 @@ pub(crate) fn benchmark_collect_word_facts(
     source: &str,
     semantic: &SemanticModel,
 ) -> usize {
-    let mut words = Vec::new();
+    let mut word_nodes = Vec::new();
+    let mut word_node_ids_by_span = FxHashMap::default();
+    let mut word_occurrences = Vec::new();
     let mut compound_assignment_value_word_spans = FxHashSet::default();
-    let mut array_assignment_split_word_indices = Vec::new();
+    let mut array_assignment_split_word_ids = Vec::new();
     let mut case_pattern_expansion_spans = Vec::new();
     let mut pattern_literal_spans = Vec::new();
     let mut arithmetic_summary = ArithmeticFactSummary::default();
@@ -1289,9 +1526,11 @@ pub(crate) fn benchmark_collect_word_facts(
             &normalized,
             command_zsh_options,
             WordFactOutputs {
-                facts: &mut words,
+                word_nodes: &mut word_nodes,
+                word_node_ids_by_span: &mut word_node_ids_by_span,
+                word_occurrences: &mut word_occurrences,
                 compound_assignment_value_word_spans: &mut compound_assignment_value_word_spans,
-                array_assignment_split_word_indices: &mut array_assignment_split_word_indices,
+                array_assignment_split_word_ids: &mut array_assignment_split_word_ids,
                 case_pattern_expansion_spans: &mut case_pattern_expansion_spans,
                 pattern_literal_spans: &mut pattern_literal_spans,
                 arithmetic: &mut arithmetic_summary,
@@ -1302,9 +1541,10 @@ pub(crate) fn benchmark_collect_word_facts(
 
     let surface_fragments = surface_fragments.finish();
 
-    words.len()
+    word_occurrences.len()
+        + word_nodes.len()
         + compound_assignment_value_word_spans.len()
-        + array_assignment_split_word_indices.len()
+        + array_assignment_split_word_ids.len()
         + case_pattern_expansion_spans.len()
         + pattern_literal_spans.len()
         + arithmetic_summary.array_index_arithmetic_spans.len()
@@ -1326,36 +1566,19 @@ struct WordFactCommandContext {
 }
 
 struct WordFactOutputs<'out, 'a> {
-    facts: &'out mut Vec<WordFact<'a>>,
+    word_nodes: &'out mut Vec<WordNode<'a>>,
+    word_node_ids_by_span: &'out mut FxHashMap<FactSpan, WordNodeId>,
+    word_occurrences: &'out mut Vec<WordOccurrence>,
     compound_assignment_value_word_spans: &'out mut FxHashSet<FactSpan>,
-    array_assignment_split_word_indices: &'out mut Vec<usize>,
+    array_assignment_split_word_ids: &'out mut Vec<WordOccurrenceId>,
     case_pattern_expansion_spans: &'out mut Vec<Span>,
     pattern_literal_spans: &'out mut Vec<Span>,
     arithmetic: &'out mut ArithmeticFactSummary,
     surface: &'out mut SurfaceFragmentSink<'a>,
 }
 
-struct DerivedWordFactData {
-    static_text: Option<Box<str>>,
-    starts_with_extglob: bool,
-    has_literal_affixes: bool,
-    contains_shell_quoting_literals: bool,
-    active_expansion_spans: Box<[Span]>,
-    scalar_expansion_spans: Box<[Span]>,
-    unquoted_scalar_expansion_spans: Box<[Span]>,
-    array_expansion_spans: Box<[Span]>,
-    all_elements_array_expansion_spans: Box<[Span]>,
-    direct_all_elements_array_expansion_spans: Box<[Span]>,
-    unquoted_all_elements_array_expansion_spans: Box<[Span]>,
-    unquoted_array_expansion_spans: Box<[Span]>,
-    command_substitution_spans: Box<[Span]>,
-    unquoted_command_substitution_spans: Box<[Span]>,
-    double_quoted_expansion_spans: Box<[Span]>,
-    unquoted_literal_between_double_quoted_segments_spans: Box<[Span]>,
-}
-
-fn derive_word_fact_data(word: &Word, source: &str) -> DerivedWordFactData {
-    DerivedWordFactData {
+fn derive_word_fact_data(word: &Word, source: &str) -> WordNodeDerived {
+    WordNodeDerived {
         static_text: static_word_text(word, source)
             .map(|text| text.into_owned().into_boxed_str()),
         starts_with_extglob: span::word_starts_with_extglob(word, source),
@@ -1397,8 +1620,10 @@ struct WordFactCollector<'out, 'a, 'norm> {
     nested_word_command: bool,
     surface_command_name: Option<&'norm str>,
     command_zsh_options: Option<ZshOptionState>,
-    facts: &'out mut Vec<WordFact<'a>>,
-    array_assignment_split_word_indices: &'out mut Vec<usize>,
+    word_nodes: &'out mut Vec<WordNode<'a>>,
+    word_node_ids_by_span: &'out mut FxHashMap<FactSpan, WordNodeId>,
+    word_occurrences: &'out mut Vec<WordOccurrence>,
+    array_assignment_split_word_ids: &'out mut Vec<WordOccurrenceId>,
     seen: FxHashSet<(FactSpan, WordFactContext, WordFactHostKind)>,
     compound_assignment_value_word_spans: &'out mut FxHashSet<FactSpan>,
     case_pattern_expansion_spans: &'out mut Vec<Span>,
@@ -1424,8 +1649,10 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             nested_word_command,
             surface_command_name: normalized.effective_or_literal_name(),
             command_zsh_options,
-            facts: outputs.facts,
-            array_assignment_split_word_indices: outputs.array_assignment_split_word_indices,
+            word_nodes: outputs.word_nodes,
+            word_node_ids_by_span: outputs.word_node_ids_by_span,
+            word_occurrences: outputs.word_occurrences,
+            array_assignment_split_word_ids: outputs.array_assignment_split_word_ids,
             seen: FxHashSet::default(),
             compound_assignment_value_word_spans: outputs.compound_assignment_value_word_spans,
             case_pattern_expansion_spans: outputs.case_pattern_expansion_spans,
@@ -1897,7 +2124,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                                 surface_context,
                             )
                             {
-                                self.array_assignment_split_word_indices.push(index);
+                                self.array_assignment_split_word_ids.push(index);
                             }
                         }
                         ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
@@ -2192,8 +2419,8 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         word: &'a Word,
         context: WordFactContext,
         host_kind: WordFactHostKind,
-    ) -> Option<usize> {
-        self.push_cow_word(word, context, host_kind, None).0
+    ) -> Option<WordOccurrenceId> {
+        self.push_word_occurrence(word, context, host_kind, None).0
     }
 
     fn push_word_with_surface(
@@ -2202,17 +2429,35 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         context: WordFactContext,
         host_kind: WordFactHostKind,
         surface_context: SurfaceScanContext<'_>,
-    ) -> (Option<usize>, bool) {
-        self.push_cow_word(word, context, host_kind, Some(surface_context))
+    ) -> (Option<WordOccurrenceId>, bool) {
+        self.push_word_occurrence(word, context, host_kind, Some(surface_context))
     }
 
-    fn push_cow_word(
+    fn intern_word_node(&mut self, word: &'a Word) -> WordNodeId {
+        let key = FactSpan::new(word.span);
+        if let Some(id) = self.word_node_ids_by_span.get(&key).copied() {
+            return id;
+        }
+
+        let id = WordNodeId::new(self.word_nodes.len());
+        let analysis = analyze_word(word, self.source, self.command_zsh_options.as_ref());
+        self.word_nodes.push(WordNode {
+            key,
+            word,
+            analysis,
+            derived: OnceCell::new(),
+        });
+        self.word_node_ids_by_span.insert(key, id);
+        id
+    }
+
+    fn push_word_occurrence(
         &mut self,
         word: &'a Word,
         context: WordFactContext,
         host_kind: WordFactHostKind,
         surface_context: Option<SurfaceScanContext<'_>>,
-    ) -> (Option<usize>, bool) {
+    ) -> (Option<WordOccurrenceId>, bool) {
         let opened_double_quote = surface_context
             .map(|surface_context| self.surface.collect_word(word, surface_context))
             .unwrap_or(false);
@@ -2224,11 +2469,11 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         self.collect_word_parameter_patterns(&word.parts, host_kind);
         self.collect_arithmetic_summary(word, context, host_kind);
 
-        let zsh_options = self.command_zsh_options.clone();
-        let analysis = analyze_word(word, self.source, zsh_options.as_ref());
+        let node_id = self.intern_word_node(word);
+        let analysis = self.word_nodes[node_id.index()].analysis;
         let runtime_literal = match context {
             WordFactContext::Expansion(context) => {
-                analyze_literal_runtime(word, self.source, context, zsh_options.as_ref())
+                analyze_literal_runtime(word, self.source, context, self.command_zsh_options.as_ref())
             }
             WordFactContext::CaseSubject | WordFactContext::ArithmeticCommand => {
                 RuntimeLiteralAnalysis::default()
@@ -2250,41 +2495,18 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             | WordFactContext::CaseSubject
             | WordFactContext::ArithmeticCommand => None,
         };
-        let derived = derive_word_fact_data(word, self.source);
-        let index = self.facts.len();
-        self.facts.push(WordFact {
-            key,
-            static_text: derived.static_text,
-            starts_with_extglob: derived.starts_with_extglob,
-            has_literal_affixes: derived.has_literal_affixes,
-            contains_shell_quoting_literals: derived.contains_shell_quoting_literals,
-            active_expansion_spans: derived.active_expansion_spans,
-            scalar_expansion_spans: derived.scalar_expansion_spans,
-            unquoted_scalar_expansion_spans: derived.unquoted_scalar_expansion_spans,
-            array_assignment_split_scalar_expansion_spans: Box::default(),
-            array_expansion_spans: derived.array_expansion_spans,
-            all_elements_array_expansion_spans: derived.all_elements_array_expansion_spans,
-            direct_all_elements_array_expansion_spans:
-                derived.direct_all_elements_array_expansion_spans,
-            unquoted_all_elements_array_expansion_spans:
-                derived.unquoted_all_elements_array_expansion_spans,
-            unquoted_array_expansion_spans: derived.unquoted_array_expansion_spans,
-            command_substitution_spans: derived.command_substitution_spans,
-            unquoted_command_substitution_spans: derived.unquoted_command_substitution_spans,
-            double_quoted_expansion_spans: derived.double_quoted_expansion_spans,
-            unquoted_literal_between_double_quoted_segments_spans:
-                derived.unquoted_literal_between_double_quoted_segments_spans,
-            word: Cow::Borrowed(word),
+        let id = WordOccurrenceId::new(self.word_occurrences.len());
+        self.word_occurrences.push(WordOccurrence {
+            node_id,
             command_id: self.command_id,
             nested_word_command: self.nested_word_command,
             context,
             host_kind,
-            zsh_options,
-            analysis,
             runtime_literal,
             operand_class,
+            array_assignment_split_scalar_expansion_spans: OnceCell::new(),
         });
-        (Some(index), opened_double_quote)
+        (Some(id), opened_double_quote)
     }
 
     fn collect_arithmetic_summary(

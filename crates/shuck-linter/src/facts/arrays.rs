@@ -1,53 +1,3 @@
-fn populate_array_assignment_split_scalar_expansion_spans(
-    words: &mut [WordFact<'_>],
-    array_assignment_split_word_indices: &[usize],
-    commands: &[CommandFact<'_>],
-    source: &str,
-) {
-    if array_assignment_split_word_indices.is_empty() {
-        return;
-    }
-
-    let command_spans = commands.iter().map(CommandFact::span).collect::<Vec<_>>();
-    let mut word_indices_by_command = vec![Vec::new(); commands.len()];
-    for (index, fact) in words.iter().enumerate() {
-        word_indices_by_command[fact.command_id().index()].push(index);
-    }
-
-    let updated_spans = array_assignment_split_word_indices
-        .iter()
-        .copied()
-        .map(|index| {
-            let fact = &words[index];
-            let mut split_sensitive_spans = fact.unquoted_scalar_expansion_spans().to_vec();
-            let use_replacement_spans =
-                collect_array_assignment_use_replacement_expansion_spans(fact.word());
-
-            if !word_fact_is_double_quoted_command_substitution_only(fact, source) {
-                for nested_command_index in command_spans.iter().enumerate().filter_map(
-                    |(nested_command_index, command_span)| {
-                        contains_span_strictly(fact.span(), *command_span)
-                            .then_some(nested_command_index)
-                    },
-                ) {
-                    for word_index in &word_indices_by_command[nested_command_index] {
-                        split_sensitive_spans
-                            .extend(words[*word_index].scalar_expansion_spans().iter().copied());
-                    }
-                }
-            }
-
-            split_sensitive_spans.retain(|span| !use_replacement_spans.contains(span));
-            sort_and_dedup_spans(&mut split_sensitive_spans);
-            (index, split_sensitive_spans.into_boxed_slice())
-        })
-        .collect::<Vec<_>>();
-
-    for (index, spans) in updated_spans {
-        words[index].array_assignment_split_scalar_expansion_spans = spans;
-    }
-}
-
 fn collect_array_assignment_use_replacement_expansion_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_use_replacement_expansion_spans(&word.parts, &mut spans);
@@ -317,5 +267,4 @@ fn compound_assignment_paren_span(assignment: &Assignment, source: &str) -> Opti
         .advanced_by(&text[..close + ')'.len_utf8()]);
     Some(Span::from_positions(start, end))
 }
-
 

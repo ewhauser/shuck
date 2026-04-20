@@ -2,8 +2,7 @@ use rustc_hash::FxHashSet;
 
 use crate::{
     Checker, ExpansionContext, Rule, SafeValueIndex, SafeValueQuery, ShellDialect, Violation,
-    WordFact, word_unquoted_assign_default_spans, word_unquoted_star_parameter_spans,
-    word_use_replacement_spans,
+    WordOccurrenceRef,
 };
 
 pub struct UnquotedExpansion;
@@ -73,7 +72,7 @@ fn should_check_context(context: ExpansionContext, shell: ShellDialect) -> bool 
 fn report_word_expansions(
     spans: &mut Vec<shuck_ast::Span>,
     safe_values: &mut SafeValueIndex<'_>,
-    fact: &WordFact<'_>,
+    fact: WordOccurrenceRef<'_, '_>,
     context: ExpansionContext,
     in_colon_command: bool,
 ) {
@@ -82,27 +81,26 @@ fn report_word_expansions(
     }
 
     let scalar_spans = fact.scalar_expansion_spans();
-    let array_spans = fact.unquoted_array_expansion_spans();
     let assign_default_spans = if in_colon_command && context == ExpansionContext::CommandArgument {
-        word_unquoted_assign_default_spans(fact.word())
+        fact.unquoted_assign_default_spans()
     } else {
         Default::default()
     };
-    let use_replacement_spans = word_use_replacement_spans(fact.word());
-    let star_spans = word_unquoted_star_parameter_spans(fact.word(), array_spans);
+    let use_replacement_spans = fact.use_replacement_spans();
+    let star_spans = fact.unquoted_star_parameter_spans();
     if scalar_spans.is_empty() && star_spans.is_empty() {
         return;
     }
     if context == ExpansionContext::CommandName
         && !fact.has_literal_affixes()
-        && fact.word().parts.len() == 1
+        && fact.parts_len() == 1
     {
         return;
     }
     let query = SafeValueQuery::from_context(context)
         .expect("checked expansion context should map to a safe-value query");
 
-    for (part, part_span) in fact.word().parts_with_spans() {
+    for (part, part_span) in fact.parts_with_spans() {
         let report_unquoted_star = star_spans.contains(&part_span);
         if !scalar_spans.contains(&part_span) && !report_unquoted_star {
             continue;
