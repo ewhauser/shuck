@@ -428,6 +428,10 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             self.push_output_str(self.line_ending());
             self.line_start = true;
             self.write_verbatim(&heredoc.body);
+            if heredoc_body_needs_separator(&heredoc.body) {
+                self.push_output_str(self.line_ending());
+                self.line_start = true;
+            }
             self.write_verbatim(&heredoc.delimiter);
         }
     }
@@ -1937,6 +1941,10 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         }
         self.write_indent_units(levels);
     }
+}
+
+fn heredoc_body_needs_separator(body: &str) -> bool {
+    !body.is_empty() && !body.ends_with('\n') && !body.ends_with('\r')
 }
 
 fn raw_redirect_source_slice<'a>(redirect: &Redirect, source: &'a str) -> Option<&'a str> {
