@@ -12103,6 +12103,14 @@ impl<'a> WordFactCollector<'a> {
                     };
                     saw_open_double_quote |= self.surface.collect_word(word, surface_word_context);
                     if !trap_command {
+                        if surface_command_name.as_deref() == Some("eval") {
+                            collect_wrapped_arithmetic_spans_in_word(
+                                word,
+                                self.source,
+                                &mut self.arithmetic.dollar_in_arithmetic_spans,
+                                &mut self.arithmetic.arithmetic_command_substitution_spans,
+                            );
+                        }
                         self.push_word(
                             word,
                             WordFactContext::Expansion(ExpansionContext::CommandArgument),
@@ -12238,8 +12246,13 @@ impl<'a> WordFactCollector<'a> {
                                 word,
                                 SurfaceScanContext::new(None, self.nested_word_command),
                             );
+                            collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
+                                &word.parts,
+                                self.source,
+                                &mut self.arithmetic.dollar_in_arithmetic_spans,
+                            );
                             if indexed_semantics {
-                                self.collect_array_index_arithmetic_spans(word);
+                                self.collect_indexed_subscript_arithmetic_spans(word);
                             }
                             self.push_owned_word(
                                 word.clone(),
@@ -12279,8 +12292,13 @@ impl<'a> WordFactCollector<'a> {
             self.source,
             &mut |word| {
                 self.surface.collect_word(word, surface_context);
+                collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
+                    &word.parts,
+                    self.source,
+                    &mut self.arithmetic.dollar_in_arithmetic_spans,
+                );
                 if indexed_semantics {
-                    self.collect_array_index_arithmetic_spans(word);
+                    self.collect_indexed_subscript_arithmetic_spans(word);
                 }
                 self.push_owned_word(
                     word.clone(),
@@ -12332,8 +12350,18 @@ impl<'a> WordFactCollector<'a> {
                         }
                         ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
                             self.surface.record_subscript(Some(key));
+                            let indexed_semantics =
+                                self.subscript_uses_index_arithmetic_semantics(None, Some(key));
                             query::visit_subscript_words(Some(key), self.source, &mut |word| {
                                 self.surface.collect_word(word, surface_context);
+                                collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
+                                    &word.parts,
+                                    self.source,
+                                    &mut self.arithmetic.dollar_in_arithmetic_spans,
+                                );
+                                if indexed_semantics {
+                                    self.collect_indexed_subscript_arithmetic_spans(word);
+                                }
                                 self.push_owned_word(
                                     word.clone(),
                                     context,
@@ -12773,6 +12801,15 @@ impl<'a> WordFactCollector<'a> {
         self.arithmetic
             .array_index_arithmetic_spans
             .extend(span::arithmetic_expansion_part_spans(word));
+    }
+
+    fn collect_indexed_subscript_arithmetic_spans(&mut self, word: &Word) {
+        self.collect_array_index_arithmetic_spans(word);
+        collect_dollar_prefixed_arithmetic_variable_spans(
+            word.span,
+            self.source,
+            &mut self.arithmetic.dollar_in_arithmetic_spans,
+        );
     }
 }
 
@@ -13813,13 +13850,35 @@ fn is_shell_variable_name(name: &str) -> bool {
     }
 }
 
-fn is_arithmetic_variable_reference_word(word: &Word) -> bool {
+fn is_scannable_simple_arithmetic_subscript_text(text: &str) -> bool {
+    let trimmed = text.trim();
+    !trimmed.is_empty()
+        && (is_shell_variable_name(trimmed)
+            || trimmed.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
+fn is_simple_arithmetic_reference_subscript(subscript: &Subscript, source: &str) -> bool {
+    subscript.selector().is_none()
+        && !subscript.syntax_text(source).contains('$')
+        && matches!(
+            subscript.arithmetic_ast.as_ref().map(|expr| &expr.kind),
+            Some(ArithmeticExpr::Variable(_) | ArithmeticExpr::Number(_))
+        )
+}
+
+fn is_arithmetic_variable_reference_word(word: &Word, source: &str) -> bool {
     matches!(word.parts.as_slice(), [part] if match &part.kind {
         WordPart::Variable(name) => is_shell_variable_name(name.as_str()),
         WordPart::Parameter(parameter) => matches!(
             parameter.bourne(),
             Some(BourneParameterExpansion::Access { reference })
-                if is_shell_variable_name(reference.name.as_str()) && reference.subscript.is_none()
+                if is_shell_variable_name(reference.name.as_str())
+                    && reference
+                        .subscript
+                        .as_ref()
+                        .is_none_or(|subscript| {
+                            is_simple_arithmetic_reference_subscript(subscript, source)
+                        })
         ),
         _ => false,
     })
@@ -13912,12 +13971,31 @@ fn collect_dollar_prefixed_arithmetic_variable_spans(
                 }
             }
 
-            if bytes.get(name_end) != Some(&b'}') {
-                index += 1;
-                continue;
-            }
+            match bytes.get(name_end).copied() {
+                Some(b'}') => name_end + 1,
+                Some(b'[') => {
+                    let subscript_start = name_end + 1;
+                    let Some(subscript_end_rel) = text[subscript_start..].find(']') else {
+                        index += 1;
+                        continue;
+                    };
+                    let subscript_end = subscript_start + subscript_end_rel;
+                    if bytes.get(subscript_end + 1) != Some(&b'}')
+                        || !is_scannable_simple_arithmetic_subscript_text(
+                            &text[subscript_start..subscript_end],
+                        )
+                    {
+                        index += 1;
+                        continue;
+                    }
 
-            name_end + 1
+                    subscript_end + 2
+                }
+                _ => {
+                    index += 1;
+                    continue;
+                }
+            }
         } else if next == b'_' || next.is_ascii_alphabetic() {
             let mut name_end = index + 2;
             while let Some(byte) = bytes.get(name_end).copied() {
@@ -14360,6 +14438,67 @@ fn parameter_needs_wrapped_arithmetic_fallback(
     }
 }
 
+fn collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
+    parts: &[WordPartNode],
+    source: &str,
+    dollar_spans: &mut Vec<Span>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
+                    parts,
+                    source,
+                    dollar_spans,
+                )
+            }
+            WordPart::ArithmeticExpansion {
+                expression_ast,
+                expression_word_ast,
+                ..
+            } => {
+                let mut ignored_command_substitution_spans = Vec::new();
+                if let Some(expression) = expression_ast {
+                    query::visit_arithmetic_words(expression, &mut |word| {
+                        collect_arithmetic_context_spans_in_word(
+                            word,
+                            source,
+                            true,
+                            dollar_spans,
+                            &mut ignored_command_substitution_spans,
+                        );
+                    });
+                } else {
+                    collect_arithmetic_expansion_spans_from_parts(
+                        &expression_word_ast.parts,
+                        source,
+                        true,
+                        dollar_spans,
+                        &mut ignored_command_substitution_spans,
+                    );
+                }
+            }
+            WordPart::Literal(_)
+            | WordPart::SingleQuoted { .. }
+            | WordPart::Variable(_)
+            | WordPart::Parameter(_)
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::Transformation { .. }
+            | WordPart::ZshQualifiedGlob(_) => {}
+        }
+    }
+}
+
 fn collect_arithmetic_context_spans_in_word(
     word: &Word,
     source: &str,
@@ -14367,7 +14506,7 @@ fn collect_arithmetic_context_spans_in_word(
     dollar_spans: &mut Vec<Span>,
     command_substitution_spans: &mut Vec<Span>,
 ) {
-    if collect_dollar_spans && is_arithmetic_variable_reference_word(word) {
+    if collect_dollar_spans && is_arithmetic_variable_reference_word(word, source) {
         dollar_spans.push(word.span);
     }
 
@@ -14814,6 +14953,11 @@ fn collect_arithmetic_spans_in_var_ref(
     command_substitution_spans: &mut Vec<Span>,
 ) {
     query::visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
+        collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
+            &word.parts,
+            source,
+            dollar_spans,
+        );
         collect_arithmetic_context_spans_in_word(
             word,
             source,
@@ -26738,6 +26882,133 @@ esac
     }
 
     #[test]
+    fn collects_dollar_spans_for_simple_subscripted_parameter_accesses_in_arithmetic() {
+        let source = "\
+#!/bin/bash
+declare -a arr
+declare -A assoc
+(( ${arr[0]} + ${arr[i]} + ${assoc[key]} ))
+";
+
+        with_facts(source, None, |_, facts| {
+            let spans = facts
+                .dollar_in_arithmetic_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>();
+
+            assert_eq!(spans, vec!["${arr[0]}", "${arr[i]}", "${assoc[key]}"]);
+        });
+    }
+
+    #[test]
+    fn collects_dollar_spans_for_wrapped_substring_offset_with_simple_subscripted_access() {
+        let source = "\
+#!/bin/bash
+arr=(0 1)
+rest=abcdef
+printf '%s\\n' \"${rest:$((${arr[0]}))}\"
+";
+
+        with_facts(source, None, |_, facts| {
+            let spans = facts
+                .dollar_in_arithmetic_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>();
+
+            assert_eq!(spans, vec!["${arr[0]}"]);
+        });
+    }
+
+    #[test]
+    fn collects_dollar_spans_for_indexed_assignment_subscripts() {
+        let source = "\
+#!/bin/bash
+declare -a arr
+i=1
+lang=en
+arr[$i]=x
+arr[$i+1]=y
+arr[$i/repo_dir]=z
+arr[${lang},27]=q
+";
+
+        with_facts(source, None, |_, facts| {
+            let spans = facts
+                .dollar_in_arithmetic_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>();
+
+            assert_eq!(spans, vec!["$i", "$i", "$i", "${lang}"]);
+        });
+    }
+
+    #[test]
+    fn ignores_associative_assignment_subscripts_for_dollar_in_arithmetic() {
+        let source = "\
+#!/bin/bash
+declare -A assoc
+key=name
+lang=en
+assoc[$key]=x
+assoc[${lang},27]=y
+assoc[$key/sfx]=z
+";
+
+        with_facts(source, None, |_, facts| {
+            let spans = facts
+                .dollar_in_arithmetic_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>();
+
+            assert!(spans.is_empty(), "unexpected spans: {spans:?}");
+        });
+    }
+
+    #[test]
+    fn collects_dollar_spans_for_nested_arithmetic_in_array_access_subscripts() {
+        let source = "\
+#!/bin/bash
+declare -a tools
+choice=2
+printf '%s\\n' \"${tools[$(($choice-1))]}\"
+";
+
+        with_facts(source, None, |_, facts| {
+            let spans = facts
+                .dollar_in_arithmetic_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>();
+
+            assert_eq!(spans, vec!["$choice"]);
+        });
+    }
+
+    #[test]
+    fn collects_dollar_spans_for_nested_arithmetic_in_associative_assignment_subscripts() {
+        let source = "\
+#!/bin/bash
+declare -A assoc
+choice=2
+assoc[$(($choice-1))]=x
+";
+
+        with_facts(source, None, |_, facts| {
+            let spans = facts
+                .dollar_in_arithmetic_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>();
+
+            assert_eq!(spans, vec!["$choice"]);
+        });
+    }
+
+    #[test]
     fn collects_command_substitution_spans_for_wrapped_substring_offset_arithmetic() {
         let source =
             "#!/bin/bash\nrest=abcdef\nprintf '%s\\n' \"${rest:$((${#rest}-$(printf 1)))}\"\n";
@@ -26756,6 +27027,28 @@ esac
     #[test]
     fn ignores_quoted_dollar_words_in_arithmetic_command_contexts() {
         let source = "#!/bin/bash\n(( \"$x\" + 1 ))\nfor (( i=\"$y\"; i < 3; i++ )); do :; done\n";
+
+        with_facts(source, None, |_, facts| {
+            let spans = facts
+                .dollar_in_arithmetic_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>();
+
+            assert!(spans.is_empty(), "unexpected spans: {spans:?}");
+        });
+    }
+
+    #[test]
+    fn ignores_dynamic_and_compound_subscript_parameter_accesses_in_arithmetic() {
+        let source = "\
+#!/bin/bash
+declare -a arr
+declare -A assoc
+i=0
+key=name
+(( ${arr[$i]} + ${arr[i+1]} + ${arr[-1]} + ${assoc[$key]} ))
+";
 
         with_facts(source, None, |_, facts| {
             let spans = facts

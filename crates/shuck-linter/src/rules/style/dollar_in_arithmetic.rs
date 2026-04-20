@@ -123,8 +123,129 @@ mod tests {
     }
 
     #[test]
-    fn ignores_array_selector_parameter_accesses_in_arithmetic_expressions() {
-        let source = "#!/bin/bash\nver=(1 2)\necho \"$(( ${ver[0]} + 1 ))\"\n";
+    fn reports_simple_subscripted_parameter_accesses_in_arithmetic_expressions() {
+        let source = "\
+#!/bin/bash
+declare -a ver
+declare -A assoc
+echo \"$(( ${ver[0]} + ${ver[i]} + ${assoc[key]} + 1 ))\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${ver[0]}", "${ver[i]}", "${assoc[key]}"]
+        );
+    }
+
+    #[test]
+    fn reports_dollar_prefixed_indexed_assignment_subscripts() {
+        let source = "\
+#!/bin/bash
+declare -a arr
+i=1
+lang=en
+arr[$i]=x
+arr[$i+1]=y
+arr[$i/repo_dir]=z
+arr[${lang},27]=q
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$i", "$i", "$i", "${lang}"]
+        );
+    }
+
+    #[test]
+    fn ignores_associative_assignment_subscripts_for_dollar_in_arithmetic() {
+        let source = "\
+#!/bin/bash
+declare -A assoc
+key=name
+lang=en
+assoc[$key]=x
+assoc[${lang},27]=y
+assoc[$key/sfx]=z
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn reports_nested_arithmetic_in_array_access_subscripts() {
+        let source = "\
+#!/bin/bash
+declare -a tools
+choice=2
+printf '%s\\n' \"${tools[$(($choice-1))]}\"\n\
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$choice"]
+        );
+    }
+
+    #[test]
+    fn reports_nested_arithmetic_in_associative_assignment_subscripts() {
+        let source = "\
+#!/bin/bash
+declare -A assoc
+choice=2
+assoc[$(($choice-1))]=x
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$choice"]
+        );
+    }
+
+    #[test]
+    fn reports_dollar_prefixed_variables_in_eval_strings() {
+        let source = "\
+#!/bin/bash
+i=0
+eval \"rssi=\\\"\\\\$rssi${i}\\\"; i=$(( $i + 1 ))\"\n\
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$i"]
+        );
+    }
+
+    #[test]
+    fn ignores_dynamic_and_compound_subscript_parameter_accesses_in_arithmetic_expressions() {
+        let source = "\
+#!/bin/bash
+declare -a ver
+declare -A assoc
+i=0
+key=name
+echo \"$(( ${ver[$i]} + ${ver[i+1]} + ${ver[-1]} + ${assoc[$key]} + 1 ))\"
+";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
