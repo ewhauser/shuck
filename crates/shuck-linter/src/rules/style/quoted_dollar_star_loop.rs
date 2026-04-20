@@ -111,7 +111,10 @@ done
 arr=(a b)
 cfg_one=1
 cfg_two=2
-for item in \"$@\" \"${arr[@]}\" \"${arr[@]:1}\" \"${arr[@]:-fallback}\" \"${!arr[@]}\" \"${!cfg@}\" \"x$@y\" \"x${arr[@]}y\" ${arr[*]}; do
+for item in \"${!name@Q}\"; do
+  printf '%s\\n' \"$item\"
+done
+for item in \"$@\" \"${arr[@]}\" \"${arr[@]:1}\" \"${arr[@]:-fallback}\" \"${!arr[@]}\" \"${!cfg@}\" \"${!name@Q}\" \"x$@y\" \"x${arr[@]}y\" ${arr[*]}; do
   printf '%s\\n' \"$item\"
 done
 select item in \"$*\"; do
