@@ -2040,9 +2040,15 @@ fn reviewed_large_corpus_harness_warning_reason(
     path: &Path,
     details: &[String],
 ) -> Option<&'static str> {
-    if details
+    let shellcheck_parse_aborted = details
         .iter()
-        .any(|detail| detail.contains("shellcheck parse aborted"))
+        .any(|detail| detail.contains("shellcheck parse aborted"));
+    let shuck_parse_errored = details
+        .iter()
+        .any(|detail| detail.contains("shuck parse error:"));
+
+    if shellcheck_parse_aborted
+        && !shuck_parse_errored
         && path_has_reviewed_shellcheck_parse_abort(path)
     {
         return Some(
@@ -3735,6 +3741,23 @@ mod tests {
                 .message
                 .contains("reviewed fixture exception")
         );
+    }
+
+    #[test]
+    fn reviewed_shellcheck_parse_abort_fixture_with_shuck_parse_error_stays_blocking() {
+        let details = vec![
+            "shuck parse error: parse error at line 42, column 7: expected 'fi'".to_owned(),
+            "shellcheck parse aborted".to_owned(),
+        ];
+        let path = Path::new("pyenv__pyenv__plugins__python-build__bin__python-build");
+        let mut evaluation = FixtureEvaluation::default();
+
+        assert!(!record_reviewed_large_corpus_harness_warning(
+            &mut evaluation,
+            path,
+            &details
+        ));
+        assert!(evaluation.harness_failure.is_none());
     }
 
     #[test]
