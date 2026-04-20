@@ -2233,12 +2233,13 @@ printf '%s\\n' \"${items[@]#$prefix/}\" \"${items[i]%$suffix}\"
 }
 
 #[test]
-fn parameter_pattern_special_target_fragments_only_mark_host_expansions() {
+fn parameter_pattern_special_target_fragments_only_mark_direct_pattern_operands() {
     let source = "\
 #!/bin/bash
 scalar=${name#${items[0]}}
 array_trim=\"${items[@]#$prefix/}\"
 script_name=${0##*/}
+nested=${items[i]%${name%$suffix}}
 ";
 
     with_facts(source, None, |_, facts| {
@@ -2248,7 +2249,7 @@ script_name=${0##*/}
                 .iter()
                 .map(|fragment| fragment.span().slice(source))
                 .collect::<Vec<_>>(),
-            vec!["${items[@]#$prefix/}", "${0##*/}"]
+            vec!["$prefix", "${name%$suffix}"]
         );
     });
 }

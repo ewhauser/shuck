@@ -400,18 +400,18 @@ impl<'a> SurfaceFragmentSink<'a> {
             .push(IndexedArrayReferenceFragmentFact { span, plain });
     }
 
-    fn record_parameter_pattern_special_target(&mut self, span: Span) {
+    fn record_parameter_pattern_special_target(&mut self, operand_span: Span) {
         if self
             .facts
             .parameter_pattern_special_targets
             .iter()
-            .any(|fragment| fragment.span() == span)
+            .any(|fragment| fragment.span() == operand_span)
         {
             return;
         }
         self.facts
             .parameter_pattern_special_targets
-            .push(ParameterPatternSpecialTargetFragmentFact { span });
+            .push(ParameterPatternSpecialTargetFragmentFact { span: operand_span });
     }
 
     fn record_substring_expansion(&mut self, span: Span) {
@@ -688,7 +688,9 @@ impl<'a> SurfaceFragmentSink<'a> {
                         self.record_array_reference(part.span, false);
                     }
                     if parameter_pattern_target_is_special(reference, operator) {
-                        self.record_parameter_pattern_special_target(part.span);
+                        for pattern_span in parameter_operator_special_target_word_spans(operator) {
+                            self.record_parameter_pattern_special_target(pattern_span);
+                        }
                     }
                     if matches!(
                         operator,
@@ -1050,7 +1052,9 @@ impl<'a> SurfaceFragmentSink<'a> {
                     ..
                 } => {
                     if parameter_pattern_target_is_special(reference, operator) {
-                        self.record_parameter_pattern_special_target(span);
+                        for pattern_span in parameter_operator_special_target_word_spans(operator) {
+                            self.record_parameter_pattern_special_target(pattern_span);
+                        }
                     }
                     self.collect_parameter_operator_patterns(
                         operator,
@@ -1575,6 +1579,48 @@ fn parameter_operator_has_pattern(operator: &ParameterOp) -> bool {
             | ParameterOp::ReplaceFirst { .. }
             | ParameterOp::ReplaceAll { .. }
     )
+}
+
+fn parameter_operator_special_target_word_spans(operator: &ParameterOp) -> Vec<Span> {
+    match operator {
+        ParameterOp::RemovePrefixShort { pattern }
+        | ParameterOp::RemovePrefixLong { pattern }
+        | ParameterOp::RemoveSuffixShort { pattern }
+        | ParameterOp::RemoveSuffixLong { pattern }
+        | ParameterOp::ReplaceFirst { pattern, .. }
+        | ParameterOp::ReplaceAll { pattern, .. } => pattern_special_target_word_spans(pattern),
+        ParameterOp::UseDefault
+        | ParameterOp::AssignDefault
+        | ParameterOp::UseReplacement
+        | ParameterOp::Error
+        | ParameterOp::UpperFirst
+        | ParameterOp::UpperAll
+        | ParameterOp::LowerFirst
+        | ParameterOp::LowerAll => Vec::new(),
+    }
+}
+
+fn pattern_special_target_word_spans(pattern: &Pattern) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_pattern_special_target_word_spans(pattern, &mut spans);
+    spans
+}
+
+fn collect_pattern_special_target_word_spans(pattern: &Pattern, spans: &mut Vec<Span>) {
+    for (part, span) in pattern.parts_with_spans() {
+        match part {
+            PatternPart::Group { patterns, .. } => {
+                for pattern in patterns {
+                    collect_pattern_special_target_word_spans(pattern, spans);
+                }
+            }
+            PatternPart::Word(_) => spans.push(span),
+            PatternPart::Literal(_)
+            | PatternPart::AnyString
+            | PatternPart::AnyChar
+            | PatternPart::CharClass(_) => {}
+        }
+    }
 }
 
 fn parameter_pattern_target_is_special(reference: &VarRef, operator: &ParameterOp) -> bool {

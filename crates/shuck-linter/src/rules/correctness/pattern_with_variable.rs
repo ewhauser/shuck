@@ -21,7 +21,7 @@ pub fn pattern_with_variable(checker: &mut Checker) {
         .iter()
         .map(|fragment| fragment.span())
         .collect::<Vec<_>>();
-    let special_target_spans = checker
+    let special_target_operand_spans = checker
         .facts()
         .parameter_pattern_special_target_fragments()
         .iter()
@@ -33,7 +33,7 @@ pub fn pattern_with_variable(checker: &mut Checker) {
         .expansion_word_facts(ExpansionContext::ParameterPattern)
         .flat_map(|fact| {
             if span_is_within_any(fact.span(), &replacement_expansion_spans)
-                || span_is_within_any(fact.span(), &special_target_spans)
+                || special_target_operand_spans.contains(&fact.span())
             {
                 return Vec::new();
             }
@@ -120,6 +120,24 @@ one_trimmed=${items[i]%$item_suffix}
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$trimmed_suffix"]
+        );
+    }
+
+    #[test]
+    fn reports_nested_patterns_inside_special_targets() {
+        let source = "\
+#!/bin/bash
+nested=${items[i]%${name%$suffix}}
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::PatternWithVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$suffix"]
         );
     }
 }
