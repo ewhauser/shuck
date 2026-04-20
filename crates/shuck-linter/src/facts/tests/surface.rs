@@ -1200,6 +1200,61 @@ main
 }
 
 #[test]
+fn reports_shadowing_local_subscripts_even_when_callers_have_assoc_bindings() {
+    let source = "\
+#!/bin/bash
+helper() {
+  local map
+  map[$key]=1
+}
+main() {
+  local key=name
+  declare -A map
+  helper
+}
+main
+";
+
+    with_facts(source, None, |_, facts| {
+        let spans = facts
+            .dollar_in_arithmetic_spans()
+            .iter()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(spans, vec!["$key"]);
+    });
+}
+
+#[test]
+fn ignores_repeated_dynamic_scope_associative_assignment_subscripts_for_dollar_in_arithmetic() {
+    let source = "\
+#!/bin/bash
+helper() {
+  map[${key}]=1
+  map[${other}]=2
+}
+main() {
+  local key=alpha
+  local other=beta
+  declare -A map
+  helper
+}
+main
+";
+
+    with_facts(source, None, |_, facts| {
+        let spans = facts
+            .dollar_in_arithmetic_spans()
+            .iter()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert!(spans.is_empty(), "unexpected spans: {spans:?}");
+    });
+}
+
+#[test]
 fn collects_dollar_spans_for_nested_arithmetic_in_array_access_subscripts() {
     let source = "\
 #!/bin/bash
