@@ -1,4 +1,28 @@
 reviewed_divergences:
   - side: shuck-only
-    rule_wide: true
+    path_contains: "RetroPie__RetroPie-Setup__"
+    reason: "S068 intentionally flags literal numeric trap signal IDs, while the pinned ShellCheck oracle currently emits no matching diagnostics for this warning family."
+  - side: shuck-only
+    path_contains: "SlackBuildsOrg__slackbuilds__"
+    reason: "S068 intentionally flags literal numeric trap signal IDs, while the pinned ShellCheck oracle currently emits no matching diagnostics for this warning family."
+  - side: shuck-only
+    path_contains: "alexanderepstein__Bash-Snippets__"
+    reason: "S068 intentionally flags literal numeric trap signal IDs, while the pinned ShellCheck oracle currently emits no matching diagnostics for this warning family."
+  - side: shuck-only
+    path_contains: "bitnami__containers__"
+    reason: "S068 intentionally flags literal numeric trap signal IDs, while the pinned ShellCheck oracle currently emits no matching diagnostics for this warning family."
+  - side: shuck-only
+    path_contains: "kward__shunit2__"
+    reason: "S068 intentionally flags literal numeric trap signal IDs, while the pinned ShellCheck oracle currently emits no matching diagnostics for this warning family."
+  - side: shuck-only
+    path_contains: "moovweb__gvm__"
+    reason: "S068 intentionally flags literal numeric trap signal IDs, while the pinned ShellCheck oracle currently emits no matching diagnostics for this warning family."
+  - side: shuck-only
+    path_contains: "openvpn__easy-rsa__"
+    reason: "S068 intentionally flags literal numeric trap signal IDs, while the pinned ShellCheck oracle currently emits no matching diagnostics for this warning family."
+  - side: shuck-only
+    path_contains: "super-linter__super-linter__"
+    reason: "S068 intentionally flags literal numeric trap signal IDs, while the pinned ShellCheck oracle currently emits no matching diagnostics for this warning family."
+  - side: shuck-only
+    path_contains: "tj__git-extras__"
     reason: "S068 intentionally flags literal numeric trap signal IDs, while the pinned ShellCheck oracle currently emits no matching diagnostics for this warning family."
