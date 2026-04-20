@@ -1322,6 +1322,14 @@ impl<'a> WordFact<'a> {
         self.static_text.as_deref()
     }
 
+    pub fn is_plain_scalar_reference(&self) -> bool {
+        word_is_plain_scalar_reference(self.word())
+    }
+
+    pub fn is_direct_numeric_expansion(&self) -> bool {
+        word_is_direct_numeric_expansion(self.word())
+    }
+
     pub fn starts_with_extglob(&self) -> bool {
         self.starts_with_extglob
     }
@@ -5810,6 +5818,79 @@ fn parameter_is_plain_access_to_name(parameter: &ParameterExpansion, name: &Name
     }
 }
 
+fn word_is_plain_scalar_reference(word: &Word) -> bool {
+    let [part] = word.parts.as_slice() else {
+        return false;
+    };
+    word_part_is_plain_scalar_reference(&part.kind)
+}
+
+fn word_part_is_plain_scalar_reference(part: &WordPart) -> bool {
+    match part {
+        WordPart::Variable(name) => !matches!(name.as_str(), "@" | "*"),
+        WordPart::DoubleQuoted { parts, .. } => {
+            let [part] = parts.as_slice() else {
+                return false;
+            };
+            word_part_is_plain_scalar_reference(&part.kind)
+        }
+        WordPart::Parameter(parameter) => parameter_is_plain_scalar_reference(parameter),
+        _ => false,
+    }
+}
+
+fn parameter_is_plain_scalar_reference(parameter: &ParameterExpansion) -> bool {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
+            if reference.subscript.is_none() && !matches!(reference.name.as_str(), "@" | "*") =>
+        {
+            true
+        }
+        ParameterExpansionSyntax::Zsh(syntax)
+            if syntax.length_prefix.is_none()
+                && syntax.operation.is_none()
+                && syntax.modifiers.is_empty()
+                && matches!(
+                    &syntax.target,
+                    ZshExpansionTarget::Reference(reference)
+                        if reference.subscript.is_none()
+                            && !matches!(reference.name.as_str(), "@" | "*")
+                ) =>
+        {
+            true
+        }
+        _ => false,
+    }
+}
+
+fn word_is_direct_numeric_expansion(word: &Word) -> bool {
+    let [part] = word.parts.as_slice() else {
+        return false;
+    };
+    word_part_is_direct_numeric_expansion(&part.kind)
+}
+
+fn word_part_is_direct_numeric_expansion(part: &WordPart) -> bool {
+    match part {
+        WordPart::DoubleQuoted { parts, .. } => {
+            let [part] = parts.as_slice() else {
+                return false;
+            };
+            word_part_is_direct_numeric_expansion(&part.kind)
+        }
+        WordPart::Length(_) | WordPart::ArrayLength(_) => true,
+        WordPart::Parameter(parameter) => parameter_is_direct_numeric_expansion(parameter),
+        _ => false,
+    }
+}
+
+fn parameter_is_direct_numeric_expansion(parameter: &ParameterExpansion) -> bool {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Length { .. }) => true,
+        ParameterExpansionSyntax::Zsh(syntax) => syntax.length_prefix.is_some(),
+        _ => false,
+    }
+}
 fn visit_subscript_reference_spans_outside_nested_commands(
     subscript: Option<&Subscript>,
     name: &Name,

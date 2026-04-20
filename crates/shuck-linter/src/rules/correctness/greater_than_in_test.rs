@@ -177,17 +177,21 @@ fn operand_is_numeric_literal(
     };
 
     static_word_text(word, source).is_some_and(|text| looks_like_decimal_integer(&text))
-        || word_is_numeric_binding_reference(checker, word.span, source)
+        || checker
+            .facts()
+            .any_word_fact(word.span)
+            .is_some_and(|word_fact| {
+                word_fact.is_direct_numeric_expansion()
+                    || word_is_numeric_binding_reference(checker, word_fact)
+            })
 }
 
-fn word_is_numeric_binding_reference(checker: &Checker<'_>, span: Span, source: &str) -> bool {
-    let Some(word_fact) = checker.facts().any_word_fact(span) else {
-        return false;
-    };
-    if !word_fact_is_pure_scalar_reference(word_fact, span, source) {
+fn word_is_numeric_binding_reference(checker: &Checker<'_>, word_fact: &WordFact<'_>) -> bool {
+    if !word_fact.is_plain_scalar_reference() {
         return false;
     }
 
+    let span = word_fact.span();
     let mut references = checker.semantic().references().iter().filter(|reference| {
         reference.span.start.offset >= span.start.offset
             && reference.span.end.offset <= span.end.offset
@@ -206,23 +210,6 @@ fn word_is_numeric_binding_reference(checker: &Checker<'_>, span: Span, source: 
         && reaching
             .iter()
             .all(|binding_id| binding_is_numeric_literal(checker, *binding_id))
-}
-
-fn word_fact_is_pure_scalar_reference(word_fact: &WordFact<'_>, span: Span, source: &str) -> bool {
-    if word_fact.static_text().is_some()
-        || word_fact.scalar_expansion_spans().len() != 1
-        || !word_fact.array_expansion_spans().is_empty()
-        || !word_fact.command_substitution_spans().is_empty()
-    {
-        return false;
-    }
-
-    if !word_fact.has_literal_affixes() {
-        return true;
-    }
-
-    let expansion_span = word_fact.scalar_expansion_spans()[0];
-    span.slice(source) == format!("\"{}\"", expansion_span.slice(source))
 }
 
 fn binding_is_numeric_literal(checker: &Checker<'_>, binding_id: BindingId) -> bool {
@@ -326,5 +313,30 @@ right=beta
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::GreaterThanInTest));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn handles_plain_references_and_length_expansions_without_operator_inference() {
+        let source = "\
+#!/bin/bash
+name=alpha
+label=alpha
+num=7
+[[ ${#name} > \"$label\" ]]
+[[ \"${#name}\" < \"$label\" ]]
+[[ ${num:-fallback} > \"$label\" ]]
+[[ \"${num%7}\" < \"$label\" ]]
+[[ ${num} > \"$label\" ]]
+[[ \"${num}\" < \"$label\" ]]
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::GreaterThanInTest));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![">", "<", ">", "<"]
+        );
     }
 }
