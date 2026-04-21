@@ -24,7 +24,7 @@ pub fn unused_assignment(checker: &mut Checker) {
     let semantic = checker.semantic();
     let unused_bindings = checker.semantic_analysis().unused_assignments();
     let unused_binding_ids = unused_bindings.iter().copied().collect::<HashSet<_>>();
-    let mut families_with_used_reportable_bindings = HashSet::new();
+    let mut families_with_used_bindings = HashSet::new();
     let mut unused_bindings_by_family = HashMap::<BindingFamilyKey, Vec<_>>::new();
     let mut last_unused_binding_by_family = HashMap::new();
 
@@ -33,12 +33,12 @@ pub fn unused_assignment(checker: &mut Checker) {
             continue;
         }
 
-        if !is_reportable_unused_assignment(binding.kind, binding.attributes) {
+        if !participates_in_unused_assignment_family(binding.kind, binding.attributes) {
             continue;
         }
 
         if !unused_binding_ids.contains(&binding.id) {
-            families_with_used_reportable_bindings.insert(binding_family_key(semantic, binding));
+            families_with_used_bindings.insert(binding_family_key(semantic, binding));
         }
     }
 
@@ -77,7 +77,7 @@ pub fn unused_assignment(checker: &mut Checker) {
 
     let mut reportable_bindings = Vec::new();
     for (family, binding_ids) in unused_bindings_by_family {
-        if families_with_used_reportable_bindings.contains(&family) {
+        if families_with_used_bindings.contains(&family) {
             reportable_bindings.extend(binding_ids);
             continue;
         }
@@ -132,6 +132,17 @@ fn is_reportable_unused_assignment(kind: BindingKind, attributes: BindingAttribu
         }
         BindingKind::FunctionDefinition | BindingKind::Imported | BindingKind::Nameref => false,
     }
+}
+
+fn participates_in_unused_assignment_family(
+    kind: BindingKind,
+    attributes: BindingAttributes,
+) -> bool {
+    is_reportable_unused_assignment(kind, attributes)
+        || matches!(
+            kind,
+            BindingKind::AppendAssignment | BindingKind::ParameterDefaultAssignment
+        )
 }
 
 fn binding_follows_in_source(
@@ -264,5 +275,15 @@ mod tests {
         assert_eq!(diagnostics.len(), 2);
         assert_eq!(diagnostics[0].span.start.line, 2);
         assert_eq!(diagnostics[1].span.start.line, 3);
+    }
+
+    #[test]
+    fn used_non_reportable_bindings_keep_dead_branch_arms_separate() {
+        let source = "#!/bin/bash\nif a; then\n  foo=1\nelif b; then\n  foo+=x\n  echo \"$foo\"\nelse\n  foo=3\nfi\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[1].span.start.line, 8);
     }
 }
