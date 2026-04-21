@@ -1,12 +1,16 @@
 use crate::context::FileContextTag;
-use crate::{Checker, Rule, Violation};
-use shuck_semantic::{BindingKind, OverwrittenFunction as SemanticOverwrittenFunction};
+use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
+use shuck_semantic::{
+    BindingKind, BindingOrigin, OverwrittenFunction as SemanticOverwrittenFunction,
+};
 
 pub struct OverwrittenFunction {
     pub name: String,
 }
 
 impl Violation for OverwrittenFunction {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::OverwrittenFunction
     }
@@ -17,23 +21,38 @@ impl Violation for OverwrittenFunction {
             self.name
         )
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("delete the earlier overwritten function definition".to_owned())
+    }
 }
 
 pub fn overwritten_function(checker: &mut Checker) {
-    let overwritten = checker
-        .semantic_analysis()
-        .overwritten_functions()
-        .iter()
-        .filter(|overwritten| !overwritten.first_called)
-        .filter(|overwritten| !should_suppress_overwrite(checker, overwritten))
-        .map(|overwritten| {
-            let span = checker.semantic().binding(overwritten.first).span;
-            (overwritten.name.to_string(), span)
-        })
-        .collect::<Vec<_>>();
+    let overwritten = checker.semantic_analysis().overwritten_functions().to_vec();
 
-    for (name, span) in overwritten {
-        checker.report(OverwrittenFunction { name }, span);
+    for overwritten in overwritten {
+        if overwritten.first_called {
+            continue;
+        }
+        if should_suppress_overwrite(checker, &overwritten) {
+            continue;
+        }
+
+        let binding = checker.semantic().binding(overwritten.first);
+        let definition_span = match &binding.origin {
+            BindingOrigin::FunctionDefinition { definition_span } => *definition_span,
+            _ => binding.span,
+        };
+
+        checker.report_diagnostic_dedup(
+            Diagnostic::new(
+                OverwrittenFunction {
+                    name: overwritten.name.to_string(),
+                },
+                definition_span,
+            )
+            .with_fix(Fix::unsafe_edit(Edit::deletion(definition_span))),
+        );
     }
 }
 
@@ -147,8 +166,8 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use crate::test::test_snippet_at_path;
-    use crate::{LinterSettings, Rule};
+    use crate::test::{test_path_with_fix, test_snippet_at_path, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, assert_diagnostics_diff};
 
     #[test]
     fn shellspec_nested_helper_factories_are_suppressed() {
@@ -224,6 +243,48 @@ myfunc
     }
 
     #[test]
+    fn attaches_unsafe_fix_metadata_for_reported_overwrites() {
+        let source = "\
+myfunc() { return 1; }
+myfunc() { return 0; }
+myfunc
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/project/main.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].fix.as_ref().map(|fix| fix.applicability()),
+            Some(Applicability::Unsafe)
+        );
+        assert_eq!(
+            diagnostics[0].fix_title.as_deref(),
+            Some("delete the earlier overwritten function definition")
+        );
+    }
+
+    #[test]
+    fn applies_unsafe_fix_to_overwritten_functions() {
+        let source = "\
+myfunc() { return 1; }
+myfunc() { return 0; }
+myfunc
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::OverwrittenFunction),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(result.fixed_source, "myfunc() { return 0; }\nmyfunc\n");
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
     fn plain_unset_does_not_suppress_function_overwrites() {
         let source = "\
 curl() { printf '%s\\n' first; }
@@ -256,6 +317,18 @@ myfunc
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn snapshots_unsafe_fix_output_for_fixture() -> anyhow::Result<()> {
+        let result = test_path_with_fix(
+            Path::new("correctness").join("C063.sh").as_path(),
+            &LinterSettings::for_rule(Rule::OverwrittenFunction),
+            Applicability::Unsafe,
+        )?;
+
+        assert_diagnostics_diff!("C063_fix_C063.sh", result);
+        Ok(())
     }
 
     #[test]
