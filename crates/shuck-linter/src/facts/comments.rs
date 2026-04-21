@@ -3,6 +3,7 @@ struct ShebangHeaderFacts {
     indented_shebang_span: Option<Span>,
     indented_shebang_indent_span: Option<Span>,
     space_after_hash_bang_span: Option<Span>,
+    space_after_hash_bang_whitespace_span: Option<Span>,
     shebang_not_on_first_line_span: Option<Span>,
     missing_shebang_line_span: Option<Span>,
     duplicate_shebang_flag_span: Option<Span>,
@@ -19,6 +20,7 @@ fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
     let mut indented_shebang_span = None;
     let mut indented_shebang_indent_span = None;
     let mut space_after_hash_bang_span = None;
+    let mut space_after_hash_bang_whitespace_span = None;
     let mut shebang_not_on_first_line_span = None;
 
     for (line_index, (offset, raw_line)) in
@@ -29,7 +31,7 @@ fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
         let shebang_candidate = source_line_has_shebang_candidate(line);
         let indented_candidate = source_line_has_leading_whitespace_before_shebang_candidate(line);
         let leading_whitespace_len = source_line_leading_whitespace_len(line);
-        let space_after_hash_offset = shebang_space_after_hash_offset_in_line(line);
+        let space_after_hash = shebang_space_after_hash_in_line(line);
         let line_number = line_index + 1;
 
         if indented_shebang_span.is_none() && indented_candidate {
@@ -39,12 +41,19 @@ fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
                 .map(|len| line_prefix_span(line_number, offset, &line[..len]));
         }
         if space_after_hash_bang_span.is_none()
-            && let Some(space_offset) = space_after_hash_offset
+            && let Some((space_offset, whitespace_len)) = space_after_hash
         {
             space_after_hash_bang_span = Some(point_span(
                 line_number,
                 space_offset + 1,
                 offset + space_offset,
+            ));
+            space_after_hash_bang_whitespace_span = Some(line_slice_span(
+                line_number,
+                offset,
+                line,
+                space_offset,
+                whitespace_len,
             ));
         }
         if line_index > 0 && shebang_candidate {
@@ -97,6 +106,7 @@ fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
         indented_shebang_span,
         indented_shebang_indent_span,
         space_after_hash_bang_span,
+        space_after_hash_bang_whitespace_span,
         shebang_not_on_first_line_span,
         missing_shebang_line_span,
         duplicate_shebang_flag_span,
@@ -112,7 +122,7 @@ fn source_line_is_header_like(line: &str) -> bool {
 
 fn source_line_has_shebang_candidate(line: &str) -> bool {
     let trimmed = line.trim_start_matches(char::is_whitespace);
-    trimmed.starts_with("#!") || shebang_space_after_hash_offset_in_line(trimmed).is_some()
+    trimmed.starts_with("#!") || shebang_space_after_hash_in_line(trimmed).is_some()
 }
 
 fn source_line_has_leading_whitespace_before_shebang_candidate(line: &str) -> bool {
@@ -125,7 +135,7 @@ fn source_line_leading_whitespace_len(line: &str) -> Option<usize> {
     (trimmed.len() != line.len()).then_some(line.len() - trimmed.len())
 }
 
-fn shebang_space_after_hash_offset_in_line(line: &str) -> Option<usize> {
+fn shebang_space_after_hash_in_line(line: &str) -> Option<(usize, usize)> {
     let trimmed = line.trim_start_matches(char::is_whitespace);
     let leading_whitespace_len = line.len().saturating_sub(trimmed.len());
     let rest = trimmed.strip_prefix('#')?;
@@ -133,7 +143,7 @@ fn shebang_space_after_hash_offset_in_line(line: &str) -> Option<usize> {
         .len()
         .saturating_sub(rest.trim_start_matches(char::is_whitespace).len());
     (whitespace_len > 0 && rest[whitespace_len..].starts_with('!'))
-        .then_some(leading_whitespace_len + 1)
+        .then_some((leading_whitespace_len + 1, whitespace_len))
 }
 
 fn point_span(line_number: usize, column: usize, offset: usize) -> Span {
@@ -151,6 +161,23 @@ fn line_prefix_span(line_number: usize, offset: usize, prefix: &str) -> Span {
         offset,
     };
     let end = start.advanced_by(prefix);
+    Span::from_positions(start, end)
+}
+
+fn line_slice_span(
+    line_number: usize,
+    line_offset: usize,
+    line: &str,
+    slice_start: usize,
+    slice_len: usize,
+) -> Span {
+    let line_start = Position {
+        line: line_number,
+        column: 1,
+        offset: line_offset,
+    };
+    let start = line_start.advanced_by(&line[..slice_start]);
+    let end = start.advanced_by(&line[slice_start..slice_start + slice_len]);
     Span::from_positions(start, end)
 }
 

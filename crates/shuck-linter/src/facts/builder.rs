@@ -576,6 +576,8 @@ impl<'a> LinterFactsBuilder<'a> {
             indented_shebang_span: shebang_header_facts.indented_shebang_span,
             indented_shebang_indent_span: shebang_header_facts.indented_shebang_indent_span,
             space_after_hash_bang_span: shebang_header_facts.space_after_hash_bang_span,
+            space_after_hash_bang_whitespace_span: shebang_header_facts
+                .space_after_hash_bang_whitespace_span,
             shebang_not_on_first_line_span: shebang_header_facts.shebang_not_on_first_line_span,
             missing_shebang_line_span: shebang_header_facts.missing_shebang_line_span,
             duplicate_shebang_flag_span: shebang_header_facts.duplicate_shebang_flag_span,

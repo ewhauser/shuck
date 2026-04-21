@@ -1,0 +1,36 @@
+---
+source: crates/shuck-linter/src/rules/correctness/space_after_hash_bang.rs
+assertion_line: 146
+---
+Diagnostics:
+C074 remove the space so the shebang starts with `#!`
+ --> <source>:1:2
+  |
+1 | # !/bin/sh
+  |
+
+
+Applied fixes: 1
+
+Diff:
+--- before
++++ after
+@@ -1,4 +1,4 @@
+-# !/bin/sh
++#!/bin/sh
+ :
+ 
+ # should not trigger: a real shebang
+
+Fixed source:
+#!/bin/sh
+:
+
+# should not trigger: a real shebang
+#!/bin/sh
+
+# should not trigger: only the first line is header metadata
+# !/bin/sh
+
+Remaining diagnostics:
+<none>

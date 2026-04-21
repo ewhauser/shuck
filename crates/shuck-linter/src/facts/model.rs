@@ -49,6 +49,7 @@ pub struct LinterFacts<'a> {
     indented_shebang_span: Option<Span>,
     indented_shebang_indent_span: Option<Span>,
     space_after_hash_bang_span: Option<Span>,
+    space_after_hash_bang_whitespace_span: Option<Span>,
     shebang_not_on_first_line_span: Option<Span>,
     missing_shebang_line_span: Option<Span>,
     duplicate_shebang_flag_span: Option<Span>,
@@ -501,6 +502,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn space_after_hash_bang_span(&self) -> Option<Span> {
         self.space_after_hash_bang_span
+    }
+
+    pub fn space_after_hash_bang_whitespace_span(&self) -> Option<Span> {
+        self.space_after_hash_bang_whitespace_span
     }
 
     pub fn shebang_not_on_first_line_span(&self) -> Option<Span> {
