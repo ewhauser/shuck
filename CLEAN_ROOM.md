@@ -1,6 +1,4 @@
-# AGENTS.md
-
-## Clean-Room Policy
+# Clean-Room Policy
 
 This project is a clean-room reimplementation of ShellCheck. To preserve the integrity of the independent authoring process, the following rules **must** be followed at all times.
 

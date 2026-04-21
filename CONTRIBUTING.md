@@ -2,6 +2,8 @@
 
 Thanks for your interest in contributing to Shuck! This guide covers how to build, test, and add lint rules.
 
+By participating in this project you agree to abide by its [Code of Conduct](CODE_OF_CONDUCT.md). Please also read [CLEAN_ROOM.md](CLEAN_ROOM.md) before looking at ShellCheck internals — shuck is a clean-room reimplementation and contributions must preserve that.
+
 ## Prerequisites
 
 - **Rust** stable toolchain (pinned in `rust-toolchain.toml`; includes `rustfmt` and `clippy`)
