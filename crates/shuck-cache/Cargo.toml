@@ -9,6 +9,7 @@ repository.workspace = true
 description = "File-level caching with SHA-256 content keys for shuck"
 keywords = ["cache", "shell", "linter"]
 categories = ["caching", "development-tools"]
+readme = "README.md"
 
 [dependencies]
 bincode = { version = "2", features = ["serde"] }

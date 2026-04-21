@@ -9,6 +9,7 @@ repository.workspace = true
 description = "A fast shell script linter"
 keywords = ["shell", "bash", "linter", "static-analysis", "cli"]
 categories = ["command-line-utilities", "development-tools"]
+readme = "README.md"
 
 [dependencies]
 annotate-snippets = { workspace = true }

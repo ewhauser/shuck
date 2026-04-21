@@ -11,7 +11,7 @@ repository.workspace = true
 description = "AST types for parsed shell scripts"
 keywords = ["shell", "bash", "ast", "parser"]
 categories = ["parsing", "development-tools"]
-readme = "../../README.md"
+readme = "README.md"
 
 [dependencies]
 compact_str = { workspace = true }

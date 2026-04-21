@@ -1,4 +1,8 @@
 #![warn(missing_docs)]
+//! Shell formatting entrypoints built on top of `shuck-parser` and `shuck-format`.
+//!
+//! Most callers will use [`format_source`] for source text or [`format_file_ast`] when they
+//! already have a parsed shell AST.
 #![recursion_limit = "256"]
 
 //! Shell script formatter with configurable style options.

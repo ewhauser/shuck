@@ -1,3 +1,5 @@
+//! Command-line argument types and parsing helpers for the `shuck` CLI.
+
 use std::ffi::OsString;
 use std::path::PathBuf;
 
@@ -20,12 +22,18 @@ const STYLES: Styles = Styles::styled()
     .placeholder(AnsiColor::Cyan.on_default());
 const EXPERIMENTAL_ENV_VAR: &str = "SHUCK_EXPERIMENTAL";
 
+/// Shell dialect override accepted by `shuck format`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum FormatDialectArg {
+    /// Detect the dialect from the source and file path when possible.
     Auto,
+    /// Parse and format as Bash.
     Bash,
+    /// Parse and format as a POSIX-style shell.
     Posix,
+    /// Parse and format as mksh.
     Mksh,
+    /// Parse and format as zsh.
     Zsh,
 }
 
@@ -41,9 +49,12 @@ impl From<FormatDialectArg> for ShellDialect {
     }
 }
 
+/// Indentation styles accepted by `shuck format`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum FormatIndentStyleArg {
+    /// Indent with tab characters.
     Tab,
+    /// Indent with spaces.
     Space,
 }
 
@@ -56,20 +67,32 @@ impl From<FormatIndentStyleArg> for IndentStyle {
     }
 }
 
+/// Output formats supported by `shuck check`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum CheckOutputFormatArg {
+    /// Emit one diagnostic per line.
     Concise,
+    /// Emit rich human-readable diagnostics.
     Full,
+    /// Emit a JSON array of diagnostics.
     Json,
+    /// Emit one JSON object per line.
     JsonLines,
+    /// Emit JUnit XML.
     Junit,
+    /// Emit grouped human-readable diagnostics.
     Grouped,
+    /// Emit GitHub Actions workflow commands.
     Github,
+    /// Emit GitLab code quality output.
     Gitlab,
+    /// Emit Reviewdog RDJSON.
     Rdjson,
+    /// Emit SARIF.
     Sarif,
 }
 
+/// Color preference for terminal output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum TerminalColor {
     /// Display colors if the output goes to an interactive terminal.
@@ -162,23 +185,29 @@ enum ExperimentalCommand {
     Clean(CleanCommand),
 }
 
+/// Parsed top-level arguments for the `shuck` command.
 #[derive(Debug, Clone)]
 pub struct Args {
+    /// Override for the cache root directory.
     pub cache_dir: Option<PathBuf>,
     pub(crate) config: ConfigArguments,
     pub(crate) color: Option<TerminalColor>,
+    /// The subcommand selected by the user.
     pub command: Command,
 }
 
 impl Args {
+    /// Parse arguments from the current process and exit on invalid input.
     pub fn parse() -> Self {
         Self::try_parse().unwrap_or_else(|err| err.exit())
     }
 
+    /// Parse arguments from the current process without exiting on errors.
     pub fn try_parse() -> Result<Self, clap::Error> {
         Self::try_parse_from(std::env::args_os())
     }
 
+    /// Parse arguments from an arbitrary iterator of command-line values.
     pub fn try_parse_from<I, T>(itr: I) -> Result<Self, clap::Error>
     where
         I: IntoIterator<Item = T>,
@@ -247,6 +276,7 @@ impl Args {
     }
 }
 
+/// Supported `shuck` subcommands.
 #[derive(Debug, Clone, Subcommand)]
 pub enum Command {
     /// Parse shell files and report syntax failures.
@@ -266,6 +296,7 @@ fn experimental_enabled() -> bool {
     })
 }
 
+/// Arguments for `shuck check`.
 #[derive(Debug, Clone, ClapArgs)]
 pub struct CheckCommand {
     /// Apply safe fixes.
@@ -300,8 +331,10 @@ pub struct CheckCommand {
     pub watch: bool,
     /// Files or directories to check.
     pub paths: Vec<PathBuf>,
+    /// Rule selection and suppression settings.
     #[command(flatten)]
     pub rule_selection: RuleSelectionArgs,
+    /// File discovery and exclusion settings.
     #[command(flatten)]
     pub file_selection: FileSelectionArgs,
     /// Disable cache reads and writes.
@@ -316,18 +349,23 @@ pub struct CheckCommand {
 }
 
 impl CheckCommand {
+    /// Whether standard ignore files such as `.gitignore` should be respected.
     pub fn respect_gitignore(&self) -> bool {
         self.file_selection.respect_gitignore()
     }
 
+    /// Whether excludes should also apply to explicitly passed paths.
     pub fn force_exclude(&self) -> bool {
         self.file_selection.force_exclude()
     }
 }
 
+/// A `<pattern>:<rule-selector>` mapping from the CLI.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PatternRuleSelectorPair {
+    /// Glob-style file pattern.
     pub pattern: String,
+    /// Rule selector applied to matching files.
     pub selector: RuleSelector,
 }
 
@@ -361,6 +399,7 @@ fn parse_cli_rule_selector(value: &str) -> Result<RuleSelector, String> {
     value.parse::<RuleSelector>().map_err(|err| err.to_string())
 }
 
+/// Rule-selection flags shared by `shuck check`.
 #[derive(Debug, Clone, Default, ClapArgs)]
 pub struct RuleSelectionArgs {
     /// Comma-separated list of rule codes to enable (or ALL, to enable all rules).
@@ -495,6 +534,7 @@ fn preparse_color(args: &[OsString]) -> Option<ColorChoice> {
     color
 }
 
+/// File-discovery and exclusion flags shared by multiple commands.
 #[derive(Debug, Clone, Default, ClapArgs)]
 pub struct FileSelectionArgs {
     /// List of paths, used to omit files and/or directories from analysis.
@@ -536,15 +576,18 @@ pub struct FileSelectionArgs {
 }
 
 impl FileSelectionArgs {
+    /// Resolve the effective `respect_gitignore` setting after CLI overrides.
     pub fn respect_gitignore(&self) -> bool {
         resolve_bool_flag(self.respect_gitignore, self.no_respect_gitignore, true)
     }
 
+    /// Resolve the effective `force_exclude` setting after CLI overrides.
     pub fn force_exclude(&self) -> bool {
         resolve_bool_flag(self.force_exclude, self.no_force_exclude, false)
     }
 }
 
+/// Arguments for `shuck format`.
 #[derive(Debug, Clone, ClapArgs)]
 pub struct FormatCommand {
     /// List of files or directories to format, or `-` to read from stdin.
@@ -561,6 +604,7 @@ pub struct FormatCommand {
     /// The name of the file when reading the source from stdin.
     #[arg(long)]
     pub stdin_filename: Option<PathBuf>,
+    /// File discovery and exclusion settings.
     #[command(flatten)]
     pub file_selection: FileSelectionArgs,
     /// Override the auto-discovered shell dialect used for parsing and formatting.
@@ -643,34 +687,42 @@ impl FormatCommand {
         }
     }
 
+    /// Resolve the effective `binary-next-line` formatter option.
     pub fn binary_next_line(&self) -> Option<bool> {
         tri_state_bool(self.binary_next_line, self.no_binary_next_line)
     }
 
+    /// Resolve the effective `switch-case-indent` formatter option.
     pub fn switch_case_indent(&self) -> Option<bool> {
         tri_state_bool(self.switch_case_indent, self.no_switch_case_indent)
     }
 
+    /// Resolve the effective `space-redirects` formatter option.
     pub fn space_redirects(&self) -> Option<bool> {
         tri_state_bool(self.space_redirects, self.no_space_redirects)
     }
 
+    /// Resolve the effective `keep-padding` formatter option.
     pub fn keep_padding(&self) -> Option<bool> {
         tri_state_bool(self.keep_padding, self.no_keep_padding)
     }
 
+    /// Resolve the effective `function-next-line` formatter option.
     pub fn function_next_line(&self) -> Option<bool> {
         tri_state_bool(self.function_next_line, self.no_function_next_line)
     }
 
+    /// Resolve the effective `never-split` formatter option.
     pub fn never_split(&self) -> Option<bool> {
         tri_state_bool(self.never_split, self.no_never_split)
     }
 
+    /// Whether standard ignore files such as `.gitignore` should be respected.
     pub fn respect_gitignore(&self) -> bool {
         self.file_selection.respect_gitignore()
     }
 
+    /// Whether excludes should also apply to explicitly passed paths.
     pub fn force_exclude(&self) -> bool {
         self.file_selection.force_exclude()
     }
@@ -699,6 +751,7 @@ fn resolve_bool_flag(positive: bool, negative: bool, default: bool) -> bool {
     }
 }
 
+/// Arguments for `shuck clean`.
 #[derive(Debug, Clone, ClapArgs)]
 pub struct CleanCommand {
     /// Files or directories whose project caches should be removed.

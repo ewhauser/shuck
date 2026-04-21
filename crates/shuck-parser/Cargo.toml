@@ -11,7 +11,7 @@ repository.workspace = true
 description = "A fast, safe bash parser library"
 keywords = ["shell", "bash", "parser", "lexer"]
 categories = ["parsing", "development-tools"]
-readme = "../../README.md"
+readme = "README.md"
 
 [features]
 benchmarking = []

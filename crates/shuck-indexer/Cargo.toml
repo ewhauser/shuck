@@ -9,6 +9,7 @@ repository.workspace = true
 description = "Positional and structural indexes over parsed shell scripts"
 keywords = ["shell", "bash", "indexer", "static-analysis"]
 categories = ["parsing", "development-tools"]
+readme = "README.md"
 
 [dependencies]
 shuck-ast = { workspace = true }

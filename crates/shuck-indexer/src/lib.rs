@@ -1,8 +1,9 @@
 #![warn(missing_docs)]
 
 //! Positional and structural indexes over parsed shell scripts.
-
-#[allow(missing_docs)]
+//!
+//! The indexer complements `shuck-parser` by building efficient lookup tables for line numbers,
+//! comments, syntactic regions, and continuation lines.
 mod comment_index;
 #[allow(missing_docs)]
 mod line_index;
@@ -28,7 +29,6 @@ pub struct Indexer {
     continuation_lines: Vec<TextSize>,
 }
 
-#[allow(missing_docs)]
 impl Indexer {
     /// Build an index from parser output and the original source text.
     pub fn new(source: &str, output: &ParseResult) -> Self {
@@ -45,14 +45,17 @@ impl Indexer {
         }
     }
 
+    /// The line index for the source text.
     pub fn line_index(&self) -> &LineIndex {
         &self.line_index
     }
 
+    /// The comment index extracted from the parsed file.
     pub fn comment_index(&self) -> &CommentIndex {
         &self.comment_index
     }
 
+    /// The syntactic region index for quoted, heredoc, and related spans.
     pub fn region_index(&self) -> &RegionIndex {
         &self.region_index
     }

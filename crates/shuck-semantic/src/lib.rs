@@ -1,8 +1,9 @@
 #![warn(missing_docs)]
 
-//! Semantic analysis model for shell scripts.
-
-#[allow(missing_docs)]
+//! Semantic analysis for shell scripts parsed by Shuck.
+//!
+//! The semantic model tracks scopes, bindings, references, control flow, and selected dataflow
+//! facts so higher-level crates can reason about shell behavior without re-traversing the AST.
 mod binding;
 #[allow(missing_docs)]
 mod builder;
