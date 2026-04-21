@@ -2,10 +2,9 @@ use std::any::Any;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
-use std::io::Read;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -16,7 +15,11 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use wait_timeout::ChildExt;
+use shuck::shellcheck_runtime::{
+    ShellCheckDiagnostic, ShellCheckProbe, ShellCheckRun, decode_shellcheck_diagnostics,
+    parse_shellcheck_supported_shells, probe_shellcheck, run_shellcheck_json1 as run_shellcheck,
+    shellcheck_parse_aborted, shellcheck_supported_shells,
+};
 
 // ---------------------------------------------------------------------------
 // Environment variable names (matching the Go test)
@@ -380,37 +383,6 @@ where
             Err(format!("{label} worker thread exited before returning"))
         }
     }
-}
-
-// ---------------------------------------------------------------------------
-// ShellCheck types
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ShellCheckDiagnostic {
-    #[serde(default)]
-    file: String,
-    code: u32,
-    line: usize,
-    #[serde(rename = "endLine")]
-    end_line: usize,
-    column: usize,
-    #[serde(rename = "endColumn")]
-    end_column: usize,
-    level: String,
-    message: String,
-}
-
-#[derive(Debug, Clone)]
-struct ShellCheckRun {
-    diagnostics: Vec<ShellCheckDiagnostic>,
-    parse_aborted: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ShellCheckProbe {
-    command: String,
-    version_text: String,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
@@ -2767,222 +2739,6 @@ fn validate_selected_rules_for_large_corpus(
 }
 
 // ---------------------------------------------------------------------------
-// ShellCheck runner
-// ---------------------------------------------------------------------------
-
-fn probe_shellcheck() -> Option<ShellCheckProbe> {
-    let output = Command::new("shellcheck").arg("--version").output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-
-    let version_text = normalize_shellcheck_version_text(&output.stdout);
-    if version_text.is_empty() {
-        return None;
-    }
-
-    Some(ShellCheckProbe {
-        command: "shellcheck".into(),
-        version_text,
-    })
-}
-
-fn run_shellcheck(
-    path: &Path,
-    shell: &str,
-    shellcheck_path: &str,
-    timeout: Duration,
-) -> Result<ShellCheckRun, String> {
-    let mut child = Command::new(shellcheck_path)
-        .args(["--norc", "-s", shell, "-f", "json1"])
-        .arg(path)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("shellcheck exec: {e}"))?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "shellcheck exec: failed to capture stdout".to_owned())?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| "shellcheck exec: failed to capture stderr".to_owned())?;
-    let stdout_reader = thread::spawn(move || read_shellcheck_pipe(stdout, "stdout"));
-    let stderr_reader = thread::spawn(move || read_shellcheck_pipe(stderr, "stderr"));
-    let status = match child
-        .wait_timeout(timeout)
-        .map_err(|e| format!("shellcheck wait: {e}"))?
-    {
-        Some(status) => status,
-        None => {
-            let _ = child.kill();
-            let _ = child.wait();
-            let _ = stdout_reader.join();
-            let _ = stderr_reader.join();
-            return Err(format_timeout_message("shellcheck", timeout));
-        }
-    };
-    let stdout = join_shellcheck_pipe(stdout_reader, "stdout")?;
-    let stderr = join_shellcheck_pipe(stderr_reader, "stderr")?;
-
-    // shellcheck exits 1 when it finds issues, which is normal
-    if !status.success() {
-        let code = status.code().unwrap_or(-1);
-        if code != 1 {
-            let stderr = String::from_utf8_lossy(&stderr);
-            return Err(format!("shellcheck exit {code}: {stderr}"));
-        }
-    }
-
-    let stdout = String::from_utf8_lossy(&stdout);
-    if stdout.trim().is_empty() {
-        return Ok(ShellCheckRun {
-            diagnostics: Vec::new(),
-            parse_aborted: false,
-        });
-    }
-
-    let diagnostics = decode_shellcheck_diagnostics(stdout.as_bytes())?;
-    let parse_aborted = shellcheck_parse_aborted(&diagnostics);
-    Ok(ShellCheckRun {
-        diagnostics,
-        parse_aborted,
-    })
-}
-
-fn read_shellcheck_pipe<R: Read>(mut pipe: R, label: &str) -> Result<Vec<u8>, String> {
-    let mut data = Vec::new();
-    pipe.read_to_end(&mut data)
-        .map_err(|err| format!("shellcheck {label}: {err}"))?;
-    Ok(data)
-}
-
-fn join_shellcheck_pipe(
-    reader: thread::JoinHandle<Result<Vec<u8>, String>>,
-    label: &str,
-) -> Result<Vec<u8>, String> {
-    reader
-        .join()
-        .map_err(|_| format!("shellcheck {label} reader panicked"))?
-}
-
-fn decode_shellcheck_diagnostics(data: &[u8]) -> Result<Vec<ShellCheckDiagnostic>, String> {
-    let data = data.to_vec();
-    let trimmed = String::from_utf8_lossy(&data);
-    let trimmed = trimmed.trim();
-
-    if trimmed.is_empty() {
-        return Err("empty shellcheck json output".into());
-    }
-
-    if trimmed.starts_with('[') {
-        serde_json::from_str::<Vec<ShellCheckDiagnostic>>(trimmed)
-            .map_err(|e| format!("decode shellcheck json array: {e}"))
-    } else if trimmed.starts_with('{') {
-        #[derive(Deserialize)]
-        struct Wrapper {
-            comments: Vec<ShellCheckDiagnostic>,
-        }
-        let wrapper: Wrapper = serde_json::from_str(trimmed)
-            .map_err(|e| format!("decode shellcheck json object: {e}"))?;
-        Ok(wrapper.comments)
-    } else {
-        Err(format!(
-            "decode shellcheck json: unexpected leading byte {:?}",
-            trimmed.chars().next()
-        ))
-    }
-}
-
-fn shellcheck_parse_aborted(diags: &[ShellCheckDiagnostic]) -> bool {
-    for diag in diags {
-        if diag.level != "error" {
-            continue;
-        }
-        if matches!(diag.code, 1072 | 1073 | 1088) {
-            return true;
-        }
-        let lower = diag.message.to_lowercase();
-        if lower.contains("fix to allow more checks")
-            || lower.contains("fix any mentioned problems and try again")
-            || lower.contains("parsing stopped here")
-        {
-            return true;
-        }
-    }
-    false
-}
-
-fn shellcheck_supported_shells(shellcheck_path: &str) -> HashMap<&'static str, ()> {
-    let output = Command::new(shellcheck_path)
-        .arg("--help")
-        .output()
-        .expect("failed to run shellcheck --help");
-
-    let help = String::from_utf8_lossy(&output.stdout);
-    let mut supported = parse_shellcheck_supported_shells(&help);
-
-    // Always include common shells even if parsing fails
-    if supported.is_empty() {
-        for shell in &["sh", "bash", "dash", "ksh"] {
-            supported.insert(shell, ());
-        }
-    }
-
-    supported
-}
-
-fn parse_shellcheck_supported_shells(help: &str) -> HashMap<&'static str, ()> {
-    let mut supported = HashMap::new();
-    for line in help.lines() {
-        if !line.contains("--shell=") {
-            continue;
-        }
-        if let Some(start) = line.find('(')
-            && let Some(end) = line[start + 1..].find(')')
-        {
-            let shells = &line[start + 1..start + 1 + end];
-            for shell in shells.split(',') {
-                let shell = shell.trim();
-                match shell {
-                    "sh" => {
-                        supported.insert("sh", ());
-                    }
-                    "bash" => {
-                        supported.insert("bash", ());
-                    }
-                    "dash" => {
-                        supported.insert("dash", ());
-                    }
-                    "ksh" => {
-                        supported.insert("ksh", ());
-                    }
-                    "zsh" => {
-                        supported.insert("zsh", ());
-                    }
-                    "busybox" => {
-                        supported.insert("busybox", ());
-                    }
-                    _ => {}
-                }
-            }
-        }
-    }
-    supported
-}
-
-fn normalize_shellcheck_version_text(output: &[u8]) -> String {
-    let normalized = String::from_utf8_lossy(output).replace("\r\n", "\n");
-    normalized
-        .lines()
-        .map(str::trim_end)
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .to_owned()
-}
-
 fn legacy_shellcheck_invocation_hash(shellcheck_path: &str) -> String {
     let meta = fs::metadata(shellcheck_path).ok();
     let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
@@ -3822,6 +3578,7 @@ mod tests {
                 end_column: 1,
                 level: "error".into(),
                 message: "Couldn't parse this test expression.".into(),
+                fix: None,
             },
             ShellCheckDiagnostic {
                 file: String::new(),
@@ -3833,6 +3590,7 @@ mod tests {
                 level: "error".into(),
                 message: "Expected comparison operator. Fix any mentioned problems and try again."
                     .into(),
+                fix: None,
             },
         ];
         assert!(shellcheck_parse_aborted(&aborted));
@@ -3846,6 +3604,7 @@ mod tests {
             end_column: 1,
             level: "error".into(),
             message: "Parsing stopped here. Invalid use of parentheses?".into(),
+            fix: None,
         }];
         assert!(shellcheck_parse_aborted(&parsing_stopped));
 
@@ -3858,6 +3617,7 @@ mod tests {
             end_column: 1,
             level: "warning".into(),
             message: "In POSIX sh, here-strings are undefined.".into(),
+            fix: None,
         }];
         assert!(!shellcheck_parse_aborted(&non_aborted));
     }
@@ -4955,6 +4715,7 @@ mod tests {
             end_column: 1,
             level: "error".into(),
             message: format!("diagnostic {code}"),
+            fix: None,
         }
     }
 
@@ -5016,6 +4777,7 @@ mod tests {
                 end_column: 1,
                 level: "warning".into(),
                 message: label.into(),
+                fix: None,
             }],
             parse_aborted: false,
         })

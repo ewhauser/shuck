@@ -5,6 +5,10 @@ mod commands;
 mod config;
 mod discover;
 mod format_settings;
+#[doc(hidden)]
+pub mod shellcheck_compat;
+#[doc(hidden)]
+pub mod shellcheck_runtime;
 mod stdin;
 
 use std::path::{Path, PathBuf};

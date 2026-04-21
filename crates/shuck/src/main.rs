@@ -4,13 +4,19 @@ use std::process::ExitCode;
 use colored::Colorize;
 
 use shuck::args::Args;
+use shuck::shellcheck_compat;
 use shuck::{ExitStatus, run};
 
 fn main() -> ExitCode {
     #[cfg(windows)]
     assert!(colored::control::set_virtual_terminal(true).is_ok());
 
-    let args = Args::parse();
+    let argv = std::env::args_os().collect::<Vec<_>>();
+    if shellcheck_compat::should_activate(&argv) {
+        return shellcheck_compat::run(argv);
+    }
+
+    let args = Args::try_parse_from(argv).unwrap_or_else(|err| err.exit());
     match run(args) {
         Ok(status) => status.into(),
         Err(err) => report_error(&err),
