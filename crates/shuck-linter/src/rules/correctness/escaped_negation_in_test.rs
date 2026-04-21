@@ -1,12 +1,10 @@
-use shuck_ast::Span;
-
-use crate::{
-    Checker, Rule, SimpleTestFact, SimpleTestShape, SimpleTestSyntax, Violation, static_word_text,
-};
+use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 
 pub struct EscapedNegationInTest;
 
 impl Violation for EscapedNegationInTest {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::EscapedNegationInTest
     }
@@ -14,84 +12,39 @@ impl Violation for EscapedNegationInTest {
     fn message(&self) -> String {
         "write ! directly when negating a test".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("remove the backslash before the leading `!`".to_owned())
+    }
 }
 
 pub fn escaped_negation_in_test(checker: &mut Checker) {
-    let spans = checker
+    let source = checker.source();
+    let diagnostics = checker
         .facts()
         .commands()
         .iter()
         .filter_map(|fact| {
-            fact.simple_test()
-                .and_then(|simple_test| report_span(simple_test, checker.source()))
+            let simple_test = fact.simple_test()?;
+            let (diagnostic_span, fix_span) = simple_test.escaped_negation_spans(source)?;
+            Some(
+                Diagnostic::new(EscapedNegationInTest, diagnostic_span)
+                    .with_fix(Fix::safe_edit(Edit::deletion(fix_span))),
+            )
         })
         .collect::<Vec<_>>();
 
-    checker.report_all(spans, || EscapedNegationInTest);
-}
-
-fn report_span(fact: &SimpleTestFact<'_>, source: &str) -> Option<Span> {
-    let leading = fact.operands().first().copied()?;
-    if leading.span.slice(source) != "\\!" {
-        return None;
+    for diagnostic in diagnostics {
+        checker.report_diagnostic_dedup(diagnostic);
     }
-
-    escaped_negation_is_operator(fact, source).then(|| {
-        if fact.syntax() == SimpleTestSyntax::Bracket && fact.shape() == SimpleTestShape::Binary {
-            fact.operands()
-                .get(1)
-                .copied()
-                .map_or(leading.span, |word| word.span)
-        } else {
-            leading.span
-        }
-    })
-}
-
-fn escaped_negation_is_operator(fact: &SimpleTestFact<'_>, source: &str) -> bool {
-    match fact.shape() {
-        SimpleTestShape::Unary => true,
-        SimpleTestShape::Binary => fact
-            .operands()
-            .get(1)
-            .and_then(|word| static_word_text(word, source))
-            .as_deref()
-            .is_some_and(|operator| !is_simple_test_binary_operator(operator)),
-        SimpleTestShape::Other => fact
-            .operands()
-            .get(2)
-            .and_then(|word| static_word_text(word, source))
-            .as_deref()
-            .is_some_and(is_simple_test_binary_operator),
-        SimpleTestShape::Empty | SimpleTestShape::Truthy => false,
-    }
-}
-
-fn is_simple_test_binary_operator(operator: &str) -> bool {
-    matches!(
-        operator,
-        "=" | "=="
-            | "!="
-            | "-a"
-            | "-o"
-            | "<"
-            | ">"
-            | "-eq"
-            | "-ne"
-            | "-lt"
-            | "-le"
-            | "-gt"
-            | "-ge"
-            | "-ef"
-            | "-nt"
-            | "-ot"
-    )
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use std::path::Path;
+
+    use crate::test::{test_path_with_fix, test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, assert_diagnostics_diff};
 
     #[test]
     fn reports_escaped_negation_in_simple_tests() {
@@ -116,23 +69,80 @@ test \\! -n \"$value\"
     }
 
     #[test]
-    fn ignores_plain_negation_truthy_literals_and_non_leading_bangs() {
-        let source = "\
-#!/bin/bash
-[ ! -f \"$file\" ]
-test !
-[ \\! = \"$value\" ]
-[ \\! -a foo ]
-[ \\! -o foo ]
-[ \\! -eq 1 ]
-[ \"$value\" = \\! ]
-[[ \\! -f \"$file\" ]]
-";
+    fn attaches_safe_fix_metadata_for_escaped_negation() {
+        let source = "#!/bin/bash\n[ \\! -f \"$file\" ]\n";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::EscapedNegationInTest),
         );
 
-        assert!(diagnostics.is_empty());
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].fix.as_ref().map(|fix| fix.applicability()),
+            Some(Applicability::Safe)
+        );
+        assert_eq!(
+            diagnostics[0].fix_title.as_deref(),
+            Some("remove the backslash before the leading `!`")
+        );
+    }
+
+    #[test]
+    fn applies_safe_fix_to_escaped_negation_in_test() {
+        let source = "\
+#!/bin/bash
+[ \\! -f \"$file\" ]
+test \\! -n \"$value\"
+[ \\! \"$value\" = ok ]
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::EscapedNegationInTest),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 3);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/bash
+[ ! -f \"$file\" ]
+test ! -n \"$value\"
+[ ! \"$value\" = ok ]
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn leaves_literal_bang_cases_unchanged_when_fixing() {
+        let source = "\
+#!/bin/bash
+[ ! -f \"$file\" ]
+test !
+[ \"$value\" = \\! ]
+[[ \\! -f \"$file\" ]]
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::EscapedNegationInTest),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn snapshots_safe_fix_output_for_fixture() -> anyhow::Result<()> {
+        let result = test_path_with_fix(
+            Path::new("correctness").join("C082.sh").as_path(),
+            &LinterSettings::for_rule(Rule::EscapedNegationInTest),
+            Applicability::Safe,
+        )?;
+
+        assert_diagnostics_diff!("C082_fix_C082.sh", result);
+        Ok(())
     }
 }

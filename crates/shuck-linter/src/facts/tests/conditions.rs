@@ -381,6 +381,74 @@ test
 }
 
 #[test]
+fn simple_test_fact_tracks_escaped_negation_spans_for_fixes() {
+    let source = "\
+#!/bin/sh
+[ \\! -f foo ]
+test \\! -n foo
+[ \\! foo = bar ]
+[ \\! = right ]
+[ ! -f foo ]
+";
+
+    with_facts(source, None, |_, facts| {
+        let commands = facts
+            .structural_commands()
+            .map(|fact| (fact.span().slice(source).trim_end().to_owned(), fact))
+            .collect::<Vec<_>>();
+
+        let bracket_unary = commands
+            .iter()
+            .find(|(text, _)| text == "[ \\! -f foo ]")
+            .and_then(|(_, fact)| fact.simple_test())
+            .and_then(|simple_test| simple_test.escaped_negation_spans(source))
+            .expect("expected escaped negation spans for bracket unary test");
+        assert_eq!(
+            (
+                bracket_unary.0.slice(source).to_owned(),
+                bracket_unary.1.slice(source).to_owned()
+            ),
+            ("-f".to_owned(), "\\".to_owned())
+        );
+
+        let builtin_unary = commands
+            .iter()
+            .find(|(text, _)| text == "test \\! -n foo")
+            .and_then(|(_, fact)| fact.simple_test())
+            .and_then(|simple_test| simple_test.escaped_negation_spans(source))
+            .expect("expected escaped negation spans for test builtin");
+        assert_eq!(
+            (
+                builtin_unary.0.slice(source).to_owned(),
+                builtin_unary.1.slice(source).to_owned()
+            ),
+            ("\\!".to_owned(), "\\".to_owned())
+        );
+
+        let bracket_binary = commands
+            .iter()
+            .find(|(text, _)| text == "[ \\! foo = bar ]")
+            .and_then(|(_, fact)| fact.simple_test())
+            .and_then(|simple_test| simple_test.escaped_negation_spans(source))
+            .expect("expected escaped negation spans for bracket binary test");
+        assert_eq!(
+            (
+                bracket_binary.0.slice(source).to_owned(),
+                bracket_binary.1.slice(source).to_owned()
+            ),
+            ("\\!".to_owned(), "\\".to_owned())
+        );
+
+        let non_operator = commands
+            .iter()
+            .find(|(text, _)| text == "[ \\! = right ]")
+            .and_then(|(_, fact)| fact.simple_test())
+            .and_then(|simple_test| simple_test.escaped_negation_spans(source));
+        assert!(non_operator.is_none());
+    });
+}
+
+#[test]
 fn simple_test_fact_tracks_truthy_string_unary_and_string_binary_subexpressions() {
     let source = "\
 #!/bin/sh

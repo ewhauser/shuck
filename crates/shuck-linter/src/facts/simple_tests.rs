@@ -104,6 +104,29 @@ impl<'a> SimpleTestFact<'a> {
         }
     }
 
+    pub fn escaped_negation_spans(&self, source: &str) -> Option<(Span, Span)> {
+        let leading = self.operands.first().copied()?;
+        if leading.span.slice(source) != "\\!" {
+            return None;
+        }
+
+        escaped_negation_is_operator(self, source).then(|| {
+            let diagnostic_span =
+                if self.syntax == SimpleTestSyntax::Bracket && self.shape == SimpleTestShape::Binary
+                {
+                    self.operands
+                        .get(1)
+                        .copied()
+                        .map_or(leading.span, |word| word.span)
+                } else {
+                    leading.span
+                };
+            let fix_start = leading.span.start;
+            let fix_end = fix_start.advanced_by("\\");
+            (diagnostic_span, Span::from_positions(fix_start, fix_end))
+        })
+    }
+
     pub fn compound_operator_spans(&self, source: &str) -> Vec<Span> {
         let Some((end, spans)) = simple_test_parse_logical_expression(self, 0, source) else {
             return Vec::new();
@@ -184,6 +207,25 @@ impl<'a> SimpleTestFact<'a> {
         (self.shape == SimpleTestShape::Binary)
             .then(|| Some((self.operand_class(0)?, self.operand_class(2)?)))
             .flatten()
+    }
+}
+
+fn escaped_negation_is_operator(simple_test: &SimpleTestFact<'_>, source: &str) -> bool {
+    match simple_test.shape() {
+        SimpleTestShape::Unary => true,
+        SimpleTestShape::Binary => simple_test
+            .operands()
+            .get(1)
+            .and_then(|word| static_word_text(word, source))
+            .as_deref()
+            .is_some_and(|operator| !simple_test_is_binary_operator(operator)),
+        SimpleTestShape::Other => simple_test
+            .operands()
+            .get(2)
+            .and_then(|word| static_word_text(word, source))
+            .as_deref()
+            .is_some_and(simple_test_is_binary_operator),
+        SimpleTestShape::Empty | SimpleTestShape::Truthy => false,
     }
 }
 
