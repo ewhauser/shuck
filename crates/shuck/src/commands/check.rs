@@ -31,11 +31,22 @@ pub(crate) struct CheckReport {
     diagnostics: Vec<DisplayedDiagnostic>,
     cache_hits: usize,
     cache_misses: usize,
+    fixes_applied: usize,
 }
 
 impl CheckReport {
-    fn exit_status(&self) -> ExitStatus {
-        if self.diagnostics.is_empty() {
+    fn exit_status(&self, exit_zero: bool, exit_non_zero_on_fix: bool) -> ExitStatus {
+        if exit_non_zero_on_fix && self.fixes_applied > 0 {
+            return ExitStatus::Failure;
+        }
+        let has_fatal = self.diagnostics.iter().any(|d| match &d.kind {
+            DisplayedDiagnosticKind::ParseError => true,
+            DisplayedDiagnosticKind::Lint { severity, .. } => severity == "error",
+        });
+        if has_fatal {
+            return ExitStatus::Failure;
+        }
+        if self.diagnostics.is_empty() || exit_zero {
             ExitStatus::Success
         } else {
             ExitStatus::Failure
@@ -119,7 +130,7 @@ pub(crate) fn check(args: CheckCommand, cache_dir: Option<&Path>) -> Result<Exit
     let cache_root = resolve_cache_root(&cwd, cache_dir)?;
     let report = run_check_with_cwd(&args, &cwd, &cache_root)?;
     print_report(&report, args.output_format)?;
-    Ok(report.exit_status())
+    Ok(report.exit_status(args.exit_zero, args.exit_non_zero_on_fix))
 }
 
 fn print_report(
@@ -252,6 +263,8 @@ pub(crate) fn benchmark_check_paths(
             no_cache: true,
             output_format,
             paths: paths.to_vec(),
+            exit_zero: false,
+            exit_non_zero_on_fix: false,
         },
         cwd,
         &cwd.join("cache"),
@@ -446,6 +459,8 @@ mod tests {
             no_cache,
             output_format,
             paths: Vec::new(),
+            exit_zero: false,
+            exit_non_zero_on_fix: false,
         }
     }
 
@@ -465,10 +480,77 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(report.exit_status(), ExitStatus::Failure);
+        assert_eq!(report.exit_status(false, false), ExitStatus::Failure);
         assert_eq!(report.diagnostics.len(), 1);
         assert_eq!(report.cache_hits, 0);
         assert_eq!(report.cache_misses, 1);
+    }
+
+    #[test]
+    fn exit_zero_suppresses_only_non_fatal_diagnostics() {
+        let warning = DisplayedDiagnostic {
+            path: PathBuf::from("warn.sh"),
+            span: DisplaySpan::point(1, 1),
+            message: "lint".to_owned(),
+            kind: DisplayedDiagnosticKind::Lint {
+                code: "C001".to_owned(),
+                severity: "warning".to_owned(),
+            },
+            source: None,
+        };
+        let error_lint = DisplayedDiagnostic {
+            path: PathBuf::from("err.sh"),
+            span: DisplaySpan::point(1, 1),
+            message: "lint".to_owned(),
+            kind: DisplayedDiagnosticKind::Lint {
+                code: "C035".to_owned(),
+                severity: "error".to_owned(),
+            },
+            source: None,
+        };
+        let parse = DisplayedDiagnostic {
+            path: PathBuf::from("broken.sh"),
+            span: DisplaySpan::point(1, 1),
+            message: "parse".to_owned(),
+            kind: DisplayedDiagnosticKind::ParseError,
+            source: None,
+        };
+
+        let warning_only = CheckReport {
+            diagnostics: vec![warning.clone()],
+            ..CheckReport::default()
+        };
+        assert_eq!(warning_only.exit_status(false, false), ExitStatus::Failure);
+        assert_eq!(warning_only.exit_status(true, false), ExitStatus::Success);
+
+        let with_error_lint = CheckReport {
+            diagnostics: vec![warning.clone(), error_lint],
+            ..CheckReport::default()
+        };
+        assert_eq!(
+            with_error_lint.exit_status(true, false),
+            ExitStatus::Failure
+        );
+
+        let with_parse_error = CheckReport {
+            diagnostics: vec![warning, parse],
+            ..CheckReport::default()
+        };
+        assert_eq!(
+            with_parse_error.exit_status(true, false),
+            ExitStatus::Failure
+        );
+    }
+
+    #[test]
+    fn exit_non_zero_on_fix_fires_when_fixes_applied() {
+        let report = CheckReport {
+            fixes_applied: 1,
+            ..CheckReport::default()
+        };
+        assert_eq!(report.exit_status(false, false), ExitStatus::Success);
+        assert_eq!(report.exit_status(false, true), ExitStatus::Failure);
+        assert_eq!(report.exit_status(true, true), ExitStatus::Failure);
     }
 
     #[test]
@@ -705,6 +787,7 @@ mod tests {
             }],
             cache_hits: 0,
             cache_misses: 0,
+            fixes_applied: 0,
         };
 
         let mut output = Vec::new();
@@ -736,6 +819,7 @@ mod tests {
             }],
             cache_hits: 0,
             cache_misses: 0,
+            fixes_applied: 0,
         };
 
         let mut output = Vec::new();
