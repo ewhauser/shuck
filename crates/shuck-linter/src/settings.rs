@@ -207,7 +207,7 @@ impl CompiledPerFileIgnoreList {
         self.entries.iter().fold(RuleSet::EMPTY, |ignored, entry| {
             let matches = entry.basename_matcher.is_match(file_name)
                 || entry.relative_matcher.is_match(relative_path)
-                || entry.absolute_matcher.is_match(path);
+                || matches_absolute_path(&entry.absolute_matcher, path);
             let applies = if entry.negated { !matches } else { matches };
 
             if applies {
@@ -219,11 +219,30 @@ impl CompiledPerFileIgnoreList {
     }
 }
 
+fn matches_absolute_path(matcher: &GlobMatcher, path: &Path) -> bool {
+    matcher.is_match(path)
+        || normalized_absolute_match_path(path)
+            .as_deref()
+            .is_some_and(|normalized| matcher.is_match(normalized))
+}
+
+fn normalized_absolute_match_path(path: &Path) -> Option<PathBuf> {
+    let path = path.to_string_lossy();
+
+    if let Some(stripped) = path.strip_prefix(r"\\?\UNC\") {
+        return Some(PathBuf::from(format!(r"\\{stripped}")));
+    }
+
+    path.strip_prefix(r"\\?\").map(PathBuf::from)
+}
+
 #[cfg(test)]
 mod tests {
+    use std::path::{Path, PathBuf};
+
     use tempfile::tempdir;
 
-    use super::{CompiledPerFileIgnoreList, PerFileIgnore};
+    use super::{CompiledPerFileIgnoreList, PerFileIgnore, normalized_absolute_match_path};
     use crate::{Rule, RuleSet};
 
     #[test]
@@ -249,5 +268,21 @@ mod tests {
         let ignored_rules = per_file_ignores.ignored_rules(&script_path);
 
         assert!(ignored_rules.contains(Rule::UnusedAssignment));
+    }
+
+    #[test]
+    fn strips_windows_verbatim_disk_prefixes_for_absolute_matching() {
+        assert_eq!(
+            normalized_absolute_match_path(Path::new(r"\\?\C:\repo\nested\script.sh")),
+            Some(PathBuf::from(r"C:\repo\nested\script.sh"))
+        );
+    }
+
+    #[test]
+    fn strips_windows_verbatim_unc_prefixes_for_absolute_matching() {
+        assert_eq!(
+            normalized_absolute_match_path(Path::new(r"\\?\UNC\server\share\script.sh")),
+            Some(PathBuf::from(r"\\server\share\script.sh"))
+        );
     }
 }
