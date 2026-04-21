@@ -101,6 +101,16 @@ struct FlowState {
     in_subshell: bool,
     in_block: bool,
     exit_status_checked: bool,
+    conditionally_executed: bool,
+}
+
+impl FlowState {
+    fn conditional(self) -> Self {
+        Self {
+            conditionally_executed: true,
+            ..self
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -550,6 +560,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         for (index, stmt) in commands.into_iter().enumerate() {
             let mut nested = flow;
             nested.exit_status_checked = operators.get(index).is_some() || flow.exit_status_checked;
+            if index > 0 {
+                nested.conditionally_executed = true;
+            }
             recorded.push(self.visit_stmt(stmt, nested));
         }
 
@@ -582,7 +595,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         ..flow
                     },
                 );
-                let then_branch = self.visit_stmt_seq(&command.then_branch, flow);
+                let then_branch = self.visit_stmt_seq(&command.then_branch, flow.conditional());
                 let elif_branches = command
                     .elif_branches
                     .iter()
@@ -591,17 +604,17 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                             condition,
                             FlowState {
                                 exit_status_checked: true,
-                                ..flow
+                                ..flow.conditional()
                             },
                         ),
-                        body: self.visit_stmt_seq(body, flow),
+                        body: self.visit_stmt_seq(body, flow.conditional()),
                     })
                     .collect();
                 let elif_branches = self.recorded_program.push_elif_branches(elif_branches);
                 let else_branch = command
                     .else_branch
                     .as_ref()
-                    .map(|body| self.visit_stmt_seq(body, flow))
+                    .map(|body| self.visit_stmt_seq(body, flow.conditional()))
                     .unwrap_or_default();
 
                 self.record_command(
@@ -641,7 +654,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     &command.body,
                     FlowState {
                         loop_depth: flow.loop_depth + 1,
-                        ..flow
+                        ..flow.conditional()
                     },
                 );
                 self.record_command(
@@ -657,7 +670,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     &command.body,
                     FlowState {
                         loop_depth: flow.loop_depth + 1,
-                        ..flow
+                        ..flow.conditional()
                     },
                 );
                 self.record_command(
@@ -685,7 +698,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     &command.body,
                     FlowState {
                         loop_depth: flow.loop_depth + 1,
-                        ..flow
+                        ..flow.conditional()
                     },
                 );
                 self.record_command(
@@ -715,7 +728,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     &command.body,
                     FlowState {
                         loop_depth: flow.loop_depth + 1,
-                        ..flow
+                        ..flow.conditional()
                     },
                 );
                 self.record_command(
@@ -736,7 +749,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     &command.body,
                     FlowState {
                         loop_depth: flow.loop_depth + 1,
-                        ..flow
+                        ..flow.conditional()
                     },
                 );
                 self.record_command(
@@ -757,7 +770,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     &command.body,
                     FlowState {
                         loop_depth: flow.loop_depth + 1,
-                        ..flow
+                        ..flow.conditional()
                     },
                 );
                 self.record_command(
@@ -776,7 +789,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         let pattern_regions =
                             self.visit_patterns(&case.patterns, WordVisitKind::Conditional, flow);
                         let mut commands = Vec::with_capacity(case.body.len());
-                        self.visit_stmt_seq_into(&case.body, flow, &mut commands);
+                        self.visit_stmt_seq_into(&case.body, flow.conditional(), &mut commands);
                         if !pattern_regions.is_empty() {
                             if let Some(&first) = commands.first() {
                                 self.prepend_nested_regions(first, pattern_regions);
@@ -822,7 +835,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     &command.body,
                     FlowState {
                         loop_depth: flow.loop_depth + 1,
-                        ..flow
+                        ..flow.conditional()
                     },
                 );
                 self.record_command(
@@ -2319,7 +2332,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         &mut self,
         name: &Name,
         command: &shuck_ast::SimpleCommand,
-        _flow: FlowState,
+        flow: FlowState,
     ) {
         match name.as_str() {
             "read" => {
@@ -2412,12 +2425,16 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     });
                 }
             }
-            "unset" => self.record_unset_variable_targets(&command.args),
+            "unset" => self.record_unset_variable_targets(&command.args, flow),
             _ => {}
         }
     }
 
-    fn record_unset_variable_targets(&mut self, args: &[Word]) {
+    fn record_unset_variable_targets(&mut self, args: &[Word], flow: FlowState) {
+        if flow.conditionally_executed {
+            return;
+        }
+
         let mut function_mode = false;
         let mut parsing_options = true;
 
