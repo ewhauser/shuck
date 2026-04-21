@@ -253,6 +253,10 @@ fn build_ignore_edit(
         });
     }
 
+    if line_ends_with_continuation(line_range, source) {
+        return None;
+    }
+
     let insertion_offset = inline_comment_insertion_offset(line_range, source);
     Some(IgnoreEdit {
         range: TextRange::new(insertion_offset, insertion_offset),
@@ -405,6 +409,14 @@ fn inline_comment_insertion_offset(line_range: TextRange, source: &str) -> TextS
         end = TextSize::new(end.to_u32() - 1);
     }
     end
+}
+
+fn line_ends_with_continuation(line_range: TextRange, source: &str) -> bool {
+    line_range
+        .slice(source)
+        .strip_suffix('\r')
+        .unwrap_or(line_range.slice(source))
+        .ends_with('\\')
 }
 
 fn join_codes(rules: &[Rule]) -> String {
@@ -574,6 +586,16 @@ mod tests {
     #[test]
     fn leaves_existing_trailing_comments_unsupported() {
         let source = "#!/bin/bash\necho $foo # existing comment\n";
+        let (result, updated) = run_add_ignore(source, None);
+
+        assert_eq!(result.directives_added, 0);
+        assert_eq!(result.diagnostics.len(), 1);
+        assert_eq!(updated, source);
+    }
+
+    #[test]
+    fn leaves_continuation_lines_unsupported() {
+        let source = "#!/bin/bash\necho $foo \\\n&& echo ok\n";
         let (result, updated) = run_add_ignore(source, None);
 
         assert_eq!(result.directives_added, 0);

@@ -325,6 +325,25 @@ fn check_add_ignore_respects_exit_zero_for_warning_leftovers() {
 }
 
 #[test]
+fn check_add_ignore_leaves_continuation_lines_failing() {
+    let tempdir = tempdir().unwrap();
+    let script = tempdir.path().join("warn.sh");
+    let source = "#!/bin/bash\necho $foo \\\n&& echo ok\n";
+    fs::write(&script, source).unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--add-ignore", "--output-format", "concise"]);
+    cmd.assert()
+        .code(1)
+        .stdout(predicate::str::contains("error[C006]"))
+        .stderr(predicate::str::is_empty());
+
+    assert_eq!(fs::read_to_string(script).unwrap(), source);
+}
+
+#[test]
 fn check_add_ignore_respects_force_exclude_for_explicit_files() {
     let tempdir = tempdir().unwrap();
     let script = tempdir.path().join("ignored.sh");
