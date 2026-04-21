@@ -2554,14 +2554,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
             !local_like
                 || (existing_binding.scope == scope
-                    && existing_binding
-                        .attributes
-                        .contains(BindingAttributes::LOCAL)
-                    && !self.binding_was_cleared_in_scope_after(
-                        name,
-                        scope,
-                        existing_binding.span.start.offset,
-                    ))
+                    && self.has_uncleared_local_binding_in_scope(name, scope, span.start.offset))
         });
 
         if reuse_existing {
@@ -2597,6 +2590,31 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         self.cleared_variables
             .get(&(scope, name.clone()))
             .is_some_and(|cleared_offset| *cleared_offset > binding_offset)
+    }
+
+    fn has_uncleared_local_binding_in_scope(
+        &self,
+        name: &Name,
+        scope: ScopeId,
+        offset: usize,
+    ) -> bool {
+        self.scopes[scope.index()]
+            .bindings
+            .get(name)
+            .and_then(|bindings| {
+                bindings.iter().rev().copied().find(|binding_id| {
+                    let binding = &self.bindings[binding_id.index()];
+                    binding.span.start.offset <= offset
+                        && binding.attributes.contains(BindingAttributes::LOCAL)
+                })
+            })
+            .is_some_and(|binding_id| {
+                !self.binding_was_cleared_in_scope_after(
+                    name,
+                    scope,
+                    self.bindings[binding_id.index()].span.start.offset,
+                )
+            })
     }
 
     fn add_binding(

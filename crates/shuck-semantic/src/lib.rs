@@ -4122,6 +4122,51 @@ check_status
     }
 
     #[test]
+    fn name_only_local_after_local_write_reuses_existing_local_state() {
+        let source = "f() { local foo=1; foo=2; local foo; echo \"$foo\"; }\n";
+        let model = model(source);
+
+        let foo_bindings = model
+            .bindings()
+            .iter()
+            .filter(|binding| binding.name == "foo")
+            .collect::<Vec<_>>();
+        assert_eq!(foo_bindings.len(), 2);
+        assert!(
+            foo_bindings[0]
+                .attributes
+                .contains(BindingAttributes::LOCAL)
+        );
+        assert!(
+            foo_bindings[1]
+                .attributes
+                .contains(BindingAttributes::LOCAL)
+        );
+
+        let declaration_reference = model
+            .references()
+            .iter()
+            .find(|reference| {
+                reference.kind == ReferenceKind::DeclarationName && reference.name == "foo"
+            })
+            .unwrap();
+        let resolved_declaration = model.resolved_binding(declaration_reference.id).unwrap();
+        assert_eq!(resolved_declaration.id, foo_bindings[1].id);
+
+        let expansion_reference = model
+            .references()
+            .iter()
+            .find(|reference| reference.kind == ReferenceKind::Expansion && reference.name == "foo")
+            .unwrap();
+        let resolved_expansion = model.resolved_binding(expansion_reference.id).unwrap();
+        assert_eq!(resolved_expansion.id, foo_bindings[1].id);
+
+        let unused_binding_ids = model.analysis().dataflow().unused_assignment_ids().to_vec();
+        assert_eq!(unused_binding_ids, vec![foo_bindings[0].id]);
+        assert!(model.analysis().uninitialized_references().is_empty());
+    }
+
+    #[test]
     fn name_only_local_after_unset_creates_fresh_non_assoc_binding() {
         let source = "\
 main() {
