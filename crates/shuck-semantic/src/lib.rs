@@ -945,20 +945,15 @@ impl SemanticModel {
 
         if !source_ref_resolutions.is_empty() {
             debug_assert_eq!(source_ref_resolutions.len(), self.source_refs.len());
-            for (source_ref, resolution) in self
-                .source_refs
-                .iter_mut()
-                .zip(source_ref_resolutions)
+            for (source_ref, resolution) in self.source_refs.iter_mut().zip(source_ref_resolutions)
             {
                 source_ref.resolution = resolution;
             }
         }
         if !source_ref_explicitness.is_empty() {
             debug_assert_eq!(source_ref_explicitness.len(), self.source_refs.len());
-            for (source_ref, explicitly_provided) in self
-                .source_refs
-                .iter_mut()
-                .zip(source_ref_explicitness)
+            for (source_ref, explicitly_provided) in
+                self.source_refs.iter_mut().zip(source_ref_explicitness)
             {
                 source_ref.explicitly_provided = explicitly_provided;
             }
