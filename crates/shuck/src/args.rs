@@ -4,9 +4,12 @@ use std::path::PathBuf;
 use clap::builder::Styles;
 use clap::builder::styling::{AnsiColor, Effects};
 use clap::error::ErrorKind;
-use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
+use clap::{
+    Args as ClapArgs, ColorChoice, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum,
+};
 use shuck_formatter::{IndentStyle, ShellDialect};
 
+use crate::config::{ConfigArgumentParser, ConfigArguments, SingleConfigArgument};
 use crate::format_settings::FormatSettingsPatch;
 
 const STYLES: Styles = Styles::styled()
@@ -58,6 +61,16 @@ pub enum CheckOutputFormatArg {
     Concise,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum TerminalColor {
+    /// Display colors if the output goes to an interactive terminal.
+    Auto,
+    /// Always display colors.
+    Always,
+    /// Never display colors.
+    Never,
+}
+
 #[derive(Debug, Parser)]
 #[command(name = "shuck")]
 #[command(about = "Shell checker CLI for shuck")]
@@ -82,6 +95,33 @@ struct ExperimentalCli {
 
 #[derive(Debug, Clone, ClapArgs)]
 struct GlobalArgs {
+    /// Either a path to a TOML configuration file (`shuck.toml`), or a TOML
+    /// `<KEY> = <VALUE>` pair (such as you might find in a `shuck.toml`
+    /// configuration file) overriding a specific configuration option.
+    /// Overrides of individual settings using this option always take
+    /// precedence over all configuration files, including configuration files
+    /// that were also specified using `--config`.
+    #[arg(
+        long,
+        action = clap::ArgAction::Append,
+        value_name = "CONFIG_OPTION",
+        value_parser = ConfigArgumentParser,
+        global = true,
+        help_heading = "Global options"
+    )]
+    config: Vec<SingleConfigArgument>,
+    /// Ignore all configuration files.
+    #[arg(long, global = true, help_heading = "Global options")]
+    isolated: bool,
+    /// Control when colored output is used.
+    #[arg(
+        long,
+        value_enum,
+        value_name = "WHEN",
+        global = true,
+        help_heading = "Global options"
+    )]
+    color: Option<TerminalColor>,
     /// Path to the cache directory.
     #[arg(
         long,
@@ -116,6 +156,8 @@ enum ExperimentalCommand {
 #[derive(Debug, Clone)]
 pub struct Args {
     pub cache_dir: Option<PathBuf>,
+    pub(crate) config: ConfigArguments,
+    pub(crate) color: Option<TerminalColor>,
     pub command: Command,
 }
 
@@ -134,9 +176,10 @@ impl Args {
         T: Into<OsString> + Clone,
     {
         if experimental_enabled() {
-            ExperimentalCli::try_parse_from(itr).map(Into::into)
+            let parsed = parse_with_color::<ExperimentalCli, _, _>(itr)?;
+            Self::from_experimental(parsed)
         } else {
-            let parsed = StableCli::try_parse_from(itr)?;
+            let parsed = parse_with_color::<StableCli, _, _>(itr)?;
             Self::from_stable(parsed)
         }
     }
@@ -144,7 +187,14 @@ impl Args {
 
 impl Args {
     fn from_stable(value: StableCli) -> Result<Self, clap::Error> {
-        let command = match value.command {
+        let StableCli { global, command } = value;
+        let GlobalArgs {
+            cache_dir,
+            config,
+            isolated,
+            color,
+        } = global;
+        let command = match command {
             StableCommand::Check(command) => Command::Check(command),
             StableCommand::Format(_) => {
                 return Err(clap::Error::raw(
@@ -158,24 +208,33 @@ impl Args {
         };
 
         Ok(Self {
-            cache_dir: value.global.cache_dir,
+            cache_dir,
+            config: ConfigArguments::from_cli(config, isolated)?,
+            color,
             command,
         })
     }
-}
 
-impl From<ExperimentalCli> for Args {
-    fn from(value: ExperimentalCli) -> Self {
-        let command = match value.command {
+    fn from_experimental(value: ExperimentalCli) -> Result<Self, clap::Error> {
+        let ExperimentalCli { global, command } = value;
+        let GlobalArgs {
+            cache_dir,
+            config,
+            isolated,
+            color,
+        } = global;
+        let command = match command {
             ExperimentalCommand::Check(command) => Command::Check(command),
             ExperimentalCommand::Format(command) => Command::Format(command),
             ExperimentalCommand::Clean(command) => Command::Clean(command),
         };
 
-        Self {
-            cache_dir: value.global.cache_dir,
+        Ok(Self {
+            cache_dir,
+            config: ConfigArguments::from_cli(config, isolated)?,
+            color,
             command,
-        }
+        })
     }
 }
 
@@ -244,6 +303,60 @@ impl CheckCommand {
     pub fn force_exclude(&self) -> bool {
         self.file_selection.force_exclude()
     }
+}
+
+fn parse_with_color<Cli, I, T>(itr: I) -> Result<Cli, clap::Error>
+where
+    Cli: CommandFactory + FromArgMatches,
+    I: IntoIterator<Item = T>,
+    T: Into<OsString> + Clone,
+{
+    let args = itr.into_iter().map(Into::into).collect::<Vec<_>>();
+    let mut command = Cli::command().color(command_color_choice(&args));
+    let matches = command.try_get_matches_from_mut(args)?;
+    Cli::from_arg_matches(&matches)
+}
+
+fn command_color_choice(args: &[OsString]) -> ColorChoice {
+    match preparse_color(args) {
+        Some(ColorChoice::Always) => ColorChoice::Always,
+        Some(ColorChoice::Never) => ColorChoice::Never,
+        Some(ColorChoice::Auto) | None => {
+            if std::env::var_os("FORCE_COLOR").is_some_and(|value| !value.is_empty()) {
+                ColorChoice::Always
+            } else {
+                ColorChoice::Auto
+            }
+        }
+    }
+}
+
+fn preparse_color(args: &[OsString]) -> Option<ColorChoice> {
+    let mut expect_value = false;
+    let mut color = None;
+
+    for argument in args.iter().skip(1) {
+        if expect_value {
+            let value = argument.to_string_lossy();
+            color = value.parse().ok();
+            expect_value = false;
+            continue;
+        }
+
+        let argument = argument.to_string_lossy();
+        if argument == "--" {
+            break;
+        }
+        if argument == "--color" {
+            expect_value = true;
+            continue;
+        }
+        if let Some(value) = argument.strip_prefix("--color=") {
+            color = value.parse().ok();
+        }
+    }
+
+    color
 }
 
 #[derive(Debug, Clone, Default, ClapArgs)]
@@ -459,6 +572,83 @@ pub struct CleanCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::builder::TypedValueParser;
+
+    #[test]
+    fn global_config_override_is_available_after_subcommand() {
+        let command = StableCli::command();
+        let override_argument = crate::config::ConfigArgumentParser
+            .parse_ref(
+                &command,
+                None,
+                std::ffi::OsStr::new("format.indent-width = 2"),
+            )
+            .unwrap();
+
+        let args = Args::try_parse_from(["shuck", "check", "--config", "format.indent-width = 2"])
+            .unwrap();
+
+        assert_eq!(
+            args.config,
+            ConfigArguments::from_cli(vec![override_argument], false).unwrap()
+        );
+    }
+
+    #[test]
+    fn explicit_config_file_and_inline_override_both_parse_globally() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let config_path = tempdir.path().join("shuck.toml");
+        std::fs::write(&config_path, "[format]\nfunction-next-line = false\n").unwrap();
+        let command = StableCli::command();
+        let override_argument = crate::config::ConfigArgumentParser
+            .parse_ref(
+                &command,
+                None,
+                std::ffi::OsStr::new("format.function-next-line = true"),
+            )
+            .unwrap();
+
+        let args = Args::try_parse_from([
+            "shuck",
+            "--config",
+            config_path.to_str().unwrap(),
+            "--config",
+            "format.function-next-line = true",
+            "check",
+        ])
+        .unwrap();
+
+        assert_eq!(
+            args.config,
+            ConfigArguments::from_cli(
+                vec![
+                    SingleConfigArgument::FilePath(config_path),
+                    override_argument
+                ],
+                false,
+            )
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn global_color_can_be_parsed_before_subcommand() {
+        let args = Args::try_parse_from(["shuck", "--color", "never", "check"]).unwrap();
+        assert_eq!(args.color, Some(TerminalColor::Never));
+    }
+
+    #[test]
+    fn preparse_color_uses_last_value() {
+        assert_eq!(
+            preparse_color(&[
+                OsString::from("shuck"),
+                OsString::from("--color=always"),
+                OsString::from("--color"),
+                OsString::from("never"),
+            ]),
+            Some(ColorChoice::Never)
+        );
+    }
 
     fn parse_check<I, T>(args: I) -> CheckCommand
     where

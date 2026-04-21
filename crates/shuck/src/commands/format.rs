@@ -14,6 +14,7 @@ use crate::ExitStatus;
 use crate::args::FormatCommand;
 use crate::cache::resolve_cache_root;
 use crate::commands::project_runner::{PendingProjectFile, prepare_project_runs};
+use crate::config::ConfigArguments;
 use crate::discover::DiscoveryOptions;
 use crate::format_settings::{ResolvedFormatSettings, resolve_project_format_settings};
 
@@ -83,11 +84,15 @@ struct ParseCacheFailure {
     column: usize,
 }
 
-pub(crate) fn format(args: FormatCommand, cache_dir: Option<&Path>) -> Result<ExitStatus> {
+pub(crate) fn format(
+    args: FormatCommand,
+    config_arguments: &ConfigArguments,
+    cache_dir: Option<&Path>,
+) -> Result<ExitStatus> {
     let cwd = std::env::current_dir()?;
     let mode = FormatMode::from_cli(&args);
     let cache_root = resolve_cache_root(&cwd, cache_dir)?;
-    let report = run_format_with_cwd(&args, &cwd, &cache_root, mode)?;
+    let report = run_format_with_cwd(&args, config_arguments, &cwd, &cache_root, mode)?;
     print_report(&report)?;
     Ok(report.exit_status(mode))
 }
@@ -134,6 +139,7 @@ fn print_report(report: &FormatReport) -> Result<()> {
 
 fn run_format_with_cwd(
     args: &FormatCommand,
+    config_arguments: &ConfigArguments,
     cwd: &Path,
     cache_root: &Path,
     mode: FormatMode,
@@ -146,6 +152,7 @@ fn run_format_with_cwd(
         force_exclude: args.force_exclude(),
         parallel: false,
         cache_root: Some(cache_root.to_path_buf()),
+        use_config_roots: config_arguments.use_config_roots(),
     };
     let runs = prepare_project_runs::<FormatCacheData, ResolvedFormatSettings, _>(
         &args.files,
@@ -154,7 +161,13 @@ fn run_format_with_cwd(
         cache_root,
         args.no_cache,
         b"project-format-cache-key",
-        |project_root| resolve_project_format_settings(&project_root.storage_root, cli_settings),
+        |project_root| {
+            resolve_project_format_settings(
+                &project_root.storage_root,
+                config_arguments,
+                cli_settings,
+            )
+        },
     )?;
     let mut report = FormatReport::default();
 
@@ -296,6 +309,7 @@ mod tests {
 
     use super::*;
     use crate::args::FileSelectionArgs;
+    use crate::config::ConfigArguments;
 
     fn make_file_read_only(path: &Path) {
         let mut permissions = fs::metadata(path).unwrap().permissions();
@@ -338,6 +352,7 @@ mod tests {
 
         let report = run_format_with_cwd(
             &format_args(false),
+            &ConfigArguments::default(),
             tempdir.path(),
             &tempdir.path().join("cache"),
             FormatMode::Write,
@@ -357,6 +372,7 @@ mod tests {
 
         let first = run_format_with_cwd(
             &format_args(false),
+            &ConfigArguments::default(),
             tempdir.path(),
             &tempdir.path().join("cache"),
             FormatMode::Write,
@@ -364,6 +380,7 @@ mod tests {
         .unwrap();
         let second = run_format_with_cwd(
             &format_args(false),
+            &ConfigArguments::default(),
             tempdir.path(),
             &tempdir.path().join("cache"),
             FormatMode::Write,
@@ -384,6 +401,7 @@ mod tests {
 
         let first = run_format_with_cwd(
             &format_args(false),
+            &ConfigArguments::default(),
             tempdir.path(),
             &tempdir.path().join("cache"),
             FormatMode::Write,
@@ -397,6 +415,7 @@ mod tests {
 
         let second = run_format_with_cwd(
             &format_args(false),
+            &ConfigArguments::default(),
             tempdir.path(),
             &tempdir.path().join("cache"),
             FormatMode::Write,
@@ -414,6 +433,7 @@ mod tests {
 
         let report = run_format_with_cwd(
             &format_args(true),
+            &ConfigArguments::default(),
             tempdir.path(),
             &tempdir.path().join("cache"),
             FormatMode::Write,
@@ -437,6 +457,7 @@ mod tests {
 
         let report = run_format_with_cwd(
             &args,
+            &ConfigArguments::default(),
             tempdir.path(),
             &tempdir.path().join("cache"),
             FormatMode::Check,
@@ -458,6 +479,7 @@ mod tests {
 
         let first = run_format_with_cwd(
             &args,
+            &ConfigArguments::default(),
             tempdir.path(),
             &tempdir.path().join("cache"),
             FormatMode::Check,
@@ -465,6 +487,7 @@ mod tests {
         .unwrap();
         let second = run_format_with_cwd(
             &args,
+            &ConfigArguments::default(),
             tempdir.path(),
             &tempdir.path().join("cache"),
             FormatMode::Check,
