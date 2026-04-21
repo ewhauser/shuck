@@ -142,12 +142,13 @@ fn is_reportable_unused_assignment(kind: BindingKind, attributes: BindingAttribu
     match kind {
         BindingKind::Assignment
         | BindingKind::ArrayAssignment
-        | BindingKind::LoopVariable
         | BindingKind::ReadTarget
         | BindingKind::MapfileTarget
         | BindingKind::PrintfTarget
         | BindingKind::GetoptsTarget
         | BindingKind::ArithmeticAssignment => true,
+        // ShellCheck's default SC2034 behavior skips plain loop counters.
+        BindingKind::LoopVariable => false,
         BindingKind::AppendAssignment | BindingKind::ParameterDefaultAssignment => false,
         BindingKind::Declaration(_) => {
             attributes.contains(BindingAttributes::DECLARATION_INITIALIZED)
@@ -163,7 +164,8 @@ fn participates_in_unused_assignment_family(
     is_reportable_unused_assignment(kind, attributes)
         || matches!(
             kind,
-            BindingKind::AppendAssignment
+            BindingKind::LoopVariable
+                | BindingKind::AppendAssignment
                 | BindingKind::ParameterDefaultAssignment
                 | BindingKind::Declaration(_)
         )
@@ -309,6 +311,39 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.start.line, 3);
+    }
+
+    #[test]
+    fn ignores_unused_for_loop_counters() {
+        let source = "\
+#!/bin/bash
+unused=1
+for i in {0..5}; do
+  printf '%s\\n' retry
+done
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.slice(source), "unused");
+    }
+
+    #[test]
+    fn used_loop_variables_keep_prior_dead_assignments_separate() {
+        let source = "\
+#!/bin/bash
+foo=1
+foo=2
+for foo in a b; do
+  printf '%s\\n' \"$foo\"
+done
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[1].span.start.line, 3);
     }
 
     #[test]
