@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.0.15](https://github.com/ewhauser/shuck/compare/v0.0.14...v0.0.15) (2026-04-21)
+
+
+### Bug Fixes
+
+* cargo install instructions ([#408](https://github.com/ewhauser/shuck/issues/408)) ([4029b81](https://github.com/ewhauser/shuck/commit/4029b81af2a1219835832d2e767497ac82216b59))
+* **linter:** ignore unused for-loop counters in C001 ([#410](https://github.com/ewhauser/shuck/issues/410)) ([3ff60ec](https://github.com/ewhauser/shuck/commit/3ff60ecfaba660caf32f62fd6c8d5aa14f20082c))
+* **linter:** suppress C001 on intentional empty clears ([#409](https://github.com/ewhauser/shuck/issues/409)) ([3740969](https://github.com/ewhauser/shuck/commit/3740969b159f536d204704c123f13b4a68d06427))
+
 ## [0.0.14](https://github.com/ewhauser/shuck/compare/v0.0.13...v0.0.14) (2026-04-21)
 
 
