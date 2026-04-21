@@ -109,8 +109,8 @@ impl DisplayedDiagnostic {
         }
     }
 
-    fn relative_path_string(&self) -> String {
-        self.relative_path.display().to_string()
+    fn display_path_string(&self) -> String {
+        self.path.display().to_string()
     }
 
     fn absolute_uri(&self) -> io::Result<String> {
@@ -266,7 +266,7 @@ fn write_junit_diagnostics(
         let mut grouped = BTreeMap::<String, Vec<&DisplayedDiagnostic>>::new();
         for diagnostic in diagnostics {
             grouped
-                .entry(diagnostic.relative_path_string())
+                .entry(diagnostic.display_path_string())
                 .or_default()
                 .push(diagnostic);
         }
@@ -322,10 +322,10 @@ fn write_github_diagnostics(
             _ => "error",
         };
         let title = escape_github_property(&format!("shuck ({})", diagnostic.code()));
-        let file = escape_github_property(&diagnostic.relative_path_string());
+        let file = escape_github_property(&diagnostic.display_path_string());
         let body = escape_github_message(&format!(
             "{}:{}:{}: {} {}",
-            diagnostic.relative_path.display(),
+            diagnostic.path.display(),
             diagnostic.span.start.line,
             diagnostic.span.start.column,
             diagnostic.code(),
@@ -600,7 +600,7 @@ fn json_diagnostic(diagnostic: &DisplayedDiagnostic) -> JsonDiagnostic {
         fix: diagnostic.fix.as_ref().map(json_fix),
         location: diagnostic.span.start.into(),
         end_location: diagnostic.span.end.into(),
-        filename: diagnostic.relative_path_string(),
+        filename: diagnostic.display_path_string(),
     }
 }
 
@@ -654,7 +654,7 @@ fn gitlab_diagnostic(diagnostic: &DisplayedDiagnostic) -> GitlabDiagnostic {
         severity: gitlab_severity(diagnostic.severity()),
         fingerprint: gitlab_fingerprint(diagnostic),
         location: GitlabLocation {
-            path: diagnostic.relative_path_string(),
+            path: diagnostic.display_path_string(),
             positions: GitlabPositions {
                 begin: GitlabPosition {
                     line: diagnostic.span.start.line,
@@ -681,7 +681,7 @@ fn gitlab_severity(severity: &str) -> &'static str {
 fn gitlab_fingerprint(diagnostic: &DisplayedDiagnostic) -> String {
     let mut hasher = DefaultHasher::new();
     diagnostic.code().hash(&mut hasher);
-    diagnostic.relative_path.hash(&mut hasher);
+    diagnostic.path.hash(&mut hasher);
     diagnostic.message.hash(&mut hasher);
     diagnostic.span.start.line.hash(&mut hasher);
     diagnostic.span.start.column.hash(&mut hasher);
@@ -751,7 +751,7 @@ fn rdjson_diagnostic(diagnostic: &DisplayedDiagnostic) -> RdjsonDiagnostic {
             url: None,
         },
         location: RdjsonLocation {
-            path: diagnostic.relative_path_string(),
+            path: diagnostic.display_path_string(),
             range: rdjson_range(diagnostic.span.start, diagnostic.span.end),
         },
         message: diagnostic.message.clone(),
@@ -1154,9 +1154,16 @@ mod tests {
     use super::*;
 
     fn diagnostic_paths(path: &str) -> (PathBuf, PathBuf, PathBuf) {
-        let display = PathBuf::from(path);
-        let relative = PathBuf::from(path);
-        let absolute = std::env::temp_dir().join(path);
+        diagnostic_paths_with_relative(path, path)
+    }
+
+    fn diagnostic_paths_with_relative(
+        display_path: &str,
+        relative_path: &str,
+    ) -> (PathBuf, PathBuf, PathBuf) {
+        let display = PathBuf::from(display_path);
+        let relative = PathBuf::from(relative_path);
+        let absolute = std::env::temp_dir().join(display_path);
         (display, relative, absolute)
     }
 
@@ -1220,6 +1227,32 @@ mod tests {
             span: DisplaySpan::point(line, column),
             message: message.to_owned(),
             kind: DisplayedDiagnosticKind::ParseError,
+            fix: None,
+            source: Some(Arc::<str>::from(source)),
+        }
+    }
+
+    fn lint_diagnostic_with_relative_path(
+        display_path: &str,
+        relative_path: &str,
+        span: DisplaySpan,
+        message: &str,
+        severity: &str,
+        code: &str,
+        source: &str,
+    ) -> DisplayedDiagnostic {
+        let (path, relative_path, absolute_path) =
+            diagnostic_paths_with_relative(display_path, relative_path);
+        DisplayedDiagnostic {
+            path,
+            relative_path,
+            absolute_path,
+            span,
+            message: message.to_owned(),
+            kind: DisplayedDiagnosticKind::Lint {
+                code: code.to_owned(),
+                severity: severity.to_owned(),
+            },
             fix: None,
             source: Some(Arc::<str>::from(source)),
         }
@@ -1440,6 +1473,106 @@ beta.sh:
           }
         ]
         "#);
+    }
+
+    #[test]
+    fn structured_outputs_use_display_paths() {
+        let diagnostic = lint_diagnostic_with_relative_path(
+            "workspace-a/script.sh",
+            "script.sh",
+            DisplaySpan::point(2, 1),
+            "variable is unused",
+            "warning",
+            "C001",
+            "unused=1\n",
+        );
+
+        let mut json_output = Vec::new();
+        print_report_to(
+            &mut json_output,
+            &[diagnostic.clone()],
+            CheckOutputFormatArg::Json,
+            false,
+        )
+        .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&json_output).unwrap();
+        assert_eq!(json[0]["filename"], "workspace-a/script.sh");
+
+        let mut github_output = Vec::new();
+        print_report_to(
+            &mut github_output,
+            &[diagnostic.clone()],
+            CheckOutputFormatArg::Github,
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            String::from_utf8(github_output).unwrap(),
+            "::warning title=shuck (C001),file=workspace-a/script.sh,line=2,col=1,endLine=2,endColumn=1::workspace-a/script.sh:2:1: C001 variable is unused\n",
+        );
+
+        let mut rdjson_output = Vec::new();
+        print_report_to(
+            &mut rdjson_output,
+            &[diagnostic.clone()],
+            CheckOutputFormatArg::Rdjson,
+            false,
+        )
+        .unwrap();
+        let rdjson: serde_json::Value = serde_json::from_slice(&rdjson_output).unwrap();
+        assert_eq!(
+            rdjson["diagnostics"][0]["location"]["path"],
+            "workspace-a/script.sh"
+        );
+    }
+
+    #[test]
+    fn junit_groups_and_gitlab_fingerprints_use_display_paths() {
+        let diagnostics = vec![
+            lint_diagnostic_with_relative_path(
+                "workspace-a/script.sh",
+                "script.sh",
+                DisplaySpan::point(2, 1),
+                "first message",
+                "warning",
+                "C001",
+                "unused=1\n",
+            ),
+            lint_diagnostic_with_relative_path(
+                "workspace-b/script.sh",
+                "script.sh",
+                DisplaySpan::point(2, 1),
+                "first message",
+                "warning",
+                "C001",
+                "unused=1\n",
+            ),
+        ];
+
+        let mut junit_output = Vec::new();
+        print_report_to(
+            &mut junit_output,
+            &diagnostics,
+            CheckOutputFormatArg::Junit,
+            false,
+        )
+        .unwrap();
+        let junit = String::from_utf8(junit_output).unwrap();
+        assert!(junit.contains("testsuite name=\"workspace-a/script.sh\""));
+        assert!(junit.contains("testsuite name=\"workspace-b/script.sh\""));
+
+        let mut gitlab_output = Vec::new();
+        print_report_to(
+            &mut gitlab_output,
+            &diagnostics,
+            CheckOutputFormatArg::Gitlab,
+            false,
+        )
+        .unwrap();
+        let gitlab: serde_json::Value = serde_json::from_slice(&gitlab_output).unwrap();
+        assert_eq!(gitlab[0]["location"]["path"], "workspace-a/script.sh");
+        assert_eq!(gitlab[1]["location"]["path"], "workspace-b/script.sh");
+        assert_ne!(gitlab[0]["fingerprint"], gitlab[1]["fingerprint"]);
     }
 
     #[test]
