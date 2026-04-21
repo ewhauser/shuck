@@ -4342,6 +4342,155 @@ f() {
     }
 
     #[test]
+    fn name_only_local_after_split_conflicting_unset_flags_reuses_existing_local_state() {
+        let source = "\
+f() {
+  local foo=1
+  unset -f -v foo
+  local foo
+  echo \"$foo\"
+}
+";
+        let model = model(source);
+        let function_scope = model
+            .scopes()
+            .iter()
+            .find_map(|scope| match &scope.kind {
+                ScopeKind::Function(FunctionScopeKind::Named(names))
+                    if names.iter().any(|name| name == "f") =>
+                {
+                    Some(scope.id)
+                }
+                _ => None,
+            })
+            .expect("expected function scope");
+
+        let foo_bindings = model
+            .bindings()
+            .iter()
+            .filter(|binding| binding.name == "foo" && binding.scope == function_scope)
+            .collect::<Vec<_>>();
+        assert_eq!(foo_bindings.len(), 1);
+        assert!(
+            foo_bindings[0]
+                .attributes
+                .contains(BindingAttributes::LOCAL)
+        );
+
+        let expansion_reference = model
+            .references()
+            .iter()
+            .find(|reference| reference.kind == ReferenceKind::Expansion && reference.name == "foo")
+            .expect("expected foo expansion");
+        let resolved_expansion = model.resolved_binding(expansion_reference.id).unwrap();
+        assert_eq!(resolved_expansion.id, foo_bindings[0].id);
+
+        let analysis = model.analysis();
+        assert!(analysis.uninitialized_references().is_empty());
+        assert!(analysis.unused_assignments().is_empty());
+    }
+
+    #[test]
+    fn unset_n_clears_nameref_binding_state_before_name_only_local() {
+        let source = "\
+f() {
+  local foo=1
+  local -n ref=foo
+  unset -n ref
+  local ref
+}
+";
+        let model = model(source);
+        let function_scope = model
+            .scopes()
+            .iter()
+            .find_map(|scope| match &scope.kind {
+                ScopeKind::Function(FunctionScopeKind::Named(names))
+                    if names.iter().any(|name| name == "f") =>
+                {
+                    Some(scope.id)
+                }
+                _ => None,
+            })
+            .expect("expected function scope");
+
+        let ref_bindings = model
+            .bindings()
+            .iter()
+            .filter(|binding| binding.name == "ref" && binding.scope == function_scope)
+            .collect::<Vec<_>>();
+
+        assert!(
+            ref_bindings
+                .iter()
+                .any(|binding| matches!(binding.kind, BindingKind::Nameref))
+        );
+        let redeclared_local = ref_bindings
+            .iter()
+            .find(|binding| {
+                matches!(
+                    binding.kind,
+                    BindingKind::Declaration(DeclarationBuiltin::Local)
+                )
+            })
+            .expect("expected fresh local binding after unset -n");
+        assert!(
+            !redeclared_local
+                .attributes
+                .contains(BindingAttributes::NAMEREF)
+        );
+    }
+
+    #[test]
+    fn name_only_local_after_unset_n_plain_variable_reuses_existing_local_state() {
+        let source = "\
+f() {
+  local foo=1
+  unset -n foo
+  local foo
+  echo \"$foo\"
+}
+";
+        let model = model(source);
+        let function_scope = model
+            .scopes()
+            .iter()
+            .find_map(|scope| match &scope.kind {
+                ScopeKind::Function(FunctionScopeKind::Named(names))
+                    if names.iter().any(|name| name == "f") =>
+                {
+                    Some(scope.id)
+                }
+                _ => None,
+            })
+            .expect("expected function scope");
+
+        let foo_bindings = model
+            .bindings()
+            .iter()
+            .filter(|binding| binding.name == "foo" && binding.scope == function_scope)
+            .collect::<Vec<_>>();
+        assert_eq!(foo_bindings.len(), 1);
+        assert!(
+            foo_bindings[0]
+                .attributes
+                .contains(BindingAttributes::LOCAL)
+        );
+
+        let expansion_reference = model
+            .references()
+            .iter()
+            .find(|reference| reference.kind == ReferenceKind::Expansion && reference.name == "foo")
+            .expect("expected foo expansion");
+        let resolved_expansion = model.resolved_binding(expansion_reference.id).unwrap();
+        assert_eq!(resolved_expansion.id, foo_bindings[0].id);
+
+        let analysis = model.analysis();
+        assert!(analysis.uninitialized_references().is_empty());
+        assert!(analysis.unused_assignments().is_empty());
+    }
+
+    #[test]
     fn name_only_local_after_unset_creates_fresh_non_assoc_binding() {
         let source = "\
 main() {

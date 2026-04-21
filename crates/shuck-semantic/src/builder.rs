@@ -2435,7 +2435,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             return;
         }
 
-        let mut function_mode = false;
+        let mut function_flag_seen = false;
+        let mut variable_flag_seen = false;
+        let mut nameref_mode = false;
         let mut parsing_options = true;
 
         for argument in args {
@@ -2455,11 +2457,25 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     if !unset_flags_are_valid(flags) {
                         return;
                     }
-                    if flags.contains('f') {
-                        function_mode = true;
-                    }
-                    if flags.contains('v') {
-                        function_mode = false;
+                    for flag in flags.chars() {
+                        match flag {
+                            'f' => {
+                                if variable_flag_seen {
+                                    return;
+                                }
+                                function_flag_seen = true;
+                            }
+                            'v' => {
+                                if function_flag_seen {
+                                    return;
+                                }
+                                variable_flag_seen = true;
+                            }
+                            'n' => {
+                                nameref_mode = true;
+                            }
+                            _ => unreachable!("invalid unset flag already filtered"),
+                        }
                     }
                     continue;
                 }
@@ -2467,8 +2483,23 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 parsing_options = false;
             }
 
-            if function_mode || !is_name(&text) {
+            if function_flag_seen || !is_name(&text) {
                 continue;
+            }
+
+            if nameref_mode {
+                let name = Name::from(text.as_str());
+                let Some(binding_id) =
+                    self.resolve_reference(&name, self.current_scope(), argument.span.start.offset)
+                else {
+                    continue;
+                };
+                let binding = &self.bindings[binding_id.index()];
+                if !binding.attributes.contains(BindingAttributes::NAMEREF)
+                    && !matches!(binding.kind, BindingKind::Nameref)
+                {
+                    continue;
+                }
             }
 
             self.cleared_variables.insert(
@@ -3883,8 +3914,7 @@ fn static_tail_text_starts_with_slash(
 
 fn unset_flags_are_valid(flags: &str) -> bool {
     !flags.is_empty()
-        && flags.chars().all(|flag| matches!(flag, 'f' | 'v'))
-        && !(flags.contains('f') && flags.contains('v'))
+        && flags.chars().all(|flag| matches!(flag, 'f' | 'v' | 'n'))
 }
 
 fn parse_source_directives(
