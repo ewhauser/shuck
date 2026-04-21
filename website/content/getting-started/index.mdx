@@ -5,6 +5,7 @@ An extremely fast shell script linter, written in Rust.
 - ⚡ 20x faster than ShellCheck, with built-in caching for incremental runs
 - 🐚 Multi-dialect support for bash, sh/POSIX, dash, ksh, mksh, and zsh
 - 🤝 ShellCheck suppression compatibility (`# shellcheck disable=SC2086` just works)
+- 🔄 ShellCheck CLI compatibility mode for existing editor, CI, and local workflows
 - 🔧 Fix support, for automatic error correction (`--fix` and `--unsafe-fixes`)
 - 📏 Rules across correctness, style, performance, and portability categories
 - 💾 Per-file caching to avoid re-analyzing unchanged files
@@ -39,3 +40,9 @@ echo 'echo $foo' | shuck check -
 # Apply safe fixes automatically
 shuck check --fix .
 ```
+
+## ShellCheck compatibility mode
+
+If you already have tools that invoke `shellcheck`, Shuck can expose a ShellCheck-shaped CLI without changing your primary workflow all at once.
+
+See the dedicated [ShellCheck compatibility guide](/docs/shellcheck-compat) for activation, supported flags, `.shellcheckrc` handling, and current caveats.
