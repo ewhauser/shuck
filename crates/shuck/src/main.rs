@@ -1,3 +1,5 @@
+#![cfg_attr(not(test), warn(clippy::unwrap_used))]
+
 use std::io::Write;
 use std::process::ExitCode;
 

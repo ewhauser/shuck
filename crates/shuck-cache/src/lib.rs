@@ -1,4 +1,5 @@
 #![warn(missing_docs)]
+#![cfg_attr(not(test), warn(clippy::unwrap_used))]
 
 //! File-oriented cache keys and persistent package caches for Shuck.
 //!

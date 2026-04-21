@@ -2,16 +2,19 @@
 //!
 //! The parser is recursive descent and produces `shuck-ast` syntax trees while also collecting
 //! recovery diagnostics and lightweight syntax facts needed by downstream tooling.
+#![cfg_attr(not(test), warn(clippy::unwrap_used))]
 
-// Parser uses chars().next().unwrap() after validating character presence.
-// This is safe because we check bounds before accessing.
-#![allow(clippy::unwrap_used)]
-
+// Arithmetic parsing uses raw unwraps only after cursor checks guarantee the next token exists.
+#[allow(clippy::unwrap_used)]
 mod arithmetic;
+// Command parsing uses raw unwraps only after token-kind checks guarantee source-backed text.
+#[allow(clippy::unwrap_used)]
 mod commands;
 mod heredocs;
 mod lexer;
 mod redirects;
+// Word parsing uses raw unwraps only after cursor and segment checks guarantee bounds safety.
+#[allow(clippy::unwrap_used)]
 mod words;
 
 use std::{
@@ -6302,7 +6305,8 @@ impl<'a> Parser<'a> {
         chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
         cursor: &mut Position,
     ) -> char {
-        Self::next_word_char(chars, cursor).unwrap()
+        Self::next_word_char(chars, cursor)
+            .expect("word parser should only consume characters that were already peeked")
     }
 
     fn consume_word_char_if(
