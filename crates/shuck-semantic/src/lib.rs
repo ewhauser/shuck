@@ -772,6 +772,7 @@ impl SemanticModel {
         span: Span,
         command_span: Option<Span>,
         origin_paths: Vec<PathBuf>,
+        file_entry_contract: bool,
     ) -> BindingId {
         let mut attributes = BindingAttributes::empty();
         if provided.certainty == ContractCertainty::Possible {
@@ -779,6 +780,9 @@ impl SemanticModel {
         }
         if provided.kind == ProvidedBindingKind::Function {
             attributes |= BindingAttributes::IMPORTED_FUNCTION;
+        }
+        if file_entry_contract {
+            attributes |= BindingAttributes::IMPORTED_FILE_ENTRY;
         }
 
         let id = BindingId(self.bindings.len() as u32);
@@ -867,7 +871,14 @@ impl SemanticModel {
                 .get(&binding.name)
                 .cloned()
                 .unwrap_or_default();
-            let id = self.add_imported_binding(binding, ScopeId(0), entry_span, None, origin_paths);
+            let id = self.add_imported_binding(
+                binding,
+                ScopeId(0),
+                entry_span,
+                None,
+                origin_paths,
+                true,
+            );
             entry_bindings.push(id);
         }
 
@@ -941,6 +952,7 @@ impl SemanticModel {
                 site.span,
                 Some(site.span),
                 site.origin_paths,
+                false,
             );
         }
         self.resolve_unresolved_references();
@@ -6055,8 +6067,20 @@ printf '%s\\n' \"$flag\"
             let binding = model.resolved_binding(reference.id).unwrap();
             assert_eq!(binding.kind, BindingKind::Imported);
             assert_eq!(binding.name, name);
+            assert!(
+                binding
+                    .attributes
+                    .contains(BindingAttributes::IMPORTED_FILE_ENTRY)
+            );
         }
-        assert!(model.analysis().uninitialized_references().is_empty());
+        assert_eq!(
+            uninitialized_details(&model),
+            vec![
+                ("pkgname".to_owned(), UninitializedCertainty::Definite),
+                ("pkgver".to_owned(), UninitializedCertainty::Definite),
+                ("wrksrc".to_owned(), UninitializedCertainty::Definite),
+            ]
+        );
     }
 
     #[test]
@@ -6109,8 +6133,20 @@ build() {
             let binding = model.resolved_binding(reference.id).unwrap();
             assert_eq!(binding.kind, BindingKind::Imported);
             assert_eq!(binding.name, name);
+            assert!(
+                binding
+                    .attributes
+                    .contains(BindingAttributes::IMPORTED_FILE_ENTRY)
+            );
         }
-        assert!(model.analysis().uninitialized_references().is_empty());
+        assert_eq!(
+            uninitialized_details(&model),
+            vec![
+                ("pkgname".to_owned(), UninitializedCertainty::Definite),
+                ("pkgver".to_owned(), UninitializedCertainty::Definite),
+                ("wrksrc".to_owned(), UninitializedCertainty::Definite),
+            ]
+        );
     }
 
     #[test]
@@ -6172,8 +6208,27 @@ hook() {
             let binding = model.resolved_binding(reference.id).unwrap();
             assert_eq!(binding.kind, BindingKind::Imported);
             assert_eq!(binding.name, name);
+            assert!(
+                binding
+                    .attributes
+                    .contains(BindingAttributes::IMPORTED_FILE_ENTRY)
+            );
         }
-        assert!(model.analysis().uninitialized_references().is_empty());
+        assert_eq!(
+            uninitialized_details(&model),
+            vec![
+                (
+                    "pycompile_dirs".to_owned(),
+                    UninitializedCertainty::Definite
+                ),
+                ("pkgname".to_owned(), UninitializedCertainty::Definite),
+                (
+                    "pycompile_version".to_owned(),
+                    UninitializedCertainty::Definite
+                ),
+                ("pkgver".to_owned(), UninitializedCertainty::Definite),
+            ]
+        );
     }
 
     #[test]
