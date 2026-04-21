@@ -3343,11 +3343,10 @@ impl<'a> Lexer<'a> {
             if in_single {
                 match ch {
                     '\'' => in_single = false,
-                    '\\' => {
-                        if chars.peek() == Some(&'"') {
-                            chars.next();
-                        }
+                    '\\' if chars.peek() == Some(&'"') => {
+                        chars.next();
                     }
+                    '\\' => {}
                     _ => {}
                 }
                 continue;

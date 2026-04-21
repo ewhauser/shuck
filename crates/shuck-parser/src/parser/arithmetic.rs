@@ -419,10 +419,7 @@ impl<'a> ArithmeticParser<'a> {
         op_of: fn(&TokenKind) -> Option<ArithmeticBinaryOp>,
     ) -> Result<ArithmeticExprNode> {
         let mut expr = subparser(self)?;
-        loop {
-            let Some(op) = op_of(&self.peek_token()?.kind) else {
-                break;
-            };
+        while let Some(op) = op_of(&self.peek_token()?.kind) {
             self.next_token()?;
             let right = subparser(self)?;
             let span = expr.span.merge(right.span);

@@ -156,10 +156,7 @@ impl<'a> Parser<'a> {
 
         while let Some(kind) = self.current_token_kind {
             if Self::is_recovery_separator(kind) {
-                loop {
-                    let Some(kind) = self.current_token_kind else {
-                        break;
-                    };
+                while let Some(kind) = self.current_token_kind {
                     if !Self::is_recovery_separator(kind) {
                         break;
                     }
