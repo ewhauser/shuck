@@ -24,6 +24,7 @@ use crate::commands::check_output::{
     DisplayPosition, DisplaySpan, DisplayedDiagnostic, DisplayedDiagnosticKind, print_report_to,
 };
 use crate::commands::project_runner::{PendingProjectFile, prepare_project_runs};
+use crate::config::ConfigArguments;
 use crate::discover::DiscoveryOptions;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -142,7 +143,11 @@ struct FileCheckResult {
     fixes_applied: usize,
 }
 
-pub(crate) fn check(args: CheckCommand, cache_dir: Option<&Path>) -> Result<ExitStatus> {
+pub(crate) fn check(
+    args: CheckCommand,
+    config_arguments: &ConfigArguments,
+    cache_dir: Option<&Path>,
+) -> Result<ExitStatus> {
     let cwd = std::env::current_dir()?;
     let cache_root = resolve_cache_root(&cwd, cache_dir)?;
     if let Some(raw_reason) = args.add_ignore.as_deref() {
@@ -154,6 +159,7 @@ pub(crate) fn check(args: CheckCommand, cache_dir: Option<&Path>) -> Result<Exit
 
         let report = run_add_ignore_with_cwd(
             &args,
+            config_arguments,
             &cwd,
             &cache_root,
             (!raw_reason.is_empty()).then_some(raw_reason),
@@ -173,7 +179,7 @@ pub(crate) fn check(args: CheckCommand, cache_dir: Option<&Path>) -> Result<Exit
         return Ok(report.exit_status(args.exit_zero));
     }
 
-    let report = run_check_with_cwd(&args, &cwd, &cache_root)?;
+    let report = run_check_with_cwd(&args, config_arguments, &cwd, &cache_root)?;
     print_report(&report, args.output_format)?;
     Ok(report.exit_status(args.exit_zero, args.exit_non_zero_on_fix))
 }
@@ -199,7 +205,12 @@ fn print_diagnostics(
     Ok(())
 }
 
-fn run_check_with_cwd(args: &CheckCommand, cwd: &Path, cache_root: &Path) -> Result<CheckReport> {
+fn run_check_with_cwd(
+    args: &CheckCommand,
+    config_arguments: &ConfigArguments,
+    cwd: &Path,
+    cache_root: &Path,
+) -> Result<CheckReport> {
     let include_source = matches!(args.output_format, crate::args::CheckOutputFormatArg::Full);
     let fix_applicability = requested_fix_applicability(args);
     let settings = EffectiveCheckSettings::default();
@@ -213,7 +224,7 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path, cache_root: &Path) -> Res
             force_exclude: args.force_exclude(),
             parallel: true,
             cache_root: Some(cache_root.to_path_buf()),
-            use_config_roots: true,
+            use_config_roots: config_arguments.use_config_roots(),
         },
         cache_root,
         args.no_cache || fix_applicability.is_some(),
@@ -306,6 +317,7 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path, cache_root: &Path) -> Res
 
 fn run_add_ignore_with_cwd(
     args: &CheckCommand,
+    config_arguments: &ConfigArguments,
     cwd: &Path,
     cache_root: &Path,
     reason: Option<&str>,
@@ -322,6 +334,7 @@ fn run_add_ignore_with_cwd(
             force_exclude: args.force_exclude(),
             parallel: false,
             cache_root: Some(cache_root.to_path_buf()),
+            use_config_roots: config_arguments.use_config_roots(),
         },
         cache_root,
         true,
@@ -398,6 +411,7 @@ pub(crate) fn benchmark_check_paths(
             exit_zero: false,
             exit_non_zero_on_fix: false,
         },
+        &ConfigArguments::default(),
         cwd,
         &cwd.join("cache"),
     )?;
@@ -618,6 +632,7 @@ mod tests {
 
     use super::*;
     use crate::args::CheckOutputFormatArg;
+    use crate::config::ConfigArguments;
 
     fn pending_project_file(path: &Path, project_root: &Path) -> PendingProjectFile {
         PendingProjectFile {
@@ -669,6 +684,7 @@ mod tests {
 
         let report = run_check_with_cwd(
             &check_args(false),
+            &ConfigArguments::default(),
             tempdir.path(),
             &cache_root(tempdir.path()),
         )
@@ -758,6 +774,7 @@ mod tests {
 
         let report = run_check_with_cwd(
             &check_args(false),
+            &ConfigArguments::default(),
             tempdir.path(),
             &cache_root(tempdir.path()),
         )
@@ -802,12 +819,14 @@ mod tests {
 
         let first = run_check_with_cwd(
             &check_args(false),
+            &ConfigArguments::default(),
             tempdir.path(),
             &cache_root(tempdir.path()),
         )
         .unwrap();
         let second = run_check_with_cwd(
             &check_args(false),
+            &ConfigArguments::default(),
             tempdir.path(),
             &cache_root(tempdir.path()),
         )
@@ -827,6 +846,7 @@ mod tests {
 
         let first = run_check_with_cwd(
             &check_args(false),
+            &ConfigArguments::default(),
             tempdir.path(),
             &cache_root(tempdir.path()),
         )
@@ -839,6 +859,7 @@ mod tests {
 
         let second = run_check_with_cwd(
             &check_args(false),
+            &ConfigArguments::default(),
             tempdir.path(),
             &cache_root(tempdir.path()),
         )
@@ -855,6 +876,7 @@ mod tests {
 
         let report = run_check_with_cwd(
             &check_args(true),
+            &ConfigArguments::default(),
             tempdir.path(),
             &cache_root(tempdir.path()),
         )
@@ -873,6 +895,7 @@ mod tests {
 
         let report = run_check_with_cwd(
             &check_args(true),
+            &ConfigArguments::default(),
             tempdir.path(),
             &cache_root(tempdir.path()),
         )
@@ -896,13 +919,25 @@ mod tests {
         fs::write(&second, "#!/bin/bash\necho ok\n").unwrap();
 
         let cache_root = cache_root(tempdir.path());
-        let initial = run_check_with_cwd(&check_args(false), tempdir.path(), &cache_root).unwrap();
+        let initial = run_check_with_cwd(
+            &check_args(false),
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root,
+        )
+        .unwrap();
         assert_eq!(initial.cache_hits, 0);
         assert_eq!(initial.cache_misses, 2);
 
         fs::write(&second, "#!/bin/bash\nif true\n").unwrap();
 
-        let rerun = run_check_with_cwd(&check_args(false), tempdir.path(), &cache_root).unwrap();
+        let rerun = run_check_with_cwd(
+            &check_args(false),
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root,
+        )
+        .unwrap();
         assert_eq!(rerun.cache_hits, 1);
         assert_eq!(rerun.cache_misses, 1);
         assert_eq!(rerun.diagnostics.len(), 1);
@@ -917,6 +952,7 @@ mod tests {
 
         let report = run_check_with_cwd(
             &check_args(true),
+            &ConfigArguments::default(),
             tempdir.path(),
             &cache_root(tempdir.path()),
         )
@@ -943,8 +979,13 @@ mod tests {
             paths: vec![PathBuf::from("."), PathBuf::from("dup.sh")],
             ..check_args(true)
         };
-        let report =
-            run_check_with_cwd(&args, tempdir.path(), &cache_root(tempdir.path())).unwrap();
+        let report = run_check_with_cwd(
+            &args,
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
 
         assert_eq!(report.cache_hits, 0);
         assert_eq!(report.cache_misses, 1);
@@ -959,7 +1000,13 @@ mod tests {
         fs::write(tempdir.path().join("ok.sh"), "#!/bin/bash\necho ok\n").unwrap();
         fs::write(cache_root.join("broken.sh"), "#!/bin/bash\nif true\n").unwrap();
 
-        let report = run_check_with_cwd(&check_args(false), tempdir.path(), &cache_root).unwrap();
+        let report = run_check_with_cwd(
+            &check_args(false),
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root,
+        )
+        .unwrap();
 
         assert!(report.diagnostics.is_empty());
         assert!(!tempdir.path().join(".shuck_cache").exists());
@@ -1043,12 +1090,14 @@ mod tests {
 
         let first = run_check_with_cwd(
             &check_args_with_format(false, CheckOutputFormatArg::Full),
+            &ConfigArguments::default(),
             tempdir.path(),
             &cache_root(tempdir.path()),
         )
         .unwrap();
         let second = run_check_with_cwd(
             &check_args_with_format(false, CheckOutputFormatArg::Full),
+            &ConfigArguments::default(),
             tempdir.path(),
             &cache_root(tempdir.path()),
         )

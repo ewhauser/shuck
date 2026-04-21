@@ -45,7 +45,7 @@ pub fn run(args: Args) -> Result<ExitStatus> {
     }
 
     match command {
-        Command::Check(command) => commands::check::check(command, cache_dir.as_deref()),
+        Command::Check(command) => commands::check::check(command, &config, cache_dir.as_deref()),
         Command::Format(command) => format(command, &config, cache_dir.as_deref()),
         Command::Clean(command) => commands::clean::clean(command, &config, cache_dir.as_deref()),
     }

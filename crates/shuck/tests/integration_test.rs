@@ -1267,6 +1267,45 @@ fn clean_only_removes_selected_project_entries_from_shared_cache() {
 }
 
 #[test]
+fn check_and_clean_share_config_root_mode_for_explicit_config_files() {
+    let tempdir = tempdir().unwrap();
+    let cache_dir = tempdir.path().join("shared-cache");
+    let override_config = tempdir.path().join("override.toml");
+    let nested = tempdir.path().join("nested");
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(&override_config, "[format]\n").unwrap();
+    fs::write(
+        nested.join("shuck.toml"),
+        "[format]\nfunction-next-line = true\n",
+    )
+    .unwrap();
+    fs::write(nested.join("broken.sh"), "#!/bin/bash\nif true\n").unwrap();
+
+    let mut check = Command::cargo_bin("shuck").unwrap();
+    check
+        .current_dir(tempdir.path())
+        .arg("--cache-dir")
+        .arg(&cache_dir)
+        .arg("--config")
+        .arg(&override_config)
+        .arg("check");
+    check.assert().code(1);
+    assert!(cache_dir.exists());
+
+    let mut clean = Command::cargo_bin("shuck").unwrap();
+    clean
+        .current_dir(tempdir.path())
+        .arg("--cache-dir")
+        .arg(&cache_dir)
+        .arg("--config")
+        .arg(&override_config)
+        .arg("clean");
+    clean.assert().success();
+
+    assert!(!cache_dir.exists());
+}
+
+#[test]
 fn check_color_always_forces_ansi_output() {
     let tempdir = tempdir().unwrap();
     fs::write(tempdir.path().join("broken.sh"), "#!/bin/bash\nif true\n").unwrap();
