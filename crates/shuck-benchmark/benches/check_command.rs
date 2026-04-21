@@ -39,6 +39,7 @@ fn bench_check_command(c: &mut Criterion) {
         let group_name = match output_format {
             CheckOutputFormatArg::Concise => "check_command_concise",
             CheckOutputFormatArg::Full => "check_command_full",
+            _ => unreachable!("bench only covers concise and full output"),
         };
         let mut group = c.benchmark_group(group_name);
 

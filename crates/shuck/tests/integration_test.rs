@@ -38,6 +38,16 @@ fn enable_experimental(cmd: &mut Command) {
     cmd.env("SHUCK_EXPERIMENTAL", "1");
 }
 
+fn run_check_output(root: &Path, args: &[&str]) -> std::process::Output {
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, root);
+    cmd.current_dir(root).args(args).output().unwrap()
+}
+
+fn stdout_string(output: &std::process::Output) -> String {
+    String::from_utf8(output.stdout.clone()).unwrap()
+}
+
 #[derive(Clone, Copy)]
 enum StreamKind {
     Stdout,
@@ -485,6 +495,244 @@ fn check_concise_output_preserves_legacy_one_line_format() {
     cmd.assert()
         .code(1)
         .stdout("warn.sh:2:1: warning[C001] variable `unused` is assigned but never used\n");
+}
+
+#[test]
+fn check_output_format_env_var_selects_json() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("warn.sh"),
+        "#!/bin/bash\nunused=1\necho ok\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    let output = cmd
+        .current_dir(tempdir.path())
+        .env("SHUCK_OUTPUT_FORMAT", "json")
+        .arg("check")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value[0]["filename"], "warn.sh");
+    assert_eq!(value[0]["code"], "C001");
+}
+
+#[test]
+fn check_cli_output_format_overrides_env_var() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("warn.sh"),
+        "#!/bin/bash\nunused=1\necho ok\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .env("SHUCK_OUTPUT_FORMAT", "json")
+        .args(["check", "--output-format", "concise"]);
+    cmd.assert()
+        .code(1)
+        .stdout("warn.sh:2:1: warning[C001] variable `unused` is assigned but never used\n");
+}
+
+#[test]
+fn check_ruff_output_format_env_var_is_ignored() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("warn.sh"),
+        "#!/bin/bash\nunused=1\necho ok\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .env("RUFF_OUTPUT_FORMAT", "json")
+        .arg("check");
+    cmd.assert()
+        .code(1)
+        .stdout(predicate::str::contains("warning[C001]:"))
+        .stdout(predicate::str::contains("\"filename\"").not());
+}
+
+#[test]
+fn check_json_output_is_valid_json() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("warn.sh"),
+        "#!/bin/bash\nunused=1\necho ok\n",
+    )
+    .unwrap();
+
+    let output = run_check_output(tempdir.path(), &["check", "--output-format", "json"]);
+    assert_eq!(output.status.code(), Some(1));
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let diagnostics = value.as_array().unwrap();
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0]["filename"], "warn.sh");
+}
+
+#[test]
+fn check_json_lines_output_is_valid_json_lines() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("warn.sh"),
+        "#!/bin/bash\nunused=1\necho ok\n",
+    )
+    .unwrap();
+
+    let output = run_check_output(tempdir.path(), &["check", "--output-format", "json-lines"]);
+    assert_eq!(output.status.code(), Some(1));
+
+    let stdout = stdout_string(&output);
+    let lines = stdout.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 1);
+    let value: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+    assert_eq!(value["filename"], "warn.sh");
+}
+
+#[test]
+fn check_junit_output_is_valid_xml() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("warn.sh"),
+        "#!/bin/bash\nunused=1\necho ok\n",
+    )
+    .unwrap();
+
+    let output = run_check_output(tempdir.path(), &["check", "--output-format", "junit"]);
+    assert_eq!(output.status.code(), Some(1));
+
+    let stdout = stdout_string(&output);
+    let document = roxmltree::Document::parse(&stdout).unwrap();
+    assert_eq!(document.root_element().tag_name().name(), "testsuites");
+    assert!(
+        document
+            .descendants()
+            .any(|node| node.has_tag_name("testsuite"))
+    );
+    assert!(
+        document
+            .descendants()
+            .any(|node| node.has_tag_name("testcase"))
+    );
+}
+
+#[test]
+fn check_gitlab_output_is_valid_json() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("warn.sh"),
+        "#!/bin/bash\nunused=1\necho ok\n",
+    )
+    .unwrap();
+
+    let output = run_check_output(tempdir.path(), &["check", "--output-format", "gitlab"]);
+    assert_eq!(output.status.code(), Some(1));
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let diagnostics = value.as_array().unwrap();
+    assert_eq!(diagnostics[0]["location"]["path"], "warn.sh");
+}
+
+#[test]
+fn check_rdjson_output_is_valid_json() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("warn.sh"),
+        "#!/bin/bash\nunused=1\necho ok\n",
+    )
+    .unwrap();
+
+    let output = run_check_output(tempdir.path(), &["check", "--output-format", "rdjson"]);
+    assert_eq!(output.status.code(), Some(1));
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["source"]["name"], "shuck");
+    assert_eq!(value["diagnostics"][0]["location"]["path"], "warn.sh");
+}
+
+#[test]
+fn check_sarif_output_is_valid_json() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("warn.sh"),
+        "#!/bin/bash\nunused=1\necho ok\n",
+    )
+    .unwrap();
+
+    let output = run_check_output(tempdir.path(), &["check", "--output-format", "sarif"]);
+    assert_eq!(output.status.code(), Some(1));
+
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["version"], "2.1.0");
+    assert_eq!(value["runs"][0]["tool"]["driver"]["name"], "shuck");
+}
+
+#[test]
+fn check_github_output_uses_actions_annotation_format() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("warn.sh"),
+        "#!/bin/bash\nunused=1\necho ok\n",
+    )
+    .unwrap();
+
+    let output = run_check_output(tempdir.path(), &["check", "--output-format", "github"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        stdout_string(&output),
+        "::warning title=shuck (C001),file=warn.sh,line=2,col=1,endLine=2,endColumn=7::warn.sh:2:1: C001 variable `unused` is assigned but never used\n",
+    );
+}
+
+#[test]
+fn check_json_output_is_identical_on_cache_hit_for_fix_payloads() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("warn.sh"),
+        "#!/bin/bash\nprintf '%s\\n' x &;\n",
+    )
+    .unwrap();
+
+    let first = run_check_output(tempdir.path(), &["check", "--output-format", "json"]);
+    assert_eq!(first.status.code(), Some(1));
+    let first_stdout = stdout_string(&first);
+    let first_value: serde_json::Value = serde_json::from_str(&first_stdout).unwrap();
+    assert!(first_value[0]["fix"].is_object());
+
+    let second = run_check_output(tempdir.path(), &["check", "--output-format", "json"]);
+    assert_eq!(second.status.code(), Some(1));
+    assert_eq!(stdout_string(&second), first_stdout);
+}
+
+#[test]
+fn check_structured_parse_error_output_is_identical_on_cache_hit() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("broken.sh"),
+        "#!/bin/bash\necho \"unterminated\n",
+    )
+    .unwrap();
+
+    let first = run_check_output(tempdir.path(), &["check", "--output-format", "sarif"]);
+    assert_eq!(first.status.code(), Some(1));
+    let first_stdout = stdout_string(&first);
+    let first_value: serde_json::Value = serde_json::from_str(&first_stdout).unwrap();
+    assert_eq!(
+        first_value["runs"][0]["results"][0]["ruleId"],
+        "parse-error"
+    );
+
+    let second = run_check_output(tempdir.path(), &["check", "--output-format", "sarif"]);
+    assert_eq!(second.status.code(), Some(1));
+    assert_eq!(stdout_string(&second), first_stdout);
 }
 
 #[test]

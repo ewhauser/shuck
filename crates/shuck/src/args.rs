@@ -58,8 +58,16 @@ impl From<FormatIndentStyleArg> for IndentStyle {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum CheckOutputFormatArg {
-    Full,
     Concise,
+    Full,
+    Json,
+    JsonLines,
+    Junit,
+    Grouped,
+    Github,
+    Gitlab,
+    Rdjson,
+    Sarif,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -278,8 +286,14 @@ pub struct CheckCommand {
         conflicts_with = "unsafe_fixes",
     )]
     pub add_ignore: Option<String>,
-    /// Choose the text output format for reported diagnostics.
-    #[arg(long = "output-format", value_enum, default_value_t = CheckOutputFormatArg::Full)]
+    /// Output serialization format for violations.
+    /// The default serialization format is "full".
+    #[arg(
+        long = "output-format",
+        value_enum,
+        env = "SHUCK_OUTPUT_FORMAT",
+        default_value_t = CheckOutputFormatArg::Full
+    )]
     pub output_format: CheckOutputFormatArg,
     /// Run in watch mode by re-running whenever files change.
     #[arg(short = 'w', long, conflicts_with = "add_ignore")]
@@ -811,6 +825,25 @@ mod tests {
         let command = parse_check(["shuck", "check", "--watch"]);
 
         assert!(command.watch);
+    }
+
+    #[test]
+    fn parses_all_check_output_formats() {
+        for (raw, expected) in [
+            ("concise", CheckOutputFormatArg::Concise),
+            ("full", CheckOutputFormatArg::Full),
+            ("json", CheckOutputFormatArg::Json),
+            ("json-lines", CheckOutputFormatArg::JsonLines),
+            ("junit", CheckOutputFormatArg::Junit),
+            ("grouped", CheckOutputFormatArg::Grouped),
+            ("github", CheckOutputFormatArg::Github),
+            ("gitlab", CheckOutputFormatArg::Gitlab),
+            ("rdjson", CheckOutputFormatArg::Rdjson),
+            ("sarif", CheckOutputFormatArg::Sarif),
+        ] {
+            let command = parse_check(["shuck", "check", "--output-format", raw]);
+            assert_eq!(command.output_format, expected, "failed to parse {raw}");
+        }
     }
 
     #[test]

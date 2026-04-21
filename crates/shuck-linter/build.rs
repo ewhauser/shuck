@@ -8,6 +8,9 @@ use serde::Deserialize;
 struct RuleMetadata {
     new_code: String,
     shellcheck_code: Option<String>,
+    description: String,
+    rationale: String,
+    fix_description: Option<String>,
 }
 
 fn parse_shellcheck_code_value(raw: &str) -> Result<Option<u32>, String> {
@@ -26,7 +29,7 @@ fn parse_shellcheck_code_value(raw: &str) -> Result<Option<u32>, String> {
     Ok(Some(number))
 }
 
-fn parse_rule_metadata(data: &str) -> Result<(String, Option<u32>), String> {
+fn parse_rule_metadata(data: &str) -> Result<(RuleMetadata, Option<u32>), String> {
     let metadata: RuleMetadata =
         serde_yaml::from_str(data).map_err(|err| format!("invalid rule metadata: {err}"))?;
 
@@ -42,7 +45,7 @@ fn parse_rule_metadata(data: &str) -> Result<(String, Option<u32>), String> {
         .transpose()?
         .flatten();
 
-    Ok((rule_code.to_owned(), shellcheck_code))
+    Ok((metadata, shellcheck_code))
 }
 
 fn main() {
@@ -59,14 +62,22 @@ fn main() {
     entries.sort();
 
     let mut mappings = Vec::new();
+    let mut metadata_rows = Vec::new();
 
     for path in entries {
         println!("cargo:rerun-if-changed={}", path.display());
         let data = fs::read_to_string(&path)
             .unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
 
-        let (rule_code, shellcheck_code) =
+        let (metadata, shellcheck_code) =
             parse_rule_metadata(&data).unwrap_or_else(|err| panic!("{err} in {}", path.display()));
+        let rule_code = metadata.new_code.trim().to_owned();
+        metadata_rows.push((
+            rule_code.clone(),
+            metadata.description,
+            metadata.rationale,
+            metadata.fix_description,
+        ));
 
         let Some(shellcheck_code) = shellcheck_code else {
             continue;
@@ -84,4 +95,26 @@ fn main() {
         PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR")).join("shellcheck_map_data.rs");
     fs::write(&out_path, generated)
         .unwrap_or_else(|err| panic!("write {}: {err}", out_path.display()));
+
+    let mut metadata_generated = String::from("pub const RULE_METADATA: &[RuleMetadata] = &[\n");
+    for (rule_code, description, rationale, fix_description) in metadata_rows {
+        metadata_generated.push_str("    RuleMetadata {\n");
+        metadata_generated.push_str(&format!("        code: {:?},\n", rule_code));
+        metadata_generated.push_str(&format!("        description: {:?},\n", description));
+        metadata_generated.push_str(&format!("        rationale: {:?},\n", rationale));
+        metadata_generated.push_str(&format!(
+            "        fix_description: {},\n",
+            match fix_description {
+                Some(value) => format!("Some({value:?})"),
+                None => "None".to_owned(),
+            }
+        ));
+        metadata_generated.push_str("    },\n");
+    }
+    metadata_generated.push_str("];\n");
+
+    let metadata_out_path =
+        PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR")).join("rule_metadata_data.rs");
+    fs::write(&metadata_out_path, metadata_generated)
+        .unwrap_or_else(|err| panic!("write {}: {err}", metadata_out_path.display()));
 }
