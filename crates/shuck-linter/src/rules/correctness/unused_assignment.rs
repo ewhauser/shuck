@@ -147,13 +147,12 @@ fn is_reportable_unused_assignment(kind: BindingKind, attributes: BindingAttribu
     match kind {
         BindingKind::Assignment
         | BindingKind::ArrayAssignment
+        | BindingKind::LoopVariable
         | BindingKind::ReadTarget
         | BindingKind::MapfileTarget
         | BindingKind::PrintfTarget
         | BindingKind::GetoptsTarget
         | BindingKind::ArithmeticAssignment => true,
-        // ShellCheck's default SC2034 behavior skips plain loop counters.
-        BindingKind::LoopVariable => false,
         BindingKind::AppendAssignment | BindingKind::ParameterDefaultAssignment => false,
         BindingKind::Declaration(_) => {
             attributes.contains(BindingAttributes::DECLARATION_INITIALIZED)
@@ -319,7 +318,7 @@ mod tests {
     }
 
     #[test]
-    fn ignores_unused_for_loop_counters() {
+    fn reports_unused_for_loop_counters() {
         let source = "\
 #!/bin/bash
 unused=1
@@ -329,9 +328,24 @@ done
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
-        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics.len(), 2);
         assert_eq!(diagnostics[0].span.start.line, 2);
         assert_eq!(diagnostics[0].span.slice(source), "unused");
+        assert_eq!(diagnostics[1].span.start.line, 3);
+        assert_eq!(diagnostics[1].span.slice(source), "i");
+    }
+
+    #[test]
+    fn body_reads_keep_loop_counters_live() {
+        let source = "\
+#!/bin/bash
+for i in {0..5}; do
+  printf '%s\\n' \"$i\"
+done
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
