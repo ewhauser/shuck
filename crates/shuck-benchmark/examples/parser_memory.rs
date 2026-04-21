@@ -246,7 +246,7 @@ fn parse_case_arg() -> Option<String> {
     }
 }
 
-fn main() {
+fn main() -> serde_json::Result<()> {
     let requested_case = parse_case_arg();
     let reports = if let Some(case_name) = requested_case {
         let Some(report) = single_case_report(&case_name) else {
@@ -261,6 +261,7 @@ fn main() {
             .collect::<Vec<_>>()
     };
 
-    serde_json::to_writer_pretty(std::io::stdout().lock(), &reports).unwrap();
+    serde_json::to_writer_pretty(std::io::stdout().lock(), &reports)?;
     println!();
+    Ok(())
 }

@@ -4360,7 +4360,8 @@ impl<'a> Parser<'a> {
                     }
 
                     let is_literal = kind == TokenKind::LiteralWord;
-                    let word_text = self.current_source_like_word_text().unwrap();
+                    let word_text =
+                        self.current_source_like_word_text_or_error("simple command word")?;
                     let assignment_shape = (!is_literal && words.is_empty())
                         .then(|| Self::is_assignment(word_text.as_ref()));
                     let assignment_shape = assignment_shape.flatten();
@@ -4396,7 +4397,7 @@ impl<'a> Parser<'a> {
                         let saved_span = self.current_span;
                         self.advance();
                         if let Some(word) =
-                            self.try_parse_compound_array_arg(word_text.as_ref(), saved_span)
+                            self.try_parse_compound_array_arg(word_text.as_ref(), saved_span)?
                         {
                             words.push(word);
                             continue;

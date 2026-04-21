@@ -4,17 +4,11 @@
 //! recovery diagnostics and lightweight syntax facts needed by downstream tooling.
 #![cfg_attr(not(test), warn(clippy::unwrap_used))]
 
-// Arithmetic parsing uses raw unwraps only after cursor checks guarantee the next token exists.
-#[allow(clippy::unwrap_used)]
 mod arithmetic;
-// Command parsing uses raw unwraps only after token-kind checks guarantee source-backed text.
-#[allow(clippy::unwrap_used)]
 mod commands;
 mod heredocs;
 mod lexer;
 mod redirects;
-// Word parsing uses raw unwraps only after cursor and segment checks guarantee bounds safety.
-#[allow(clippy::unwrap_used)]
 mod words;
 
 use std::{
@@ -3473,6 +3467,17 @@ impl<'a> Parser<'a> {
             .filter(|kind| kind.is_word_like())
             .and(self.current_token.as_ref())
             .and_then(|token| self.token_source_like_word_text(token))
+    }
+
+    fn current_source_like_word_text_or_error(
+        &self,
+        context: &'static str,
+    ) -> Result<Cow<'a, str>> {
+        self.current_source_like_word_text().ok_or_else(|| {
+            self.error(format!(
+                "internal parser error: missing source text for {context}"
+            ))
+        })
     }
 
     fn keyword_from_token(token: &LexedToken<'_>) -> Option<Keyword> {

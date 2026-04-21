@@ -448,7 +448,7 @@ impl<'a> PatternParser<'a> {
     }
 
     fn is_escaped(&self, cursor: PatternCursor) -> bool {
-        let PatternSegment::Literal { text, .. } = self.segments.get(cursor.segment_index).unwrap()
+        let Some(PatternSegment::Literal { text, .. }) = self.segments.get(cursor.segment_index)
         else {
             return false;
         };
@@ -2771,9 +2771,9 @@ impl<'a> Parser<'a> {
         &mut self,
         saved_w: &str,
         saved_span: Span,
-    ) -> Option<Word> {
+    ) -> Result<Option<Word>> {
         if !self.at(TokenKind::LeftParen) {
-            return None;
+            return Ok(None);
         }
 
         let open_paren_span = self.current_span;
@@ -2788,7 +2788,7 @@ impl<'a> Parser<'a> {
                 self.advance();
             }
             let span = saved_span.merge(closing_span);
-            return Some(self.word_from_raw_text(&compound, span));
+            return Ok(Some(self.word_from_raw_text(&compound, span)));
         }
 
         self.advance(); // consume '('
@@ -2803,7 +2803,9 @@ impl<'a> Parser<'a> {
                     break;
                 }
                 Some(kind) if kind.is_word_like() => {
-                    let elem = self.current_source_like_word_text().unwrap();
+                    let elem = self.current_source_like_word_text_or_error(
+                        "compound array argument element",
+                    )?;
                     compound.push(' ');
                     compound.push_str(&elem);
                     self.advance();
@@ -2823,10 +2825,20 @@ impl<'a> Parser<'a> {
 
         if saved_span.start.offset <= span.end.offset && span.end.offset <= self.input.len() {
             let source = &self.input[saved_span.start.offset..span.end.offset];
-            return Some(self.decode_word_text(source, span, saved_span.start, true));
+            return Ok(Some(self.decode_word_text(
+                source,
+                span,
+                saved_span.start,
+                true,
+            )));
         }
 
-        Some(self.decode_word_text(&compound, span, saved_span.start, false))
+        Ok(Some(self.decode_word_text(
+            &compound,
+            span,
+            saved_span.start,
+            false,
+        )))
     }
 
     /// Parse a heredoc redirect (`<<` or `<<-`) and any trailing redirects on the same line.
