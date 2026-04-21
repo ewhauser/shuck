@@ -1,6 +1,7 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::Name;
 use shuck_ast::Span;
+use smallvec::SmallVec;
 
 use crate::runtime::RuntimePrelude;
 use crate::{
@@ -71,7 +72,7 @@ pub(crate) struct DataflowContext<'a> {
     pub(crate) predefined_runtime_refs: &'a FxHashSet<ReferenceId>,
     pub(crate) guarded_parameter_refs: &'a FxHashSet<ReferenceId>,
     pub(crate) resolved: &'a FxHashMap<ReferenceId, BindingId>,
-    pub(crate) call_sites: &'a FxHashMap<Name, Vec<CallSite>>,
+    pub(crate) call_sites: &'a FxHashMap<Name, SmallVec<[CallSite; 2]>>,
     pub(crate) indirect_targets_by_reference: &'a FxHashMap<ReferenceId, Vec<BindingId>>,
     pub(crate) synthetic_reads: &'a [SyntheticRead],
     pub(crate) entry_bindings: &'a [BindingId],
@@ -337,12 +338,12 @@ fn build_dead_code(cfg: &ControlFlowGraph) -> Vec<DeadCode> {
         .collect()
 }
 
-fn build_bindings_by_name(bindings: &[Binding]) -> FxHashMap<Name, Vec<BindingId>> {
-    let mut bindings_by_name = FxHashMap::default();
+fn build_bindings_by_name(bindings: &[Binding]) -> FxHashMap<Name, SmallVec<[BindingId; 2]>> {
+    let mut bindings_by_name: FxHashMap<Name, SmallVec<[BindingId; 2]>> = FxHashMap::default();
     for binding in bindings {
         bindings_by_name
             .entry(binding.name.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(binding.id);
     }
     bindings_by_name
@@ -603,7 +604,7 @@ fn cfg_has_no_branching_edges(cfg: &ControlFlowGraph) -> bool {
 struct RedundantBranchUnusedAssignmentContext<'a> {
     cfg: &'a ControlFlowGraph,
     bindings: &'a [Binding],
-    bindings_by_name: &'a FxHashMap<Name, Vec<BindingId>>,
+    bindings_by_name: &'a FxHashMap<Name, SmallVec<[BindingId; 2]>>,
     binding_blocks: &'a [Option<BlockId>],
     unreachable_blocks: &'a DenseBitSet,
     unused_binding_ids: &'a FxHashSet<BindingId>,
@@ -1615,7 +1616,7 @@ fn build_scope_read_plans(
     synthetic_reads: &[SyntheticRead],
     reference_name_ids: &[NameId],
     synthetic_read_name_ids: &[NameId],
-    call_sites: &FxHashMap<Name, Vec<CallSite>>,
+    call_sites: &FxHashMap<Name, SmallVec<[CallSite; 2]>>,
     name_count: usize,
 ) -> (Vec<ScopeReadPlan>, Vec<Vec<CallerReadSite>>) {
     let function_scopes = function_scopes_by_binding(scopes, bindings);
@@ -1935,7 +1936,7 @@ fn function_scopes_by_binding(
 fn resolved_calls_by_scope(
     scopes: &[Scope],
     bindings: &[Binding],
-    call_sites: &FxHashMap<Name, Vec<CallSite>>,
+    call_sites: &FxHashMap<Name, SmallVec<[CallSite; 2]>>,
     function_scopes: &FxHashMap<BindingId, ScopeId>,
 ) -> FxHashMap<ScopeId, Vec<ResolvedCallSite>> {
     let mut calls_by_scope: FxHashMap<ScopeId, Vec<ResolvedCallSite>> = FxHashMap::default();

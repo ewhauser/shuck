@@ -4694,7 +4694,7 @@ FOR2 eye2 IN onetwo 3; do echo $i; done
         panic!("expected final command to be a for loop");
     };
     assert_eq!(command.targets[0].name.as_deref(), Some("i"));
-    assert_eq!(command.words.as_ref().map(Vec::len), Some(3));
+    assert_eq!(command.words.as_ref().map(|words| words.len()), Some(3));
 }
 
 #[test]
@@ -4787,7 +4787,7 @@ e_ $i; done
     };
 
     assert_eq!(command.targets[0].name.as_deref(), Some("i"));
-    assert_eq!(command.words.as_ref().map(Vec::len), Some(3));
+    assert_eq!(command.words.as_ref().map(|words| words.len()), Some(3));
 
     let Some(body_stmt) = command.body.first() else {
         panic!("expected loop body command");

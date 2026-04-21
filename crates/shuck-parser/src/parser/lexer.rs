@@ -6,6 +6,7 @@ use std::{collections::VecDeque, ops::Range, sync::Arc};
 
 use memchr::{memchr, memchr_iter, memrchr};
 use shuck_ast::{Position, Span, TokenKind};
+use smallvec::SmallVec;
 
 use super::{ShellProfile, ZshOptionState, ZshOptionTimeline};
 
@@ -2661,7 +2662,7 @@ impl<'a> Lexer<'a> {
     fn flush_command_subst_keyword(
         current_word: &mut String,
         pending_case_headers: &mut usize,
-        case_clause_depths: &mut Vec<usize>,
+        case_clause_depths: &mut SmallVec<[usize; 4]>,
         depth: usize,
         word_started_at_command_start: &mut bool,
     ) {
@@ -2805,9 +2806,9 @@ impl<'a> Lexer<'a> {
         }
 
         let mut depth = 1;
-        let mut pending_heredocs: Vec<(String, bool)> = Vec::new();
+        let mut pending_heredocs = SmallVec::<[(String, bool); 2]>::new();
         let mut pending_case_headers = 0usize;
-        let mut case_clause_depths = Vec::new();
+        let mut case_clause_depths = SmallVec::<[usize; 4]>::new();
         let mut current_word = String::with_capacity(16);
         let mut at_command_start = true;
         let mut expecting_redirection_target = false;
@@ -4325,7 +4326,7 @@ fn scan_command_subst_backtick_segment(input: &str, start: usize) -> Option<usiz
 fn flush_scanned_command_subst_keyword(
     current_word: &mut String,
     pending_case_headers: &mut usize,
-    case_clause_depths: &mut Vec<usize>,
+    case_clause_depths: &mut SmallVec<[usize; 4]>,
     depth: usize,
     word_started_at_command_start: &mut bool,
 ) {
@@ -4357,9 +4358,9 @@ fn scan_command_substitution_body_len_inner(input: &str, subst_depth: usize) -> 
 
     let mut index = 0usize;
     let mut depth = 1;
-    let mut pending_heredocs: Vec<(String, bool)> = Vec::new();
+    let mut pending_heredocs = SmallVec::<[(String, bool); 2]>::new();
     let mut pending_case_headers = 0usize;
-    let mut case_clause_depths = Vec::new();
+    let mut case_clause_depths = SmallVec::<[usize; 4]>::new();
     let mut current_word = String::with_capacity(16);
     let mut at_command_start = true;
     let mut expecting_redirection_target = false;

@@ -1,5 +1,6 @@
 use super::*;
 use shuck_ast::ArrayValueWord;
+use smallvec::SmallVec;
 #[derive(Debug, Clone, Copy)]
 struct PatternCursor {
     segment_index: usize,
@@ -2662,9 +2663,12 @@ impl<'a> Parser<'a> {
         explicit_kind
     }
 
-    pub(super) fn classify_decl_operands(&mut self, words: Vec<Word>) -> Vec<DeclOperand> {
+    pub(super) fn classify_decl_operands(
+        &mut self,
+        words: SmallVec<[Word; 2]>,
+    ) -> SmallVec<[DeclOperand; 2]> {
         let mut explicit_array_kind = None;
-        let mut operands = Vec::with_capacity(words.len());
+        let mut operands = SmallVec::<[DeclOperand; 2]>::with_capacity(words.len());
 
         for word in words {
             if let Some(text) = self.single_literal_word_text(&word)

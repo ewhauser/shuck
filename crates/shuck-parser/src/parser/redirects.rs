@@ -1,4 +1,5 @@
 use super::*;
+use smallvec::SmallVec;
 
 impl<'a> Parser<'a> {
     pub(super) fn fd_var_gap_allows_attachment(gap: &str) -> bool {
@@ -71,7 +72,7 @@ impl<'a> Parser<'a> {
             .and_then(LexedToken::fd_pair_value)
     }
     pub(super) fn push_redirect_both_append(
-        redirects: &mut Vec<Redirect>,
+        redirects: &mut SmallVec<[Redirect; 1]>,
         operator_span: Span,
         target: Word,
     ) {
@@ -118,7 +119,7 @@ impl<'a> Parser<'a> {
 
     pub(super) fn consume_non_heredoc_redirect(
         &mut self,
-        redirects: &mut Vec<Redirect>,
+        redirects: &mut SmallVec<[Redirect; 1]>,
         fd_var: Option<Name>,
         fd_var_span: Option<Span>,
         strict: bool,
@@ -372,8 +373,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub(super) fn parse_trailing_redirects(&mut self) -> Vec<Redirect> {
-        let mut redirects = Vec::new();
+    pub(super) fn parse_trailing_redirects(&mut self) -> SmallVec<[Redirect; 1]> {
+        let mut redirects = SmallVec::<[Redirect; 1]>::new();
         let mut pending_fd_var = None;
         loop {
             let current_end = self.current_span.end.offset;

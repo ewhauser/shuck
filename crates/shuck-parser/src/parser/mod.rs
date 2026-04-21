@@ -19,13 +19,12 @@ use std::{
     sync::Arc,
 };
 
-use memchr::{memchr, memchr2, memchr3};
-use smallvec::SmallVec;
-
 pub use lexer::{
     HeredocRead, LexedToken, LexedWord, LexedWordSegment, LexedWordSegmentKind, Lexer,
     LexerErrorKind,
 };
+use memchr::{memchr, memchr2, memchr3};
+use smallvec::SmallVec;
 
 use shuck_ast::{
     AlwaysCommand, AnonymousFunctionCommand, AnonymousFunctionSurface, ArithmeticCommand,
@@ -173,48 +172,45 @@ pub struct ParserBenchmarkCounters {
 #[derive(Debug, Clone)]
 struct SimpleCommand {
     name: Word,
-    args: Vec<Word>,
-    redirects: Vec<Redirect>,
-    assignments: Vec<Assignment>,
+    args: SmallVec<[Word; 2]>,
+    redirects: SmallVec<[Redirect; 1]>,
+    assignments: SmallVec<[Assignment; 1]>,
     span: Span,
 }
-
-type SmallWordList = SmallVec<[Word; 4]>;
-type SmallAssignmentList = SmallVec<[Assignment; 1]>;
 
 #[derive(Debug, Clone)]
 struct BreakCommand {
     depth: Option<Word>,
-    extra_args: Vec<Word>,
-    redirects: Vec<Redirect>,
-    assignments: Vec<Assignment>,
+    extra_args: SmallVec<[Word; 2]>,
+    redirects: SmallVec<[Redirect; 1]>,
+    assignments: SmallVec<[Assignment; 1]>,
     span: Span,
 }
 
 #[derive(Debug, Clone)]
 struct ContinueCommand {
     depth: Option<Word>,
-    extra_args: Vec<Word>,
-    redirects: Vec<Redirect>,
-    assignments: Vec<Assignment>,
+    extra_args: SmallVec<[Word; 2]>,
+    redirects: SmallVec<[Redirect; 1]>,
+    assignments: SmallVec<[Assignment; 1]>,
     span: Span,
 }
 
 #[derive(Debug, Clone)]
 struct ReturnCommand {
     code: Option<Word>,
-    extra_args: Vec<Word>,
-    redirects: Vec<Redirect>,
-    assignments: Vec<Assignment>,
+    extra_args: SmallVec<[Word; 2]>,
+    redirects: SmallVec<[Redirect; 1]>,
+    assignments: SmallVec<[Assignment; 1]>,
     span: Span,
 }
 
 #[derive(Debug, Clone)]
 struct ExitCommand {
     code: Option<Word>,
-    extra_args: Vec<Word>,
-    redirects: Vec<Redirect>,
-    assignments: Vec<Assignment>,
+    extra_args: SmallVec<[Word; 2]>,
+    redirects: SmallVec<[Redirect; 1]>,
+    assignments: SmallVec<[Assignment; 1]>,
     span: Span,
 }
 
@@ -230,9 +226,9 @@ enum BuiltinCommand {
 struct DeclClause {
     variant: Name,
     variant_span: Span,
-    operands: Vec<DeclOperand>,
-    redirects: Vec<Redirect>,
-    assignments: Vec<Assignment>,
+    operands: SmallVec<[DeclOperand; 2]>,
+    redirects: SmallVec<[Redirect; 1]>,
+    assignments: SmallVec<[Assignment; 1]>,
     span: Span,
 }
 
@@ -240,10 +236,10 @@ struct DeclClause {
 enum Command {
     Simple(SimpleCommand),
     Builtin(BuiltinCommand),
-    Decl(DeclClause),
-    Compound(Box<CompoundCommand>, Vec<Redirect>),
+    Decl(Box<DeclClause>),
+    Compound(Box<CompoundCommand>, SmallVec<[Redirect; 1]>),
     Function(FunctionDef),
-    AnonymousFunction(AnonymousFunctionCommand, Vec<Redirect>),
+    AnonymousFunction(AnonymousFunctionCommand, SmallVec<[Redirect; 1]>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -6430,7 +6426,9 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn lower_builtin_command(builtin: BuiltinCommand) -> (AstBuiltinCommand, Vec<Redirect>, Span) {
+    fn lower_builtin_command(
+        builtin: BuiltinCommand,
+    ) -> (AstBuiltinCommand, SmallVec<[Redirect; 1]>, Span) {
         match builtin {
             BuiltinCommand::Break(command) => {
                 let span = command.span;
@@ -6438,8 +6436,8 @@ impl<'a> Parser<'a> {
                 (
                     AstBuiltinCommand::Break(AstBreakCommand {
                         depth: command.depth,
-                        extra_args: command.extra_args,
-                        assignments: command.assignments,
+                        extra_args: command.extra_args.into_vec(),
+                        assignments: command.assignments.into_vec(),
                         span,
                     }),
                     redirects,
@@ -6452,8 +6450,8 @@ impl<'a> Parser<'a> {
                 (
                     AstBuiltinCommand::Continue(AstContinueCommand {
                         depth: command.depth,
-                        extra_args: command.extra_args,
-                        assignments: command.assignments,
+                        extra_args: command.extra_args.into_vec(),
+                        assignments: command.assignments.into_vec(),
                         span,
                     }),
                     redirects,
@@ -6466,8 +6464,8 @@ impl<'a> Parser<'a> {
                 (
                     AstBuiltinCommand::Return(AstReturnCommand {
                         code: command.code,
-                        extra_args: command.extra_args,
-                        assignments: command.assignments,
+                        extra_args: command.extra_args.into_vec(),
+                        assignments: command.assignments.into_vec(),
                         span,
                     }),
                     redirects,
@@ -6480,8 +6478,8 @@ impl<'a> Parser<'a> {
                 (
                     AstBuiltinCommand::Exit(AstExitCommand {
                         code: command.code,
-                        extra_args: command.extra_args,
-                        assignments: command.assignments,
+                        extra_args: command.extra_args.into_vec(),
+                        assignments: command.assignments.into_vec(),
                         span,
                     }),
                     redirects,
@@ -6497,12 +6495,12 @@ impl<'a> Parser<'a> {
                 leading_comments: Vec::new(),
                 command: AstCommand::Simple(AstSimpleCommand {
                     name: command.name,
-                    args: command.args,
-                    assignments: command.assignments,
+                    args: command.args.into_vec(),
+                    assignments: command.assignments.into_vec(),
                     span: command.span,
                 }),
                 negated: false,
-                redirects: command.redirects,
+                redirects: command.redirects.into_vec(),
                 terminator: None,
                 terminator_span: None,
                 inline_comment: None,
@@ -6514,36 +6512,39 @@ impl<'a> Parser<'a> {
                     leading_comments: Vec::new(),
                     command: AstCommand::Builtin(command),
                     negated: false,
-                    redirects,
+                    redirects: redirects.into_vec(),
                     terminator: None,
                     terminator_span: None,
                     inline_comment: None,
                     span,
                 }
             }
-            Command::Decl(command) => Stmt {
-                leading_comments: Vec::new(),
-                command: AstCommand::Decl(AstDeclClause {
-                    variant: command.variant,
-                    variant_span: command.variant_span,
-                    operands: command.operands,
-                    assignments: command.assignments,
+            Command::Decl(command) => {
+                let command = *command;
+                Stmt {
+                    leading_comments: Vec::new(),
+                    command: AstCommand::Decl(AstDeclClause {
+                        variant: command.variant,
+                        variant_span: command.variant_span,
+                        operands: command.operands.into_vec(),
+                        assignments: command.assignments.into_vec(),
+                        span: command.span,
+                    }),
+                    negated: false,
+                    redirects: command.redirects.into_vec(),
+                    terminator: None,
+                    terminator_span: None,
+                    inline_comment: None,
                     span: command.span,
-                }),
-                negated: false,
-                redirects: command.redirects,
-                terminator: None,
-                terminator_span: None,
-                inline_comment: None,
-                span: command.span,
-            },
+                }
+            }
             Command::Compound(compound, redirects) => {
                 let span = Self::compound_span(&compound);
                 Stmt {
                     leading_comments: Vec::new(),
                     command: AstCommand::Compound(*compound),
                     negated: false,
-                    redirects,
+                    redirects: redirects.into_vec(),
                     terminator: None,
                     terminator_span: None,
                     inline_comment: None,
@@ -6565,7 +6566,7 @@ impl<'a> Parser<'a> {
                 span: function.span,
                 command: AstCommand::AnonymousFunction(function),
                 negated: false,
-                redirects,
+                redirects: redirects.into_vec(),
                 terminator: None,
                 terminator_span: None,
                 inline_comment: None,

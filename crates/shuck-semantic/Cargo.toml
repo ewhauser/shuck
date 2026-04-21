@@ -12,6 +12,7 @@ categories = ["development-tools"]
 [dependencies]
 bitflags = "2"
 rustc-hash = "2"
+smallvec.workspace = true
 shuck-ast = { path = "../shuck-ast" }
 shuck-indexer = { path = "../shuck-indexer" }
 shuck-parser = { path = "../shuck-parser" }

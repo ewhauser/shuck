@@ -1232,7 +1232,7 @@ mod tests {
         let Command::Simple(command) = &file.body[0].command else {
             panic!("expected simple command");
         };
-        command.args.clone()
+        command.args.to_vec()
     }
 
     fn analyze_argument_words(source: &str) -> Vec<ExpansionAnalysis> {

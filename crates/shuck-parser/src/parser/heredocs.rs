@@ -1,4 +1,5 @@
 use super::*;
+use smallvec::SmallVec;
 
 impl<'a> Parser<'a> {
     pub(super) fn current_static_heredoc_delimiter(&mut self) -> Option<(Word, String, bool)> {
@@ -42,7 +43,7 @@ impl<'a> Parser<'a> {
     pub(super) fn consume_heredoc_redirect(
         &mut self,
         strip_tabs: bool,
-        redirects: &mut Vec<Redirect>,
+        redirects: &mut SmallVec<[Redirect; 1]>,
         fd_var: Option<Name>,
         fd_var_span: Option<Span>,
         strict: bool,
@@ -137,7 +138,7 @@ impl<'a> Parser<'a> {
     pub(super) fn parse_heredoc_redirect(
         &mut self,
         strip_tabs: bool,
-        redirects: &mut Vec<Redirect>,
+        redirects: &mut SmallVec<[Redirect; 1]>,
         fd_var: Option<Name>,
         fd_var_span: Option<Span>,
     ) -> Result<()> {
@@ -148,7 +149,7 @@ impl<'a> Parser<'a> {
     /// Consume redirect tokens that follow a heredoc on the same line.
     pub(super) fn collect_trailing_redirects(
         &mut self,
-        redirects: &mut Vec<Redirect>,
+        redirects: &mut SmallVec<[Redirect; 1]>,
     ) -> Result<()> {
         while self.consume_non_heredoc_redirect(redirects, None, None, false)? {}
         Ok(())

@@ -10,6 +10,7 @@ use shuck_ast::{
 };
 use shuck_indexer::Indexer;
 use shuck_parser::{ShellProfile, ZshEmulationMode};
+use smallvec::SmallVec;
 
 use crate::binding::{
     AssignmentValueOrigin, Binding, BindingAttributes, BindingKind, BindingOrigin,
@@ -40,14 +41,14 @@ pub(crate) struct BuildOutput {
     pub(crate) scopes: Vec<Scope>,
     pub(crate) bindings: Vec<Binding>,
     pub(crate) references: Vec<Reference>,
-    pub(crate) reference_index: FxHashMap<Name, Vec<ReferenceId>>,
+    pub(crate) reference_index: FxHashMap<Name, SmallVec<[ReferenceId; 2]>>,
     pub(crate) predefined_runtime_refs: FxHashSet<ReferenceId>,
     pub(crate) guarded_parameter_refs: FxHashSet<ReferenceId>,
-    pub(crate) binding_index: FxHashMap<Name, Vec<BindingId>>,
+    pub(crate) binding_index: FxHashMap<Name, SmallVec<[BindingId; 2]>>,
     pub(crate) resolved: FxHashMap<ReferenceId, BindingId>,
     pub(crate) unresolved: Vec<ReferenceId>,
-    pub(crate) functions: FxHashMap<Name, Vec<BindingId>>,
-    pub(crate) call_sites: FxHashMap<Name, Vec<CallSite>>,
+    pub(crate) functions: FxHashMap<Name, SmallVec<[BindingId; 2]>>,
+    pub(crate) call_sites: FxHashMap<Name, SmallVec<[CallSite; 2]>>,
     pub(crate) call_graph: CallGraph,
     pub(crate) source_refs: Vec<SourceRef>,
     pub(crate) runtime: RuntimePrelude,
@@ -56,8 +57,8 @@ pub(crate) struct BuildOutput {
     pub(crate) indirect_expansion_refs: FxHashSet<ReferenceId>,
     pub(crate) flow_contexts: Vec<(Span, FlowContext)>,
     pub(crate) recorded_program: RecordedProgram,
-    pub(crate) command_bindings: FxHashMap<SpanKey, Vec<BindingId>>,
-    pub(crate) command_references: FxHashMap<SpanKey, Vec<ReferenceId>>,
+    pub(crate) command_bindings: FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
+    pub(crate) command_references: FxHashMap<SpanKey, SmallVec<[ReferenceId; 4]>>,
     pub(crate) heuristic_unused_assignments: Vec<BindingId>,
 }
 
@@ -67,22 +68,22 @@ pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     scopes: Vec<Scope>,
     bindings: Vec<Binding>,
     references: Vec<Reference>,
-    reference_index: FxHashMap<Name, Vec<ReferenceId>>,
+    reference_index: FxHashMap<Name, SmallVec<[ReferenceId; 2]>>,
     predefined_runtime_refs: FxHashSet<ReferenceId>,
     guarded_parameter_refs: FxHashSet<ReferenceId>,
-    binding_index: FxHashMap<Name, Vec<BindingId>>,
+    binding_index: FxHashMap<Name, SmallVec<[BindingId; 2]>>,
     resolved: FxHashMap<ReferenceId, BindingId>,
     unresolved: Vec<ReferenceId>,
-    functions: FxHashMap<Name, Vec<BindingId>>,
-    call_sites: FxHashMap<Name, Vec<CallSite>>,
+    functions: FxHashMap<Name, SmallVec<[BindingId; 2]>>,
+    call_sites: FxHashMap<Name, SmallVec<[CallSite; 2]>>,
     source_refs: Vec<SourceRef>,
     declarations: Vec<Declaration>,
     indirect_target_hints: FxHashMap<BindingId, IndirectTargetHint>,
     indirect_expansion_refs: FxHashSet<ReferenceId>,
     flow_contexts: Vec<(Span, FlowContext)>,
     recorded_program: RecordedProgram,
-    command_bindings: FxHashMap<SpanKey, Vec<BindingId>>,
-    command_references: FxHashMap<SpanKey, Vec<ReferenceId>>,
+    command_bindings: FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
+    command_references: FxHashMap<SpanKey, SmallVec<[ReferenceId; 4]>>,
     source_directives: FxHashMap<usize, SourceDirectiveOverride>,
     runtime: RuntimePrelude,
     completed_scopes: FxHashSet<ScopeId>,
@@ -332,12 +333,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 scope,
                 arg_count: command.args.len(),
             };
-            match self.call_sites.get_mut(callee.as_str()) {
-                Some(v) => v.push(call_site),
-                None => {
-                    self.call_sites.insert(callee.clone(), vec![call_site]);
-                }
-            }
+            self.call_sites
+                .entry(callee.clone())
+                .or_default()
+                .push(call_site);
 
             self.classify_special_simple_command(&callee, command, flow);
         }
@@ -510,7 +509,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         mut flow: FlowState,
     ) -> RecordedCommandId {
         flow.in_subshell = true;
-        let mut commands = Vec::new();
+        let mut commands = SmallVec::<[&Stmt; 4]>::new();
         collect_pipeline_segments(&command.left, &mut commands);
         collect_pipeline_segments(&command.right, &mut commands);
 
@@ -539,13 +538,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         command: &BinaryCommand,
         flow: FlowState,
     ) -> RecordedCommandId {
-        let mut operators = Vec::new();
-        let mut commands = Vec::new();
+        let mut operators = SmallVec::<[RecordedListOperator; 4]>::new();
+        let mut commands = SmallVec::<[&Stmt; 4]>::new();
         collect_logical_segments(&command.left, &mut commands, &mut operators);
         operators.push(recorded_list_operator(command.op));
         collect_logical_segments(&command.right, &mut commands, &mut operators);
 
-        let mut recorded = Vec::with_capacity(commands.len());
+        let mut recorded = SmallVec::<[RecordedCommandId; 4]>::with_capacity(commands.len());
         for (index, stmt) in commands.into_iter().enumerate() {
             let mut nested = flow;
             nested.exit_status_checked = operators.get(index).is_some() || flow.exit_status_checked;
@@ -2545,12 +2544,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             references: Vec::new(),
             attributes,
         });
-        match self.binding_index.get_mut(name.as_str()) {
-            Some(v) => v.push(id),
-            None => {
-                self.binding_index.insert(name.clone(), vec![id]);
-            }
-        }
+        self.binding_index.entry(name.clone()).or_default().push(id);
         match self.scopes[scope.index()].bindings.get_mut(name.as_str()) {
             Some(v) => v.push(id),
             None => {
@@ -2560,12 +2554,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             }
         }
         if matches!(kind, BindingKind::FunctionDefinition) {
-            match self.functions.get_mut(name.as_str()) {
-                Some(v) => v.push(id),
-                None => {
-                    self.functions.insert(name.clone(), vec![id]);
-                }
-            }
+            self.functions.entry(name.clone()).or_default().push(id);
         }
         if let Some(command) = self.command_stack.last().copied() {
             self.command_bindings
@@ -4241,7 +4230,7 @@ fn command_span_from_compound(command: &CompoundCommand) -> Span {
     }
 }
 
-fn collect_pipeline_segments<'a>(stmt: &'a Stmt, out: &mut Vec<&'a Stmt>) {
+fn collect_pipeline_segments<'a>(stmt: &'a Stmt, out: &mut SmallVec<[&'a Stmt; 4]>) {
     match &stmt.command {
         Command::Binary(command) if matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
             collect_pipeline_segments(&command.left, out);
@@ -4253,8 +4242,8 @@ fn collect_pipeline_segments<'a>(stmt: &'a Stmt, out: &mut Vec<&'a Stmt>) {
 
 fn collect_logical_segments<'a>(
     stmt: &'a Stmt,
-    commands: &mut Vec<&'a Stmt>,
-    operators: &mut Vec<RecordedListOperator>,
+    commands: &mut SmallVec<[&'a Stmt; 4]>,
+    operators: &mut SmallVec<[RecordedListOperator; 4]>,
 ) {
     match &stmt.command {
         Command::Binary(command) if matches!(command.op, BinaryOp::And | BinaryOp::Or) => {

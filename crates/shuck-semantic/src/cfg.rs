@@ -1,6 +1,7 @@
 use rustc_hash::FxHashMap;
 use shuck_ast::{CaseTerminator, Span};
 use shuck_parser::ZshEmulationMode;
+use smallvec::SmallVec;
 use std::marker::PhantomData;
 
 use crate::source_closure::SourcePathTemplate;
@@ -430,8 +431,8 @@ struct LoopTarget {
 
 struct GraphBuilder<'a> {
     program: &'a RecordedProgram,
-    command_bindings: &'a FxHashMap<SpanKey, Vec<BindingId>>,
-    command_references: &'a FxHashMap<SpanKey, Vec<ReferenceId>>,
+    command_bindings: &'a FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
+    command_references: &'a FxHashMap<SpanKey, SmallVec<[ReferenceId; 4]>>,
     blocks: Vec<BasicBlock>,
     successors: FxHashMap<BlockId, Vec<(BlockId, EdgeKind)>>,
     command_blocks: FxHashMap<SpanKey, Vec<BlockId>>,
@@ -441,8 +442,8 @@ struct GraphBuilder<'a> {
 
 pub(crate) fn build_control_flow_graph(
     program: &RecordedProgram,
-    command_bindings: &FxHashMap<SpanKey, Vec<BindingId>>,
-    command_references: &FxHashMap<SpanKey, Vec<ReferenceId>>,
+    command_bindings: &FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
+    command_references: &FxHashMap<SpanKey, SmallVec<[ReferenceId; 4]>>,
 ) -> ControlFlowGraph {
     let mut builder = GraphBuilder {
         program,
@@ -976,12 +977,18 @@ impl<'a> GraphBuilder<'a> {
         self.blocks.push(BasicBlock {
             id,
             commands: vec![span],
-            bindings: self.command_bindings.get(&key).cloned().unwrap_or_default(),
+            bindings: self
+                .command_bindings
+                .get(&key)
+                .cloned()
+                .unwrap_or_default()
+                .into_vec(),
             references: self
                 .command_references
                 .get(&key)
                 .cloned()
-                .unwrap_or_default(),
+                .unwrap_or_default()
+                .into_vec(),
         });
         self.command_blocks.entry(key).or_default().push(id);
         id
