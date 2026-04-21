@@ -1870,6 +1870,7 @@ fn future_reads_contain_after(
         || (plan.is_function && escape_reads[scope.index()].contains(name_id.index()))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn binding_has_future_reads_before_local_shadow(
     binding: &Binding,
     name_id: NameId,
@@ -1971,6 +1972,7 @@ fn future_reads_contain_after_until(
         })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn future_reads_contain_after_without_shadow(
     scope: ScopeId,
     after_offset: usize,
