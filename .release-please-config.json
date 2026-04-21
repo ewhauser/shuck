@@ -23,6 +23,7 @@
       "component": "shuck",
       "include-component-in-tag": false,
       "changelog-path": "CHANGELOG.md",
+      "draft": true,
       "extra-files": [
         { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.package.version" },
         { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-cli'].version" },
