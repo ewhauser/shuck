@@ -502,7 +502,12 @@ impl<'a> ArithmeticParser<'a> {
         if self.peeked.is_none() {
             self.peeked = Some(self.lex_token()?);
         }
-        Ok(self.peeked.as_ref().unwrap())
+        self.peeked.as_ref().ok_or_else(|| {
+            self.error_at(
+                self.safe_position_at(self.index),
+                "internal arithmetic parser failed to cache lookahead token",
+            )
+        })
     }
 
     fn lex_token(&mut self) -> Result<Token> {
@@ -513,7 +518,7 @@ impl<'a> ArithmeticParser<'a> {
         }
 
         let start = self.index;
-        let ch = self.current_char().unwrap();
+        let ch = self.require_current_char()?;
 
         let token = if is_ident_start(ch) {
             self.lex_identifier_or_word(start)?
@@ -734,7 +739,7 @@ impl<'a> ArithmeticParser<'a> {
     fn scan_shell_word_end(&self, start: usize) -> Result<usize> {
         let mut index = start;
         while index < self.input.len() {
-            let ch = self.char_at(index).unwrap();
+            let ch = self.require_char_at(index)?;
             if index > start && (ch.is_whitespace() || self.is_arithmetic_boundary(ch)) {
                 break;
             }
@@ -753,7 +758,7 @@ impl<'a> ArithmeticParser<'a> {
     fn consume_single_quoted(&self, start: usize) -> Result<usize> {
         let mut index = start + 1;
         while index < self.input.len() {
-            let ch = self.char_at(index).unwrap();
+            let ch = self.require_char_at(index)?;
             index += ch.len_utf8();
             if ch == '\'' {
                 return Ok(index);
@@ -768,7 +773,7 @@ impl<'a> ArithmeticParser<'a> {
     fn consume_double_quoted(&self, start: usize) -> Result<usize> {
         let mut index = start + 1;
         while index < self.input.len() {
-            let ch = self.char_at(index).unwrap();
+            let ch = self.require_char_at(index)?;
             match ch {
                 '"' => return Ok(index + 1),
                 '\\' => index = self.consume_escape(index),
@@ -786,7 +791,7 @@ impl<'a> ArithmeticParser<'a> {
     fn consume_backticks(&self, start: usize) -> Result<usize> {
         let mut index = start + 1;
         while index < self.input.len() {
-            let ch = self.char_at(index).unwrap();
+            let ch = self.require_char_at(index)?;
             match ch {
                 '`' => return Ok(index + 1),
                 '\\' => index = self.consume_escape(index),
@@ -886,7 +891,7 @@ impl<'a> ArithmeticParser<'a> {
         let mut escaped = false;
 
         while index < self.input.len() {
-            let ch = self.char_at(index).unwrap();
+            let ch = self.require_char_at(index)?;
             if escaped {
                 escaped = false;
                 index += ch.len_utf8();
@@ -956,7 +961,7 @@ impl<'a> ArithmeticParser<'a> {
         let mut in_double = false;
 
         while index < self.input.len() {
-            let ch = self.char_at(index).unwrap();
+            let ch = self.require_char_at(index)?;
             if in_single {
                 index += ch.len_utf8();
                 if ch == '\'' {
@@ -1020,7 +1025,7 @@ impl<'a> ArithmeticParser<'a> {
         let mut in_double = false;
 
         while index < self.input.len() {
-            let ch = self.char_at(index).unwrap();
+            let ch = self.require_char_at(index)?;
             if in_single {
                 index += ch.len_utf8();
                 if ch == '\'' {
@@ -1085,7 +1090,7 @@ impl<'a> ArithmeticParser<'a> {
         let mut in_double = false;
 
         while index < self.input.len() {
-            let ch = self.char_at(index).unwrap();
+            let ch = self.require_char_at(index)?;
             if in_single {
                 index += ch.len_utf8();
                 if ch == '\'' {
@@ -1185,6 +1190,28 @@ impl<'a> ArithmeticParser<'a> {
 
     fn position_at(&self, index: usize) -> Position {
         self.base.start.advanced_by(&self.input[..index])
+    }
+
+    fn safe_position_at(&self, index: usize) -> Position {
+        let safe_index = if index <= self.input.len() && self.input.is_char_boundary(index) {
+            index
+        } else {
+            self.input.len()
+        };
+        self.position_at(safe_index)
+    }
+
+    fn require_current_char(&self) -> Result<char> {
+        self.require_char_at(self.index)
+    }
+
+    fn require_char_at(&self, index: usize) -> Result<char> {
+        self.char_at(index).ok_or_else(|| {
+            self.error_at(
+                self.safe_position_at(index),
+                "internal arithmetic parser cursor became invalid",
+            )
+        })
     }
 
     fn span_for(&self, start: usize, end: usize) -> Span {
