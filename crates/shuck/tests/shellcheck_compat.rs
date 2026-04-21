@@ -24,7 +24,7 @@ fn json1_comments(output: &Output) -> Vec<Value> {
         .clone()
 }
 
-fn comment_by_code<'a>(comments: &'a [Value], code: u64) -> &'a Value {
+fn comment_by_code(comments: &[Value], code: u64) -> &Value {
     comments
         .iter()
         .find(|comment| comment["code"].as_u64() == Some(code))

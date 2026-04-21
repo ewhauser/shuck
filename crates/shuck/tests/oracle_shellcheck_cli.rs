@@ -89,7 +89,7 @@ fn json1_comment_shapes(output: &Output) -> Vec<Value> {
         .collect()
 }
 
-fn comment_by_code<'a>(comments: &'a [Value], code: u64) -> &'a Value {
+fn comment_by_code(comments: &[Value], code: u64) -> &Value {
     comments
         .iter()
         .find(|comment| comment["code"].as_u64() == Some(code))
