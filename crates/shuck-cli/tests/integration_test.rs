@@ -48,6 +48,14 @@ fn stdout_string(output: &std::process::Output) -> String {
     String::from_utf8(output.stdout.clone()).unwrap()
 }
 
+fn platform_path(path: &str) -> String {
+    if std::path::MAIN_SEPARATOR == '/' {
+        path.to_owned()
+    } else {
+        path.replace('/', std::path::MAIN_SEPARATOR_STR)
+    }
+}
+
 #[derive(Clone, Copy)]
 enum StreamKind {
     Stdout,
@@ -668,9 +676,11 @@ jobs:
     configure_env_cache(&mut cmd, tempdir.path());
     cmd.current_dir(tempdir.path())
         .args(["check", "--output-format", "concise"]);
-    cmd.assert().code(1).stdout(
-        ".github/workflows/issues.yml:10:11: warning[C001] jobs.triage.steps[0].run: variable `summary` is assigned but never used\n",
+    let expected = format!(
+        "{}:10:11: warning[C001] jobs.triage.steps[0].run: variable `summary` is assigned but never used\n",
+        platform_path(".github/workflows/issues.yml")
     );
+    cmd.assert().code(1).stdout(expected);
 }
 
 #[test]
@@ -698,9 +708,11 @@ jobs:
     configure_env_cache(&mut cmd, tempdir.path());
     cmd.current_dir(tempdir.path())
         .args(["check", "--output-format", "concise"]);
-    cmd.assert().code(1).stdout(
-        ".github/workflows/comment.yml:12:1: error[C035] jobs.reply.steps[0].run: this `if` block is missing a closing `fi`\n",
+    let expected = format!(
+        "{}:12:11: error[C035] jobs.reply.steps[0].run: this `if` block is missing a closing `fi`\n",
+        platform_path(".github/workflows/comment.yml")
     );
+    cmd.assert().code(1).stdout(expected);
 }
 
 #[test]

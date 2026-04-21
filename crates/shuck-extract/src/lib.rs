@@ -62,7 +62,7 @@ pub struct PlaceholderMapping {
     pub expression: String,
     /// Taint classification for the expression.
     pub taint: ExpressionTaint,
-    /// Span of the substituted `$NAME` text within the extracted source.
+    /// Span of the substituted `${NAME}` text within the extracted source.
     pub substituted_span: Range<usize>,
     /// Approximate span of the original `${{ ... }}` text within the host file.
     pub host_span: Range<usize>,
@@ -506,7 +506,7 @@ fn substitute_github_actions_expressions(
             .trim()
             .to_owned();
         let name = format!("_SHUCK_GHA_{counter}");
-        let replacement = format!("${name}");
+        let replacement = format!("${{{name}}}");
         let substituted_start = output.len();
         output.push_str(&replacement);
         let substituted_end = output.len();
@@ -666,7 +666,7 @@ jobs:
 
         assert_eq!(scripts[0].label, "jobs.build.steps[0].run");
         assert_eq!(scripts[0].dialect, ExtractedDialect::Bash);
-        assert_eq!(scripts[0].source, "echo $_SHUCK_GHA_1");
+        assert_eq!(scripts[0].source, "echo ${_SHUCK_GHA_1}");
         assert_eq!(scripts[0].placeholders.len(), 1);
         assert_eq!(
             scripts[0].placeholders[0].taint,
@@ -723,8 +723,25 @@ runs:
         assert_eq!(scripts[0].dialect, ExtractedDialect::Bash);
         assert_eq!(scripts[0].host_start_line, 7);
         assert_eq!(scripts[0].host_start_column, 9);
-        assert_eq!(scripts[0].source, "echo hi\necho \"$_SHUCK_GHA_1\"\n");
+        assert_eq!(scripts[0].source, "echo hi\necho \"${_SHUCK_GHA_1}\"\n");
         assert_eq!(scripts[0].placeholders[0].taint, ExpressionTaint::Trusted);
+    }
+
+    #[test]
+    fn wraps_placeholder_expansions_to_preserve_identifier_boundaries() {
+        let source = r#"
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ${{ github.ref }}suffix
+"#;
+
+        let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
+        assert_eq!(scripts.len(), 1);
+        assert_eq!(scripts[0].source, "echo ${_SHUCK_GHA_1}suffix");
+        assert_eq!(scripts[0].placeholders[0].substituted_span, 5..20);
     }
 
     #[test]

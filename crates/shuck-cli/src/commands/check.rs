@@ -1403,10 +1403,7 @@ fn analyze_embedded_file(
 
     let mut displayed = Vec::new();
 
-    for embedded in extracted
-        .into_iter()
-        .filter(|embedded| embedded_supported_dialect(embedded))
-    {
+    for embedded in extracted.into_iter().filter(embedded_supported_dialect) {
         let Some((shell_dialect, parse_dialect)) = embedded_dialects(embedded.dialect) else {
             continue;
         };
@@ -1779,11 +1776,7 @@ fn remap_embedded_position(
     column: usize,
 ) -> DisplayPosition {
     let line = embedded.host_start_line + line.saturating_sub(1);
-    let column = if line == embedded.host_start_line {
-        embedded.host_start_column + column.saturating_sub(1)
-    } else {
-        column
-    };
+    let column = embedded.host_start_column + column.saturating_sub(1);
     DisplayPosition::new(line, column)
 }
 
@@ -1801,6 +1794,7 @@ mod tests {
     use std::sync::Arc;
 
     use notify::event::{CreateKind, EventAttributes, ModifyKind, RemoveKind, RenameMode};
+    use shuck_extract::{EmbeddedFormat, ImplicitShellFlags};
     use shuck_linter::{Category, Rule, RuleSelector};
     use tempfile::tempdir;
 
@@ -2059,6 +2053,25 @@ jobs:
         .unwrap();
 
         assert!(report.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn remaps_embedded_columns_on_later_lines() {
+        let embedded = EmbeddedScript {
+            source: "echo hi\necho bye\n".to_owned(),
+            host_offset: 0,
+            host_start_line: 7,
+            host_start_column: 9,
+            dialect: ExtractedDialect::Bash,
+            label: "jobs.test.steps[0].run".to_owned(),
+            format: EmbeddedFormat::GitHubActions,
+            placeholders: Vec::new(),
+            implicit_flags: ImplicitShellFlags::default(),
+        };
+
+        let position = remap_embedded_position(&embedded, 2, 5);
+        assert_eq!(position.line, 8);
+        assert_eq!(position.column, 13);
     }
 
     #[test]
