@@ -322,7 +322,7 @@ impl std::str::FromStr for PatternRuleSelectorPair {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         let (pattern, selector) = value
-            .split_once(':')
+            .rsplit_once(':')
             .ok_or_else(|| "expected <FilePattern>:<RuleCode>".to_owned())?;
         let pattern = pattern.trim();
         let selector = selector.trim();
@@ -878,6 +878,19 @@ mod tests {
                 pattern: "!src/*.sh".to_owned(),
                 selector: RuleSelector::Category(shuck_linter::Category::Style),
             }]
+        );
+    }
+
+    #[test]
+    fn parses_per_file_ignore_pairs_with_colons_in_pattern() {
+        let command = parse_check(["shuck", "check", "--per-file-ignores", r"C:\repo\*.sh:C001"]);
+
+        assert_eq!(
+            command.rule_selection.per_file_ignores,
+            Some(vec![PatternRuleSelectorPair {
+                pattern: r"C:\repo\*.sh".to_owned(),
+                selector: RuleSelector::Rule(Rule::UnusedAssignment),
+            }])
         );
     }
 

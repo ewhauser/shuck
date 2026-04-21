@@ -748,6 +748,13 @@ fn parse_rule_selectors(selectors: &[String], scope: &str) -> Result<Vec<RuleSel
     selectors
         .iter()
         .map(|selector| {
+            let selector = selector.trim();
+            if selector.is_empty() {
+                return Err(anyhow!(
+                    "invalid {scope} selector: selector cannot be empty"
+                ));
+            }
+
             selector
                 .parse::<RuleSelector>()
                 .map_err(|err| anyhow!("invalid {scope} selector `{selector}`: {err}"))
@@ -1624,6 +1631,16 @@ mod tests {
         assert_eq!(
             diagnostic_codes(&report),
             vec![Rule::UnusedAssignment.code().to_owned()]
+        );
+    }
+
+    #[test]
+    fn rejects_empty_rule_selectors() {
+        let error = parse_rule_selectors(&[String::new()], "lint.select").unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "invalid lint.select selector: selector cannot be empty"
         );
     }
 
