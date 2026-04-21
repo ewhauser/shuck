@@ -12,3 +12,9 @@ X012 use of `&>` is not portable in `sh`
   |
 3 | echo ok &> /dev/null
   |
+
+X012 use of `&>` is not portable in `sh`
+ --> <source>:4:10
+  |
+4 | echo foo1&>out
+  |
