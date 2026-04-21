@@ -2143,7 +2143,7 @@ fn suspect_double_quote_spans(
 pub(super) fn rewrite_word_as_single_double_quoted_string(word: &Word, source: &str) -> Box<str> {
     let mut rendered = String::from("\"");
     for part in &word.parts {
-        render_word_part_inside_double_quotes(&mut rendered, part, source);
+        render_word_part_inside_double_quotes(&mut rendered, part, source, false);
     }
     rendered.push('"');
     rendered.into_boxed_str()
@@ -2172,7 +2172,7 @@ fn render_pattern_part_inside_double_quotes(
         }
         PatternPart::Word(word) => {
             for word_part in &word.parts {
-                render_word_part_inside_double_quotes(rendered, word_part, source);
+                render_word_part_inside_double_quotes(rendered, word_part, source, false);
             }
         }
         PatternPart::AnyString
@@ -2189,17 +2189,29 @@ fn render_pattern_part_inside_double_quotes(
     }
 }
 
-fn render_word_part_inside_double_quotes(rendered: &mut String, part: &WordPartNode, source: &str) {
+fn render_word_part_inside_double_quotes(
+    rendered: &mut String,
+    part: &WordPartNode,
+    source: &str,
+    source_is_double_quoted: bool,
+) {
     match &part.kind {
         WordPart::Literal(text) => {
-            push_double_quoted_literal(rendered, text.as_str(source, part.span));
+            if source_is_double_quoted {
+                push_double_quoted_literal(rendered, text.as_str(source, part.span));
+            } else {
+                push_cooked_unquoted_literal_inside_double_quotes(
+                    rendered,
+                    text.as_str(source, part.span),
+                );
+            }
         }
         WordPart::SingleQuoted { value, .. } => {
             push_double_quoted_literal(rendered, value.slice(source));
         }
         WordPart::DoubleQuoted { parts, .. } => {
             for nested_part in parts {
-                render_word_part_inside_double_quotes(rendered, nested_part, source);
+                render_word_part_inside_double_quotes(rendered, nested_part, source, true);
             }
         }
         WordPart::Variable(name) => {
@@ -2221,6 +2233,26 @@ fn push_double_quoted_literal(rendered: &mut String, text: &str) {
             _ => rendered.push(ch),
         }
     }
+}
+
+fn push_cooked_unquoted_literal_inside_double_quotes(rendered: &mut String, text: &str) {
+    let mut cooked = String::with_capacity(text.len());
+    let mut chars = text.chars();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            match chars.next() {
+                Some('\n') => {}
+                Some(escaped) => cooked.push(escaped),
+                None => cooked.push('\\'),
+            }
+            continue;
+        }
+
+        cooked.push(ch);
+    }
+
+    push_double_quoted_literal(rendered, &cooked);
 }
 
 fn word_part_syntax(part: &WordPartNode, source: &str) -> String {

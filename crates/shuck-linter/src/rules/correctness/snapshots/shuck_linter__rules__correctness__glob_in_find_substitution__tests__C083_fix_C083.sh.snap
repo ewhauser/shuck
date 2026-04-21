@@ -1,0 +1,75 @@
+---
+source: crates/shuck-linter/src/rules/correctness/glob_in_find_substitution.rs
+assertion_line: 211
+---
+Diagnostics:
+C083 quote glob patterns passed to `find` so the shell does not expand them early
+ --> <source>:2:15
+  |
+2 | find ./ -name *.jar
+  |
+
+C083 quote glob patterns passed to `find` so the shell does not expand them early
+ --> <source>:3:15
+  |
+3 | find ./ -name "$prefix"*.jar
+  |
+
+C083 quote glob patterns passed to `find` so the shell does not expand them early
+ --> <source>:4:20
+  |
+4 | find ./ -wholename */tmp/*
+  |
+
+C083 quote glob patterns passed to `find` so the shell does not expand them early
+ --> <source>:5:26
+  |
+5 | for f in $(find ./ -name *.cfg); do :; done
+  |
+
+C083 quote glob patterns passed to `find` so the shell does not expand them early
+ --> <source>:6:31
+  |
+6 | printf '%s\n' "$(find . -path */tmp/*)"
+  |
+
+
+Applied fixes: 5
+
+Diff:
+--- before
++++ after
+@@ -1,9 +1,9 @@
+ #!/bin/bash
+-find ./ -name *.jar
+-find ./ -name "$prefix"*.jar
+-find ./ -wholename */tmp/*
+-for f in $(find ./ -name *.cfg); do :; done
+-printf '%s\n' "$(find . -path */tmp/*)"
++find ./ -name "*.jar"
++find ./ -name "${prefix}*.jar"
++find ./ -wholename "*/tmp/*"
++for f in $(find ./ -name "*.cfg"); do :; done
++printf '%s\n' "$(find . -path "*/tmp/*")"
+ 
+ find ./ -name '*.jar'
+ find ./ -name \*.tmp
+
+Fixed source:
+#!/bin/bash
+find ./ -name "*.jar"
+find ./ -name "${prefix}*.jar"
+find ./ -wholename "*/tmp/*"
+for f in $(find ./ -name "*.cfg"); do :; done
+printf '%s\n' "$(find . -path "*/tmp/*")"
+
+find ./ -name '*.jar'
+find ./ -name \*.tmp
+find ./ -path \*/tmp/\*
+find ./ -wholename \*/tmp/\*
+find ./ -type f*
+command find ./ -name *.jar
+find ./ -name "$pattern"
+
+Remaining diagnostics:
+<none>
