@@ -1,14 +1,3 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
 ---
-C109 `mapfile` reads from a process substitution
- --> <source>:4:20
-  |
-4 | mapfile -t files < <(find . -name '*.pyc')
-  |
-
-C109 `mapfile` reads from a process substitution
- --> <source>:7:21
-  |
-7 | readarray -t logs < <(find . -name '*.log')
-  |

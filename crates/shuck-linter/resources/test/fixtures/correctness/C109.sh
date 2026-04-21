@@ -1,12 +1,15 @@
 #!/bin/bash
 
-# Invalid: mapfile reads from process substitution.
+# Valid: mapfile can read from a process substitution in the current shell.
 mapfile -t files < <(find . -name '*.pyc')
 
-# Invalid: readarray is equivalent to mapfile.
+# Valid: readarray behaves the same way.
 readarray -t logs < <(find . -name '*.log')
 
-# Valid: piping into mapfile is outside this rule.
+# Valid: explicit file-descriptor input is accepted too.
+mapfile -u 3 -t files 3< <(find . -name '*.tmp')
+
+# Valid: piping into mapfile is handled by subshell assignment rules instead.
 find . -name '*.pyc' | mapfile -t files
 
 # Valid: regular input redirect is fine.
