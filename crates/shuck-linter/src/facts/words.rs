@@ -1813,7 +1813,9 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                     );
                 }
                 None => {
-                    let heredoc = redirect.heredoc().expect("expected heredoc redirect");
+                    let Some(heredoc) = redirect.heredoc() else {
+                        continue;
+                    };
                     if heredoc.delimiter.expands_body {
                         self.surface.collect_heredoc_body(
                             &heredoc.body,

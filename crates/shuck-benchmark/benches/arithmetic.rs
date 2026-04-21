@@ -60,9 +60,13 @@ fn arithmetic_cases() -> Vec<ArithmeticCase> {
 }
 
 fn parse_source(source: &str) -> usize {
-    let output = Parser::new(black_box(source))
-        .parse()
-        .expect("arithmetic benchmark inputs should parse");
+    let output = Parser::new(black_box(source)).parse();
+    if output.is_err() {
+        panic!(
+            "arithmetic benchmark inputs should parse: {}",
+            output.strict_error()
+        );
+    }
 
     black_box(output.file.body.len())
 }

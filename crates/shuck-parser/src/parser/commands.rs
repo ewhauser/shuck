@@ -331,7 +331,9 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            let terminator = terminator.expect("list terminator should be present");
+            let Some(terminator) = terminator else {
+                unreachable!("list terminator should be present");
+            };
             if let Some(next) = self.parse_pipeline()? {
                 current.terminator = Some(terminator);
                 current.terminator_span = Some(operator_span);

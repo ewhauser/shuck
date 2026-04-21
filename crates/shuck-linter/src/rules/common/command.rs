@@ -125,7 +125,10 @@ fn normalize_simple_command<'a>(
     let words = std::iter::once(&command.name)
         .chain(command.args.iter())
         .collect::<Vec<_>>();
-    normalize_command_words(words.as_slice(), source).expect("simple commands always have a name")
+    let Some(normalized) = normalize_command_words(words.as_slice(), source) else {
+        unreachable!("simple commands always have a name");
+    };
+    normalized
 }
 
 pub(crate) fn normalize_command_words<'a>(

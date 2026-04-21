@@ -15,6 +15,12 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
+fn assert_string_write(result: fmt::Result) {
+    if result.is_err() {
+        unreachable!("writing into a String should not fail");
+    }
+}
+
 /// Source-backed text for AST nodes that need stable spans but only occasionally
 /// need owned cooked text.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1877,16 +1883,14 @@ impl Word {
     /// Render this word into an existing buffer using exact source slices when
     /// available and owned cooked text only where the parser normalized the input.
     pub fn render_to_buf(&self, source: &str, rendered: &mut String) {
-        self.fmt_with_source_mode(rendered, Some(source), RenderMode::Decoded)
-            .expect("writing into a String should not fail");
+        assert_string_write(self.fmt_with_source_mode(rendered, Some(source), RenderMode::Decoded));
     }
 
     /// Render this word as shell syntax into an existing buffer, preserving
     /// quote delimiters and other syntactic wrappers when they are represented
     /// in the AST.
     pub fn render_syntax_to_buf(&self, source: &str, rendered: &mut String) {
-        self.fmt_with_source_mode(rendered, Some(source), RenderMode::Syntax)
-            .expect("writing into a String should not fail");
+        assert_string_write(self.fmt_with_source_mode(rendered, Some(source), RenderMode::Syntax));
     }
 
     fn fmt_with_source_mode(
@@ -2035,13 +2039,11 @@ impl HeredocBody {
     }
 
     pub fn render_to_buf(&self, source: &str, rendered: &mut String) {
-        self.fmt_with_source(rendered, Some(source))
-            .expect("writing into a String should not fail");
+        assert_string_write(self.fmt_with_source(rendered, Some(source)));
     }
 
     pub fn render_syntax_to_buf(&self, source: &str, rendered: &mut String) {
-        self.fmt_with_source(rendered, Some(source))
-            .expect("writing into a String should not fail");
+        assert_string_write(self.fmt_with_source(rendered, Some(source)));
     }
 
     fn fmt_with_source(&self, f: &mut impl fmt::Write, source: Option<&str>) -> fmt::Result {
@@ -2113,15 +2115,13 @@ impl Pattern {
     /// when available and owned cooked text only where the parser normalized
     /// the input.
     pub fn render_to_buf(&self, source: &str, rendered: &mut String) {
-        self.fmt_with_source_mode(rendered, Some(source), RenderMode::Decoded)
-            .expect("writing into a String should not fail");
+        assert_string_write(self.fmt_with_source_mode(rendered, Some(source), RenderMode::Decoded));
     }
 
     /// Render this pattern as shell syntax into an existing buffer, preserving
     /// quoted fragments when they are represented in the AST.
     pub fn render_syntax_to_buf(&self, source: &str, rendered: &mut String) {
-        self.fmt_with_source_mode(rendered, Some(source), RenderMode::Syntax)
-            .expect("writing into a String should not fail");
+        assert_string_write(self.fmt_with_source_mode(rendered, Some(source), RenderMode::Syntax));
     }
 
     fn fmt_with_source_mode(

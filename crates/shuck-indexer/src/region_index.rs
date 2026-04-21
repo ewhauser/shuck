@@ -425,7 +425,9 @@ impl<'a> RegionCollector<'a> {
     fn visit_redirect(&mut self, redirect: &Redirect) {
         match redirect.kind {
             RedirectKind::HereDoc | RedirectKind::HereDocStrip => {
-                let heredoc = redirect.heredoc().expect("expected heredoc redirect");
+                let Some(heredoc) = redirect.heredoc() else {
+                    unreachable!("expected heredoc redirect");
+                };
                 let range = heredoc.body.span.to_range();
                 push_range(&mut self.heredocs, range);
                 if heredoc.delimiter.quoted {
@@ -433,11 +435,12 @@ impl<'a> RegionCollector<'a> {
                 }
                 self.visit_heredoc_body(&heredoc.body);
             }
-            _ => self.visit_word(
-                redirect
-                    .word_target()
-                    .expect("expected non-heredoc redirect target"),
-            ),
+            _ => {
+                let Some(word) = redirect.word_target() else {
+                    unreachable!("expected non-heredoc redirect target");
+                };
+                self.visit_word(word);
+            }
         }
     }
 

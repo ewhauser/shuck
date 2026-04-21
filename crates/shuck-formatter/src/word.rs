@@ -77,8 +77,11 @@ pub(crate) fn render_heredoc_body_to_buf(
     rendered: &mut String,
 ) {
     for part in &body.parts {
-        render_heredoc_body_part(rendered, &part.kind, part.span, source, options, _facts)
-            .expect("writing into a String should not fail");
+        if render_heredoc_body_part(rendered, &part.kind, part.span, source, options, _facts)
+            .is_err()
+        {
+            unreachable!("writing into a String should not fail");
+        }
     }
 }
 
@@ -98,7 +101,7 @@ fn render_word_syntax_internal(
     }
 
     if word_needs_special_rendering(word) {
-        render_word_parts(
+        if render_word_parts(
             word.parts.as_slice(),
             source,
             options,
@@ -106,7 +109,10 @@ fn render_word_syntax_internal(
             facts,
             rendered,
         )
-        .expect("writing into a String should not fail");
+        .is_err()
+        {
+            unreachable!("writing into a String should not fail");
+        }
         return;
     }
 

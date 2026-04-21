@@ -1048,9 +1048,9 @@ fn visit_here_string_words_for_substitutions(
 ) {
     for redirect in redirects {
         if redirect.kind == RedirectKind::HereString {
-            let word = redirect
-                .word_target()
-                .expect("expected non-heredoc here-string target");
+            let Some(word) = redirect.word_target() else {
+                continue;
+            };
             visitor(word);
         }
     }
@@ -1255,4 +1255,3 @@ fn visit_conditional_words_for_substitutions(
         }
     }
 }
-

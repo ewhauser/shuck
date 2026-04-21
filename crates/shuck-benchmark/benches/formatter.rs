@@ -9,8 +9,10 @@ use shuck_formatter::{
 configure_benchmark_allocator!();
 
 fn format_source_bytes(source: &str, options: &ShellFormatOptions) -> usize {
-    let formatted = format_source(black_box(source), None, options)
-        .expect("formatter benchmark inputs should format");
+    let formatted = match format_source(black_box(source), None, options) {
+        Ok(formatted) => formatted,
+        Err(err) => panic!("formatter benchmark inputs should format: {err}"),
+    };
 
     output_bytes(source, formatted)
 }
@@ -20,8 +22,11 @@ fn format_file_ast_bytes(
     parsed: shuck_parser::parser::ParseResult,
     options: &ShellFormatOptions,
 ) -> usize {
-    let formatted = format_file_ast(black_box(source), black_box(parsed.file), None, options)
-        .expect("formatter AST benchmark inputs should format");
+    let formatted = match format_file_ast(black_box(source), black_box(parsed.file), None, options)
+    {
+        Ok(formatted) => formatted,
+        Err(err) => panic!("formatter AST benchmark inputs should format: {err}"),
+    };
 
     output_bytes(source, formatted)
 }

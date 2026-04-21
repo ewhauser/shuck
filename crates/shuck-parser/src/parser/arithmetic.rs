@@ -708,9 +708,9 @@ impl<'a> ArithmeticParser<'a> {
     }
 
     fn lex_zsh_char_literal(&mut self, start: usize) -> Token {
-        let next = self
-            .char_at(start + 1)
-            .expect("zsh char literal requires a following character");
+        let Some(next) = self.char_at(start + 1) else {
+            unreachable!("zsh char literal requires a following character");
+        };
         let end = start + 1 + next.len_utf8();
         self.index = end;
         Token {

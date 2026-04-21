@@ -150,10 +150,9 @@ fn load_large_corpus_hotspot_fixtures() -> Result<Arc<LoadedLargeCorpusFixtures>
 
 fn resolve_large_corpus_root() -> Option<PathBuf> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let repo_root = manifest_dir
-        .ancestors()
-        .nth(2)
-        .expect("crates/shuck-benchmark should live two levels below repo root");
+    let Some(repo_root) = manifest_dir.ancestors().nth(2) else {
+        unreachable!("crates/shuck-benchmark should live two levels below repo root");
+    };
 
     let root_hint = env::var(LARGE_CORPUS_ROOT_ENV)
         .ok()

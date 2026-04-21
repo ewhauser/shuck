@@ -916,10 +916,9 @@ impl<'a> Parser<'a> {
         let mut index = 0usize;
 
         while index < inner.len() {
-            let ch = inner[index..]
-                .chars()
-                .next()
-                .expect("index is within bounds while scanning array elements");
+            let Some(ch) = inner[index..].chars().next() else {
+                break;
+            };
             let next_index = index + ch.len_utf8();
             if start.is_none() {
                 if ch.is_whitespace() {
@@ -928,10 +927,9 @@ impl<'a> Parser<'a> {
                 }
                 if ch == '#' {
                     while index < inner.len() {
-                        let comment_ch = inner[index..]
-                            .chars()
-                            .next()
-                            .expect("index is within bounds while skipping array comment");
+                        let Some(comment_ch) = inner[index..].chars().next() else {
+                            break;
+                        };
                         index += comment_ch.len_utf8();
                         if comment_ch == '\n' {
                             break;
@@ -977,10 +975,9 @@ impl<'a> Parser<'a> {
                 {
                     start = None;
                     while index < inner.len() {
-                        let comment_ch = inner[index..]
-                            .chars()
-                            .next()
-                            .expect("index is within bounds while skipping array comment");
+                        let Some(comment_ch) = inner[index..].chars().next() else {
+                            break;
+                        };
                         index += comment_ch.len_utf8();
                         if comment_ch == '\n' {
                             break;
@@ -1034,10 +1031,9 @@ impl<'a> Parser<'a> {
         let mut ansi_c_quote_pending = false;
 
         while index < raw.len() {
-            let ch = raw[index..]
-                .chars()
-                .next()
-                .expect("index is within bounds while scanning parser-owned array surface");
+            let Some(ch) = raw[index..].chars().next() else {
+                break;
+            };
             let next_index = index + ch.len_utf8();
             let was_escaped = escaped;
             if ch == '\\' && !in_single {
@@ -1572,10 +1568,9 @@ impl<'a> Parser<'a> {
                     && Self::raw_source_hash_starts_comment(self.input, ch_start.offset) =>
                 {
                     while cursor.offset < self.input.len() {
-                        let comment_ch = self.input[cursor.offset..]
-                            .chars()
-                            .next()
-                            .expect("cursor is within bounds while skipping array comment");
+                        let Some(comment_ch) = self.input[cursor.offset..].chars().next() else {
+                            break;
+                        };
                         cursor.advance(comment_ch);
                         if comment_ch == '\n' {
                             break;

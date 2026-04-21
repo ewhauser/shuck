@@ -58,7 +58,10 @@ impl TestCase {
 }
 
 fn fixture_source(bytes: &'static [u8]) -> &'static str {
-    let source = std::str::from_utf8(bytes).expect("benchmark fixtures should be valid UTF-8");
+    let source = match std::str::from_utf8(bytes) {
+        Ok(source) => source,
+        Err(err) => panic!("benchmark fixtures should be valid UTF-8: {err}"),
+    };
     if source.contains('\r') {
         Box::leak(
             source

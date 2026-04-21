@@ -690,9 +690,11 @@ impl<'a> CommandOptionFacts<'a> {
                 .and_then(|_| parse_expr_command(normalized.body_args(), source)),
             exit: parse_exit_command(command, source),
             sudo_family: normalized.has_wrapper(WrapperKind::SudoFamily).then(|| {
+                let Some(invoker) = detect_sudo_family_invoker(command, normalized, source) else {
+                    unreachable!("sudo-family wrapper should preserve its invoker");
+                };
                 SudoFamilyCommandFacts {
-                    invoker: detect_sudo_family_invoker(command, normalized, source)
-                        .expect("sudo-family wrapper should preserve its invoker"),
+                    invoker,
                 }
             }),
             nonportable_sh_builtin_option_span: first_nonportable_sh_builtin_option_span(
@@ -1497,9 +1499,10 @@ fn append_rm_path_literal(segments: &mut Vec<RmPathSegment>, text: &str) {
 }
 
 fn current_rm_path_segment(segments: &mut [RmPathSegment]) -> &mut RmPathSegment {
-    segments
-        .last_mut()
-        .expect("rm path segments always start non-empty")
+    let Some(segment) = segments.last_mut() else {
+        unreachable!("rm path segments always start non-empty");
+    };
+    segment
 }
 
 fn rm_path_segment_is_pure_unsafe_parameter(segment: &RmPathSegment) -> bool {
@@ -2773,11 +2776,10 @@ fn first_nonportable_sh_builtin_option_span(
                     )
                 },
                 |_| {
-                    let operands = normalized
-                        .declaration
-                        .as_ref()
-                        .expect("checked export declaration")
-                        .operands;
+                    let Some(declaration) = normalized.declaration.as_ref() else {
+                        unreachable!("checked export declaration");
+                    };
+                    let operands = declaration.operands;
                     first_nonportable_sh_export_option_span(operands, source)
                 },
             ),
@@ -3314,17 +3316,17 @@ fn parse_find_command<'a>(
 
         if is_find_group_close_token(text.as_ref()) {
             if let Some(child) = (group_stack.len() > 1).then(|| group_stack.pop()).flatten() {
-                group_stack
-                    .last_mut()
-                    .expect("group stack retains the root frame")
-                    .incorporate_group(child);
+                let Some(parent) = group_stack.last_mut() else {
+                    unreachable!("group stack retains the root frame");
+                };
+                parent.incorporate_group(child);
             }
             continue;
         }
 
-        let state = group_stack
-            .last_mut()
-            .expect("group stack retains the root frame");
+        let Some(state) = group_stack.last_mut() else {
+            unreachable!("group stack retains the root frame");
+        };
 
         if is_find_or_token(text.as_ref()) {
             state.note_or();

@@ -14,26 +14,24 @@ pub fn binary_operator_span(command: &BinaryCommand) -> Span {
 }
 
 pub fn redirect_target_span(redirect: &Redirect) -> Span {
-    redirect
-        .word_target()
-        .expect("redirect_target_span called on heredoc redirect")
-        .span
+    let Some(word) = redirect.word_target() else {
+        unreachable!("redirect_target_span called on heredoc redirect");
+    };
+    word.span
 }
 
 pub fn heredoc_delimiter_span(redirect: &Redirect) -> Span {
-    redirect
-        .heredoc()
-        .expect("heredoc_delimiter_span called on non-heredoc redirect")
-        .delimiter
-        .span
+    let Some(heredoc) = redirect.heredoc() else {
+        unreachable!("heredoc_delimiter_span called on non-heredoc redirect");
+    };
+    heredoc.delimiter.span
 }
 
 pub fn heredoc_body_span(redirect: &Redirect) -> Span {
-    redirect
-        .heredoc()
-        .expect("heredoc_body_span called on non-heredoc redirect")
-        .body
-        .span
+    let Some(heredoc) = redirect.heredoc() else {
+        unreachable!("heredoc_body_span called on non-heredoc redirect");
+    };
+    heredoc.body.span
 }
 
 pub fn command_substitution_part_spans(word: &Word) -> Vec<Span> {
@@ -2127,10 +2125,9 @@ fn suspicious_bracket_glob_text(text: &str) -> bool {
             if index + 1 >= end {
                 break;
             }
-            let escaped = text[index + 1..end]
-                .chars()
-                .next()
-                .expect("escape should be followed by a character");
+            let Some(escaped) = text[index + 1..end].chars().next() else {
+                break;
+            };
             if !seen.insert(escaped) {
                 return true;
             }
@@ -2138,10 +2135,9 @@ fn suspicious_bracket_glob_text(text: &str) -> bool {
             continue;
         }
 
-        let character = text[index..end]
-            .chars()
-            .next()
-            .expect("bracket glob member should be a character");
+        let Some(character) = text[index..end].chars().next() else {
+            break;
+        };
         if !seen.insert(character) {
             return true;
         }

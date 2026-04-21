@@ -97,8 +97,9 @@ fn report_word_expansions(
     {
         return;
     }
-    let query = SafeValueQuery::from_context(context)
-        .expect("checked expansion context should map to a safe-value query");
+    let Some(query) = SafeValueQuery::from_context(context) else {
+        return;
+    };
 
     for (part, part_span) in fact.parts_with_spans() {
         let report_unquoted_star = star_spans.contains(&part_span);

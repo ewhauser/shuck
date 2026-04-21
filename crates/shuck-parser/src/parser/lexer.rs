@@ -1381,10 +1381,10 @@ impl<'a> Lexer<'a> {
     /// or just a regular word starting with a digit
     fn read_word_or_fd_redirect(&mut self) -> Option<LexedToken<'a>> {
         if let Some(first_digit) = self.peek_char().filter(|ch| ch.is_ascii_digit()) {
-            let fd: i32 = first_digit
-                .to_digit(10)
-                .expect("peeked ASCII digit should convert to a base-10 digit")
-                as i32;
+            let Some(fd) = first_digit.to_digit(10) else {
+                unreachable!("peeked ASCII digit should convert to a base-10 digit");
+            };
+            let fd = fd as i32;
 
             match (self.second_char(), self.third_char()) {
                 (Some('>'), Some('>')) => {
@@ -2165,9 +2165,9 @@ impl<'a> Lexer<'a> {
                     word.push_segment(self.read_dollar_double_quoted_segment()?);
                 }
                 Some('(') if Self::lexed_word_can_take_parenthesized_suffix(word) => {
-                    let segment = self
-                        .read_parenthesized_word_suffix_segment()
-                        .expect("peeked '(' should produce a suffix segment");
+                    let Some(segment) = self.read_parenthesized_word_suffix_segment() else {
+                        unreachable!("peeked '(' should produce a suffix segment");
+                    };
                     word.push_segment(segment);
                 }
                 _ => {

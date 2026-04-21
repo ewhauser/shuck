@@ -146,8 +146,14 @@ impl<T> RecordedRange<T> {
 
     pub(crate) fn new(start: usize, len: usize) -> Self {
         Self {
-            start: u32::try_from(start).expect("recorded IR start fits in u32"),
-            len: u32::try_from(len).expect("recorded IR length fits in u32"),
+            start: match u32::try_from(start) {
+                Ok(start) => start,
+                Err(err) => panic!("recorded IR start fits in u32: {err}"),
+            },
+            len: match u32::try_from(len) {
+                Ok(len) => len,
+                Err(err) => panic!("recorded IR length fits in u32: {err}"),
+            },
             marker: PhantomData,
         }
     }
@@ -364,9 +370,10 @@ impl RecordedProgram {
     }
 
     pub(crate) fn push_command(&mut self, command: RecordedCommand) -> RecordedCommandId {
-        let id = RecordedCommandId(
-            u32::try_from(self.commands.len()).expect("recorded command count fits in u32"),
-        );
+        let id = RecordedCommandId(match u32::try_from(self.commands.len()) {
+            Ok(id) => id,
+            Err(err) => panic!("recorded command count fits in u32: {err}"),
+        });
         self.commands.push(command);
         id
     }
@@ -892,9 +899,9 @@ impl<'a> GraphBuilder<'a> {
         for (dispatch_index, dispatch) in dispatch_blocks.iter().copied().enumerate() {
             let mut matched_all = false;
             for (arm_index, arm) in arms.iter().enumerate().skip(dispatch_index) {
-                let arm_entry = arm_sequences[arm_index]
-                    .entry
-                    .expect("empty case arms get a synthetic CFG block");
+                let Some(arm_entry) = arm_sequences[arm_index].entry else {
+                    unreachable!("empty case arms get a synthetic CFG block");
+                };
                 self.add_edge(dispatch, arm_entry, EdgeKind::CaseArm);
                 if arm.matches_anything {
                     matched_all = true;
@@ -910,9 +917,9 @@ impl<'a> GraphBuilder<'a> {
 
         for (arm_index, arm) in arms.iter().enumerate() {
             let arm_seq = &arm_sequences[arm_index];
-            let arm_entry = arm_seq
-                .entry
-                .expect("empty case arms get a synthetic CFG block");
+            let Some(arm_entry) = arm_seq.entry else {
+                unreachable!("empty case arms get a synthetic CFG block");
+            };
             for block in &fallthrough_from {
                 self.add_edge(*block, arm_entry, EdgeKind::CaseFallthrough);
             }
