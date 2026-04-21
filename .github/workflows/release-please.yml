@@ -14,6 +14,7 @@ concurrency:
 jobs:
   release-please:
     runs-on: ubuntu-22.04
+    environment: release
     permissions:
       contents: write
       pull-requests: write
@@ -26,7 +27,6 @@ jobs:
           token: ${{ secrets.RELEASE_PAT }}
           config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json
-          skip-github-release: true
 
   # Release-please updates Cargo.toml but does not touch Cargo.lock files.
   # Refresh both lockfiles on the release PR branch so `cargo publish --locked`
@@ -35,6 +35,7 @@ jobs:
     needs: release-please
     if: ${{ needs.release-please.outputs.pr }}
     runs-on: ubuntu-22.04
+    environment: release
     permissions:
       contents: write
     steps:

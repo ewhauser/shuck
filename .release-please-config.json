@@ -17,23 +17,23 @@
     { "type": "style", "section": "Styles", "hidden": true }
   ],
   "packages": {
-    "crates/shuck": {
-      "release-type": "rust",
+    ".": {
+      "release-type": "simple",
       "package-name": "shuck",
       "component": "shuck",
       "include-component-in-tag": false,
-      "changelog-path": "../../CHANGELOG.md",
+      "changelog-path": "CHANGELOG.md",
       "extra-files": [
-        { "type": "toml", "path": "../../Cargo.toml", "jsonpath": "$.workspace.package.version" },
-        { "type": "toml", "path": "../../Cargo.toml", "jsonpath": "$.workspace.dependencies.shuck.version" },
-        { "type": "toml", "path": "../../Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-ast'].version" },
-        { "type": "toml", "path": "../../Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-cache'].version" },
-        { "type": "toml", "path": "../../Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-format'].version" },
-        { "type": "toml", "path": "../../Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-formatter'].version" },
-        { "type": "toml", "path": "../../Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-indexer'].version" },
-        { "type": "toml", "path": "../../Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-linter'].version" },
-        { "type": "toml", "path": "../../Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-parser'].version" },
-        { "type": "toml", "path": "../../Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-semantic'].version" }
+        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.package.version" },
+        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies.shuck.version" },
+        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-ast'].version" },
+        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-cache'].version" },
+        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-format'].version" },
+        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-formatter'].version" },
+        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-indexer'].version" },
+        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-linter'].version" },
+        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-parser'].version" },
+        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-semantic'].version" }
       ]
     }
   }

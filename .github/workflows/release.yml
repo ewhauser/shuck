@@ -274,7 +274,7 @@ jobs:
         run: |
           # Remove the granular manifests
           rm -f artifacts/*-dist-manifest.json
-      - name: Create GitHub Release
+      - name: Create or update GitHub Release
         env:
           PRERELEASE_FLAG: "${{ fromJson(steps.host.outputs.manifest).announcement_is_prerelease && '--prerelease' || '' }}"
           ANNOUNCEMENT_TITLE: "${{ fromJson(steps.host.outputs.manifest).announcement_title }}"
@@ -282,10 +282,14 @@ jobs:
           RELEASE_COMMIT: "${{ github.sha }}"
           NEEDS_PLAN_OUTPUTS_TAG: ${{ needs.plan.outputs.tag }}
         run: |
-          # Write and read notes from a file to avoid quoting breaking things
-          echo "$ANNOUNCEMENT_BODY" > $RUNNER_TEMP/notes.txt
-
-          gh release create "${NEEDS_PLAN_OUTPUTS_TAG}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
+          # release-please creates the GitHub Release with changelog notes.
+          # If it exists, just upload artifacts to it; otherwise create one.
+          if gh release view "${NEEDS_PLAN_OUTPUTS_TAG}" >/dev/null 2>&1; then
+            gh release upload "${NEEDS_PLAN_OUTPUTS_TAG}" artifacts/* --clobber
+          else
+            echo "$ANNOUNCEMENT_BODY" > "$RUNNER_TEMP/notes.txt"
+            gh release create "${NEEDS_PLAN_OUTPUTS_TAG}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
+          fi
 
   announce:
     needs:
