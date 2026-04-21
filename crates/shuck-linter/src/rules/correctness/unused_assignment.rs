@@ -30,6 +30,7 @@ pub fn unused_assignment(checker: &mut Checker) {
     let mut unused_bindings_by_family = HashMap::<BindingFamilyKey, Vec<_>>::new();
     let mut last_unused_binding_by_family = HashMap::new();
     let mut family_scopes = HashMap::with_capacity(semantic.bindings().len());
+    let mut family_keys = HashMap::with_capacity(semantic.bindings().len());
 
     for binding in semantic.bindings() {
         if binding.name.as_str() == "_" {
@@ -38,6 +39,7 @@ pub fn unused_assignment(checker: &mut Checker) {
 
         let scope = binding_family_scope(semantic, &family_scopes, binding);
         family_scopes.insert(binding.id, scope);
+        family_keys.insert(binding.id, (scope, binding_target_key(checker, binding)));
     }
 
     for binding in semantic.bindings() {
@@ -50,7 +52,7 @@ pub fn unused_assignment(checker: &mut Checker) {
         }
 
         if !unused_binding_ids.contains(&binding.id) {
-            families_with_used_bindings.insert(binding_family_key(&family_scopes, binding));
+            families_with_used_bindings.insert(binding_family_key(&family_keys, binding.id));
         }
     }
 
@@ -64,7 +66,7 @@ pub fn unused_assignment(checker: &mut Checker) {
             continue;
         }
 
-        let family = binding_family_key(&family_scopes, binding);
+        let family = binding_family_key(&family_keys, binding.id);
 
         unused_bindings_by_family
             .entry(family.clone())
@@ -168,13 +170,21 @@ fn binding_follows_in_source(
 }
 
 fn binding_family_key(
-    family_scopes: &HashMap<BindingId, Option<ScopeId>>,
-    binding: &Binding,
+    family_keys: &HashMap<BindingId, BindingFamilyKey>,
+    binding_id: BindingId,
 ) -> BindingFamilyKey {
-    (
-        family_scopes.get(&binding.id).copied().flatten(),
-        binding.name.to_string(),
-    )
+    family_keys
+        .get(&binding_id)
+        .cloned()
+        .unwrap_or_else(|| (None, String::new()))
+}
+
+fn binding_target_key(checker: &Checker<'_>, binding: &Binding) -> String {
+    checker
+        .facts()
+        .binding_target_span(binding.id)
+        .map(|span| span.slice(checker.source()).to_string())
+        .unwrap_or_else(|| binding.name.to_string())
 }
 
 fn binding_family_scope(
@@ -237,6 +247,16 @@ mod tests {
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.start.line, 3);
         assert_eq!(diagnostics[0].span.slice(source), "foo");
+    }
+
+    #[test]
+    fn unrelated_array_writes_do_not_collapse_to_one_report() {
+        let source = "#!/bin/bash\nemoji[grinning]=1\nprintf '%s\\n' \"$OTHER\"\nemoji[smile]=2\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[1].span.start.line, 4);
     }
 
     #[test]

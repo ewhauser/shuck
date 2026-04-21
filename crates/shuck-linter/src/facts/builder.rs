@@ -50,6 +50,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut if_condition_command_ids = FxHashSet::default();
         let mut elif_condition_command_ids = FxHashSet::default();
         let mut binding_values = FxHashMap::default();
+        let mut binding_target_spans = FxHashMap::default();
         let mut broken_assoc_key_spans = Vec::new();
         let mut comma_array_assignment_spans = Vec::new();
         let mut ifs_literal_backslash_assignment_value_spans = Vec::new();
@@ -103,6 +104,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 self.semantic,
                 self.source,
                 &mut binding_values,
+                &mut binding_target_spans,
             );
             collect_broken_assoc_key_spans(visit.command, self.source, &mut broken_assoc_key_spans);
             collect_comma_array_assignment_spans(
@@ -522,6 +524,7 @@ impl<'a> LinterFactsBuilder<'a> {
             if_condition_command_ids,
             elif_condition_command_ids,
             binding_values,
+            binding_target_spans,
             broken_assoc_key_spans,
             comma_array_assignment_spans,
             ifs_literal_backslash_assignment_value_spans,
