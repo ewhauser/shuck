@@ -59,7 +59,7 @@ pub fn unused_assignment(checker: &mut Checker) {
             continue;
         }
 
-        if !unused_binding_ids.contains(&binding.id) {
+        if binding_counts_as_used_family_member(binding, &unused_binding_ids) {
             families_with_used_bindings.insert(binding_family_key(&family_keys, binding.id));
         }
     }
@@ -163,8 +163,29 @@ fn participates_in_unused_assignment_family(
     is_reportable_unused_assignment(kind, attributes)
         || matches!(
             kind,
-            BindingKind::AppendAssignment | BindingKind::ParameterDefaultAssignment
+            BindingKind::AppendAssignment
+                | BindingKind::ParameterDefaultAssignment
+                | BindingKind::Declaration(_)
         )
+}
+
+fn binding_counts_as_used_family_member(
+    binding: &Binding,
+    unused_binding_ids: &HashSet<BindingId>,
+) -> bool {
+    if unused_binding_ids.contains(&binding.id) {
+        return false;
+    }
+
+    if matches!(binding.kind, BindingKind::Declaration(_))
+        && !binding
+            .attributes
+            .contains(BindingAttributes::DECLARATION_INITIALIZED)
+    {
+        return !binding.references.is_empty();
+    }
+
+    true
 }
 
 fn binding_follows_in_source(
@@ -315,6 +336,25 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.start.line, 2);
+    }
+
+    #[test]
+    fn used_uninitialized_local_declarations_keep_dead_branch_arms_separate() {
+        let source = "#!/bin/bash\nf(){\n  if a; then\n    foo=1\n  elif b; then\n    local foo\n    echo \"$foo\"\n  else\n    foo=3\n  fi\n}\nf\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.start.line, 4);
+        assert_eq!(diagnostics[1].span.start.line, 9);
+    }
+
+    #[test]
+    fn unused_uninitialized_declarations_do_not_split_linear_chains() {
+        let source = "#!/bin/bash\nf(){\n  local foo\n  foo=1\n  foo=2\n}\nf\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 5);
     }
 
     #[test]

@@ -414,12 +414,18 @@ fn analyze_unused_assignments_exact(
 
         let incoming = &reaching_definitions.reaching_in[block_id.index()];
         let name_id = reference_name_ids[reference_index];
-        used_bindings.or_intersection_with(
-            incoming,
-            &exact.binding_data.bindings_for_name[name_id.index()],
-        );
+        let resolved_binding_id = context.resolved.get(&reference.id).copied();
 
-        let Some(resolved_binding_id) = context.resolved.get(&reference.id).copied() else {
+        if !resolved_binding_shadows_name_without_initializing(
+            resolved_binding_id.map(|binding_id| &context.bindings[binding_id.index()]),
+        ) {
+            used_bindings.or_intersection_with(
+                incoming,
+                &exact.binding_data.bindings_for_name[name_id.index()],
+            );
+        }
+
+        let Some(resolved_binding_id) = resolved_binding_id else {
             continue;
         };
         let resolved_binding = &context.bindings[resolved_binding_id.index()];
@@ -479,11 +485,12 @@ fn analyze_unused_assignments_exact(
 
         for binding in context.bindings {
             if is_function_escape_candidate(binding, context.scopes)
-                && future_reads_contain_after(
-                    binding.scope,
-                    binding.span.start.offset,
+                && binding_has_future_reads_before_local_shadow(
+                    binding,
                     exact.binding_data.binding_name_ids[binding.id.index()],
+                    context.bindings,
                     read_plans,
+                    &interprocedural.transitive_reads,
                     &interprocedural.future_reads,
                     &interprocedural.escape_reads,
                 )
@@ -669,7 +676,7 @@ fn should_suppress_redundant_branch_unused_assignment(
 
 fn participates_in_unused_assignment_reporting(
     kind: BindingKind,
-    attributes: BindingAttributes,
+    _attributes: BindingAttributes,
 ) -> bool {
     match kind {
         BindingKind::Assignment
@@ -681,12 +688,21 @@ fn participates_in_unused_assignment_reporting(
         | BindingKind::MapfileTarget
         | BindingKind::PrintfTarget
         | BindingKind::GetoptsTarget
-        | BindingKind::ArithmeticAssignment => true,
-        BindingKind::Declaration(_) => {
-            attributes.contains(BindingAttributes::DECLARATION_INITIALIZED)
-        }
+        | BindingKind::ArithmeticAssignment
+        | BindingKind::Declaration(_) => true,
         BindingKind::FunctionDefinition | BindingKind::Imported | BindingKind::Nameref => false,
     }
+}
+
+fn resolved_binding_shadows_name_without_initializing(binding: Option<&Binding>) -> bool {
+    matches!(
+        binding,
+        Some(binding)
+            if matches!(binding.kind, BindingKind::Declaration(_))
+                && !binding
+                    .attributes
+                    .contains(BindingAttributes::DECLARATION_INITIALIZED)
+    )
 }
 
 fn block_can_reach(
@@ -1802,6 +1818,77 @@ fn future_reads_contain_after(
     let index = plan.events.partition_point(|event| event.offset <= offset);
     future_reads[scope.index()].suffix_reads[index].contains(name_id.index())
         || (plan.is_function && escape_reads[scope.index()].contains(name_id.index()))
+}
+
+fn binding_has_future_reads_before_local_shadow(
+    binding: &Binding,
+    name_id: NameId,
+    bindings: &[Binding],
+    read_plans: &[ScopeReadPlan],
+    transitive_reads: &[DenseBitSet],
+    future_reads: &[ScopeFutureReads],
+    escape_reads: &[DenseBitSet],
+) -> bool {
+    let shadow_offset = next_shadowing_local_declaration_offset(binding, bindings);
+    let escape_reads_visible = read_plans[binding.scope.index()].is_function
+        && escape_reads[binding.scope.index()].contains(name_id.index());
+
+    if let Some(shadow_offset) = shadow_offset {
+        escape_reads_visible
+            || future_reads_contain_after_until(
+                binding.scope,
+                binding.span.start.offset,
+                shadow_offset,
+                name_id,
+                read_plans,
+                transitive_reads,
+            )
+    } else {
+        future_reads_contain_after(
+            binding.scope,
+            binding.span.start.offset,
+            name_id,
+            read_plans,
+            future_reads,
+            escape_reads,
+        )
+    }
+}
+
+fn next_shadowing_local_declaration_offset(
+    binding: &Binding,
+    bindings: &[Binding],
+) -> Option<usize> {
+    bindings
+        .iter()
+        .skip(binding.id.index() + 1)
+        .find(|candidate| {
+            candidate.name == binding.name
+                && candidate.scope == binding.scope
+                && matches!(candidate.kind, BindingKind::Declaration(_))
+                && candidate.attributes.contains(BindingAttributes::LOCAL)
+        })
+        .map(|candidate| candidate.span.start.offset)
+}
+
+fn future_reads_contain_after_until(
+    scope: ScopeId,
+    after_offset: usize,
+    before_offset: usize,
+    name_id: NameId,
+    read_plans: &[ScopeReadPlan],
+    transitive_reads: &[DenseBitSet],
+) -> bool {
+    let plan = &read_plans[scope.index()];
+    let start = plan.events.partition_point(|event| event.offset <= after_offset);
+    let end = plan.events.partition_point(|event| event.offset < before_offset);
+
+    plan.events[start..end].iter().any(|event| match event.kind {
+        ScopeReadEventKind::Direct(candidate) => candidate == name_id,
+        ScopeReadEventKind::Call(callee_scope) => {
+            transitive_reads[callee_scope.index()].contains(name_id.index())
+        }
+    })
 }
 
 fn mark_reaching_defs_for_names_used(

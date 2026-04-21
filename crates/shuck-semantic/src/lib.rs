@@ -3618,6 +3618,33 @@ fi
     }
 
     #[test]
+    fn used_uninitialized_local_branches_keep_each_dead_arm_reported() {
+        let source = "\
+f() {
+  if a; then
+    foo=1
+  elif b; then
+    local foo
+    echo \"$foo\"
+  else
+    foo=3
+  fi
+}
+f
+";
+        let model = model(source);
+        let assignment_bindings = model
+            .bindings_for(&Name::from("foo"))
+            .iter()
+            .copied()
+            .filter(|binding_id| matches!(model.binding(*binding_id).kind, BindingKind::Assignment))
+            .collect::<Vec<_>>();
+        let binding_ids = model.analysis().dataflow().unused_assignment_ids().to_vec();
+
+        assert_eq!(binding_ids, assignment_bindings);
+    }
+
+    #[test]
     fn linear_duplicate_assignments_with_unrelated_reads_keep_all_reported_ids() {
         let source = "\
 emoji[grinning]=1

@@ -2510,13 +2510,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         let local_like = attributes.contains(BindingAttributes::LOCAL);
         let existing = self.resolve_reference(name, scope, span.start.offset);
 
-        if let Some(existing) = existing {
-            let existing_scope = self.bindings[existing.index()].scope;
-            if !local_like || existing_scope == scope {
-                self.add_reference(name, ReferenceKind::DeclarationName, span);
-                self.bindings[existing.index()].attributes |= attributes;
-                return;
-            }
+        if !local_like && let Some(existing) = existing {
+            self.add_reference(name, ReferenceKind::DeclarationName, span);
+            self.bindings[existing.index()].attributes |= attributes;
+            return;
         }
 
         let kind = if attributes.contains(BindingAttributes::NAMEREF) {
