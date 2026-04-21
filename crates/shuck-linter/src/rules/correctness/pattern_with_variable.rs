@@ -1,10 +1,12 @@
 use shuck_ast::Span;
 
-use crate::{Checker, ExpansionContext, Rule, Violation};
+use crate::{Checker, Edit, ExpansionContext, Fix, FixAvailability, Rule, Violation};
 
 pub struct PatternWithVariable;
 
 impl Violation for PatternWithVariable {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::PatternWithVariable
     }
@@ -12,9 +14,14 @@ impl Violation for PatternWithVariable {
     fn message(&self) -> String {
         "pattern expressions should not expand variables".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("quote the expansion in the pattern".to_owned())
+    }
 }
 
 pub fn pattern_with_variable(checker: &mut Checker) {
+    let source = checker.source();
     let replacement_expansion_spans = checker
         .facts()
         .replacement_expansion_fragments()
@@ -28,7 +35,7 @@ pub fn pattern_with_variable(checker: &mut Checker) {
         .map(|fragment| fragment.span())
         .collect::<Vec<_>>();
 
-    let spans = checker
+    let diagnostics = checker
         .facts()
         .expansion_word_facts(ExpansionContext::ParameterPattern)
         .flat_map(|fact| {
@@ -43,11 +50,18 @@ pub fn pattern_with_variable(checker: &mut Checker) {
                 .iter()
                 .copied()
                 .filter(|span| !span_is_within_any(*span, quoted_expansion_spans))
+                .map(|span| {
+                    crate::Diagnostic::new(PatternWithVariable, span).with_fix(Fix::unsafe_edit(
+                        Edit::replacement(format!("\"{}\"", span.slice(source)), span),
+                    ))
+                })
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || PatternWithVariable);
+    for diagnostic in diagnostics {
+        checker.report_diagnostic_dedup(diagnostic);
+    }
 }
 
 fn span_is_within_any(span: Span, hosts: &[Span]) -> bool {
@@ -59,7 +73,8 @@ fn span_is_within_any(span: Span, hosts: &[Span]) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::test::{test_path_with_fix, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, assert_diagnostics_diff};
 
     #[test]
     fn reports_nested_parameter_pattern_groups_and_substitutions() {
@@ -139,5 +154,65 @@ nested=${items[i]%${name%$suffix}}
                 .collect::<Vec<_>>(),
             vec!["$suffix"]
         );
+    }
+
+    #[test]
+    fn attaches_unsafe_fix_metadata_to_reported_expansions() {
+        let source = "\
+#!/bin/bash
+suffix=b
+trimmed=${name%$suffix}
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::PatternWithVariable));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].fix.as_ref().map(|fix| fix.applicability()),
+            Some(Applicability::Unsafe)
+        );
+        assert_eq!(
+            diagnostics[0].fix_title.as_deref(),
+            Some("quote the expansion in the pattern")
+        );
+    }
+
+    #[test]
+    fn applies_unsafe_fix_to_parameter_pattern_expansions() {
+        let source = "\
+#!/bin/bash
+suffix=b
+trimmed=${name%$suffix}
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::PatternWithVariable),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/bash
+suffix=b
+trimmed=${name%\"$suffix\"}
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn snapshots_unsafe_fix_output_for_fixture() -> anyhow::Result<()> {
+        let result = test_path_with_fix(
+            std::path::Path::new("correctness")
+                .join("C055.sh")
+                .as_path(),
+            &LinterSettings::for_rule(Rule::PatternWithVariable),
+            Applicability::Unsafe,
+        )?;
+
+        assert_diagnostics_diff!("C055_fix_C055.sh", result);
+        Ok(())
     }
 }
