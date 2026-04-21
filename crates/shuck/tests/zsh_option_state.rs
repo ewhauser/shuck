@@ -9,7 +9,6 @@ use serde::Deserialize;
 use shuck_indexer::Indexer;
 use shuck_linter::{
     Checker, ExpansionContext, RuleSet, ShellDialect, WordFactContext, classify_file_context,
-    static_word_text,
 };
 use shuck_parser::parser::Parser;
 use shuck_parser::{ShellDialect as ParseShellDialect, ShellProfile};
@@ -358,7 +357,7 @@ fn find_probe_command<'a>(
                 && fact
                     .body_args()
                     .first()
-                    .and_then(|word| static_word_text(word, checker.source()))
+                    .map(|word| word.render(checker.source()))
                     .as_deref()
                     == Some(probe_id)
         })

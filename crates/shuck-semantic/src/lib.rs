@@ -1,35 +1,62 @@
+#![warn(missing_docs)]
+
+//! Semantic analysis model for shell scripts.
+
+#[allow(missing_docs)]
 mod binding;
+#[allow(missing_docs)]
 mod builder;
+#[allow(missing_docs)]
 mod call_graph;
+#[allow(missing_docs)]
 mod cfg;
+#[allow(missing_docs)]
 mod contract;
+#[allow(missing_docs)]
 mod dataflow;
+#[allow(missing_docs)]
 mod declaration;
+#[allow(missing_docs)]
 mod reference;
+#[allow(missing_docs)]
 mod runtime;
+#[allow(missing_docs)]
 mod scope;
+#[allow(missing_docs)]
 mod source_closure;
+#[allow(missing_docs)]
 mod source_ref;
+#[allow(missing_docs)]
 mod zsh_options;
 
+/// Binding types and provenance metadata discovered during semantic analysis.
 pub use binding::{
     AssignmentValueOrigin, Binding, BindingAttributes, BindingId, BindingKind, BindingOrigin,
     BuiltinBindingTargetKind, LoopValueOrigin,
 };
+/// Call-graph structures derived from the analyzed script.
 pub use call_graph::{CallGraph, CallSite, OverwrittenFunction};
+/// Control-flow graph types and flow-context annotations.
 pub use cfg::{BasicBlock, BlockId, ControlFlowGraph, EdgeKind, FlowContext};
+/// Contract and build-option types used when constructing semantic models.
 pub use contract::{
     ContractCertainty, FileContract, FunctionContract, ProvidedBinding, ProvidedBindingKind,
     SemanticBuildOptions,
 };
+/// Dataflow results surfaced by the semantic analysis layer.
 pub use dataflow::{
     DeadCode, ReachingDefinitions, UninitializedCertainty, UninitializedReference,
     UnusedAssignment, UnusedReason,
 };
+/// Declaration records discovered while building the semantic model.
 pub use declaration::{Declaration, DeclarationBuiltin, DeclarationOperand};
+/// Reference types and identifiers tracked by the semantic model.
 pub use reference::{Reference, ReferenceId, ReferenceKind};
+/// Scope types and identifiers tracked by the semantic model.
 pub use scope::{FunctionScopeKind, Scope, ScopeId, ScopeKind};
+/// Shell parser option types reused by the semantic analysis layer.
 pub use shuck_parser::{OptionValue, ShellProfile, ZshEmulationMode, ZshOptionState};
+/// Source-reference records and resolution state.
 pub use source_ref::{SourceRef, SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution};
 
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -80,6 +107,7 @@ pub(crate) enum IndirectTargetHint {
     },
 }
 
+/// Synthetic read introduced by semantic modeling for later analysis passes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SyntheticRead {
     pub(crate) scope: ScopeId,
@@ -87,6 +115,7 @@ pub struct SyntheticRead {
     pub(crate) name: Name,
 }
 
+#[allow(missing_docs)]
 impl SyntheticRead {
     pub fn scope(&self) -> ScopeId {
         self.scope
@@ -375,6 +404,7 @@ impl ScopeLookup {
     }
 }
 
+/// Semantic model constructed from a parsed shell file and source text.
 #[derive(Debug)]
 pub struct SemanticModel {
     shell_profile: ShellProfile,
@@ -408,6 +438,7 @@ pub struct SemanticModel {
     assoc_lookup_binding_index: OnceLock<AssocLookupBindingIndex>,
 }
 
+/// Lazy analysis view over a `SemanticModel`.
 #[derive(Debug)]
 pub struct SemanticAnalysis<'model> {
     model: &'model SemanticModel,
@@ -429,6 +460,7 @@ struct OverwriteWindow<'a> {
     unreachable: &'a FxHashSet<BlockId>,
 }
 
+#[allow(missing_docs)]
 impl SemanticModel {
     pub fn build(file: &File, source: &str, indexer: &Indexer) -> Self {
         Self::build_with_options(file, source, indexer, SemanticBuildOptions::default())
@@ -1092,6 +1124,7 @@ impl SemanticModel {
     }
 }
 
+#[allow(missing_docs)]
 impl<'model> SemanticAnalysis<'model> {
     fn new(model: &'model SemanticModel) -> Self {
         Self {

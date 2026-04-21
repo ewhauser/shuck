@@ -9,12 +9,14 @@ allow = [
     "Apache-2.0 WITH LLVM-exception",  # LLVM exception (target-lexicon via pyo3)
     "BSD-2-Clause",
     "BSD-3-Clause",
+    "CC0-1.0",               # notify crate
     "ISC",
     "Zlib",
     "MPL-2.0",                # Mozilla Public License 2.0 (colored crate)
     "Unicode-3.0",            # Unicode License v3 (icu_* crates)
     "CDLA-Permissive-2.0",    # Community Data License Agreement (webpki-root-certs)
     "Unicode-DFS-2016",       # Unicode Data Files and Software License (unicode_names2 via monty/ruff, --all-features only)
+    "WTFPL",                  # terminfo via clearscreen
 ]
 
 # Review unclear/dual licenses

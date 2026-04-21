@@ -1606,6 +1606,7 @@ dependencies = [
  "shuck-ast",
  "shuck-indexer",
  "shuck-parser",
+ "smallvec",
  "tempfile",
 ]
 

@@ -1,3 +1,7 @@
+#![warn(missing_docs)]
+
+//! Persistent file-result caching utilities for shuck.
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
 use std::io::{self, BufReader, Write};
@@ -9,14 +13,17 @@ use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
 
+/// Legacy per-project cache directory name used by older shuck releases.
 pub const CACHE_DIR_NAME: &str = ".shuck_cache";
 
 const MAX_LAST_SEEN_AGE: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
+/// Returns the legacy cache directory that lives under a project root.
 pub fn legacy_cache_dir(project_root: &Path) -> PathBuf {
     project_root.join(CACHE_DIR_NAME)
 }
 
+/// Reads the cached project root marker stored in a legacy cache file.
 pub fn read_project_root_from_cache_file(path: &Path) -> io::Result<Option<PathBuf>> {
     let file = match File::open(path) {
         Ok(file) => file,
@@ -31,14 +38,18 @@ pub fn read_project_root_from_cache_file(path: &Path) -> io::Result<Option<PathB
     }
 }
 
+/// Trait for values that can contribute to a deterministic package cache key.
+#[allow(missing_docs)]
 pub trait CacheKey {
     fn cache_key(&self, state: &mut CacheKeyHasher);
 }
 
+/// Incremental hasher used to build structured cache keys.
 pub struct CacheKeyHasher {
     hasher: Sha256,
 }
 
+#[allow(missing_docs)]
 impl CacheKeyHasher {
     #[must_use]
     pub fn new() -> Self {
@@ -102,6 +113,7 @@ impl Default for CacheKeyHasher {
     }
 }
 
+/// Returns the hex-encoded cache key for a value.
 #[must_use]
 pub fn cache_key_hex<T: CacheKey>(value: &T) -> String {
     let mut hasher = CacheKeyHasher::new();
@@ -216,6 +228,8 @@ where
     }
 }
 
+/// File metadata used to validate cached entries against a filesystem path.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct FileCacheKey {
     pub file_last_modified_ms: u128,
@@ -223,6 +237,7 @@ pub struct FileCacheKey {
     pub file_size_bytes: u64,
 }
 
+#[allow(missing_docs)]
 impl FileCacheKey {
     pub fn from_path(path: &Path) -> io::Result<Self> {
         let metadata = path.metadata()?;
@@ -271,6 +286,7 @@ struct Change<T> {
     data: T,
 }
 
+/// On-disk cache for file-scoped analysis results within a package.
 #[derive(Debug, Clone)]
 pub struct PackageCache<T> {
     path: PathBuf,
@@ -280,6 +296,7 @@ pub struct PackageCache<T> {
     last_seen_ms: u64,
 }
 
+#[allow(missing_docs)]
 impl<T> PackageCache<T>
 where
     T: Clone + Serialize + DeserializeOwned,

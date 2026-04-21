@@ -1,19 +1,34 @@
+#![warn(missing_docs)]
+
+//! Formatting document model and pretty-printer primitives.
+
+#[allow(missing_docs)]
 mod buffer;
+#[allow(missing_docs)]
 mod format_element;
+#[allow(missing_docs)]
 mod formatter;
+#[allow(missing_docs)]
 mod macros;
+/// Common formatting traits and helper imports.
+#[allow(missing_docs)]
 pub mod prelude;
+#[allow(missing_docs)]
 mod printer;
 
+/// Output buffers used while constructing format documents.
 pub use crate::buffer::{Buffer, VecBuffer};
+/// Formatting document elements and document construction helpers.
 pub use crate::format_element::{
     Document, FormatElement, LineMode, best_fit, group, hard_line_break, indent, soft_line_break,
     soft_line_break_or_space, space, text, token, verbatim,
 };
+/// Core formatter traits, options, and formatted output wrappers.
 pub use crate::formatter::{
     Format, FormatContext, FormatError, FormatOptions, FormatResult, Formatted, Formatter,
     SimpleFormatContext, SimpleFormatOptions,
 };
+/// Printer configuration and rendered output types.
 pub use crate::printer::{IndentStyle, LineEnding, PrintError, Printed, Printer, PrinterOptions};
 
 #[cfg(test)]

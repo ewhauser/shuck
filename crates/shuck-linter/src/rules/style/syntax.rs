@@ -1,6 +1,6 @@
 use shuck_ast::Command;
 
-pub use crate::static_word_text;
+pub(crate) use crate::static_word_text;
 
 pub fn is_simple_command_named(command: &Command, source: &str, name: &str) -> bool {
     match command {
