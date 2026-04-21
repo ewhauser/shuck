@@ -491,30 +491,27 @@ impl<'a> LinterFactsBuilder<'a> {
         );
         let assignment_like_command_name_spans =
             build_assignment_like_command_name_spans(&commands, self.source);
-        let bare_command_name_assignment_spans =
-            build_bare_command_name_assignment_spans(
-                &commands,
-                &word_nodes,
-                &word_occurrences,
-                &word_index,
-                source,
-            );
-        let unquoted_command_argument_use_offsets =
-            build_unquoted_command_argument_use_offsets(
-                self.semantic,
-                &word_nodes,
-                &word_occurrences,
-            );
+        let bare_command_name_assignment_spans = build_bare_command_name_assignment_spans(
+            &commands,
+            &word_nodes,
+            &word_occurrences,
+            &word_index,
+            source,
+        );
+        let unquoted_command_argument_use_offsets = build_unquoted_command_argument_use_offsets(
+            self.semantic,
+            &word_nodes,
+            &word_occurrences,
+        );
         let brace_variable_before_bracket_spans =
             build_brace_variable_before_bracket_spans(&word_nodes, &word_occurrences, source);
-        let alias_definition_expansion_spans =
-            build_alias_definition_expansion_spans(
-                &commands,
-                &word_nodes,
-                &word_occurrences,
-                &word_index,
-                source,
-            );
+        let alias_definition_expansion_spans = build_alias_definition_expansion_spans(
+            &commands,
+            &word_nodes,
+            &word_occurrences,
+            &word_index,
+            source,
+        );
         let innermost_command_ids_by_offset = build_innermost_command_ids_by_offset(
             &commands,
             commands
@@ -523,8 +520,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 .collect(),
         );
         let command_parent_ids = build_command_parent_ids(&commands);
-        let command_dominance_barrier_flags =
-            build_command_dominance_barrier_flags(&commands);
+        let command_dominance_barrier_flags = build_command_dominance_barrier_flags(&commands);
 
         LinterFacts {
             source,
@@ -579,6 +575,10 @@ impl<'a> LinterFactsBuilder<'a> {
             space_after_hash_bang_whitespace_span: shebang_header_facts
                 .space_after_hash_bang_whitespace_span,
             shebang_not_on_first_line_span: shebang_header_facts.shebang_not_on_first_line_span,
+            shebang_not_on_first_line_fix_span: shebang_header_facts
+                .shebang_not_on_first_line_fix_span,
+            shebang_not_on_first_line_preferred_newline: shebang_header_facts
+                .shebang_not_on_first_line_preferred_newline,
             missing_shebang_line_span: shebang_header_facts.missing_shebang_line_span,
             duplicate_shebang_flag_span: shebang_header_facts.duplicate_shebang_flag_span,
             non_absolute_shebang_span: shebang_header_facts.non_absolute_shebang_span,
