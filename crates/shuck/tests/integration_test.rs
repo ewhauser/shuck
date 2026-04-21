@@ -1,9 +1,15 @@
 use std::fs;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use std::process::{Command as ProcessCommand, Stdio};
+use std::sync::mpsc::{self, Receiver};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use assert_cmd::Command;
 use predicates::prelude::*;
 use tempfile::tempdir;
+use wait_timeout::ChildExt;
 use walkdir::WalkDir;
 
 fn cache_dir(root: &Path) -> PathBuf {
@@ -30,6 +36,92 @@ fn configure_default_cache_env(cmd: &mut Command, root: &Path) {
 
 fn enable_experimental(cmd: &mut Command) {
     cmd.env("SHUCK_EXPERIMENTAL", "1");
+}
+
+#[derive(Clone, Copy)]
+enum StreamKind {
+    Stdout,
+    Stderr,
+}
+
+#[derive(Default)]
+struct CapturedOutput {
+    stdout: String,
+    stderr: String,
+}
+
+fn spawn_output_reader<R>(
+    reader: R,
+    kind: StreamKind,
+    tx: mpsc::Sender<(StreamKind, String)>,
+) -> thread::JoinHandle<()>
+where
+    R: std::io::Read + Send + 'static,
+{
+    thread::spawn(move || {
+        let mut reader = BufReader::new(reader);
+        loop {
+            let mut line = String::new();
+            match reader.read_line(&mut line) {
+                Ok(0) => break,
+                Ok(_) => {
+                    if tx.send((kind, line)).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    })
+}
+
+fn wait_for_output<F>(
+    rx: &Receiver<(StreamKind, String)>,
+    captured: &mut CapturedOutput,
+    timeout: Duration,
+    predicate: F,
+) -> bool
+where
+    F: Fn(&CapturedOutput) -> bool,
+{
+    if predicate(captured) {
+        return true;
+    }
+
+    let deadline = Instant::now() + timeout;
+    loop {
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            return predicate(captured);
+        };
+
+        match rx.recv_timeout(remaining) {
+            Ok((kind, line)) => match kind {
+                StreamKind::Stdout => captured.stdout.push_str(&line),
+                StreamKind::Stderr => captured.stderr.push_str(&line),
+            },
+            Err(mpsc::RecvTimeoutError::Timeout | mpsc::RecvTimeoutError::Disconnected) => {
+                return predicate(captured);
+            }
+        }
+
+        if predicate(captured) {
+            return true;
+        }
+    }
+}
+
+fn stop_child(child: &mut std::process::Child) {
+    if child.try_wait().unwrap().is_none() {
+        let _ = child.kill();
+    }
+    if child
+        .wait_timeout(Duration::from_secs(5))
+        .unwrap()
+        .is_none()
+    {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
 }
 
 #[test]
@@ -106,6 +198,7 @@ fn check_help_includes_add_ignore_flag() {
     cmd.assert()
         .success()
         .stdout(predicate::str::contains("--add-ignore"))
+        .stdout(predicate::str::contains("-w, --watch"))
         .stdout(predicate::str::contains("shuck ignore directives"))
         .stdout(predicate::str::contains("--add-noqa").not());
 }
@@ -937,6 +1030,59 @@ fn check_invalid_extend_exclude_pattern_reports_discovery_error() {
     cmd.assert()
         .code(2)
         .stderr(predicate::str::contains("invalid exclude pattern `[`"));
+}
+
+#[test]
+fn check_watch_reruns_when_files_change() {
+    let tempdir = tempdir().unwrap();
+    let script = tempdir.path().join("watch.sh");
+    fs::write(&script, "#!/bin/bash\necho ok\n").unwrap();
+
+    let mut child = ProcessCommand::new(assert_cmd::cargo::cargo_bin("shuck"));
+    child
+        .env("SHUCK_CACHE_DIR", cache_dir(tempdir.path()))
+        .current_dir(tempdir.path())
+        .args(["check", "--watch", "--output-format", "concise"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = child.spawn().unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let (tx, rx) = mpsc::channel();
+    let stdout_reader = spawn_output_reader(stdout, StreamKind::Stdout, tx.clone());
+    let stderr_reader = spawn_output_reader(stderr, StreamKind::Stderr, tx);
+    let mut captured = CapturedOutput::default();
+
+    let initial_ready = wait_for_output(&rx, &mut captured, Duration::from_secs(10), |output| {
+        output.stderr.contains("Starting linter in watch mode...")
+    });
+    if !initial_ready {
+        stop_child(&mut child);
+        let _ = stdout_reader.join();
+        let _ = stderr_reader.join();
+        panic!(
+            "watch mode did not emit its startup banner\nstdout:\n{}\nstderr:\n{}",
+            captured.stdout, captured.stderr
+        );
+    }
+
+    fs::write(&script, "#!/bin/bash\nunused=1\necho ok\n").unwrap();
+
+    let rerun_ready = wait_for_output(&rx, &mut captured, Duration::from_secs(10), |output| {
+        output.stderr.contains("File change detected...")
+            && output.stdout.contains("watch.sh:2:1: warning[C001]")
+    });
+
+    stop_child(&mut child);
+    let _ = stdout_reader.join();
+    let _ = stderr_reader.join();
+
+    assert!(
+        rerun_ready,
+        "watch mode did not rerun after file changes\nstdout:\n{}\nstderr:\n{}",
+        captured.stdout, captured.stderr
+    );
 }
 
 #[test]
