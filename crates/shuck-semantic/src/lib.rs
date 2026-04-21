@@ -3687,6 +3687,32 @@ f
     }
 
     #[test]
+    fn branch_local_declarations_do_not_hide_dynamic_scope_reads_in_called_functions() {
+        let source = "\
+g() {
+  echo \"$foo\"
+}
+f() {
+  foo=1
+  if cond; then
+    local foo
+  fi
+  g
+}
+f
+";
+        let model = model(source);
+
+        assert!(
+            model
+                .analysis()
+                .dataflow()
+                .unused_assignment_ids()
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn linear_duplicate_assignments_with_unrelated_reads_keep_all_reported_ids() {
         let source = "\
 emoji[grinning]=1
