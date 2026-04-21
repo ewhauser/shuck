@@ -97,6 +97,15 @@ fn format_help_shows_file_selection_options() {
 }
 
 #[test]
+fn check_help_includes_add_ignore_flag() {
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    cmd.args(["check", "--help"]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("--add-ignore"))
+        .stdout(predicate::str::contains("shuck ignore directives"))
+        .stdout(predicate::str::contains("--add-noqa").not());
+}
 fn format_subcommand_requires_experimental_env() {
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     cmd.arg("format");
@@ -188,6 +197,123 @@ fn check_concise_output_preserves_legacy_one_line_format() {
     cmd.assert()
         .code(1)
         .stdout("warn.sh:2:1: warning[C001] variable `unused` is assigned but never used\n");
+}
+
+#[test]
+fn check_add_ignore_writes_inline_shuck_ignore() {
+    let tempdir = tempdir().unwrap();
+    let script = tempdir.path().join("warn.sh");
+    fs::write(&script, "#!/bin/bash\necho $foo\n").unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--add-ignore"]);
+    cmd.assert()
+        .success()
+        .stdout("")
+        .stderr(predicate::str::contains("Added 1 shuck ignore directive."));
+
+    assert_eq!(
+        fs::read_to_string(script).unwrap(),
+        "#!/bin/bash\necho $foo  # shuck: ignore=C006\n"
+    );
+}
+
+#[test]
+fn check_rejects_add_noqa_alias() {
+    let tempdir = tempdir().unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--add-noqa=legacy"]);
+    cmd.assert()
+        .code(2)
+        .stderr(predicate::str::contains("unexpected argument '--add-noqa'"));
+}
+
+#[test]
+fn check_add_ignore_merges_existing_ignore_and_preserves_reason() {
+    let tempdir = tempdir().unwrap();
+    let script = tempdir.path().join("warn.sh");
+    fs::write(
+        &script,
+        "#!/bin/bash\necho $foo  # shuck: ignore=S001 # legacy\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--add-ignore"]);
+    cmd.assert()
+        .success()
+        .stdout("")
+        .stderr(predicate::str::contains("Added 1 shuck ignore directive."));
+
+    assert_eq!(
+        fs::read_to_string(script).unwrap(),
+        "#!/bin/bash\necho $foo  # shuck: ignore=C006, S001 # legacy\n"
+    );
+}
+
+#[test]
+fn check_add_ignore_reports_remaining_parse_errors() {
+    let tempdir = tempdir().unwrap();
+    let script = tempdir.path().join("broken.sh");
+    fs::write(&script, "#!/bin/bash\necho \"unterminated\n").unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--add-ignore"]);
+    cmd.assert()
+        .code(1)
+        .stdout(predicate::str::contains("error[parse-error]:"))
+        .stderr(predicate::str::is_empty());
+
+    assert_eq!(
+        fs::read_to_string(script).unwrap(),
+        "#!/bin/bash\necho \"unterminated\n"
+    );
+}
+
+#[test]
+fn check_add_ignore_leaves_uneditable_trailing_comment_lines_failing() {
+    let tempdir = tempdir().unwrap();
+    let script = tempdir.path().join("warn.sh");
+    let source = "#!/bin/bash\necho $foo # existing comment\n";
+    fs::write(&script, source).unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--add-ignore", "--output-format", "concise"]);
+    cmd.assert()
+        .code(1)
+        .stdout(predicate::str::contains("error[C006]"))
+        .stderr(predicate::str::is_empty());
+
+    assert_eq!(fs::read_to_string(script).unwrap(), source);
+}
+
+#[test]
+fn inline_shuck_ignore_suppresses_only_its_own_line() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("warn.sh"),
+        "#!/bin/bash\necho $foo  # shuck: ignore=C006\necho $bar\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--output-format", "concise"]);
+    cmd.assert()
+        .code(1)
+        .stdout("warn.sh:3:6: error[C006] variable `bar` is referenced before assignment\n");
 }
 
 #[test]

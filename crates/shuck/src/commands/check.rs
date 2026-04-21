@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 use shuck_cache::{CacheKey, CacheKeyHasher};
 use shuck_indexer::Indexer;
 use shuck_linter::{
-    LinterSettings, ShellCheckCodeMap, ShellDialect, SuppressionIndex, first_statement_line,
-    parse_directives,
+    LinterSettings, ShellCheckCodeMap, ShellDialect, SuppressionIndex, add_ignores_to_path,
+    first_statement_line, parse_directives,
 };
 use shuck_parser::{
     Error as ParseError,
@@ -47,6 +47,22 @@ impl CheckReport {
             return ExitStatus::Failure;
         }
         if self.diagnostics.is_empty() || exit_zero {
+            ExitStatus::Success
+        } else {
+            ExitStatus::Failure
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+struct AddIgnoreReport {
+    diagnostics: Vec<DisplayedDiagnostic>,
+    directives_added: usize,
+}
+
+impl AddIgnoreReport {
+    fn exit_status(&self) -> ExitStatus {
+        if self.diagnostics.is_empty() {
             ExitStatus::Success
         } else {
             ExitStatus::Failure
@@ -128,6 +144,34 @@ struct FileCheckResult {
 pub(crate) fn check(args: CheckCommand, cache_dir: Option<&Path>) -> Result<ExitStatus> {
     let cwd = std::env::current_dir()?;
     let cache_root = resolve_cache_root(&cwd, cache_dir)?;
+    if let Some(raw_reason) = args.add_ignore.as_deref() {
+        if raw_reason.contains(['\n', '\r']) {
+            return Err(anyhow!(
+                "--add-ignore <reason> cannot contain newline characters"
+            ));
+        }
+
+        let report = run_add_ignore_with_cwd(
+            &args,
+            &cwd,
+            &cache_root,
+            (!raw_reason.is_empty()).then_some(raw_reason),
+        )?;
+        if report.directives_added > 0 {
+            let s = if report.directives_added == 1 {
+                ""
+            } else {
+                "s"
+            };
+            eprintln!(
+                "Added {} shuck ignore directive{s}.",
+                report.directives_added
+            );
+        }
+        print_diagnostics(&report.diagnostics, args.output_format)?;
+        return Ok(report.exit_status());
+    }
+
     let report = run_check_with_cwd(&args, &cwd, &cache_root)?;
     print_report(&report, args.output_format)?;
     Ok(report.exit_status(args.exit_zero, args.exit_non_zero_on_fix))
@@ -137,10 +181,17 @@ fn print_report(
     report: &CheckReport,
     output_format: crate::args::CheckOutputFormatArg,
 ) -> Result<()> {
+    print_diagnostics(&report.diagnostics, output_format)
+}
+
+fn print_diagnostics(
+    diagnostics: &[DisplayedDiagnostic],
+    output_format: crate::args::CheckOutputFormatArg,
+) -> Result<()> {
     let mut stdout = BufWriter::new(io::stdout().lock());
     print_report_to(
         &mut stdout,
-        &report.diagnostics,
+        diagnostics,
         output_format,
         colored::control::SHOULD_COLORIZE.should_colorize(),
     )?;
@@ -254,6 +305,80 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path, cache_root: &Path) -> Res
     Ok(report)
 }
 
+fn run_add_ignore_with_cwd(
+    args: &CheckCommand,
+    cwd: &Path,
+    cache_root: &Path,
+    reason: Option<&str>,
+) -> Result<AddIgnoreReport> {
+    let include_source = matches!(args.output_format, crate::args::CheckOutputFormatArg::Full);
+    let settings = EffectiveCheckSettings::default();
+    let runs = prepare_project_runs::<CheckCacheData, EffectiveCheckSettings, _>(
+        &args.paths,
+        cwd,
+        &DiscoveryOptions {
+            parallel: false,
+            cache_root: Some(cache_root.to_path_buf()),
+            ..DiscoveryOptions::default()
+        },
+        cache_root,
+        true,
+        b"project-cache-key",
+        |_| Ok(settings.clone()),
+    )?;
+    let base_linter_settings = LinterSettings::default();
+
+    let mut report = AddIgnoreReport::default();
+
+    for run in runs {
+        let analyzed_paths = run
+            .files
+            .iter()
+            .map(|file| file.absolute_path.clone())
+            .collect::<Vec<_>>();
+        let linter_settings = base_linter_settings
+            .clone()
+            .with_analyzed_paths(analyzed_paths);
+
+        for file in run.files {
+            let result = add_ignores_to_path(&file.absolute_path, &linter_settings, reason)?;
+            report.directives_added += result.directives_added;
+            if result.parse_error.is_none() && result.diagnostics.is_empty() {
+                continue;
+            }
+
+            let source = include_source
+                .then(|| read_shared_source(&file.absolute_path))
+                .transpose()?;
+            if let Some(error) = result.parse_error {
+                report.diagnostics.push(DisplayedDiagnostic {
+                    path: file.display_path.clone(),
+                    span: DisplaySpan::point(error.line, error.column),
+                    message: error.message,
+                    kind: DisplayedDiagnosticKind::ParseError,
+                    source: source.clone(),
+                });
+            }
+            push_lint_diagnostics(
+                &mut report.diagnostics,
+                &file.display_path,
+                &result.diagnostics,
+                source,
+            );
+        }
+    }
+
+    report.diagnostics.sort_by(|left, right| {
+        left.path
+            .cmp(&right.path)
+            .then(left.span.start.line.cmp(&right.span.start.line))
+            .then(left.span.start.column.cmp(&right.span.start.column))
+            .then(left.message.cmp(&right.message))
+    });
+
+    Ok(report)
+}
+
 pub(crate) fn benchmark_check_paths(
     cwd: &Path,
     paths: &[PathBuf],
@@ -263,6 +388,7 @@ pub(crate) fn benchmark_check_paths(
         &CheckCommand {
             fix: false,
             unsafe_fixes: false,
+            add_ignore: None,
             no_cache: true,
             output_format,
             paths: paths.to_vec(),
@@ -417,6 +543,29 @@ fn push_cached_lint_diagnostics(
     }
 }
 
+fn push_lint_diagnostics(
+    displayed: &mut Vec<DisplayedDiagnostic>,
+    path: &Path,
+    diagnostics: &[shuck_linter::Diagnostic],
+    source: Option<Arc<str>>,
+) {
+    for diagnostic in diagnostics {
+        displayed.push(DisplayedDiagnostic {
+            path: path.to_path_buf(),
+            span: DisplaySpan::new(
+                DisplayPosition::new(diagnostic.span.start.line, diagnostic.span.start.column),
+                DisplayPosition::new(diagnostic.span.end.line, diagnostic.span.end.column),
+            ),
+            message: diagnostic.message.clone(),
+            kind: DisplayedDiagnosticKind::Lint {
+                code: diagnostic.code().to_owned(),
+                severity: diagnostic.severity.as_str().to_owned(),
+            },
+            source: source.clone(),
+        });
+    }
+}
+
 fn read_shared_source(path: &Path) -> Result<Arc<str>> {
     Ok(Arc::<str>::from(fs::read_to_string(path)?))
 }
@@ -460,6 +609,7 @@ mod tests {
         CheckCommand {
             fix: false,
             unsafe_fixes: false,
+            add_ignore: None,
             no_cache,
             output_format,
             paths: Vec::new(),

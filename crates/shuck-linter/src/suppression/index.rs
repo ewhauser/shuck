@@ -36,6 +36,7 @@ impl SuppressionIndex {
                     .or_insert_with(RuleSuppressionIndex::default);
                 match directive.action {
                     SuppressionAction::DisableFile => index.whole_file = true,
+                    SuppressionAction::Ignore => index.lines.push(directive.line),
                     SuppressionAction::Disable => {
                         if directive.line < first_stmt_line {
                             index.whole_file = true;
@@ -49,6 +50,8 @@ impl SuppressionIndex {
         }
 
         for index in by_rule.values_mut() {
+            index.lines.sort_unstable();
+            index.lines.dedup();
             index
                 .ranges
                 .sort_unstable_by_key(|range| (range.start_line, range.end_line));
@@ -77,12 +80,17 @@ pub fn first_statement_line(file: &File) -> Option<u32> {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 struct RuleSuppressionIndex {
     whole_file: bool,
+    lines: Vec<u32>,
     ranges: Vec<LineRange>,
 }
 
 impl RuleSuppressionIndex {
     fn is_suppressed(&self, line: u32) -> bool {
         if self.whole_file {
+            return true;
+        }
+
+        if self.lines.binary_search(&line).is_ok() {
             return true;
         }
 
@@ -517,6 +525,20 @@ echo $foo
         assert!(!index.is_suppressed(Rule::UndefinedVariable, 2));
         assert!(index.is_suppressed(Rule::UndefinedVariable, 4));
         assert!(!index.is_suppressed(Rule::UndefinedVariable, 5));
+    }
+
+    #[test]
+    fn applies_shuck_ignore_only_to_the_directive_line() {
+        let source = "\
+foo='a b'
+echo $foo # shuck: ignore=C006
+echo $foo
+";
+        let index = suppression_index(source);
+
+        assert!(!index.is_suppressed(Rule::UndefinedVariable, 1));
+        assert!(index.is_suppressed(Rule::UndefinedVariable, 2));
+        assert!(!index.is_suppressed(Rule::UndefinedVariable, 3));
     }
 
     #[test]
