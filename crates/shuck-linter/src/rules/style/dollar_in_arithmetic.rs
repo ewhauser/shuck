@@ -197,6 +197,68 @@ assoc[$key/sfx]=z
     }
 
     #[test]
+    fn ignores_mixed_assoc_and_indexed_assignment_subscripts_in_branches() {
+        let source = "\
+#!/bin/bash
+f() {
+  if cond; then
+    local -A arr
+  else
+    local -a arr
+  fi
+  idx=0
+  arr[${idx}]=x
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_mixed_assoc_and_indexed_assignment_subscripts_in_linear_flow() {
+        let source = "\
+#!/bin/bash
+f() {
+  local -A arr
+  local -a arr
+  idx=0
+  arr[${idx}]=x
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn reports_caller_local_shadowing_after_assoc_declaration() {
+        let source = "\
+#!/bin/bash
+helper() {
+  map[$key]=1
+}
+main() {
+  local key=name
+  declare -A map
+  unset map
+  local map
+  helper
+}
+main
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$key"]
+        );
+    }
+
+    #[test]
     fn ignores_quoted_indexed_assignment_subscripts() {
         let source = "\
 #!/bin/bash

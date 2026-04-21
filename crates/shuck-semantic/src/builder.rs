@@ -85,6 +85,7 @@ pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     command_bindings: FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
     command_references: FxHashMap<SpanKey, SmallVec<[ReferenceId; 4]>>,
     source_directives: FxHashMap<usize, SourceDirectiveOverride>,
+    cleared_variables: FxHashMap<(ScopeId, Name), usize>,
     runtime: RuntimePrelude,
     completed_scopes: FxHashSet<ScopeId>,
     deferred_functions: Vec<DeferredFunction<'a>>,
@@ -100,6 +101,16 @@ struct FlowState {
     in_subshell: bool,
     in_block: bool,
     exit_status_checked: bool,
+    conditionally_executed: bool,
+}
+
+impl FlowState {
+    fn conditional(self) -> Self {
+        Self {
+            conditionally_executed: true,
+            ..self
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -155,6 +166,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             command_bindings: FxHashMap::default(),
             command_references: FxHashMap::default(),
             source_directives: parse_source_directives(source, indexer),
+            cleared_variables: FxHashMap::default(),
             runtime,
             completed_scopes: FxHashSet::default(),
             deferred_functions: Vec::new(),
@@ -548,6 +560,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         for (index, stmt) in commands.into_iter().enumerate() {
             let mut nested = flow;
             nested.exit_status_checked = operators.get(index).is_some() || flow.exit_status_checked;
+            if index > 0 {
+                nested.conditionally_executed = true;
+            }
             recorded.push(self.visit_stmt(stmt, nested));
         }
 
@@ -584,7 +599,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         ..flow
                     },
                 );
-                let then_branch = self.visit_stmt_seq(&command.then_branch, flow);
+                let then_branch = self.visit_stmt_seq(&command.then_branch, flow.conditional());
                 let elif_branches = command
                     .elif_branches
                     .iter()
@@ -593,17 +608,17 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                             condition,
                             FlowState {
                                 exit_status_checked: true,
-                                ..flow
+                                ..flow.conditional()
                             },
                         ),
-                        body: self.visit_stmt_seq(body, flow),
+                        body: self.visit_stmt_seq(body, flow.conditional()),
                     })
                     .collect();
                 let elif_branches = self.recorded_program.push_elif_branches(elif_branches);
                 let else_branch = command
                     .else_branch
                     .as_ref()
-                    .map(|body| self.visit_stmt_seq(body, flow))
+                    .map(|body| self.visit_stmt_seq(body, flow.conditional()))
                     .unwrap_or_default();
 
                 self.record_command(
@@ -643,7 +658,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     &command.body,
                     FlowState {
                         loop_depth: flow.loop_depth + 1,
-                        ..flow
+                        ..flow.conditional()
                     },
                 );
                 self.record_command(
@@ -659,7 +674,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     &command.body,
                     FlowState {
                         loop_depth: flow.loop_depth + 1,
-                        ..flow
+                        ..flow.conditional()
                     },
                 );
                 self.record_command(
@@ -687,7 +702,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     &command.body,
                     FlowState {
                         loop_depth: flow.loop_depth + 1,
-                        ..flow
+                        ..flow.conditional()
                     },
                 );
                 self.record_command(
@@ -717,7 +732,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     &command.body,
                     FlowState {
                         loop_depth: flow.loop_depth + 1,
-                        ..flow
+                        ..flow.conditional()
                     },
                 );
                 self.record_command(
@@ -738,7 +753,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     &command.body,
                     FlowState {
                         loop_depth: flow.loop_depth + 1,
-                        ..flow
+                        ..flow.conditional()
                     },
                 );
                 self.record_command(
@@ -759,7 +774,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     &command.body,
                     FlowState {
                         loop_depth: flow.loop_depth + 1,
-                        ..flow
+                        ..flow.conditional()
                     },
                 );
                 self.record_command(
@@ -778,7 +793,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         let pattern_regions =
                             self.visit_patterns(&case.patterns, WordVisitKind::Conditional, flow);
                         let mut commands = Vec::with_capacity(case.body.len());
-                        self.visit_stmt_seq_into(&case.body, flow, &mut commands);
+                        self.visit_stmt_seq_into(&case.body, flow.conditional(), &mut commands);
                         if !pattern_regions.is_empty() {
                             if let Some(&first) = commands.first() {
                                 self.prepend_nested_regions(first, pattern_regions);
@@ -824,7 +839,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     &command.body,
                     FlowState {
                         loop_depth: flow.loop_depth + 1,
-                        ..flow
+                        ..flow.conditional()
                     },
                 );
                 self.record_command(
@@ -2233,6 +2248,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     expr.span,
                     BindingOrigin::ArithmeticAssignment {
                         definition_span: expr.span,
+                        target_span: arithmetic_lvalue_span(
+                            &ArithmeticLvalue::Variable(name.clone()),
+                            expr.span,
+                        ),
                     },
                     BindingAttributes::empty(),
                 );
@@ -2248,6 +2267,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     span,
                     BindingOrigin::ArithmeticAssignment {
                         definition_span: span,
+                        target_span: arithmetic_lvalue_span(
+                            &ArithmeticLvalue::Indexed {
+                                name: name.clone(),
+                                index: index.clone(),
+                            },
+                            expr.span,
+                        ),
                     },
                     self.arithmetic_binding_attributes(
                         &ArithmeticLvalue::Indexed {
@@ -2288,6 +2314,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             name_span,
             BindingOrigin::ArithmeticAssignment {
                 definition_span: name_span,
+                target_span: arithmetic_lvalue_span(target, target_span),
             },
             attributes,
         );
@@ -2311,7 +2338,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         &mut self,
         name: &Name,
         command: &shuck_ast::SimpleCommand,
-        _flow: FlowState,
+        flow: FlowState,
     ) {
         match name.as_str() {
             "read" => {
@@ -2404,7 +2431,90 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     });
                 }
             }
+            "unset" => self.record_unset_variable_targets(&command.args, flow),
             _ => {}
+        }
+    }
+
+    fn record_unset_variable_targets(&mut self, args: &[Word], flow: FlowState) {
+        if flow.conditionally_executed {
+            return;
+        }
+
+        let mut function_flag_seen = false;
+        let mut variable_flag_seen = false;
+        let mut nameref_mode = false;
+        let mut parsing_options = true;
+
+        for argument in args {
+            let Some(text) = static_word_text(argument, self.source) else {
+                if parsing_options {
+                    return;
+                }
+                parsing_options = false;
+                continue;
+            };
+
+            if parsing_options {
+                if text == "--" {
+                    parsing_options = false;
+                    continue;
+                }
+
+                if text.starts_with('-') && text != "-" {
+                    let flags = text.trim_start_matches('-');
+                    if !unset_flags_are_valid(flags) {
+                        return;
+                    }
+                    for flag in flags.chars() {
+                        match flag {
+                            'f' => {
+                                if variable_flag_seen {
+                                    return;
+                                }
+                                function_flag_seen = true;
+                            }
+                            'v' => {
+                                if function_flag_seen {
+                                    return;
+                                }
+                                variable_flag_seen = true;
+                            }
+                            'n' => {
+                                nameref_mode = true;
+                            }
+                            _ => unreachable!("invalid unset flag already filtered"),
+                        }
+                    }
+                    continue;
+                }
+
+                parsing_options = false;
+            }
+
+            if function_flag_seen || !is_name(&text) {
+                continue;
+            }
+
+            if nameref_mode {
+                let name = Name::from(text.as_str());
+                let Some(binding_id) =
+                    self.resolve_reference(&name, self.current_scope(), argument.span.start.offset)
+                else {
+                    continue;
+                };
+                let binding = &self.bindings[binding_id.index()];
+                if !binding.attributes.contains(BindingAttributes::NAMEREF)
+                    && !matches!(binding.kind, BindingKind::Nameref)
+                {
+                    continue;
+                }
+            }
+
+            self.cleared_variables.insert(
+                (self.current_scope(), Name::from(text.as_str())),
+                argument.span.start.offset,
+            );
         }
     }
 
@@ -2504,13 +2614,19 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         let local_like = attributes.contains(BindingAttributes::LOCAL);
         let existing = self.resolve_reference(name, scope, span.start.offset);
 
-        if let Some(existing) = existing {
-            let existing_scope = self.bindings[existing.index()].scope;
-            if !local_like || existing_scope == scope {
-                self.add_reference(name, ReferenceKind::DeclarationName, span);
-                self.bindings[existing.index()].attributes |= attributes;
-                return;
-            }
+        let reuse_existing = existing.is_some_and(|existing| {
+            let existing_binding = &self.bindings[existing.index()];
+
+            !local_like
+                || (existing_binding.scope == scope
+                    && self.has_uncleared_local_binding_in_scope(name, scope, span.start.offset))
+        });
+
+        if reuse_existing {
+            let existing = existing.expect("existing binding already checked");
+            self.add_reference(name, ReferenceKind::DeclarationName, span);
+            self.bindings[existing.index()].attributes |= attributes;
+            return;
         }
 
         let kind = if attributes.contains(BindingAttributes::NAMEREF) {
@@ -2528,6 +2644,42 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             }
         };
         self.add_binding(name, kind, scope, span, origin, attributes);
+    }
+
+    fn binding_was_cleared_in_scope_after(
+        &self,
+        name: &Name,
+        scope: ScopeId,
+        binding_offset: usize,
+    ) -> bool {
+        self.cleared_variables
+            .get(&(scope, name.clone()))
+            .is_some_and(|cleared_offset| *cleared_offset > binding_offset)
+    }
+
+    fn has_uncleared_local_binding_in_scope(
+        &self,
+        name: &Name,
+        scope: ScopeId,
+        offset: usize,
+    ) -> bool {
+        self.scopes[scope.index()]
+            .bindings
+            .get(name)
+            .and_then(|bindings| {
+                bindings.iter().rev().copied().find(|binding_id| {
+                    let binding = &self.bindings[binding_id.index()];
+                    binding.span.start.offset <= offset
+                        && binding.attributes.contains(BindingAttributes::LOCAL)
+                })
+            })
+            .is_some_and(|binding_id| {
+                !self.binding_was_cleared_in_scope_after(
+                    name,
+                    scope,
+                    self.bindings[binding_id.index()].span.start.offset,
+                )
+            })
     }
 
     fn add_binding(
@@ -3771,6 +3923,10 @@ fn static_tail_text_starts_with_slash(
         && result.starts_with('/')
 }
 
+fn unset_flags_are_valid(flags: &str) -> bool {
+    !flags.is_empty() && flags.chars().all(|flag| matches!(flag, 'f' | 'v' | 'n'))
+}
+
 fn parse_source_directives(
     source: &str,
     indexer: &Indexer,
@@ -3822,6 +3978,15 @@ fn parse_source_directive_override(text: &str, own_line: bool) -> Option<SourceD
 
 fn arithmetic_name_span(span: Span, name: &Name) -> Span {
     Span::from_positions(span.start, span.start.advanced_by(name.as_str()))
+}
+
+fn arithmetic_lvalue_span(target: &ArithmeticLvalue, span: Span) -> Span {
+    match target {
+        ArithmeticLvalue::Variable(name) => arithmetic_name_span(span, name),
+        ArithmeticLvalue::Indexed { index, .. } => {
+            Span::from_positions(span.start, index.span.end.advanced_by("]"))
+        }
+    }
 }
 
 fn is_name(value: &str) -> bool {

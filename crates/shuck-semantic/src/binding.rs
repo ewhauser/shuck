@@ -49,6 +49,7 @@ pub enum BindingOrigin {
     },
     ArithmeticAssignment {
         definition_span: Span,
+        target_span: Span,
     },
     Declaration {
         definition_span: Span,

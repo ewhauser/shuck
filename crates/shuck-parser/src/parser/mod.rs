@@ -1223,14 +1223,14 @@ fn apply_prescan_command_effects(words: &[String], state: &mut ZshOptionState) -
         "setopt" => {
             let mut changed = false;
             for arg in &words[args_index..] {
-                changed = state.apply_setopt(arg) || changed;
+                changed |= state.apply_setopt(arg);
             }
             changed
         }
         "unsetopt" => {
             let mut changed = false;
             for arg in &words[args_index..] {
-                changed = state.apply_unsetopt(arg) || changed;
+                changed |= state.apply_unsetopt(arg);
             }
             changed
         }

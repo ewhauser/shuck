@@ -1415,6 +1415,34 @@ main
 }
 
 #[test]
+fn reports_caller_local_shadowing_after_assoc_declaration_for_dollar_in_arithmetic() {
+    let source = "\
+#!/bin/bash
+helper() {
+  map[$key]=1
+}
+main() {
+  local key=name
+  declare -A map
+  unset map
+  local map
+  helper
+}
+main
+";
+
+    with_facts(source, None, |_, facts| {
+        let spans = facts
+            .dollar_in_arithmetic_spans()
+            .iter()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(spans, vec!["$key"]);
+    });
+}
+
+#[test]
 fn ignores_repeated_dynamic_scope_associative_assignment_subscripts_for_dollar_in_arithmetic() {
     let source = "\
 #!/bin/bash
@@ -1661,6 +1689,31 @@ fn builds_word_facts_for_filename_builder_command_substitutions() {
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$(echo ${KERNEL} | tr '-' '_')"],
+            "parts: {:?}",
+            fact.word().parts
+        );
+    });
+}
+
+#[test]
+fn builds_word_facts_for_docker_inspect_command_substitutions() {
+    let source = "\
+#!/bin/bash
+docker inspect -f '{{ if ne \"true\" (index .Config.Labels \"com.dokku.devcontainer\") }}{{.ID}} {{ end }}' $(docker ps -q)
+";
+
+    with_facts(source, None, |_, facts| {
+        let fact = facts
+            .expansion_word_facts(ExpansionContext::CommandArgument)
+            .find(|fact| fact.span().slice(source) == "$(docker ps -q)")
+            .expect("expected docker inspect argument fact");
+
+        assert_eq!(
+            fact.unquoted_command_substitution_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$(docker ps -q)"],
             "parts: {:?}",
             fact.word().parts
         );

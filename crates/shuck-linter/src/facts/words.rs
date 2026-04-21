@@ -2595,15 +2595,28 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             return *result;
         }
 
-        let visible = if let Some(binding) =
-            self.prior_visible_binding_for_subscript(owner_name, subscript.span())
+        let visible = if let Some(visible) =
+            self.assoc_binding_visible_in_nearest_scope(owner_name, owner_name_span, subscript)
         {
-            binding.attributes.contains(BindingAttributes::ASSOC)
+            visible
         } else {
             self.assoc_binding_visible_from_named_callers(owner_name, subscript.span())
         };
         self.assoc_binding_visibility_memo.insert(key, visible);
         visible
+    }
+
+    fn assoc_binding_visible_in_nearest_scope(
+        &self,
+        owner_name: &Name,
+        owner_name_span: Option<Span>,
+        subscript: &Subscript,
+    ) -> Option<bool> {
+        let lookup_span = owner_name_span.unwrap_or(subscript.span());
+        let current_scope = self.semantic.scope_at(subscript.span().start.offset);
+        self.semantic
+            .visible_binding_for_assoc_lookup(owner_name, current_scope, lookup_span)
+            .map(|binding| binding.attributes.contains(BindingAttributes::ASSOC))
     }
 
     fn assoc_binding_visible_from_named_callers(&self, owner_name: &Name, span: Span) -> bool {
@@ -2637,16 +2650,6 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         }
 
         false
-    }
-
-    fn prior_visible_binding_for_subscript(
-        &self,
-        owner_name: &Name,
-        span: Span,
-    ) -> Option<&shuck_semantic::Binding> {
-        let current_scope = self.semantic.scope_at(span.start.offset);
-        self.semantic
-            .visible_binding_for_assoc_lookup(owner_name, current_scope, span)
     }
 
     fn visible_binding_for_caller_assoc_lookup(

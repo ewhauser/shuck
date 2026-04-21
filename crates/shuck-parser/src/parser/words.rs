@@ -5665,9 +5665,7 @@ fn source_prefix_has_same_line_escaped_double_quote_fragment(
 
     while let Some(ch) = chars.next() {
         match ch {
-            '\\' if !in_single && in_double && chars.peek() == Some(&'"') => {
-                return true;
-            }
+            '\\' if !in_single && in_double && chars.peek() == Some(&'"') => return true,
             '\\' if !in_single => {}
             '\'' if !in_double => in_single = !in_single,
             '"' if !in_single => in_double = !in_double,

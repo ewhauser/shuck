@@ -2813,6 +2813,32 @@ z=$(ls layout.*.h | cut -d. -f2 | xargs echo)
 }
 
 #[test]
+fn builds_docker_ps_substitution_facts_without_pgrep_exemptions() {
+    let source = "\
+#!/bin/bash
+docker inspect -f '{{ if ne \"true\" (index .Config.Labels \"com.dokku.devcontainer\") }}{{.ID}} {{ end }}' $(docker ps -q)
+";
+
+    with_facts(source, None, |_, facts| {
+        let substitution = facts
+            .commands()
+            .iter()
+            .flat_map(|fact| fact.substitution_facts().iter().copied())
+            .find(|fact| fact.span().slice(source) == "$(docker ps -q)")
+            .expect("expected docker ps substitution fact");
+
+        assert_eq!(
+            substitution.host_kind(),
+            SubstitutionHostKind::CommandArgument
+        );
+        assert!(substitution.unquoted_in_host());
+        assert!(substitution.body_has_commands());
+        assert!(!substitution.body_is_pgrep_lookup());
+        assert!(!substitution.body_is_seq_utility());
+    });
+}
+
+#[test]
 fn tracks_backtick_syntax_in_substitution_facts() {
     let source = "\
 #!/bin/sh

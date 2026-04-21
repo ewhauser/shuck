@@ -345,6 +345,29 @@ NUMJOBS=${NUMJOBS:-\" -j $(expr $(nproc) + 1) \"}
     }
 
     #[test]
+    fn reports_docker_ps_command_substitutions_in_arguments() {
+        let source = "\
+#!/bin/bash
+docker inspect -f '{{ if ne \"true\" (index .Config.Labels \"com.dokku.devcontainer\") }}{{.ID}} {{ end }}' $(docker ps -q)
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedCommandSubstitution),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$(docker ps -q)"]
+        );
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 105);
+        assert_eq!(diagnostics[0].span.end.column, 120);
+    }
+
+    #[test]
     fn ignores_kill_pid_lists() {
         let source = "\
 #!/bin/sh

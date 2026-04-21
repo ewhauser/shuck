@@ -2286,6 +2286,7 @@ fn collect_binding_values<'a>(
     semantic: &SemanticModel,
     source: &str,
     binding_values: &mut FxHashMap<BindingId, BindingValueFact<'a>>,
+    binding_target_spans: &mut FxHashMap<BindingId, Span>,
 ) {
     let assignments = match command {
         Command::Simple(simple) if simple.name.span.slice(source).is_empty() => &simple.assignments,
@@ -2307,6 +2308,7 @@ fn collect_binding_values<'a>(
             assignment.target.name_span,
         ) {
             binding_values.insert(binding_id, BindingValueFact::scalar(word));
+            binding_target_spans.insert(binding_id, assignment_target_span(assignment));
         }
     }
 
@@ -2323,6 +2325,7 @@ fn collect_binding_values<'a>(
             assignment.target.name_span,
         ) {
             binding_values.insert(binding_id, BindingValueFact::scalar(word));
+            binding_target_spans.insert(binding_id, assignment_target_span(assignment));
         }
     }
 
