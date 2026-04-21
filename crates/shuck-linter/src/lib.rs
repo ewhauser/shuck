@@ -6,6 +6,7 @@ mod facts;
 mod fix;
 mod parse_diagnostics;
 mod registry;
+mod rule_metadata;
 mod rule_selector;
 mod rule_set;
 pub mod rules;
@@ -40,6 +41,7 @@ pub use facts::{
 pub use facts::{CommandId, FactSpan, LinterFacts};
 pub use fix::{Applicability, AppliedFixes, Edit, Fix, FixAvailability, apply_fixes};
 pub use registry::{Category, Rule, code_to_rule};
+pub use rule_metadata::{RuleMetadata, rule_metadata, rule_metadata_by_code};
 pub use rule_selector::{RuleSelector, SelectorParseError};
 pub use rule_set::RuleSet;
 pub use rules::common::command::{DeclarationKind, WrapperKind};

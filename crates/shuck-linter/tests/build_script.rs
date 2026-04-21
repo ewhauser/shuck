@@ -24,12 +24,16 @@ mod build_script {
         let yaml = r#"
 new_code: "C001"
 shellcheck_code: SC2034
+description: Example description
+rationale: Example rationale
 "#;
 
-        assert_eq!(
-            parse_rule_metadata(yaml),
-            Ok(("C001".to_owned(), Some(2034)))
-        );
+        let (metadata, shellcheck_code) = parse_rule_metadata(yaml).unwrap();
+        assert_eq!(metadata.new_code, "C001");
+        assert_eq!(metadata.description, "Example description");
+        assert_eq!(metadata.rationale, "Example rationale");
+        assert_eq!(metadata.fix_description, None);
+        assert_eq!(shellcheck_code, Some(2034));
     }
 
     #[test]
@@ -37,12 +41,15 @@ shellcheck_code: SC2034
         let yaml = r#"
 new_code: C001
 shellcheck_code: SC2034 # compatibility code
+description: Example description
+rationale: Example rationale
 "#;
 
-        assert_eq!(
-            parse_rule_metadata(yaml),
-            Ok(("C001".to_owned(), Some(2034)))
-        );
+        let (metadata, shellcheck_code) = parse_rule_metadata(yaml).unwrap();
+        assert_eq!(metadata.new_code, "C001");
+        assert_eq!(metadata.description, "Example description");
+        assert_eq!(metadata.rationale, "Example rationale");
+        assert_eq!(shellcheck_code, Some(2034));
     }
 
     #[test]
@@ -50,8 +57,14 @@ shellcheck_code: SC2034 # compatibility code
         let yaml = r#"
 new_code: C001
 shellcheck_code: null
+description: Example description
+rationale: Example rationale
 "#;
 
-        assert_eq!(parse_rule_metadata(yaml), Ok(("C001".to_owned(), None)));
+        let (metadata, shellcheck_code) = parse_rule_metadata(yaml).unwrap();
+        assert_eq!(metadata.new_code, "C001");
+        assert_eq!(metadata.description, "Example description");
+        assert_eq!(metadata.rationale, "Example rationale");
+        assert_eq!(shellcheck_code, None);
     }
 }

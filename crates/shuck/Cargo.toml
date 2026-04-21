@@ -22,6 +22,8 @@ notify = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+quick-junit = { workspace = true }
+shuck-ast = { path = "../shuck-ast" }
 shuck-cache = { path = "../shuck-cache" }
 shuck-formatter = { path = "../shuck-formatter" }
 shuck-indexer = { path = "../shuck-indexer" }
@@ -30,16 +32,16 @@ shuck-parser = { path = "../shuck-parser" }
 shuck-semantic = { path = "../shuck-semantic" }
 similar = { workspace = true }
 toml = { workspace = true }
+url = { workspace = true }
 
 [dev-dependencies]
 assert_cmd = "2"
-insta = { workspace = true }
+insta = { workspace = true, features = ["json", "redactions"] }
 predicates = "3"
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 sha2 = { workspace = true }
-shuck-ast = { path = "../shuck-ast" }
 shuck-indexer = { path = "../shuck-indexer" }
 shuck-linter = { path = "../shuck-linter" }
 shuck-parser = { path = "../shuck-parser" }
@@ -47,3 +49,4 @@ shuck-semantic = { path = "../shuck-semantic" }
 tempfile = { workspace = true }
 wait-timeout = "0.2"
 walkdir = "2"
+roxmltree = { workspace = true }

@@ -43,12 +43,15 @@ serde_json = "1"
 serde_yaml = "0.9"
 similar = "2"
 toml = "0.8"
+quick-junit = "0.6.0"
+url = "2.5.0"
 
 # Testing
 tempfile = "3"
 memchr = "2"
 insta = "1.42"
 test-case = "3"
+roxmltree = "0.20"
 
 [profile.release]
 lto = "thin"

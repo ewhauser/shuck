@@ -10,6 +10,7 @@ use anyhow::{Result, anyhow};
 use notify::{RecursiveMode, Watcher, recommended_watcher};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use shuck_ast::TextSize;
 use shuck_cache::{CacheKey, CacheKeyHasher};
 use shuck_indexer::Indexer;
 use shuck_linter::{
@@ -26,7 +27,8 @@ use crate::ExitStatus;
 use crate::args::{CheckCommand, FileSelectionArgs, PatternRuleSelectorPair, RuleSelectionArgs};
 use crate::cache::resolve_cache_root;
 use crate::commands::check_output::{
-    DisplayPosition, DisplaySpan, DisplayedDiagnostic, DisplayedDiagnosticKind, print_report_to,
+    DisplayPosition, DisplaySpan, DisplayedApplicability, DisplayedDiagnostic,
+    DisplayedDiagnosticKind, DisplayedEdit, DisplayedFix, print_report_to,
 };
 use crate::commands::project_runner::{PendingProjectFile, prepare_project_runs};
 use crate::config::{
@@ -203,10 +205,103 @@ struct CachedLintDiagnostic {
     code: String,
     severity: String,
     message: String,
+    fix: Option<CachedLintFix>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+enum CachedApplicability {
+    Safe,
+    Unsafe,
+}
+
+impl From<Applicability> for CachedApplicability {
+    fn from(value: Applicability) -> Self {
+        match value {
+            Applicability::Safe => Self::Safe,
+            Applicability::Unsafe => Self::Unsafe,
+        }
+    }
+}
+
+impl From<CachedApplicability> for DisplayedApplicability {
+    fn from(value: CachedApplicability) -> Self {
+        match value {
+            CachedApplicability::Safe => Self::Safe,
+            CachedApplicability::Unsafe => Self::Unsafe,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct CachedLintFix {
+    applicability: CachedApplicability,
+    message: Option<String>,
+    edits: Vec<CachedLintEdit>,
+}
+
+impl CachedLintFix {
+    fn from_displayed(fix: &DisplayedFix) -> Self {
+        Self {
+            applicability: match fix.applicability {
+                DisplayedApplicability::Safe => CachedApplicability::Safe,
+                DisplayedApplicability::Unsafe => CachedApplicability::Unsafe,
+            },
+            message: fix.message.clone(),
+            edits: fix
+                .edits
+                .iter()
+                .map(CachedLintEdit::from_displayed)
+                .collect(),
+        }
+    }
+
+    fn to_displayed(&self) -> DisplayedFix {
+        DisplayedFix {
+            applicability: self.applicability.into(),
+            message: self.message.clone(),
+            edits: self
+                .edits
+                .iter()
+                .map(CachedLintEdit::to_displayed)
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct CachedLintEdit {
+    start_line: usize,
+    start_column: usize,
+    end_line: usize,
+    end_column: usize,
+    content: String,
+}
+
+impl CachedLintEdit {
+    fn from_displayed(edit: &DisplayedEdit) -> Self {
+        Self {
+            start_line: edit.location.line,
+            start_column: edit.location.column,
+            end_line: edit.end_location.line,
+            end_column: edit.end_location.column,
+            content: edit.content.clone(),
+        }
+    }
+
+    fn to_displayed(&self) -> DisplayedEdit {
+        DisplayedEdit {
+            location: DisplayPosition::new(self.start_line, self.start_column),
+            end_location: DisplayPosition::new(self.end_line, self.end_column),
+            content: self.content.clone(),
+        }
+    }
 }
 
 impl CachedLintDiagnostic {
-    fn from_diagnostic(diagnostic: &shuck_linter::Diagnostic) -> Self {
+    fn from_diagnostic(diagnostic: &shuck_linter::Diagnostic, source: &str) -> Self {
+        let fix = displayed_fix_from_diagnostic(diagnostic, source)
+            .as_ref()
+            .map(CachedLintFix::from_displayed);
         Self {
             start_line: diagnostic.span.start.line,
             start_column: diagnostic.span.start.column,
@@ -215,6 +310,7 @@ impl CachedLintDiagnostic {
             code: diagnostic.code().to_owned(),
             severity: diagnostic.severity.as_str().to_owned(),
             message: diagnostic.message.clone(),
+            fix,
         }
     }
 }
@@ -921,6 +1017,8 @@ fn run_check_with_cwd(
                     push_cached_lint_diagnostics(
                         &mut report,
                         &file.display_path,
+                        &file.relative_path,
+                        &file.absolute_path,
                         &diagnostics,
                         source,
                     );
@@ -929,13 +1027,15 @@ fn run_check_with_cwd(
                     let source = include_source
                         .then(|| read_shared_source(&file.absolute_path))
                         .transpose()?;
-                    report.diagnostics.push(DisplayedDiagnostic {
-                        path: file.display_path,
-                        span: DisplaySpan::point(error.line, error.column),
-                        message: error.message,
-                        kind: DisplayedDiagnosticKind::ParseError,
+                    report.diagnostics.push(display_parse_error(
+                        &file.display_path,
+                        &file.relative_path,
+                        &file.absolute_path,
+                        error.line,
+                        error.column,
+                        error.message,
                         source,
-                    });
+                    ));
                 }
             }
             Ok(())
@@ -1035,22 +1135,26 @@ fn run_add_ignore_with_cwd(
                 continue;
             }
 
-            let source = include_source
-                .then(|| read_shared_source(&file.absolute_path))
-                .transpose()?;
+            let raw_source = read_shared_source(&file.absolute_path)?;
+            let source = include_source.then_some(raw_source.clone());
             if let Some(error) = result.parse_error {
-                report.diagnostics.push(DisplayedDiagnostic {
-                    path: file.display_path.clone(),
-                    span: DisplaySpan::point(error.line, error.column),
-                    message: error.message,
-                    kind: DisplayedDiagnosticKind::ParseError,
-                    source: source.clone(),
-                });
+                report.diagnostics.push(display_parse_error(
+                    &file.display_path,
+                    &file.relative_path,
+                    &file.absolute_path,
+                    error.line,
+                    error.column,
+                    error.message,
+                    source.clone(),
+                ));
             }
             push_lint_diagnostics(
                 &mut report.diagnostics,
                 &file.display_path,
+                &file.relative_path,
+                &file.absolute_path,
                 &result.diagnostics,
+                &raw_source,
                 source,
             );
         }
@@ -1158,13 +1262,15 @@ fn analyze_file(
                 line,
                 column,
             }),
-            vec![DisplayedDiagnostic {
-                path: pending.file.display_path.clone(),
-                span: DisplaySpan::point(line, column),
+            vec![display_parse_error(
+                &pending.file.display_path,
+                &pending.file.relative_path,
+                &pending.file.absolute_path,
+                line,
+                column,
                 message,
-                kind: DisplayedDiagnosticKind::ParseError,
-                source: include_source.then_some(source.clone()),
-            }],
+                include_source.then_some(source.clone()),
+            )],
         )
     } else {
         display_lint_diagnostics(&pending, &source, &diagnostics, include_source)
@@ -1222,13 +1328,15 @@ fn display_lint_diagnostics(
         CheckCacheData::Success(
             diagnostics
                 .iter()
-                .map(CachedLintDiagnostic::from_diagnostic)
+                .map(|diagnostic| CachedLintDiagnostic::from_diagnostic(diagnostic, source))
                 .collect(),
         ),
         diagnostics
             .iter()
             .map(|diagnostic| DisplayedDiagnostic {
                 path: pending.file.display_path.clone(),
+                relative_path: pending.file.relative_path.clone(),
+                absolute_path: pending.file.absolute_path.clone(),
                 span: DisplaySpan::new(
                     DisplayPosition::new(diagnostic.span.start.line, diagnostic.span.start.column),
                     DisplayPosition::new(diagnostic.span.end.line, diagnostic.span.end.column),
@@ -1238,10 +1346,99 @@ fn display_lint_diagnostics(
                     code: diagnostic.code().to_owned(),
                     severity: diagnostic.severity.as_str().to_owned(),
                 },
+                fix: displayed_fix_from_diagnostic(diagnostic, source),
                 source: diagnostic_source.clone(),
             })
             .collect(),
     )
+}
+
+fn display_parse_error(
+    display_path: &Path,
+    relative_path: &Path,
+    absolute_path: &Path,
+    line: usize,
+    column: usize,
+    message: String,
+    source: Option<Arc<str>>,
+) -> DisplayedDiagnostic {
+    DisplayedDiagnostic {
+        path: display_path.to_path_buf(),
+        relative_path: relative_path.to_path_buf(),
+        absolute_path: absolute_path.to_path_buf(),
+        span: DisplaySpan::point(line, column),
+        message,
+        kind: DisplayedDiagnosticKind::ParseError,
+        fix: None,
+        source,
+    }
+}
+
+fn displayed_fix_from_diagnostic(
+    diagnostic: &shuck_linter::Diagnostic,
+    source: &str,
+) -> Option<DisplayedFix> {
+    let fix = diagnostic.fix.as_ref()?;
+    let line_index = shuck_indexer::LineIndex::new(source);
+
+    Some(DisplayedFix {
+        applicability: match fix.applicability() {
+            Applicability::Safe => DisplayedApplicability::Safe,
+            Applicability::Unsafe => DisplayedApplicability::Unsafe,
+        },
+        message: diagnostic.fix_title.clone(),
+        edits: fix
+            .edits()
+            .iter()
+            .map(|edit| displayed_edit_from_fix(edit, &line_index, source))
+            .collect(),
+    })
+}
+
+fn displayed_edit_from_fix(
+    edit: &shuck_linter::Edit,
+    line_index: &shuck_indexer::LineIndex,
+    source: &str,
+) -> DisplayedEdit {
+    let range = edit.range();
+    let start_offset = floor_char_boundary(source, usize::from(range.start()));
+    let end_offset = ceil_char_boundary(source, usize::from(range.end()));
+
+    DisplayedEdit {
+        location: display_position_at_offset(source, line_index, start_offset),
+        end_location: display_position_at_offset(source, line_index, end_offset),
+        content: edit.content().to_owned(),
+    }
+}
+
+fn display_position_at_offset(
+    source: &str,
+    line_index: &shuck_indexer::LineIndex,
+    target_offset: usize,
+) -> DisplayPosition {
+    let line = line_index.line_number(TextSize::new(target_offset as u32));
+    let line_start = line_index
+        .line_start(line)
+        .map(usize::from)
+        .unwrap_or_default();
+
+    DisplayPosition::new(line, source[line_start..target_offset].chars().count() + 1)
+}
+
+fn floor_char_boundary(source: &str, offset: usize) -> usize {
+    let mut offset = offset.min(source.len());
+    while offset > 0 && !source.is_char_boundary(offset) {
+        offset -= 1;
+    }
+    offset
+}
+
+fn ceil_char_boundary(source: &str, offset: usize) -> usize {
+    let mut offset = offset.min(source.len());
+    while offset < source.len() && !source.is_char_boundary(offset) {
+        offset += 1;
+    }
+    offset
 }
 
 fn requested_fix_applicability(args: &CheckCommand) -> Option<Applicability> {
@@ -1257,12 +1454,16 @@ fn requested_fix_applicability(args: &CheckCommand) -> Option<Applicability> {
 fn push_cached_lint_diagnostics(
     report: &mut CheckReport,
     path: &Path,
+    relative_path: &Path,
+    absolute_path: &Path,
     diagnostics: &[CachedLintDiagnostic],
     source: Option<Arc<str>>,
 ) {
     for diagnostic in diagnostics {
         report.diagnostics.push(DisplayedDiagnostic {
             path: path.to_path_buf(),
+            relative_path: relative_path.to_path_buf(),
+            absolute_path: absolute_path.to_path_buf(),
             span: DisplaySpan::new(
                 DisplayPosition::new(diagnostic.start_line, diagnostic.start_column),
                 DisplayPosition::new(diagnostic.end_line, diagnostic.end_column),
@@ -1272,6 +1473,7 @@ fn push_cached_lint_diagnostics(
                 code: diagnostic.code.clone(),
                 severity: diagnostic.severity.clone(),
             },
+            fix: diagnostic.fix.as_ref().map(CachedLintFix::to_displayed),
             source: source.clone(),
         });
     }
@@ -1280,12 +1482,17 @@ fn push_cached_lint_diagnostics(
 fn push_lint_diagnostics(
     displayed: &mut Vec<DisplayedDiagnostic>,
     path: &Path,
+    relative_path: &Path,
+    absolute_path: &Path,
     diagnostics: &[shuck_linter::Diagnostic],
+    raw_source: &Arc<str>,
     source: Option<Arc<str>>,
 ) {
     for diagnostic in diagnostics {
         displayed.push(DisplayedDiagnostic {
             path: path.to_path_buf(),
+            relative_path: relative_path.to_path_buf(),
+            absolute_path: absolute_path.to_path_buf(),
             span: DisplaySpan::new(
                 DisplayPosition::new(diagnostic.span.start.line, diagnostic.span.start.column),
                 DisplayPosition::new(diagnostic.span.end.line, diagnostic.span.end.column),
@@ -1295,6 +1502,7 @@ fn push_lint_diagnostics(
                 code: diagnostic.code().to_owned(),
                 severity: diagnostic.severity.as_str().to_owned(),
             },
+            fix: displayed_fix_from_diagnostic(diagnostic, raw_source),
             source: source.clone(),
         });
     }
@@ -1334,6 +1542,13 @@ mod tests {
 
     fn cache_root(cwd: &Path) -> PathBuf {
         cwd.join("cache")
+    }
+
+    fn diagnostic_paths(path: &str) -> (PathBuf, PathBuf, PathBuf) {
+        let display = PathBuf::from(path);
+        let relative = PathBuf::from(path);
+        let absolute = PathBuf::from(format!("/tmp/{path}"));
+        (display, relative, absolute)
     }
 
     fn match_paths(canonical: &Path, resolved: &Path) -> Vec<PathBuf> {
@@ -1376,6 +1591,47 @@ mod tests {
         check_args_with_format(no_cache, CheckOutputFormatArg::Full)
     }
 
+    fn lint_displayed_diagnostic(
+        path: &str,
+        span: DisplaySpan,
+        message: &str,
+        code: &str,
+        severity: &str,
+    ) -> DisplayedDiagnostic {
+        let (path, relative_path, absolute_path) = diagnostic_paths(path);
+        DisplayedDiagnostic {
+            path,
+            relative_path,
+            absolute_path,
+            span,
+            message: message.to_owned(),
+            kind: DisplayedDiagnosticKind::Lint {
+                code: code.to_owned(),
+                severity: severity.to_owned(),
+            },
+            fix: None,
+            source: None,
+        }
+    }
+
+    fn parse_displayed_diagnostic(
+        path: &str,
+        span: DisplaySpan,
+        message: &str,
+    ) -> DisplayedDiagnostic {
+        let (path, relative_path, absolute_path) = diagnostic_paths(path);
+        DisplayedDiagnostic {
+            path,
+            relative_path,
+            absolute_path,
+            span,
+            message: message.to_owned(),
+            kind: DisplayedDiagnosticKind::ParseError,
+            fix: None,
+            source: None,
+        }
+    }
+
     fn diagnostic_codes(report: &CheckReport) -> Vec<String> {
         report
             .diagnostics
@@ -1408,33 +1664,16 @@ mod tests {
 
     #[test]
     fn exit_zero_suppresses_only_non_fatal_diagnostics() {
-        let warning = DisplayedDiagnostic {
-            path: PathBuf::from("warn.sh"),
-            span: DisplaySpan::point(1, 1),
-            message: "lint".to_owned(),
-            kind: DisplayedDiagnosticKind::Lint {
-                code: "C001".to_owned(),
-                severity: "warning".to_owned(),
-            },
-            source: None,
-        };
-        let error_lint = DisplayedDiagnostic {
-            path: PathBuf::from("err.sh"),
-            span: DisplaySpan::point(1, 1),
-            message: "lint".to_owned(),
-            kind: DisplayedDiagnosticKind::Lint {
-                code: "C035".to_owned(),
-                severity: "error".to_owned(),
-            },
-            source: None,
-        };
-        let parse = DisplayedDiagnostic {
-            path: PathBuf::from("broken.sh"),
-            span: DisplaySpan::point(1, 1),
-            message: "parse".to_owned(),
-            kind: DisplayedDiagnosticKind::ParseError,
-            source: None,
-        };
+        let warning = lint_displayed_diagnostic(
+            "warn.sh",
+            DisplaySpan::point(1, 1),
+            "lint",
+            "C001",
+            "warning",
+        );
+        let error_lint =
+            lint_displayed_diagnostic("err.sh", DisplaySpan::point(1, 1), "lint", "C035", "error");
+        let parse = parse_displayed_diagnostic("broken.sh", DisplaySpan::point(1, 1), "parse");
 
         let warning_only = CheckReport {
             diagnostics: vec![warning.clone()],
@@ -1906,14 +2145,14 @@ mod tests {
 
         let report = CheckReport {
             diagnostics: vec![DisplayedDiagnostic {
-                path: PathBuf::from("script.sh"),
-                span: DisplaySpan::new(DisplayPosition::new(3, 14), DisplayPosition::new(3, 18)),
-                message: "example message".to_owned(),
-                kind: DisplayedDiagnosticKind::Lint {
-                    code: "C014".to_owned(),
-                    severity: "warning".to_owned(),
-                },
                 source: Some(Arc::<str>::from("echo ok\nvalue=$foo\nprintf '%s' $bar\n")),
+                ..lint_displayed_diagnostic(
+                    "script.sh",
+                    DisplaySpan::new(DisplayPosition::new(3, 14), DisplayPosition::new(3, 18)),
+                    "example message",
+                    "C014",
+                    "warning",
+                )
             }],
             cache_hits: 0,
             cache_misses: 0,
@@ -1940,13 +2179,11 @@ mod tests {
     #[test]
     fn report_output_stays_plain_when_colors_are_disabled() {
         let report = CheckReport {
-            diagnostics: vec![DisplayedDiagnostic {
-                path: PathBuf::from("script.sh"),
-                span: DisplaySpan::point(2, 7),
-                message: "unterminated construct".to_owned(),
-                kind: DisplayedDiagnosticKind::ParseError,
-                source: None,
-            }],
+            diagnostics: vec![parse_displayed_diagnostic(
+                "script.sh",
+                DisplaySpan::point(2, 7),
+                "unterminated construct",
+            )],
             cache_hits: 0,
             cache_misses: 0,
             fixes_applied: 0,
