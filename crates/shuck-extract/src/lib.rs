@@ -351,18 +351,18 @@ fn resolve_shell(shell: Option<&str>, runner_kind: RunnerKind) -> ShellResolutio
 }
 
 fn detect_shell_dialect(template: &str) -> ExtractedDialect {
-    let mut tokens = template.split_whitespace();
+    let mut tokens = template_tokens(template).into_iter();
     let Some(first) = tokens.next() else {
         return ExtractedDialect::Unsupported;
     };
 
-    let first = shell_token_basename(first);
+    let first = shell_token_basename(&first);
     if first == "env" {
         for token in tokens {
             if token == "{0}" || token.starts_with('-') {
                 continue;
             }
-            return shell_name_dialect(&shell_token_basename(token));
+            return shell_name_dialect(&shell_token_basename(&token));
         }
         return ExtractedDialect::Unsupported;
     }
@@ -370,12 +370,72 @@ fn detect_shell_dialect(template: &str) -> ExtractedDialect {
     shell_name_dialect(&first)
 }
 
+fn template_tokens(template: &str) -> Vec<String> {
+    #[derive(Clone, Copy)]
+    enum QuoteState {
+        Unquoted,
+        SingleQuoted,
+        DoubleQuoted,
+    }
+
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut chars = template.chars();
+    let mut state = QuoteState::Unquoted;
+
+    while let Some(ch) = chars.next() {
+        match state {
+            QuoteState::Unquoted => match ch {
+                '\'' => state = QuoteState::SingleQuoted,
+                '"' => state = QuoteState::DoubleQuoted,
+                '\\' => match chars.next() {
+                    Some(escaped) => current.push(escaped),
+                    None => current.push(ch),
+                },
+                ch if ch.is_whitespace() => push_template_token(&mut tokens, &mut current),
+                _ => current.push(ch),
+            },
+            QuoteState::SingleQuoted => {
+                if ch == '\'' {
+                    state = QuoteState::Unquoted;
+                } else {
+                    current.push(ch);
+                }
+            }
+            QuoteState::DoubleQuoted => match ch {
+                '"' => state = QuoteState::Unquoted,
+                '\\' => match chars.next() {
+                    Some(escaped) => current.push(escaped),
+                    None => current.push(ch),
+                },
+                _ => current.push(ch),
+            },
+        }
+    }
+
+    push_template_token(&mut tokens, &mut current);
+    tokens
+}
+
+fn push_template_token(tokens: &mut Vec<String>, current: &mut String) {
+    if !current.is_empty() {
+        tokens.push(std::mem::take(current));
+    }
+}
+
 fn shell_token_basename(token: &str) -> String {
-    Path::new(token)
+    let basename = Path::new(token)
         .file_name()
         .and_then(|value| value.to_str())
         .unwrap_or(token)
-        .to_ascii_lowercase()
+        .to_ascii_lowercase();
+
+    basename
+        .strip_suffix(".exe")
+        .or_else(|| basename.strip_suffix(".cmd"))
+        .or_else(|| basename.strip_suffix(".bat"))
+        .unwrap_or(&basename)
+        .to_owned()
 }
 
 fn shell_name_dialect(name: &str) -> ExtractedDialect {
@@ -390,16 +450,16 @@ fn shell_name_dialect(name: &str) -> ExtractedDialect {
 fn parse_template_flags(template: &str) -> ImplicitShellFlags {
     let mut errexit = false;
     let mut pipefail = false;
-    let mut tokens = template.split_whitespace().peekable();
+    let mut tokens = template_tokens(template).into_iter().peekable();
     let _ = tokens.next();
 
     while let Some(token) = tokens.next() {
-        match token {
+        match token.as_str() {
             "{0}" => {}
             "-e" | "--errexit" => errexit = true,
             "-o" => match tokens.next() {
-                Some("errexit") => errexit = true,
-                Some("pipefail") => pipefail = true,
+                Some(value) if value == "errexit" => errexit = true,
+                Some(value) if value == "pipefail" => pipefail = true,
                 _ => {}
             },
             token if token.starts_with('-') && !token.starts_with("--") => {
@@ -408,7 +468,7 @@ fn parse_template_flags(template: &str) -> ImplicitShellFlags {
                     errexit = true;
                 }
                 if flags.contains('o')
-                    && let Some(next) = tokens.peek().copied()
+                    && let Some(next) = tokens.peek().map(String::as_str)
                 {
                     match next {
                         "errexit" => {
@@ -822,13 +882,16 @@ jobs:
         run: echo hi
       - shell: /bin/sh -e {0}
         run: echo hi
+      - shell: '"C:/Program Files/Git/bin/bash.exe" -e {0}'
+        run: echo hi
 "#;
 
         let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
-        assert_eq!(scripts.len(), 3);
+        assert_eq!(scripts.len(), 4);
         assert_eq!(scripts[0].dialect, ExtractedDialect::Bash);
         assert_eq!(scripts[1].dialect, ExtractedDialect::Bash);
         assert_eq!(scripts[2].dialect, ExtractedDialect::Sh);
+        assert_eq!(scripts[3].dialect, ExtractedDialect::Bash);
     }
 
     #[test]

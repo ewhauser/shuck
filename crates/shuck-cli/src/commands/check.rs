@@ -1799,9 +1799,9 @@ fn remap_embedded_column(
         }
 
         let substituted_start = placeholder_column.saturating_sub(1);
-        let substituted_len = placeholder.substituted_span.len();
+        let substituted_len = span_char_len(&embedded.source, &placeholder.substituted_span);
         let substituted_end = substituted_start + substituted_len;
-        let host_len = placeholder.host_span.len();
+        let host_len = placeholder.original.chars().count();
 
         if local_column >= substituted_end {
             cumulative_delta += host_len as isize - substituted_len as isize;
@@ -1836,6 +1836,12 @@ fn source_line_column_for_offset(source: &str, offset: usize) -> (usize, usize) 
     }
 
     (line, column)
+}
+
+fn span_char_len(source: &str, span: &std::ops::Range<usize>) -> usize {
+    source
+        .get(span.clone())
+        .map_or(0, |value| value.chars().count())
 }
 
 fn prefixed_embedded_message(embedded: &EmbeddedScript, message: &str) -> String {
@@ -2148,7 +2154,33 @@ jobs:
                 expression: "github.ref".to_owned(),
                 taint: shuck_extract::ExpressionTaint::Trusted,
                 substituted_span: 5..20,
-                host_span: 5..23,
+                host_span: 5..22,
+            }],
+            implicit_flags: ImplicitShellFlags::default(),
+        };
+
+        let position = remap_embedded_position(&embedded, 1, 21);
+        assert_eq!(position.line, 7);
+        assert_eq!(position.column, 31);
+    }
+
+    #[test]
+    fn remaps_columns_after_non_ascii_placeholder_expansion() {
+        let embedded = EmbeddedScript {
+            source: "echo ${_SHUCK_GHA_1}$FOO\n".to_owned(),
+            host_offset: 0,
+            host_start_line: 7,
+            host_start_column: 9,
+            dialect: ExtractedDialect::Bash,
+            label: "jobs.test.steps[0].run".to_owned(),
+            format: EmbeddedFormat::GitHubActions,
+            placeholders: vec![shuck_extract::PlaceholderMapping {
+                name: "_SHUCK_GHA_1".to_owned(),
+                original: "${{ github.refé }}".to_owned(),
+                expression: "github.refé".to_owned(),
+                taint: shuck_extract::ExpressionTaint::Trusted,
+                substituted_span: 5..20,
+                host_span: 5..24,
             }],
             implicit_flags: ImplicitShellFlags::default(),
         };
