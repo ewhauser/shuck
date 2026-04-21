@@ -73,7 +73,13 @@ fn indexes_loop_bindings_from_for_words() {
 
 #[test]
 fn marks_conditional_assignment_shortcuts_on_binding_values() {
-    let source = "#!/bin/bash\ntrue && w='-w' || w=''\nif true; then flag='-f'; else flag=''; fi\n";
+    let source = "\
+#!/bin/bash
+check() { return 0; }
+true && w='-w' || w=''
+check && opt='-o' || opt=''
+if true; then flag='-f'; else flag=''; fi
+";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -92,6 +98,19 @@ fn marks_conditional_assignment_shortcuts_on_binding_values() {
         })
         .collect::<Vec<_>>();
     assert_eq!(shortcut_bindings, vec![true, true]);
+
+    let command_shortcut_bindings = semantic
+        .bindings_for(&Name::from("opt"))
+        .iter()
+        .copied()
+        .map(|binding_id| {
+            facts
+                .binding_value(binding_id)
+                .expect("expected opt binding value fact")
+                .conditional_assignment_shortcut()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(command_shortcut_bindings, vec![true, true]);
 
     let flag_bindings = semantic
         .bindings_for(&Name::from("flag"))

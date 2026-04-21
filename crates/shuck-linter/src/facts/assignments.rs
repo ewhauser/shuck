@@ -2407,9 +2407,10 @@ fn annotate_conditional_assignment_shortcuts<'a>(
     lists: &[ListFact<'a>],
     binding_values: &mut FxHashMap<BindingId, BindingValueFact<'a>>,
 ) {
-    for list in lists.iter().filter(|list| {
-        list.mixed_short_circuit_kind() == Some(MixedShortCircuitKind::AssignmentTernary)
-    }) {
+    for list in lists
+        .iter()
+        .filter(|list| list_has_conditional_assignment_shortcuts(list))
+    {
         for segment in list.segments() {
             let Some(target) = segment.assignment_target() else {
                 continue;
@@ -2427,4 +2428,22 @@ fn annotate_conditional_assignment_shortcuts<'a>(
             }
         }
     }
+}
+
+fn list_has_conditional_assignment_shortcuts(list: &ListFact<'_>) -> bool {
+    if list.mixed_short_circuit_kind() == Some(MixedShortCircuitKind::AssignmentTernary) {
+        return true;
+    }
+
+    let [_, then_branch, else_branch] = list.segments() else {
+        return false;
+    };
+    let [first_operator, second_operator] = list.operators() else {
+        return false;
+    };
+
+    first_operator.op() == shuck_ast::BinaryOp::And
+        && second_operator.op() == shuck_ast::BinaryOp::Or
+        && then_branch.assignment_target().is_some()
+        && then_branch.assignment_target() == else_branch.assignment_target()
 }

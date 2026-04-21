@@ -3721,6 +3721,29 @@ f
     }
 
     #[test]
+    fn unreachable_after_exit_ignores_fallback_after_conditional_exit() {
+        let source = "\
+#!/bin/bash
+run && exit 0 || sleep 15
+";
+        let diagnostics = lint(source, &LinterSettings::default());
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.rule == Rule::ChainedTestBranches)
+                .count(),
+            1
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.rule != Rule::UnreachableAfterExit),
+            "diagnostics: {diagnostics:?}"
+        );
+    }
+
+    #[test]
     fn unused_assignment_respects_disabled_rule() {
         let diagnostics = lint(
             "#!/bin/sh\nfoo=1\n",

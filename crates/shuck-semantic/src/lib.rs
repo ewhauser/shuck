@@ -5347,6 +5347,18 @@ DESCRIPTION=\"${DESCRIPTION:-Deployment metadata updated}\"
     }
 
     #[test]
+    fn conditional_exit_keeps_or_fallback_reachable() {
+        let source = "run && exit 0 || echo fallback\n";
+        let model = model(source);
+
+        assert!(
+            model.analysis().dead_code().is_empty(),
+            "dead code: {:?}",
+            model.analysis().dead_code()
+        );
+    }
+
+    #[test]
     fn deferred_function_bodies_resolve_later_file_scope_bindings() {
         let source = "f() { echo $X; }\nX=1\nf\n";
         let model = model(source);
