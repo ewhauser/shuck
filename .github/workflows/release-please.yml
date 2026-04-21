@@ -1,0 +1,63 @@
+name: Release Please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-22.04
+    environment: release
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      pr: ${{ steps.release-please.outputs.pr }}
+    steps:
+      - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4.4.1
+        id: release-please
+        with:
+          token: ${{ secrets.RELEASE_PAT }}
+          config-file: .release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # Release-please updates Cargo.toml but does not touch Cargo.lock files.
+  # Refresh both lockfiles on the release PR branch so `cargo publish --locked`
+  # in crates-publish.yml sees matching internal crate versions.
+  refresh-lockfiles:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.pr }}
+    runs-on: ubuntu-22.04
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          token: ${{ secrets.RELEASE_PAT }}
+          ref: ${{ fromJSON(needs.release-please.outputs.pr).headBranchName }}
+          persist-credentials: true
+      - name: Install Rust toolchain
+        run: rustup show
+      - name: Refresh Cargo.lock files
+        run: |
+          cargo metadata --format-version 1 >/dev/null
+          cargo metadata --manifest-path fuzz/Cargo.toml --format-version 1 >/dev/null
+      - name: Commit lockfile updates if changed
+        run: |
+          if git diff --quiet -- Cargo.lock fuzz/Cargo.lock; then
+            echo "Lockfiles already in sync with Cargo.toml; nothing to commit."
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add Cargo.lock fuzz/Cargo.lock
+          git commit -m 'chore: refresh Cargo.lock files for release'
+          git push

@@ -130,6 +130,36 @@ The parser (`crates/shuck-parser/src/parser/`) is a recursive descent parser wit
 - Config files: `.shuck.toml` or `shuck.toml` at project root
 - Cache directory: shared OS cache root by default; legacy `.shuck_cache/` directories are still ignored and `shuck clean` removes them during cleanup
 
+## Commit messages
+
+This repository uses [Conventional Commits](https://www.conventionalcommits.org/) because `release-please` parses commit history on `main` to generate `CHANGELOG.md` and pick the next version.
+
+PRs are squash-merged, so the PR title is what lands on `main`. Write PR titles — and any commits on `main` — in this form:
+
+```
+<type>(<optional scope>): <short summary>
+```
+
+Common types (full list in `.release-please-config.json`):
+
+- `feat:` — user-visible new behavior (minor bump once we hit 1.0)
+- `fix:` — bug fix (patch bump)
+- `perf:` — performance improvement
+- `docs:` — docs-only changes
+- `refactor:` — internal restructuring with no behavior change
+- `test:` — test-only changes
+- `chore:` — tooling, CI, dependency bumps, anything that doesn't fit above
+- `ci:` — changes to workflows under `.github/`
+- `build:` — build-system or packaging changes
+
+Append `!` or a `BREAKING CHANGE:` footer for breaking changes (e.g., `feat!: drop C005`).
+
+Optional scopes should match a crate or an area (e.g., `feat(linter): add C042`, `fix(parser): handle nested heredocs`, `chore(deps): bump clap`).
+
+Only `feat`, `fix`, `perf`, `revert`, `docs`, and `refactor` appear in the published changelog; the rest are kept in git history but hidden from `CHANGELOG.md`. Release notes come from this history — write the summary for a downstream reader, not for yourself.
+
+Release flow: release-please watches `main` and opens/maintains a release PR that bumps `workspace.package.version` in `Cargo.toml` and updates `CHANGELOG.md`. Merging that PR creates the `vX.Y.Z` tag, which triggers `release.yml` (cargo-dist) to build and publish artifacts. Do not bump versions or edit `CHANGELOG.md` by hand.
+
 ## Linter Rule Authoring
 
 When working on `crates/shuck-linter`, treat `facts.rs` and `Checker::facts()` as the

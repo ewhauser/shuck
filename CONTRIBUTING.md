@@ -43,6 +43,46 @@ cargo clippy --all-targets -- -D warnings
 
 Pre-commit hooks enforce formatting and clippy automatically when you commit.
 
+## Commit messages
+
+Shuck uses [Conventional Commits](https://www.conventionalcommits.org/) so that [release-please](https://github.com/googleapis/release-please) can generate `CHANGELOG.md` and pick the next version automatically from commit history on `main`.
+
+PRs are squash-merged, so **the PR title is what ends up on `main`** — please write PR titles in Conventional Commit form:
+
+```
+<type>(<optional scope>): <short summary>
+```
+
+Common types:
+
+| Type | Use for | Appears in changelog |
+|------|---------|----------------------|
+| `feat` | New user-visible behavior | yes |
+| `fix` | Bug fix | yes |
+| `perf` | Performance improvement | yes |
+| `docs` | Documentation-only change | yes |
+| `refactor` | Internal restructuring, no behavior change | yes |
+| `test` | Tests only | no |
+| `chore` | Tooling, deps, misc | no |
+| `ci` | Workflows under `.github/` | no |
+| `build` | Build system, packaging | no |
+
+For a breaking change, append `!` to the type or add a `BREAKING CHANGE:` footer (e.g., `feat!: drop the --legacy flag`).
+
+Examples:
+
+```
+feat(linter): add C042 for unused function parameters
+fix(parser): handle nested heredocs inside $()
+perf(checker): cache fact lookups per rule
+docs: clarify SH-NNN vs SCNNNN suppression syntax
+chore(deps): bump clap to 4.5
+```
+
+### Releases
+
+You do **not** bump `workspace.package.version` or edit `CHANGELOG.md` by hand. `release-please` watches `main` and maintains a release PR that bumps the version and updates `CHANGELOG.md` from the Conventional Commit history. Merging that PR creates the `vX.Y.Z` tag, which triggers `release.yml` (cargo-dist) to build and publish artifacts and the GitHub Release.
+
 ## Testing
 
 **Run all tests:**
