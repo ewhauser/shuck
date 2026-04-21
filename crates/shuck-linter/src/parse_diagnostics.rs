@@ -15,7 +15,7 @@ use crate::rules::portability::targets_non_zsh_shell;
 use crate::rules::portability::zsh_always_block::ZshAlwaysBlock;
 use crate::rules::portability::zsh_brace_if::ZshBraceIf;
 use crate::rules::style::linebreak_before_and::LinebreakBeforeAnd;
-use crate::{Diagnostic, Rule, RuleSet, ShellDialect, Violation};
+use crate::{Diagnostic, Edit, Fix, Rule, RuleSet, ShellDialect, Violation};
 
 pub struct ExtglobCase;
 pub struct ExtglobInCasePattern;
@@ -61,7 +61,8 @@ pub(crate) fn collect_parse_rule_diagnostics(
             .iter()
             .any(|diagnostic| is_missing_fi_error(&diagnostic.message))
     {
-        diagnostics.push(Diagnostic::new(MissingFi, eof_point(file)));
+        diagnostics
+            .push(Diagnostic::new(MissingFi, eof_point(file)).with_fix(missing_fi_fix(source)));
     }
     if enabled_rules.contains(crate::Rule::IfMissingThen)
         && let Some(span) = if_missing_then_span(source, parse_diagnostics)
@@ -162,6 +163,16 @@ pub(crate) fn collect_parse_rule_diagnostics(
 
 fn is_missing_fi_error(message: &str) -> bool {
     message.starts_with("expected 'fi'")
+}
+
+fn missing_fi_fix(source: &str) -> Fix {
+    let content = if source.is_empty() || source.ends_with('\n') {
+        "fi\n"
+    } else {
+        "\nfi\n"
+    };
+
+    Fix::unsafe_edit(Edit::insertion(source.len(), content))
 }
 
 fn is_missing_then_error(message: &str) -> bool {
@@ -880,7 +891,7 @@ mod tests {
         collect_parse_rule_diagnostics, if_bracket_glued_span_on_line, is_expected_command_error,
         line_contains_shell_word,
     };
-    use crate::{LinterSettings, Rule, ShellDialect};
+    use crate::{Applicability, LinterSettings, Rule, ShellDialect};
 
     #[test]
     fn maps_missing_fi_parse_error_to_c035_at_end_of_file() {
@@ -899,6 +910,14 @@ mod tests {
         assert_eq!(diagnostics[0].rule, Rule::MissingFi);
         assert_eq!(diagnostics[0].span.start.line, 4);
         assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(
+            diagnostics[0].fix.as_ref().map(|fix| fix.applicability()),
+            Some(Applicability::Unsafe)
+        );
+        assert_eq!(
+            diagnostics[0].fix_title.as_deref(),
+            Some("append a closing `fi`")
+        );
     }
 
     #[test]
