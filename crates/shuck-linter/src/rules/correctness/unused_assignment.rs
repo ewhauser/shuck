@@ -6,7 +6,7 @@ use shuck_semantic::{
 
 use crate::{Checker, Rule, Violation};
 
-type BindingFamilyKey = (Option<ScopeId>, String);
+type BindingFamilyKey = (Option<ScopeId>, Option<ScopeId>, String);
 
 pub struct UnusedAssignment {
     pub name: String,
@@ -29,7 +29,7 @@ pub fn unused_assignment(checker: &mut Checker) {
     let mut families_with_used_bindings = HashSet::new();
     let mut unused_bindings_by_family = HashMap::<BindingFamilyKey, Vec<_>>::new();
     let mut last_unused_binding_by_family = HashMap::new();
-    let mut family_scopes = HashMap::with_capacity(semantic.bindings().len());
+    let mut local_family_scopes = HashMap::with_capacity(semantic.bindings().len());
     let mut family_keys = HashMap::with_capacity(semantic.bindings().len());
 
     for binding in semantic.bindings() {
@@ -37,9 +37,17 @@ pub fn unused_assignment(checker: &mut Checker) {
             continue;
         }
 
-        let scope = binding_family_scope(semantic, &family_scopes, binding);
-        family_scopes.insert(binding.id, scope);
-        family_keys.insert(binding.id, (scope, binding_target_key(checker, binding)));
+        let isolated_scope = isolated_family_scope(semantic, binding.scope);
+        let local_scope = binding_local_family_scope(semantic, &local_family_scopes, binding);
+        local_family_scopes.insert(binding.id, local_scope);
+        family_keys.insert(
+            binding.id,
+            (
+                isolated_scope,
+                local_scope,
+                binding_target_key(checker, binding),
+            ),
+        );
     }
 
     for binding in semantic.bindings() {
@@ -176,7 +184,7 @@ fn binding_family_key(
     family_keys
         .get(&binding_id)
         .cloned()
-        .unwrap_or_else(|| (None, String::new()))
+        .unwrap_or_else(|| (None, None, String::new()))
 }
 
 fn binding_target_key(checker: &Checker<'_>, binding: &Binding) -> String {
@@ -187,15 +195,11 @@ fn binding_target_key(checker: &Checker<'_>, binding: &Binding) -> String {
         .unwrap_or_else(|| binding.name.to_string())
 }
 
-fn binding_family_scope(
+fn binding_local_family_scope(
     semantic: &SemanticModel,
     family_scopes: &HashMap<BindingId, Option<ScopeId>>,
     binding: &Binding,
 ) -> Option<ScopeId> {
-    if let Some(scope) = isolated_family_scope(semantic, binding.scope) {
-        return Some(scope);
-    }
-
     if binding.attributes.contains(BindingAttributes::LOCAL) {
         Some(binding.scope)
     } else {
@@ -257,6 +261,14 @@ mod tests {
         assert_eq!(diagnostics.len(), 2);
         assert_eq!(diagnostics[0].span.start.line, 2);
         assert_eq!(diagnostics[1].span.start.line, 4);
+    }
+
+    #[test]
+    fn local_families_stay_distinct_inside_subshells() {
+        let source = "#!/bin/bash\n(f(){ local foo=1; }\ng(){ local foo=2; }\nf\ng)\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 2);
     }
 
     #[test]
