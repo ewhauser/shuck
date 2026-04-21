@@ -1468,7 +1468,41 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
-name = "shuck"
+name = "shuck-ast"
+version = "0.0.11"
+dependencies = [
+ "compact_str",
+]
+
+[[package]]
+name = "shuck-benchmark"
+version = "0.0.11"
+dependencies = [
+ "criterion",
+ "serde",
+ "serde_json",
+ "shuck-cli",
+ "shuck-formatter",
+ "shuck-indexer",
+ "shuck-linter",
+ "shuck-parser",
+ "shuck-semantic",
+ "tempfile",
+ "tikv-jemallocator",
+]
+
+[[package]]
+name = "shuck-cache"
+version = "0.0.11"
+dependencies = [
+ "bincode",
+ "serde",
+ "sha2 0.11.0",
+ "tempfile",
+]
+
+[[package]]
+name = "shuck-cli"
 version = "0.0.11"
 dependencies = [
  "annotate-snippets",
@@ -1503,40 +1537,6 @@ dependencies = [
  "url",
  "wait-timeout",
  "walkdir",
-]
-
-[[package]]
-name = "shuck-ast"
-version = "0.0.11"
-dependencies = [
- "compact_str",
-]
-
-[[package]]
-name = "shuck-benchmark"
-version = "0.0.11"
-dependencies = [
- "criterion",
- "serde",
- "serde_json",
- "shuck",
- "shuck-formatter",
- "shuck-indexer",
- "shuck-linter",
- "shuck-parser",
- "shuck-semantic",
- "tempfile",
- "tikv-jemallocator",
-]
-
-[[package]]
-name = "shuck-cache"
-version = "0.0.11"
-dependencies = [
- "bincode",
- "serde",
- "sha2 0.11.0",
- "tempfile",
 ]
 
 [[package]]

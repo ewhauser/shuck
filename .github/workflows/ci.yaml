@@ -450,7 +450,7 @@ jobs:
       - name: "Run cargo-fuzz smoke targets"
         run: make fuzz-smoke
       - name: "Build shuck"
-        run: cargo build -p shuck
+        run: cargo build -p shuck-cli
       - name: "Run CLI fuzzer smoke (sh)"
         run: python3 ./scripts/fuzz_cli.py --shuck-bin ./target/debug/shuck --dialect sh --profile smoke --count 25 --seed 0 --workers 1
       - name: "Run CLI fuzzer smoke (bash)"

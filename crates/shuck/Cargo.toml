@@ -1,5 +1,5 @@
 [package]
-name = "shuck"
+name = "shuck-cli"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,6 +10,14 @@ description = "A fast shell script linter"
 keywords = ["shell", "bash", "linter", "static-analysis", "cli"]
 categories = ["command-line-utilities", "development-tools"]
 readme = "README.md"
+
+[lib]
+name = "shuck"
+path = "src/lib.rs"
+
+[[bin]]
+name = "shuck"
+path = "src/main.rs"
 
 [dependencies]
 annotate-snippets = { workspace = true }

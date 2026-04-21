@@ -216,7 +216,7 @@ CLI fuzzer failures are minimized automatically and written under `fuzz/artifact
 
 | Crate | Purpose |
 |-------|---------|
-| `shuck` | CLI binary — file discovery, parsing, reporting |
+| `shuck-cli` | CLI binary `shuck` — file discovery, parsing, reporting |
 | `shuck-linter` | Lint rule registry, checker dispatch, violation types |
 | `shuck-semantic` | Semantic model — bindings, scopes, CFG, dataflow |
 | `shuck-indexer` | Positional and structural indexes over parsed scripts |

@@ -50,7 +50,9 @@ fn parse_rule_metadata(data: &str) -> Result<(RuleMetadata, Option<u32>), String
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
-    let docs_dir = manifest_dir.join("../../docs/rules");
+    // `rules` is a symlink to `../../docs/rules` in the workspace; cargo
+    // follows the symlink when packaging so the YAML ships with the crate.
+    let docs_dir = manifest_dir.join("rules");
     println!("cargo:rerun-if-changed={}", docs_dir.display());
 
     let mut entries = fs::read_dir(&docs_dir)

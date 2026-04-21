@@ -22,7 +22,7 @@ fi
 mkdir -p "$output_dir"
 
 echo "Building shuck CLI with profiling profile..."
-cargo build --profile profiling -p shuck --manifest-path="$repo_root/Cargo.toml"
+cargo build --profile profiling -p shuck-cli --manifest-path="$repo_root/Cargo.toml"
 
 binary="$repo_root/target/profiling/shuck"
 if [ ! -x "$binary" ]; then
