@@ -186,6 +186,11 @@ jobs:
           name: cargo-dist-cache
           path: ~/.cargo/bin/
       - run: chmod +x ~/.cargo/bin/dist
+      - name: Install cargo-cyclonedx
+        run: |
+          if ! cargo cyclonedx --version >/dev/null 2>&1; then
+            cargo install cargo-cyclonedx --locked --version 0.5.9
+          fi
       # Get all the local artifacts for the global tasks to use (for e.g. checksums)
       - name: Fetch local artifacts
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7

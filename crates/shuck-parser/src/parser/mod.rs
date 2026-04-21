@@ -1131,12 +1131,20 @@ fn apply_prescan_command_effects(words: &[String], state: &mut ZshOptionState) -
     };
 
     match command {
-        "setopt" => words[args_index..]
-            .iter()
-            .fold(false, |changed, arg| state.apply_setopt(arg) || changed),
-        "unsetopt" => words[args_index..]
-            .iter()
-            .fold(false, |changed, arg| state.apply_unsetopt(arg) || changed),
+        "setopt" => {
+            let mut changed = false;
+            for arg in &words[args_index..] {
+                changed = state.apply_setopt(arg) || changed;
+            }
+            changed
+        }
+        "unsetopt" => {
+            let mut changed = false;
+            for arg in &words[args_index..] {
+                changed = state.apply_unsetopt(arg) || changed;
+            }
+            changed
+        }
         "set" => apply_prescan_set_builtin(&words[args_index..], state),
         "emulate" => apply_prescan_emulate(&words[args_index..], state),
         _ => false,
