@@ -1,0 +1,80 @@
+---
+source: crates/shuck-linter/src/rules/correctness/case_pattern_var.rs
+---
+Diagnostics:
+C048 case patterns should be literal instead of built from expansions
+ --> <source>:8:3
+  |
+8 |   $pat) printf '%s\n' match ;;
+  |
+
+C048 case patterns should be literal instead of built from expansions
+  --> <source>:13:3
+   |
+13 |   $(printf '%s' foo)) printf '%s\n' match ;;
+   |
+
+
+Applied fixes: 2
+
+Diff:
+--- before
++++ after
+@@ -5,12 +5,12 @@
+ 
+ # Invalid: variable expansion builds the case pattern at runtime.
+ case $x in
+-  $pat) printf '%s\n' match ;;
++  "${pat}") printf '%s\n' match ;;
+ esac
+ 
+ # Invalid: command substitution also makes the pattern dynamic.
+ case $x in
+-  $(printf '%s' foo)) printf '%s\n' match ;;
++  "$(printf '%s' foo)") printf '%s\n' match ;;
+ esac
+ 
+ # Valid: literal patterns stay stable.
+
+Fixed source:
+#!/bin/sh
+
+x=foo
+pat=foo
+
+# Invalid: variable expansion builds the case pattern at runtime.
+case $x in
+  "${pat}") printf '%s\n' match ;;
+esac
+
+# Invalid: command substitution also makes the pattern dynamic.
+case $x in
+  "$(printf '%s' foo)") printf '%s\n' match ;;
+esac
+
+# Valid: literal patterns stay stable.
+case $x in
+  foo|bar) printf '%s\n' literal ;;
+esac
+
+# Valid: real glob structure suppresses the warning even when the pattern is dynamic.
+case $x in
+  gm$MAMEVER*) printf '%s\n' glob ;;
+  *${IDN_ITEM}*) printf '%s\n' glob ;;
+  ${pat}*) printf '%s\n' glob ;;
+  *${pat}) printf '%s\n' glob ;;
+  x${pat}*) printf '%s\n' glob ;;
+  [$hex]) printf '%s\n' glob ;;
+  @($pat|bar)) printf '%s\n' glob ;;
+  x$left@(foo|bar)) printf '%s\n' glob ;;
+esac
+
+# Valid: arithmetic-only case patterns are treated as stable enough for this rule.
+case $x in
+  $((error_code <= 125))) printf '%s\n' arithmetic ;;
+  $((__git_cmd_idx+1))) printf '%s\n' arithmetic ;;
+  x$((1))) printf '%s\n' arithmetic ;;
+esac
+
+Remaining diagnostics:
+<none>

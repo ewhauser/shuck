@@ -19,13 +19,15 @@ use self::{
     escape_scan::{EscapeScanContext, EscapeScanInputs, build_escape_scan_matches},
     presence::build_presence_tested_names,
     surface::{
-        CaseModificationFragmentFact, DollarDoubleQuotedFragmentFact,
+        CaseModificationFragmentFact, CasePatternExpansionFact, DollarDoubleQuotedFragmentFact,
         IndexedArrayReferenceFragmentFact, IndirectExpansionFragmentFact,
         NestedParameterExpansionFragmentFact, OpenDoubleQuoteFragmentFact,
         ParameterPatternSpecialTargetFragmentFact, ReplacementExpansionFragmentFact,
         StarGlobRemovalFragmentFact, SubstringExpansionFragmentFact, SurfaceFragmentFacts,
         SurfaceFragmentSink, SurfaceScanContext, SuspectClosingQuoteFragmentFact,
         ZshParameterIndexFlagFragmentFact, build_subscript_index_reference_spans,
+        rewrite_pattern_as_single_double_quoted_string,
+        rewrite_word_as_single_double_quoted_string,
     },
 };
 use crate::FileContext;

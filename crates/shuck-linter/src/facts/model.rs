@@ -38,7 +38,7 @@ pub struct LinterFacts<'a> {
     case_items: Vec<CaseItemFact<'a>>,
     case_pattern_shadows: Vec<CasePatternShadowFact>,
     case_pattern_impossible_spans: Vec<Span>,
-    case_pattern_expansion_spans: Vec<Span>,
+    case_pattern_expansions: Vec<CasePatternExpansionFact>,
     getopts_cases: Vec<GetoptsCaseFact>,
     pipelines: Vec<PipelineFact<'a>>,
     lists: Vec<ListFact<'a>>,
@@ -458,8 +458,8 @@ impl<'a> LinterFacts<'a> {
         &self.case_pattern_impossible_spans
     }
 
-    pub fn case_pattern_expansion_spans(&self) -> &[Span] {
-        &self.case_pattern_expansion_spans
+    pub fn case_pattern_expansions(&self) -> &[CasePatternExpansionFact] {
+        &self.case_pattern_expansions
     }
 
     pub fn getopts_cases(&self) -> &[GetoptsCaseFact] {

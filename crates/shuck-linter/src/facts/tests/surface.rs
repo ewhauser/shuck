@@ -1033,11 +1033,16 @@ esac
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
-                .case_pattern_expansion_spans()
+                .case_pattern_expansions()
                 .iter()
-                .map(|span| span.slice(source))
+                .map(|fact| (fact.span().slice(source), fact.replacement().to_owned()))
                 .collect::<Vec<_>>(),
-            vec!["$pat", "x$pat", "$(printf '%s' foo)", "\"$left\"$right"]
+            vec![
+                ("$pat", "\"${pat}\"".to_owned()),
+                ("x$pat", "\"x${pat}\"".to_owned()),
+                ("$(printf '%s' foo)", "\"$(printf '%s' foo)\"".to_owned()),
+                ("\"$left\"$right", "\"${left}${right}\"".to_owned()),
+            ]
         );
     });
 }
@@ -1059,7 +1064,7 @@ esac
 ";
 
     with_facts(source, None, |_, facts| {
-        assert!(facts.case_pattern_expansion_spans().is_empty());
+        assert!(facts.case_pattern_expansions().is_empty());
     });
 }
 

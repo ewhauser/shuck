@@ -1503,7 +1503,7 @@ pub(crate) fn benchmark_collect_word_facts(
     let mut compound_assignment_value_word_spans = FxHashSet::default();
     let mut array_assignment_split_word_ids = Vec::new();
     let mut assoc_binding_visibility_memo = FxHashMap::default();
-    let mut case_pattern_expansion_spans = Vec::new();
+    let mut case_pattern_expansions = Vec::new();
     let mut pattern_literal_spans = Vec::new();
     let mut arithmetic_summary = ArithmeticFactSummary::default();
     let mut surface_fragments = SurfaceFragmentSink::new(source);
@@ -1540,7 +1540,7 @@ pub(crate) fn benchmark_collect_word_facts(
                 compound_assignment_value_word_spans: &mut compound_assignment_value_word_spans,
                 array_assignment_split_word_ids: &mut array_assignment_split_word_ids,
                 assoc_binding_visibility_memo: &mut assoc_binding_visibility_memo,
-                case_pattern_expansion_spans: &mut case_pattern_expansion_spans,
+                case_pattern_expansions: &mut case_pattern_expansions,
                 pattern_literal_spans: &mut pattern_literal_spans,
                 arithmetic: &mut arithmetic_summary,
                 surface: &mut surface_fragments,
@@ -1554,7 +1554,7 @@ pub(crate) fn benchmark_collect_word_facts(
         + word_nodes.len()
         + compound_assignment_value_word_spans.len()
         + array_assignment_split_word_ids.len()
-        + case_pattern_expansion_spans.len()
+        + case_pattern_expansions.len()
         + pattern_literal_spans.len()
         + arithmetic_summary.array_index_arithmetic_spans.len()
         + arithmetic_summary.arithmetic_score_line_spans.len()
@@ -1582,7 +1582,7 @@ struct WordFactOutputs<'out, 'a> {
     array_assignment_split_word_ids: &'out mut Vec<WordOccurrenceId>,
     assoc_binding_visibility_memo:
         &'out mut FxHashMap<(Name, ScopeId, Option<FactSpan>), bool>,
-    case_pattern_expansion_spans: &'out mut Vec<Span>,
+    case_pattern_expansions: &'out mut Vec<CasePatternExpansionFact>,
     pattern_literal_spans: &'out mut Vec<Span>,
     arithmetic: &'out mut ArithmeticFactSummary,
     surface: &'out mut SurfaceFragmentSink<'a>,
@@ -1639,7 +1639,7 @@ struct WordFactCollector<'out, 'a, 'norm> {
         &'out mut FxHashMap<(Name, ScopeId, Option<FactSpan>), bool>,
     seen: FxHashSet<(FactSpan, WordFactContext, WordFactHostKind)>,
     compound_assignment_value_word_spans: &'out mut FxHashSet<FactSpan>,
-    case_pattern_expansion_spans: &'out mut Vec<Span>,
+    case_pattern_expansions: &'out mut Vec<CasePatternExpansionFact>,
     pattern_literal_spans: &'out mut Vec<Span>,
     arithmetic: &'out mut ArithmeticFactSummary,
     surface: &'out mut SurfaceFragmentSink<'a>,
@@ -1669,7 +1669,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             assoc_binding_visibility_memo: outputs.assoc_binding_visibility_memo,
             seen: FxHashSet::default(),
             compound_assignment_value_word_spans: outputs.compound_assignment_value_word_spans,
-            case_pattern_expansion_spans: outputs.case_pattern_expansion_spans,
+            case_pattern_expansions: outputs.case_pattern_expansions,
             pattern_literal_spans: outputs.pattern_literal_spans,
             arithmetic: outputs.arithmetic,
             surface: outputs.surface,
@@ -1747,7 +1747,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                         for pattern in &case.patterns {
                             let pattern_context = surface_context.with_pattern_charclass_scan();
                             self.surface.collect_pattern_structure(pattern, pattern_context);
-                            self.collect_case_pattern_expansion_spans(pattern);
+                            self.collect_case_pattern_expansions(pattern);
                             self.collect_pattern_context_words(
                                 pattern,
                                 WordFactContext::Expansion(ExpansionContext::CasePattern),
@@ -2232,7 +2232,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         }
     }
 
-    fn collect_case_pattern_expansion_spans(&mut self, pattern: &Pattern) {
+    fn collect_case_pattern_expansions(&mut self, pattern: &Pattern) {
         if pattern_has_glob_structure(pattern, self.source) {
             return;
         }
@@ -2241,7 +2241,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             return;
         }
 
-        let expanded_word_spans = pattern
+        let expanded_words = pattern
             .parts
             .iter()
             .filter_map(|part| match &part.kind {
@@ -2250,7 +2250,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                         analyze_word(word, self.source, self.command_zsh_options.as_ref());
                     (analysis.literalness == WordLiteralness::Expanded
                         && analysis.quote != WordQuote::FullyQuoted)
-                        .then_some(word.span)
+                        .then_some(word)
                 }
                 PatternPart::Literal(_)
                 | PatternPart::AnyString
@@ -2260,15 +2260,23 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             })
             .collect::<Vec<_>>();
 
-        if expanded_word_spans.is_empty() {
+        if expanded_words.is_empty() {
             return;
         }
 
         if pattern.parts.len() > 1 {
-            self.case_pattern_expansion_spans.push(pattern.span);
+            self.case_pattern_expansions.push(CasePatternExpansionFact::new(
+                pattern.span,
+                rewrite_pattern_as_single_double_quoted_string(pattern, self.source),
+            ));
         } else {
-            self.case_pattern_expansion_spans
-                .extend(expanded_word_spans);
+            self.case_pattern_expansions
+                .extend(expanded_words.into_iter().map(|word| {
+                    CasePatternExpansionFact::new(
+                        word.span,
+                        rewrite_word_as_single_double_quoted_string(word, self.source),
+                    )
+                }));
         }
     }
 

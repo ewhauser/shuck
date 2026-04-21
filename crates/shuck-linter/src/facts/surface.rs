@@ -1,5 +1,7 @@
 use super::*;
-use shuck_ast::{HeredocBody, HeredocBodyPart, HeredocBodyPartNode, PatternGroupKind};
+use shuck_ast::{
+    HeredocBody, HeredocBodyPart, HeredocBodyPartNode, PatternGroupKind, PatternPartNode,
+};
 
 #[derive(Debug)]
 pub struct SingleQuotedFragmentFact {
@@ -62,6 +64,26 @@ impl OpenDoubleQuoteFragmentFact {
 
     pub fn replacement_span(&self) -> Span {
         self.replacement_span
+    }
+
+    pub fn replacement(&self) -> &str {
+        &self.replacement
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CasePatternExpansionFact {
+    span: Span,
+    replacement: Box<str>,
+}
+
+impl CasePatternExpansionFact {
+    pub(super) fn new(span: Span, replacement: Box<str>) -> Self {
+        Self { span, replacement }
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
     }
 
     pub fn replacement(&self) -> &str {
@@ -540,7 +562,7 @@ impl<'a> SurfaceFragmentSink<'a> {
             return;
         }
 
-        let replacement = rewrite_reopened_double_quote_word(word, self.source);
+        let replacement = rewrite_word_as_single_double_quoted_string(word, self.source);
         for (opening_span, closing_span) in fragments {
             self.facts
                 .open_double_quotes
@@ -2118,13 +2140,53 @@ fn suspect_double_quote_spans(
         .collect()
 }
 
-fn rewrite_reopened_double_quote_word(word: &Word, source: &str) -> Box<str> {
+pub(super) fn rewrite_word_as_single_double_quoted_string(word: &Word, source: &str) -> Box<str> {
     let mut rendered = String::from("\"");
     for part in &word.parts {
         render_word_part_inside_double_quotes(&mut rendered, part, source);
     }
     rendered.push('"');
     rendered.into_boxed_str()
+}
+
+pub(super) fn rewrite_pattern_as_single_double_quoted_string(
+    pattern: &Pattern,
+    source: &str,
+) -> Box<str> {
+    let mut rendered = String::from("\"");
+    for part in &pattern.parts {
+        render_pattern_part_inside_double_quotes(&mut rendered, part, source);
+    }
+    rendered.push('"');
+    rendered.into_boxed_str()
+}
+
+fn render_pattern_part_inside_double_quotes(
+    rendered: &mut String,
+    part: &PatternPartNode,
+    source: &str,
+) {
+    match &part.kind {
+        PatternPart::Literal(text) => {
+            push_double_quoted_literal(rendered, text.as_str(source, part.span));
+        }
+        PatternPart::Word(word) => {
+            for word_part in &word.parts {
+                render_word_part_inside_double_quotes(rendered, word_part, source);
+            }
+        }
+        PatternPart::AnyString
+        | PatternPart::AnyChar
+        | PatternPart::CharClass(_)
+        | PatternPart::Group { .. } => {
+            let syntax = Pattern {
+                parts: vec![part.clone()],
+                span: part.span,
+            }
+            .render_syntax(source);
+            push_double_quoted_literal(rendered, &syntax);
+        }
+    }
 }
 
 fn render_word_part_inside_double_quotes(rendered: &mut String, part: &WordPartNode, source: &str) {

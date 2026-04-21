@@ -61,7 +61,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut array_assignment_split_word_ids = Vec::new();
         let mut assoc_binding_visibility_memo = FxHashMap::default();
         let mut pattern_exactly_one_extglob_spans = Vec::new();
-        let mut case_pattern_expansion_spans = Vec::new();
+        let mut case_pattern_expansions = Vec::new();
         let mut pattern_literal_spans = Vec::new();
         let mut pattern_charclass_spans = Vec::new();
         let mut arithmetic_summary = ArithmeticFactSummary::default();
@@ -144,7 +144,7 @@ impl<'a> LinterFactsBuilder<'a> {
                     compound_assignment_value_word_spans: &mut compound_assignment_value_word_spans,
                     array_assignment_split_word_ids: &mut array_assignment_split_word_ids,
                     assoc_binding_visibility_memo: &mut assoc_binding_visibility_memo,
-                    case_pattern_expansion_spans: &mut case_pattern_expansion_spans,
+                    case_pattern_expansions: &mut case_pattern_expansions,
                     pattern_literal_spans: &mut pattern_literal_spans,
                     arithmetic: &mut arithmetic_summary,
                     surface: &mut surface_fragments,
@@ -333,7 +333,7 @@ impl<'a> LinterFactsBuilder<'a> {
             build_function_header_facts(self.semantic, &functions, &commands, self.source);
         sort_and_dedup_spans(&mut condition_status_capture_spans);
         sort_and_dedup_spans(&mut condition_command_substitution_spans);
-        sort_and_dedup_spans(&mut case_pattern_expansion_spans);
+        sort_and_dedup_case_pattern_expansions(&mut case_pattern_expansions);
         let function_in_alias_spans = build_function_in_alias_spans(&commands, self.source);
         let function_parameter_fallback_spans = build_function_parameter_fallback_spans(
             &commands,
@@ -565,7 +565,7 @@ impl<'a> LinterFactsBuilder<'a> {
             case_items,
             case_pattern_shadows,
             case_pattern_impossible_spans,
-            case_pattern_expansion_spans,
+            case_pattern_expansions,
             getopts_cases,
             pipelines,
             lists,
@@ -690,4 +690,10 @@ fn build_linebreak_in_test_site(
         .map(|span| Span::from_positions(span.end, span.end))
         .unwrap_or_else(|| Span::from_positions(current_span.end, current_span.end));
     Some((anchor_span, current_span.end.offset - 1))
+}
+
+fn sort_and_dedup_case_pattern_expansions(expansions: &mut Vec<CasePatternExpansionFact>) {
+    let mut seen = FxHashSet::default();
+    expansions.retain(|fact| seen.insert(FactSpan::new(fact.span())));
+    expansions.sort_by_key(|fact| (fact.span().start.offset, fact.span().end.offset));
 }
