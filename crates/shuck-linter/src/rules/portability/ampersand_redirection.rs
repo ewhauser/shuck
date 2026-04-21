@@ -59,11 +59,7 @@ fn ampersand_redirection_fix(redirect: &RedirectFact<'_>, source: &str) -> Optio
     }
 
     let operator_span = redirect.operator_span();
-    if source[..operator_span.start.offset]
-        .chars()
-        .next_back()
-        .is_some_and(|ch| ch.is_ascii_digit())
-    {
+    if has_standalone_fd_prefix(source, operator_span.start.offset) {
         return None;
     }
 
@@ -73,6 +69,25 @@ fn ampersand_redirection_fix(redirect: &RedirectFact<'_>, source: &str) -> Optio
         Edit::replacement(">", operator_span),
         Edit::insertion(target_span.end.offset, " 2>&1"),
     ]))
+}
+
+fn has_standalone_fd_prefix(source: &str, operator_start: usize) -> bool {
+    let prefix = &source[..operator_start];
+    let digit_count = prefix
+        .chars()
+        .rev()
+        .take_while(|ch| ch.is_ascii_digit())
+        .count();
+    if digit_count == 0 {
+        return false;
+    }
+
+    let digit_start = prefix.len() - digit_count;
+    digit_start == 0
+        || prefix[..digit_start]
+            .chars()
+            .next_back()
+            .is_some_and(char::is_whitespace)
 }
 
 #[cfg(test)]
@@ -88,15 +103,17 @@ mod tests {
 #!/bin/sh
 : &>out
 echo ok &> /dev/null
+echo foo1&>out
 ";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::AmpersandRedirection),
         );
 
-        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics.len(), 3);
         assert_eq!(diagnostics[0].span.slice(source), "&>out");
         assert_eq!(diagnostics[1].span.slice(source), "&> /dev/null");
+        assert_eq!(diagnostics[2].span.slice(source), "&>out");
     }
 
     #[test]
@@ -105,6 +122,7 @@ echo ok &> /dev/null
 #!/bin/sh
 : &>out
 echo ok &> /dev/null
+echo foo1&>out
 ";
         let result = test_snippet_with_fix(
             source,
@@ -112,10 +130,10 @@ echo ok &> /dev/null
             Applicability::Safe,
         );
 
-        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(result.fixes_applied, 3);
         assert_eq!(
             result.fixed_source,
-            "#!/bin/sh\n: >out 2>&1\necho ok > /dev/null 2>&1\n"
+            "#!/bin/sh\n: >out 2>&1\necho ok > /dev/null 2>&1\necho foo1>out 2>&1\n"
         );
         assert!(result.fixed_diagnostics.is_empty());
     }
