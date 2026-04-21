@@ -359,6 +359,14 @@ mod tests {
     }
 
     #[test]
+    fn branch_local_uninitialized_declarations_keep_prior_defs_live() {
+        let source = "#!/bin/bash\nf(){\n  foo=1\n  if cond; then\n    local foo\n  fi\n  echo \"$foo\"\n}\nf\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn unused_uninitialized_declarations_do_not_split_linear_chains() {
         let source = "#!/bin/bash\nf(){\n  local foo\n  foo=1\n  foo=2\n}\nf\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));

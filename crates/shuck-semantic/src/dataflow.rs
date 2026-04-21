@@ -416,9 +416,18 @@ fn analyze_unused_assignments_exact(
         let name_id = reference_name_ids[reference_index];
         let resolved_binding_id = context.resolved.get(&reference.id).copied();
 
-        if !resolved_binding_shadows_name_without_initializing(
-            resolved_binding_id.map(|binding_id| &context.bindings[binding_id.index()]),
-        ) {
+        if let Some(resolved_binding_id) = resolved_binding_id
+            && resolved_binding_shadows_name_without_initializing(Some(
+                &context.bindings[resolved_binding_id.index()],
+            ))
+        {
+            mark_reaching_defs_used_except(
+                &mut used_bindings,
+                incoming,
+                &exact.binding_data.bindings_for_name[name_id.index()],
+                resolved_binding_id,
+            );
+        } else {
             used_bindings.or_intersection_with(
                 incoming,
                 &exact.binding_data.bindings_for_name[name_id.index()],
@@ -1969,6 +1978,19 @@ fn mark_reaching_defs_for_names_used(
 ) {
     for binding_index in incoming.iter_ones() {
         if used_names.contains(binding_name_ids[binding_index].index()) {
+            used_bindings.insert(binding_index);
+        }
+    }
+}
+
+fn mark_reaching_defs_used_except(
+    used_bindings: &mut DenseBitSet,
+    incoming: &DenseBitSet,
+    candidates: &DenseBitSet,
+    excluded: BindingId,
+) {
+    for binding_index in incoming.iter_ones() {
+        if binding_index != excluded.index() && candidates.contains(binding_index) {
             used_bindings.insert(binding_index);
         }
     }

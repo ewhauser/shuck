@@ -3664,6 +3664,29 @@ f
     }
 
     #[test]
+    fn branch_local_uninitialized_declarations_preserve_other_reaching_defs() {
+        let source = "\
+f() {
+  foo=1
+  if cond; then
+    local foo
+  fi
+  echo \"$foo\"
+}
+f
+";
+        let model = model(source);
+
+        assert!(
+            model
+                .analysis()
+                .dataflow()
+                .unused_assignment_ids()
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn linear_duplicate_assignments_with_unrelated_reads_keep_all_reported_ids() {
         let source = "\
 emoji[grinning]=1
