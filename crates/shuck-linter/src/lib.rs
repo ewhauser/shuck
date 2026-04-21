@@ -3,6 +3,7 @@ mod checker;
 pub mod context;
 mod diagnostic;
 mod facts;
+mod fix;
 mod parse_diagnostics;
 mod registry;
 mod rule_selector;
@@ -37,6 +38,7 @@ pub use facts::{
     WordOccurrenceRef, XargsCommandFacts, leading_literal_word_prefix,
 };
 pub use facts::{CommandId, FactSpan, LinterFacts};
+pub use fix::{Applicability, AppliedFixes, Edit, Fix, FixAvailability, apply_fixes};
 pub use registry::{Category, Rule, code_to_rule};
 pub use rule_selector::{RuleSelector, SelectorParseError};
 pub use rule_set::RuleSet;
@@ -1454,12 +1456,16 @@ echo $bar
                 message: "first".to_owned(),
                 severity: Rule::UnquotedExpansion.default_severity(),
                 span: echo_foo,
+                fix: None,
+                fix_title: None,
             },
             Diagnostic {
                 rule: Rule::UnquotedExpansion,
                 message: "second".to_owned(),
                 severity: Rule::UnquotedExpansion.default_severity(),
                 span: echo_bar,
+                fix: None,
+                fix_title: None,
             },
         ];
 

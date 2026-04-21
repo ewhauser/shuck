@@ -24,6 +24,7 @@ shuck-parser = { path = "../shuck-parser" }
 
 [dev-dependencies]
 insta = { workspace = true }
+similar = { workspace = true }
 test-case = { workspace = true }
 tempfile = { workspace = true }
 serde = { workspace = true }

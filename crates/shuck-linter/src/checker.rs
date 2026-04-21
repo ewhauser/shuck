@@ -106,14 +106,20 @@ impl<'a> Checker<'a> {
     }
 
     pub fn report<V: Violation>(&mut self, violation: V, span: Span) {
-        let diagnostic = Diagnostic::new(violation, span);
+        self.report_diagnostic(Diagnostic::new(violation, span));
+    }
+
+    pub fn report_dedup<V: Violation>(&mut self, violation: V, span: Span) {
+        self.report_diagnostic_dedup(Diagnostic::new(violation, span));
+    }
+
+    pub fn report_diagnostic(&mut self, diagnostic: Diagnostic) {
         self.reported
             .insert(DiagnosticKey::new(diagnostic.rule, diagnostic.span));
         self.diagnostics.push(diagnostic);
     }
 
-    pub fn report_dedup<V: Violation>(&mut self, violation: V, span: Span) {
-        let diagnostic = Diagnostic::new(violation, span);
+    pub fn report_diagnostic_dedup(&mut self, diagnostic: Diagnostic) {
         let key = DiagnosticKey::new(diagnostic.rule, diagnostic.span);
         if !self.reported.insert(key) {
             return;

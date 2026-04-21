@@ -1,6 +1,6 @@
 use shuck_ast::Span;
 
-use crate::{Rule, Violation};
+use crate::{Fix, Rule, Violation};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Severity {
@@ -25,6 +25,8 @@ pub struct Diagnostic {
     pub message: String,
     pub severity: Severity,
     pub span: Span,
+    pub fix: Option<Fix>,
+    pub fix_title: Option<String>,
 }
 
 impl Diagnostic {
@@ -34,10 +36,22 @@ impl Diagnostic {
             message: violation.message(),
             severity: V::rule().default_severity(),
             span,
+            fix: None,
+            fix_title: violation.fix_title(),
         }
     }
 
     pub const fn code(&self) -> &'static str {
         self.rule.code()
+    }
+
+    pub fn with_fix(mut self, fix: Fix) -> Self {
+        self.fix = Some(fix);
+        self
+    }
+
+    pub fn with_fix_title(mut self, fix_title: impl Into<String>) -> Self {
+        self.fix_title = Some(fix_title.into());
+        self
     }
 }

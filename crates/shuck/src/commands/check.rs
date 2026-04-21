@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 use shuck_cache::{CacheKey, CacheKeyHasher};
 use shuck_indexer::Indexer;
 use shuck_linter::{
-    LinterSettings, ShellCheckCodeMap, ShellDialect, SuppressionIndex, add_ignores_to_path,
-    first_statement_line, parse_directives,
+    Applicability, LinterSettings, ShellCheckCodeMap, ShellDialect, SuppressionIndex,
+    add_ignores_to_path, first_statement_line, parse_directives,
 };
 use shuck_parser::{
     Error as ParseError,
@@ -139,6 +139,7 @@ struct FileCheckResult {
     file_key: shuck_cache::FileCacheKey,
     cache_data: CheckCacheData,
     diagnostics: Vec<DisplayedDiagnostic>,
+    fixes_applied: usize,
 }
 
 pub(crate) fn check(args: CheckCommand, cache_dir: Option<&Path>) -> Result<ExitStatus> {
@@ -199,13 +200,8 @@ fn print_diagnostics(
 }
 
 fn run_check_with_cwd(args: &CheckCommand, cwd: &Path, cache_root: &Path) -> Result<CheckReport> {
-    if args.fix || args.unsafe_fixes {
-        return Err(anyhow!(
-            "--fix and --unsafe-fixes are not supported until the analyzer is wired"
-        ));
-    }
-
     let include_source = matches!(args.output_format, crate::args::CheckOutputFormatArg::Full);
+    let fix_applicability = requested_fix_applicability(args);
     let settings = EffectiveCheckSettings::default();
     let runs = prepare_project_runs::<CheckCacheData, EffectiveCheckSettings, _>(
         &args.paths,
@@ -219,7 +215,7 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path, cache_root: &Path) -> Res
             cache_root: Some(cache_root.to_path_buf()),
         },
         cache_root,
-        args.no_cache,
+        args.no_cache || fix_applicability.is_some(),
         b"project-cache-key",
         |_| Ok(settings.clone()),
     )?;
@@ -274,12 +270,14 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path, cache_root: &Path) -> Res
                         .with_analyzed_paths(analyzed_paths.clone()),
                     &shellcheck_map,
                     include_source,
+                    fix_applicability,
                 )
             })
             .collect::<Vec<_>>();
 
         for result in results {
             let result = result?;
+            report.fixes_applied += result.fixes_applied;
             report.diagnostics.extend(result.diagnostics);
             if let Some(cache) = run.cache.as_mut() {
                 cache.insert(
@@ -411,8 +409,9 @@ fn analyze_file(
     base_linter_settings: &LinterSettings,
     shellcheck_map: &ShellCheckCodeMap,
     include_source: bool,
+    fix_applicability: Option<Applicability>,
 ) -> Result<FileCheckResult> {
-    let source = read_shared_source(&pending.file.absolute_path)?;
+    let mut source = read_shared_source(&pending.file.absolute_path)?;
     let inferred_shell = ShellDialect::infer(&source, Some(&pending.file.absolute_path));
     let parse_dialect = match inferred_shell {
         ShellDialect::Sh | ShellDialect::Dash | ShellDialect::Ksh => {
@@ -424,16 +423,34 @@ fn analyze_file(
     };
 
     let linter_settings = base_linter_settings.clone().with_shell(inferred_shell);
-    let parse_result = Parser::with_dialect(&source, parse_dialect).parse();
-    let lint_result = lint_parsed_output(
+    let mut parse_result = Parser::with_dialect(&source, parse_dialect).parse();
+    let mut diagnostics = collect_lint_diagnostics(
         &pending,
         &source,
         &parse_result,
         &linter_settings,
         shellcheck_map,
-        include_source,
     );
-    let (cache_data, diagnostics) = if parse_result.is_err() && lint_result.1.is_empty() {
+    let mut fixes_applied = 0;
+
+    if let Some(applicability) = fix_applicability {
+        let applied = shuck_linter::apply_fixes(&source, &diagnostics, applicability);
+        if applied.fixes_applied > 0 {
+            source = Arc::<str>::from(applied.code);
+            fs::write(&pending.file.absolute_path, &*source)?;
+            parse_result = Parser::with_dialect(&source, parse_dialect).parse();
+            diagnostics = collect_lint_diagnostics(
+                &pending,
+                &source,
+                &parse_result,
+                &linter_settings,
+                shellcheck_map,
+            );
+            fixes_applied = applied.fixes_applied;
+        }
+    }
+
+    let (cache_data, diagnostics) = if parse_result.is_err() && diagnostics.is_empty() {
         let ParseError::Parse {
             message,
             line,
@@ -454,7 +471,7 @@ fn analyze_file(
             }],
         )
     } else {
-        lint_result
+        display_lint_diagnostics(&pending, &source, &diagnostics, include_source)
     };
 
     Ok(FileCheckResult {
@@ -462,17 +479,17 @@ fn analyze_file(
         file_key: pending.file_key,
         cache_data,
         diagnostics,
+        fixes_applied,
     })
 }
 
-fn lint_parsed_output(
+fn collect_lint_diagnostics(
     pending: &PendingProjectFile,
     source: &Arc<str>,
     parse_result: &ParseResult,
     linter_settings: &LinterSettings,
     shellcheck_map: &ShellCheckCodeMap,
-    include_source: bool,
-) -> (CheckCacheData, Vec<DisplayedDiagnostic>) {
+) -> Vec<shuck_linter::Diagnostic> {
     let indexer = Indexer::new(source, parse_result);
     let directives = parse_directives(
         source,
@@ -487,14 +504,22 @@ fn lint_parsed_output(
             first_statement_line(&parse_result.file).unwrap_or(u32::MAX),
         )
     });
-    let diagnostics = shuck_linter::lint_file_at_path_with_parse_result(
+    shuck_linter::lint_file_at_path_with_parse_result(
         parse_result,
         source,
         &indexer,
         linter_settings,
         suppression_index.as_ref(),
         Some(&pending.file.absolute_path),
-    );
+    )
+}
+
+fn display_lint_diagnostics(
+    pending: &PendingProjectFile,
+    source: &Arc<str>,
+    diagnostics: &[shuck_linter::Diagnostic],
+    include_source: bool,
+) -> (CheckCacheData, Vec<DisplayedDiagnostic>) {
     let diagnostic_source = (!diagnostics.is_empty() && include_source).then(|| source.clone());
 
     (
@@ -521,6 +546,16 @@ fn lint_parsed_output(
             })
             .collect(),
     )
+}
+
+fn requested_fix_applicability(args: &CheckCommand) -> Option<Applicability> {
+    if args.unsafe_fixes {
+        Some(Applicability::Unsafe)
+    } else if args.fix {
+        Some(Applicability::Safe)
+    } else {
+        None
+    }
 }
 
 fn push_cached_lint_diagnostics(
@@ -746,6 +781,7 @@ mod tests {
                 .with_analyzed_paths([broken_path.clone()]),
             &ShellCheckCodeMap::default(),
             false,
+            None,
         )
         .unwrap();
 
@@ -1036,14 +1072,14 @@ mod tests {
         let source = read_shared_source(&path).unwrap();
         let parse_result = Parser::with_dialect(&source, shuck_parser::ShellDialect::Bash).parse();
 
-        let (_, diagnostics) = lint_parsed_output(
+        let diagnostics = collect_lint_diagnostics(
             &pending,
             &source,
             &parse_result,
             &LinterSettings::default(),
             &ShellCheckCodeMap::default(),
-            true,
         );
+        let (_, diagnostics) = display_lint_diagnostics(&pending, &source, &diagnostics, true);
 
         let diagnostic_source = diagnostics[0]
             .source
