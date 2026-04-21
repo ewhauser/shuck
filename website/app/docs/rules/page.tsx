@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { allRules, categories } from "@/app/lib/rules-data";
 import type { RuleListItem } from "@/app/lib/rules-data";
 import RulesTable from "@/app/components/docs/RulesTable";
+import { RuleStatusDot } from "@/app/components/docs/RuleBadge";
 
 export const metadata: Metadata = {
   title: "Rules",
@@ -10,21 +11,49 @@ export const metadata: Metadata = {
 };
 
 export default function RulesIndexPage() {
-  const implemented = allRules.filter((r) => r.implemented).length;
+  const fullyImplemented = allRules.filter((r) => r.status === "implemented").length;
+  const implementedWithKnownShellcheckDivergences = allRules.filter(
+    (r) => r.status === "implemented_with_known_shellcheck_divergences",
+  ).length;
+  const planned = allRules.length - fullyImplemented - implementedWithKnownShellcheckDivergences;
 
   // Strip heavy fields (rationale, examples, etc.) before sending to the client component.
-  const listRules: RuleListItem[] = allRules.map(({ code, name, category, description, implemented }) => ({
-    code, name, category, description, implemented,
-  }));
+  const listRules: RuleListItem[] = allRules.map(
+    ({ code, name, category, description, implemented, status }) => ({
+      code,
+      name,
+      category,
+      description,
+      implemented,
+      status,
+    }),
+  );
 
   return (
     <div className="max-w-5xl">
       <h1 className="mb-2 text-2xl font-bold text-fg-primary">Rules</h1>
       <p className="mb-6 text-fg-secondary">
         {allRules.length} rules across {categories.length} categories.{" "}
-        <span className="text-green-400">{implemented} implemented</span>,{" "}
-        {allRules.length - implemented} planned.
+        <span className="text-green-400">{fullyImplemented} implemented</span>,{" "}
+        <span className="text-yellow-300">
+          {implementedWithKnownShellcheckDivergences} with known ShellCheck divergences
+        </span>
+        , {planned} planned.
       </p>
+      <div className="mb-6 flex flex-wrap gap-x-4 gap-y-2 text-sm text-fg-secondary">
+        <span className="inline-flex items-center gap-2">
+          <RuleStatusDot status="implemented" />
+          Implemented
+        </span>
+        <span className="inline-flex items-center gap-2">
+          <RuleStatusDot status="implemented_with_known_shellcheck_divergences" />
+          Implemented, with known ShellCheck divergences in corpus metadata
+        </span>
+        <span className="inline-flex items-center gap-2">
+          <RuleStatusDot status="planned" />
+          Planned
+        </span>
+      </div>
       <Suspense>
         <RulesTable rules={listRules} />
       </Suspense>

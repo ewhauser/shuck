@@ -17,6 +17,16 @@ interface RuleYaml {
   examples?: Array<{ kind: string; code: string }>;
 }
 
+interface CorpusMetadataYaml {
+  review_all_divergences?: boolean;
+  reviewed_divergences?: unknown[];
+}
+
+export type RuleStatus =
+  | "planned"
+  | "implemented"
+  | "implemented_with_known_shellcheck_divergences";
+
 export interface RuleData {
   code: string;
   name: string;
@@ -27,6 +37,8 @@ export interface RuleData {
   shells: string[];
   shellcheckCode: string | null;
   implemented: boolean;
+  status: RuleStatus;
+  hasKnownShellcheckDivergences: boolean;
   severity: string | null;
   examples: Array<{ kind: string; code: string }>;
 }
@@ -41,6 +53,7 @@ const CATEGORY_PREFIX: Record<string, string> = {
 
 const rootDir = resolve(__dirname, "../..");
 const rulesDir = join(rootDir, "docs/rules");
+const corpusMetadataDir = join(rootDir, "crates/shuck/tests/testdata/corpus-metadata");
 const registryPath = join(rootDir, "crates/shuck-linter/src/registry.rs");
 const outPath = join(__dirname, "../app/lib/rules-data.generated.json");
 
@@ -56,6 +69,24 @@ while ((match = rulePattern.exec(registrySource)) !== null) {
   implementedRules.set(match[1], match[2]);
 }
 
+const rulesWithKnownShellcheckDivergences = new Set<string>();
+
+for (const file of readdirSync(corpusMetadataDir)) {
+  if (!file.endsWith(".yaml")) {
+    continue;
+  }
+
+  const content = readFileSync(join(corpusMetadataDir, file), "utf-8");
+  const yaml = parseYaml(content) as CorpusMetadataYaml | null;
+  const reviewedDivergences = Array.isArray(yaml?.reviewed_divergences)
+    ? yaml.reviewed_divergences
+    : [];
+
+  if (yaml?.review_all_divergences || reviewedDivergences.length > 0) {
+    rulesWithKnownShellcheckDivergences.add(file.replace(/\.yaml$/u, "").toUpperCase());
+  }
+}
+
 // Read and parse all YAML rule files
 const yamlFiles = readdirSync(rulesDir)
   .filter((f) => f.endsWith(".yaml") && f !== "validate.sh")
@@ -65,7 +96,14 @@ const rules: RuleData[] = yamlFiles.map((file) => {
   const content = readFileSync(join(rulesDir, file), "utf-8");
   const yaml = parseYaml(content) as RuleYaml;
   const code = yaml.new_code;
+  const implemented = implementedRules.has(code);
+  const hasKnownShellcheckDivergences = rulesWithKnownShellcheckDivergences.has(code);
   const severity = implementedRules.get(code) ?? null;
+  const status: RuleStatus = !implemented
+    ? "planned"
+    : hasKnownShellcheckDivergences
+      ? "implemented_with_known_shellcheck_divergences"
+      : "implemented";
 
   return {
     code,
@@ -76,7 +114,9 @@ const rules: RuleData[] = yamlFiles.map((file) => {
     rationale: yaml.rationale,
     shells: yaml.shells ?? [],
     shellcheckCode: yaml.shellcheck_code ?? null,
-    implemented: implementedRules.has(code),
+    implemented,
+    status,
+    hasKnownShellcheckDivergences,
     severity,
     examples: (yaml.examples ?? []).map((ex) => ({
       kind: ex.kind,
@@ -97,6 +137,10 @@ rules.sort((a, b) => {
 
 writeFileSync(outPath, JSON.stringify(rules, null, 2) + "\n");
 
+const implementedWithKnownShellcheckDivergences = rules.filter(
+  (rule) => rule.status === "implemented_with_known_shellcheck_divergences",
+).length;
+
 console.log(
-  `Generated ${rules.length} rules (${implementedRules.size} implemented) -> ${outPath}`,
+  `Generated ${rules.length} rules (${implementedRules.size} implemented, ${implementedWithKnownShellcheckDivergences} with known ShellCheck divergences) -> ${outPath}`,
 );
