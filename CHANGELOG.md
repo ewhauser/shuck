@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.0.12](https://github.com/ewhauser/shuck/compare/v0.0.11...v0.0.12) (2026-04-21)
+
+
+### Documentation
+
+* prepare repo for public OSS release ([#392](https://github.com/ewhauser/shuck/issues/392)) ([20f5335](https://github.com/ewhauser/shuck/commit/20f5335ba60cdc1646045d40f1be1c14681047ad))
+
+
+### Refactor
+
+* remove non-test unwraps ([#397](https://github.com/ewhauser/shuck/issues/397)) ([0b1b78f](https://github.com/ewhauser/shuck/commit/0b1b78f049823669fabd0b0f7ce46a7b78c5a8b6))
+* **semantic:** remove deferred function unsafe dereference ([#394](https://github.com/ewhauser/shuck/issues/394)) ([1b4968f](https://github.com/ewhauser/shuck/commit/1b4968fa70dd2ae94d062458655d196c6d9c75e6))
+
 ## [0.0.11](https://github.com/ewhauser/shuck/compare/v0.0.10...v0.0.11) (2026-04-21)
 
 
