@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -12,8 +13,9 @@ use serde::{Deserialize, Serialize};
 use shuck_cache::{CacheKey, CacheKeyHasher};
 use shuck_indexer::Indexer;
 use shuck_linter::{
-    Applicability, LinterSettings, ShellCheckCodeMap, ShellDialect, SuppressionIndex,
-    add_ignores_to_path, first_statement_line, parse_directives,
+    Applicability, CompiledPerFileIgnoreList, LinterSettings, PerFileIgnore, Rule, RuleSelector,
+    RuleSet, ShellCheckCodeMap, ShellDialect, SuppressionIndex, add_ignores_to_path,
+    first_statement_line, parse_directives,
 };
 use shuck_parser::{
     Error as ParseError,
@@ -21,16 +23,17 @@ use shuck_parser::{
 };
 
 use crate::ExitStatus;
-use crate::args::{CheckCommand, FileSelectionArgs};
+use crate::args::{CheckCommand, FileSelectionArgs, PatternRuleSelectorPair, RuleSelectionArgs};
 use crate::cache::resolve_cache_root;
 use crate::commands::check_output::{
     DisplayPosition, DisplaySpan, DisplayedDiagnostic, DisplayedDiagnosticKind, print_report_to,
 };
 use crate::commands::project_runner::{PendingProjectFile, prepare_project_runs};
 use crate::config::{
-    ConfigArguments, discovered_config_path_for_root, resolve_project_root_for_input,
+    ConfigArguments, LintConfig, discovered_config_path_for_root, load_project_config,
+    resolve_project_root_for_input,
 };
-use crate::discover::{DEFAULT_IGNORED_DIR_NAMES, DiscoveryOptions, normalize_path};
+use crate::discover::{DEFAULT_IGNORED_DIR_NAMES, DiscoveryOptions, ProjectRoot, normalize_path};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct CheckReport {
@@ -79,18 +82,44 @@ fn diagnostics_exit_status(diagnostics: &[DisplayedDiagnostic], exit_zero: bool)
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct EffectiveCheckSettings {
     enabled_rules: Vec<String>,
+    per_file_ignores: Vec<EffectivePerFileIgnore>,
 }
 
-impl Default for EffectiveCheckSettings {
-    fn default() -> Self {
-        let mut enabled_rules = LinterSettings::default()
-            .rules
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EffectivePerFileIgnore {
+    pattern: String,
+    rules: Vec<String>,
+}
+
+impl EffectiveCheckSettings {
+    fn new(enabled_rules: RuleSet, per_file_ignores: &[PerFileIgnore]) -> Self {
+        let mut enabled_rules = enabled_rules
             .iter()
             .map(|rule| rule.code().to_owned())
             .collect::<Vec<_>>();
         enabled_rules.sort();
 
-        Self { enabled_rules }
+        let mut per_file_ignores = per_file_ignores
+            .iter()
+            .map(|ignore| {
+                let mut rules = ignore
+                    .rules()
+                    .iter()
+                    .map(|rule| rule.code().to_owned())
+                    .collect::<Vec<_>>();
+                rules.sort();
+                EffectivePerFileIgnore {
+                    pattern: ignore.pattern().to_owned(),
+                    rules,
+                }
+            })
+            .collect::<Vec<_>>();
+        per_file_ignores.sort_by(|left, right| left.pattern.cmp(&right.pattern));
+
+        Self {
+            enabled_rules,
+            per_file_ignores,
+        }
     }
 }
 
@@ -98,6 +127,57 @@ impl CacheKey for EffectiveCheckSettings {
     fn cache_key(&self, state: &mut CacheKeyHasher) {
         state.write_tag(b"effective-check-settings");
         self.enabled_rules.cache_key(state);
+        self.per_file_ignores.cache_key(state);
+    }
+}
+
+impl CacheKey for EffectivePerFileIgnore {
+    fn cache_key(&self, state: &mut CacheKeyHasher) {
+        self.pattern.cache_key(state);
+        self.rules.cache_key(state);
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedCheckSettings {
+    linter_settings: LinterSettings,
+    fixable_rules: RuleSet,
+    effective: EffectiveCheckSettings,
+}
+
+impl CacheKey for ResolvedCheckSettings {
+    fn cache_key(&self, state: &mut CacheKeyHasher) {
+        self.effective.cache_key(state);
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct RuleSelectionLayer {
+    select: Option<Vec<RuleSelector>>,
+    ignore: Vec<RuleSelector>,
+    extend_select: Vec<RuleSelector>,
+    per_file_ignores: Option<Vec<PerFileIgnoreSpec>>,
+    extend_per_file_ignores: Vec<PerFileIgnoreSpec>,
+    fixable: Option<Vec<RuleSelector>>,
+    unfixable: Vec<RuleSelector>,
+    extend_fixable: Vec<RuleSelector>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PerFileIgnoreSpec {
+    pattern: String,
+    selectors: Vec<RuleSelector>,
+}
+
+impl PerFileIgnoreSpec {
+    fn into_ignore(self) -> PerFileIgnore {
+        let rules = self
+            .selectors
+            .into_iter()
+            .fold(RuleSet::EMPTY, |rules, selector| {
+                rules.union(&selector.into_rule_set())
+            });
+        PerFileIgnore::new(self.pattern, rules)
     }
 }
 
@@ -546,6 +626,246 @@ fn watch_event_path_is_ignored(path: &Path, cache_root: &Path) -> bool {
         })
 }
 
+fn resolve_project_check_settings(
+    project_root: &ProjectRoot,
+    config_arguments: &ConfigArguments,
+    cli_rule_selection: &RuleSelectionArgs,
+) -> Result<ResolvedCheckSettings> {
+    let config = load_project_config(&project_root.storage_root, config_arguments)?;
+    let layers = [
+        parse_lint_config_layer(&config.lint)?,
+        parse_cli_rule_selection_layer(cli_rule_selection),
+    ];
+
+    let mut enabled_rules = LinterSettings::default_rules();
+    let mut fixable_rules = RuleSet::all();
+    let mut per_file_ignores = Vec::new();
+
+    for layer in layers {
+        enabled_rules = apply_rule_selector_layer(
+            enabled_rules,
+            layer.select.as_deref(),
+            &layer.extend_select,
+            &layer.ignore,
+        );
+        fixable_rules = apply_rule_selector_layer(
+            fixable_rules,
+            layer.fixable.as_deref(),
+            &layer.extend_fixable,
+            &layer.unfixable,
+        );
+        per_file_ignores = apply_per_file_ignore_layer(
+            per_file_ignores,
+            layer.per_file_ignores,
+            layer.extend_per_file_ignores,
+        );
+    }
+
+    let compiled_per_file_ignores = CompiledPerFileIgnoreList::resolve(
+        project_root.canonical_root.clone(),
+        per_file_ignores.clone(),
+    )?;
+    let effective = EffectiveCheckSettings::new(enabled_rules, &per_file_ignores);
+
+    Ok(ResolvedCheckSettings {
+        linter_settings: LinterSettings {
+            rules: enabled_rules,
+            per_file_ignores: Arc::new(compiled_per_file_ignores),
+            ..LinterSettings::default()
+        },
+        fixable_rules,
+        effective,
+    })
+}
+
+fn parse_lint_config_layer(lint: &LintConfig) -> Result<RuleSelectionLayer> {
+    Ok(RuleSelectionLayer {
+        select: lint
+            .select
+            .as_ref()
+            .map(|selectors| parse_rule_selectors(selectors, "lint.select"))
+            .transpose()?,
+        ignore: lint
+            .ignore
+            .as_ref()
+            .map(|selectors| parse_rule_selectors(selectors, "lint.ignore"))
+            .transpose()?
+            .unwrap_or_default(),
+        extend_select: lint
+            .extend_select
+            .as_ref()
+            .map(|selectors| parse_rule_selectors(selectors, "lint.extend-select"))
+            .transpose()?
+            .unwrap_or_default(),
+        per_file_ignores: lint
+            .per_file_ignores
+            .as_ref()
+            .map(|patterns| parse_per_file_ignore_map(patterns, "lint.per-file-ignores"))
+            .transpose()?,
+        extend_per_file_ignores: lint
+            .extend_per_file_ignores
+            .as_ref()
+            .map(|patterns| parse_per_file_ignore_map(patterns, "lint.extend-per-file-ignores"))
+            .transpose()?
+            .unwrap_or_default(),
+        fixable: lint
+            .fixable
+            .as_ref()
+            .map(|selectors| parse_rule_selectors(selectors, "lint.fixable"))
+            .transpose()?,
+        unfixable: lint
+            .unfixable
+            .as_ref()
+            .map(|selectors| parse_rule_selectors(selectors, "lint.unfixable"))
+            .transpose()?
+            .unwrap_or_default(),
+        extend_fixable: lint
+            .extend_fixable
+            .as_ref()
+            .map(|selectors| parse_rule_selectors(selectors, "lint.extend-fixable"))
+            .transpose()?
+            .unwrap_or_default(),
+    })
+}
+
+fn parse_cli_rule_selection_layer(args: &RuleSelectionArgs) -> RuleSelectionLayer {
+    RuleSelectionLayer {
+        select: args.select.clone(),
+        ignore: args.ignore.clone(),
+        extend_select: args.extend_select.clone(),
+        per_file_ignores: args
+            .per_file_ignores
+            .as_ref()
+            .map(|pairs| group_per_file_ignore_pairs(pairs)),
+        extend_per_file_ignores: group_per_file_ignore_pairs(&args.extend_per_file_ignores),
+        fixable: args.fixable.clone(),
+        unfixable: args.unfixable.clone(),
+        extend_fixable: args.extend_fixable.clone(),
+    }
+}
+
+fn parse_rule_selectors(selectors: &[String], scope: &str) -> Result<Vec<RuleSelector>> {
+    selectors
+        .iter()
+        .map(|selector| {
+            selector
+                .parse::<RuleSelector>()
+                .map_err(|err| anyhow!("invalid {scope} selector `{selector}`: {err}"))
+        })
+        .collect()
+}
+
+fn parse_per_file_ignore_map(
+    patterns: &BTreeMap<String, Vec<String>>,
+    scope: &str,
+) -> Result<Vec<PerFileIgnoreSpec>> {
+    patterns
+        .iter()
+        .map(|(pattern, selectors)| {
+            Ok(PerFileIgnoreSpec {
+                pattern: pattern.clone(),
+                selectors: parse_rule_selectors(selectors, scope)?,
+            })
+        })
+        .collect()
+}
+
+fn group_per_file_ignore_pairs(pairs: &[PatternRuleSelectorPair]) -> Vec<PerFileIgnoreSpec> {
+    let mut grouped = BTreeMap::<String, Vec<RuleSelector>>::new();
+    for pair in pairs {
+        grouped
+            .entry(pair.pattern.clone())
+            .or_default()
+            .push(pair.selector.clone());
+    }
+
+    grouped
+        .into_iter()
+        .map(|(pattern, selectors)| PerFileIgnoreSpec { pattern, selectors })
+        .collect()
+}
+
+fn apply_rule_selector_layer(
+    current: RuleSet,
+    select: Option<&[RuleSelector]>,
+    extend_select: &[RuleSelector],
+    ignore: &[RuleSelector],
+) -> RuleSet {
+    let mut specificities = select
+        .into_iter()
+        .flatten()
+        .chain(extend_select.iter())
+        .chain(ignore.iter())
+        .map(selector_specificity)
+        .collect::<Vec<_>>();
+    specificities.sort_unstable();
+    specificities.dedup();
+
+    let mut updates = HashMap::<Rule, bool>::new();
+    for specificity in specificities {
+        for selector in select
+            .into_iter()
+            .flatten()
+            .chain(extend_select.iter())
+            .filter(|selector| selector_specificity(selector) == specificity)
+        {
+            for rule in selector.into_rule_set().iter() {
+                updates.insert(rule, true);
+            }
+        }
+        for selector in ignore
+            .iter()
+            .filter(|selector| selector_specificity(selector) == specificity)
+        {
+            for rule in selector.into_rule_set().iter() {
+                updates.insert(rule, false);
+            }
+        }
+    }
+
+    if select.is_some() {
+        updates
+            .into_iter()
+            .filter_map(|(rule, enabled)| enabled.then_some(rule))
+            .collect()
+    } else {
+        let mut rules = current;
+        for (rule, enabled) in updates {
+            rules.set(rule, enabled);
+        }
+        rules
+    }
+}
+
+fn selector_specificity(selector: &RuleSelector) -> usize {
+    match selector {
+        RuleSelector::All => 0,
+        RuleSelector::Category(_) => 1,
+        RuleSelector::Prefix(prefix) => 2 + prefix.len(),
+        RuleSelector::Rule(_) => usize::MAX,
+    }
+}
+
+fn apply_per_file_ignore_layer(
+    current: Vec<PerFileIgnore>,
+    per_file_ignores: Option<Vec<PerFileIgnoreSpec>>,
+    extend_per_file_ignores: Vec<PerFileIgnoreSpec>,
+) -> Vec<PerFileIgnore> {
+    let mut per_file_ignores = per_file_ignores
+        .map(|per_file_ignores| {
+            per_file_ignores
+                .into_iter()
+                .map(PerFileIgnoreSpec::into_ignore)
+                .collect()
+        })
+        .unwrap_or(current);
+    per_file_ignores.extend(
+        extend_per_file_ignores
+            .into_iter()
+            .map(PerFileIgnoreSpec::into_ignore),
+    );
+    per_file_ignores
+}
 fn run_check_with_cwd(
     args: &CheckCommand,
     config_arguments: &ConfigArguments,
@@ -554,8 +874,7 @@ fn run_check_with_cwd(
 ) -> Result<CheckReport> {
     let include_source = matches!(args.output_format, crate::args::CheckOutputFormatArg::Full);
     let fix_applicability = requested_fix_applicability(args);
-    let settings = EffectiveCheckSettings::default();
-    let runs = prepare_project_runs::<CheckCacheData, EffectiveCheckSettings, _>(
+    let runs = prepare_project_runs::<CheckCacheData, ResolvedCheckSettings, _>(
         &args.paths,
         cwd,
         &DiscoveryOptions {
@@ -570,9 +889,10 @@ fn run_check_with_cwd(
         cache_root,
         args.no_cache || fix_applicability.is_some(),
         b"project-cache-key",
-        |_| Ok(settings.clone()),
+        |project_root| {
+            resolve_project_check_settings(project_root, config_arguments, &args.rule_selection)
+        },
     )?;
-    let base_linter_settings = LinterSettings::default();
     let shellcheck_map = ShellCheckCodeMap::default();
 
     let mut report = CheckReport::default();
@@ -583,6 +903,7 @@ fn run_check_with_cwd(
             .iter()
             .map(|file| file.absolute_path.clone())
             .collect::<Vec<_>>();
+        let project_settings = run.settings.clone();
         let pending = run.take_pending_files(|file, cached| {
             report.cache_hits += 1;
             match cached {
@@ -618,12 +939,14 @@ fn run_check_with_cwd(
             .map(|pending| {
                 analyze_file(
                     pending,
-                    &base_linter_settings
+                    &project_settings
+                        .linter_settings
                         .clone()
                         .with_analyzed_paths(analyzed_paths.clone()),
                     &shellcheck_map,
                     include_source,
                     fix_applicability,
+                    &project_settings.fixable_rules,
                 )
             })
             .collect::<Vec<_>>();
@@ -664,8 +987,7 @@ fn run_add_ignore_with_cwd(
     reason: Option<&str>,
 ) -> Result<AddIgnoreReport> {
     let include_source = matches!(args.output_format, crate::args::CheckOutputFormatArg::Full);
-    let settings = EffectiveCheckSettings::default();
-    let runs = prepare_project_runs::<CheckCacheData, EffectiveCheckSettings, _>(
+    let runs = prepare_project_runs::<CheckCacheData, ResolvedCheckSettings, _>(
         &args.paths,
         cwd,
         &DiscoveryOptions {
@@ -680,9 +1002,10 @@ fn run_add_ignore_with_cwd(
         cache_root,
         true,
         b"project-cache-key",
-        |_| Ok(settings.clone()),
+        |project_root| {
+            resolve_project_check_settings(project_root, config_arguments, &args.rule_selection)
+        },
     )?;
-    let base_linter_settings = LinterSettings::default();
 
     let mut report = AddIgnoreReport::default();
 
@@ -692,7 +1015,9 @@ fn run_add_ignore_with_cwd(
             .iter()
             .map(|file| file.absolute_path.clone())
             .collect::<Vec<_>>();
-        let linter_settings = base_linter_settings
+        let linter_settings = run
+            .settings
+            .linter_settings
             .clone()
             .with_analyzed_paths(analyzed_paths);
 
@@ -749,6 +1074,7 @@ pub(crate) fn benchmark_check_paths(
             output_format,
             watch: false,
             paths: paths.to_vec(),
+            rule_selection: RuleSelectionArgs::default(),
             file_selection: FileSelectionArgs::default(),
             exit_zero: false,
             exit_non_zero_on_fix: false,
@@ -767,6 +1093,7 @@ fn analyze_file(
     shellcheck_map: &ShellCheckCodeMap,
     include_source: bool,
     fix_applicability: Option<Applicability>,
+    fixable_rules: &RuleSet,
 ) -> Result<FileCheckResult> {
     let mut source = read_shared_source(&pending.file.absolute_path)?;
     let inferred_shell = ShellDialect::infer(&source, Some(&pending.file.absolute_path));
@@ -791,7 +1118,12 @@ fn analyze_file(
     let mut fixes_applied = 0;
 
     if let Some(applicability) = fix_applicability {
-        let applied = shuck_linter::apply_fixes(&source, &diagnostics, applicability);
+        let fixable_diagnostics = diagnostics
+            .iter()
+            .filter(|diagnostic| fixable_rules.contains(diagnostic.rule))
+            .cloned()
+            .collect::<Vec<_>>();
+        let applied = shuck_linter::apply_fixes(&source, &fixable_diagnostics, applicability);
         if applied.fixes_applied > 0 {
             source = Arc::<str>::from(applied.code);
             fs::write(&pending.file.absolute_path, &*source)?;
@@ -971,10 +1303,11 @@ mod tests {
     use std::sync::Arc;
 
     use notify::event::{CreateKind, EventAttributes, ModifyKind, RemoveKind, RenameMode};
+    use shuck_linter::{Rule, RuleSelector};
     use tempfile::tempdir;
 
     use super::*;
-    use crate::args::CheckOutputFormatArg;
+    use crate::args::{CheckOutputFormatArg, PatternRuleSelectorPair, RuleSelectionArgs};
     use crate::config::ConfigArguments;
 
     fn pending_project_file(path: &Path, project_root: &Path) -> PendingProjectFile {
@@ -1025,6 +1358,7 @@ mod tests {
             output_format,
             watch: false,
             paths: Vec::new(),
+            rule_selection: RuleSelectionArgs::default(),
             file_selection: FileSelectionArgs::default(),
             exit_zero: false,
             exit_non_zero_on_fix: false,
@@ -1033,6 +1367,17 @@ mod tests {
 
     fn check_args(no_cache: bool) -> CheckCommand {
         check_args_with_format(no_cache, CheckOutputFormatArg::Full)
+    }
+
+    fn diagnostic_codes(report: &CheckReport) -> Vec<String> {
+        report
+            .diagnostics
+            .iter()
+            .filter_map(|diagnostic| match &diagnostic.kind {
+                DisplayedDiagnosticKind::Lint { code, .. } => Some(code.clone()),
+                DisplayedDiagnosticKind::ParseError => None,
+            })
+            .collect()
     }
 
     #[test]
@@ -1146,6 +1491,173 @@ mod tests {
     }
 
     #[test]
+    fn select_replaces_default_rules() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("script.sh"),
+            "#!/bin/sh\nunused=1\nread\n",
+        )
+        .unwrap();
+
+        let mut args = check_args(true);
+        args.rule_selection = RuleSelectionArgs {
+            select: Some(vec![RuleSelector::Rule(Rule::BareRead)]),
+            ..RuleSelectionArgs::default()
+        };
+
+        let report = run_check_with_cwd(
+            &args,
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            diagnostic_codes(&report),
+            vec![Rule::BareRead.code().to_owned()]
+        );
+    }
+
+    #[test]
+    fn extend_select_adds_on_top_of_config_selection() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("shuck.toml"),
+            "[lint]\nselect = ['C001']\n",
+        )
+        .unwrap();
+        fs::write(
+            tempdir.path().join("script.sh"),
+            "#!/bin/sh\nunused=1\nread\n",
+        )
+        .unwrap();
+
+        let mut args = check_args(true);
+        args.rule_selection = RuleSelectionArgs {
+            extend_select: vec![RuleSelector::Rule(Rule::BareRead)],
+            ..RuleSelectionArgs::default()
+        };
+
+        let report = run_check_with_cwd(
+            &args,
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+
+        let mut codes = diagnostic_codes(&report);
+        codes.sort();
+        assert_eq!(
+            codes,
+            vec![
+                Rule::UnusedAssignment.code().to_owned(),
+                Rule::BareRead.code().to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn ignore_can_trigger_parse_error_fallback() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("broken.sh"),
+            "#!/bin/sh\nif true; then\n  :\n",
+        )
+        .unwrap();
+
+        let mut args = check_args(true);
+        args.rule_selection = RuleSelectionArgs {
+            ignore: vec![RuleSelector::Rule(Rule::MissingFi)],
+            ..RuleSelectionArgs::default()
+        };
+
+        let report = run_check_with_cwd(
+            &args,
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+
+        assert_eq!(report.diagnostics.len(), 1);
+        assert!(matches!(
+            report.diagnostics[0].kind,
+            DisplayedDiagnosticKind::ParseError
+        ));
+    }
+
+    #[test]
+    fn per_file_ignores_suppress_matching_rules_only() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("ignored.sh"),
+            "#!/bin/bash\nunused=1\necho ok\n",
+        )
+        .unwrap();
+        fs::write(
+            tempdir.path().join("kept.sh"),
+            "#!/bin/bash\nunused=1\necho ok\n",
+        )
+        .unwrap();
+
+        let mut args = check_args(true);
+        args.rule_selection = RuleSelectionArgs {
+            per_file_ignores: Some(vec![PatternRuleSelectorPair {
+                pattern: "ignored.sh".to_owned(),
+                selector: RuleSelector::Rule(Rule::UnusedAssignment),
+            }]),
+            ..RuleSelectionArgs::default()
+        };
+
+        let report = run_check_with_cwd(
+            &args,
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+
+        assert_eq!(report.diagnostics.len(), 1);
+        assert_eq!(report.diagnostics[0].path, PathBuf::from("kept.sh"));
+        assert_eq!(
+            diagnostic_codes(&report),
+            vec![Rule::UnusedAssignment.code().to_owned()]
+        );
+    }
+
+    #[test]
+    fn unfixable_rules_prevent_fix_application() {
+        let tempdir = tempdir().unwrap();
+        let script = tempdir.path().join("warn.sh");
+        let source = "#!/bin/bash\nprintf '%s\\n' x &;\n";
+        fs::write(&script, source).unwrap();
+
+        let mut args = check_args(true);
+        args.fix = true;
+        args.rule_selection = RuleSelectionArgs {
+            unfixable: vec![RuleSelector::Rule(Rule::AmpersandSemicolon)],
+            ..RuleSelectionArgs::default()
+        };
+
+        let report = run_check_with_cwd(
+            &args,
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+
+        assert_eq!(report.fixes_applied, 0);
+        assert_eq!(fs::read_to_string(script).unwrap(), source);
+        assert_eq!(
+            diagnostic_codes(&report),
+            vec![Rule::AmpersandSemicolon.code().to_owned()]
+        );
+    }
+
+    #[test]
     fn reports_missing_fi_as_parse_error_when_parse_rule_is_disabled() {
         let tempdir = tempdir().unwrap();
         let broken_path = tempdir.path().join("broken.sh");
@@ -1158,6 +1670,7 @@ mod tests {
             &ShellCheckCodeMap::default(),
             false,
             None,
+            &RuleSet::all(),
         )
         .unwrap();
 

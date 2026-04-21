@@ -79,7 +79,7 @@ pub use rules::common::word::{
     text_looks_like_nontrivial_arithmetic_expression, word_is_standalone_status_capture,
     word_is_standalone_variable_like,
 };
-pub use settings::LinterSettings;
+pub use settings::{CompiledPerFileIgnoreList, LinterSettings, PerFileIgnore};
 pub use shell::ShellDialect;
 pub use suppression::{
     AddIgnoreParseError, AddIgnoreResult, ShellCheckCodeMap, SuppressionAction,
@@ -262,6 +262,7 @@ fn analyze_file_at_path_with_resolver_and_shell(
     if let Some(suppression_index) = suppression_index {
         filter_suppressed_diagnostics(&mut diagnostics, indexer, suppression_index);
     }
+    filter_per_file_ignored_diagnostics(&mut diagnostics, settings, source_path);
 
     diagnostics
         .sort_by_key(|diagnostic| (diagnostic.span.start.offset, diagnostic.span.end.offset));
@@ -384,6 +385,7 @@ pub fn lint_file_at_path_with_resolver(
     if let Some(suppression_index) = suppression_index {
         filter_suppressed_diagnostics(&mut diagnostics, indexer, suppression_index);
     }
+    filter_per_file_ignored_diagnostics(&mut diagnostics, settings, source_path);
 
     diagnostics
         .sort_by_key(|diagnostic| (diagnostic.span.start.offset, diagnostic.span.end.offset));
@@ -436,6 +438,7 @@ pub fn lint_file_at_path_with_resolver_and_parse_result(
     if let Some(suppression_index) = suppression_index {
         filter_suppressed_diagnostics(&mut diagnostics, indexer, suppression_index);
     }
+    filter_per_file_ignored_diagnostics(&mut diagnostics, settings, source_path);
 
     diagnostics
         .sort_by_key(|diagnostic| (diagnostic.span.start.offset, diagnostic.span.end.offset));
@@ -477,6 +480,19 @@ fn filter_suppressed_diagnostics(
 
         !suppression_index.is_suppressed(diagnostic.rule, line)
     });
+}
+
+fn filter_per_file_ignored_diagnostics(
+    diagnostics: &mut Vec<Diagnostic>,
+    settings: &LinterSettings,
+    source_path: Option<&Path>,
+) {
+    let ignored_rules = settings.per_file_ignored_rules(source_path);
+    if ignored_rules.is_empty() {
+        return;
+    }
+
+    diagnostics.retain(|diagnostic| !ignored_rules.contains(diagnostic.rule));
 }
 
 #[cold]

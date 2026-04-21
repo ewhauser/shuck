@@ -14,6 +14,7 @@ benchmarking = []
 
 [dependencies]
 anyhow = { workspace = true }
+globset = { workspace = true }
 rustc-hash = "2"
 smallvec.workspace = true
 thiserror = { workspace = true }
