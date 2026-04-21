@@ -18,4 +18,5 @@ source:
   shell_checks_example: examples/244.sh
 examples:
   - kind: valid
+    source: shell-checks/examples/244.sh
     code: "#!/bin/bash\nmapfile -t files < <(find -name \"*.pyc\" -printf '%f\\n')\necho \"${files[@]}\"\n"
