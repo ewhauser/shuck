@@ -12,6 +12,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use shuck_ast::TextSize;
 use shuck_cache::{CacheKey, CacheKeyHasher};
+use shuck_extract::{EmbeddedScript, ExtractedDialect, extract_all};
 use shuck_indexer::Indexer;
 use shuck_linter::{
     Applicability, CompiledPerFileIgnoreList, LinterSettings, PerFileIgnore, Rule, RuleSelector,
@@ -35,6 +36,7 @@ use crate::config::{
     ConfigArguments, LintConfig, discovered_config_path_for_root, load_project_config,
     resolve_project_root_for_input,
 };
+use crate::discover::FileKind;
 use crate::discover::{DEFAULT_IGNORED_DIR_NAMES, DiscoveryOptions, ProjectRoot, normalize_path};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -86,6 +88,7 @@ struct EffectiveCheckSettings {
     enabled_rules: Vec<String>,
     per_file_ignores: Vec<EffectivePerFileIgnore>,
     rule_options: EffectiveRuleOptions,
+    embedded_enabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -104,6 +107,7 @@ impl EffectiveCheckSettings {
         enabled_rules: RuleSet,
         per_file_ignores: &[PerFileIgnore],
         rule_options: &shuck_linter::LinterRuleOptions,
+        embedded_enabled: bool,
     ) -> Self {
         let mut enabled_rules = enabled_rules
             .iter()
@@ -132,6 +136,7 @@ impl EffectiveCheckSettings {
             enabled_rules,
             per_file_ignores,
             rule_options: EffectiveRuleOptions::new(rule_options),
+            embedded_enabled,
         }
     }
 }
@@ -142,6 +147,7 @@ impl CacheKey for EffectiveCheckSettings {
         self.enabled_rules.cache_key(state);
         self.per_file_ignores.cache_key(state);
         self.rule_options.cache_key(state);
+        self.embedded_enabled.cache_key(state);
     }
 }
 
@@ -175,6 +181,7 @@ struct ResolvedCheckSettings {
     linter_settings: LinterSettings,
     fixable_rules: RuleSet,
     effective: EffectiveCheckSettings,
+    embedded_enabled: bool,
 }
 
 impl CacheKey for ResolvedCheckSettings {
@@ -214,27 +221,35 @@ impl PerFileIgnoreSpec {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-enum CheckCacheData {
-    Success(Vec<CachedLintDiagnostic>),
-    ParseError(ParseCacheFailure),
+struct CheckCacheData {
+    diagnostics: Vec<CachedDisplayedDiagnostic>,
+}
+
+impl CheckCacheData {
+    fn from_displayed(diagnostics: &[DisplayedDiagnostic]) -> Self {
+        Self {
+            diagnostics: diagnostics
+                .iter()
+                .map(CachedDisplayedDiagnostic::from_displayed)
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct ParseCacheFailure {
-    message: String,
-    line: usize,
-    column: usize,
+enum CachedDisplayedDiagnosticKind {
+    ParseError,
+    Lint { code: String, severity: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct CachedLintDiagnostic {
+struct CachedDisplayedDiagnostic {
     start_line: usize,
     start_column: usize,
     end_line: usize,
     end_column: usize,
-    code: String,
-    severity: String,
     message: String,
+    kind: CachedDisplayedDiagnosticKind,
     fix: Option<CachedLintFix>,
 }
 
@@ -327,20 +342,24 @@ impl CachedLintEdit {
     }
 }
 
-impl CachedLintDiagnostic {
-    fn from_diagnostic(diagnostic: &shuck_linter::Diagnostic, source: &str) -> Self {
-        let fix = displayed_fix_from_diagnostic(diagnostic, source)
-            .as_ref()
-            .map(CachedLintFix::from_displayed);
+impl CachedDisplayedDiagnostic {
+    fn from_displayed(diagnostic: &DisplayedDiagnostic) -> Self {
         Self {
             start_line: diagnostic.span.start.line,
             start_column: diagnostic.span.start.column,
             end_line: diagnostic.span.end.line,
             end_column: diagnostic.span.end.column,
-            code: diagnostic.code().to_owned(),
-            severity: diagnostic.severity.as_str().to_owned(),
             message: diagnostic.message.clone(),
-            fix,
+            kind: match &diagnostic.kind {
+                DisplayedDiagnosticKind::ParseError => CachedDisplayedDiagnosticKind::ParseError,
+                DisplayedDiagnosticKind::Lint { code, severity } => {
+                    CachedDisplayedDiagnosticKind::Lint {
+                        code: code.clone(),
+                        severity: severity.clone(),
+                    }
+                }
+            },
+            fix: diagnostic.fix.as_ref().map(CachedLintFix::from_displayed),
         }
     }
 }
@@ -792,7 +811,13 @@ fn resolve_project_check_settings(
         project_root.canonical_root.clone(),
         per_file_ignores.clone(),
     )?;
-    let effective = EffectiveCheckSettings::new(enabled_rules, &per_file_ignores, &rule_options);
+    let embedded_enabled = config.check.embedded.unwrap_or(true);
+    let effective = EffectiveCheckSettings::new(
+        enabled_rules,
+        &per_file_ignores,
+        &rule_options,
+        embedded_enabled,
+    );
 
     Ok(ResolvedCheckSettings {
         linter_settings: LinterSettings {
@@ -803,6 +828,7 @@ fn resolve_project_check_settings(
         },
         fixable_rules,
         effective,
+        embedded_enabled,
     })
 }
 
@@ -1023,7 +1049,7 @@ fn run_check_with_cwd(
 ) -> Result<CheckReport> {
     let include_source = matches!(args.output_format, crate::args::CheckOutputFormatArg::Full);
     let fix_applicability = requested_fix_applicability(args);
-    let runs = prepare_project_runs::<CheckCacheData, ResolvedCheckSettings, _>(
+    let mut runs = prepare_project_runs::<CheckCacheData, ResolvedCheckSettings, _>(
         &args.paths,
         cwd,
         &DiscoveryOptions {
@@ -1046,6 +1072,12 @@ fn run_check_with_cwd(
 
     let mut report = CheckReport::default();
 
+    for run in &mut runs {
+        if !run.settings.embedded_enabled {
+            run.files.retain(|file| file.kind == FileKind::Shell);
+        }
+    }
+
     for mut run in runs {
         let analyzed_paths = run
             .files
@@ -1055,35 +1087,17 @@ fn run_check_with_cwd(
         let project_settings = run.settings.clone();
         let pending = run.take_pending_files(|file, cached| {
             report.cache_hits += 1;
-            match cached {
-                CheckCacheData::Success(diagnostics) => {
-                    let source = (include_source && !diagnostics.is_empty())
-                        .then(|| read_shared_source(&file.absolute_path))
-                        .transpose()?;
-                    push_cached_lint_diagnostics(
-                        &mut report,
-                        &file.display_path,
-                        &file.relative_path,
-                        &file.absolute_path,
-                        &diagnostics,
-                        source,
-                    );
-                }
-                CheckCacheData::ParseError(error) => {
-                    let source = include_source
-                        .then(|| read_shared_source(&file.absolute_path))
-                        .transpose()?;
-                    report.diagnostics.push(display_parse_error(
-                        &file.display_path,
-                        &file.relative_path,
-                        &file.absolute_path,
-                        error.line,
-                        error.column,
-                        error.message,
-                        source,
-                    ));
-                }
-            }
+            let source = (include_source && !cached.diagnostics.is_empty())
+                .then(|| read_shared_source(&file.absolute_path))
+                .transpose()?;
+            push_cached_diagnostics(
+                &mut report,
+                &file.display_path,
+                &file.relative_path,
+                &file.absolute_path,
+                &cached.diagnostics,
+                source,
+            );
             Ok(())
         })?;
 
@@ -1140,7 +1154,7 @@ fn run_add_ignore_with_cwd(
     reason: Option<&str>,
 ) -> Result<AddIgnoreReport> {
     let include_source = matches!(args.output_format, crate::args::CheckOutputFormatArg::Full);
-    let runs = prepare_project_runs::<CheckCacheData, ResolvedCheckSettings, _>(
+    let mut runs = prepare_project_runs::<CheckCacheData, ResolvedCheckSettings, _>(
         &args.paths,
         cwd,
         &DiscoveryOptions {
@@ -1161,6 +1175,10 @@ fn run_add_ignore_with_cwd(
     )?;
 
     let mut report = AddIgnoreReport::default();
+
+    for run in &mut runs {
+        run.files.retain(|file| file.kind == FileKind::Shell);
+    }
 
     for run in runs {
         let analyzed_paths = run
@@ -1252,6 +1270,32 @@ fn analyze_file(
     fix_applicability: Option<Applicability>,
     fixable_rules: &RuleSet,
 ) -> Result<FileCheckResult> {
+    match pending.file.kind {
+        FileKind::Shell => analyze_shell_file(
+            pending,
+            base_linter_settings,
+            shellcheck_map,
+            include_source,
+            fix_applicability,
+            fixable_rules,
+        ),
+        FileKind::Embedded => analyze_embedded_file(
+            pending,
+            base_linter_settings,
+            shellcheck_map,
+            include_source,
+        ),
+    }
+}
+
+fn analyze_shell_file(
+    pending: PendingProjectFile,
+    base_linter_settings: &LinterSettings,
+    shellcheck_map: &ShellCheckCodeMap,
+    include_source: bool,
+    fix_applicability: Option<Applicability>,
+    fixable_rules: &RuleSet,
+) -> Result<FileCheckResult> {
     let mut source = read_shared_source(&pending.file.absolute_path)?;
     let inferred_shell = ShellDialect::infer(&source, Some(&pending.file.absolute_path));
     let parse_dialect = match inferred_shell {
@@ -1271,6 +1315,7 @@ fn analyze_file(
         &parse_result,
         &linter_settings,
         shellcheck_map,
+        &pending.file.absolute_path,
     );
     let mut fixes_applied = 0;
 
@@ -1291,36 +1336,31 @@ fn analyze_file(
                 &parse_result,
                 &linter_settings,
                 shellcheck_map,
+                &pending.file.absolute_path,
             );
             fixes_applied = applied.fixes_applied;
         }
     }
 
-    let (cache_data, diagnostics) = if parse_result.is_err() && diagnostics.is_empty() {
+    let diagnostics = if parse_result.is_err() && diagnostics.is_empty() {
         let ParseError::Parse {
             message,
             line,
             column,
         } = parse_result.strict_error();
-        (
-            CheckCacheData::ParseError(ParseCacheFailure {
-                message: message.clone(),
-                line,
-                column,
-            }),
-            vec![display_parse_error(
-                &pending.file.display_path,
-                &pending.file.relative_path,
-                &pending.file.absolute_path,
-                line,
-                column,
-                message,
-                include_source.then_some(source.clone()),
-            )],
-        )
+        vec![display_parse_error(
+            &pending.file.display_path,
+            &pending.file.relative_path,
+            &pending.file.absolute_path,
+            line,
+            column,
+            message,
+            include_source.then_some(source.clone()),
+        )]
     } else {
         display_lint_diagnostics(&pending, &source, &diagnostics, include_source)
     };
+    let cache_data = CheckCacheData::from_displayed(&diagnostics);
 
     Ok(FileCheckResult {
         file: pending.file,
@@ -1331,12 +1371,102 @@ fn analyze_file(
     })
 }
 
+fn analyze_embedded_file(
+    pending: PendingProjectFile,
+    base_linter_settings: &LinterSettings,
+    shellcheck_map: &ShellCheckCodeMap,
+    include_source: bool,
+) -> Result<FileCheckResult> {
+    let host_source = read_shared_source(&pending.file.absolute_path)?;
+    let host_display_source = include_source.then_some(host_source.clone());
+    let extracted = match extract_all(&pending.file.absolute_path, host_source.as_ref()) {
+        Ok(extracted) => extracted,
+        Err(err) => {
+            let diagnostics = vec![display_parse_error(
+                &pending.file.display_path,
+                &pending.file.relative_path,
+                &pending.file.absolute_path,
+                1,
+                1,
+                err.to_string(),
+                host_display_source,
+            )];
+            return Ok(FileCheckResult {
+                file: pending.file,
+                file_key: pending.file_key,
+                cache_data: CheckCacheData::from_displayed(&diagnostics),
+                diagnostics,
+                fixes_applied: 0,
+            });
+        }
+    };
+
+    let mut displayed = Vec::new();
+
+    for embedded in extracted
+        .into_iter()
+        .filter(|embedded| embedded_supported_dialect(embedded))
+    {
+        let Some((shell_dialect, parse_dialect)) = embedded_dialects(embedded.dialect) else {
+            continue;
+        };
+
+        let snippet_source: Arc<str> = Arc::from(embedded.source.clone());
+        let parse_result = Parser::with_dialect(&snippet_source, parse_dialect).parse();
+        let linter_settings = base_linter_settings.clone().with_shell(shell_dialect);
+        let diagnostics = collect_lint_diagnostics(
+            &pending,
+            &snippet_source,
+            &parse_result,
+            &linter_settings,
+            shellcheck_map,
+            &pending.file.absolute_path,
+        )
+        .into_iter()
+        .filter(|diagnostic| embedded_rule_allowed(diagnostic.rule))
+        .collect::<Vec<_>>();
+
+        if parse_result.is_err() && diagnostics.is_empty() {
+            let ParseError::Parse {
+                message,
+                line,
+                column,
+            } = parse_result.strict_error();
+            displayed.push(remap_embedded_parse_error(
+                &pending,
+                &embedded,
+                line,
+                column,
+                prefixed_embedded_message(&embedded, &message),
+                host_display_source.clone(),
+            ));
+            continue;
+        }
+
+        displayed.extend(remap_embedded_lint_diagnostics(
+            &pending,
+            &embedded,
+            &diagnostics,
+            host_display_source.clone(),
+        ));
+    }
+
+    Ok(FileCheckResult {
+        file: pending.file,
+        file_key: pending.file_key,
+        cache_data: CheckCacheData::from_displayed(&displayed),
+        diagnostics: displayed,
+        fixes_applied: 0,
+    })
+}
+
 fn collect_lint_diagnostics(
-    pending: &PendingProjectFile,
+    _pending: &PendingProjectFile,
     source: &Arc<str>,
     parse_result: &ParseResult,
     linter_settings: &LinterSettings,
     shellcheck_map: &ShellCheckCodeMap,
+    source_path: &Path,
 ) -> Vec<shuck_linter::Diagnostic> {
     let indexer = Indexer::new(source, parse_result);
     let directives = parse_directives(
@@ -1358,7 +1488,7 @@ fn collect_lint_diagnostics(
         &indexer,
         linter_settings,
         suppression_index.as_ref(),
-        Some(&pending.file.absolute_path),
+        Some(source_path),
     )
 }
 
@@ -1367,36 +1497,28 @@ fn display_lint_diagnostics(
     source: &Arc<str>,
     diagnostics: &[shuck_linter::Diagnostic],
     include_source: bool,
-) -> (CheckCacheData, Vec<DisplayedDiagnostic>) {
+) -> Vec<DisplayedDiagnostic> {
     let diagnostic_source = (!diagnostics.is_empty() && include_source).then(|| source.clone());
 
-    (
-        CheckCacheData::Success(
-            diagnostics
-                .iter()
-                .map(|diagnostic| CachedLintDiagnostic::from_diagnostic(diagnostic, source))
-                .collect(),
-        ),
-        diagnostics
-            .iter()
-            .map(|diagnostic| DisplayedDiagnostic {
-                path: pending.file.display_path.clone(),
-                relative_path: pending.file.relative_path.clone(),
-                absolute_path: pending.file.absolute_path.clone(),
-                span: DisplaySpan::new(
-                    DisplayPosition::new(diagnostic.span.start.line, diagnostic.span.start.column),
-                    DisplayPosition::new(diagnostic.span.end.line, diagnostic.span.end.column),
-                ),
-                message: diagnostic.message.clone(),
-                kind: DisplayedDiagnosticKind::Lint {
-                    code: diagnostic.code().to_owned(),
-                    severity: diagnostic.severity.as_str().to_owned(),
-                },
-                fix: displayed_fix_from_diagnostic(diagnostic, source),
-                source: diagnostic_source.clone(),
-            })
-            .collect(),
-    )
+    diagnostics
+        .iter()
+        .map(|diagnostic| DisplayedDiagnostic {
+            path: pending.file.display_path.clone(),
+            relative_path: pending.file.relative_path.clone(),
+            absolute_path: pending.file.absolute_path.clone(),
+            span: DisplaySpan::new(
+                DisplayPosition::new(diagnostic.span.start.line, diagnostic.span.start.column),
+                DisplayPosition::new(diagnostic.span.end.line, diagnostic.span.end.column),
+            ),
+            message: diagnostic.message.clone(),
+            kind: DisplayedDiagnosticKind::Lint {
+                code: diagnostic.code().to_owned(),
+                severity: diagnostic.severity.as_str().to_owned(),
+            },
+            fix: displayed_fix_from_diagnostic(diagnostic, source),
+            source: diagnostic_source.clone(),
+        })
+        .collect()
 }
 
 fn display_parse_error(
@@ -1497,12 +1619,12 @@ fn requested_fix_applicability(args: &CheckCommand) -> Option<Applicability> {
     }
 }
 
-fn push_cached_lint_diagnostics(
+fn push_cached_diagnostics(
     report: &mut CheckReport,
     path: &Path,
     relative_path: &Path,
     absolute_path: &Path,
-    diagnostics: &[CachedLintDiagnostic],
+    diagnostics: &[CachedDisplayedDiagnostic],
     source: Option<Arc<str>>,
 ) {
     for diagnostic in diagnostics {
@@ -1515,9 +1637,14 @@ fn push_cached_lint_diagnostics(
                 DisplayPosition::new(diagnostic.end_line, diagnostic.end_column),
             ),
             message: diagnostic.message.clone(),
-            kind: DisplayedDiagnosticKind::Lint {
-                code: diagnostic.code.clone(),
-                severity: diagnostic.severity.clone(),
+            kind: match &diagnostic.kind {
+                CachedDisplayedDiagnosticKind::ParseError => DisplayedDiagnosticKind::ParseError,
+                CachedDisplayedDiagnosticKind::Lint { code, severity } => {
+                    DisplayedDiagnosticKind::Lint {
+                        code: code.clone(),
+                        severity: severity.clone(),
+                    }
+                }
             },
             fix: diagnostic.fix.as_ref().map(CachedLintFix::to_displayed),
             source: source.clone(),
@@ -1554,6 +1681,116 @@ fn push_lint_diagnostics(
     }
 }
 
+fn embedded_supported_dialect(embedded: &EmbeddedScript) -> bool {
+    !matches!(embedded.dialect, ExtractedDialect::Unsupported)
+}
+
+fn embedded_dialects(
+    dialect: ExtractedDialect,
+) -> Option<(ShellDialect, shuck_parser::ShellDialect)> {
+    match dialect {
+        ExtractedDialect::Bash => Some((ShellDialect::Bash, shuck_parser::ShellDialect::Bash)),
+        ExtractedDialect::Sh => Some((ShellDialect::Sh, shuck_parser::ShellDialect::Posix)),
+        ExtractedDialect::Unsupported => None,
+    }
+}
+
+fn embedded_rule_allowed(rule: Rule) -> bool {
+    !matches!(
+        rule,
+        Rule::NonAbsoluteShebang
+            | Rule::IndentedShebang
+            | Rule::SpaceAfterHashBang
+            | Rule::ShebangNotOnFirstLine
+            | Rule::MissingShebangLine
+            | Rule::DuplicateShebangFlag
+            | Rule::DynamicSourcePath
+            | Rule::UntrackedSourceFile
+    )
+}
+
+fn remap_embedded_lint_diagnostics(
+    pending: &PendingProjectFile,
+    embedded: &EmbeddedScript,
+    diagnostics: &[shuck_linter::Diagnostic],
+    source: Option<Arc<str>>,
+) -> Vec<DisplayedDiagnostic> {
+    diagnostics
+        .iter()
+        .map(|diagnostic| DisplayedDiagnostic {
+            path: pending.file.display_path.clone(),
+            relative_path: pending.file.relative_path.clone(),
+            absolute_path: pending.file.absolute_path.clone(),
+            span: remap_embedded_span(
+                embedded,
+                diagnostic.span.start.line,
+                diagnostic.span.start.column,
+                diagnostic.span.end.line,
+                diagnostic.span.end.column,
+            ),
+            message: prefixed_embedded_message(embedded, &diagnostic.message),
+            kind: DisplayedDiagnosticKind::Lint {
+                code: diagnostic.code().to_owned(),
+                severity: diagnostic.severity.as_str().to_owned(),
+            },
+            fix: None,
+            source: source.clone(),
+        })
+        .collect()
+}
+
+fn remap_embedded_parse_error(
+    pending: &PendingProjectFile,
+    embedded: &EmbeddedScript,
+    line: usize,
+    column: usize,
+    message: String,
+    source: Option<Arc<str>>,
+) -> DisplayedDiagnostic {
+    let position = remap_embedded_position(embedded, line, column);
+    DisplayedDiagnostic {
+        path: pending.file.display_path.clone(),
+        relative_path: pending.file.relative_path.clone(),
+        absolute_path: pending.file.absolute_path.clone(),
+        span: DisplaySpan::point(position.line, position.column),
+        message,
+        kind: DisplayedDiagnosticKind::ParseError,
+        fix: None,
+        source,
+    }
+}
+
+fn remap_embedded_span(
+    embedded: &EmbeddedScript,
+    start_line: usize,
+    start_column: usize,
+    end_line: usize,
+    end_column: usize,
+) -> DisplaySpan {
+    DisplaySpan::new(
+        remap_embedded_position(embedded, start_line, start_column),
+        remap_embedded_position(embedded, end_line, end_column),
+    )
+}
+
+fn remap_embedded_position(
+    embedded: &EmbeddedScript,
+    line: usize,
+    column: usize,
+) -> DisplayPosition {
+    let line = embedded.host_start_line + line.saturating_sub(1);
+    let column = if line == embedded.host_start_line {
+        embedded.host_start_column + column.saturating_sub(1)
+    } else {
+        column
+    };
+    DisplayPosition::new(line, column)
+}
+
+fn prefixed_embedded_message(embedded: &EmbeddedScript, message: &str) -> String {
+    format!("{}: {message}", embedded.label)
+}
+
 fn read_shared_source(path: &Path) -> Result<Arc<str>> {
     Ok(Arc::<str>::from(fs::read_to_string(path)?))
 }
@@ -1581,6 +1818,7 @@ mod tests {
                     storage_root: project_root.to_path_buf(),
                     canonical_root: fs::canonicalize(project_root).unwrap(),
                 },
+                kind: FileKind::Shell,
             },
             file_key: shuck_cache::FileCacheKey::from_path(path).unwrap(),
         }
@@ -1706,6 +1944,121 @@ mod tests {
         assert_eq!(report.diagnostics.len(), 1);
         assert_eq!(report.cache_hits, 0);
         assert_eq!(report.cache_misses, 1);
+    }
+
+    #[test]
+    fn checks_embedded_github_actions_workflows() {
+        let tempdir = tempdir().unwrap();
+        let workflows = tempdir.path().join(".github/workflows");
+        fs::create_dir_all(&workflows).unwrap();
+        fs::write(
+            workflows.join("ci.yml"),
+            r#"on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          unused=1
+          echo ok
+"#,
+        )
+        .unwrap();
+
+        let report = run_check_with_cwd(
+            &check_args(true),
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            diagnostic_codes(&report),
+            vec![Rule::UnusedAssignment.code().to_owned()]
+        );
+        assert_eq!(
+            report.diagnostics[0].path,
+            PathBuf::from(".github/workflows/ci.yml")
+        );
+        assert_eq!(report.diagnostics[0].span.start.line, 7);
+        assert_eq!(report.diagnostics[0].span.start.column, 11);
+        assert!(
+            report.diagnostics[0]
+                .message
+                .starts_with("jobs.test.steps[0].run:")
+        );
+        assert!(
+            report.diagnostics[0]
+                .source
+                .as_deref()
+                .is_some_and(|source| source.contains("on: push"))
+        );
+    }
+
+    #[test]
+    fn skips_default_windows_shell_steps() {
+        let tempdir = tempdir().unwrap();
+        let workflows = tempdir.path().join(".github/workflows");
+        fs::create_dir_all(&workflows).unwrap();
+        fs::write(
+            workflows.join("ci.yml"),
+            r#"on: push
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - run: |
+          unused=1
+          echo ok
+"#,
+        )
+        .unwrap();
+
+        let report = run_check_with_cwd(
+            &check_args(true),
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+
+        assert!(report.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn can_disable_embedded_workflow_checks_in_config() {
+        let tempdir = tempdir().unwrap();
+        let workflows = tempdir.path().join(".github/workflows");
+        fs::create_dir_all(&workflows).unwrap();
+        fs::write(
+            tempdir.path().join("shuck.toml"),
+            "[check]\nembedded = false\n",
+        )
+        .unwrap();
+        fs::write(
+            workflows.join("ci.yml"),
+            r#"on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          unused=1
+          echo ok
+"#,
+        )
+        .unwrap();
+
+        let report = run_check_with_cwd(
+            &check_args(true),
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+
+        assert!(report.diagnostics.is_empty());
     }
 
     #[test]
@@ -2085,7 +2438,11 @@ mod tests {
         .unwrap();
 
         assert_eq!(result.diagnostics.len(), 1);
-        assert!(matches!(result.cache_data, CheckCacheData::ParseError(_)));
+        assert_eq!(result.cache_data.diagnostics.len(), 1);
+        assert!(matches!(
+            result.cache_data.diagnostics[0].kind,
+            CachedDisplayedDiagnosticKind::ParseError
+        ));
         match &result.diagnostics[0].kind {
             DisplayedDiagnosticKind::ParseError => {}
             other => panic!("expected parse error, got {other:?}"),
@@ -2452,8 +2809,9 @@ mod tests {
             &parse_result,
             &LinterSettings::default(),
             &ShellCheckCodeMap::default(),
+            &path,
         );
-        let (_, diagnostics) = display_lint_diagnostics(&pending, &source, &diagnostics, true);
+        let diagnostics = display_lint_diagnostics(&pending, &source, &diagnostics, true);
 
         let diagnostic_source = diagnostics[0]
             .source

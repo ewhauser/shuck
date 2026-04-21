@@ -2,7 +2,7 @@
 
 A shell script linter, written in Rust.
 
-Shuck parses and analyzes shell scripts to catch common bugs, style issues, and portability problems. It includes a caching layer for fast incremental runs.
+Shuck parses and analyzes shell scripts to catch common bugs, style issues, and portability problems. It also lints shell embedded in supported non-shell files such as GitHub Actions workflows. A caching layer keeps incremental runs fast.
 
 ## Features
 
@@ -11,6 +11,7 @@ Shuck parses and analyzes shell scripts to catch common bugs, style issues, and 
 - Safe and unsafe fix support for selected diagnostics
 - Multi-dialect support: bash, sh/POSIX, mksh, zsh
 - Automatic file discovery via extensions and shebang detection
+- Embedded shell extraction for GitHub Actions workflows and composite actions
 - ShellCheck suppression compatibility (`# shellcheck disable=SC2086`)
 
 ## Installation
@@ -41,6 +42,12 @@ shuck check script.sh src/
 
 # Check the current directory
 shuck check .
+
+# Check GitHub Actions workflow `run:` blocks
+shuck check .github/workflows/ci.yml
+
+# Check a composite action
+shuck check action.yml
 
 # Read from stdin
 echo 'echo $foo' | shuck check -
@@ -88,6 +95,7 @@ path:line:col: severity[CODE] message
 deploy.sh:14:1: warning[C001] variable `tmp` is assigned but never used
 deploy.sh:31:10: error[C006] undefined variable `DEPLY_ENV`
 deploy.sh:45:3: warning[S005] legacy backtick command substitution
+.github/workflows/ci.yml:12:11: warning[C001] jobs.test.steps[0].run: variable `summary` is assigned but never used
 ```
 
 ### Exit codes
@@ -150,12 +158,43 @@ code_here
 # shuck: disable=S001
 ```
 
+For embedded GitHub Actions scripts, put suppression comments inside the `run:` block as shell comments:
+
+```yaml
+- run: |
+    # shellcheck disable=SC2086
+    echo $FOO
+```
+
+YAML comments outside the `run:` scalar are not visible to the shell parser and do not suppress shell diagnostics.
+
+## Configuration
+
+Project settings live in `.shuck.toml` or `shuck.toml`.
+
+Use the `[check]` section to control embedded-script extraction:
+
+```toml
+[check]
+# Lint supported embedded shell scripts in non-shell files such as
+# GitHub Actions workflows and composite actions.
+# Default: true
+embedded = true
+```
+
 ## File discovery
 
-When given a directory, shuck recursively discovers shell scripts by:
+When given a directory, shuck recursively discovers standalone shell scripts by:
 
 1. **Extension**: `.sh`, `.bash`, `.zsh`, `.ksh`, `.dash`, `.mksh`, `.bats`
 2. **Shebang**: files starting with `#!/bin/bash`, `#!/usr/bin/env sh`, etc.
+
+Shuck also discovers embedded shell in supported non-shell files:
+
+1. **GitHub Actions workflows**: `.github/workflows/*.yml` and `.github/workflows/*.yaml`
+2. **Composite actions**: `action.yml` and `action.yaml`
+
+For GitHub Actions files, shuck lints `run:` blocks independently, remaps diagnostics back to the host YAML file, and includes the step path (for example `jobs.test.steps[0].run`) in the message. Steps that target unsupported shells such as PowerShell or `cmd` are skipped.
 
 The following directories are skipped by default: `.git`, `.hg`, `.svn`, `.jj`, `.bzr`, `.cache`, `node_modules`, `vendor`, `.shuck_cache`.
 

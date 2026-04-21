@@ -1,0 +1,71 @@
+# Embedded Scripts
+
+`shuck check` can lint shell embedded in supported non-shell files, starting with GitHub Actions workflows and composite actions.
+
+## Supported files
+
+- `.github/workflows/*.yml`
+- `.github/workflows/*.yaml`
+- `action.yml`
+- `action.yaml`
+
+Each GitHub Actions `run:` block is extracted and linted as its own shell script.
+
+## How it works
+
+When Shuck analyzes one of those files, it:
+
+1. Resolves the effective shell from `shell:`, `defaults.run.shell`, and job defaults.
+2. Lints supported shells such as `bash` and `sh`.
+3. Skips unsupported shells such as PowerShell, `cmd`, and `python`.
+4. Replaces `${{ ... }}` expressions with synthetic placeholders so the shell parser sees valid shell syntax.
+5. Remaps diagnostics back to the original YAML file and includes the workflow step path in the message.
+
+That means you can lint GitHub Actions directly without copying `run:` blocks into temporary `.sh` files.
+
+## Example
+
+```yaml
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build summary
+        run: |
+          summary="${{ github.event.issue.title }}"
+```
+
+```bash
+shuck check --output-format concise .github/workflows/issues.yml
+```
+
+```text
+.github/workflows/issues.yml:10:11: warning[C001] jobs.triage.steps[0].run: variable `summary` is assigned but never used
+```
+
+## Suppressions
+
+For embedded scripts, suppression comments must live inside the `run:` block as shell comments:
+
+```yaml
+- run: |
+    # shellcheck disable=SC2086
+    echo $FOO
+```
+
+YAML comments outside the scalar are not part of the extracted shell script, so they do not suppress shell diagnostics.
+
+## Configuration
+
+Embedded-script extraction is enabled by default. You can control it with the `[check]` section in `shuck.toml` or `.shuck.toml`:
+
+```toml
+[check]
+embedded = true
+```
+
+Set `embedded = false` to lint only standalone shell files.

@@ -9,6 +9,7 @@ use anyhow::{Context, Result, anyhow};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use ignore::{DirEntry, ParallelVisitor, WalkBuilder, WalkState};
+use shuck_extract::is_extractable;
 
 use crate::config::{resolve_project_root_for_file, resolve_project_root_for_input};
 
@@ -38,6 +39,13 @@ pub(crate) struct DiscoveredFile {
     pub absolute_path: PathBuf,
     pub relative_path: PathBuf,
     pub project_root: ProjectRoot,
+    pub kind: FileKind,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
+pub(crate) enum FileKind {
+    Shell,
+    Embedded,
 }
 
 #[derive(Debug)]
@@ -135,7 +143,9 @@ fn collect_input(
             return Ok(());
         }
         collect_directory(input, cwd, project_root, exclude_matcher, options, files)?;
-    } else if metadata.is_file() && is_shell_script(input)? {
+    } else if metadata.is_file()
+        && let Some(kind) = discovered_file_kind(input)?
+    {
         if options.force_exclude {
             if exclude_matcher.matches(input, cwd) {
                 return Ok(());
@@ -155,6 +165,7 @@ fn collect_input(
             &fallback_start,
             project_root,
             options.use_config_roots,
+            kind,
             files,
         )?;
     }
@@ -201,10 +212,12 @@ fn collect_directory(
         let path = entry.path();
         if should_ignore_path(path, options.cache_root.as_deref())
             || exclude_matcher.matches(path, cwd)
-            || !is_shell_script(path)?
         {
             continue;
         }
+        let Some(kind) = discovered_file_kind(path)? else {
+            continue;
+        };
 
         add_file(
             path,
@@ -212,6 +225,7 @@ fn collect_directory(
             input,
             project_root,
             options.use_config_roots,
+            kind,
             files,
         )?;
     }
@@ -251,14 +265,16 @@ fn collect_directory_parallel(
         .matched_paths
         .into_inner()
         .map_err(|_| anyhow!("parallel discovery matched-path state mutex poisoned"))?;
-    matched_paths.sort();
+    matched_paths
+        .sort_by(|left, right| left.path.cmp(&right.path).then(left.kind.cmp(&right.kind)));
     for matched_path in matched_paths {
         add_file(
-            &matched_path,
+            &matched_path.path,
             cwd,
             input,
             project_root,
             use_config_roots,
+            matched_path.kind,
             files,
         )?;
     }
@@ -403,8 +419,14 @@ fn path_matches_cache_root(path: &Path, cache_root: Option<&Path>) -> bool {
 
 #[derive(Default)]
 struct ParallelDiscoveryState {
-    matched_paths: Mutex<Vec<PathBuf>>,
+    matched_paths: Mutex<Vec<MatchedPath>>,
     error: Mutex<Option<anyhow::Error>>,
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
+struct MatchedPath {
+    path: PathBuf,
+    kind: FileKind,
 }
 
 struct ShellFilesVisitorBuilder<'a> {
@@ -435,7 +457,7 @@ struct ShellFilesVisitor<'a> {
     cwd: &'a Path,
     exclude_matcher: &'a ExcludeMatcher,
     state: &'a ParallelDiscoveryState,
-    local_paths: Vec<PathBuf>,
+    local_paths: Vec<MatchedPath>,
     local_error: Option<anyhow::Error>,
 }
 
@@ -475,9 +497,12 @@ impl ParallelVisitor for ShellFilesVisitor<'_> {
             return WalkState::Continue;
         }
 
-        match is_shell_script(path) {
-            Ok(true) => self.local_paths.push(entry.into_path()),
-            Ok(false) => {}
+        match discovered_file_kind(path) {
+            Ok(Some(kind)) => self.local_paths.push(MatchedPath {
+                path: entry.into_path(),
+                kind,
+            }),
+            Ok(None) => {}
             Err(err) => {
                 self.local_error = Some(err);
                 return WalkState::Quit;
@@ -510,6 +535,7 @@ pub(crate) fn add_file(
     fallback_start: &Path,
     default_project_root: &ProjectRoot,
     use_config_roots: bool,
+    kind: FileKind,
     files: &mut BTreeMap<PathBuf, DiscoveredFile>,
 ) -> Result<()> {
     let absolute_path =
@@ -547,6 +573,7 @@ pub(crate) fn add_file(
             absolute_path,
             relative_path,
             project_root,
+            kind,
         });
 
     Ok(())
@@ -581,6 +608,16 @@ pub(crate) fn is_shell_script(path: &Path) -> Result<bool> {
 
     let bytes = read_shebang_prefix(path)?;
     Ok(infer_shebang_dialect(&bytes).is_some())
+}
+
+fn discovered_file_kind(path: &Path) -> Result<Option<FileKind>> {
+    if is_shell_script(path)? {
+        return Ok(Some(FileKind::Shell));
+    }
+    if is_extractable(path) {
+        return Ok(Some(FileKind::Embedded));
+    }
+    Ok(None)
 }
 
 fn read_shebang_prefix(path: &Path) -> Result<Vec<u8>> {
@@ -663,6 +700,8 @@ impl ExcludeMatcher {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use tempfile::tempdir;
 
     use super::*;
@@ -710,5 +749,31 @@ mod tests {
         assert!(!is_allowed_by_gitignore(&first, &mut cache, true).unwrap());
         assert!(!is_allowed_by_gitignore(&second, &mut cache, true).unwrap());
         assert_eq!(cache.matchers.len(), 1);
+    }
+
+    #[test]
+    fn discovers_github_actions_workflows_as_embedded_files() {
+        let tempdir = tempdir().unwrap();
+        let workflows = tempdir.path().join(".github/workflows");
+        fs::create_dir_all(&workflows).unwrap();
+        fs::write(
+            workflows.join("ci.yml"),
+            "on: push\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps: []\n",
+        )
+        .unwrap();
+
+        let files = discover_files(
+            &[tempdir.path().to_path_buf()],
+            tempdir.path(),
+            &DiscoveryOptions::default(),
+        )
+        .unwrap();
+
+        assert_eq!(files.len(), 1);
+        assert_eq!(
+            files[0].display_path,
+            PathBuf::from(".github/workflows/ci.yml")
+        );
+        assert_eq!(files[0].kind, FileKind::Embedded);
     }
 }

@@ -645,6 +645,65 @@ fn check_concise_output_preserves_legacy_one_line_format() {
 }
 
 #[test]
+fn check_concise_output_reports_realistic_issue_workflow_lint() {
+    let tempdir = tempdir().unwrap();
+    fs::create_dir_all(tempdir.path().join(".github/workflows")).unwrap();
+    fs::write(
+        tempdir.path().join(".github/workflows/issues.yml"),
+        r#"on:
+  issues:
+    types: [opened, edited]
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build summary
+        run: |
+          summary="${{ github.event.issue.title }}"
+"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--output-format", "concise"]);
+    cmd.assert().code(1).stdout(
+        ".github/workflows/issues.yml:10:11: warning[C001] jobs.triage.steps[0].run: variable `summary` is assigned but never used\n",
+    );
+}
+
+#[test]
+fn check_concise_output_reports_realistic_issue_comment_workflow_parse_rule() {
+    let tempdir = tempdir().unwrap();
+    fs::create_dir_all(tempdir.path().join(".github/workflows")).unwrap();
+    fs::write(
+        tempdir.path().join(".github/workflows/comment.yml"),
+        r#"on:
+  issue_comment:
+    types: [created]
+jobs:
+  reply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Render comment
+        run: |
+          if [ -n "${{ github.event.comment.body }}" ]; then
+            echo ready
+"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--output-format", "concise"]);
+    cmd.assert().code(1).stdout(
+        ".github/workflows/comment.yml:12:1: error[C035] jobs.reply.steps[0].run: this `if` block is missing a closing `fi`\n",
+    );
+}
+
+#[test]
 fn check_output_format_env_var_selects_json() {
     let tempdir = tempdir().unwrap();
     fs::write(

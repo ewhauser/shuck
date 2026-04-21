@@ -36,6 +36,7 @@ serde_json = { workspace = true }
 quick-junit = { workspace = true }
 shuck-ast = { workspace = true }
 shuck-cache = { workspace = true }
+shuck-extract = { workspace = true }
 shuck-formatter = { workspace = true }
 shuck-indexer = { workspace = true }
 shuck-linter = { workspace = true }
