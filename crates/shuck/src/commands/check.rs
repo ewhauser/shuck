@@ -2,7 +2,7 @@ use std::fs;
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::mpsc::channel;
+use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::{ffi::OsStr, io::IsTerminal};
 
 use anyhow::{Result, anyhow};
@@ -150,17 +150,89 @@ struct FileCheckResult {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct WatchTarget {
-    path: PathBuf,
+    watch_path: PathBuf,
+    watch_paths: Vec<PathBuf>,
     recursive: bool,
+    match_paths: Vec<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+struct WatchPath {
+    resolved_path: PathBuf,
+    canonical_path: PathBuf,
 }
 
 impl WatchTarget {
+    fn recursive(path: PathBuf) -> Self {
+        Self {
+            watch_path: path.clone(),
+            watch_paths: vec![path.clone()],
+            recursive: true,
+            match_paths: vec![path],
+        }
+    }
+
+    fn file(path: PathBuf) -> Self {
+        let watch_path = path.parent().unwrap_or(&path).to_path_buf();
+        Self {
+            watch_path: watch_path.clone(),
+            watch_paths: vec![watch_path],
+            recursive: false,
+            match_paths: vec![path],
+        }
+    }
+
     fn recursive_mode(&self) -> RecursiveMode {
         if self.recursive {
             RecursiveMode::Recursive
         } else {
             RecursiveMode::NonRecursive
         }
+    }
+
+    fn matches_event_path(&self, path: &Path) -> bool {
+        if self.recursive {
+            self.match_paths
+                .iter()
+                .any(|match_path| path.starts_with(match_path))
+        } else {
+            self.match_paths.iter().any(|match_path| match_path == path)
+        }
+    }
+
+    fn add_match_path(&mut self, path: PathBuf) {
+        self.match_paths.push(path);
+        self.match_paths.sort();
+        self.match_paths.dedup();
+    }
+
+    fn add_watch_path(&mut self, path: PathBuf) {
+        self.watch_paths.push(path);
+        self.watch_paths.sort();
+        self.watch_paths.dedup();
+    }
+
+    fn merge(&mut self, other: WatchTarget) {
+        debug_assert_eq!(self.watch_path, other.watch_path);
+        debug_assert_eq!(self.recursive, other.recursive);
+
+        self.watch_paths.extend(other.watch_paths);
+        self.watch_paths.sort();
+        self.watch_paths.dedup();
+        self.match_paths.extend(other.match_paths);
+        self.match_paths.sort();
+        self.match_paths.dedup();
+    }
+
+    fn covers(&self, other: &WatchTarget) -> bool {
+        if !self.recursive {
+            return false;
+        }
+
+        other
+            .match_paths
+            .iter()
+            .all(|path| self.matches_event_path(path))
     }
 }
 
@@ -219,7 +291,9 @@ fn watch_check(
     let (tx, rx) = channel();
     let mut watcher = recommended_watcher(tx)?;
     for target in &watch_targets {
-        watcher.watch(&target.path, target.recursive_mode())?;
+        for watch_path in &target.watch_paths {
+            watcher.watch(watch_path, target.recursive_mode())?;
+        }
     }
 
     clear_screen()?;
@@ -228,20 +302,12 @@ fn watch_check(
     print_report(&report, args.output_format)?;
 
     loop {
-        match rx.recv() {
-            Ok(Ok(event)) => {
-                if !watch_event_requires_rerun(&event, cache_root) {
-                    continue;
-                }
+        wait_for_watch_rerun(&rx, cache_root, &watch_targets)?;
 
-                clear_screen()?;
-                print_watch_banner("File change detected...")?;
-                let report = run_check_with_cwd(args, config_arguments, cwd, cache_root)?;
-                print_report(&report, args.output_format)?;
-            }
-            Ok(Err(error)) => return Err(error.into()),
-            Err(error) => return Err(error.into()),
-        }
+        clear_screen()?;
+        print_watch_banner("File change detected...")?;
+        let report = run_check_with_cwd(args, config_arguments, cwd, cache_root)?;
+        print_report(&report, args.output_format)?;
     }
 }
 
@@ -309,36 +375,60 @@ fn collect_watch_targets(
         let metadata = fs::metadata(&resolved_input)?;
         let canonical_input = fs::canonicalize(&resolved_input).map_err(anyhow::Error::from)?;
 
-        targets.push(WatchTarget {
-            path: canonical_input,
-            recursive: metadata.is_dir(),
-        });
+        let mut target = if metadata.is_dir() {
+            WatchTarget::recursive(resolved_input.clone())
+        } else {
+            WatchTarget::file(resolved_input.clone())
+        };
+        if metadata.is_dir() {
+            target.add_watch_path(canonical_input.clone());
+        } else if let Some(parent) = canonical_input.parent() {
+            target.add_watch_path(parent.to_path_buf());
+        }
+        target.add_match_path(canonical_input);
+        targets.push(target);
 
         if let Some(config_path) = watch_config_target(config_arguments, cwd, &resolved_input)? {
-            targets.push(WatchTarget {
-                path: config_path,
-                recursive: false,
-            });
+            let canonical_config_parent =
+                config_path.canonical_path.parent().map(Path::to_path_buf);
+            let mut target = WatchTarget::file(config_path.resolved_path);
+            target.add_match_path(config_path.canonical_path);
+            if let Some(parent) = canonical_config_parent {
+                target.add_watch_path(parent.to_path_buf());
+            }
+            targets.push(target);
         }
     }
 
     targets.sort_by(|left, right| {
-        left.path
+        left.watch_path
             .components()
             .count()
-            .cmp(&right.path.components().count())
+            .cmp(&right.watch_path.components().count())
             .then_with(|| right.recursive.cmp(&left.recursive))
-            .then_with(|| left.path.cmp(&right.path))
+            .then_with(|| left.watch_path.cmp(&right.watch_path))
     });
 
     let mut deduped = Vec::new();
     for target in targets {
-        if deduped.iter().any(|existing: &WatchTarget| {
-            existing.path == target.path
-                || (existing.recursive && target.path.starts_with(&existing.path))
+        if let Some(existing) = deduped.iter_mut().find(|existing: &&mut WatchTarget| {
+            existing.watch_path == target.watch_path && existing.recursive == target.recursive
         }) {
+            existing.merge(target);
             continue;
         }
+
+        if deduped
+            .iter()
+            .any(|existing: &WatchTarget| existing.covers(&target))
+        {
+            continue;
+        }
+
+        if target.recursive {
+            deduped.retain(|existing| !target.covers(existing));
+        }
+
         deduped.push(target);
     }
 
@@ -349,7 +439,7 @@ fn watch_config_target(
     config_arguments: &ConfigArguments,
     cwd: &Path,
     resolved_input: &Path,
-) -> Result<Option<PathBuf>> {
+) -> Result<Option<WatchPath>> {
     if let Some(explicit_config) = config_arguments.explicit_config_file() {
         let resolved_config = if explicit_config.is_absolute() {
             normalize_path(explicit_config)
@@ -357,9 +447,10 @@ fn watch_config_target(
             normalize_path(&cwd.join(explicit_config))
         };
 
-        return Ok(Some(
-            fs::canonicalize(resolved_config).map_err(anyhow::Error::from)?,
-        ));
+        return Ok(Some(WatchPath {
+            canonical_path: fs::canonicalize(&resolved_config).map_err(anyhow::Error::from)?,
+            resolved_path: resolved_config,
+        }));
     }
 
     if !config_arguments.use_config_roots() {
@@ -371,12 +462,58 @@ fn watch_config_target(
         return Ok(None);
     };
 
-    Ok(Some(
-        fs::canonicalize(config_path).map_err(anyhow::Error::from)?,
-    ))
+    let resolved_path = normalize_path(&config_path);
+    Ok(Some(WatchPath {
+        canonical_path: fs::canonicalize(&resolved_path).map_err(anyhow::Error::from)?,
+        resolved_path,
+    }))
 }
 
-fn watch_event_requires_rerun(event: &notify::Event, cache_root: &Path) -> bool {
+fn wait_for_watch_rerun(
+    rx: &Receiver<notify::Result<notify::Event>>,
+    cache_root: &Path,
+    watch_targets: &[WatchTarget],
+) -> Result<()> {
+    loop {
+        let event = match rx.recv() {
+            Ok(Ok(event)) => event,
+            Ok(Err(error)) => return Err(error.into()),
+            Err(error) => return Err(error.into()),
+        };
+
+        if drain_watch_batch(event, rx, cache_root, watch_targets)? {
+            return Ok(());
+        }
+    }
+}
+
+fn drain_watch_batch(
+    first_event: notify::Event,
+    rx: &Receiver<notify::Result<notify::Event>>,
+    cache_root: &Path,
+    watch_targets: &[WatchTarget],
+) -> Result<bool> {
+    let mut should_rerun = watch_event_requires_rerun(&first_event, cache_root, watch_targets);
+
+    loop {
+        match rx.try_recv() {
+            Ok(Ok(event)) => {
+                should_rerun |= watch_event_requires_rerun(&event, cache_root, watch_targets);
+            }
+            Ok(Err(error)) => return Err(error.into()),
+            Err(TryRecvError::Empty) => return Ok(should_rerun),
+            Err(TryRecvError::Disconnected) => {
+                return Err(anyhow!("watch channel disconnected"));
+            }
+        }
+    }
+}
+
+fn watch_event_requires_rerun(
+    event: &notify::Event,
+    cache_root: &Path,
+    watch_targets: &[WatchTarget],
+) -> bool {
     if event.kind.is_access() || event.kind.is_other() {
         return false;
     }
@@ -388,7 +525,13 @@ fn watch_event_requires_rerun(event: &notify::Event, cache_root: &Path) -> bool 
     event
         .paths
         .iter()
-        .any(|path| !watch_event_path_is_ignored(path, cache_root))
+        .map(|path| normalize_path(path))
+        .filter(|path| !watch_event_path_is_ignored(path, cache_root))
+        .any(|path| {
+            watch_targets
+                .iter()
+                .any(|target| target.matches_event_path(&path))
+        })
 }
 
 fn watch_event_path_is_ignored(path: &Path, cache_root: &Path) -> bool {
@@ -851,6 +994,20 @@ mod tests {
 
     fn cache_root(cwd: &Path) -> PathBuf {
         cwd.join("cache")
+    }
+
+    fn match_paths(canonical: &Path, resolved: &Path) -> Vec<PathBuf> {
+        let mut paths = vec![canonical.to_path_buf(), normalize_path(resolved)];
+        paths.sort();
+        paths.dedup();
+        paths
+    }
+
+    fn watch_paths(canonical: &Path, resolved: &Path) -> Vec<PathBuf> {
+        let mut paths = vec![canonical.to_path_buf(), normalize_path(resolved)];
+        paths.sort();
+        paths.dedup();
+        paths
     }
 
     fn make_file_read_only(path: &Path) {
@@ -1342,6 +1499,10 @@ mod tests {
     #[test]
     fn watch_event_filter_ignores_access_other_ignored_dirs_and_cache_paths() {
         let cache_root = Path::new("/tmp/shuck-cache");
+        let watch_targets = vec![
+            WatchTarget::recursive(PathBuf::from("/workspace/project")),
+            WatchTarget::file(PathBuf::from("/workspace/config/shuck.toml")),
+        ];
 
         assert!(!watch_event_requires_rerun(
             &notify::Event {
@@ -1350,6 +1511,7 @@ mod tests {
                 attrs: EventAttributes::default(),
             },
             cache_root,
+            &watch_targets,
         ));
         assert!(!watch_event_requires_rerun(
             &notify::Event {
@@ -1358,6 +1520,7 @@ mod tests {
                 attrs: EventAttributes::default(),
             },
             cache_root,
+            &watch_targets,
         ));
         assert!(!watch_event_requires_rerun(
             &notify::Event {
@@ -1366,6 +1529,7 @@ mod tests {
                 attrs: EventAttributes::default(),
             },
             cache_root,
+            &watch_targets,
         ));
         assert!(!watch_event_requires_rerun(
             &notify::Event {
@@ -1376,46 +1540,69 @@ mod tests {
                 attrs: EventAttributes::default(),
             },
             cache_root,
+            &watch_targets,
+        ));
+        assert!(!watch_event_requires_rerun(
+            &notify::Event {
+                kind: notify::EventKind::Modify(ModifyKind::Data(
+                    notify::event::DataChange::Content,
+                )),
+                paths: vec![PathBuf::from("/workspace/config/other.txt")],
+                attrs: EventAttributes::default(),
+            },
+            cache_root,
+            &watch_targets,
         ));
     }
 
     #[test]
     fn watch_event_filter_triggers_on_create_modify_remove_rename_and_rescan() {
         let cache_root = Path::new("/tmp/shuck-cache");
+        let watch_targets = vec![
+            WatchTarget::recursive(PathBuf::from("/workspace/project")),
+            WatchTarget::file(PathBuf::from("/workspace/config/shuck.toml")),
+        ];
 
         assert!(watch_event_requires_rerun(
             &notify::Event {
                 kind: notify::EventKind::Create(CreateKind::File),
-                paths: vec![PathBuf::from("script.sh")],
+                paths: vec![PathBuf::from("/workspace/project/script.sh")],
                 attrs: EventAttributes::default(),
             },
             cache_root,
+            &watch_targets,
         ));
         assert!(watch_event_requires_rerun(
             &notify::Event {
                 kind: notify::EventKind::Modify(ModifyKind::Data(
                     notify::event::DataChange::Content,
                 )),
-                paths: vec![PathBuf::from("script.sh")],
+                paths: vec![PathBuf::from("/workspace/config/shuck.toml")],
                 attrs: EventAttributes::default(),
             },
             cache_root,
+            &watch_targets,
         ));
         assert!(watch_event_requires_rerun(
             &notify::Event {
                 kind: notify::EventKind::Remove(RemoveKind::File),
-                paths: vec![PathBuf::from("script.sh")],
+                paths: vec![PathBuf::from("/workspace/project/script.sh")],
                 attrs: EventAttributes::default(),
             },
             cache_root,
+            &watch_targets,
         ));
         assert!(watch_event_requires_rerun(
             &notify::Event {
                 kind: notify::EventKind::Modify(ModifyKind::Name(RenameMode::Both)),
-                paths: vec![PathBuf::from("old.sh"), PathBuf::from("new.sh")],
+                paths: vec![
+                    PathBuf::from("/tmp/tempfile"),
+                    PathBuf::from("/workspace/config/shuck.toml"),
+                ],
                 attrs: EventAttributes::default(),
             },
             cache_root,
+            &watch_targets,
         ));
 
         let mut attrs = EventAttributes::default();
@@ -1427,6 +1614,7 @@ mod tests {
                 attrs,
             },
             cache_root,
+            &watch_targets,
         ));
     }
 
@@ -1451,8 +1639,16 @@ mod tests {
         assert_eq!(
             default_targets,
             vec![WatchTarget {
-                path: fs::canonicalize(tempdir.path()).unwrap(),
+                watch_path: normalize_path(tempdir.path()),
+                watch_paths: watch_paths(
+                    &fs::canonicalize(tempdir.path()).unwrap(),
+                    tempdir.path()
+                ),
                 recursive: true,
+                match_paths: match_paths(
+                    &fs::canonicalize(tempdir.path()).unwrap(),
+                    tempdir.path()
+                ),
             }]
         );
 
@@ -1466,12 +1662,22 @@ mod tests {
             nested_targets,
             vec![
                 WatchTarget {
-                    path: fs::canonicalize(&nested).unwrap(),
-                    recursive: true,
+                    watch_path: normalize_path(tempdir.path()),
+                    watch_paths: watch_paths(
+                        &fs::canonicalize(tempdir.path()).unwrap(),
+                        tempdir.path()
+                    ),
+                    recursive: false,
+                    match_paths: match_paths(
+                        &fs::canonicalize(tempdir.path().join("shuck.toml")).unwrap(),
+                        &tempdir.path().join("shuck.toml"),
+                    ),
                 },
                 WatchTarget {
-                    path: fs::canonicalize(tempdir.path().join("shuck.toml")).unwrap(),
-                    recursive: false,
+                    watch_path: normalize_path(&nested),
+                    watch_paths: watch_paths(&fs::canonicalize(&nested).unwrap(), &nested),
+                    recursive: true,
+                    match_paths: match_paths(&fs::canonicalize(&nested).unwrap(), &nested),
                 },
             ]
         );
@@ -1486,14 +1692,88 @@ mod tests {
             file_targets,
             vec![
                 WatchTarget {
-                    path: fs::canonicalize(tempdir.path().join("shuck.toml")).unwrap(),
+                    watch_path: normalize_path(tempdir.path()),
+                    watch_paths: watch_paths(
+                        &fs::canonicalize(tempdir.path()).unwrap(),
+                        tempdir.path()
+                    ),
                     recursive: false,
+                    match_paths: match_paths(
+                        &fs::canonicalize(tempdir.path().join("shuck.toml")).unwrap(),
+                        &tempdir.path().join("shuck.toml"),
+                    ),
                 },
                 WatchTarget {
-                    path: fs::canonicalize(file).unwrap(),
+                    watch_path: normalize_path(&nested),
+                    watch_paths: watch_paths(&fs::canonicalize(&nested).unwrap(), &nested),
                     recursive: false,
+                    match_paths: match_paths(&fs::canonicalize(&file).unwrap(), &file),
                 },
             ]
         );
+    }
+
+    #[test]
+    fn collect_watch_targets_merge_files_in_the_same_parent_directory() {
+        let tempdir = tempdir().unwrap();
+        let nested = tempdir.path().join("nested");
+        fs::create_dir_all(&nested).unwrap();
+        let first = nested.join("first.sh");
+        let second = nested.join("second.sh");
+        fs::write(&first, "#!/bin/bash\necho ok\n").unwrap();
+        fs::write(&second, "#!/bin/bash\necho ok\n").unwrap();
+
+        let targets = collect_watch_targets(
+            &[
+                PathBuf::from("nested/first.sh"),
+                PathBuf::from("nested/second.sh"),
+            ],
+            &ConfigArguments::from_cli(Vec::new(), true).unwrap(),
+            tempdir.path(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            targets,
+            vec![WatchTarget {
+                watch_path: normalize_path(&nested),
+                watch_paths: watch_paths(&fs::canonicalize(&nested).unwrap(), &nested),
+                recursive: false,
+                match_paths: {
+                    let mut paths = vec![
+                        fs::canonicalize(&first).unwrap(),
+                        normalize_path(&first),
+                        fs::canonicalize(&second).unwrap(),
+                        normalize_path(&second),
+                    ];
+                    paths.sort();
+                    paths.dedup();
+                    paths
+                },
+            }]
+        );
+    }
+
+    #[test]
+    fn drain_watch_batch_coalesces_queued_events_before_rerunning() {
+        let cache_root = Path::new("/tmp/shuck-cache");
+        let watch_targets = vec![WatchTarget::recursive(PathBuf::from("/workspace/project"))];
+        let (tx, rx) = channel();
+
+        tx.send(Ok(notify::Event {
+            kind: notify::EventKind::Modify(ModifyKind::Data(notify::event::DataChange::Content)),
+            paths: vec![PathBuf::from("/workspace/project/ignored/.git/index")],
+            attrs: EventAttributes::default(),
+        }))
+        .unwrap();
+
+        let first = notify::Event {
+            kind: notify::EventKind::Modify(ModifyKind::Data(notify::event::DataChange::Content)),
+            paths: vec![PathBuf::from("/workspace/project/script.sh")],
+            attrs: EventAttributes::default(),
+        };
+
+        assert!(drain_watch_batch(first, &rx, cache_root, &watch_targets).unwrap());
+        assert!(matches!(rx.try_recv(), Err(TryRecvError::Empty)));
     }
 }
