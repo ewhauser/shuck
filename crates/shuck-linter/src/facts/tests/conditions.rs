@@ -906,13 +906,27 @@ fn records_glued_closing_bracket_operand_spans_for_unary_tests() {
             Some((2, 6))
         );
         assert_eq!(
+            commands[0]
+                .glued_closing_bracket_insert_offset()
+                .map(|offset| &source[offset..offset + 1]),
+            Some("]")
+        );
+        assert_eq!(
             commands[1]
                 .glued_closing_bracket_operand_span()
                 .map(|span| (span.start.line, span.start.column)),
             Some((3, 8))
         );
+        assert_eq!(
+            commands[1]
+                .glued_closing_bracket_insert_offset()
+                .map(|offset| &source[offset..offset + 1]),
+            Some("]")
+        );
         assert_eq!(commands[2].glued_closing_bracket_operand_span(), None);
+        assert_eq!(commands[2].glued_closing_bracket_insert_offset(), None);
         assert_eq!(commands[3].glued_closing_bracket_operand_span(), None);
+        assert_eq!(commands[3].glued_closing_bracket_insert_offset(), None);
     });
 }
 

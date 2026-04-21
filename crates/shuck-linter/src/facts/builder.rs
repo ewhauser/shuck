@@ -161,6 +161,8 @@ impl<'a> LinterFactsBuilder<'a> {
             );
             let glued_closing_bracket_operand_span =
                 build_glued_closing_bracket_operand_span(visit.command, self.source);
+            let glued_closing_bracket_insert_offset =
+                build_glued_closing_bracket_insert_offset(visit.command, self.source);
             let simple_test =
                 build_simple_test_fact(visit.command, self.source, self._file_context);
             let conditional = build_conditional_fact(visit.command, self.source);
@@ -177,6 +179,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 scope_read_source_words: Vec::new().into_boxed_slice(),
                 declaration_assignment_probes,
                 glued_closing_bracket_operand_span,
+                glued_closing_bracket_insert_offset,
                 simple_test,
                 conditional,
             });

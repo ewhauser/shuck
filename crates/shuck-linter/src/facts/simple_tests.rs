@@ -265,6 +265,18 @@ fn build_simple_test_fact<'a>(
 }
 
 fn build_glued_closing_bracket_operand_span(command: &Command, source: &str) -> Option<Span> {
+    build_glued_closing_bracket_operand_word(command, source)
+        .map(|operand| Span::from_positions(operand.span.start, operand.span.start))
+}
+
+fn build_glued_closing_bracket_insert_offset(command: &Command, source: &str) -> Option<usize> {
+    build_glued_closing_bracket_operand_word(command, source).map(|operand| operand.span.end.offset - 1)
+}
+
+fn build_glued_closing_bracket_operand_word<'a>(
+    command: &'a Command,
+    source: &str,
+) -> Option<&'a Word> {
     let Command::Simple(command) = command else {
         return None;
     };
@@ -279,10 +291,10 @@ fn build_glued_closing_bracket_operand_span(command: &Command, source: &str) -> 
         return None;
     }
 
-    glued_closing_bracket_unary_operand_span(&args, source)
+    glued_closing_bracket_unary_operand(&args, source)
 }
 
-fn glued_closing_bracket_unary_operand_span(args: &[&Word], source: &str) -> Option<Span> {
+fn glued_closing_bracket_unary_operand<'a>(args: &[&'a Word], source: &str) -> Option<&'a Word> {
     let [first, second] = args else {
         let [bang, operator, operand] = args else {
             return None;
@@ -294,7 +306,7 @@ fn glued_closing_bracket_unary_operand_span(args: &[&Word], source: &str) -> Opt
                 .slice(source)
                 .strip_suffix(']')
                 .is_some_and(|prefix| !prefix.is_empty()))
-        .then_some(Span::from_positions(operand.span.start, operand.span.start));
+        .then_some(*operand);
     };
 
     (simple_test_is_unary_operator(first.span.slice(source))
@@ -303,7 +315,7 @@ fn glued_closing_bracket_unary_operand_span(args: &[&Word], source: &str) -> Opt
             .slice(source)
             .strip_suffix(']')
             .is_some_and(|prefix| !prefix.is_empty()))
-    .then_some(Span::from_positions(second.span.start, second.span.start))
+    .then_some(*second)
 }
 
 fn simple_test_shape(operand_count: usize) -> SimpleTestShape {
