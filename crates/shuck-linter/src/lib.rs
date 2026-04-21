@@ -1879,6 +1879,20 @@ spinner
     }
 
     #[test]
+    fn self_referential_assignments_are_not_flagged_unused() {
+        let diagnostics = lint_for_rule(
+            "\
+#!/bin/sh
+foo=\"$foo\"
+bar=\"${bar:-fallback}\"
+",
+            Rule::UnusedAssignment,
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn nested_default_operand_followed_by_later_expansion_keeps_assignment_live() {
         let diagnostics = lint_for_rule(
             "\

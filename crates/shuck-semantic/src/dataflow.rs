@@ -401,7 +401,12 @@ fn analyze_unused_assignments_exact(
 
     let mut used_bindings = DenseBitSet::new(context.bindings.len());
     for binding in context.bindings {
-        if !binding.references.is_empty() || context.runtime.is_always_used_binding(&binding.name) {
+        if !binding.references.is_empty()
+            || binding
+                .attributes
+                .contains(BindingAttributes::SELF_REFERENTIAL_READ)
+            || context.runtime.is_always_used_binding(&binding.name)
+        {
             used_bindings.insert(binding.id.index());
         }
     }
