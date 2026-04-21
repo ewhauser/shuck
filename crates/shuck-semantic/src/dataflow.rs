@@ -623,7 +623,7 @@ fn should_suppress_redundant_branch_unused_assignment(
     context: &mut RedundantBranchUnusedAssignmentContext<'_>,
 ) -> bool {
     let binding = &context.bindings[binding_id.index()];
-    if !participates_in_unused_assignment_reporting(binding.kind, binding.attributes) {
+    if !participates_in_unused_assignment_family(binding.kind, binding.attributes) {
         return false;
     }
 
@@ -634,14 +634,14 @@ fn should_suppress_redundant_branch_unused_assignment(
         return false;
     };
 
-    let mut later_reportable = later_bindings
+    let mut later_participants = later_bindings
         .iter()
         .copied()
         .filter(|candidate_id| candidate_id.index() > binding_id.index())
         .filter(|candidate_id| {
             let candidate = &context.bindings[candidate_id.index()];
             candidate.scope == binding.scope
-                && participates_in_unused_assignment_reporting(candidate.kind, candidate.attributes)
+                && participates_in_unused_assignment_family(candidate.kind, candidate.attributes)
         })
         .filter_map(|candidate_id| {
             let candidate_block = context.binding_blocks[candidate_id.index()]?;
@@ -649,7 +649,7 @@ fn should_suppress_redundant_branch_unused_assignment(
                 .then_some((candidate_id, candidate_block))
         });
 
-    let Some((next_binding_id, next_binding_block)) = later_reportable.next() else {
+    let Some((next_binding_id, next_binding_block)) = later_participants.next() else {
         return false;
     };
 
@@ -662,11 +662,18 @@ fn should_suppress_redundant_branch_unused_assignment(
         return false;
     }
 
-    if !context.unused_binding_ids.contains(&next_binding_id) {
+    let next_binding = &context.bindings[next_binding_id.index()];
+    if !context.unused_binding_ids.contains(&next_binding_id)
+        || !can_survive_unused_assignment_branch_collapse(
+            next_binding.kind,
+            next_binding.attributes,
+        )
+    {
         return false;
     }
 
-    if later_reportable.any(|(candidate_id, _)| !context.unused_binding_ids.contains(&candidate_id))
+    if later_participants
+        .any(|(candidate_id, _)| !context.unused_binding_ids.contains(&candidate_id))
     {
         return false;
     }
@@ -674,7 +681,7 @@ fn should_suppress_redundant_branch_unused_assignment(
     true
 }
 
-fn participates_in_unused_assignment_reporting(
+fn participates_in_unused_assignment_family(
     kind: BindingKind,
     _attributes: BindingAttributes,
 ) -> bool {
@@ -691,6 +698,30 @@ fn participates_in_unused_assignment_reporting(
         | BindingKind::ArithmeticAssignment
         | BindingKind::Declaration(_) => true,
         BindingKind::FunctionDefinition | BindingKind::Imported | BindingKind::Nameref => false,
+    }
+}
+
+fn can_survive_unused_assignment_branch_collapse(
+    kind: BindingKind,
+    attributes: BindingAttributes,
+) -> bool {
+    match kind {
+        BindingKind::Assignment
+        | BindingKind::ArrayAssignment
+        | BindingKind::LoopVariable
+        | BindingKind::ReadTarget
+        | BindingKind::MapfileTarget
+        | BindingKind::PrintfTarget
+        | BindingKind::GetoptsTarget
+        | BindingKind::ArithmeticAssignment => true,
+        BindingKind::Declaration(_) => {
+            attributes.contains(BindingAttributes::DECLARATION_INITIALIZED)
+        }
+        BindingKind::ParameterDefaultAssignment
+        | BindingKind::AppendAssignment
+        | BindingKind::FunctionDefinition
+        | BindingKind::Imported
+        | BindingKind::Nameref => false,
     }
 }
 

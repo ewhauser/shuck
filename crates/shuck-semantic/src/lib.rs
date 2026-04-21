@@ -3640,6 +3640,30 @@ f
     }
 
     #[test]
+    fn unused_uninitialized_local_branches_do_not_hide_dead_assignments() {
+        let source = "\
+f() {
+  if a; then
+    foo=1
+  else
+    local foo
+  fi
+}
+f
+";
+        let model = model(source);
+        let assignment_binding = model
+            .bindings_for(&Name::from("foo"))
+            .iter()
+            .copied()
+            .find(|binding_id| matches!(model.binding(*binding_id).kind, BindingKind::Assignment))
+            .expect("expected assignment binding");
+        let binding_ids = model.analysis().dataflow().unused_assignment_ids().to_vec();
+
+        assert!(binding_ids.contains(&assignment_binding));
+    }
+
+    #[test]
     fn linear_duplicate_assignments_with_unrelated_reads_keep_all_reported_ids() {
         let source = "\
 emoji[grinning]=1
@@ -4027,6 +4051,51 @@ check_status
         assert_eq!(uninitialized.len(), 1);
         assert_eq!(uninitialized[0].reference, reference_id);
         assert_eq!(uninitialized[0].certainty, UninitializedCertainty::Definite);
+    }
+
+    #[test]
+    fn repeated_name_only_local_reuses_existing_same_scope_binding() {
+        let source = "f() { local foo=1; local foo; echo \"$foo\"; }\n";
+        let model = model(source);
+
+        let foo_bindings = model
+            .bindings()
+            .iter()
+            .filter(|binding| binding.name == "foo")
+            .collect::<Vec<_>>();
+        assert_eq!(foo_bindings.len(), 1);
+        assert!(
+            foo_bindings[0]
+                .attributes
+                .contains(BindingAttributes::LOCAL)
+        );
+        assert!(
+            foo_bindings[0]
+                .attributes
+                .contains(BindingAttributes::DECLARATION_INITIALIZED)
+        );
+
+        let declaration_reference = model
+            .references()
+            .iter()
+            .find(|reference| {
+                reference.kind == ReferenceKind::DeclarationName && reference.name == "foo"
+            })
+            .unwrap();
+        let resolved_declaration = model.resolved_binding(declaration_reference.id).unwrap();
+        assert_eq!(resolved_declaration.id, foo_bindings[0].id);
+
+        let expansion_reference = model
+            .references()
+            .iter()
+            .find(|reference| reference.kind == ReferenceKind::Expansion && reference.name == "foo")
+            .unwrap();
+        let resolved_expansion = model.resolved_binding(expansion_reference.id).unwrap();
+        assert_eq!(resolved_expansion.id, foo_bindings[0].id);
+
+        let analysis = model.analysis();
+        assert!(analysis.uninitialized_references().is_empty());
+        assert!(analysis.unused_assignments().is_empty());
     }
 
     #[test]

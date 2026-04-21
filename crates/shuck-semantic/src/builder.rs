@@ -2510,7 +2510,18 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         let local_like = attributes.contains(BindingAttributes::LOCAL);
         let existing = self.resolve_reference(name, scope, span.start.offset);
 
-        if !local_like && let Some(existing) = existing {
+        let reuse_existing = existing.is_some_and(|existing| {
+            let existing_binding = &self.bindings[existing.index()];
+
+            !local_like
+                || (existing_binding.scope == scope
+                    && existing_binding
+                        .attributes
+                        .contains(BindingAttributes::LOCAL))
+        });
+
+        if reuse_existing {
+            let existing = existing.expect("existing binding already checked");
             self.add_reference(name, ReferenceKind::DeclarationName, span);
             self.bindings[existing.index()].attributes |= attributes;
             return;

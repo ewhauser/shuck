@@ -349,6 +349,16 @@ mod tests {
     }
 
     #[test]
+    fn unused_uninitialized_local_branches_do_not_hide_dead_assignments() {
+        let source =
+            "#!/bin/bash\nf(){\n  if a; then\n    foo=1\n  else\n    local foo\n  fi\n}\nf\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 4);
+    }
+
+    #[test]
     fn unused_uninitialized_declarations_do_not_split_linear_chains() {
         let source = "#!/bin/bash\nf(){\n  local foo\n  foo=1\n  foo=2\n}\nf\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
