@@ -2227,6 +2227,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     expr.span,
                     BindingOrigin::ArithmeticAssignment {
                         definition_span: expr.span,
+                        target_span: arithmetic_lvalue_span(
+                            &ArithmeticLvalue::Variable(name.clone()),
+                            expr.span,
+                        ),
                     },
                     BindingAttributes::empty(),
                 );
@@ -2242,6 +2246,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     span,
                     BindingOrigin::ArithmeticAssignment {
                         definition_span: span,
+                        target_span: arithmetic_lvalue_span(
+                            &ArithmeticLvalue::Indexed {
+                                name: name.clone(),
+                                index: index.clone(),
+                            },
+                            expr.span,
+                        ),
                     },
                     self.arithmetic_binding_attributes(
                         &ArithmeticLvalue::Indexed {
@@ -2282,6 +2293,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             name_span,
             BindingOrigin::ArithmeticAssignment {
                 definition_span: name_span,
+                target_span: arithmetic_lvalue_span(target, target_span),
             },
             attributes,
         );
@@ -3814,6 +3826,15 @@ fn parse_source_directive_override(text: &str, own_line: bool) -> Option<SourceD
 
 fn arithmetic_name_span(span: Span, name: &Name) -> Span {
     Span::from_positions(span.start, span.start.advanced_by(name.as_str()))
+}
+
+fn arithmetic_lvalue_span(target: &ArithmeticLvalue, span: Span) -> Span {
+    match target {
+        ArithmeticLvalue::Variable(name) => arithmetic_name_span(span, name),
+        ArithmeticLvalue::Indexed { index, .. } => {
+            Span::from_positions(span.start, index.span.end.advanced_by("]"))
+        }
+    }
 }
 
 fn is_name(value: &str) -> bool {

@@ -264,6 +264,16 @@ mod tests {
     }
 
     #[test]
+    fn arithmetic_indexed_writes_do_not_collapse_to_one_report() {
+        let source = "#!/bin/bash\n(( box[1] = 1 ))\n(( box[2] = 2 ))\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[1].span.start.line, 3);
+    }
+
+    #[test]
     fn local_families_stay_distinct_inside_subshells() {
         let source = "#!/bin/bash\n(f(){ local foo=1; }\ng(){ local foo=2; }\nf\ng)\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));

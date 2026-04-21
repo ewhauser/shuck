@@ -309,6 +309,14 @@ impl<'a> LinterFactsBuilder<'a> {
             }
         }
 
+        for binding in self.semantic.bindings() {
+            if let shuck_semantic::BindingOrigin::ArithmeticAssignment { target_span, .. } =
+                &binding.origin
+            {
+                binding_target_spans.entry(binding.id).or_insert(*target_span);
+            }
+        }
+
         let substitution_facts =
             build_substitution_facts(&commands, &command_ids_by_span, self.source);
         for (fact, substitutions) in commands.iter_mut().zip(substitution_facts) {
