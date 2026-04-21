@@ -333,11 +333,18 @@ impl std::str::FromStr for PatternRuleSelectorPair {
 
         Ok(Self {
             pattern: pattern.to_owned(),
-            selector: selector
-                .parse::<RuleSelector>()
-                .map_err(|err| err.to_string())?,
+            selector: parse_cli_rule_selector(selector)?,
         })
     }
+}
+
+fn parse_cli_rule_selector(value: &str) -> Result<RuleSelector, String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err("rule selector cannot be empty".to_owned());
+    }
+
+    value.parse::<RuleSelector>().map_err(|err| err.to_string())
 }
 
 #[derive(Debug, Clone, Default, ClapArgs)]
@@ -346,6 +353,7 @@ pub struct RuleSelectionArgs {
     #[arg(
         long,
         value_delimiter = ',',
+        value_parser = parse_cli_rule_selector,
         value_name = "RULE_CODE",
         help_heading = "Rule selection",
         hide_possible_values = true
@@ -355,6 +363,7 @@ pub struct RuleSelectionArgs {
     #[arg(
         long,
         value_delimiter = ',',
+        value_parser = parse_cli_rule_selector,
         value_name = "RULE_CODE",
         help_heading = "Rule selection",
         hide_possible_values = true
@@ -364,6 +373,7 @@ pub struct RuleSelectionArgs {
     #[arg(
         long,
         value_delimiter = ',',
+        value_parser = parse_cli_rule_selector,
         value_name = "RULE_CODE",
         help_heading = "Rule selection",
         hide_possible_values = true
@@ -389,6 +399,7 @@ pub struct RuleSelectionArgs {
     #[arg(
         long,
         value_delimiter = ',',
+        value_parser = parse_cli_rule_selector,
         value_name = "RULE_CODE",
         help_heading = "Rule selection",
         hide_possible_values = true
@@ -398,6 +409,7 @@ pub struct RuleSelectionArgs {
     #[arg(
         long,
         value_delimiter = ',',
+        value_parser = parse_cli_rule_selector,
         value_name = "RULE_CODE",
         help_heading = "Rule selection",
         hide_possible_values = true
@@ -407,6 +419,7 @@ pub struct RuleSelectionArgs {
     #[arg(
         long,
         value_delimiter = ',',
+        value_parser = parse_cli_rule_selector,
         value_name = "RULE_CODE",
         help_heading = "Rule selection",
         hide_possible_values = true
@@ -892,6 +905,20 @@ mod tests {
                 selector: RuleSelector::Rule(Rule::UnusedAssignment),
             }])
         );
+    }
+
+    #[test]
+    fn rejects_empty_cli_rule_selectors() {
+        let error = StableCli::try_parse_from(["shuck", "check", "--select", ""]).unwrap_err();
+
+        assert_eq!(error.kind(), ErrorKind::ValueValidation);
+    }
+
+    #[test]
+    fn rejects_empty_cli_rule_selectors_after_value_delimiter() {
+        let error = StableCli::try_parse_from(["shuck", "check", "--select", "C001,"]).unwrap_err();
+
+        assert_eq!(error.kind(), ErrorKind::ValueValidation);
     }
 
     #[test]
