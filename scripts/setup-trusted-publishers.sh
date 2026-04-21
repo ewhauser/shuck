@@ -57,7 +57,7 @@ for crate in "${crates[@]}"; do
     --arg workflow "$WORKFLOW_FILENAME" \
     --arg env "$ENVIRONMENT" \
     '{github_config: ({
-        krate: $krate,
+        crate: $krate,
         repository_owner: $owner,
         repository_name: $repo,
         workflow_filename: $workflow
