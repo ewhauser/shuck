@@ -932,12 +932,7 @@ fn sarif_result(diagnostic: &DisplayedDiagnostic) -> io::Result<SarifResult> {
         locations: vec![SarifLocation {
             physical_location: SarifPhysicalLocation {
                 artifact_location: SarifArtifactLocation { uri: uri.clone() },
-                region: SarifRegion {
-                    start_line: diagnostic.span.start.line,
-                    start_column: diagnostic.span.start.column,
-                    end_line: diagnostic.span.end.line,
-                    end_column: diagnostic.span.end.column.max(diagnostic.span.start.column),
-                },
+                region: sarif_region(diagnostic.span.start, diagnostic.span.end),
             },
         }],
         fixes: diagnostic
@@ -954,12 +949,7 @@ fn sarif_result(diagnostic: &DisplayedDiagnostic) -> io::Result<SarifResult> {
                             .edits
                             .iter()
                             .map(|edit| SarifReplacement {
-                                deleted_region: SarifRegion {
-                                    start_line: edit.location.line,
-                                    start_column: edit.location.column,
-                                    end_line: edit.end_location.line,
-                                    end_column: edit.end_location.column.max(edit.location.column),
-                                },
+                                deleted_region: sarif_region(edit.location, edit.end_location),
                                 inserted_content: (!edit.content.is_empty()).then(|| {
                                     SarifInsertedContent {
                                         text: edit.content.clone(),
@@ -972,6 +962,19 @@ fn sarif_result(diagnostic: &DisplayedDiagnostic) -> io::Result<SarifResult> {
             })
             .unwrap_or_default(),
     })
+}
+
+fn sarif_region(start: DisplayPosition, end: DisplayPosition) -> SarifRegion {
+    SarifRegion {
+        start_line: start.line,
+        start_column: start.column,
+        end_line: end.line,
+        end_column: if start.line == end.line {
+            end.column.max(start.column)
+        } else {
+            end.column
+        },
+    }
 }
 
 fn sarif_rule(diagnostic: &DisplayedDiagnostic) -> SarifRule {
@@ -1659,5 +1662,54 @@ beta.sh:
           "version": "2.1.0"
         }
         "#);
+    }
+
+    #[test]
+    fn renders_sarif_output_with_multi_line_end_columns() {
+        let (path, relative_path, absolute_path) =
+            diagnostic_paths_with_relative("script.sh", "script.sh");
+        let diagnostic = DisplayedDiagnostic {
+            path,
+            relative_path,
+            absolute_path,
+            span: DisplaySpan::new(DisplayPosition::new(2, 20), DisplayPosition::new(3, 4)),
+            message: "quoted regular expression literal".to_owned(),
+            kind: DisplayedDiagnosticKind::Lint {
+                code: "C010".to_owned(),
+                severity: "error".to_owned(),
+            },
+            fix: Some(DisplayedFix {
+                applicability: DisplayedApplicability::Safe,
+                message: Some("rewrite expression".to_owned()),
+                edits: vec![DisplayedEdit {
+                    location: DisplayPosition::new(2, 20),
+                    end_location: DisplayPosition::new(3, 4),
+                    content: "$bar".to_owned(),
+                }],
+            }),
+            source: Some(Arc::<str>::from(
+                "if true; then\n  [[ $foo =~ \"bar\"\n    && $bar ]]\nfi\n",
+            )),
+        };
+
+        let mut output = Vec::new();
+        print_report_to(
+            &mut output,
+            std::slice::from_ref(&diagnostic),
+            CheckOutputFormatArg::Sarif,
+            false,
+        )
+        .unwrap();
+
+        let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+        assert_eq!(
+            value["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["region"]["endColumn"],
+            4
+        );
+        assert_eq!(
+            value["runs"][0]["results"][0]["fixes"][0]["artifactChanges"][0]["replacements"][0]["deletedRegion"]
+                ["endColumn"],
+            4
+        );
     }
 }
