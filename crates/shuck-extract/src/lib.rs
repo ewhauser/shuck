@@ -21,6 +21,8 @@ pub struct EmbeddedScript {
     pub host_start_line: usize,
     /// 1-based column of the snippet's first character within the host file.
     pub host_start_column: usize,
+    /// Per-line host positions for decoded snippet lines.
+    pub host_line_starts: Vec<HostLineStart>,
     /// The shell dialect for this snippet.
     pub dialect: ExtractedDialect,
     /// Human-readable location label inside the host file.
@@ -49,6 +51,15 @@ pub enum ExtractedDialect {
 pub enum EmbeddedFormat {
     /// GitHub Actions workflows and composite actions.
     GitHubActions,
+}
+
+/// Host-file position of an extracted snippet line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HostLineStart {
+    /// 1-based line number in the host file.
+    pub line: usize,
+    /// 1-based column number in the host file.
+    pub column: usize,
 }
 
 /// Mapping between a synthetic placeholder and the original template expression.
@@ -359,7 +370,7 @@ fn detect_shell_dialect(template: &str) -> ExtractedDialect {
     let first = shell_token_basename(&first);
     if first == "env" {
         for token in tokens {
-            if token == "{0}" || token.starts_with('-') {
+            if token == "{0}" || token.starts_with('-') || looks_like_env_assignment(&token) {
                 continue;
             }
             return shell_name_dialect(&shell_token_basename(&token));
@@ -459,6 +470,22 @@ fn shell_name_dialect(name: &str) -> ExtractedDialect {
         "pwsh" | "powershell" | "cmd" | "python" => ExtractedDialect::Unsupported,
         _ => ExtractedDialect::Unsupported,
     }
+}
+
+fn looks_like_env_assignment(token: &str) -> bool {
+    let Some((name, _value)) = token.split_once('=') else {
+        return false;
+    };
+
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if !matches!(first, 'A'..='Z' | 'a'..='z' | '_') {
+        return false;
+    }
+
+    chars.all(|ch| matches!(ch, 'A'..='Z' | 'a'..='z' | '0'..='9' | '_'))
 }
 
 fn parse_template_flags(template: &str) -> ImplicitShellFlags {
@@ -579,8 +606,10 @@ fn build_embedded_script(
     let start_offset = marker
         .map(|marker| byte_offset_for_line_column(host_source, marker.line(), marker.column()))
         .unwrap_or_default();
-    let host_offset = adjust_offset_to_scalar_content(host_source, start_offset, raw_source);
-    let (host_start_line, host_start_column) = line_column_for_offset(host_source, host_offset);
+    let source_mapping = source_mapping_for_scalar(host_source, start_offset, raw_source);
+    let host_offset = source_mapping.host_offset;
+    let host_start_line = source_mapping.host_line_starts[0].line;
+    let host_start_column = source_mapping.host_line_starts[0].column;
     let (source, placeholders) = substitute_github_actions_expressions(raw_source, host_offset);
 
     EmbeddedScript {
@@ -588,12 +617,107 @@ fn build_embedded_script(
         host_offset,
         host_start_line,
         host_start_column,
+        host_line_starts: source_mapping.host_line_starts,
         dialect: shell.dialect,
         label: label.to_owned(),
         format,
         placeholders,
         implicit_flags: shell.implicit_flags,
     }
+}
+
+struct SourceMapping {
+    host_offset: usize,
+    host_line_starts: Vec<HostLineStart>,
+}
+
+fn source_mapping_for_scalar(source: &str, start_offset: usize, scalar: &str) -> SourceMapping {
+    if let Some(mapping) = double_quoted_source_mapping(source, start_offset, scalar) {
+        return mapping;
+    }
+
+    let host_offset = adjust_offset_to_scalar_content(source, start_offset, scalar);
+    let (host_start_line, host_start_column) = line_column_for_offset(source, host_offset);
+    SourceMapping {
+        host_offset,
+        host_line_starts: default_host_line_starts(host_start_line, host_start_column, scalar),
+    }
+}
+
+fn double_quoted_source_mapping(
+    source: &str,
+    start_offset: usize,
+    scalar: &str,
+) -> Option<SourceMapping> {
+    if source.get(start_offset..)?.chars().next()? != '"' {
+        return None;
+    }
+
+    let content_offset = start_offset + '"'.len_utf8();
+    let mut host_line_starts = vec![{
+        let (line, column) = line_column_for_offset(source, content_offset);
+        HostLineStart { line, column }
+    }];
+    let expected_line_count = decoded_line_count(scalar);
+    let mut escaped = false;
+
+    for (relative_offset, ch) in source[content_offset..].char_indices() {
+        let absolute_offset = content_offset + relative_offset;
+        if escaped {
+            if matches!(ch, 'n' | 'r' | 'N' | 'L' | 'P') {
+                let (line, column) =
+                    line_column_for_offset(source, absolute_offset + ch.len_utf8());
+                host_line_starts.push(HostLineStart { line, column });
+            }
+            escaped = false;
+            continue;
+        }
+
+        match ch {
+            '\\' => escaped = true,
+            '"' => {
+                if host_line_starts.len() == expected_line_count {
+                    return Some(SourceMapping {
+                        host_offset: content_offset,
+                        host_line_starts,
+                    });
+                }
+                return None;
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
+fn default_host_line_starts(
+    host_start_line: usize,
+    host_start_column: usize,
+    source: &str,
+) -> Vec<HostLineStart> {
+    let mut line_starts = vec![HostLineStart {
+        line: host_start_line,
+        column: host_start_column,
+    }];
+
+    let line_count = decoded_line_count(source);
+    while line_starts.len() < line_count {
+        let previous = line_starts.last().copied().unwrap_or(HostLineStart {
+            line: host_start_line,
+            column: host_start_column,
+        });
+        line_starts.push(HostLineStart {
+            line: previous.line + 1,
+            column: host_start_column,
+        });
+    }
+
+    line_starts
+}
+
+fn decoded_line_count(source: &str) -> usize {
+    source.chars().filter(|&ch| ch == '\n').count() + 1
 }
 
 fn adjust_offset_to_scalar_content(source: &str, offset: usize, scalar: &str) -> usize {
@@ -904,6 +1028,8 @@ jobs:
         run: echo hi
       - shell: /usr/bin/env bash -e {0}
         run: echo hi
+      - shell: /usr/bin/env FOO=1 bash -e {0}
+        run: echo hi
       - shell: /bin/sh -e {0}
         run: echo hi
       - shell: '"C:/Program Files/Git/bin/bash.exe" -e {0}'
@@ -913,12 +1039,13 @@ jobs:
 "#;
 
         let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
-        assert_eq!(scripts.len(), 5);
+        assert_eq!(scripts.len(), 6);
         assert_eq!(scripts[0].dialect, ExtractedDialect::Bash);
         assert_eq!(scripts[1].dialect, ExtractedDialect::Bash);
-        assert_eq!(scripts[2].dialect, ExtractedDialect::Sh);
-        assert_eq!(scripts[3].dialect, ExtractedDialect::Bash);
+        assert_eq!(scripts[2].dialect, ExtractedDialect::Bash);
+        assert_eq!(scripts[3].dialect, ExtractedDialect::Sh);
         assert_eq!(scripts[4].dialect, ExtractedDialect::Bash);
+        assert_eq!(scripts[5].dialect, ExtractedDialect::Bash);
     }
 
     #[test]
@@ -962,6 +1089,39 @@ runs:
         assert_eq!(scripts[0].host_start_column, 9);
         assert_eq!(scripts[0].source, "echo hi\necho \"${_SHUCK_GHA_1}\"\n");
         assert_eq!(scripts[0].placeholders[0].taint, ExpressionTaint::Trusted);
+    }
+
+    #[test]
+    fn preserves_host_line_starts_for_escaped_double_quoted_runs() {
+        let source = r#"
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: "echo hi\nif true\nfi"
+"#;
+
+        let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
+        assert_eq!(scripts.len(), 1);
+        assert_eq!(scripts[0].source, "echo hi\nif true\nfi");
+        assert_eq!(
+            scripts[0].host_line_starts,
+            vec![
+                HostLineStart {
+                    line: 7,
+                    column: 15,
+                },
+                HostLineStart {
+                    line: 7,
+                    column: 24,
+                },
+                HostLineStart {
+                    line: 7,
+                    column: 33,
+                },
+            ]
+        );
     }
 
     #[test]
