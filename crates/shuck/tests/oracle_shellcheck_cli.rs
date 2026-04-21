@@ -1,6 +1,8 @@
 use std::collections::BTreeSet;
 use std::fs;
-use std::process::{Command, Output};
+use std::io::Write;
+use std::path::Path;
+use std::process::{Command, Output, Stdio};
 
 use serde_json::Value;
 use tempfile::tempdir;
@@ -29,6 +31,37 @@ fn run_compat(args: &[&str], cwd: &std::path::Path) -> Output {
         .unwrap()
 }
 
+fn run_with_stdin(mut command: Command, stdin: &str) -> Output {
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(stdin.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
+fn run_shellcheck_stdin(args: &[&str], cwd: &Path, stdin: &str) -> Output {
+    let mut command = Command::new("shellcheck");
+    command.args(args).current_dir(cwd);
+    run_with_stdin(command, stdin)
+}
+
+fn run_compat_stdin(args: &[&str], cwd: &Path, stdin: &str) -> Output {
+    let mut command = Command::new(assert_cmd::cargo::cargo_bin("shuck"));
+    command
+        .env("SHUCK_SHELLCHECK_COMPAT", "1")
+        .args(args)
+        .current_dir(cwd);
+    run_with_stdin(command, stdin)
+}
+
 fn json1_codes(output: &Output) -> BTreeSet<u64> {
     let value: Value = serde_json::from_slice(&output.stdout).unwrap();
     value["comments"]
@@ -37,6 +70,30 @@ fn json1_codes(output: &Output) -> BTreeSet<u64> {
         .iter()
         .filter_map(|entry| entry["code"].as_u64())
         .collect()
+}
+
+fn json1_comments(output: &Output) -> Vec<Value> {
+    serde_json::from_slice::<Value>(&output.stdout).unwrap()["comments"]
+        .as_array()
+        .unwrap()
+        .clone()
+}
+
+fn json1_comment_shapes(output: &Output) -> Vec<Value> {
+    json1_comments(output)
+        .into_iter()
+        .map(|mut comment| {
+            comment.as_object_mut().unwrap().remove("message");
+            comment
+        })
+        .collect()
+}
+
+fn comment_by_code(comments: &[Value], code: u64) -> &Value {
+    comments
+        .iter()
+        .find(|comment| comment["code"].as_u64() == Some(code))
+        .unwrap()
 }
 
 #[test]
@@ -78,6 +135,46 @@ fn oracle_option_acceptance_and_rejection_match_exit_codes() {
     let severity_sc = run_shellcheck(&["--severity=banana"], cwd.path());
     let severity_compat = run_compat(&["--severity=banana"], cwd.path());
     assert_eq!(severity_sc.status.code(), severity_compat.status.code());
+}
+
+#[test]
+#[ignore]
+fn oracle_enable_checks_match_shellcheck_exit_codes() {
+    if !shellcheck_available() {
+        return;
+    }
+
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("x.sh"), "#!/bin/sh\necho $foo\n").unwrap();
+
+    let enable_all_args = vec!["--norc", "--enable=all", "-f", "json1", "x.sh"];
+    let shellcheck_enable_all = run_shellcheck(&enable_all_args, tempdir.path());
+    let compat_enable_all = run_compat(&enable_all_args, tempdir.path());
+    assert_eq!(
+        shellcheck_enable_all.status.code(),
+        compat_enable_all.status.code(),
+        "{enable_all_args:?}"
+    );
+
+    for args in [
+        vec!["--norc", "--enable=add-default-case", "-f", "json1", "x.sh"],
+        vec![
+            "--norc",
+            "--enable=useless-use-of-cat",
+            "-f",
+            "json1",
+            "x.sh",
+        ],
+    ] {
+        let shellcheck = run_shellcheck(&args, tempdir.path());
+        let compat = run_compat(&args, tempdir.path());
+        assert_eq!(shellcheck.status.code(), compat.status.code(), "{args:?}");
+        assert_eq!(
+            json1_comment_shapes(&shellcheck),
+            json1_comment_shapes(&compat),
+            "{args:?}"
+        );
+    }
 }
 
 #[test]
@@ -145,4 +242,121 @@ fn oracle_output_formats_stay_structurally_valid() {
     let tty_stdout = String::from_utf8_lossy(&tty_compat.stdout);
     assert!(tty_stdout.contains("SC2154"));
     assert!(tty_stdout.contains("For more information"));
+}
+
+#[test]
+#[ignore]
+fn oracle_json1_order_matches_shellcheck_for_shared_spans() {
+    if !shellcheck_available() {
+        return;
+    }
+
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("x.sh"), "#!/bin/sh\necho $foo $bar\n").unwrap();
+
+    let shellcheck = run_shellcheck(&["--norc", "-f", "json1", "x.sh"], tempdir.path());
+    let compat = run_compat(&["--norc", "-f", "json1", "x.sh"], tempdir.path());
+    assert_eq!(shellcheck.status.code(), compat.status.code());
+
+    let shellcheck_order = json1_comments(&shellcheck)
+        .into_iter()
+        .map(|comment| {
+            (
+                comment["code"].as_u64().unwrap(),
+                comment["level"].as_str().unwrap().to_owned(),
+                comment["line"].as_u64().unwrap(),
+                comment["column"].as_u64().unwrap(),
+                comment["endColumn"].as_u64().unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let compat_order = json1_comments(&compat)
+        .into_iter()
+        .map(|comment| {
+            (
+                comment["code"].as_u64().unwrap(),
+                comment["level"].as_str().unwrap().to_owned(),
+                comment["line"].as_u64().unwrap(),
+                comment["column"].as_u64().unwrap(),
+                comment["endColumn"].as_u64().unwrap(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(shellcheck_order, compat_order);
+}
+
+#[test]
+#[ignore]
+fn oracle_json1_sc2086_fix_shape_matches_shellcheck() {
+    if !shellcheck_available() {
+        return;
+    }
+
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("x.sh"),
+        "#!/bin/sh\nprintf %s prefix${name}suffix\n",
+    )
+    .unwrap();
+
+    let shellcheck = run_shellcheck(&["--norc", "-f", "json1", "x.sh"], tempdir.path());
+    let compat = run_compat(&["--norc", "-f", "json1", "x.sh"], tempdir.path());
+    assert_eq!(shellcheck.status.code(), compat.status.code());
+
+    let shellcheck_fix = comment_by_code(&json1_comments(&shellcheck), 2086)["fix"].clone();
+    let compat_fix = comment_by_code(&json1_comments(&compat), 2086)["fix"].clone();
+    assert_eq!(shellcheck_fix, compat_fix);
+}
+
+#[test]
+#[ignore]
+fn oracle_diff_behavior_matches_shellcheck_for_fixable_and_unfixable_inputs() {
+    if !shellcheck_available() {
+        return;
+    }
+
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("fixable.sh"), "#!/bin/sh\necho $foo\n").unwrap();
+    fs::write(
+        tempdir.path().join("unfixable.sh"),
+        "#!/bin/bash\nprintf '%s\\n' x &;\n",
+    )
+    .unwrap();
+
+    let shellcheck_fixable =
+        run_shellcheck(&["--norc", "-f", "diff", "fixable.sh"], tempdir.path());
+    let compat_fixable = run_compat(&["--norc", "-f", "diff", "fixable.sh"], tempdir.path());
+    assert_eq!(
+        shellcheck_fixable.status.code(),
+        compat_fixable.status.code()
+    );
+    assert_eq!(shellcheck_fixable.stdout, compat_fixable.stdout);
+
+    let shellcheck_unfixable =
+        run_shellcheck(&["--norc", "-f", "diff", "unfixable.sh"], tempdir.path());
+    let compat_unfixable = run_compat(&["--norc", "-f", "diff", "unfixable.sh"], tempdir.path());
+    assert_eq!(
+        shellcheck_unfixable.status.code(),
+        compat_unfixable.status.code()
+    );
+    assert_eq!(shellcheck_unfixable.stdout, compat_unfixable.stdout);
+}
+
+#[test]
+#[ignore]
+fn oracle_stdin_json1_shape_matches_shellcheck() {
+    if !shellcheck_available() {
+        return;
+    }
+
+    let tempdir = tempdir().unwrap();
+    let stdin = "#!/bin/sh\necho $foo\n";
+
+    let shellcheck = run_shellcheck_stdin(&["--norc", "-f", "json1", "-"], tempdir.path(), stdin);
+    let compat = run_compat_stdin(&["--norc", "-f", "json1", "-"], tempdir.path(), stdin);
+    assert_eq!(shellcheck.status.code(), compat.status.code());
+    assert_eq!(
+        json1_comment_shapes(&shellcheck),
+        json1_comment_shapes(&compat)
+    );
 }

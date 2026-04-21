@@ -26,6 +26,7 @@ use self::optional::{OPTIONAL_CHECKS, find_optional_check};
 use self::render::{
     print_error_help, print_list_optional, print_report, print_version, usage_text,
 };
+use crate::shellcheck_runtime::{ShellCheckFix, ShellCheckReplacement};
 use crate::stdin::read_from_stdin;
 
 const COMPAT_ENV_VAR: &str = "SHUCK_SHELLCHECK_COMPAT";
@@ -154,6 +155,15 @@ impl CompatLevel {
             Self::Error => "error",
             Self::Warning => "warning",
             Self::Info | Self::Style => "note",
+        }
+    }
+
+    const fn sort_rank(self) -> u8 {
+        match self {
+            Self::Error => 0,
+            Self::Warning => 1,
+            Self::Info => 2,
+            Self::Style => 3,
         }
     }
 }
@@ -323,6 +333,7 @@ struct CompatDiagnostic {
     level: CompatLevel,
     code: u32,
     message: String,
+    fix: Option<ShellCheckFix>,
     source: Option<Arc<str>>,
 }
 
@@ -663,15 +674,12 @@ fn resolve_rule_selection(
     let mut requested_optional = config.enable_checks.clone();
     requested_optional.extend(cli.enable_checks.clone());
     if !requested_optional.is_empty() {
-        let mut unsupported = Vec::new();
         for name in requested_optional {
             if name == "all" {
-                unsupported.extend(
-                    OPTIONAL_CHECKS
-                        .iter()
-                        .filter(|check| !check.supported)
-                        .map(|check| check.name.to_owned()),
-                );
+                for check in OPTIONAL_CHECKS.iter().filter(|check| check.supported) {
+                    let optional_rules = check.rules.iter().copied().collect::<RuleSet>();
+                    rules = rules.union(&optional_rules);
+                }
                 continue;
             }
 
@@ -682,24 +690,11 @@ fn resolve_rule_selection(
                 ));
             };
             if !check.supported {
-                unsupported.push(name);
                 continue;
             }
 
             let optional_rules = check.rules.iter().copied().collect::<RuleSet>();
             rules = rules.union(&optional_rules);
-        }
-
-        if !unsupported.is_empty() {
-            unsupported.sort();
-            unsupported.dedup();
-            return Err(CompatCliError::usage(
-                4,
-                format!(
-                    "the requested optional checks are not implemented by this shellcheck compatibility mode: {}",
-                    unsupported.join(", ")
-                ),
-            ));
         }
     }
 
@@ -779,8 +774,9 @@ fn analyze_files(options: &CompatOptions, cwd: &Path) -> Result<CompatReport, Co
             .cmp(&right.file)
             .then(left.line.cmp(&right.line))
             .then(left.column.cmp(&right.column))
-            .then(left.code.cmp(&right.code))
-            .then(left.message.cmp(&right.message))
+            .then(left.end_line.cmp(&right.end_line))
+            .then(left.end_column.cmp(&right.end_column))
+            .then(left.level.sort_rank().cmp(&right.level.sort_rank()))
     });
 
     Ok(CompatReport {
@@ -1023,6 +1019,13 @@ fn map_diagnostic(
 ) -> Option<CompatDiagnostic> {
     let code = shellcheck_map.code_for_rule(diagnostic.rule)?;
     let level = level_for_diagnostic(diagnostic.rule, diagnostic.severity, code);
+    let fix = compat_fix_for_diagnostic(
+        code,
+        diagnostic.span.start.line,
+        diagnostic.span.start.column,
+        diagnostic.span.end.line,
+        diagnostic.span.end.column,
+    );
     threshold.allows(level).then(|| CompatDiagnostic {
         file: display_path(path, cwd),
         line: diagnostic.span.start.line,
@@ -1032,7 +1035,39 @@ fn map_diagnostic(
         level,
         code,
         message: diagnostic.message,
+        fix,
         source: Some(source),
+    })
+}
+
+fn compat_fix_for_diagnostic(
+    code: u32,
+    start_line: usize,
+    start_column: usize,
+    end_line: usize,
+    end_column: usize,
+) -> Option<ShellCheckFix> {
+    (code == 2086).then(|| ShellCheckFix {
+        replacements: vec![
+            ShellCheckReplacement {
+                line: start_line,
+                end_line: start_line,
+                column: start_column,
+                end_column: start_column,
+                precedence: 7,
+                insertion_point: "afterEnd".to_owned(),
+                replacement: "\"".to_owned(),
+            },
+            ShellCheckReplacement {
+                line: end_line,
+                end_line,
+                column: end_column,
+                end_column,
+                precedence: 7,
+                insertion_point: "beforeStart".to_owned(),
+                replacement: "\"".to_owned(),
+            },
+        ],
     })
 }
 

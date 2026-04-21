@@ -1,15 +1,17 @@
 use std::cmp::min;
+use std::collections::BTreeMap;
 use std::io::{self, ErrorKind, Write};
 
 use colored::Colorize;
 use serde::Serialize;
+use similar::TextDiff;
 
 use super::{
     CompatCliError, CompatDiagnostic, CompatFormat, CompatLevel, CompatOptions, CompatReport,
     use_color,
 };
 use crate::shellcheck_compat::optional::OptionalCheck;
-use crate::shellcheck_runtime::{ShellCheckDiagnostic, ShellCheckFix};
+use crate::shellcheck_runtime::ShellCheckDiagnostic;
 
 pub fn usage_text() -> String {
     [
@@ -74,6 +76,11 @@ pub fn print_report(report: &CompatReport, options: &CompatOptions) -> Result<()
         CompatFormat::Tty => render_tty(report, options),
     };
 
+    if options.format == CompatFormat::Diff && rendered == no_auto_fix_diff_message() {
+        let mut stderr = io::stderr().lock();
+        return write_rendered(&mut stderr, &rendered);
+    }
+
     let mut stdout = io::stdout().lock();
     write_rendered(&mut stdout, &rendered)
 }
@@ -90,7 +97,7 @@ fn write_rendered<W: Write>(writer: &mut W, rendered: &str) -> Result<(), Compat
 }
 
 fn render_checkstyle(report: &CompatReport) -> String {
-    let mut files = std::collections::BTreeMap::<&str, Vec<&CompatDiagnostic>>::new();
+    let mut files = BTreeMap::<&str, Vec<&CompatDiagnostic>>::new();
     for diagnostic in &report.diagnostics {
         files.entry(&diagnostic.file).or_default().push(diagnostic);
     }
@@ -116,31 +123,133 @@ fn render_checkstyle(report: &CompatReport) -> String {
 }
 
 fn render_diff(report: &CompatReport) -> String {
-    let mut files = std::collections::BTreeMap::<&str, Vec<&CompatDiagnostic>>::new();
+    if report.diagnostics.is_empty() {
+        return String::new();
+    }
+
+    struct FileDiffInput<'a> {
+        source: &'a str,
+        replacements: Vec<&'a crate::shellcheck_runtime::ShellCheckReplacement>,
+    }
+
+    let mut files = BTreeMap::<&str, FileDiffInput<'_>>::new();
     for diagnostic in &report.diagnostics {
-        files.entry(&diagnostic.file).or_default().push(diagnostic);
+        let Some(fix) = diagnostic.fix.as_ref() else {
+            continue;
+        };
+        let Some(source) = diagnostic.source.as_deref() else {
+            continue;
+        };
+        files
+            .entry(&diagnostic.file)
+            .and_modify(|entry| entry.replacements.extend(fix.replacements.iter()))
+            .or_insert_with(|| FileDiffInput {
+                source,
+                replacements: fix.replacements.iter().collect(),
+            });
+    }
+
+    if files.is_empty() {
+        return no_auto_fix_diff_message();
     }
 
     let mut output = String::new();
-    for (file, diagnostics) in files {
-        if diagnostics.is_empty() {
+    for (file, file_input) in files {
+        let Some(fixed_source) = apply_replacements(file_input.source, &file_input.replacements)
+        else {
+            continue;
+        };
+        if fixed_source == file_input.source {
             continue;
         }
-        if !output.is_empty() {
-            output.push('\n');
-        }
-        output.push_str(&format!("--- {file}\n+++ {file}\n"));
-        output.push_str("@@ compatibility mode @@\n");
-        for diagnostic in diagnostics {
-            output.push_str(&format!(
-                "# SC{:04} ({}) {}\n",
-                diagnostic.code,
-                diagnostic.level.as_str(),
-                diagnostic.message
-            ));
-        }
+
+        output.push_str(
+            &TextDiff::from_lines(file_input.source, &fixed_source)
+                .unified_diff()
+                .header(&format!("a/{file}"), &format!("b/{file}"))
+                .to_string(),
+        );
+        output.push('\n');
     }
+
+    if output.is_empty() {
+        return no_auto_fix_diff_message();
+    }
+
     output
+}
+
+fn no_auto_fix_diff_message() -> String {
+    "Issues were detected, but none were auto-fixable. Use another format to see them.\n".to_owned()
+}
+
+fn apply_replacements(
+    source: &str,
+    replacements: &[&crate::shellcheck_runtime::ShellCheckReplacement],
+) -> Option<String> {
+    let mut edits = replacements
+        .iter()
+        .map(|replacement| {
+            replacement_offset(source, replacement)
+                .map(|offset| (offset, replacement.replacement.as_str()))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    edits.sort_by(|left, right| right.0.cmp(&left.0).then(right.1.cmp(left.1)));
+
+    let mut output = source.to_owned();
+    for (offset, replacement) in edits {
+        output.insert_str(offset, replacement);
+    }
+    Some(output)
+}
+
+fn replacement_offset(
+    source: &str,
+    replacement: &crate::shellcheck_runtime::ShellCheckReplacement,
+) -> Option<usize> {
+    match replacement.insertion_point.as_str() {
+        "beforeStart" => byte_offset_for_line_column(source, replacement.line, replacement.column),
+        "afterEnd" => {
+            byte_offset_for_line_column(source, replacement.end_line, replacement.end_column)
+        }
+        _ => None,
+    }
+}
+
+fn byte_offset_for_line_column(source: &str, line_number: usize, column: usize) -> Option<usize> {
+    if line_number == 0 {
+        return None;
+    }
+
+    let mut line_start = 0usize;
+    for (index, segment) in source.split_inclusive('\n').enumerate() {
+        if index + 1 == line_number {
+            let line = segment.strip_suffix('\n').unwrap_or(segment);
+            return byte_offset_in_line(line, column).map(|offset| line_start + offset);
+        }
+        line_start += segment.len();
+    }
+
+    if line_number == 1 && source.is_empty() {
+        return byte_offset_in_line("", column);
+    }
+
+    None
+}
+
+fn byte_offset_in_line(line: &str, column: usize) -> Option<usize> {
+    let target_chars = column.checked_sub(1)?;
+    let char_count = line.chars().count();
+    if target_chars > char_count {
+        return None;
+    }
+    if target_chars == char_count {
+        return Some(line.len());
+    }
+
+    line.char_indices()
+        .nth(target_chars)
+        .map(|(offset, _)| offset)
 }
 
 fn render_gcc(report: &CompatReport) -> String {
@@ -179,7 +288,7 @@ fn render_json1(report: &CompatReport) -> Result<String, CompatCliError> {
 fn render_tty(report: &CompatReport, options: &CompatOptions) -> String {
     let use_color = use_color(options.color);
     let mut output = String::new();
-    let mut grouped = std::collections::BTreeMap::<&str, Vec<&CompatDiagnostic>>::new();
+    let mut grouped = BTreeMap::<&str, Vec<&CompatDiagnostic>>::new();
     for diagnostic in &report.diagnostics {
         grouped
             .entry(&diagnostic.file)
@@ -192,7 +301,7 @@ fn render_tty(report: &CompatReport, options: &CompatOptions) -> String {
             continue;
         }
 
-        let mut by_line = std::collections::BTreeMap::<usize, Vec<&CompatDiagnostic>>::new();
+        let mut by_line = BTreeMap::<usize, Vec<&CompatDiagnostic>>::new();
         for diagnostic in diagnostics {
             by_line.entry(diagnostic.line).or_default().push(diagnostic);
         }
@@ -270,7 +379,7 @@ fn to_shellcheck_diagnostics(report: &CompatReport) -> Vec<ShellCheckDiagnostic>
             end_column: diagnostic.end_column.max(diagnostic.column),
             level: diagnostic.level.as_str().to_owned(),
             message: diagnostic.message.clone(),
-            fix: None::<ShellCheckFix>,
+            fix: diagnostic.fix.clone(),
         })
         .collect()
 }
@@ -281,9 +390,9 @@ fn collect_links(report: &CompatReport, count: usize) -> Vec<String> {
     }
 
     let mut links = Vec::new();
-    let mut seen = std::collections::BTreeSet::new();
+    let mut seen = BTreeMap::new();
     for diagnostic in &report.diagnostics {
-        if seen.insert(diagnostic.code) {
+        if seen.insert(diagnostic.code, ()).is_none() {
             links.push(format!(
                 "https://www.shellcheck.net/wiki/SC{:04} -- {}",
                 diagnostic.code,
