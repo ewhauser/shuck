@@ -114,7 +114,10 @@ where
 
     let deadline = Instant::now() + timeout;
     let status = loop {
-        match child.try_wait().map_err(|err| format!("shellcheck wait: {err}"))? {
+        match child
+            .try_wait()
+            .map_err(|err| format!("shellcheck wait: {err}"))?
+        {
             Some(status) => break status,
             None if Instant::now() >= deadline => {
                 let _ = child.kill();

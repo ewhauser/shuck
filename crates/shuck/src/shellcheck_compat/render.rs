@@ -5,11 +5,11 @@ use colored::Colorize;
 use serde::Serialize;
 
 use super::{
-    CompatCliError, CompatDiagnostic, CompatLevel, CompatOptions, CompatReport, CompatFormat,
+    CompatCliError, CompatDiagnostic, CompatFormat, CompatLevel, CompatOptions, CompatReport,
     use_color,
 };
-use crate::shellcheck_runtime::{ShellCheckDiagnostic, ShellCheckFix};
 use crate::shellcheck_compat::optional::OptionalCheck;
+use crate::shellcheck_runtime::{ShellCheckDiagnostic, ShellCheckFix};
 
 pub fn usage_text() -> String {
     [
@@ -171,9 +171,12 @@ fn render_json1(report: &CompatReport) -> Result<String, CompatCliError> {
 fn render_tty(report: &CompatReport, options: &CompatOptions) -> String {
     let use_color = use_color(options.color);
     let mut output = String::new();
-        let mut grouped = std::collections::BTreeMap::<&str, Vec<&CompatDiagnostic>>::new();
+    let mut grouped = std::collections::BTreeMap::<&str, Vec<&CompatDiagnostic>>::new();
     for diagnostic in &report.diagnostics {
-        grouped.entry(&diagnostic.file).or_default().push(diagnostic);
+        grouped
+            .entry(&diagnostic.file)
+            .or_default()
+            .push(diagnostic);
     }
 
     for (file, diagnostics) in grouped {
@@ -194,21 +197,15 @@ fn render_tty(report: &CompatReport, options: &CompatOptions) -> String {
                 output.push_str(&format!(
                     "{} {}\n",
                     stylize("In", use_color, |text| text.bold()),
-                    stylize(
-                        format!("{file} line {line_no}:"),
-                        use_color,
-                        |text| text.bold()
-                    )
+                    stylize(format!("{file} line {line_no}:"), use_color, |text| text
+                        .bold())
                 ));
             } else {
                 output.push_str(&format!(
                     "{} {}\n",
                     stylize("In", use_color, |text| text.bold()),
-                    stylize(
-                        format!("{file} line {line_no}:"),
-                        use_color,
-                        |text| text.bold()
-                    )
+                    stylize(format!("{file} line {line_no}:"), use_color, |text| text
+                        .bold())
                 ));
             }
 
@@ -292,7 +289,7 @@ fn collect_links(report: &CompatReport, count: usize) -> Vec<String> {
     links
 }
 
-fn line_text<'a>(diagnostic: &'a CompatDiagnostic, line_no: usize) -> Option<&'a str> {
+fn line_text(diagnostic: &CompatDiagnostic, line_no: usize) -> Option<&str> {
     let source = diagnostic.source.as_deref()?;
     source.lines().nth(line_no.saturating_sub(1))
 }
@@ -301,7 +298,10 @@ fn marker_for(diagnostic: &CompatDiagnostic, line_len: usize) -> String {
     let start = diagnostic.column.saturating_sub(1);
     let end = min(
         line_len.max(start + 1),
-        diagnostic.end_column.max(diagnostic.column).saturating_sub(1),
+        diagnostic
+            .end_column
+            .max(diagnostic.column)
+            .saturating_sub(1),
     );
     let width = end.saturating_sub(start).max(1);
     format!("{}{}", " ".repeat(start), "^".repeat(width))

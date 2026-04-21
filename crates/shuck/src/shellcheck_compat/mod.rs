@@ -23,7 +23,9 @@ use shuck_semantic::SourceRefKind;
 
 use self::config::{CompatConfig, load_config, resolve_config_override};
 use self::optional::{OPTIONAL_CHECKS, find_optional_check};
-use self::render::{print_error_help, print_list_optional, print_report, print_version, usage_text};
+use self::render::{
+    print_error_help, print_list_optional, print_report, print_version, usage_text,
+};
 
 const COMPAT_ENV_VAR: &str = "SHUCK_SHELLCHECK_COMPAT";
 const DEFAULT_WIKI_LINK_COUNT: usize = 3;
@@ -72,8 +74,9 @@ fn run_inner(argv: &[OsString]) -> Result<ExitCode, CompatCliError> {
         return Ok(ExitCode::from(0));
     }
 
-    let cwd = std::env::current_dir()
-        .map_err(|err| CompatCliError::runtime(2, format!("could not read current directory: {err}")))?;
+    let cwd = std::env::current_dir().map_err(|err| {
+        CompatCliError::runtime(2, format!("could not read current directory: {err}"))
+    })?;
     let config_path = resolve_config_override(&cwd, &cli.config_override)?;
     let config = match config_path.as_deref() {
         Some(path) => load_config(path)?,
@@ -385,9 +388,10 @@ where
             let value = inline
                 .or_else(|| optional_value(args))
                 .unwrap_or_else(|| "always".to_owned());
-            cli.color = Some(value.parse().map_err(|_| {
-                CompatCliError::usage(4, "color expects auto, always, or never")
-            })?);
+            cli.color =
+                Some(value.parse().map_err(|_| {
+                    CompatCliError::usage(4, "color expects auto, always, or never")
+                })?);
         }
         "include" => {
             cli.include_codes
@@ -417,7 +421,9 @@ where
         }
         "enable" => {
             cli.enable_checks
-                .extend(parse_optional_check_list(&required_value(name, inline, args)?));
+                .extend(parse_optional_check_list(&required_value(
+                    name, inline, args,
+                )?));
         }
         "source-path" => {
             cli.source_paths
@@ -456,8 +462,7 @@ fn parse_short_option<'a, I>(
 where
     I: Iterator<Item = &'a OsString>,
 {
-    let mut chars = raw.char_indices().peekable();
-    while let Some((index, flag)) = chars.next() {
+    for (index, flag) in raw.char_indices() {
         let rest = &raw[index + flag.len_utf8()..];
         match flag {
             'a' => cli.check_sourced = true,
@@ -498,12 +503,16 @@ where
             }
             'o' => {
                 cli.enable_checks
-                    .extend(parse_optional_check_list(&value_after_short(flag, rest, args)?));
+                    .extend(parse_optional_check_list(&value_after_short(
+                        flag, rest, args,
+                    )?));
                 break;
             }
             'P' => {
                 cli.source_paths
-                    .extend(parse_source_path_list(&value_after_short(flag, rest, args)?));
+                    .extend(parse_source_path_list(&value_after_short(
+                        flag, rest, args,
+                    )?));
                 break;
             }
             's' => {
@@ -511,15 +520,17 @@ where
                 break;
             }
             'S' => {
-                cli.severity = Some(value_after_short(flag, rest, args)?.parse().map_err(|_| {
-                    CompatCliError::usage(4, "severity expects error, warning, info, or style")
-                })?);
+                cli.severity =
+                    Some(value_after_short(flag, rest, args)?.parse().map_err(|_| {
+                        CompatCliError::usage(4, "severity expects error, warning, info, or style")
+                    })?);
                 break;
             }
             'W' => {
-                cli.wiki_link_count = Some(value_after_short(flag, rest, args)?.parse().map_err(
-                    |_| CompatCliError::usage(4, "wiki-link-count expects a non-negative integer"),
-                )?);
+                cli.wiki_link_count =
+                    Some(value_after_short(flag, rest, args)?.parse().map_err(|_| {
+                        CompatCliError::usage(4, "wiki-link-count expects a non-negative integer")
+                    })?);
                 break;
             }
             _ => {
@@ -623,7 +634,12 @@ fn resolve_options(
             values
         },
         files,
-        enabled_rules: apply_extended_analysis(enabled_rules, cli.extended_analysis.or(config.extended_analysis).unwrap_or(true)),
+        enabled_rules: apply_extended_analysis(
+            enabled_rules,
+            cli.extended_analysis
+                .or(config.extended_analysis)
+                .unwrap_or(true),
+        ),
         shellcheck_map,
     })
 }
@@ -793,8 +809,12 @@ fn analyze_one(
         }
     };
 
-    let (initial, initial_resolved_paths) =
-        lint_with_context(path, &source, options, explicit_files.iter().cloned().collect())?;
+    let (initial, initial_resolved_paths) = lint_with_context(
+        path,
+        &source,
+        options,
+        explicit_files.iter().cloned().collect(),
+    )?;
     let final_explicit = if options.external_sources {
         explicit_files
             .iter()
@@ -805,16 +825,22 @@ fn analyze_one(
         explicit_files.clone()
     };
 
-    let (analysis, resolved_paths) = if final_explicit
-        != explicit_files.iter().cloned().collect::<BTreeSet<_>>()
-    {
-        lint_with_context(path, &source, options, final_explicit.clone())?
-    } else {
-        (initial, initial_resolved_paths)
-    };
+    let (analysis, resolved_paths) =
+        if final_explicit != explicit_files.iter().cloned().collect::<BTreeSet<_>>() {
+            lint_with_context(path, &source, options, final_explicit.clone())?
+        } else {
+            (initial, initial_resolved_paths)
+        };
 
     diagnostics.extend(analysis.into_iter().filter_map(|diagnostic| {
-        map_diagnostic(path, cwd, diagnostic, source.clone(), &options.shellcheck_map, options.severity)
+        map_diagnostic(
+            path,
+            cwd,
+            diagnostic,
+            source.clone(),
+            &options.shellcheck_map,
+            options.severity,
+        )
     }));
 
     if options.check_sourced {
@@ -853,7 +879,12 @@ fn lint_with_context(
     let parse_result = Parser::with_profile(source, shell_profile(shell)).parse();
     let indexer = Indexer::new(source, &parse_result);
     let shellcheck_map = &options.shellcheck_map;
-    let directives = parse_directives(source, &parse_result.file, indexer.comment_index(), shellcheck_map);
+    let directives = parse_directives(
+        source,
+        &parse_result.file,
+        indexer.comment_index(),
+        shellcheck_map,
+    );
     let suppression_index = (!directives.is_empty()).then(|| {
         SuppressionIndex::new(
             &directives,
@@ -864,10 +895,9 @@ fn lint_with_context(
 
     let explicit = explicit_paths.into_iter().collect::<Vec<_>>();
     let resolver = CompatSourceResolver {
-        cwd: canonicalize_or_clone(
-            &std::env::current_dir()
-                .map_err(|err| CompatCliError::runtime(2, format!("could not read current directory: {err}")))?,
-        ),
+        cwd: canonicalize_or_clone(&std::env::current_dir().map_err(|err| {
+            CompatCliError::runtime(2, format!("could not read current directory: {err}"))
+        })?),
         source_paths: options.source_paths.clone(),
     };
     let settings = LinterSettings {
@@ -903,10 +933,7 @@ fn lint_with_context(
         .flat_map(|source_ref| resolve_source_ref_paths(path, source_ref, &resolver))
         .collect::<BTreeSet<_>>();
 
-    Ok((
-        diagnostics,
-        resolved_paths,
-    ))
+    Ok((diagnostics, resolved_paths))
 }
 
 fn resolve_source_ref_paths(
@@ -930,7 +957,11 @@ fn resolve_candidate_paths(
 ) -> Vec<PathBuf> {
     let candidate_path = PathBuf::from(candidate);
     if candidate_path.is_absolute() {
-        return candidate_path.is_file().then_some(candidate_path).into_iter().collect();
+        return candidate_path
+            .is_file()
+            .then_some(candidate_path)
+            .into_iter()
+            .collect();
     }
 
     let mut resolved = Vec::new();

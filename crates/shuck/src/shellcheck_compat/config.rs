@@ -37,10 +37,7 @@ pub fn resolve_config_override(
 
 pub fn load_config(path: &Path) -> Result<CompatConfig, CompatCliError> {
     let source = fs::read_to_string(path).map_err(|err| {
-        CompatCliError::usage(
-            4,
-            format!("could not read {}: {err}", path.display()),
-        )
+        CompatCliError::usage(4, format!("could not read {}: {err}", path.display()))
     })?;
 
     let mut config = CompatConfig::default();
@@ -73,40 +70,48 @@ fn apply_config_entry(
     path: &Path,
     line: usize,
 ) -> Result<(), CompatCliError> {
-    let invalid = |detail: String| {
-        CompatCliError::usage(4, format!("{}:{line}: {detail}", path.display()))
-    };
+    let invalid =
+        |detail: String| CompatCliError::usage(4, format!("{}:{line}: {detail}", path.display()));
 
     match key {
         "check-sourced" => {
-            config.check_sourced = Some(parse_bool(value).ok_or_else(|| {
-                invalid("check-sourced expects a boolean value".to_owned())
-            })?);
+            config.check_sourced = Some(
+                parse_bool(value)
+                    .ok_or_else(|| invalid("check-sourced expects a boolean value".to_owned()))?,
+            );
         }
         "color" => {
-            config.color = Some(value.parse().map_err(|_| {
-                invalid("color expects auto, always, or never".to_owned())
-            })?);
+            config.color = Some(
+                value
+                    .parse()
+                    .map_err(|_| invalid("color expects auto, always, or never".to_owned()))?,
+            );
         }
         "disable" => {
             config.exclude_codes.extend(parse_code_list(value));
         }
         "enable" => {
-            config.enable_checks.extend(parse_optional_check_list(value));
+            config
+                .enable_checks
+                .extend(parse_optional_check_list(value));
         }
         "extended-analysis" => {
-            config.extended_analysis = Some(parse_bool(value).ok_or_else(|| {
-                invalid("extended-analysis expects a boolean value".to_owned())
-            })?);
+            config.extended_analysis =
+                Some(parse_bool(value).ok_or_else(|| {
+                    invalid("extended-analysis expects a boolean value".to_owned())
+                })?);
         }
         "external-sources" => {
-            config.external_sources = Some(parse_bool(value).ok_or_else(|| {
-                invalid("external-sources expects a boolean value".to_owned())
-            })?);
+            config.external_sources =
+                Some(parse_bool(value).ok_or_else(|| {
+                    invalid("external-sources expects a boolean value".to_owned())
+                })?);
         }
         "format" => {
             config.format = Some(value.parse().map_err(|_| {
-                invalid("format expects checkstyle, diff, gcc, json, json1, quiet, or tty".to_owned())
+                invalid(
+                    "format expects checkstyle, diff, gcc, json, json1, quiet, or tty".to_owned(),
+                )
             })?);
         }
         "include" => {

@@ -53,7 +53,8 @@ fn compat_reads_shellcheckrc_from_cwd() {
     fs::write(tempdir.path().join("x.sh"), "#!/bin/sh\necho $foo\n").unwrap();
 
     let mut cmd = compat_cmd();
-    cmd.current_dir(tempdir.path()).args(["-f", "json1", "x.sh"]);
+    cmd.current_dir(tempdir.path())
+        .args(["-f", "json1", "x.sh"]);
     cmd.assert()
         .code(1)
         .stdout(predicate::str::contains("\"code\":2154"))
