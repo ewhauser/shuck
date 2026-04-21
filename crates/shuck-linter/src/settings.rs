@@ -16,6 +16,7 @@ pub struct LinterSettings {
     pub shell: ShellDialect,
     pub analyzed_paths: Option<Arc<FxHashSet<PathBuf>>>,
     pub per_file_ignores: Arc<CompiledPerFileIgnoreList>,
+    pub report_environment_style_names: bool,
 }
 
 impl Default for LinterSettings {
@@ -26,6 +27,7 @@ impl Default for LinterSettings {
             shell: ShellDialect::Unknown,
             analyzed_paths: None,
             per_file_ignores: Arc::new(CompiledPerFileIgnoreList::default()),
+            report_environment_style_names: false,
         }
     }
 }

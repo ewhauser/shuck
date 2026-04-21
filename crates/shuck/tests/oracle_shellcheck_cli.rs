@@ -139,6 +139,35 @@ fn oracle_option_acceptance_and_rejection_match_exit_codes() {
 
 #[test]
 #[ignore]
+fn oracle_unknown_sc_selectors_match_shellcheck_behavior() {
+    if !shellcheck_available() {
+        return;
+    }
+
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("x.sh"), "#!/bin/sh\necho $foo\n").unwrap();
+
+    let include_args = vec!["--norc", "--include=SC9999", "-f", "json1", "x.sh"];
+    let include_sc = run_shellcheck(&include_args, tempdir.path());
+    let include_compat = run_compat(&include_args, tempdir.path());
+    assert_eq!(include_sc.status.code(), include_compat.status.code());
+    assert_eq!(
+        json1_comment_shapes(&include_sc),
+        json1_comment_shapes(&include_compat)
+    );
+
+    let exclude_args = vec!["--norc", "--exclude=SC9999", "-f", "json1", "x.sh"];
+    let exclude_sc = run_shellcheck(&exclude_args, tempdir.path());
+    let exclude_compat = run_compat(&exclude_args, tempdir.path());
+    assert_eq!(exclude_sc.status.code(), exclude_compat.status.code());
+    assert_eq!(
+        json1_comment_shapes(&exclude_sc),
+        json1_comment_shapes(&exclude_compat)
+    );
+}
+
+#[test]
+#[ignore]
 fn oracle_enable_checks_match_shellcheck_exit_codes() {
     if !shellcheck_available() {
         return;
@@ -175,6 +204,32 @@ fn oracle_enable_checks_match_shellcheck_exit_codes() {
             "{args:?}"
         );
     }
+}
+
+#[test]
+#[ignore]
+fn oracle_check_unassigned_uppercase_matches_shellcheck() {
+    if !shellcheck_available() {
+        return;
+    }
+
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("x.sh"), "#!/bin/sh\necho $VAR\n").unwrap();
+
+    let args = vec![
+        "--norc",
+        "--enable=check-unassigned-uppercase",
+        "-f",
+        "json1",
+        "x.sh",
+    ];
+    let shellcheck = run_shellcheck(&args, tempdir.path());
+    let compat = run_compat(&args, tempdir.path());
+    assert_eq!(shellcheck.status.code(), compat.status.code());
+    assert_eq!(
+        json1_comment_shapes(&shellcheck),
+        json1_comment_shapes(&compat)
+    );
 }
 
 #[test]

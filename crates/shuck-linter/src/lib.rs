@@ -248,6 +248,7 @@ fn analyze_file_at_path_with_resolver_and_shell(
         indexer,
         &settings.rules,
         shell,
+        settings.report_environment_style_names,
         &file_context,
         first_parse_error,
     );
@@ -2834,6 +2835,34 @@ printf '%s %s\\n' \"$foo\" \"$Foo_BAR\"
             diagnostics
                 .iter()
                 .any(|diagnostic| diagnostic.message.contains("Foo_BAR"))
+        );
+    }
+
+    #[test]
+    fn undefined_variable_can_report_environment_style_names_when_requested() {
+        let source = "\
+#!/bin/sh
+printf '%s %s\\n' \"$FOO\" \"$XDG_CONFIG_HOME\"
+";
+        let diagnostics = lint(
+            source,
+            &LinterSettings {
+                rules: RuleSet::from_iter([Rule::UndefinedVariable]),
+                report_environment_style_names: true,
+                ..LinterSettings::default()
+            },
+        );
+
+        assert_eq!(diagnostics.len(), 2);
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("FOO"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("XDG_CONFIG_HOME"))
         );
     }
 

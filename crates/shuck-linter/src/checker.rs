@@ -14,6 +14,7 @@ pub struct Checker<'a> {
     facts: LinterFacts<'a>,
     rules: &'a RuleSet,
     shell: ShellDialect,
+    report_environment_style_names: bool,
     file_context: &'a FileContext,
     first_parse_error: Option<(usize, usize)>,
     diagnostics: Vec<Diagnostic>,
@@ -46,6 +47,7 @@ impl<'a> Checker<'a> {
         indexer: &'a Indexer,
         rules: &'a RuleSet,
         shell: ShellDialect,
+        report_environment_style_names: bool,
         file_context: &'a FileContext,
         first_parse_error: Option<(usize, usize)>,
     ) -> Self {
@@ -58,6 +60,7 @@ impl<'a> Checker<'a> {
             facts: LinterFacts::build(file, source, semantic, indexer, file_context),
             rules,
             shell,
+            report_environment_style_names,
             file_context,
             first_parse_error,
             diagnostics: Vec::new(),
@@ -95,6 +98,10 @@ impl<'a> Checker<'a> {
 
     pub fn shell(&self) -> ShellDialect {
         self.shell
+    }
+
+    pub fn report_environment_style_names(&self) -> bool {
+        self.report_environment_style_names
     }
 
     pub fn file_context(&self) -> &'a FileContext {

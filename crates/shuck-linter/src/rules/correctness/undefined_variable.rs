@@ -55,7 +55,7 @@ pub fn undefined_variable(checker: &mut Checker) {
             checker,
             reference,
             VariableReferenceFilter {
-                suppress_environment_style_names: true,
+                suppress_environment_style_names: !checker.report_environment_style_names(),
             },
         ) {
             continue;
