@@ -284,6 +284,7 @@ pub struct GrepPatternFact<'a> {
     source_kind: GrepPatternSourceKind,
     starts_with_glob_style_star: bool,
     has_glob_style_star_confusion: bool,
+    glob_style_star_replacement_spans: Box<[Span]>,
 }
 
 impl<'a> GrepPatternFact<'a> {
@@ -309,6 +310,10 @@ impl<'a> GrepPatternFact<'a> {
 
     pub fn has_glob_style_star_confusion(&self) -> bool {
         self.has_glob_style_star_confusion
+    }
+
+    pub fn glob_style_star_replacement_spans(&self) -> &[Span] {
+        &self.glob_style_star_replacement_spans
     }
 }
 
@@ -2349,15 +2354,22 @@ fn grep_prefixed_pattern_fact<'a>(
     prefix_len: usize,
     source_kind: GrepPatternSourceKind,
 ) -> GrepPatternFact<'a> {
-    let static_text = cooked_static_word_text(word, source)
-        .and_then(|text| text.get(prefix_len..).map(str::to_owned))
-        .map(String::into_boxed_str);
+    let (static_text, glob_style_star_replacement_spans) =
+        cooked_static_word_text_with_source_spans(word, source)
+            .and_then(|(text, source_spans)| {
+                let text = text.get(prefix_len..)?.to_owned();
+                let source_spans = source_spans.get(prefix_len..)?.to_vec();
+                Some((text, source_spans))
+            })
+            .map(|(text, source_spans)| {
+                let spans = grep_pattern_glob_style_star_replacement_spans(&text, &source_spans);
+                (Some(text.into_boxed_str()), spans.into_boxed_slice())
+            })
+            .unwrap_or_else(|| (None, Box::new([])));
     let starts_with_glob_style_star = static_text
         .as_deref()
         .is_some_and(|text| text.starts_with('*') || text == "^*");
-    let has_glob_style_star_confusion = static_text
-        .as_deref()
-        .is_some_and(grep_pattern_has_glob_style_star_confusion);
+    let has_glob_style_star_confusion = !glob_style_star_replacement_spans.is_empty();
 
     GrepPatternFact {
         word,
@@ -2365,33 +2377,72 @@ fn grep_prefixed_pattern_fact<'a>(
         source_kind,
         starts_with_glob_style_star,
         has_glob_style_star_confusion,
+        glob_style_star_replacement_spans,
     }
 }
 
-fn cooked_static_word_text(word: &Word, source: &str) -> Option<String> {
-    let mut cooked = String::new();
-    collect_cooked_static_word_text_parts(&word.parts, source, false, &mut cooked).then_some(cooked)
+fn cooked_static_word_text_with_source_spans(
+    word: &Word,
+    source: &str,
+) -> Option<(String, Vec<Span>)> {
+    let mut cooked = Vec::new();
+    let mut source_spans = Vec::new();
+    collect_cooked_static_word_text_parts_with_source_spans(
+        &word.parts,
+        source,
+        false,
+        &mut cooked,
+        &mut source_spans,
+    )
+    .then_some(())?;
+
+    Some((String::from_utf8(cooked).ok()?, source_spans))
 }
 
-fn collect_cooked_static_word_text_parts(
+fn collect_cooked_static_word_text_parts_with_source_spans(
     parts: &[WordPartNode],
     source: &str,
     in_double_quotes: bool,
-    out: &mut String,
+    out: &mut Vec<u8>,
+    source_spans: &mut Vec<Span>,
 ) -> bool {
     for part in parts {
         match &part.kind {
             WordPart::Literal(text) => {
                 let slice = text.as_str(source, part.span);
                 if in_double_quotes {
-                    push_cooked_double_quoted_literal_text(slice, out);
+                    push_cooked_double_quoted_literal_text_with_source_spans(
+                        slice,
+                        part.span.start,
+                        out,
+                        source_spans,
+                    );
                 } else {
-                    push_cooked_unquoted_literal_text(slice, out);
+                    push_cooked_unquoted_literal_text_with_source_spans(
+                        slice,
+                        part.span.start,
+                        out,
+                        source_spans,
+                    );
                 }
             }
-            WordPart::SingleQuoted { value, .. } => out.push_str(value.slice(source)),
+            WordPart::SingleQuoted { value, .. } => {
+                let text = value.slice(source);
+                push_cooked_literal_text_with_source_spans(
+                    text,
+                    value.span().start,
+                    out,
+                    source_spans,
+                );
+            }
             WordPart::DoubleQuoted { parts, .. } => {
-                if !collect_cooked_static_word_text_parts(parts, source, true, out) {
+                if !collect_cooked_static_word_text_parts_with_source_spans(
+                    parts,
+                    source,
+                    true,
+                    out,
+                    source_spans,
+                ) {
                     return false;
                 }
             }
@@ -2417,54 +2468,129 @@ fn collect_cooked_static_word_text_parts(
     true
 }
 
-fn push_cooked_unquoted_literal_text(text: &str, out: &mut String) {
-    let mut chars = text.chars();
-    while let Some(ch) = chars.next() {
+fn push_cooked_literal_text_with_source_spans(
+    text: &str,
+    start_position: Position,
+    out: &mut Vec<u8>,
+    source_spans: &mut Vec<Span>,
+) {
+    for (index, ch) in text.char_indices() {
+        let span = Span::from_positions(
+            start_position.advanced_by(&text[..index]),
+            start_position.advanced_by(&text[..index + ch.len_utf8()]),
+        );
+        push_cooked_char_with_source_span(ch, span, out, source_spans);
+    }
+}
+
+fn push_cooked_unquoted_literal_text_with_source_spans(
+    text: &str,
+    start_position: Position,
+    out: &mut Vec<u8>,
+    source_spans: &mut Vec<Span>,
+) {
+    let mut chars = text.char_indices().peekable();
+    while let Some((index, ch)) = chars.next() {
         if ch == '\\' {
-            if let Some(escaped) = chars.next()
+            if let Some((next_index, escaped)) = chars.next()
                 && escaped != '\n'
             {
-                out.push(escaped);
+                let span = Span::from_positions(
+                    start_position.advanced_by(&text[..index]),
+                    start_position.advanced_by(&text[..next_index + escaped.len_utf8()]),
+                );
+                push_cooked_char_with_source_span(escaped, span, out, source_spans);
             }
             continue;
         }
 
-        out.push(ch);
+        let span = Span::from_positions(
+            start_position.advanced_by(&text[..index]),
+            start_position.advanced_by(&text[..index + ch.len_utf8()]),
+        );
+        push_cooked_char_with_source_span(ch, span, out, source_spans);
     }
 }
 
-fn push_cooked_double_quoted_literal_text(text: &str, out: &mut String) {
-    let mut chars = text.chars();
-    while let Some(ch) = chars.next() {
+fn push_cooked_double_quoted_literal_text_with_source_spans(
+    text: &str,
+    start_position: Position,
+    out: &mut Vec<u8>,
+    source_spans: &mut Vec<Span>,
+) {
+    let mut chars = text.char_indices().peekable();
+    while let Some((index, ch)) = chars.next() {
         if ch != '\\' {
-            out.push(ch);
+            let span = Span::from_positions(
+                start_position.advanced_by(&text[..index]),
+                start_position.advanced_by(&text[..index + ch.len_utf8()]),
+            );
+            push_cooked_char_with_source_span(ch, span, out, source_spans);
             continue;
         }
 
         match chars.next() {
-            Some(escaped @ ('$' | '"' | '\\' | '`')) => out.push(escaped),
-            Some('\n') => {}
-            Some(other) => {
-                out.push('\\');
-                out.push(other);
+            Some((next_index, escaped @ ('$' | '"' | '\\' | '`'))) => {
+                let span = Span::from_positions(
+                    start_position.advanced_by(&text[..index]),
+                    start_position.advanced_by(&text[..next_index + escaped.len_utf8()]),
+                );
+                push_cooked_char_with_source_span(escaped, span, out, source_spans);
             }
-            None => out.push('\\'),
+            Some((_next_index, '\n')) => {}
+            Some((next_index, other)) => {
+                let backslash_span = Span::from_positions(
+                    start_position.advanced_by(&text[..index]),
+                    start_position.advanced_by(&text[..index + ch.len_utf8()]),
+                );
+                push_cooked_char_with_source_span('\\', backslash_span, out, source_spans);
+
+                let span = Span::from_positions(
+                    start_position.advanced_by(&text[..next_index]),
+                    start_position.advanced_by(&text[..next_index + other.len_utf8()]),
+                );
+                push_cooked_char_with_source_span(other, span, out, source_spans);
+            }
+            None => {
+                let span = Span::from_positions(
+                    start_position.advanced_by(&text[..index]),
+                    start_position.advanced_by(&text[..index + ch.len_utf8()]),
+                );
+                push_cooked_char_with_source_span('\\', span, out, source_spans);
+            }
         }
     }
 }
-fn grep_pattern_has_glob_style_star_confusion(pattern: &str) -> bool {
-    let bytes = pattern.as_bytes();
 
-    if pattern.starts_with('^')
+fn push_cooked_char_with_source_span(
+    ch: char,
+    source_span: Span,
+    out: &mut Vec<u8>,
+    source_spans: &mut Vec<Span>,
+) {
+    let mut buf = [0u8; 4];
+    let encoded = ch.encode_utf8(&mut buf).as_bytes();
+    out.extend_from_slice(encoded);
+    source_spans.extend(std::iter::repeat_n(source_span, encoded.len()));
+}
+
+fn grep_pattern_glob_style_star_replacement_spans(text: &str, source_spans: &[Span]) -> Vec<Span> {
+    let bytes = text.as_bytes();
+    let mut spans = Vec::new();
+
+    if bytes.is_empty() {
+        return spans;
+    }
+
+    if text.starts_with('^')
         || ends_with_unescaped_dollar(bytes)
         || bytes.contains(&b'[')
         || bytes.contains(&b'+')
     {
-        return false;
+        return spans;
     }
-
     if first_unescaped_star_index(bytes).is_some_and(|index| index == 0) {
-        return false;
+        return spans;
     }
 
     let mut index = 0usize;
@@ -2488,10 +2614,13 @@ fn grep_pattern_has_glob_style_star_confusion(pattern: &str) -> bool {
             continue;
         }
 
-        return true;
+        if let Some(span) = source_spans.get(star_index).copied() {
+            spans.push(span);
+        }
+        index = star_index + 1;
     }
 
-    false
+    spans
 }
 
 fn first_unescaped_star_index(bytes: &[u8]) -> Option<usize> {
