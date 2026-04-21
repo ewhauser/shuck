@@ -15,13 +15,18 @@ struct PreparedCheckCase {
 }
 
 fn prepare_check_case(case: shuck_benchmark::TestCase) -> PreparedCheckCase {
-    let tempdir = tempfile::tempdir().expect("benchmark tempdir should exist");
+    let tempdir = match tempfile::tempdir() {
+        Ok(tempdir) => tempdir,
+        Err(err) => panic!("benchmark tempdir should exist: {err}"),
+    };
     let cwd = tempdir.path().to_path_buf();
     let mut paths = Vec::with_capacity(case.files.len());
 
     for (index, file) in case.files.iter().enumerate() {
         let path = cwd.join(format!("{index:02}-{}.sh", file.name));
-        fs::write(&path, file.source).expect("benchmark fixture should write");
+        if let Err(err) = fs::write(&path, file.source) {
+            panic!("benchmark fixture should write: {err}");
+        }
         paths.push(path);
     }
 
@@ -54,8 +59,14 @@ fn bench_check_command(c: &mut Criterion) {
                 |b, input| {
                     b.iter(|| {
                         black_box(
-                            shuck::benchmark_check_paths(&input.cwd, &input.paths, output_format)
-                                .expect("check benchmark should succeed"),
+                            match shuck::benchmark_check_paths(
+                                &input.cwd,
+                                &input.paths,
+                                output_format,
+                            ) {
+                                Ok(result) => result,
+                                Err(err) => panic!("check benchmark should succeed: {err}"),
+                            },
                         )
                     });
                 },

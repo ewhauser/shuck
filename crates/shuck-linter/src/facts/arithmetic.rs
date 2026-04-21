@@ -585,13 +585,15 @@ fn collect_arithmetic_lvalue_update_operator_spans(
 fn find_operator_span(expression_span: Span, source: &str, operator: &str, first: bool) -> Span {
     let expression = expression_span.slice(source);
     let offset = if first {
-        expression
-            .find(operator)
-            .expect("expected prefix update operator in arithmetic expression")
+        let Some(offset) = expression.find(operator) else {
+            unreachable!("expected prefix update operator in arithmetic expression");
+        };
+        offset
     } else {
-        expression
-            .rfind(operator)
-            .expect("expected postfix update operator in arithmetic expression")
+        let Some(offset) = expression.rfind(operator) else {
+            unreachable!("expected postfix update operator in arithmetic expression");
+        };
+        offset
     };
     let start = expression_span.start.advanced_by(&expression[..offset]);
     Span::from_positions(start, start.advanced_by(operator))
@@ -633,5 +635,4 @@ fn double_paren_grouping_anchor(span: Span, source: &str) -> Option<Span> {
 
     Some(Span::at(anchor_start))
 }
-
 

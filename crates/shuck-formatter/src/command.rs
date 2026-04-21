@@ -1369,10 +1369,9 @@ fn format_named_function_header(
         if function.uses_function_keyword() {
             write!(formatter, [token("function ")])?;
         }
-        let name = function.header.entries[0]
-            .static_name
-            .as_ref()
-            .expect("classic function header should have a static name");
+        let Some(name) = function.header.entries[0].static_name.as_ref() else {
+            unreachable!("classic function header should have a static name");
+        };
         write!(formatter, [text(name.to_string())])?;
         if function.has_trailing_parens() {
             write!(formatter, [token("()")])?;

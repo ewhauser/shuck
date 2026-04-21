@@ -151,29 +151,22 @@ fn pipeline_span_with_shellcheck_tail(
     pipeline: &PipelineFact<'_>,
     source: &str,
 ) -> Span {
-    let first = command_fact(
-        commands,
-        pipeline
-            .first_segment()
-            .expect("pipeline has segments")
-            .command_id(),
-    );
-    let last = command_fact(
-        commands,
-        pipeline
-            .last_segment()
-            .expect("pipeline has segments")
-            .command_id(),
-    );
+    let Some(first_segment) = pipeline.first_segment() else {
+        unreachable!("pipeline has segments");
+    };
+    let Some(last_segment) = pipeline.last_segment() else {
+        unreachable!("pipeline has segments");
+    };
+    let first = command_fact(commands, first_segment.command_id());
+    let last = command_fact(commands, last_segment.command_id());
     let last_end = last.span_in_source(source).end;
     let end = extend_over_shellcheck_trailing_inline_space(last_end, source);
 
+    let Some(body_name_word) = first.body_name_word() else {
+        unreachable!("plain echo command should have a body name");
+    };
     Span::from_positions(
-        first
-            .body_name_word()
-            .expect("plain echo command should have a body name")
-            .span
-            .start,
+        body_name_word.span.start,
         end,
     )
 }
@@ -429,8 +422,10 @@ fn command_redirect_read_source_words<'a>(command: &CommandFact<'a>) -> Vec<Path
 
             Some(PathWordFact {
                 word: redirect.redirect().word_target()?,
-                context: ExpansionContext::from_redirect_kind(redirect.redirect().kind)
-                    .expect("input redirects should carry a word target context"),
+                context: match ExpansionContext::from_redirect_kind(redirect.redirect().kind) {
+                    Some(context) => context,
+                    None => unreachable!("input redirects should carry a word target context"),
+                },
             })
         })
         .collect()

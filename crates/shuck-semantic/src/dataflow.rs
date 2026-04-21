@@ -358,20 +358,20 @@ fn analyze_unused_assignments_exact(
         .references
         .iter()
         .map(|reference| {
-            exact
-                .names
-                .get(&reference.name)
-                .expect("reference name interned")
+            let Some(name_id) = exact.names.get(&reference.name) else {
+                unreachable!("reference name interned");
+            };
+            name_id
         })
         .collect::<Vec<_>>();
     let synthetic_read_name_ids = context
         .synthetic_reads
         .iter()
         .map(|read| {
-            exact
-                .names
-                .get(&read.name)
-                .expect("synthetic read name interned")
+            let Some(name_id) = exact.names.get(&read.name) else {
+                unreachable!("synthetic read name interned");
+            };
+            name_id
         })
         .collect::<Vec<_>>();
     let scope_components = exact.scope_components(context);
@@ -1067,7 +1067,9 @@ fn build_dense_binding_data_for_scope_count(
         .collect::<Vec<_>>();
 
     for binding in bindings {
-        let name_id = names.get(&binding.name).expect("binding name interned");
+        let Some(name_id) = names.get(&binding.name) else {
+            unreachable!("binding name interned");
+        };
         binding_name_ids.push(name_id);
         bindings_for_name[name_id.index()].insert(binding.id.index());
         bindings_by_name[name_id.index()].push(binding.id);

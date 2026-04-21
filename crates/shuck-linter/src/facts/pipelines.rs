@@ -186,8 +186,9 @@ fn build_pipeline_segment_fact<'a>(
     commands: &[CommandFact<'a>],
     command_ids_by_span: &CommandLookupIndex,
 ) -> PipelineSegmentFact<'a> {
-    let fact = command_fact_for_stmt(stmt, commands, command_ids_by_span)
-        .expect("pipeline segment should have a corresponding command fact");
+    let Some(fact) = command_fact_for_stmt(stmt, commands, command_ids_by_span) else {
+        unreachable!("pipeline segment should have a corresponding command fact");
+    };
 
     PipelineSegmentFact {
         stmt,
@@ -202,5 +203,4 @@ fn build_pipeline_segment_fact<'a>(
             .map(String::into_boxed_str),
     }
 }
-
 

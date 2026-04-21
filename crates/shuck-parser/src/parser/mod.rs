@@ -132,10 +132,9 @@ impl ParseResult {
     /// diagnostic is converted into an [`Error`].
     pub fn strict_error(&self) -> Error {
         self.terminal_error.clone().unwrap_or_else(|| {
-            let diagnostic = self
-                .diagnostics
-                .first()
-                .expect("non-clean parse result should include a diagnostic or terminal error");
+            let Some(diagnostic) = self.diagnostics.first() else {
+                panic!("non-clean parse result should include a diagnostic or terminal error");
+            };
             Error::parse_at(
                 diagnostic.message.clone(),
                 diagnostic.span.start.line,
@@ -1188,7 +1187,9 @@ impl<'a> ZshOptionPrescanner<'a> {
             .last()
             .is_some_and(PrescanLocalScope::is_complete)
         {
-            let scope = local_scopes.pop().expect("scope just matched");
+            let Some(scope) = local_scopes.pop() else {
+                unreachable!("scope just matched");
+            };
             if self.state != scope.saved_state {
                 self.state = scope.saved_state.clone();
                 self.entries.push(ZshOptionTimelineEntry {
@@ -5439,8 +5440,11 @@ impl<'a> Parser<'a> {
             other => return other,
         };
 
+        let Some(syntax) = syntax else {
+            unreachable!("matched Some above");
+        };
         WordPart::Parameter(ParameterExpansion {
-            syntax: ParameterExpansionSyntax::Bourne(syntax.expect("matched Some above")),
+            syntax: ParameterExpansionSyntax::Bourne(syntax),
             span,
             raw_body,
         })
@@ -6310,8 +6314,10 @@ impl<'a> Parser<'a> {
         chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
         cursor: &mut Position,
     ) -> char {
-        Self::next_word_char(chars, cursor)
-            .expect("word parser should only consume characters that were already peeked")
+        let Some(ch) = Self::next_word_char(chars, cursor) else {
+            unreachable!("word parser should only consume characters that were already peeked");
+        };
+        ch
     }
 
     fn consume_word_char_if(
@@ -6731,11 +6737,10 @@ impl<'a> Parser<'a> {
             .front()
             .is_some_and(|comment| Self::comment_start(*comment) < end_offset)
         {
-            taken.push_back(
-                comments
-                    .pop_front()
-                    .expect("front comment should exist while draining"),
-            );
+            let Some(comment) = comments.pop_front() else {
+                unreachable!("front comment should exist while draining");
+            };
+            taken.push_back(comment);
         }
         taken
     }

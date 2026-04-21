@@ -47,13 +47,10 @@ fn clobber_spans_for_command(fact: &crate::CommandFact<'_>, source: &str) -> Vec
         let Some(target) = redirect.redirect().word_target() else {
             continue;
         };
-        let Some(comparable) = comparable_path(
-            target,
-            source,
-            ExpansionContext::from_redirect_kind(redirect.redirect().kind)
-                .expect("redirect kinds with word targets should have a context"),
-            options,
-        ) else {
+        let Some(context) = ExpansionContext::from_redirect_kind(redirect.redirect().kind) else {
+            continue;
+        };
+        let Some(comparable) = comparable_path(target, source, context, options) else {
             continue;
         };
 

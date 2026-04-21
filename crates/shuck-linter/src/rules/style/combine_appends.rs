@@ -160,11 +160,13 @@ fn append_target_for_statement(
         }
     }
 
-    target.map(|key| {
-        let anchor_start = anchor_start.expect("append targets should have an anchor start");
-        let anchor_end = anchor_end.expect("append targets should have an anchor end");
-        (key, Span::from_positions(anchor_start, anchor_end))
-    })
+    match (target, anchor_start, anchor_end) {
+        (Some(key), Some(anchor_start), Some(anchor_end)) => {
+            Some((key, Span::from_positions(anchor_start, anchor_end)))
+        }
+        (Some(_), _, _) => None,
+        (None, _, _) => None,
+    }
 }
 
 fn commands_for_statement<'a>(

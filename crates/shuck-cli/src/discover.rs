@@ -317,10 +317,9 @@ impl ExplicitIgnoreCache {
             self.matchers.insert(key.clone(), gitignore);
         }
 
-        let matcher = self
-            .matchers
-            .get(&key)
-            .expect("gitignore matcher should be cached for the computed key");
+        let Some(matcher) = self.matchers.get(&key) else {
+            unreachable!("gitignore matcher should be cached for the computed key");
+        };
         Ok(!matcher.matched_path_or_any_parents(path, false).is_ignore())
     }
 }

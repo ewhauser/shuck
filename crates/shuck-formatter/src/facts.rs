@@ -168,9 +168,10 @@ impl<'source> FormatterFacts<'source> {
     }
 
     pub(crate) fn stmt(&self, stmt: &Stmt) -> &StmtFacts {
-        self.stmt_facts
-            .get(&FactSpan::from(stmt_span(stmt)))
-            .expect("missing statement facts")
+        let Some(facts) = self.stmt_facts.get(&FactSpan::from(stmt_span(stmt))) else {
+            unreachable!("missing statement facts");
+        };
+        facts
     }
 
     pub(crate) fn sequence(
@@ -180,10 +181,14 @@ impl<'source> FormatterFacts<'source> {
     ) -> &SequenceFacts<'source> {
         let key = SequenceSiteKey::new(sequence, upper_bound);
         self.sequence_facts.get(&key).unwrap_or_else(|| {
-            self.sequence_facts
+            let Some(facts) = self
+                .sequence_facts
                 .iter()
                 .find_map(|(candidate, facts)| (candidate.span == key.span).then_some(facts))
-                .expect("missing sequence facts")
+            else {
+                unreachable!("missing sequence facts");
+            };
+            facts
         })
     }
 

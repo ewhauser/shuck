@@ -49,7 +49,10 @@ fn parse_rule_metadata(data: &str) -> Result<(RuleMetadata, Option<u32>), String
 }
 
 fn main() {
-    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
+    let manifest_dir = PathBuf::from(match env::var("CARGO_MANIFEST_DIR") {
+        Ok(value) => value,
+        Err(err) => panic!("CARGO_MANIFEST_DIR: {err}"),
+    });
     // `rules` is a symlink to `../../docs/rules` in the workspace; cargo
     // follows the symlink when packaging so the YAML ships with the crate.
     let docs_dir = manifest_dir.join("rules");
@@ -93,8 +96,11 @@ fn main() {
     }
     generated.push_str("];\n");
 
-    let out_path =
-        PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR")).join("shellcheck_map_data.rs");
+    let out_path = PathBuf::from(match env::var("OUT_DIR") {
+        Ok(value) => value,
+        Err(err) => panic!("OUT_DIR: {err}"),
+    })
+    .join("shellcheck_map_data.rs");
     fs::write(&out_path, generated)
         .unwrap_or_else(|err| panic!("write {}: {err}", out_path.display()));
 
@@ -115,8 +121,11 @@ fn main() {
     }
     metadata_generated.push_str("];\n");
 
-    let metadata_out_path =
-        PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR")).join("rule_metadata_data.rs");
+    let metadata_out_path = PathBuf::from(match env::var("OUT_DIR") {
+        Ok(value) => value,
+        Err(err) => panic!("OUT_DIR: {err}"),
+    })
+    .join("rule_metadata_data.rs");
     fs::write(&metadata_out_path, metadata_generated)
         .unwrap_or_else(|err| panic!("write {}: {err}", metadata_out_path.display()));
 }

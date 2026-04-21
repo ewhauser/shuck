@@ -552,9 +552,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
 
         let mut recorded = recorded.into_iter();
-        let first = recorded
-            .next()
-            .expect("logical lists have at least one command");
+        let Some(first) = recorded.next() else {
+            unreachable!("logical lists have at least one command");
+        };
         let rest = self.recorded_program.push_list_items(
             operators
                 .into_iter()
@@ -1146,7 +1146,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     self.visit_word_into(word, WordVisitKind::Expansion, flow, nested_regions)
                 }
                 None => {
-                    let heredoc = redirect.heredoc().expect("expected heredoc redirect");
+                    let Some(heredoc) = redirect.heredoc() else {
+                        continue;
+                    };
                     if heredoc.delimiter.expands_body {
                         self.visit_heredoc_body_into(
                             &heredoc.body,
