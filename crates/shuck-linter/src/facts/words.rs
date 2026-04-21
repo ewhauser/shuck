@@ -2637,10 +2637,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         offset: usize,
         current_scope: bool,
     ) -> Option<bool> {
-        let mut saw_binding = false;
-        let mut saw_assoc = false;
-
-        for binding_id in bindings {
+        for binding_id in bindings.iter().rev() {
             let binding = self.semantic.binding(*binding_id);
             if binding.scope != scope || binding.span.start.offset >= offset {
                 continue;
@@ -2649,14 +2646,10 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 continue;
             }
 
-            saw_binding = true;
-            if binding.attributes.contains(BindingAttributes::ASSOC) {
-                saw_assoc = true;
-                break;
-            }
+            return Some(binding.attributes.contains(BindingAttributes::ASSOC));
         }
 
-        saw_binding.then_some(saw_assoc)
+        None
     }
 
     fn assoc_binding_visible_from_named_callers(&self, owner_name: &Name, span: Span) -> bool {

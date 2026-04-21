@@ -232,6 +232,33 @@ f() {
     }
 
     #[test]
+    fn reports_caller_local_shadowing_after_assoc_declaration() {
+        let source = "\
+#!/bin/bash
+helper() {
+  map[$key]=1
+}
+main() {
+  local key=name
+  declare -A map
+  unset map
+  local map
+  helper
+}
+main
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$key"]
+        );
+    }
+
+    #[test]
     fn ignores_quoted_indexed_assignment_subscripts() {
         let source = "\
 #!/bin/bash

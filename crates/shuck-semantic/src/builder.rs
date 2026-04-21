@@ -85,6 +85,7 @@ pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     command_bindings: FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
     command_references: FxHashMap<SpanKey, SmallVec<[ReferenceId; 4]>>,
     source_directives: FxHashMap<usize, SourceDirectiveOverride>,
+    cleared_variables: FxHashMap<(ScopeId, Name), usize>,
     runtime: RuntimePrelude,
     completed_scopes: FxHashSet<ScopeId>,
     deferred_functions: Vec<DeferredFunction>,
@@ -155,6 +156,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             command_bindings: FxHashMap::default(),
             command_references: FxHashMap::default(),
             source_directives: parse_source_directives(source, indexer),
+            cleared_variables: FxHashMap::default(),
             runtime,
             completed_scopes: FxHashSet::default(),
             deferred_functions: Vec::new(),
@@ -2410,7 +2412,44 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     });
                 }
             }
+            "unset" => self.record_unset_variable_targets(&command.args),
             _ => {}
+        }
+    }
+
+    fn record_unset_variable_targets(&mut self, args: &[Word]) {
+        let mut function_mode = false;
+        let mut parsing_options = true;
+
+        for argument in args {
+            let Some(text) = static_word_text(argument, self.source) else {
+                continue;
+            };
+
+            if parsing_options && text == "--" {
+                parsing_options = false;
+                continue;
+            }
+
+            if parsing_options && text.starts_with('-') && text != "-" {
+                let flags = text.trim_start_matches('-');
+                if flags.contains('f') {
+                    function_mode = true;
+                }
+                if flags.contains('v') {
+                    function_mode = false;
+                }
+                continue;
+            }
+
+            if function_mode || !is_name(&text) {
+                continue;
+            }
+
+            self.cleared_variables.insert(
+                (self.current_scope(), Name::from(text.as_str())),
+                argument.span.start.offset,
+            );
         }
     }
 
@@ -2517,7 +2556,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 || (existing_binding.scope == scope
                     && existing_binding
                         .attributes
-                        .contains(BindingAttributes::LOCAL))
+                        .contains(BindingAttributes::LOCAL)
+                    && !self.binding_was_cleared_in_scope_after(
+                        name,
+                        scope,
+                        existing_binding.span.start.offset,
+                    ))
         });
 
         if reuse_existing {
@@ -2542,6 +2586,17 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             }
         };
         self.add_binding(name, kind, scope, span, origin, attributes);
+    }
+
+    fn binding_was_cleared_in_scope_after(
+        &self,
+        name: &Name,
+        scope: ScopeId,
+        binding_offset: usize,
+    ) -> bool {
+        self.cleared_variables
+            .get(&(scope, name.clone()))
+            .is_some_and(|cleared_offset| *cleared_offset > binding_offset)
     }
 
     fn add_binding(

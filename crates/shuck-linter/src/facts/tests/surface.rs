@@ -1415,6 +1415,34 @@ main
 }
 
 #[test]
+fn reports_caller_local_shadowing_after_assoc_declaration_for_dollar_in_arithmetic() {
+    let source = "\
+#!/bin/bash
+helper() {
+  map[$key]=1
+}
+main() {
+  local key=name
+  declare -A map
+  unset map
+  local map
+  helper
+}
+main
+";
+
+    with_facts(source, None, |_, facts| {
+        let spans = facts
+            .dollar_in_arithmetic_spans()
+            .iter()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(spans, vec!["$key"]);
+    });
+}
+
+#[test]
 fn ignores_repeated_dynamic_scope_associative_assignment_subscripts_for_dollar_in_arithmetic() {
     let source = "\
 #!/bin/bash

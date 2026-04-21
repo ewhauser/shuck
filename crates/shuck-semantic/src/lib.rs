@@ -4122,6 +4122,69 @@ check_status
     }
 
     #[test]
+    fn name_only_local_after_unset_creates_fresh_non_assoc_binding() {
+        let source = "\
+main() {
+  local key=name
+  declare -A map
+  unset map
+  local map
+  map[$key]=1
+}
+";
+        let model = model(source);
+        let main_scope = model
+            .scopes()
+            .iter()
+            .find_map(|scope| match &scope.kind {
+                ScopeKind::Function(FunctionScopeKind::Named(names))
+                    if names.iter().any(|name| name == "main") =>
+                {
+                    Some(scope.id)
+                }
+                _ => None,
+            })
+            .expect("expected main scope");
+        let redeclared_local = model
+            .bindings()
+            .iter()
+            .find(|binding| {
+                binding.name == "map"
+                    && binding.scope == main_scope
+                    && matches!(
+                        binding.kind,
+                        BindingKind::Declaration(DeclarationBuiltin::Local)
+                    )
+            })
+            .expect("expected redeclared local binding");
+        let array_assignment = model
+            .bindings()
+            .iter()
+            .find(|binding| {
+                binding.name == "map"
+                    && binding.scope == main_scope
+                    && binding.kind == BindingKind::ArrayAssignment
+            })
+            .expect("expected array assignment binding");
+
+        assert!(
+            !redeclared_local
+                .attributes
+                .contains(BindingAttributes::ASSOC)
+        );
+        assert_eq!(
+            model
+                .visible_binding_for_assoc_lookup(
+                    &Name::from("map"),
+                    main_scope,
+                    array_assignment.span,
+                )
+                .map(|binding| binding.id),
+            Some(redeclared_local.id)
+        );
+    }
+
+    #[test]
     fn special_command_targets_store_name_only_spans() {
         let source = "\
 read -r read_target
