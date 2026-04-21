@@ -138,3 +138,37 @@ fn compat_list_optional_prints_catalog() {
         .stdout(predicate::str::contains("name:    add-default-case"))
         .stdout(predicate::str::contains("name:    useless-use-of-cat"));
 }
+
+#[test]
+fn compat_color_flags_do_not_consume_filename() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("x.sh"), "#!/bin/sh\necho $foo\n").unwrap();
+
+    let mut long = compat_cmd();
+    long.current_dir(tempdir.path())
+        .args(["--color", "x.sh", "-f", "json1"]);
+    long.assert()
+        .code(1)
+        .stdout(predicate::str::contains("\"code\":2086"));
+
+    let mut short = compat_cmd();
+    short
+        .current_dir(tempdir.path())
+        .args(["-C", "x.sh", "-f", "json1"]);
+    short
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("\"code\":2086"));
+}
+
+#[test]
+fn compat_dash_path_reads_from_stdin() {
+    let mut cmd = compat_cmd();
+    cmd.args(["-f", "json1", "-"])
+        .write_stdin("#!/bin/sh\necho $foo\n");
+    cmd.assert()
+        .code(1)
+        .stdout(predicate::str::contains("\"file\":\"-\""))
+        .stdout(predicate::str::contains("\"code\":2086"))
+        .stderr(predicate::str::is_empty());
+}

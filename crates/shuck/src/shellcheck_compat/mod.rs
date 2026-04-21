@@ -26,6 +26,7 @@ use self::optional::{OPTIONAL_CHECKS, find_optional_check};
 use self::render::{
     print_error_help, print_list_optional, print_report, print_version, usage_text,
 };
+use crate::stdin::read_from_stdin;
 
 const COMPAT_ENV_VAR: &str = "SHUCK_SHELLCHECK_COMPAT";
 const DEFAULT_WIKI_LINK_COUNT: usize = 3;
@@ -386,7 +387,7 @@ where
         "external-sources" => cli.external_sources = true,
         "color" => {
             let value = inline
-                .or_else(|| optional_value(args))
+                .or_else(|| optional_color_value(args))
                 .unwrap_or_else(|| "always".to_owned());
             cli.color =
                 Some(value.parse().map_err(|_| {
@@ -472,7 +473,7 @@ where
                 let value = if let Some(rest) = rest.strip_prefix('=') {
                     Some(rest.to_owned())
                 } else if rest.is_empty() {
-                    optional_value(args)
+                    optional_color_value(args)
                 } else {
                     Some(rest.to_owned())
                 }
@@ -580,20 +581,19 @@ where
         .ok_or_else(|| CompatCliError::usage(4, format!("option `-{flag}` expects a value")))
 }
 
-fn optional_value<'a, I>(args: &mut std::iter::Peekable<I>) -> Option<String>
+fn optional_color_value<'a, I>(args: &mut std::iter::Peekable<I>) -> Option<String>
 where
     I: Iterator<Item = &'a OsString>,
 {
-    let take_next = args
+    let next = args
         .peek()
         .and_then(|value| value.to_str())
-        .is_some_and(|value| !value.starts_with('-'));
-    take_next
-        .then(|| {
-            args.next()
-                .and_then(|value| value.to_str().map(ToOwned::to_owned))
-        })
-        .flatten()
+        .filter(|value| CompatColorMode::from_str(value).is_ok())
+        .map(ToOwned::to_owned);
+    if next.is_some() {
+        let _ = args.next();
+    }
+    next
 }
 
 fn resolve_options(
@@ -612,7 +612,13 @@ fn resolve_options(
     let files = cli
         .files
         .into_iter()
-        .map(|path| absolutize(cwd, &path))
+        .map(|path| {
+            if is_stdin_path(&path) {
+                path
+            } else {
+                absolutize(cwd, &path)
+            }
+        })
         .collect::<Vec<_>>();
     Ok(CompatOptions {
         color: cli.color.or(config.color).unwrap_or(CompatColorMode::Auto),
@@ -798,16 +804,23 @@ fn analyze_one(
         return Ok(());
     }
 
-    let source = match fs::read_to_string(path) {
-        Ok(source) => Arc::<str>::from(source),
-        Err(err) => {
-            file_errors.push(FileAccessError {
-                path: display_path(path, cwd),
-                message: format!("could not read file: {err}"),
-            });
-            return Ok(());
-        }
-    };
+    let source =
+        if is_stdin_path(path) {
+            Arc::<str>::from(read_from_stdin().map_err(|err| {
+                CompatCliError::runtime(2, format!("could not read stdin: {err}"))
+            })?)
+        } else {
+            match fs::read_to_string(path) {
+                Ok(source) => Arc::<str>::from(source),
+                Err(err) => {
+                    file_errors.push(FileAccessError {
+                        path: display_path(path, cwd),
+                        message: format!("could not read file: {err}"),
+                    });
+                    return Ok(());
+                }
+            }
+        };
 
     let (initial, initial_resolved_paths) = lint_with_context(
         path,
@@ -1116,6 +1129,10 @@ fn display_path(path: &Path, cwd: &Path) -> String {
 
 fn canonicalize_or_clone(path: &Path) -> PathBuf {
     fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+fn is_stdin_path(path: &Path) -> bool {
+    path == Path::new("-")
 }
 
 fn absolutize(cwd: &Path, path: &Path) -> PathBuf {
