@@ -117,7 +117,10 @@ pub(crate) fn collect_parse_rule_diagnostics(
             let Some(span) = c_prototype_fragment_span(diagnostic, source) else {
                 continue;
             };
-            diagnostics.push(Diagnostic::new(CPrototypeFragment, span));
+            diagnostics.push(
+                Diagnostic::new(CPrototypeFragment, span)
+                    .with_fix(Fix::safe_edit(Edit::insertion(span.start.offset + 1, " "))),
+            );
         }
     }
 
@@ -1642,6 +1645,14 @@ fi
         assert_eq!(diagnostics[0].rule, Rule::CPrototypeFragment);
         assert_eq!(diagnostics[0].span.start.line, 2);
         assert_eq!(diagnostics[0].span.start.column, 3);
+        assert_eq!(
+            diagnostics[0].fix.as_ref().map(|fix| fix.applicability()),
+            Some(Applicability::Safe)
+        );
+        assert_eq!(
+            diagnostics[0].fix_title.as_deref(),
+            Some("insert a space after `&`")
+        );
     }
 
     #[test]
