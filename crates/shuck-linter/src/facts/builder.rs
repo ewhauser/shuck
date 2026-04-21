@@ -180,6 +180,8 @@ impl<'a> LinterFactsBuilder<'a> {
                 declaration_assignment_probes,
                 glued_closing_bracket_operand_span,
                 glued_closing_bracket_insert_offset,
+                linebreak_in_test_anchor_span: None,
+                linebreak_in_test_insert_offset: None,
                 simple_test,
                 conditional,
             });
@@ -319,7 +321,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 binding_target_spans.entry(binding.id).or_insert(*target_span);
             }
         }
-
+        populate_linebreak_in_test_facts(&mut commands, self.source);
         let substitution_facts =
             build_substitution_facts(&commands, &command_ids_by_span, self.source);
         for (fact, substitutions) in commands.iter_mut().zip(substitution_facts) {
@@ -634,4 +636,58 @@ impl<'a> LinterFactsBuilder<'a> {
             conditional_portability,
         }
     }
+}
+
+fn populate_linebreak_in_test_facts(commands: &mut [CommandFact<'_>], source: &str) {
+    for index in 0..commands.len().saturating_sub(1) {
+        let (current_slice, next_slice) = commands.split_at_mut(index + 1);
+        let current = &mut current_slice[index];
+        let next = &next_slice[0];
+        let Some((anchor_span, insert_offset)) =
+            build_linebreak_in_test_site(current, next, source)
+        else {
+            continue;
+        };
+
+        current.linebreak_in_test_anchor_span = Some(anchor_span);
+        current.linebreak_in_test_insert_offset = Some(insert_offset);
+    }
+}
+
+fn build_linebreak_in_test_site(
+    current: &CommandFact<'_>,
+    next: &CommandFact<'_>,
+    source: &str,
+) -> Option<(Span, usize)> {
+    if !current.static_utility_name_is("[")
+        || !next.static_utility_name_is("]")
+        || !next.body_args().is_empty()
+    {
+        return None;
+    }
+
+    let last_arg_is_closing_bracket = current
+        .body_args()
+        .last()
+        .and_then(|word| static_word_text(word, source))
+        .as_deref()
+        == Some("]");
+    let current_span = current.span();
+    if last_arg_is_closing_bracket || !current_span.slice(source).ends_with('\n') {
+        return None;
+    }
+
+    let between = source.get(current_span.end.offset..next.span().start.offset)?;
+    if !between.chars().all(|char| matches!(char, ' ' | '\t')) {
+        return None;
+    }
+
+    let anchor_span = current
+        .body_args()
+        .last()
+        .map(|word| word.span)
+        .or_else(|| current.body_name_word().map(|word| word.span))
+        .map(|span| Span::from_positions(span.end, span.end))
+        .unwrap_or_else(|| Span::from_positions(current_span.end, current_span.end));
+    Some((anchor_span, current_span.end.offset - 1))
 }

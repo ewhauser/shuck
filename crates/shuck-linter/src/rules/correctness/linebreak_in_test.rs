@@ -1,10 +1,10 @@
-use shuck_ast::Span;
-
-use crate::{Checker, Rule, Violation, static_word_text};
+use crate::{Checker, Edit, Fix, FixAvailability, Rule, Violation};
 
 pub struct LinebreakInTest;
 
 impl Violation for LinebreakInTest {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::LinebreakInTest
     }
@@ -12,67 +12,38 @@ impl Violation for LinebreakInTest {
     fn message(&self) -> String {
         "`[` test spans lines without a trailing `\\` before the newline".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("insert a trailing `\\` before the newline".to_owned())
+    }
 }
 
 pub fn linebreak_in_test(checker: &mut Checker) {
-    let spans = checker
+    let diagnostics = checker
         .facts()
         .commands()
-        .windows(2)
-        .filter_map(|pair| {
-            let [current, next] = pair else {
-                return None;
-            };
-            linebreak_in_test_span(current, next, checker.source())
+        .iter()
+        .filter_map(|fact| {
+            let anchor_span = fact.linebreak_in_test_anchor_span()?;
+            let insert_offset = fact.linebreak_in_test_insert_offset()?;
+            Some(
+                crate::Diagnostic::new(LinebreakInTest, anchor_span)
+                    .with_fix(Fix::unsafe_edit(Edit::insertion(insert_offset, "\\"))),
+            )
         })
         .collect::<Vec<_>>();
 
-    checker.report_all(spans, || LinebreakInTest);
-}
-
-fn linebreak_in_test_span(
-    current: &crate::CommandFact<'_>,
-    next: &crate::CommandFact<'_>,
-    source: &str,
-) -> Option<Span> {
-    if !current.static_utility_name_is("[")
-        || !next.static_utility_name_is("]")
-        || !next.body_args().is_empty()
-    {
-        return None;
+    for diagnostic in diagnostics {
+        checker.report_diagnostic(diagnostic);
     }
-
-    let last_arg_is_closing_bracket = current
-        .body_args()
-        .last()
-        .and_then(|word| static_word_text(word, source))
-        .as_deref()
-        == Some("]");
-    if last_arg_is_closing_bracket || !current.span().slice(source).ends_with('\n') {
-        return None;
-    }
-    let between = source.get(current.span().end.offset..next.span().start.offset)?;
-    if !between.chars().all(|char| matches!(char, ' ' | '\t')) {
-        return None;
-    }
-
-    let anchor = current
-        .body_args()
-        .last()
-        .map(|word| word.span)
-        .or_else(|| current.body_name_word().map(|word| word.span))
-        .unwrap_or(current.span());
-    span_end_point(anchor)
-}
-
-fn span_end_point(span: Span) -> Option<Span> {
-    Some(Span::from_positions(span.end, span.end))
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use std::path::Path;
+
+    use crate::test::{test_path_with_fix, test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, assert_diagnostics_diff};
 
     #[test]
     fn reports_linebreak_between_open_and_close_brackets() {
@@ -107,6 +78,65 @@ mod tests {
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LinebreakInTest));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn attaches_unsafe_fix_metadata() {
+        let source = "#!/bin/sh\nif [ \"$x\" = y\n]; then :; fi\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LinebreakInTest));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].fix.as_ref().map(|fix| fix.applicability()),
+            Some(Applicability::Unsafe)
+        );
+        assert_eq!(
+            diagnostics[0].fix_title.as_deref(),
+            Some("insert a trailing `\\` before the newline")
+        );
+    }
+
+    #[test]
+    fn applies_unsafe_fix_to_split_bracket_tests() {
+        let source = "\
+#!/bin/sh
+if [ \"$x\" = y
+]; then :; fi
+
+if [ \"$x\" = z
+]; then :; fi
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::LinebreakInTest),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/sh
+if [ \"$x\" = y\\
+]; then :; fi
+
+if [ \"$x\" = z\\
+]; then :; fi
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn snapshots_unsafe_fix_output_for_fixture() -> anyhow::Result<()> {
+        let result = test_path_with_fix(
+            Path::new("correctness").join("C040.sh").as_path(),
+            &LinterSettings::for_rule(Rule::LinebreakInTest),
+            Applicability::Unsafe,
+        )?;
+
+        assert_diagnostics_diff!("C040_fix_C040.sh", result);
+        Ok(())
     }
 
     #[test]

@@ -931,6 +931,51 @@ fn records_glued_closing_bracket_operand_spans_for_unary_tests() {
 }
 
 #[test]
+fn records_linebreak_in_test_fix_sites() {
+    let source = "\
+#!/bin/sh
+if [ \"$x\" = y
+]; then :; fi
+if [ \"$x\" = y \\
+]; then :; fi
+if [ \"$x\" = y ]; then :; fi
+";
+
+    with_facts(source, None, |_, facts| {
+        let commands = facts.structural_commands().collect::<Vec<_>>();
+        let broken = commands
+            .iter()
+            .find(|fact| fact.static_utility_name_is("[") && fact.span().start.line == 2)
+            .expect("expected broken bracket test");
+        let continued = commands
+            .iter()
+            .find(|fact| fact.static_utility_name_is("[") && fact.span().start.line == 4)
+            .expect("expected continued bracket test");
+        let single_line = commands
+            .iter()
+            .find(|fact| fact.static_utility_name_is("[") && fact.span().start.line == 6)
+            .expect("expected single-line bracket test");
+
+        assert_eq!(
+            broken
+                .linebreak_in_test_anchor_span()
+                .map(|span| (span.start.line, span.start.column)),
+            Some((2, 14))
+        );
+        assert_eq!(
+            broken
+                .linebreak_in_test_insert_offset()
+                .map(|offset| &source[offset..offset + 1]),
+            Some("\n")
+        );
+        assert_eq!(continued.linebreak_in_test_anchor_span(), None);
+        assert_eq!(continued.linebreak_in_test_insert_offset(), None);
+        assert_eq!(single_line.linebreak_in_test_anchor_span(), None);
+        assert_eq!(single_line.linebreak_in_test_insert_offset(), None);
+    });
+}
+
+#[test]
 fn collects_bare_command_name_assignment_spans() {
     let source = "\
 #!/bin/sh
