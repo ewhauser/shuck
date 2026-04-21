@@ -1,0 +1,43 @@
+---
+source: crates/shuck-linter/src/rules/style/egrep_deprecated.rs
+assertion_line: 124
+---
+Diagnostics:
+S060 use `grep -E` instead of `egrep`
+ --> <source>:2:1
+  |
+2 | egrep foo file
+  |
+
+S060 use `grep -E` instead of `egrep`
+ --> <source>:3:1
+  |
+3 | egrep
+  |
+
+
+Applied fixes: 2
+
+Diff:
+--- before
++++ after
+@@ -1,6 +1,6 @@
+ #!/bin/sh
+-egrep foo file
+-egrep
++grep -E foo file
++grep -E
+ command egrep foo file
+ sudo egrep foo file
+ grep -E foo file
+
+Fixed source:
+#!/bin/sh
+grep -E foo file
+grep -E
+command egrep foo file
+sudo egrep foo file
+grep -E foo file
+
+Remaining diagnostics:
+<none>

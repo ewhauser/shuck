@@ -1,0 +1,45 @@
+---
+source: crates/shuck-linter/src/rules/portability/ampersand_redirection.rs
+---
+Diagnostics:
+X012 use of `&>` is not portable in `sh`
+ --> <source>:2:3
+  |
+2 | : &>out
+  |
+
+X012 use of `&>` is not portable in `sh`
+ --> <source>:3:9
+  |
+3 | echo ok &> /dev/null
+  |
+
+X012 use of `&>` is not portable in `sh`
+ --> <source>:4:10
+  |
+4 | echo foo1&>out
+  |
+
+
+Applied fixes: 3
+
+Diff:
+--- before
++++ after
+@@ -1,4 +1,4 @@
+ #!/bin/sh
+-: &>out
+-echo ok &> /dev/null
+-echo foo1&>out
++: >out 2>&1
++echo ok > /dev/null 2>&1
++echo foo1>out 2>&1
+
+Fixed source:
+#!/bin/sh
+: >out 2>&1
+echo ok > /dev/null 2>&1
+echo foo1>out 2>&1
+
+Remaining diagnostics:
+<none>

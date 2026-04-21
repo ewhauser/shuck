@@ -342,6 +342,114 @@ fn check_unsafe_fixes_applies_safe_s074_fix() {
 }
 
 #[test]
+fn check_fix_leaves_unsafe_s059_file_unchanged() {
+    let tempdir = tempdir().unwrap();
+    let script = tempdir.path().join("warn.sh");
+    let source = "#!/bin/sh\ntempfile -n \"$TMPDIR/Xauthority\"\n";
+    fs::write(&script, source).unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--fix", "--select", "S059"]);
+    cmd.assert()
+        .code(1)
+        .stdout(predicate::str::contains("warning[S059]:"));
+
+    assert_eq!(fs::read_to_string(script).unwrap(), source);
+}
+
+#[test]
+fn check_unsafe_fixes_applies_s059_fix() {
+    let tempdir = tempdir().unwrap();
+    let script = tempdir.path().join("warn.sh");
+    fs::write(&script, "#!/bin/sh\ntempfile -n \"$TMPDIR/Xauthority\"\n").unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--unsafe-fixes", "--select", "S059"]);
+    cmd.assert().success().stdout("");
+
+    assert_eq!(
+        fs::read_to_string(script).unwrap(),
+        "#!/bin/sh\nmktemp -n \"$TMPDIR/Xauthority\"\n"
+    );
+}
+
+#[test]
+fn check_fix_leaves_unsafe_s060_file_unchanged() {
+    let tempdir = tempdir().unwrap();
+    let script = tempdir.path().join("warn.sh");
+    let source = "#!/bin/sh\negrep foo file\n";
+    fs::write(&script, source).unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--fix", "--select", "S060"]);
+    cmd.assert()
+        .code(1)
+        .stdout(predicate::str::contains("warning[S060]:"));
+
+    assert_eq!(fs::read_to_string(script).unwrap(), source);
+}
+
+#[test]
+fn check_unsafe_fixes_applies_s060_fix() {
+    let tempdir = tempdir().unwrap();
+    let script = tempdir.path().join("warn.sh");
+    fs::write(&script, "#!/bin/sh\negrep foo file\n").unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--unsafe-fixes", "--select", "S060"]);
+    cmd.assert().success().stdout("");
+
+    assert_eq!(
+        fs::read_to_string(script).unwrap(),
+        "#!/bin/sh\ngrep -E foo file\n"
+    );
+}
+
+#[test]
+fn check_fix_leaves_unsafe_s061_file_unchanged() {
+    let tempdir = tempdir().unwrap();
+    let script = tempdir.path().join("warn.sh");
+    let source = "#!/bin/sh\nfgrep foo file\n";
+    fs::write(&script, source).unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--fix", "--select", "S061"]);
+    cmd.assert()
+        .code(1)
+        .stdout(predicate::str::contains("warning[S061]:"));
+
+    assert_eq!(fs::read_to_string(script).unwrap(), source);
+}
+
+#[test]
+fn check_unsafe_fixes_applies_s061_fix() {
+    let tempdir = tempdir().unwrap();
+    let script = tempdir.path().join("warn.sh");
+    fs::write(&script, "#!/bin/sh\nfgrep foo file\n").unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--unsafe-fixes", "--select", "S061"]);
+    cmd.assert().success().stdout("");
+
+    assert_eq!(
+        fs::read_to_string(script).unwrap(),
+        "#!/bin/sh\ngrep -F foo file\n"
+    );
+}
+
+#[test]
 fn check_cli_select_replaces_config_selection() {
     let tempdir = tempdir().unwrap();
     fs::write(

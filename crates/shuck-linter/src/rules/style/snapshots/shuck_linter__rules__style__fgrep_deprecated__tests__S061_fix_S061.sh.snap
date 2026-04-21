@@ -1,0 +1,43 @@
+---
+source: crates/shuck-linter/src/rules/style/fgrep_deprecated.rs
+assertion_line: 124
+---
+Diagnostics:
+S061 use `grep -F` instead of `fgrep`
+ --> <source>:2:1
+  |
+2 | fgrep foo file
+  |
+
+S061 use `grep -F` instead of `fgrep`
+ --> <source>:3:1
+  |
+3 | fgrep
+  |
+
+
+Applied fixes: 2
+
+Diff:
+--- before
++++ after
+@@ -1,6 +1,6 @@
+ #!/bin/sh
+-fgrep foo file
+-fgrep
++grep -F foo file
++grep -F
+ command fgrep foo file
+ sudo fgrep foo file
+ grep -F foo file
+
+Fixed source:
+#!/bin/sh
+grep -F foo file
+grep -F
+command fgrep foo file
+sudo fgrep foo file
+grep -F foo file
+
+Remaining diagnostics:
+<none>

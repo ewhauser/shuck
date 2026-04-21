@@ -1,0 +1,42 @@
+---
+source: crates/shuck-linter/src/rules/style/deprecated_tempfile_command.rs
+---
+Diagnostics:
+S059 use `mktemp` instead of `tempfile`
+ --> <source>:2:1
+  |
+2 | tempfile -n "$TMPDIR/Xauthority"
+  |
+
+S059 use `mktemp` instead of `tempfile`
+ --> <source>:3:1
+  |
+3 | tempfile
+  |
+
+
+Applied fixes: 2
+
+Diff:
+--- before
++++ after
+@@ -1,6 +1,6 @@
+ #!/bin/sh
+-tempfile -n "$TMPDIR/Xauthority"
+-tempfile
++mktemp -n "$TMPDIR/Xauthority"
++mktemp
+ command tempfile -n "$TMPDIR/Xauthority"
+ sudo tempfile -n "$TMPDIR/Xauthority"
+ alias tempfile=mktemp
+
+Fixed source:
+#!/bin/sh
+mktemp -n "$TMPDIR/Xauthority"
+mktemp
+command tempfile -n "$TMPDIR/Xauthority"
+sudo tempfile -n "$TMPDIR/Xauthority"
+alias tempfile=mktemp
+
+Remaining diagnostics:
+<none>
