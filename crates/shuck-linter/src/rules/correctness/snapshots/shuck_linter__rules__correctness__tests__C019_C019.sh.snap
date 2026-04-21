@@ -19,3 +19,9 @@ C019 this string test checks a fixed literal
   |
 6 | [[ -z baz ]]
   |
+
+C019 this string test checks a fixed literal
+ --> <source>:7:21
+  |
+7 | [ -z "${rootfs_path}_path" ]
+  |

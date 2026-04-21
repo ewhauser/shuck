@@ -1,0 +1,66 @@
+---
+source: crates/shuck-linter/src/rules/correctness/literal_unary_string_test.rs
+assertion_line: 368
+---
+Diagnostics:
+C019 this string test checks a fixed literal
+ --> <source>:4:6
+  |
+4 | [ -z foo ]
+  |
+
+C019 this string test checks a fixed literal
+ --> <source>:5:9
+  |
+5 | test -n bar
+  |
+
+C019 this string test checks a fixed literal
+ --> <source>:6:7
+  |
+6 | [[ -z baz ]]
+  |
+
+C019 this string test checks a fixed literal
+ --> <source>:7:21
+  |
+7 | [ -z "${rootfs_path}_path" ]
+  |
+
+
+Applied fixes: 4
+
+Diff:
+--- before
++++ after
+@@ -1,10 +1,10 @@
+ #!/bin/bash
+ 
+ # Invalid: unary string tests on literals are always fixed
+-[ -z foo ]
+-test -n bar
+-[[ -z baz ]]
+-[ -z "${rootfs_path}_path" ]
++[ -z x ]
++test -n x
++[[ -z x ]]
++[ -z x ]
+ 
+ # Valid: checking runtime values is meaningful
+ [ -z "$value" ]
+
+Fixed source:
+#!/bin/bash
+
+# Invalid: unary string tests on literals are always fixed
+[ -z x ]
+test -n x
+[[ -z x ]]
+[ -z x ]
+
+# Valid: checking runtime values is meaningful
+[ -z "$value" ]
+[[ -n $value ]]
+
+Remaining diagnostics:
+<none>

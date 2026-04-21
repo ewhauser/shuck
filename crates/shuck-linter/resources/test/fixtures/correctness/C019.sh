@@ -4,6 +4,7 @@
 [ -z foo ]
 test -n bar
 [[ -z baz ]]
+[ -z "${rootfs_path}_path" ]
 
 # Valid: checking runtime values is meaningful
 [ -z "$value" ]
