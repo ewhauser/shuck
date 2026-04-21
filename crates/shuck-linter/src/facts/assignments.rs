@@ -1,6 +1,6 @@
 #[derive(Debug, Clone)]
 pub struct DeclarationAssignmentProbe {
-    kind: command::DeclarationKind,
+    kind: DeclarationKind,
     readonly_flag: bool,
     target_name: Box<str>,
     target_name_span: Span,
@@ -8,7 +8,7 @@ pub struct DeclarationAssignmentProbe {
 }
 
 impl DeclarationAssignmentProbe {
-    pub fn kind(&self) -> &command::DeclarationKind {
+    pub fn kind(&self) -> &DeclarationKind {
         &self.kind
     }
 
@@ -2028,9 +2028,7 @@ fn build_simple_command_declaration_assignment_probes<'a>(
     let word_groups = contiguous_word_groups(normalized.body_args());
     let readonly_flag = matches!(
         kind,
-        command::DeclarationKind::Local
-            | command::DeclarationKind::Declare
-            | command::DeclarationKind::Typeset
+        DeclarationKind::Local | DeclarationKind::Declare | DeclarationKind::Typeset
     ) && simple_command_declaration_readonly_flag(&word_groups, source);
 
     word_groups
@@ -2080,13 +2078,13 @@ fn contiguous_word_groups<'a>(words: &'a [&'a Word]) -> Vec<&'a [&'a Word]> {
     groups
 }
 
-fn simple_command_declaration_kind(name: Option<&str>) -> Option<command::DeclarationKind> {
+fn simple_command_declaration_kind(name: Option<&str>) -> Option<DeclarationKind> {
     match name? {
-        "export" => Some(command::DeclarationKind::Export),
-        "local" => Some(command::DeclarationKind::Local),
-        "declare" => Some(command::DeclarationKind::Declare),
-        "typeset" => Some(command::DeclarationKind::Typeset),
-        "readonly" => Some(command::DeclarationKind::Other("readonly".to_owned())),
+        "export" => Some(DeclarationKind::Export),
+        "local" => Some(DeclarationKind::Local),
+        "declare" => Some(DeclarationKind::Declare),
+        "typeset" => Some(DeclarationKind::Typeset),
+        "readonly" => Some(DeclarationKind::Other("readonly".to_owned())),
         _ => None,
     }
 }

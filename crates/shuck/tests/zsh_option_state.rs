@@ -7,7 +7,9 @@ use std::process::Command;
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use shuck_indexer::Indexer;
-use shuck_linter::{Checker, RuleSet, ShellDialect, classify_file_context};
+use shuck_linter::{
+    Checker, ExpansionContext, RuleSet, ShellDialect, WordFactContext, classify_file_context,
+};
 use shuck_parser::parser::Parser;
 use shuck_parser::{ShellDialect as ParseShellDialect, ShellProfile};
 use shuck_semantic::{OptionValue, SemanticBuildOptions, SemanticModel, ZshOptionState};
@@ -213,7 +215,10 @@ fn run_fixture(fixture: &Fixture) -> Result<()> {
         })?;
         let word_fact = checker
             .facts()
-            .any_word_fact(target.span)
+            .word_fact(
+                target.span,
+                WordFactContext::Expansion(ExpansionContext::CommandArgument),
+            )
             .with_context(|| {
                 format!(
                     "fixture `{}` probe `{probe_id}` missing command-argument word fact",

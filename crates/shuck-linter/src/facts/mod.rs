@@ -39,7 +39,7 @@ use crate::rules::common::span::{
     expansion_part_spans, word_unbraced_variable_before_bracket_spans,
 };
 use crate::rules::common::{
-    command::{self, NormalizedCommand, WrapperKind},
+    command::{self, DeclarationKind, NormalizedCommand, NormalizedDeclaration, WrapperKind},
     query::{self, CommandSubstitutionKind, CommandVisit, CommandWalkOptions},
     span,
     word::{

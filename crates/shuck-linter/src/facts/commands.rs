@@ -121,7 +121,7 @@ impl<'a> CommandFact<'a> {
         self.normalized.has_wrapper(wrapper)
     }
 
-    pub fn declaration(&self) -> Option<&command::NormalizedDeclaration<'a>> {
+    pub fn declaration(&self) -> Option<&NormalizedDeclaration<'a>> {
         self.normalized.declaration.as_ref()
     }
 

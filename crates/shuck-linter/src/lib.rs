@@ -78,13 +78,19 @@ pub use rule_metadata::{RuleMetadata, rule_metadata, rule_metadata_by_code};
 pub use rule_selector::{RuleSelector, SelectorParseError};
 /// Sets of enabled or disabled rules.
 pub use rule_set::RuleSet;
-#[allow(unused_imports)]
-pub(crate) use rules::common::command::{DeclarationKind, WrapperKind};
+/// Command normalization helper types exposed by fact APIs.
+pub use rules::common::command::{
+    DeclarationKind, NormalizedCommand, NormalizedDeclaration, WrapperKind,
+};
 pub(crate) use rules::common::expansion::{ComparablePathKey, comparable_path};
-#[allow(unused_imports)]
-pub(crate) use rules::common::expansion::{ExpansionContext, WordQuote};
-#[allow(unused_imports)]
-pub(crate) use rules::common::query::CommandSubstitutionKind;
+/// Expansion-analysis helper types exposed by fact APIs.
+pub use rules::common::expansion::{
+    ExpansionAnalysis, ExpansionContext, ExpansionHazards, ExpansionValueShape,
+    RedirectDevNullStatus, RedirectTargetAnalysis, RedirectTargetKind, RuntimeLiteralAnalysis,
+    SubstitutionOutputIntent, WordExpansionKind, WordLiteralness, WordQuote, WordSubstitutionShape,
+};
+/// Command-substitution classification exposed by fact APIs.
+pub use rules::common::query::CommandSubstitutionKind;
 #[allow(unused_imports)]
 pub(crate) use rules::common::safe_value::{SafeValueIndex, SafeValueQuery};
 #[allow(unused_imports)]
@@ -114,12 +120,13 @@ pub(crate) use rules::common::span::{
     word_unquoted_star_splat_spans, word_unquoted_word_after_single_quoted_segment_spans,
     word_use_replacement_spans, word_zsh_flag_modifier_spans, word_zsh_nested_expansion_spans,
 };
+/// Word and test-classification types exposed by fact APIs.
+pub use rules::common::word::{TestOperandClass, WordClassification};
 #[allow(unused_imports)]
 pub(crate) use rules::common::word::{
-    TestOperandClass, WordClassification, conditional_binary_op_is_string_match,
-    is_shell_variable_name, static_word_text, text_is_self_contained_arithmetic_expression,
-    text_looks_like_nontrivial_arithmetic_expression, word_is_standalone_status_capture,
-    word_is_standalone_variable_like,
+    conditional_binary_op_is_string_match, is_shell_variable_name, static_word_text,
+    text_is_self_contained_arithmetic_expression, text_looks_like_nontrivial_arithmetic_expression,
+    word_is_standalone_status_capture, word_is_standalone_variable_like,
 };
 /// Linter configuration and per-file ignore types.
 pub use settings::{CompiledPerFileIgnoreList, LinterSettings, PerFileIgnore};
