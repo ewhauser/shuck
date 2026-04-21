@@ -40,7 +40,7 @@ pub(crate) struct DiscoveredFile {
     pub project_root: ProjectRoot,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct DiscoveryOptions {
     pub exclude_patterns: Vec<String>,
     pub extend_exclude_patterns: Vec<String>,
@@ -48,6 +48,21 @@ pub(crate) struct DiscoveryOptions {
     pub force_exclude: bool,
     pub parallel: bool,
     pub cache_root: Option<PathBuf>,
+    pub use_config_roots: bool,
+}
+
+impl Default for DiscoveryOptions {
+    fn default() -> Self {
+        Self {
+            exclude_patterns: Vec::new(),
+            extend_exclude_patterns: Vec::new(),
+            respect_gitignore: false,
+            force_exclude: false,
+            parallel: false,
+            cache_root: None,
+            use_config_roots: true,
+        }
+    }
 }
 
 pub(crate) fn discover_files(
@@ -82,7 +97,7 @@ pub(crate) fn discover_files(
             continue;
         }
 
-        let storage_root = resolve_project_root_for_input(&input)
+        let storage_root = resolve_project_root_for_input(&input, options.use_config_roots)
             .with_context(|| format!("resolve project root for {}", input.display()))?;
         let canonical_root = fs::canonicalize(&storage_root)
             .with_context(|| format!("canonicalize {}", storage_root.display()))?;
@@ -134,7 +149,14 @@ fn collect_input(
             .parent()
             .map(Path::to_path_buf)
             .unwrap_or_else(|| PathBuf::from("."));
-        add_file(input, cwd, &fallback_start, project_root, files)?;
+        add_file(
+            input,
+            cwd,
+            &fallback_start,
+            project_root,
+            options.use_config_roots,
+            files,
+        )?;
     }
 
     Ok(())
@@ -161,6 +183,7 @@ fn collect_directory(
             cwd,
             project_root,
             exclude_matcher,
+            options.use_config_roots,
             &mut builder,
             files,
         );
@@ -183,7 +206,14 @@ fn collect_directory(
             continue;
         }
 
-        add_file(path, cwd, input, project_root, files)?;
+        add_file(
+            path,
+            cwd,
+            input,
+            project_root,
+            options.use_config_roots,
+            files,
+        )?;
     }
 
     Ok(())
@@ -194,6 +224,7 @@ fn collect_directory_parallel(
     cwd: &Path,
     project_root: &ProjectRoot,
     exclude_matcher: &ExcludeMatcher,
+    use_config_roots: bool,
     builder: &mut WalkBuilder,
     files: &mut BTreeMap<PathBuf, DiscoveredFile>,
 ) -> Result<()> {
@@ -215,7 +246,14 @@ fn collect_directory_parallel(
     let mut matched_paths = state.matched_paths.into_inner().unwrap();
     matched_paths.sort();
     for matched_path in matched_paths {
-        add_file(&matched_path, cwd, input, project_root, files)?;
+        add_file(
+            &matched_path,
+            cwd,
+            input,
+            project_root,
+            use_config_roots,
+            files,
+        )?;
     }
 
     Ok(())
@@ -469,11 +507,12 @@ pub(crate) fn add_file(
     cwd: &Path,
     fallback_start: &Path,
     default_project_root: &ProjectRoot,
+    use_config_roots: bool,
     files: &mut BTreeMap<PathBuf, DiscoveredFile>,
 ) -> Result<()> {
     let absolute_path =
         fs::canonicalize(path).with_context(|| format!("canonicalize {}", path.display()))?;
-    let storage_root = resolve_project_root_for_file(path, fallback_start)
+    let storage_root = resolve_project_root_for_file(path, fallback_start, use_config_roots)
         .with_context(|| format!("resolve project root for {}", path.display()))?;
     let canonical_root = fs::canonicalize(&storage_root)
         .with_context(|| format!("canonicalize {}", storage_root.display()))?;

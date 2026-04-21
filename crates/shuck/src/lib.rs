@@ -12,7 +12,8 @@ use std::process::ExitCode;
 
 use anyhow::Result;
 
-use crate::args::{Args, Command, FormatCommand};
+use crate::args::{Args, Command, FormatCommand, TerminalColor};
+use crate::config::ConfigArguments;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ExitStatus {
@@ -32,11 +33,21 @@ impl From<ExitStatus> for ExitCode {
 }
 
 pub fn run(args: Args) -> Result<ExitStatus> {
-    let Args { cache_dir, command } = args;
+    let Args {
+        cache_dir,
+        config,
+        color,
+        command,
+    } = args;
+
+    if let Some(color_override) = colored_override(color, std::env::var_os("FORCE_COLOR")) {
+        colored::control::set_override(color_override);
+    }
+
     match command {
         Command::Check(command) => commands::check::check(command, cache_dir.as_deref()),
-        Command::Format(command) => format(command, cache_dir.as_deref()),
-        Command::Clean(command) => commands::clean::clean(command, cache_dir.as_deref()),
+        Command::Format(command) => format(command, &config, cache_dir.as_deref()),
+        Command::Clean(command) => commands::clean::clean(command, &config, cache_dir.as_deref()),
     }
 }
 
@@ -49,14 +60,18 @@ pub fn benchmark_check_paths(
     commands::check::benchmark_check_paths(cwd, paths, output_format)
 }
 
-fn format(mut args: FormatCommand, cache_dir: Option<&Path>) -> Result<ExitStatus> {
+fn format(
+    mut args: FormatCommand,
+    config_arguments: &ConfigArguments,
+    cache_dir: Option<&Path>,
+) -> Result<ExitStatus> {
     let stdin = is_stdin(&args.files, args.stdin_filename.as_deref());
     args.files = resolve_default_files(args.files, stdin);
 
     if stdin {
-        commands::format_stdin::format_stdin(args)
+        commands::format_stdin::format_stdin(args, config_arguments)
     } else {
-        commands::format::format(args, cache_dir)
+        commands::format::format(args, config_arguments, cache_dir)
     }
 }
 
@@ -77,5 +92,40 @@ fn resolve_default_files(files: Vec<PathBuf>, is_stdin: bool) -> Vec<PathBuf> {
         }
     } else {
         files
+    }
+}
+
+fn colored_override(
+    color: Option<TerminalColor>,
+    env_force_color: Option<std::ffi::OsString>,
+) -> Option<bool> {
+    match color {
+        Some(TerminalColor::Always) => Some(true),
+        Some(TerminalColor::Never) => Some(false),
+        Some(TerminalColor::Auto) | None => {
+            env_force_color.map(|force_color| !force_color.is_empty())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn force_color_env_is_respected() {
+        assert_eq!(colored_override(None, Some("1".into())), Some(true));
+    }
+
+    #[test]
+    fn cli_color_overrides_force_color_env() {
+        assert_eq!(
+            colored_override(Some(TerminalColor::Never), Some("1".into())),
+            Some(false)
+        );
+        assert_eq!(
+            colored_override(Some(TerminalColor::Always), None),
+            Some(true)
+        );
     }
 }

@@ -4,7 +4,7 @@ use anyhow::{Result, anyhow};
 use shuck_cache::{CacheKey, CacheKeyHasher};
 use shuck_formatter::{IndentStyle, ShellDialect, ShellFormatOptions};
 
-use crate::config::load_project_config;
+use crate::config::{ConfigArguments, load_project_config};
 
 const CLI_INDENT_WIDTH_ERROR: &str = "`--indent-width` must be at least 1";
 const CONFIG_INDENT_WIDTH_ERROR: &str = "`[format].indent-width` must be at least 1";
@@ -98,9 +98,10 @@ impl ResolvedFormatSettings {
 
 pub(crate) fn resolve_project_format_settings(
     project_root: &Path,
+    config_arguments: &ConfigArguments,
     cli_patch: FormatSettingsPatch,
 ) -> Result<ResolvedFormatSettings> {
-    let config = load_project_config(project_root)?;
+    let config = load_project_config(project_root, config_arguments)?;
     let config_patch = config.format.to_patch()?;
 
     let mut settings = ResolvedFormatSettings::default();
@@ -228,8 +229,12 @@ mod tests {
         args.function_next_line = true;
         args.indent_width = Some(4);
 
-        let settings =
-            resolve_project_format_settings(tempdir.path(), args.format_settings_patch()).unwrap();
+        let settings = resolve_project_format_settings(
+            tempdir.path(),
+            &ConfigArguments::default(),
+            args.format_settings_patch(),
+        )
+        .unwrap();
         let options = settings.to_shell_format_options();
 
         assert!(options.function_next_line());

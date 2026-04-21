@@ -10,9 +10,13 @@ use shuck_cache::{legacy_cache_dir, read_project_root_from_cache_file};
 use crate::ExitStatus;
 use crate::args::CleanCommand;
 use crate::cache::resolve_cache_root;
-use crate::config::resolve_project_root_for_input;
+use crate::config::{ConfigArguments, resolve_project_root_for_input};
 
-pub(crate) fn clean(args: CleanCommand, cache_dir: Option<&Path>) -> Result<ExitStatus> {
+pub(crate) fn clean(
+    args: CleanCommand,
+    config_arguments: &ConfigArguments,
+    cache_dir: Option<&Path>,
+) -> Result<ExitStatus> {
     let cwd = std::env::current_dir()?;
     let cache_root = resolve_cache_root(&cwd, cache_dir)?;
     let inputs = if args.paths.is_empty() {
@@ -33,7 +37,7 @@ pub(crate) fn clean(args: CleanCommand, cache_dir: Option<&Path>) -> Result<Exit
     let mut roots = BTreeSet::new();
     let mut canonical_roots = BTreeSet::new();
     for input in inputs {
-        let root = resolve_project_root_for_input(&input)?;
+        let root = resolve_project_root_for_input(&input, config_arguments.use_config_roots())?;
         let canonical_root =
             fs::canonicalize(&root).with_context(|| format!("canonicalize {}", root.display()))?;
         canonical_roots.insert(canonical_root);

@@ -213,6 +213,7 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path, cache_root: &Path) -> Res
             force_exclude: args.force_exclude(),
             parallel: true,
             cache_root: Some(cache_root.to_path_buf()),
+            use_config_roots: true,
         },
         cache_root,
         args.no_cache || fix_applicability.is_some(),

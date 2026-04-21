@@ -39,6 +39,9 @@ fn help_shows_commands() {
     cmd.assert()
         .success()
         .stdout(predicate::str::contains("check"))
+        .stdout(predicate::str::contains("--config <CONFIG_OPTION>"))
+        .stdout(predicate::str::contains("--isolated"))
+        .stdout(predicate::str::contains("--color <WHEN>"))
         .stdout(predicate::str::contains("Format shell files").not())
         .stdout(predicate::str::contains("clean"));
 }
@@ -105,6 +108,22 @@ fn check_help_includes_add_ignore_flag() {
         .stdout(predicate::str::contains("--add-ignore"))
         .stdout(predicate::str::contains("shuck ignore directives"))
         .stdout(predicate::str::contains("--add-noqa").not());
+}
+
+#[test]
+fn config_file_and_isolated_conflict() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("shuck.toml"), "[format]\n").unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    cmd.current_dir(tempdir.path())
+        .arg("--isolated")
+        .arg("--config")
+        .arg("shuck.toml")
+        .arg("check");
+    cmd.assert()
+        .code(2)
+        .stderr(predicate::str::contains("cannot be used with `--isolated`"));
 }
 
 #[test]
@@ -1026,6 +1045,79 @@ fn format_honors_project_config_and_cli_overrides_it() {
 }
 
 #[test]
+fn format_honors_explicit_global_config_file() {
+    let tempdir = tempdir().unwrap();
+    let config_path = tempdir.path().join("override.toml");
+    fs::write(&config_path, "[format]\nfunction-next-line = true\n").unwrap();
+    let script = tempdir.path().join("fn.sh");
+    fs::write(&script, "foo(){\necho hi\n}\n").unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    enable_experimental(&mut cmd);
+    cmd.current_dir(tempdir.path())
+        .arg("--config")
+        .arg(&config_path)
+        .arg("format");
+    cmd.assert().success().stdout("");
+
+    assert_eq!(
+        fs::read_to_string(script).unwrap(),
+        "foo()\n{\n\techo hi\n}\n"
+    );
+}
+
+#[test]
+fn format_inline_global_config_override_beats_global_config_file() {
+    let tempdir = tempdir().unwrap();
+    let config_path = tempdir.path().join("override.toml");
+    fs::write(&config_path, "[format]\nfunction-next-line = false\n").unwrap();
+    let script = tempdir.path().join("fn.sh");
+    fs::write(&script, "foo(){\necho hi\n}\n").unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    enable_experimental(&mut cmd);
+    cmd.current_dir(tempdir.path())
+        .arg("--config")
+        .arg(&config_path)
+        .arg("--config")
+        .arg("format.function-next-line = true")
+        .arg("format");
+    cmd.assert().success().stdout("");
+
+    assert_eq!(
+        fs::read_to_string(script).unwrap(),
+        "foo()\n{\n\techo hi\n}\n"
+    );
+}
+
+#[test]
+fn format_isolated_ignores_discovered_project_config() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("shuck.toml"),
+        "[format]\nfunction-next-line = true\n",
+    )
+    .unwrap();
+    let script = tempdir.path().join("fn.sh");
+    fs::write(&script, "foo(){\necho hi\n}\n").unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    enable_experimental(&mut cmd);
+    cmd.current_dir(tempdir.path())
+        .arg("--isolated")
+        .arg("format");
+    cmd.assert().success().stdout("");
+
+    assert_eq!(
+        fs::read_to_string(script).unwrap(),
+        "foo() {\n\techo hi\n}\n"
+    );
+}
+
+#[test]
 fn format_prefers_nested_project_config_for_explicit_files() {
     let tempdir = tempdir().unwrap();
     let nested = tempdir.path().join("nested");
@@ -1172,4 +1264,35 @@ fn clean_only_removes_selected_project_entries_from_shared_cache() {
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
     assert_eq!(remaining_entries.len(), 1);
+}
+
+#[test]
+fn check_color_always_forces_ansi_output() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("broken.sh"), "#!/bin/bash\nif true\n").unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    cmd.current_dir(tempdir.path())
+        .arg("--color")
+        .arg("always")
+        .arg("check");
+    cmd.assert()
+        .code(1)
+        .stdout(predicate::str::contains("\u{1b}["));
+}
+
+#[test]
+fn check_color_never_overrides_force_color_env() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("broken.sh"), "#!/bin/bash\nif true\n").unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    cmd.current_dir(tempdir.path())
+        .env("FORCE_COLOR", "1")
+        .arg("--color")
+        .arg("never")
+        .arg("check");
+    cmd.assert()
+        .code(1)
+        .stdout(predicate::str::contains("\u{1b}[").not());
 }
