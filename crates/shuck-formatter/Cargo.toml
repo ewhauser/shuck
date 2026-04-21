@@ -9,6 +9,7 @@ repository.workspace = true
 description = "Shell script formatter with configurable style options"
 keywords = ["shell", "bash", "formatter", "code-style"]
 categories = ["text-processing", "development-tools"]
+readme = "README.md"
 
 [features]
 benchmarking = []

@@ -1,7 +1,9 @@
 #![warn(missing_docs)]
 
-//! Formatting document model and pretty-printer primitives.
-
+//! Generic document and pretty-printing primitives used by `shuck-formatter`.
+//!
+//! This crate is shell-agnostic. It provides the document tree, formatter traits, and printer
+//! implementation that higher-level crates use to build language-specific formatting rules.
 #[allow(missing_docs)]
 mod buffer;
 #[allow(missing_docs)]
@@ -10,7 +12,7 @@ mod format_element;
 mod formatter;
 #[allow(missing_docs)]
 mod macros;
-/// Common formatting traits and helper imports.
+/// Re-exports commonly used when implementing [`crate::Format`] values.
 #[allow(missing_docs)]
 pub mod prelude;
 #[allow(missing_docs)]

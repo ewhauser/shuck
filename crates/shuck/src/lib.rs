@@ -1,9 +1,12 @@
 #![warn(missing_docs)]
 
-//! Programmatic entry points for the `shuck` CLI.
+//! Library entrypoints for the `shuck` CLI.
+//!
+//! This crate primarily exists so the command-line binary, tests, and benchmarks can share the
+//! same argument parsing and command execution code. Most users should invoke the `shuck` binary
+//! directly rather than depend on this library API.
 
-/// Command-line argument types and parsing helpers.
-#[allow(missing_docs)]
+/// Command-line argument types and parsing helpers for the `shuck` executable.
 pub mod args;
 
 mod cache;
@@ -25,12 +28,14 @@ use anyhow::Result;
 use crate::args::{Args, Command, FormatCommand, TerminalColor};
 use crate::config::ConfigArguments;
 
-/// Process exit codes returned by the CLI.
-#[allow(missing_docs)]
+/// Exit status returned by [`run`].
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ExitStatus {
+    /// The command completed successfully without reporting failures.
     Success,
+    /// The command completed, but reported lint or formatting failures.
     Failure,
+    /// The command failed due to invalid input, I/O, or another runtime error.
     Error,
 }
 
@@ -44,7 +49,7 @@ impl From<ExitStatus> for ExitCode {
     }
 }
 
-/// Runs the CLI with pre-parsed arguments.
+/// Run a parsed `shuck` command and return the resulting process status.
 pub fn run(args: Args) -> Result<ExitStatus> {
     let Args {
         cache_dir,

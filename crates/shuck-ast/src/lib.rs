@@ -1,6 +1,9 @@
 #![warn(missing_docs)]
 
-//! AST, token, and span types for parsed bash scripts.
+//! AST, token, and span types shared across the Shuck workspace.
+//!
+//! `shuck-parser` produces these data structures, while crates such as `shuck-indexer`,
+//! `shuck-linter`, `shuck-semantic`, and `shuck-formatter` consume them.
 
 #[allow(missing_docs)]
 mod ast;

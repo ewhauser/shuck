@@ -10,8 +10,11 @@ pub enum Error {
     ///
     /// When `line` and `column` are 0, the error has no source location.
     Parse {
+        /// Human-readable error message.
         message: String,
+        /// 1-based source line, or `0` when unknown.
         line: usize,
+        /// 1-based source column, or `0` when unknown.
         column: usize,
     },
 }

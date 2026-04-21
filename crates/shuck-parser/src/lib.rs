@@ -1,11 +1,14 @@
 #![warn(missing_docs)]
 
-//! Bash parser library.
+//! Shell lexer and parser APIs for the Shuck workspace.
+//!
+//! `shuck-parser` turns shell source text into `shuck-ast` syntax trees and also exposes a
+//! source-backed lexer for lower-level tooling.
 
 #[allow(missing_docs)]
 mod error;
-/// Parser entry points and low-level parser data structures.
 #[allow(missing_docs)]
+/// Parsing entrypoints, lexer types, and shell-profile configuration.
 pub mod parser;
 
 /// Error types returned by parser operations.

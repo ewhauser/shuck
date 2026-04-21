@@ -1,6 +1,7 @@
-//! Parser module for shuck
+//! Parser entrypoints, lexical types, and shell-profile configuration.
 //!
-//! Implements a recursive descent parser for bash scripts.
+//! The parser is recursive descent and produces `shuck-ast` syntax trees while also collecting
+//! recovery diagnostics and lightweight syntax facts needed by downstream tooling.
 
 // Parser uses chars().next().unwrap() after validating character presence.
 // This is safe because we check bounds before accessing.
@@ -70,23 +71,34 @@ const HARD_MAX_AST_DEPTH: usize = 100;
 /// Default maximum parser operations (matches ExecutionLimits default)
 const DEFAULT_MAX_PARSER_OPERATIONS: usize = 100_000;
 
+/// Overall outcome of a parse attempt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParseStatus {
+    /// The parse completed without recovery diagnostics.
     Clean,
+    /// The parse completed, but required recovery diagnostics.
     Recovered,
+    /// The parse failed with a terminal error.
     Fatal,
 }
 
+/// One branch separator recognized inside a zsh `case` pattern group.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ZshCaseGroupPart {
+    /// Index of the owning pattern part within the parsed pattern.
     pub pattern_part_index: usize,
+    /// Source span covering the separator syntax.
     pub span: Span,
 }
 
+/// Additional parser-owned facts that are useful to downstream consumers.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SyntaxFacts {
+    /// Spans of zsh brace-style `if` bodies.
     pub zsh_brace_if_spans: Vec<Span>,
+    /// Spans of zsh `always` clauses.
     pub zsh_always_spans: Vec<Span>,
+    /// Pattern-group separators collected from zsh `case` items.
     pub zsh_case_group_parts: Vec<ZshCaseGroupPart>,
 }
 
@@ -94,22 +106,33 @@ pub struct SyntaxFacts {
 /// syntax facts collected along the way.
 #[derive(Debug, Clone)]
 pub struct ParseResult {
+    /// Parsed syntax tree for the file.
     pub file: File,
+    /// Recovery diagnostics emitted while producing the AST.
     pub diagnostics: Vec<ParseDiagnostic>,
+    /// High-level parse status.
     pub status: ParseStatus,
+    /// Terminal parse error, when recovery could not continue.
     pub terminal_error: Option<Error>,
+    /// Additional syntax facts collected during parsing.
     pub syntax_facts: SyntaxFacts,
 }
 
 impl ParseResult {
+    /// Returns `true` when the parse completed without recovery diagnostics.
     pub fn is_ok(&self) -> bool {
         self.status == ParseStatus::Clean
     }
 
+    /// Returns `true` when the parse produced recovery diagnostics or a terminal error.
     pub fn is_err(&self) -> bool {
         !self.is_ok()
     }
 
+    /// Convert this result into a strict parse error.
+    ///
+    /// If recovery diagnostics exist but no terminal error was recorded, the first recovery
+    /// diagnostic is converted into an [`Error`].
     pub fn strict_error(&self) -> Error {
         self.terminal_error.clone().unwrap_or_else(|| {
             let diagnostic = self
@@ -124,6 +147,7 @@ impl ParseResult {
         })
     }
 
+    /// Return the parse result when it is clean, otherwise panic with the strict error.
     pub fn unwrap(self) -> Self {
         if self.is_ok() {
             self
@@ -135,6 +159,7 @@ impl ParseResult {
         }
     }
 
+    /// Return the parse result when it is clean, otherwise panic with `message`.
     pub fn expect(self, message: &str) -> Self {
         if self.is_ok() {
             self
@@ -143,6 +168,7 @@ impl ParseResult {
         }
     }
 
+    /// Return the strict parse error when the result is not clean, otherwise panic.
     pub fn unwrap_err(self) -> Error {
         if self.is_err() {
             self.strict_error()
@@ -151,6 +177,8 @@ impl ParseResult {
         }
     }
 
+    /// Return the strict parse error when the result is not clean, otherwise panic with
+    /// `message`.
     pub fn expect_err(self, message: &str) -> Error {
         if self.is_err() {
             self.strict_error()
@@ -164,8 +192,11 @@ impl ParseResult {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[doc(hidden)]
 pub struct ParserBenchmarkCounters {
+    /// Number of lexer current-position lookups performed while parsing.
     pub lexer_current_position_calls: u64,
+    /// Number of parser calls that updated the current spanned token.
     pub parser_set_current_spanned_calls: u64,
+    /// Number of raw token-advance operations performed by the parser.
     pub parser_advance_raw_calls: u64,
 }
 
@@ -242,32 +273,44 @@ enum Command {
     AnonymousFunction(AnonymousFunctionCommand, SmallVec<[Redirect; 1]>),
 }
 
+/// Supported shell dialects for parsing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum ShellDialect {
+    /// POSIX-style parsing used for `sh`, `dash`, and generic portable shell input.
     Posix,
+    /// mksh-specific parsing.
     Mksh,
+    /// Bash parsing.
     #[default]
     Bash,
+    /// zsh parsing.
     Zsh,
 }
 
+/// Tri-state option value used when modeling zsh option state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum OptionValue {
+    /// The option is enabled.
     On,
+    /// The option is disabled.
     Off,
+    /// The option value is unknown or differs across merged states.
     #[default]
     Unknown,
 }
 
 impl OptionValue {
+    /// Returns `true` when the option is known to be enabled.
     pub const fn is_definitely_on(self) -> bool {
         matches!(self, Self::On)
     }
 
+    /// Returns `true` when the option is known to be disabled.
     pub const fn is_definitely_off(self) -> bool {
         matches!(self, Self::Off)
     }
 
+    /// Merge two option values, preserving certainty only when they agree.
     pub const fn merge(self, other: Self) -> Self {
         match (self, other) {
             (Self::On, Self::On) => Self::On,
@@ -277,42 +320,75 @@ impl OptionValue {
     }
 }
 
+/// Target emulation mode for zsh's `emulate` behavior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ZshEmulationMode {
+    /// Native zsh behavior.
     Zsh,
+    /// `sh` compatibility mode.
     Sh,
+    /// `ksh` compatibility mode.
     Ksh,
+    /// `csh` compatibility mode.
     Csh,
 }
 
+/// Snapshot of zsh option state used by the parser and lexer.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ZshOptionState {
+    /// State of the `sh_word_split` option.
     pub sh_word_split: OptionValue,
+    /// State of the `glob_subst` option.
     pub glob_subst: OptionValue,
+    /// State of the `rc_expand_param` option.
     pub rc_expand_param: OptionValue,
+    /// State of the `glob` option.
     pub glob: OptionValue,
+    /// State of the `nomatch` option.
     pub nomatch: OptionValue,
+    /// State of the `null_glob` option.
     pub null_glob: OptionValue,
+    /// State of the `csh_null_glob` option.
     pub csh_null_glob: OptionValue,
+    /// State of the `extended_glob` option.
     pub extended_glob: OptionValue,
+    /// State of the `ksh_glob` option.
     pub ksh_glob: OptionValue,
+    /// State of the `sh_glob` option.
     pub sh_glob: OptionValue,
+    /// State of the `bare_glob_qual` option.
     pub bare_glob_qual: OptionValue,
+    /// State of the `glob_dots` option.
     pub glob_dots: OptionValue,
+    /// State of the `equals` option.
     pub equals: OptionValue,
+    /// State of the `magic_equal_subst` option.
     pub magic_equal_subst: OptionValue,
+    /// State of the `sh_file_expansion` option.
     pub sh_file_expansion: OptionValue,
+    /// State of the `glob_assign` option.
     pub glob_assign: OptionValue,
+    /// State of the `ignore_braces` option.
     pub ignore_braces: OptionValue,
+    /// State of the `ignore_close_braces` option.
     pub ignore_close_braces: OptionValue,
+    /// State of the `brace_ccl` option.
     pub brace_ccl: OptionValue,
+    /// State of the `ksh_arrays` option.
     pub ksh_arrays: OptionValue,
+    /// State of the `ksh_zero_subscript` option.
     pub ksh_zero_subscript: OptionValue,
+    /// State of the `short_loops` option.
     pub short_loops: OptionValue,
+    /// State of the `short_repeat` option.
     pub short_repeat: OptionValue,
+    /// State of the `rc_quotes` option.
     pub rc_quotes: OptionValue,
+    /// State of the `interactive_comments` option.
     pub interactive_comments: OptionValue,
+    /// State of the `c_bases` option.
     pub c_bases: OptionValue,
+    /// State of the `octal_zeroes` option.
     pub octal_zeroes: OptionValue,
 }
 
@@ -348,6 +424,7 @@ enum ZshOptionField {
 }
 
 impl ZshOptionState {
+    /// Default zsh option state used for native zsh parsing.
     pub const fn zsh_default() -> Self {
         Self {
             sh_word_split: OptionValue::Off,
@@ -380,6 +457,7 @@ impl ZshOptionState {
         }
     }
 
+    /// Option state implied by `emulate <mode>`.
     pub fn for_emulate(mode: ZshEmulationMode) -> Self {
         let mut state = Self::zsh_default();
         match mode {
@@ -409,10 +487,16 @@ impl ZshOptionState {
         state
     }
 
+    /// Apply a zsh `setopt`-style option name.
+    ///
+    /// Returns `true` when the option name was recognized.
     pub fn apply_setopt(&mut self, name: &str) -> bool {
         self.apply_named_option(name, true)
     }
 
+    /// Apply a zsh `unsetopt`-style option name.
+    ///
+    /// Returns `true` when the option name was recognized.
     pub fn apply_unsetopt(&mut self, name: &str) -> bool {
         self.apply_named_option(name, false)
     }
@@ -481,6 +565,7 @@ impl ZshOptionState {
         }
     }
 
+    /// Merge two option snapshots field by field.
     pub fn merge(&self, other: &Self) -> Self {
         let mut merged = Self::zsh_default();
         for field in ZshOptionField::ALL {
@@ -537,13 +622,17 @@ impl ZshOptionField {
     ];
 }
 
+/// Dialect plus optional zsh option state used to configure the lexer and parser.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ShellProfile {
+    /// Shell dialect to parse.
     pub dialect: ShellDialect,
+    /// Optional zsh option state, used only for zsh parsing.
     pub options: Option<ZshOptionState>,
 }
 
 impl ShellProfile {
+    /// Build a native profile for `dialect`.
     pub fn native(dialect: ShellDialect) -> Self {
         Self {
             dialect,
@@ -551,6 +640,7 @@ impl ShellProfile {
         }
     }
 
+    /// Build a profile with explicit zsh option state.
     pub fn with_zsh_options(dialect: ShellDialect, options: ZshOptionState) -> Self {
         Self {
             dialect,
@@ -558,6 +648,7 @@ impl ShellProfile {
         }
     }
 
+    /// Borrow the zsh option state, if this profile carries one.
     pub fn zsh_options(&self) -> Option<&ZshOptionState> {
         self.options.as_ref()
     }
@@ -1361,6 +1452,7 @@ struct DialectFeatures {
 }
 
 impl ShellDialect {
+    /// Infer a shell dialect from a command or shebang name.
     pub fn from_name(name: &str) -> Self {
         match name.trim().to_ascii_lowercase().as_str() {
             "sh" | "dash" | "ksh" | "posix" => Self::Posix,
@@ -1506,7 +1598,9 @@ struct ParserCheckpoint<'a> {
 /// A parser diagnostic emitted while recovering from invalid input.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseDiagnostic {
+    /// Human-readable diagnostic message.
     pub message: String,
+    /// Source span associated with the diagnostic.
     pub span: Span,
 }
 
@@ -1758,6 +1852,7 @@ impl<'a> Parser<'a> {
         Self::with_limits_and_profile(input, max_depth, max_fuel, ShellProfile::native(dialect))
     }
 
+    /// Create a new parser with custom depth, fuel, and shell-profile settings.
     pub fn with_limits_and_profile(
         input: &'a str,
         max_depth: usize,
@@ -1857,10 +1952,12 @@ impl<'a> Parser<'a> {
         )
     }
 
+    /// Return the dialect associated with this parser.
     pub fn dialect(&self) -> ShellDialect {
         self.dialect
     }
 
+    /// Borrow the full shell profile associated with this parser.
     pub fn shell_profile(&self) -> &ShellProfile {
         &self.shell_profile
     }

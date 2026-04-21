@@ -7,11 +7,17 @@ use shuck_ast::{
 /// A syntactic region that affects lint rule behavior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RegionKind {
+    /// Text inside single quotes.
     SingleQuoted,
+    /// Text inside double quotes.
     DoubleQuoted,
+    /// A heredoc body.
     Heredoc,
+    /// A command substitution such as `$(...)` or backticks.
     CommandSubstitution,
+    /// An arithmetic context such as `$((...))` or `((...))`.
     Arithmetic,
+    /// A conditional context such as `[[ ... ]]`.
     Conditional,
 }
 

@@ -1,13 +1,14 @@
 #![warn(missing_docs)]
 
-//! Linting engine and public rule surface for shuck.
-
-#[allow(missing_docs)]
+//! Linting and fix application for shell scripts parsed by the Shuck toolchain.
+//!
+//! This crate combines parser output, semantic analysis, suppressions, and rule metadata into a
+//! diagnostics pipeline used by `shuck check`.
 mod ambient_contracts;
 #[allow(missing_docs)]
 mod checker;
-/// File-context helpers used to classify sourced and executed scripts.
 #[allow(missing_docs)]
+/// File-context classification helpers used by lint rules.
 pub mod context;
 #[allow(missing_docs)]
 mod diagnostic;
@@ -25,8 +26,8 @@ mod rule_metadata;
 mod rule_selector;
 #[allow(missing_docs)]
 mod rule_set;
-/// Built-in lint rules and rule families.
 #[allow(missing_docs)]
+/// Rule implementations and rule-oriented helper modules.
 pub mod rules;
 #[allow(missing_docs)]
 mod settings;

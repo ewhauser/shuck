@@ -9,6 +9,7 @@ repository.workspace = true
 description = "Lint rule engine and checker for shell scripts"
 keywords = ["shell", "bash", "linter", "static-analysis"]
 categories = ["development-tools"]
+readme = "README.md"
 
 [features]
 benchmarking = []

@@ -1,7 +1,9 @@
 #![warn(missing_docs)]
 
-//! Persistent file-result caching utilities for shuck.
-
+//! File-oriented cache keys and persistent package caches for Shuck.
+//!
+//! The types in this crate power the `shuck` CLI cache, but are generic enough to reuse in other
+//! Rust tooling that wants SHA-256-based cache partitioning and serialized per-file entries.
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
 use std::io::{self, BufReader, Write};

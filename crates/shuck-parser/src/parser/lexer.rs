@@ -82,16 +82,24 @@ impl TokenText<'_> {
     }
 }
 
+/// Classification of one segment inside a lexed shell word.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LexedWordSegmentKind {
+    /// Unquoted or otherwise plain text.
     Plain,
+    /// Text from a single-quoted string.
     SingleQuoted,
+    /// Text from a `$'...'` string.
     DollarSingleQuoted,
+    /// Text from a double-quoted string.
     DoubleQuoted,
+    /// Text from a `$"..."` string.
     DollarDoubleQuoted,
+    /// Text composed from multiple lexical forms.
     Composite,
 }
 
+/// One segment of a lexed shell word, optionally backed by source text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LexedWordSegment<'a> {
     kind: LexedWordSegmentKind,
@@ -147,6 +155,7 @@ impl<'a> LexedWordSegment<'a> {
         }
     }
 
+    /// Borrow this segment's cooked text.
     pub fn as_str(&self) -> &str {
         self.text.as_str()
     }
@@ -155,14 +164,17 @@ impl<'a> LexedWordSegment<'a> {
         matches!(self.text, TokenText::Borrowed(_) | TokenText::Shared { .. })
     }
 
+    /// Return the lexical classification of this segment.
     pub const fn kind(&self) -> LexedWordSegmentKind {
         self.kind
     }
 
+    /// Return the span of the inner text, if it is tracked.
     pub const fn span(&self) -> Option<Span> {
         self.span
     }
 
+    /// Return the span including surrounding quoting syntax when available.
     pub fn wrapper_span(&self) -> Option<Span> {
         self.wrapper_span.or(self.span)
     }
@@ -192,6 +204,7 @@ impl<'a> LexedWordSegment<'a> {
     }
 }
 
+/// Source-backed representation of a shell word produced by the lexer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LexedWord<'a> {
     primary_segment: LexedWordSegment<'a>,
@@ -218,14 +231,17 @@ impl<'a> LexedWord<'a> {
         self.trailing_segments.push(segment);
     }
 
+    /// Iterate over the segments that make up this word.
     pub fn segments(&self) -> impl Iterator<Item = &LexedWordSegment<'a>> {
         std::iter::once(&self.primary_segment).chain(self.trailing_segments.iter())
     }
 
+    /// Return the word text when it is represented by a single segment.
     pub fn text(&self) -> Option<&str> {
         self.single_segment().map(LexedWordSegment::as_str)
     }
 
+    /// Join all segments into an owned string.
     pub fn joined_text(&self) -> String {
         let mut text = String::new();
         for segment in self.segments() {
@@ -234,6 +250,7 @@ impl<'a> LexedWord<'a> {
         text
     }
 
+    /// Return the only segment when this word is not segmented.
     pub fn single_segment(&self) -> Option<&LexedWordSegment<'a>> {
         self.trailing_segments
             .is_empty()
@@ -278,15 +295,21 @@ impl<'a> LexedWord<'a> {
     }
 }
 
+/// Kinds of lexer error payloads attached to `TokenKind::Error`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LexerErrorKind {
+    /// Unterminated `$()` command substitution.
     CommandSubstitution,
+    /// Unterminated backtick command substitution.
     BacktickSubstitution,
+    /// Unterminated single-quoted string.
     SingleQuote,
+    /// Unterminated double-quoted string.
     DoubleQuote,
 }
 
 impl LexerErrorKind {
+    /// Human-readable message for this lexer error kind.
     pub const fn message(self) -> &'static str {
         match self {
             Self::CommandSubstitution => "unterminated command substitution",
@@ -306,9 +329,12 @@ pub(crate) enum TokenPayload<'a> {
     Error(LexerErrorKind),
 }
 
+/// Token produced by the shell lexer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LexedToken<'a> {
+    /// Token kind used by the parser.
     pub kind: TokenKind,
+    /// Source span covered by the token.
     pub span: Span,
     pub(crate) flags: TokenFlags,
     payload: TokenPayload<'a>,
@@ -448,6 +474,7 @@ impl<'a> LexedToken<'a> {
         }
     }
 
+    /// Borrow the token text when it is a single-segment word token.
     pub fn word_text(&self) -> Option<&str> {
         self.kind
             .is_word_like()
@@ -458,6 +485,7 @@ impl<'a> LexedToken<'a> {
             })
     }
 
+    /// Return an owned string containing the token's word text.
     pub fn word_string(&self) -> Option<String> {
         self.kind
             .is_word_like()
@@ -468,6 +496,7 @@ impl<'a> LexedToken<'a> {
             })
     }
 
+    /// Borrow the structured word payload for word-like tokens.
     pub fn word(&self) -> Option<&LexedWord<'a>> {
         match &self.payload {
             TokenPayload::Word(word) => Some(word),
@@ -475,6 +504,7 @@ impl<'a> LexedToken<'a> {
         }
     }
 
+    /// Borrow the original source slice when the token is source-backed and uncooked.
     pub fn source_slice<'b>(&self, source: &'b str) -> Option<&'b str> {
         if !self.kind.is_word_like() || self.flags.has_cooked_text() || self.flags.is_synthetic() {
             return None;
@@ -484,6 +514,7 @@ impl<'a> LexedToken<'a> {
             .then(|| &source[self.span.start.offset..self.span.end.offset])
     }
 
+    /// Return the file-descriptor payload for redirection tokens that carry one.
     pub fn fd_value(&self) -> Option<i32> {
         match self.payload {
             TokenPayload::Fd(fd) => Some(fd),
@@ -491,6 +522,7 @@ impl<'a> LexedToken<'a> {
         }
     }
 
+    /// Return the `(source_fd, target_fd)` payload for descriptor-pair redirections.
     pub fn fd_pair_value(&self) -> Option<(i32, i32)> {
         match self.payload {
             TokenPayload::FdPair(src_fd, dst_fd) => Some((src_fd, dst_fd)),
@@ -498,6 +530,7 @@ impl<'a> LexedToken<'a> {
         }
     }
 
+    /// Return the lexer error payload when this token represents `TokenKind::Error`.
     pub fn error_kind(&self) -> Option<LexerErrorKind> {
         match self.payload {
             TokenPayload::Error(kind) => Some(kind),
@@ -509,7 +542,9 @@ impl<'a> LexedToken<'a> {
 /// Result of reading a heredoc body from the source.
 #[derive(Debug, Clone, PartialEq)]
 pub struct HeredocRead {
+    /// Decoded heredoc content.
     pub content: String,
+    /// Source span covering the heredoc body content.
     pub content_span: Span,
 }
 
@@ -716,6 +751,7 @@ impl<'a> Lexer<'a> {
         )
     }
 
+    /// Create a new lexer using the provided shell profile.
     pub fn with_profile(input: &'a str, shell_profile: &ShellProfile) -> Self {
         let zsh_timeline = (shell_profile.dialect == super::ShellDialect::Zsh)
             .then(|| ZshOptionTimeline::build(input, shell_profile))
