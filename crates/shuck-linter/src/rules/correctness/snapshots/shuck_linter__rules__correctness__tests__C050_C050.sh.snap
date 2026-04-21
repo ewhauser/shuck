@@ -6,3 +6,9 @@ C050 redirection targets should not use arithmetic expansion
   |
 6 | echo hi > "$((i++))"
   |
+
+C050 redirection targets should not use arithmetic expansion
+  --> <source>:12:16
+   |
+12 | echo hi > "$((i--))"
+   |
