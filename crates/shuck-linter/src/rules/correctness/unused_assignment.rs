@@ -100,7 +100,12 @@ pub fn unused_assignment(checker: &mut Checker) {
     let mut reportable_bindings = Vec::new();
     for (family, binding_ids) in unused_bindings_by_family {
         if families_with_used_bindings.contains(&family) {
-            reportable_bindings.extend(binding_ids);
+            reportable_bindings.extend(binding_ids.into_iter().filter(|binding_id| {
+                let binding = semantic.binding(*binding_id);
+                !binding
+                    .attributes
+                    .contains(BindingAttributes::EMPTY_INITIALIZER)
+            }));
             continue;
         }
 
@@ -428,6 +433,50 @@ done
         assert_eq!(diagnostics.len(), 2);
         assert_eq!(diagnostics[0].span.start.line, 2);
         assert_eq!(diagnostics[1].span.start.line, 3);
+    }
+
+    #[test]
+    fn used_variable_empty_clear_is_suppressed() {
+        let source = "#!/bin/bash\nfoo=1\n: \"$foo\"\nfoo=\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn used_variable_quoted_empty_clear_is_suppressed() {
+        let source = "#!/bin/bash\nfoo=1\n: \"$foo\"\nfoo=\"\"\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn standalone_empty_initializer_is_still_reported() {
+        let source = "#!/bin/bash\nfoo=\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.slice(source), "foo");
+    }
+
+    #[test]
+    fn empty_clear_does_not_hide_prior_dead_reassignment() {
+        let source = "#!/bin/bash\nfoo=1\n: \"$foo\"\nfoo=2\nfoo=\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 4);
+        assert_eq!(diagnostics[0].span.slice(source), "foo");
+    }
+
+    #[test]
+    fn pre_use_empty_initializer_in_used_family_is_suppressed() {
+        let source = "#!/bin/bash\nfoo=\nfoo=1\n: \"$foo\"\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
