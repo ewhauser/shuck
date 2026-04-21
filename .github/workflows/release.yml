@@ -283,6 +283,10 @@ jobs:
           rm -f artifacts/*-dist-manifest.json
       - name: Create or update GitHub Release
         env:
+          # Use RELEASE_PAT (not GITHUB_TOKEN) so `gh release edit --draft=false`
+          # triggers the `release: published` event in release-please.yml.
+          # GITHUB_TOKEN-driven events don't cascade to other workflows.
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
           PRERELEASE_FLAG: "${{ fromJson(steps.host.outputs.manifest).announcement_is_prerelease && '--prerelease' || '' }}"
           ANNOUNCEMENT_TITLE: "${{ fromJson(steps.host.outputs.manifest).announcement_title }}"
           ANNOUNCEMENT_BODY: "${{ fromJson(steps.host.outputs.manifest).announcement_github_body }}"
