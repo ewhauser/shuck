@@ -560,14 +560,14 @@ impl<'a> Parser<'a> {
                 assignments,
                 span,
             } = command;
-            return Command::Decl(DeclClause {
+            return Command::Decl(Box::new(DeclClause {
                 variant,
                 variant_span: name.span,
                 operands: self.classify_decl_operands(args),
                 redirects,
                 assignments,
                 span,
-            });
+            }));
         }
 
         Command::Simple(command)

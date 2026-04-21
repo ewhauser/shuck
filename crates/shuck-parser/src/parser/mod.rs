@@ -236,7 +236,7 @@ struct DeclClause {
 enum Command {
     Simple(SimpleCommand),
     Builtin(BuiltinCommand),
-    Decl(DeclClause),
+    Decl(Box<DeclClause>),
     Compound(Box<CompoundCommand>, SmallVec<[Redirect; 1]>),
     Function(FunctionDef),
     AnonymousFunction(AnonymousFunctionCommand, SmallVec<[Redirect; 1]>),
@@ -6518,22 +6518,25 @@ impl<'a> Parser<'a> {
                     inline_comment: None,
                     span,
                 }
-            }
-            Command::Decl(command) => Stmt {
-                leading_comments: Vec::new(),
-                command: AstCommand::Decl(AstDeclClause {
-                    variant: command.variant,
-                    variant_span: command.variant_span,
-                    operands: command.operands.into_vec(),
-                    assignments: command.assignments.into_vec(),
+            },
+            Command::Decl(command) => {
+                let command = *command;
+                Stmt {
+                    leading_comments: Vec::new(),
+                    command: AstCommand::Decl(AstDeclClause {
+                        variant: command.variant,
+                        variant_span: command.variant_span,
+                        operands: command.operands.into_vec(),
+                        assignments: command.assignments.into_vec(),
+                        span: command.span,
+                    }),
+                    negated: false,
+                    redirects: command.redirects.into_vec(),
+                    terminator: None,
+                    terminator_span: None,
+                    inline_comment: None,
                     span: command.span,
-                }),
-                negated: false,
-                redirects: command.redirects.into_vec(),
-                terminator: None,
-                terminator_span: None,
-                inline_comment: None,
-                span: command.span,
+                }
             },
             Command::Compound(compound, redirects) => {
                 let span = Self::compound_span(&compound);
