@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.14](https://github.com/ewhauser/shuck/compare/v0.0.13...v0.0.14) (2026-04-21)
+
+
+### Bug Fixes
+
+* **main:** reduce duplicate C001 reports ([#378](https://github.com/ewhauser/shuck/issues/378)) ([d947cd7](https://github.com/ewhauser/shuck/commit/d947cd7ea617ccd108fd7c1509495eae8d9a365b))
+
 ## [0.0.13](https://github.com/ewhauser/shuck/compare/v0.0.12...v0.0.13) (2026-04-21)
 
 
