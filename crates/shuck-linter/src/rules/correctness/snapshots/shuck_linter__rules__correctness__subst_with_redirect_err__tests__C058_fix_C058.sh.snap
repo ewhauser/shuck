@@ -1,0 +1,50 @@
+---
+source: crates/shuck-linter/src/rules/correctness/subst_with_redirect_err.rs
+---
+Diagnostics:
+C058 command substitution redirects its output inside the subshell
+ --> <source>:4:5
+  |
+4 | out=$(printf hi >/dev/null 2>&1)
+  |
+
+C058 command substitution redirects its output inside the subshell
+ --> <source>:7:5
+  |
+7 | out=$(printf hi 1>/dev/null)
+  |
+
+
+Applied fixes: 2
+
+Diff:
+--- before
++++ after
+@@ -1,10 +1,10 @@
+ #!/bin/sh
+ 
+ # Invalid: redirecting inside the substitution makes the capture empty.
+-out=$(printf hi >/dev/null 2>&1)
++out=$(printf hi  2>&1)
+ 
+ # Invalid: an explicit stdout redirect has the same issue.
+-out=$(printf hi 1>/dev/null)
++out=$(printf hi )
+ 
+ # Valid: keep the redirect outside the substitution.
+ out=$(printf hi) >/dev/null 2>&1
+
+Fixed source:
+#!/bin/sh
+
+# Invalid: redirecting inside the substitution makes the capture empty.
+out=$(printf hi  2>&1)
+
+# Invalid: an explicit stdout redirect has the same issue.
+out=$(printf hi )
+
+# Valid: keep the redirect outside the substitution.
+out=$(printf hi) >/dev/null 2>&1
+
+Remaining diagnostics:
+<none>
