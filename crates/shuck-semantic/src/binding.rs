@@ -129,5 +129,6 @@ bitflags! {
         const IMPORTED_FUNCTION      = 0b1000_0000_0000;
         const EMPTY_INITIALIZER      = 0b0001_0000_0000_0000;
         const IMPORTED_FILE_ENTRY    = 0b0010_0000_0000_0000;
+        const SELF_REFERENTIAL_READ  = 0b0100_0000_0000_0000;
     }
 }

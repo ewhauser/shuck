@@ -1002,6 +1002,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
+        let reference_start = self.references.len();
         self.visit_var_ref_subscript_words(
             Some(&assignment.target.name),
             assignment.target.subscript.as_ref(),
@@ -1025,6 +1026,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         attributes |= assignment_binding_attributes(assignment);
         if assignment_has_empty_initializer(assignment, self.source) {
             attributes |= BindingAttributes::EMPTY_INITIALIZER;
+        }
+        if self.newly_added_references_read_name(&assignment.target.name, reference_start) {
+            attributes |= BindingAttributes::SELF_REFERENTIAL_READ;
         }
         if assignment.target.subscript.is_some()
             && !attributes.contains(BindingAttributes::ASSOC)
@@ -2253,7 +2257,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                             expr.span,
                         ),
                     },
-                    BindingAttributes::empty(),
+                    BindingAttributes::SELF_REFERENTIAL_READ,
                 );
             }
             ArithmeticExpr::Indexed { name, index } => {
@@ -2281,7 +2285,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                             index: index.clone(),
                         },
                         span.start.offset,
-                    ),
+                    ) | BindingAttributes::SELF_REFERENTIAL_READ,
                 );
             }
             _ => {}
@@ -2297,16 +2301,20 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
-        self.visit_arithmetic_lvalue_indices_into(target, flow, nested_regions);
-        let attributes = self.arithmetic_binding_attributes(target, target_span.start.offset);
         let name = match target {
             ArithmeticLvalue::Variable(name) | ArithmeticLvalue::Indexed { name, .. } => name,
         };
         let name_span = arithmetic_name_span(target_span, name);
+        let reference_start = self.references.len();
+        self.visit_arithmetic_lvalue_indices_into(target, flow, nested_regions);
+        let mut attributes = self.arithmetic_binding_attributes(target, target_span.start.offset);
         if !matches!(op, ArithmeticAssignOp::Assign) {
             self.add_reference(name, ReferenceKind::ArithmeticRead, name_span);
         }
         self.visit_arithmetic_expr_into(value, flow, nested_regions);
+        if self.newly_added_references_read_name(name, reference_start) {
+            attributes |= BindingAttributes::SELF_REFERENTIAL_READ;
+        }
         self.add_binding(
             name,
             BindingKind::ArithmeticAssignment,
@@ -2813,6 +2821,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
+    fn newly_added_references_read_name(&self, name: &Name, start: usize) -> bool {
+        self.references[start..]
+            .iter()
+            .any(|reference| reference.name == *name)
+    }
+
     fn resolve_reference(&self, name: &Name, scope: ScopeId, offset: usize) -> Option<BindingId> {
         for scope in ancestor_scopes(&self.scopes, scope) {
             let Some(bindings) = self.scopes[scope.index()].bindings.get(name) else {
@@ -2902,6 +2916,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     binding.kind,
                     BindingKind::FunctionDefinition | BindingKind::Imported
                 ) && binding.references.is_empty()
+                    && !binding
+                        .attributes
+                        .contains(BindingAttributes::SELF_REFERENTIAL_READ)
             })
             .map(|binding| binding.id)
             .collect()

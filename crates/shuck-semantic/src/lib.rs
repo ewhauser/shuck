@@ -5311,6 +5311,28 @@ printf '%s\\n' \"$cache_dir\"
     }
 
     #[test]
+    fn self_referential_default_initializers_are_not_reported_unused() {
+        let source = "\
+#!/bin/sh
+STATE=\"${STATE:-in_progress}\"
+DESCRIPTION=\"${DESCRIPTION:-Deployment metadata updated}\"
+";
+        let model = model_with_dialect(source, ShellDialect::Posix);
+        let unused = reportable_unused_names(&model);
+
+        assert!(
+            !unused.contains(&Name::from("STATE")),
+            "unused bindings: {:?}",
+            unused
+        );
+        assert!(
+            !unused.contains(&Name::from("DESCRIPTION")),
+            "unused bindings: {:?}",
+            unused
+        );
+    }
+
+    #[test]
     fn detects_dead_code_after_exit() {
         let source = "exit 0\necho dead\n";
         let model = model(source);
