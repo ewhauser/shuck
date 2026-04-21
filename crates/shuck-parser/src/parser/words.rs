@@ -4086,7 +4086,7 @@ impl<'a> Parser<'a> {
                                         (
                                             replacement,
                                             cursor.offset > 0
-                                                && self.input[..cursor.offset].ends_with('}'),
+                                                && self.input_prefix_ends_with(cursor.offset, '}'),
                                         )
                                     } else {
                                         (self.empty_source_text(cursor), false)
@@ -4094,10 +4094,8 @@ impl<'a> Parser<'a> {
                                 if !consumed_closing_brace {
                                     Self::consume_word_char_if(&mut chars, &mut cursor, '}');
                                 }
-                                if !Span::from_positions(part_start, cursor)
-                                    .slice(self.input)
-                                    .ends_with('}')
-                                    && self.input[cursor.offset..].starts_with('}')
+                                if !self.input_span_ends_with(part_start, cursor, '}')
+                                    && self.input_suffix_starts_with(cursor.offset, '}')
                                 {
                                     cursor.advance('}');
                                 }
@@ -4356,7 +4354,7 @@ impl<'a> Parser<'a> {
                                     (
                                         replacement,
                                         cursor.offset > 0
-                                            && self.input[..cursor.offset].ends_with('}'),
+                                            && self.input_prefix_ends_with(cursor.offset, '}'),
                                     )
                                 } else {
                                     (self.empty_source_text(cursor), false)
@@ -4364,10 +4362,8 @@ impl<'a> Parser<'a> {
                             if !consumed_closing_brace {
                                 Self::consume_word_char_if(&mut chars, &mut cursor, '}');
                             }
-                            if !Span::from_positions(part_start, cursor)
-                                .slice(self.input)
-                                .ends_with('}')
-                                && self.input[cursor.offset..].starts_with('}')
+                            if !self.input_span_ends_with(part_start, cursor, '}')
+                                && self.input_suffix_starts_with(cursor.offset, '}')
                             {
                                 cursor.advance('}');
                             }
@@ -5192,7 +5188,8 @@ impl<'a> Parser<'a> {
                             let replacement = self.read_brace_operand(chars, cursor, source_backed);
                             (
                                 replacement,
-                                cursor.offset > 0 && self.input[..cursor.offset].ends_with('}'),
+                                cursor.offset > 0
+                                    && self.input_prefix_ends_with(cursor.offset, '}'),
                             )
                         } else {
                             (self.empty_source_text(*cursor), false)
@@ -5200,13 +5197,8 @@ impl<'a> Parser<'a> {
                     if !consumed_closing_brace {
                         Self::consume_word_char_if(chars, cursor, '}');
                     }
-                    if !Span::from_positions(part_start, *cursor)
-                        .slice(self.input)
-                        .ends_with('}')
-                        && self
-                            .input
-                            .get(cursor.offset..)
-                            .is_some_and(|rest| rest.starts_with('}'))
+                    if !self.input_span_ends_with(part_start, *cursor, '}')
+                        && self.input_suffix_starts_with(cursor.offset, '}')
                     {
                         cursor.advance('}');
                     }

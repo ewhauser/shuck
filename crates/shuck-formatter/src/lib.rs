@@ -174,8 +174,19 @@ fn ensure_single_trailing_newline(output: &mut String) {
         output.pop();
     }
     if !output.ends_with('\n') {
+        if trailing_backslash_count(output) % 2 == 1 {
+            output.push('\\');
+        }
         output.push('\n');
     }
+}
+
+fn trailing_backslash_count(text: &str) -> usize {
+    text.as_bytes()
+        .iter()
+        .rev()
+        .take_while(|byte| **byte == b'\\')
+        .count()
 }
 
 fn map_parse_error(error: ParseError) -> FormatError {
@@ -199,6 +210,9 @@ mod tests {
 
     use shuck_ast::{AssignmentValue, Command};
     use shuck_benchmark::TEST_FILES;
+    use shuck_indexer::Indexer;
+    use shuck_linter::{Diagnostic, LinterSettings, lint_file_at_path_with_parse_result};
+    use shuck_parser::ShellDialect as ParseShellDialect;
 
     use super::*;
 
@@ -237,6 +251,33 @@ mod tests {
         let once = format_to_string(source, path, options);
         let twice = format_to_string(&once, path, options);
         assert_eq!(once, twice);
+    }
+
+    fn lint_source_posix_strict(source: &str, path: &Path) -> Vec<Diagnostic> {
+        let parse_result = Parser::with_dialect(source, ParseShellDialect::Posix).parse();
+        assert!(
+            !parse_result.is_err(),
+            "strict parse failed for {}: {}",
+            path.display(),
+            parse_result.strict_error()
+        );
+        let indexer = Indexer::new(source, &parse_result);
+        let settings = LinterSettings::default().with_analyzed_paths([path.to_path_buf()]);
+        lint_file_at_path_with_parse_result(
+            &parse_result,
+            source,
+            &indexer,
+            &settings,
+            None,
+            Some(path),
+        )
+    }
+
+    fn diagnostic_count(diagnostics: &[Diagnostic], code: &str) -> usize {
+        diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.code() == code)
+            .count()
     }
 
     #[test]
@@ -1558,6 +1599,39 @@ print hidden &!
             source,
             Some(Path::new("fuzz.sh")),
             &ShellFormatOptions::default(),
+        );
+    }
+
+    #[test]
+    fn keeps_trailing_backslash_pipeline_reproducer_parseable() {
+        let source = "cat foo | \\\\t foo | \\";
+        let path = Some(Path::new("fuzz.sh"));
+        let options = ShellFormatOptions::default();
+
+        let once = format_to_string(source, path, &options);
+        let twice = format_source(&once, path, &options).unwrap_or_else(|err| {
+            panic!("second format pass failed: {err}\nformatted source:\n{once:?}")
+        });
+        let twice = match twice {
+            FormattedSource::Unchanged => once.clone(),
+            FormattedSource::Formatted(formatted) => formatted,
+        };
+
+        assert_eq!(once, twice);
+    }
+
+    #[test]
+    fn does_not_introduce_unused_assignment_for_backslash_heredoc_reproducer() {
+        let source = "cat foo E\r\nnnnnnnnnn1jn \\\ncat=,EOlo\nEOF\n";
+        let path = Path::new("fuzz.sh");
+        let formatted = format_to_string(source, Some(path), &ShellFormatOptions::default());
+
+        let original_c001 = diagnostic_count(&lint_source_posix_strict(source, path), "C001");
+        let formatted_c001 = diagnostic_count(&lint_source_posix_strict(&formatted, path), "C001");
+
+        assert!(
+            formatted_c001 <= original_c001,
+            "formatter introduced extra C001 diagnostics: original={original_c001}, formatted={formatted_c001}\nformatted source:\n{formatted:?}"
         );
     }
 }

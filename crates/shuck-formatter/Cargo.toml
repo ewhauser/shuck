@@ -19,4 +19,6 @@ shuck-parser = { workspace = true }
 
 [dev-dependencies]
 shuck-benchmark = { workspace = true }
+shuck-indexer = { workspace = true }
+shuck-linter = { workspace = true }
 similar = { workspace = true }

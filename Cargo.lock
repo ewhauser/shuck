@@ -1553,6 +1553,8 @@ dependencies = [
  "shuck-ast",
  "shuck-benchmark",
  "shuck-format",
+ "shuck-indexer",
+ "shuck-linter",
  "shuck-parser",
  "similar",
 ]
@@ -1606,6 +1608,7 @@ dependencies = [
  "shuck-ast",
  "shuck-indexer",
  "shuck-parser",
+ "smallvec",
  "tempfile",
 ]
 
