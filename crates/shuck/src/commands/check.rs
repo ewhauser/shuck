@@ -27,7 +27,9 @@ use crate::commands::check_output::{
     DisplayPosition, DisplaySpan, DisplayedDiagnostic, DisplayedDiagnosticKind, print_report_to,
 };
 use crate::commands::project_runner::{PendingProjectFile, prepare_project_runs};
-use crate::config::{ConfigArguments, resolve_project_root_for_input};
+use crate::config::{
+    ConfigArguments, discovered_config_path_for_root, resolve_project_root_for_input,
+};
 use crate::discover::{DEFAULT_IGNORED_DIR_NAMES, DiscoveryOptions, normalize_path};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -146,6 +148,22 @@ struct FileCheckResult {
     fixes_applied: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WatchTarget {
+    path: PathBuf,
+    recursive: bool,
+}
+
+impl WatchTarget {
+    fn recursive_mode(&self) -> RecursiveMode {
+        if self.recursive {
+            RecursiveMode::Recursive
+        } else {
+            RecursiveMode::NonRecursive
+        }
+    }
+}
+
 pub(crate) fn check(
     args: CheckCommand,
     config_arguments: &ConfigArguments,
@@ -197,11 +215,11 @@ fn watch_check(
     cwd: &Path,
     cache_root: &Path,
 ) -> Result<ExitStatus> {
-    let watch_roots = collect_watch_roots(&args.paths, cwd, config_arguments.use_config_roots())?;
+    let watch_targets = collect_watch_targets(&args.paths, config_arguments, cwd)?;
     let (tx, rx) = channel();
     let mut watcher = recommended_watcher(tx)?;
-    for root in &watch_roots {
-        watcher.watch(root, RecursiveMode::Recursive)?;
+    for target in &watch_targets {
+        watcher.watch(&target.path, target.recursive_mode())?;
     }
 
     clear_screen()?;
@@ -248,8 +266,12 @@ fn print_diagnostics(
     Ok(())
 }
 
+fn should_clear_screen(stdout_is_terminal: bool) -> bool {
+    stdout_is_terminal
+}
+
 fn clear_screen() -> Result<()> {
-    if !io::stdout().is_terminal() && !io::stderr().is_terminal() {
+    if !should_clear_screen(io::stdout().is_terminal()) {
         return Ok(());
     }
     clearscreen::clear()?;
@@ -271,49 +293,87 @@ fn effective_check_inputs(paths: &[PathBuf]) -> Vec<PathBuf> {
     }
 }
 
-fn collect_watch_roots(
+fn collect_watch_targets(
     paths: &[PathBuf],
+    config_arguments: &ConfigArguments,
     cwd: &Path,
-    use_config_roots: bool,
-) -> Result<Vec<PathBuf>> {
+) -> Result<Vec<WatchTarget>> {
     let inputs = effective_check_inputs(paths);
-    let mut roots = Vec::new();
+    let mut targets = Vec::new();
     for input in inputs {
         let resolved_input = if input.is_absolute() {
             normalize_path(&input)
         } else {
             normalize_path(&cwd.join(&input))
         };
+        let metadata = fs::metadata(&resolved_input)?;
+        let canonical_input = fs::canonicalize(&resolved_input).map_err(anyhow::Error::from)?;
 
-        roots.push(
-            fs::canonicalize(resolve_project_root_for_input(
-                &resolved_input,
-                use_config_roots,
-            )?)
-            .map_err(anyhow::Error::from)?,
-        );
+        targets.push(WatchTarget {
+            path: canonical_input,
+            recursive: metadata.is_dir(),
+        });
 
-        if fs::metadata(&resolved_input)?.is_dir() {
-            roots.push(fs::canonicalize(&resolved_input).map_err(anyhow::Error::from)?);
+        if let Some(config_path) = watch_config_target(config_arguments, cwd, &resolved_input)? {
+            targets.push(WatchTarget {
+                path: config_path,
+                recursive: false,
+            });
         }
     }
 
-    roots.sort_by(|left, right| {
-        left.components()
+    targets.sort_by(|left, right| {
+        left.path
+            .components()
             .count()
-            .cmp(&right.components().count())
-            .then_with(|| left.cmp(right))
+            .cmp(&right.path.components().count())
+            .then_with(|| right.recursive.cmp(&left.recursive))
+            .then_with(|| left.path.cmp(&right.path))
     });
 
     let mut deduped = Vec::new();
-    for root in roots {
-        if deduped.iter().any(|existing| root.starts_with(existing)) {
+    for target in targets {
+        if deduped.iter().any(|existing: &WatchTarget| {
+            existing.path == target.path
+                || (existing.recursive && target.path.starts_with(&existing.path))
+        }) {
             continue;
         }
-        deduped.push(root);
+        deduped.push(target);
     }
 
     Ok(deduped)
+}
+
+fn watch_config_target(
+    config_arguments: &ConfigArguments,
+    cwd: &Path,
+    resolved_input: &Path,
+) -> Result<Option<PathBuf>> {
+    if let Some(explicit_config) = config_arguments.explicit_config_file() {
+        let resolved_config = if explicit_config.is_absolute() {
+            normalize_path(explicit_config)
+        } else {
+            normalize_path(&cwd.join(explicit_config))
+        };
+
+        return Ok(Some(
+            fs::canonicalize(resolved_config).map_err(anyhow::Error::from)?,
+        ));
+    }
+
+    if !config_arguments.use_config_roots() {
+        return Ok(None);
+    }
+
+    let project_root = resolve_project_root_for_input(resolved_input, true)?;
+    let Some(config_path) = discovered_config_path_for_root(&project_root)? else {
+        return Ok(None);
+    };
+
+    Ok(Some(
+        fs::canonicalize(config_path).map_err(anyhow::Error::from)?,
+    ))
 }
 
 fn watch_event_requires_rerun(event: &notify::Event, cache_root: &Path) -> bool {
@@ -1371,27 +1431,69 @@ mod tests {
     }
 
     #[test]
-    fn collect_watch_roots_dedupes_nested_paths_and_defaults_to_current_directory() {
+    fn clear_screen_requires_terminal_stdout() {
+        assert!(should_clear_screen(true));
+        assert!(!should_clear_screen(false));
+    }
+
+    #[test]
+    fn collect_watch_targets_stay_within_requested_scope_and_watch_config_files() {
         let tempdir = tempdir().unwrap();
         let nested = tempdir.path().join("nested");
         let deeper = nested.join("deeper");
         fs::create_dir_all(&deeper).unwrap();
         fs::write(tempdir.path().join("shuck.toml"), "[format]\n").unwrap();
+        let file = nested.join("script.sh");
+        fs::write(&file, "#!/bin/bash\necho ok\n").unwrap();
 
-        let default_roots = collect_watch_roots(&[], tempdir.path()).unwrap();
+        let default_targets =
+            collect_watch_targets(&[], &ConfigArguments::default(), tempdir.path()).unwrap();
         assert_eq!(
-            default_roots,
-            vec![fs::canonicalize(tempdir.path()).unwrap()]
+            default_targets,
+            vec![WatchTarget {
+                path: fs::canonicalize(tempdir.path()).unwrap(),
+                recursive: true,
+            }]
         );
 
-        let nested_roots = collect_watch_roots(
+        let nested_targets = collect_watch_targets(
             &[PathBuf::from("nested"), PathBuf::from("nested/deeper")],
+            &ConfigArguments::default(),
             tempdir.path(),
         )
         .unwrap();
         assert_eq!(
-            nested_roots,
-            vec![fs::canonicalize(tempdir.path()).unwrap()]
+            nested_targets,
+            vec![
+                WatchTarget {
+                    path: fs::canonicalize(&nested).unwrap(),
+                    recursive: true,
+                },
+                WatchTarget {
+                    path: fs::canonicalize(tempdir.path().join("shuck.toml")).unwrap(),
+                    recursive: false,
+                },
+            ]
+        );
+
+        let file_targets = collect_watch_targets(
+            &[PathBuf::from("nested/script.sh")],
+            &ConfigArguments::default(),
+            tempdir.path(),
+        )
+        .unwrap();
+        assert_eq!(
+            file_targets,
+            vec![
+                WatchTarget {
+                    path: fs::canonicalize(tempdir.path().join("shuck.toml")).unwrap(),
+                    recursive: false,
+                },
+                WatchTarget {
+                    path: fs::canonicalize(file).unwrap(),
+                    recursive: false,
+                },
+            ]
         );
     }
 }

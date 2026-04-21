@@ -115,6 +115,10 @@ You cannot specify more than one configuration file on the command line.
     pub(crate) fn use_config_roots(&self) -> bool {
         !self.isolated && self.config_file.is_none()
     }
+
+    pub(crate) fn explicit_config_file(&self) -> Option<&Path> {
+        self.config_file.as_deref()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -407,6 +411,10 @@ fn config_path_for_root(root: &Path) -> io::Result<Option<PathBuf>> {
     }
 
     Ok(None)
+}
+
+pub(crate) fn discovered_config_path_for_root(root: &Path) -> io::Result<Option<PathBuf>> {
+    config_path_for_root(root)
 }
 
 #[cfg(test)]
