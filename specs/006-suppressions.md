@@ -6,13 +6,14 @@ Proposed
 
 ## Summary
 
-A suppression layer that allows users to silence specific lint diagnostics via inline comments. Suppressions are parsed from two directive formats (`# shuck:` and `# shellcheck`), built into a per-file `SuppressionIndex`, and applied as a post-hoc filter on linter output. This spec covers directive parsing, shellcheck-style scope resolution (next-command or file-wide), explicit whole-file disables, index construction, and integration with the linter from spec 005.
+A suppression layer that allows users to silence specific lint diagnostics via inline comments. Suppressions are parsed from two directive formats (`# shuck:` and `# shellcheck`), built into a per-file `SuppressionIndex`, and applied as a post-hoc filter on linter output. This spec covers directive parsing, shellcheck-style scope resolution (next-command or file-wide), exact-line native ignores, explicit whole-file disables, index construction, and integration with the linter from spec 005.
 
 ## Motivation
 
 Lint rules produce false positives. Users need a way to acknowledge and silence specific diagnostics without disabling rules globally. Shell scripts in particular carry two established suppression conventions:
 
 - **shuck native**: `# shuck: disable=C001` — supports shellcheck-style disable semantics plus explicit `disable-file`
+- **shuck native line ignore**: `# shuck: ignore=C001` — suppresses only diagnostics on the directive's own line
 - **shellcheck compatible**: `# shellcheck disable=SC2086` — widely used in existing codebases, applies to the next command only
 
 Both directive styles accept either code namespace. Native shuck codes (`C001`, `S001`, `SH-001`) and ShellCheck codes (`SC2086`, `2154`) resolve to the same underlying rules.
@@ -29,7 +30,7 @@ Following ruff's architecture, suppression filtering happens **after** the linte
 
 Case-insensitive prefix match on `shuck:`. The body after the prefix is `action=codes` where:
 
-- **action** is one of `disable` or `disable-file`
+- **action** is one of `disable`, `disable-file`, or `ignore`
 - **codes** is a comma-separated list of rule codes (e.g., `C001,S003` or `SC2086,2154`)
 - An optional reason after `#` is stripped: `# shuck: disable=C001 # legacy code`
 
@@ -38,9 +39,13 @@ Case-insensitive prefix match on `shuck:`. The body after the prefix is `action=
 echo $undefined
 
 # shuck: disable-file=S001     # file: suppress S001 for entire file
+
+echo $undefined  # shuck: ignore=C006  # line: suppress only this line
 ```
 
 `# shuck: disable=...` follows the same placement rules as shellcheck: before the first statement it becomes file-wide, otherwise it applies to the next command, including the same inline control-flow header forms that shellcheck accepts. `disable-file` remains an explicit whole-file escape hatch.
+
+`# shuck: ignore=...` is line-scoped instead. It suppresses diagnostics whose start line matches the directive's own line, and it is valid as a trailing inline comment after ordinary code. This is the directive written by `shuck check --add-ignore[=<REASON>]`.
 
 #### ShellCheck Compatible: `# shellcheck disable=<codes>`
 
@@ -72,7 +77,7 @@ echo $x                        # SC2034 NOT suppressed here
 ```rust
 /// A parsed suppression directive from a comment.
 pub struct SuppressionDirective {
-    /// The action: disable or disable-file.
+    /// The action: disable, disable-file, or ignore.
     pub action: SuppressionAction,
     /// Which directive syntax produced this.
     pub source: SuppressionSource,
@@ -88,6 +93,7 @@ pub struct SuppressionDirective {
 pub enum SuppressionAction {
     Disable,
     DisableFile,
+    Ignore,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -156,6 +162,7 @@ There are three scope types:
 | **File** | `# shellcheck disable=SC2086` before first statement | Entire file |
 | **Next-command** | `# shuck: disable=C001` after first statement | Start line through end line of the next `Stmt` AST node |
 | **Next-command** | `# shellcheck disable=SC2086` after first statement | Start line through end line of the next `Stmt` AST node |
+| **Exact-line** | `# shuck: ignore=C001` | The directive's own physical line only |
 
 ### SuppressionIndex
 
@@ -194,6 +201,8 @@ Per-rule state combining file and next-command scopes:
 struct RuleSuppressionIndex {
     /// If set, the rule is suppressed for the entire file.
     whole_file: bool,
+    /// Exact lines from native `ignore` directives.
+    lines: Vec<u32>,
     /// Line ranges from next-command suppressions.
     ranges: Vec<LineRange>,
 }
@@ -207,8 +216,9 @@ struct LineRange {
 **Query logic** (`is_suppressed`), checked in priority order:
 
 1. If `whole_file` is true → suppressed
-2. Binary search `ranges` for any range containing the query line → suppressed
-3. Otherwise → not suppressed
+2. Binary search `lines` for an exact match on the query line → suppressed
+3. Binary search `ranges` for any range containing the query line → suppressed
+4. Otherwise → not suppressed
 
 #### Building the Index
 
@@ -219,7 +229,8 @@ Construction mirrors `BuildCodeSuppressionIndex` from Go:
    - **`disable-file`** → set `whole_file = true`
    - **`disable` before first statement** → set `whole_file = true`
    - **`disable` after first statement** → find the next `Stmt` after the directive's offset via AST walk, push a `LineRange { start_line, end_line }` for that statement
-3. Sort `ranges` by `(start_line, end_line)`
+   - **`ignore`** → push the directive's own line into `lines`
+3. Sort `lines` and `ranges`
 
 **Finding the next command** for shellcheck scopes requires walking statement nodes in the AST to find the first `Stmt` whose start offset is after the directive's end offset:
 

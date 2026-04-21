@@ -11,7 +11,7 @@ use super::ShellCheckCodeMap;
 /// A parsed suppression directive from a comment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SuppressionDirective {
-    /// The action: disable or disable-file.
+    /// The action: disable, disable-file, or ignore.
     pub action: SuppressionAction,
     /// Which directive syntax produced this.
     pub source: SuppressionSource,
@@ -27,6 +27,7 @@ pub struct SuppressionDirective {
 pub enum SuppressionAction {
     Disable,
     DisableFile,
+    Ignore,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -607,6 +608,8 @@ fn parse_shuck_action(value: &str) -> Option<SuppressionAction> {
         Some(SuppressionAction::Disable)
     } else if value.eq_ignore_ascii_case("disable-file") {
         Some(SuppressionAction::DisableFile)
+    } else if value.eq_ignore_ascii_case("ignore") {
+        Some(SuppressionAction::Ignore)
     } else {
         None
     }
@@ -671,6 +674,20 @@ mod tests {
 
         assert_eq!(directives.len(), 1);
         assert_eq!(directives[0].action, SuppressionAction::Disable);
+        assert_eq!(directives[0].source, SuppressionSource::Shuck);
+        assert_eq!(
+            directives[0].codes,
+            vec![Rule::UndefinedVariable, Rule::UnquotedExpansion]
+        );
+        assert_eq!(directives[0].line, 1);
+    }
+
+    #[test]
+    fn parses_shuck_ignore_directives_on_inline_lines() {
+        let directives = directives("echo $foo # shuck: ignore=C006,S001 # legacy\n");
+
+        assert_eq!(directives.len(), 1);
+        assert_eq!(directives[0].action, SuppressionAction::Ignore);
         assert_eq!(directives[0].source, SuppressionSource::Shuck);
         assert_eq!(
             directives[0].codes,
@@ -1012,6 +1029,7 @@ foreach item (1 2) { # shellcheck disable=SC2086
     fn ignores_malformed_and_unknown_directives() {
         let source = "\
 # shuck: disable=
+# shuck: ignore=
 # shuck: foobar=C001
 # shuck disable=C001
 # shuck: enable=SH-039

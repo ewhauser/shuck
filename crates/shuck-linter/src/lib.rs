@@ -80,8 +80,9 @@ pub use rules::common::word::{
 pub use settings::LinterSettings;
 pub use shell::ShellDialect;
 pub use suppression::{
-    ShellCheckCodeMap, SuppressionAction, SuppressionDirective, SuppressionIndex,
-    SuppressionSource, first_statement_line, parse_directives,
+    AddIgnoreParseError, AddIgnoreResult, ShellCheckCodeMap, SuppressionAction,
+    SuppressionDirective, SuppressionIndex, SuppressionSource, add_ignores_to_path,
+    first_statement_line, parse_directives,
 };
 pub use violation::Violation;
 

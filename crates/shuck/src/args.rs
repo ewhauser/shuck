@@ -206,6 +206,18 @@ pub struct CheckCommand {
     /// Apply unsafe fixes.
     #[arg(long = "unsafe-fixes")]
     pub unsafe_fixes: bool,
+    /// Enable automatic additions of shuck ignore directives to failing lines.
+    /// Optionally provide a reason to append after the codes.
+    #[arg(
+        long = "add-ignore",
+        value_name = "REASON",
+        default_missing_value = "",
+        num_args = 0..=1,
+        require_equals = true,
+        conflicts_with = "fix",
+        conflicts_with = "unsafe_fixes",
+    )]
+    pub add_ignore: Option<String>,
     /// Choose the text output format for reported diagnostics.
     #[arg(long = "output-format", value_enum, default_value_t = CheckOutputFormatArg::Full)]
     pub output_format: CheckOutputFormatArg,
@@ -447,6 +459,47 @@ pub struct CleanCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn parse_check<I, T>(args: I) -> CheckCommand
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<OsString> + Clone,
+    {
+        let parsed = StableCli::try_parse_from(args).unwrap();
+        match Args::from_stable(parsed).unwrap().command {
+            Command::Check(command) => command,
+            command => panic!("expected check command, got {command:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_add_ignore_without_reason() {
+        let command = parse_check(["shuck", "check", "--add-ignore"]);
+
+        assert_eq!(command.add_ignore, Some(String::new()));
+    }
+
+    #[test]
+    fn parses_add_ignore_with_reason() {
+        let command = parse_check(["shuck", "check", "--add-ignore=legacy"]);
+
+        assert_eq!(command.add_ignore.as_deref(), Some("legacy"));
+    }
+
+    #[test]
+    fn rejects_add_noqa_alias() {
+        let error = StableCli::try_parse_from(["shuck", "check", "--add-noqa=legacy"]).unwrap_err();
+
+        assert_eq!(error.kind(), ErrorKind::UnknownArgument);
+    }
+
+    #[test]
+    fn rejects_add_ignore_with_fix_flags() {
+        let error =
+            StableCli::try_parse_from(["shuck", "check", "--add-ignore", "--fix"]).unwrap_err();
+
+        assert_eq!(error.kind(), ErrorKind::ArgumentConflict);
+    }
 
     #[test]
     fn check_file_selection_negative_flags_override_positive_flags() {
