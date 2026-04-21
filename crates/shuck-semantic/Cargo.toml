@@ -12,10 +12,10 @@ categories = ["development-tools"]
 [dependencies]
 bitflags = "2"
 rustc-hash = "2"
-smallvec.workspace = true
-shuck-ast = { path = "../shuck-ast" }
-shuck-indexer = { path = "../shuck-indexer" }
-shuck-parser = { path = "../shuck-parser" }
+smallvec = { workspace = true }
+shuck-ast = { workspace = true }
+shuck-indexer = { workspace = true }
+shuck-parser = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

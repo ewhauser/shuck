@@ -23,13 +23,13 @@ rayon = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 quick-junit = { workspace = true }
-shuck-ast = { path = "../shuck-ast" }
-shuck-cache = { path = "../shuck-cache" }
-shuck-formatter = { path = "../shuck-formatter" }
-shuck-indexer = { path = "../shuck-indexer" }
-shuck-linter = { path = "../shuck-linter" }
-shuck-parser = { path = "../shuck-parser" }
-shuck-semantic = { path = "../shuck-semantic" }
+shuck-ast = { workspace = true }
+shuck-cache = { workspace = true }
+shuck-formatter = { workspace = true }
+shuck-indexer = { workspace = true }
+shuck-linter = { workspace = true }
+shuck-parser = { workspace = true }
+shuck-semantic = { workspace = true }
 similar = { workspace = true }
 toml = { workspace = true }
 url = { workspace = true }
@@ -42,10 +42,10 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 sha2 = { workspace = true }
-shuck-indexer = { path = "../shuck-indexer" }
-shuck-linter = { path = "../shuck-linter" }
-shuck-parser = { path = "../shuck-parser" }
-shuck-semantic = { path = "../shuck-semantic" }
+shuck-indexer = { workspace = true }
+shuck-linter = { workspace = true }
+shuck-parser = { workspace = true }
+shuck-semantic = { workspace = true }
 tempfile = { workspace = true }
 wait-timeout = "0.2"
 walkdir = "2"

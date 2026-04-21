@@ -14,11 +14,11 @@ publish = false
 parser-benchmarking = ["shuck-parser/benchmarking"]
 
 [dependencies]
-shuck-formatter = { path = "../shuck-formatter", features = ["benchmarking"] }
-shuck-indexer = { path = "../shuck-indexer" }
-shuck-linter = { path = "../shuck-linter", features = ["benchmarking"] }
-shuck-parser = { path = "../shuck-parser" }
-shuck-semantic = { path = "../shuck-semantic" }
+shuck-formatter = { workspace = true, features = ["benchmarking"] }
+shuck-indexer = { workspace = true }
+shuck-linter = { workspace = true, features = ["benchmarking"] }
+shuck-parser = { workspace = true }
+shuck-semantic = { workspace = true }
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 tikv-jemallocator = "0.6"
@@ -27,7 +27,7 @@ tikv-jemallocator = "0.6"
 criterion = { version = "0.5", features = ["html_reports"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-shuck = { path = "../shuck" }
+shuck = { workspace = true }
 tempfile = { workspace = true }
 
 [[example]]
