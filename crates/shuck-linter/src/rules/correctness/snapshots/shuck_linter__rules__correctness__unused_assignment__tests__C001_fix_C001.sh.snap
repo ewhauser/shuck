@@ -1,0 +1,42 @@
+---
+source: crates/shuck-linter/src/rules/correctness/unused_assignment.rs
+assertion_line: 180
+---
+Diagnostics:
+C001 variable `unused` is assigned but never used
+ --> <source>:4:1
+  |
+4 | unused=1
+  |
+
+
+Applied fixes: 1
+
+Diff:
+--- before
++++ after
+@@ -1,7 +1,7 @@
+ #!/bin/sh
+ 
+ # Basic unused assignment
+-unused=1
++_=1
+ 
+ # Used assignment (no diagnostic)
+ used=1
+
+Fixed source:
+#!/bin/sh
+
+# Basic unused assignment
+_=1
+
+# Used assignment (no diagnostic)
+used=1
+echo "$used"
+
+# Exported variable (no diagnostic)
+export EXPORTED=1
+
+Remaining diagnostics:
+<none>

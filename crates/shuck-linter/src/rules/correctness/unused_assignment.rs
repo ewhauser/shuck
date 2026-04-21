@@ -4,7 +4,7 @@ use shuck_semantic::{
     Binding, BindingAttributes, BindingId, BindingKind, ScopeId, ScopeKind, SemanticModel,
 };
 
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
 
 type BindingFamilyKey = (Option<ScopeId>, Option<ScopeId>, String);
 
@@ -13,12 +13,18 @@ pub struct UnusedAssignment {
 }
 
 impl Violation for UnusedAssignment {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::UnusedAssignment
     }
 
     fn message(&self) -> String {
         format!("variable `{}` is assigned but never used", self.name)
+    }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("rename the unused assignment target to `_`".to_owned())
     }
 }
 
@@ -134,11 +140,12 @@ pub fn unused_assignment(checker: &mut Checker) {
             continue;
         }
 
-        checker.report(
-            UnusedAssignment {
-                name: binding.name.to_string(),
-            },
-            binding.span,
+        let name = binding.name.to_string();
+        let span = binding.span;
+
+        checker.report_diagnostic(
+            Diagnostic::new(UnusedAssignment { name }, span)
+                .with_fix(Fix::unsafe_edit(Edit::replacement("_", span))),
         );
     }
 }
@@ -258,16 +265,108 @@ fn inherited_local_family_scope(
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use std::path::Path;
+
+    use crate::test::{test_path_with_fix, test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, assert_diagnostics_diff};
 
     #[test]
-    fn anchors_on_variable_name_span() {
+    fn anchors_on_variable_name_span_and_attaches_fix_metadata() {
         let source = "#!/bin/sh\nunused=1\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "unused");
+        assert_eq!(
+            diagnostics[0].fix.as_ref().map(|fix| fix.applicability()),
+            Some(Applicability::Unsafe)
+        );
+        assert_eq!(
+            diagnostics[0].fix_title.as_deref(),
+            Some("rename the unused assignment target to `_`")
+        );
+    }
+
+    #[test]
+    fn applies_unsafe_fix_to_reported_assignment_targets() {
+        let source = "\
+#!/bin/bash
+unused=1
+arr[0]=x
+read -r read_target <<< \"value\"
+printf -v printf_target '%s' ok
+while getopts \"ab\" opt; do
+  :
+done
+((arith = 1))
+for item in a b; do
+  :
+done
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 7);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/bash
+_=1
+_[0]=x
+read -r _ <<< \"value\"
+printf -v _ '%s' ok
+while getopts \"ab\" _; do
+  :
+done
+((_ = 1))
+for _ in a b; do
+  :
+done
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn leaves_existing_underscore_targets_unchanged_when_fixing() {
+        let source = "\
+#!/bin/bash
+_=1
+_[0]=x
+read -r _ <<< \"value\"
+printf -v _ '%s' ok
+while getopts \"ab\" _; do
+  :
+done
+((_ = 1))
+for _ in a b; do
+  :
+done
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn snapshots_unsafe_fix_output_for_fixture() -> anyhow::Result<()> {
+        let result = test_path_with_fix(
+            Path::new("correctness").join("C001.sh").as_path(),
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
+            Applicability::Unsafe,
+        )?;
+
+        assert_diagnostics_diff!("C001_fix_C001.sh", result);
+        Ok(())
     }
 
     #[test]
