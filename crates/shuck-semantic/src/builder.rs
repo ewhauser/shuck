@@ -87,7 +87,7 @@ pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     source_directives: FxHashMap<usize, SourceDirectiveOverride>,
     runtime: RuntimePrelude,
     completed_scopes: FxHashSet<ScopeId>,
-    deferred_functions: Vec<DeferredFunction>,
+    deferred_functions: Vec<DeferredFunction<'a>>,
     scope_stack: Vec<ScopeId>,
     command_stack: Vec<Span>,
     guarded_parameter_operand_depth: u32,
@@ -109,8 +109,8 @@ enum WordVisitKind {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct DeferredFunction {
-    function: *const FunctionDef,
+struct DeferredFunction<'a> {
+    function: &'a FunctionDef,
     scope: ScopeId,
     flow: FlowState,
 }
@@ -233,7 +233,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             self.recorded_program.push_regions(merged);
     }
 
-    fn visit_stmt_seq(&mut self, commands: &StmtSeq, flow: FlowState) -> RecordedCommandRange {
+    fn visit_stmt_seq(&mut self, commands: &'a StmtSeq, flow: FlowState) -> RecordedCommandRange {
         let mut recorded = Vec::with_capacity(commands.len());
         self.visit_stmt_seq_into(commands, flow, &mut recorded);
         self.recorded_program.push_command_ids(recorded)
@@ -241,7 +241,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_stmt_seq_into(
         &mut self,
-        commands: &StmtSeq,
+        commands: &'a StmtSeq,
         flow: FlowState,
         recorded: &mut Vec<RecordedCommandId>,
     ) {
@@ -251,7 +251,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
-    fn visit_stmt(&mut self, stmt: &Stmt, flow: FlowState) -> RecordedCommandId {
+    fn visit_stmt(&mut self, stmt: &'a Stmt, flow: FlowState) -> RecordedCommandId {
         let span = stmt.span;
         let scope = self.current_scope();
         let context = Self::flow_context(flow);
@@ -275,7 +275,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         recorded
     }
 
-    fn visit_command(&mut self, command: &Command, flow: FlowState) -> RecordedCommandId {
+    fn visit_command(&mut self, command: &'a Command, flow: FlowState) -> RecordedCommandId {
         match command {
             Command::Simple(command) => self.visit_simple_command(command, flow),
             Command::Builtin(command) => self.visit_builtin(command, flow),
@@ -289,7 +289,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_simple_command(
         &mut self,
-        command: &shuck_ast::SimpleCommand,
+        command: &'a shuck_ast::SimpleCommand,
         flow: FlowState,
     ) -> RecordedCommandId {
         let mut nested_regions = Vec::new();
@@ -344,7 +344,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         self.record_command(command.span, nested_regions, RecordedCommandKind::Linear)
     }
 
-    fn visit_builtin(&mut self, command: &BuiltinCommand, flow: FlowState) -> RecordedCommandId {
+    fn visit_builtin(&mut self, command: &'a BuiltinCommand, flow: FlowState) -> RecordedCommandId {
         match command {
             BuiltinCommand::Break(command) => {
                 let nested_regions = self.visit_builtin_parts(
@@ -399,9 +399,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_builtin_parts(
         &mut self,
-        assignments: &[Assignment],
-        primary_word: Option<&Word>,
-        extra_words: &[Word],
+        assignments: &'a [Assignment],
+        primary_word: Option<&'a Word>,
+        extra_words: &'a [Word],
         flow: FlowState,
     ) -> Vec<IsolatedRegion> {
         let mut nested_regions = Vec::new();
@@ -428,7 +428,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_decl(
         &mut self,
-        command: &shuck_ast::DeclClause,
+        command: &'a shuck_ast::DeclClause,
         flow: FlowState,
     ) -> RecordedCommandId {
         let mut nested_regions = Vec::new();
@@ -496,7 +496,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         self.record_command(command.span, nested_regions, RecordedCommandKind::Linear)
     }
 
-    fn visit_binary(&mut self, command: &BinaryCommand, flow: FlowState) -> RecordedCommandId {
+    fn visit_binary(&mut self, command: &'a BinaryCommand, flow: FlowState) -> RecordedCommandId {
         match command.op {
             BinaryOp::And | BinaryOp::Or => self.visit_logical_binary(command, flow),
             BinaryOp::Pipe | BinaryOp::PipeAll => self.visit_pipeline_binary(command, flow),
@@ -505,7 +505,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_pipeline_binary(
         &mut self,
-        command: &BinaryCommand,
+        command: &'a BinaryCommand,
         mut flow: FlowState,
     ) -> RecordedCommandId {
         flow.in_subshell = true;
@@ -535,7 +535,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_logical_binary(
         &mut self,
-        command: &BinaryCommand,
+        command: &'a BinaryCommand,
         flow: FlowState,
     ) -> RecordedCommandId {
         let mut operators = SmallVec::<[RecordedListOperator; 4]>::new();
@@ -570,7 +570,11 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         )
     }
 
-    fn visit_compound(&mut self, command: &CompoundCommand, flow: FlowState) -> RecordedCommandId {
+    fn visit_compound(
+        &mut self,
+        command: &'a CompoundCommand,
+        flow: FlowState,
+    ) -> RecordedCommandId {
         match command {
             CompoundCommand::If(command) => {
                 let condition = self.visit_stmt_seq(
@@ -911,7 +915,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
     }
 
-    fn visit_function(&mut self, function: &FunctionDef, flow: FlowState) -> RecordedCommandId {
+    fn visit_function(&mut self, function: &'a FunctionDef, flow: FlowState) -> RecordedCommandId {
         let mut nested_regions = Vec::new();
         for entry in &function.header.entries {
             self.visit_word_into(
@@ -944,7 +948,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 .insert(binding_id, scope);
         }
         self.deferred_functions.push(DeferredFunction {
-            function: function as *const FunctionDef,
+            function,
             scope,
             flow,
         });
@@ -955,7 +959,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_anonymous_function(
         &mut self,
-        function: &AnonymousFunctionCommand,
+        function: &'a AnonymousFunctionCommand,
         flow: FlowState,
     ) -> RecordedCommandId {
         let nested_regions = self.visit_words(&function.args, WordVisitKind::Expansion, flow);
@@ -977,7 +981,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_assignment_into(
         &mut self,
-        assignment: &Assignment,
+        assignment: &'a Assignment,
         declaration_kind: Option<(BindingKind, ScopeId)>,
         mut attributes: BindingAttributes,
         flow: FlowState,
@@ -1040,7 +1044,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_assignment_value_into(
         &mut self,
-        assignment: &Assignment,
+        assignment: &'a Assignment,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
@@ -1056,7 +1060,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_words(
         &mut self,
-        words: &[Word],
+        words: &'a [Word],
         kind: WordVisitKind,
         flow: FlowState,
     ) -> Vec<IsolatedRegion> {
@@ -1067,7 +1071,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_words_into(
         &mut self,
-        words: &[Word],
+        words: &'a [Word],
         kind: WordVisitKind,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
@@ -1079,7 +1083,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_array_expr_into(
         &mut self,
-        array: &ArrayExpr,
+        array: &'a ArrayExpr,
         kind: WordVisitKind,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
@@ -1099,7 +1103,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_patterns(
         &mut self,
-        patterns: &[Pattern],
+        patterns: &'a [Pattern],
         kind: WordVisitKind,
         flow: FlowState,
     ) -> Vec<IsolatedRegion> {
@@ -1110,7 +1114,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_patterns_into(
         &mut self,
-        patterns: &[Pattern],
+        patterns: &'a [Pattern],
         kind: WordVisitKind,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
@@ -1122,7 +1126,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_redirects(
         &mut self,
-        redirects: &[shuck_ast::Redirect],
+        redirects: &'a [shuck_ast::Redirect],
         flow: FlowState,
     ) -> Vec<IsolatedRegion> {
         let mut nested_regions = Vec::new();
@@ -1132,7 +1136,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_redirects_into(
         &mut self,
-        redirects: &[shuck_ast::Redirect],
+        redirects: &'a [shuck_ast::Redirect],
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
@@ -1158,7 +1162,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_word(
         &mut self,
-        word: &Word,
+        word: &'a Word,
         kind: WordVisitKind,
         flow: FlowState,
     ) -> Vec<IsolatedRegion> {
@@ -1169,7 +1173,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_word_into(
         &mut self,
-        word: &Word,
+        word: &'a Word,
         kind: WordVisitKind,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
@@ -1182,7 +1186,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_heredoc_body_into(
         &mut self,
-        body: &HeredocBody,
+        body: &'a HeredocBody,
         kind: WordVisitKind,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
@@ -1195,7 +1199,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_pattern_into(
         &mut self,
-        pattern: &Pattern,
+        pattern: &'a Pattern,
         kind: WordVisitKind,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
@@ -1208,7 +1212,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_word_part_nodes(
         &mut self,
-        parts: &[WordPartNode],
+        parts: &'a [WordPartNode],
         kind: WordVisitKind,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
@@ -1220,7 +1224,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_pattern_part_nodes(
         &mut self,
-        parts: &[PatternPartNode],
+        parts: &'a [PatternPartNode],
         kind: WordVisitKind,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
@@ -1232,7 +1236,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_heredoc_body_part_nodes(
         &mut self,
-        parts: &[HeredocBodyPartNode],
+        parts: &'a [HeredocBodyPartNode],
         kind: WordVisitKind,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
@@ -1244,7 +1248,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_var_ref_reference(
         &mut self,
-        reference: &VarRef,
+        reference: &'a VarRef,
         reference_kind: ReferenceKind,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
@@ -1268,7 +1272,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     fn visit_var_ref_subscript_words(
         &mut self,
         owner_name: Option<&Name>,
-        subscript: Option<&Subscript>,
+        subscript: Option<&'a Subscript>,
         kind: WordVisitKind,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
@@ -1309,7 +1313,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_word_part(
         &mut self,
-        part: &WordPart,
+        part: &'a WordPart,
         span: Span,
         kind: WordVisitKind,
         flow: FlowState,
@@ -1556,7 +1560,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_heredoc_body_part(
         &mut self,
-        part: &HeredocBodyPart,
+        part: &'a HeredocBodyPart,
         span: Span,
         kind: WordVisitKind,
         flow: FlowState,
@@ -1609,7 +1613,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_parameter_expansion(
         &mut self,
-        parameter: &ParameterExpansion,
+        parameter: &'a ParameterExpansion,
         kind: WordVisitKind,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
@@ -1881,7 +1885,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_fragment_word(
         &mut self,
-        word: Option<&Word>,
+        word: Option<&'a Word>,
         text: Option<&shuck_ast::SourceText>,
         kind: WordVisitKind,
         flow: FlowState,
@@ -1899,9 +1903,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_parameter_operator_operand(
         &mut self,
-        operator: &ParameterOp,
+        operator: &'a ParameterOp,
         operand: Option<&shuck_ast::SourceText>,
-        operand_word_ast: Option<&Word>,
+        operand_word_ast: Option<&'a Word>,
         kind: WordVisitKind,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
@@ -1949,7 +1953,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_pattern_part(
         &mut self,
-        part: &PatternPart,
+        part: &'a PatternPart,
         kind: WordVisitKind,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
@@ -1972,7 +1976,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_conditional_expr(
         &mut self,
-        expression: &ConditionalExpr,
+        expression: &'a ConditionalExpr,
         flow: FlowState,
     ) -> Vec<IsolatedRegion> {
         let mut nested_regions = Vec::new();
@@ -1982,7 +1986,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_conditional_expr_into(
         &mut self,
-        expression: &ConditionalExpr,
+        expression: &'a ConditionalExpr,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
@@ -2017,7 +2021,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_optional_arithmetic_expr(
         &mut self,
-        expr: Option<&ArithmeticExprNode>,
+        expr: Option<&'a ArithmeticExprNode>,
         flow: FlowState,
     ) -> Vec<IsolatedRegion> {
         let mut nested_regions = Vec::new();
@@ -2027,7 +2031,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_optional_arithmetic_expr_into(
         &mut self,
-        expr: Option<&ArithmeticExprNode>,
+        expr: Option<&'a ArithmeticExprNode>,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
@@ -2038,7 +2042,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_arithmetic_expr_into(
         &mut self,
-        expr: &ArithmeticExprNode,
+        expr: &'a ArithmeticExprNode,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
@@ -2103,7 +2107,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     fn visit_arithmetic_index_into(
         &mut self,
         owner_name: &Name,
-        index: &ArithmeticExprNode,
+        index: &'a ArithmeticExprNode,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
@@ -2156,7 +2160,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_associative_arithmetic_key_into(
         &mut self,
-        expr: &ArithmeticExprNode,
+        expr: &'a ArithmeticExprNode,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
@@ -2199,7 +2203,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_associative_arithmetic_lvalue_into(
         &mut self,
-        target: &ArithmeticLvalue,
+        target: &'a ArithmeticLvalue,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
@@ -2213,7 +2217,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_arithmetic_update_into(
         &mut self,
-        expr: &ArithmeticExprNode,
+        expr: &'a ArithmeticExprNode,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
@@ -2258,10 +2262,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_arithmetic_assignment_into(
         &mut self,
-        target: &ArithmeticLvalue,
+        target: &'a ArithmeticLvalue,
         target_span: Span,
         op: ArithmeticAssignOp,
-        value: &ArithmeticExprNode,
+        value: &'a ArithmeticExprNode,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
@@ -2289,7 +2293,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
     fn visit_arithmetic_lvalue_indices_into(
         &mut self,
-        target: &ArithmeticLvalue,
+        target: &'a ArithmeticLvalue,
         flow: FlowState,
         nested_regions: &mut Vec<IsolatedRegion>,
     ) {
@@ -2776,10 +2780,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             let deferred_functions = std::mem::take(&mut self.deferred_functions);
             for deferred in deferred_functions {
                 self.rebuild_scope_stack(deferred.scope);
-                // SAFETY: deferred function pointers always refer to nodes inside the borrowed AST
-                // passed into `build`, and we only dereference them while that AST is still alive.
-                let function = unsafe { &*deferred.function };
-                let commands = self.visit_function_like_body(&function.body, deferred.flow);
+                let commands =
+                    self.visit_function_like_body(&deferred.function.body, deferred.flow);
                 self.recorded_program
                     .set_function_body(deferred.scope, commands);
                 self.mark_scope_completed(deferred.scope);
@@ -2789,7 +2791,11 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         self.command_stack.clear();
     }
 
-    fn visit_function_like_body(&mut self, body: &Stmt, flow: FlowState) -> RecordedCommandRange {
+    fn visit_function_like_body(
+        &mut self,
+        body: &'a Stmt,
+        flow: FlowState,
+    ) -> RecordedCommandRange {
         let flow = FlowState {
             in_function: true,
             ..flow
