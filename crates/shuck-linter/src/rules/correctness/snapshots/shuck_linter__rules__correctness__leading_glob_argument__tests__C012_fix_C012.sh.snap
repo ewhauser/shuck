@@ -1,0 +1,56 @@
+---
+source: crates/shuck-linter/src/rules/correctness/leading_glob_argument.rs
+assertion_line: 268
+---
+Diagnostics:
+C012 wildcard arguments should be guarded with `./` or `--`
+ --> <source>:2:4
+  |
+2 | rm *
+  |
+
+C012 wildcard arguments should be guarded with `./` or `--`
+ --> <source>:3:5
+  |
+3 | cat ?a
+  |
+
+C012 wildcard arguments should be guarded with `./` or `--`
+ --> <source>:4:12
+  |
+4 | command mv *a dest/
+  |
+
+
+Applied fixes: 3
+
+Diff:
+--- before
++++ after
+@@ -1,7 +1,7 @@
+ #!/bin/sh
+-rm *
+-cat ?a
+-command mv *a dest/
++rm ./*
++cat ./?a
++command mv ./*a dest/
+ 
+ rm -- *
+ rm ./*
+
+Fixed source:
+#!/bin/sh
+rm ./*
+cat ./?a
+command mv ./*a dest/
+
+rm -- *
+rm ./*
+rm foo/*
+rm a*
+echo *
+printf '%s\n' *
+
+Remaining diagnostics:
+<none>
