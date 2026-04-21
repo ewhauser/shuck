@@ -574,6 +574,7 @@ impl<'a> LinterFactsBuilder<'a> {
             single_test_subshell_spans,
             subshell_test_group_spans,
             indented_shebang_span: shebang_header_facts.indented_shebang_span,
+            indented_shebang_indent_span: shebang_header_facts.indented_shebang_indent_span,
             space_after_hash_bang_span: shebang_header_facts.space_after_hash_bang_span,
             shebang_not_on_first_line_span: shebang_header_facts.shebang_not_on_first_line_span,
             missing_shebang_line_span: shebang_header_facts.missing_shebang_line_span,

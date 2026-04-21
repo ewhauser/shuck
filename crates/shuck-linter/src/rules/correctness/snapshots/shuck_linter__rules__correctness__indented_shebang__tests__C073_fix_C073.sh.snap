@@ -1,0 +1,36 @@
+---
+source: crates/shuck-linter/src/rules/correctness/indented_shebang.rs
+assertion_line: 131
+---
+Diagnostics:
+C073 shebang must start in column 1
+ --> <source>:1:1
+  |
+1 |  #!/bin/sh
+  |
+
+
+Applied fixes: 1
+
+Diff:
+--- before
++++ after
+@@ -1,4 +1,4 @@
+- #!/bin/sh
++#!/bin/sh
+ :
+ 
+ # should not trigger: only the file header counts as the shebang
+
+Fixed source:
+#!/bin/sh
+:
+
+# should not trigger: only the file header counts as the shebang
+#!/bin/sh
+
+# should not trigger: spacing after `#!` is a different rule
+#! /bin/sh
+
+Remaining diagnostics:
+<none>

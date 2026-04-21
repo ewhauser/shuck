@@ -1,6 +1,7 @@
 #[derive(Debug, Clone, Copy, Default)]
 struct ShebangHeaderFacts {
     indented_shebang_span: Option<Span>,
+    indented_shebang_indent_span: Option<Span>,
     space_after_hash_bang_span: Option<Span>,
     shebang_not_on_first_line_span: Option<Span>,
     missing_shebang_line_span: Option<Span>,
@@ -16,6 +17,7 @@ fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
     };
     let first_line = first_line_text.trim_end_matches('\r');
     let mut indented_shebang_span = None;
+    let mut indented_shebang_indent_span = None;
     let mut space_after_hash_bang_span = None;
     let mut shebang_not_on_first_line_span = None;
 
@@ -26,11 +28,15 @@ fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
         let header_like = source_line_is_header_like(line);
         let shebang_candidate = source_line_has_shebang_candidate(line);
         let indented_candidate = source_line_has_leading_whitespace_before_shebang_candidate(line);
+        let leading_whitespace_len = source_line_leading_whitespace_len(line);
         let space_after_hash_offset = shebang_space_after_hash_offset_in_line(line);
         let line_number = line_index + 1;
 
         if indented_shebang_span.is_none() && indented_candidate {
             indented_shebang_span = Some(point_span(line_number, 1, offset));
+            indented_shebang_indent_span = leading_whitespace_len
+                .filter(|&len| len > 0)
+                .map(|len| line_prefix_span(line_number, offset, &line[..len]));
         }
         if space_after_hash_bang_span.is_none()
             && let Some(space_offset) = space_after_hash_offset
@@ -89,6 +95,7 @@ fn build_shebang_header_facts(source: &str) -> ShebangHeaderFacts {
 
     ShebangHeaderFacts {
         indented_shebang_span,
+        indented_shebang_indent_span,
         space_after_hash_bang_span,
         shebang_not_on_first_line_span,
         missing_shebang_line_span,
@@ -113,6 +120,11 @@ fn source_line_has_leading_whitespace_before_shebang_candidate(line: &str) -> bo
     trimmed.len() != line.len() && source_line_has_shebang_candidate(line)
 }
 
+fn source_line_leading_whitespace_len(line: &str) -> Option<usize> {
+    let trimmed = line.trim_start_matches(char::is_whitespace);
+    (trimmed.len() != line.len()).then_some(line.len() - trimmed.len())
+}
+
 fn shebang_space_after_hash_offset_in_line(line: &str) -> Option<usize> {
     let trimmed = line.trim_start_matches(char::is_whitespace);
     let leading_whitespace_len = line.len().saturating_sub(trimmed.len());
@@ -130,6 +142,16 @@ fn point_span(line_number: usize, column: usize, offset: usize) -> Span {
         column,
         offset,
     })
+}
+
+fn line_prefix_span(line_number: usize, offset: usize, prefix: &str) -> Span {
+    let start = Position {
+        line: line_number,
+        column: 1,
+        offset,
+    };
+    let end = start.advanced_by(prefix);
+    Span::from_positions(start, end)
 }
 
 fn parse_shebang_words(shebang: &str) -> Vec<&str> {
@@ -309,7 +331,6 @@ fn case_item_label_comment(
     })
 }
 
-
 fn has_header_shellcheck_shell_directive(source: &str) -> bool {
     for line in source.lines().skip(1) {
         let trimmed = line.trim_start();
@@ -328,5 +349,3 @@ fn has_header_shellcheck_shell_directive(source: &str) -> bool {
 
     false
 }
-
-

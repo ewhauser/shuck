@@ -47,6 +47,7 @@ pub struct LinterFacts<'a> {
     single_test_subshell_spans: Vec<Span>,
     subshell_test_group_spans: Vec<Span>,
     indented_shebang_span: Option<Span>,
+    indented_shebang_indent_span: Option<Span>,
     space_after_hash_bang_span: Option<Span>,
     shebang_not_on_first_line_span: Option<Span>,
     missing_shebang_line_span: Option<Span>,
@@ -492,6 +493,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn indented_shebang_span(&self) -> Option<Span> {
         self.indented_shebang_span
+    }
+
+    pub fn indented_shebang_indent_span(&self) -> Option<Span> {
+        self.indented_shebang_indent_span
     }
 
     pub fn space_after_hash_bang_span(&self) -> Option<Span> {
