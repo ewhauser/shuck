@@ -1,0 +1,24 @@
+legacy_code: SH-326
+legacy_name: fork-bomb-pattern
+new_category: Security
+new_code: K008
+runtime_kind: ast
+shellcheck_code: null
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: The classic fork-bomb pattern recursively spawns processes until the system is exhausted.
+rationale: Remove the recursive self-pipe pattern entirely; even a copied test version can hang or crash a machine.
+safe_fix: false
+fix_description: null
+source:
+  shell_checks_rule: rules/SH-326.yaml
+  shell_checks_example: examples/326.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/326.sh
+    code: |
+      #!/bin/sh
+      :(){ :|:& };:

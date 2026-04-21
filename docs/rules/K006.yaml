@@ -1,0 +1,24 @@
+legacy_code: SH-324
+legacy_name: rm-rootish-target
+new_category: Security
+new_code: K006
+runtime_kind: ast
+shellcheck_code: null
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: A recursive `rm` aimed at a root-like path can erase an entire filesystem or home tree.
+rationale: "Require a narrower, explicitly bounded target before using recursive deletion on `/`, `~`, or home-directory roots."
+safe_fix: false
+fix_description: null
+source:
+  shell_checks_rule: rules/SH-324.yaml
+  shell_checks_example: examples/324.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/324.sh
+    code: |
+      #!/bin/sh
+      rm -rf "$HOME"/*
