@@ -55,9 +55,9 @@ pub const OPTIONAL_CHECKS: &[OptionalCheck] = &[
         name: "check-unassigned-uppercase",
         description: "Adds uppercase-variable coverage to unset-variable style checks.",
         example: "echo $VAR",
-        guidance: "Initialize the uppercase name before reading it, or choose a different check set.",
-        rules: &[],
-        supported: false,
+        guidance: "Initialize the uppercase name before reading it when it is not inherited from the environment.",
+        rules: &[Rule::UndefinedVariable],
+        supported: true,
     },
     OptionalCheck {
         name: "deprecate-which",

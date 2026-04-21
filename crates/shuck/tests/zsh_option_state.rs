@@ -151,6 +151,7 @@ fn run_fixture(fixture: &Fixture) -> Result<()> {
         &indexer,
         &rules,
         ShellDialect::Zsh,
+        false,
         &file_context,
         None,
     );

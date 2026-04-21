@@ -140,6 +140,37 @@ fn compat_include_and_severity_filter_work_on_sc_codes() {
 }
 
 #[test]
+fn compat_include_unknown_sc_code_is_accepted_as_empty_selection() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("x.sh"), "#!/bin/sh\necho $foo\n").unwrap();
+
+    let output = run_compat(
+        ["--norc", "-f", "json1", "--include=SC9999", "x.sh"].as_slice(),
+        tempdir.path(),
+    );
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(json1_comments(&output), Vec::<Value>::new());
+}
+
+#[test]
+fn compat_exclude_unknown_sc_code_is_ignored() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("x.sh"), "#!/bin/sh\necho $foo\n").unwrap();
+
+    let output = run_compat(
+        ["--norc", "-f", "json1", "--exclude=SC9999", "x.sh"].as_slice(),
+        tempdir.path(),
+    );
+    assert_eq!(output.status.code(), Some(1));
+
+    let ordered_codes = json1_comments(&output)
+        .into_iter()
+        .map(|comment| comment["code"].as_u64().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(ordered_codes, vec![2154, 2086]);
+}
+
+#[test]
 fn compat_accepts_busybox_shell_alias() {
     let tempdir = tempdir().unwrap();
     fs::write(tempdir.path().join("x.sh"), "echo hi\n").unwrap();
@@ -234,6 +265,24 @@ fn compat_enable_all_is_accepted() {
 }
 
 #[test]
+fn compat_enable_all_includes_check_unassigned_uppercase() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("x.sh"), "#!/bin/sh\necho $VAR\n").unwrap();
+
+    let output = run_compat(
+        ["--norc", "--enable=all", "-f", "json1", "x.sh"].as_slice(),
+        tempdir.path(),
+    );
+    assert_eq!(output.status.code(), Some(1));
+
+    let ordered_codes = json1_comments(&output)
+        .into_iter()
+        .map(|comment| comment["code"].as_u64().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(ordered_codes, vec![2154, 2086]);
+}
+
+#[test]
 fn compat_accepts_named_unimplemented_optional_checks_as_noops() {
     let tempdir = tempdir().unwrap();
     fs::write(tempdir.path().join("x.sh"), "#!/bin/sh\necho $foo\n").unwrap();
@@ -257,6 +306,31 @@ fn compat_accepts_named_unimplemented_optional_checks_as_noops() {
                 .any(|comment| comment["code"].as_u64() == Some(2154))
         );
     }
+}
+
+#[test]
+fn compat_check_unassigned_uppercase_enables_sc2154_on_uppercase_names() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("x.sh"), "#!/bin/sh\necho $VAR\n").unwrap();
+
+    let output = run_compat(
+        [
+            "--norc",
+            "--enable=check-unassigned-uppercase",
+            "-f",
+            "json1",
+            "x.sh",
+        ]
+        .as_slice(),
+        tempdir.path(),
+    );
+    assert_eq!(output.status.code(), Some(1));
+
+    let ordered_codes = json1_comments(&output)
+        .into_iter()
+        .map(|comment| comment["code"].as_u64().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(ordered_codes, vec![2154, 2086]);
 }
 
 #[test]

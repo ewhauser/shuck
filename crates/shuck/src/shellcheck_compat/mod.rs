@@ -314,7 +314,27 @@ struct CompatOptions {
     source_paths: Vec<String>,
     files: Vec<PathBuf>,
     enabled_rules: RuleSet,
+    report_environment_style_names: bool,
     shellcheck_map: ShellCheckCodeMap,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct CompatOptionalState {
+    check_unassigned_uppercase: bool,
+}
+
+impl CompatOptionalState {
+    fn enable(&mut self, check_name: &str) {
+        if check_name == "check-unassigned-uppercase" {
+            self.check_unassigned_uppercase = true;
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedCompatSelection {
+    rules: RuleSet,
+    optional_state: CompatOptionalState,
 }
 
 #[derive(Debug, Clone)]
@@ -618,7 +638,7 @@ fn resolve_options(
     }
 
     let shellcheck_map = ShellCheckCodeMap::default();
-    let enabled_rules = resolve_rule_selection(&shellcheck_map, &cli, &config)?;
+    let selection = resolve_rule_selection(&shellcheck_map, &cli, &config)?;
 
     let files = cli
         .files
@@ -652,11 +672,12 @@ fn resolve_options(
         },
         files,
         enabled_rules: apply_extended_analysis(
-            enabled_rules,
+            selection.rules,
             cli.extended_analysis
                 .or(config.extended_analysis)
                 .unwrap_or(true),
         ),
+        report_environment_style_names: selection.optional_state.check_unassigned_uppercase,
         shellcheck_map,
     })
 }
@@ -665,11 +686,12 @@ fn resolve_rule_selection(
     shellcheck_map: &ShellCheckCodeMap,
     cli: &ParsedCompatCli,
     config: &CompatConfig,
-) -> Result<RuleSet, CompatCliError> {
+) -> Result<ResolvedCompatSelection, CompatCliError> {
     let mut rules = shellcheck_map
         .mappings()
         .map(|(_, rule)| rule)
         .collect::<RuleSet>();
+    let mut optional_state = CompatOptionalState::default();
 
     let mut requested_optional = config.enable_checks.clone();
     requested_optional.extend(cli.enable_checks.clone());
@@ -679,6 +701,7 @@ fn resolve_rule_selection(
                 for check in OPTIONAL_CHECKS.iter().filter(|check| check.supported) {
                     let optional_rules = check.rules.iter().copied().collect::<RuleSet>();
                     rules = rules.union(&optional_rules);
+                    optional_state.enable(check.name);
                 }
                 continue;
             }
@@ -695,6 +718,7 @@ fn resolve_rule_selection(
 
             let optional_rules = check.rules.iter().copied().collect::<RuleSet>();
             rules = rules.union(&optional_rules);
+            optional_state.enable(check.name);
         }
     }
 
@@ -708,7 +732,10 @@ fn resolve_rule_selection(
         rules = rules.subtract(&excluded);
     }
 
-    Ok(rules)
+    Ok(ResolvedCompatSelection {
+        rules,
+        optional_state,
+    })
 }
 
 fn combined_codes(config_codes: &[String], cli_codes: &[String]) -> Vec<String> {
@@ -727,14 +754,27 @@ fn rules_for_codes(
     for code in codes {
         let resolved = shellcheck_map.resolve_all(code);
         if resolved.is_empty() {
-            return Err(CompatCliError::usage(
-                4,
-                format!("shellcheck code `{code}` is not implemented by this compatibility mode"),
-            ));
+            if !is_valid_shellcheck_code(code) {
+                return Err(CompatCliError::usage(
+                    4,
+                    format!(
+                        "shellcheck code `{code}` is not implemented by this compatibility mode"
+                    ),
+                ));
+            }
+            continue;
         }
         rules.extend(resolved);
     }
     Ok(rules.into_iter().collect())
+}
+
+fn is_valid_shellcheck_code(code: &str) -> bool {
+    code.strip_prefix("SC")
+        .or_else(|| code.strip_prefix("sc"))
+        .unwrap_or(code)
+        .parse::<u32>()
+        .is_ok()
 }
 
 fn apply_extended_analysis(mut rules: RuleSet, enabled: bool) -> RuleSet {
@@ -911,6 +951,8 @@ fn lint_with_context(
         severity_overrides: Default::default(),
         shell,
         analyzed_paths: Some(Arc::new(explicit.into_iter().collect())),
+        per_file_ignores: Default::default(),
+        report_environment_style_names: options.report_environment_style_names,
         per_file_ignores: Default::default(),
     };
 
