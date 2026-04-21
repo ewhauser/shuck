@@ -1,5 +1,10 @@
 import rulesJson from "./rules-data.generated.json";
 
+export type RuleStatus =
+  | "planned"
+  | "implemented"
+  | "implemented_with_known_shellcheck_divergences";
+
 export interface RuleData {
   code: string;
   name: string;
@@ -10,6 +15,8 @@ export interface RuleData {
   shells: string[];
   shellcheckCode: string | null;
   implemented: boolean;
+  status: RuleStatus;
+  hasKnownShellcheckDivergences: boolean;
   severity: string | null;
   examples: Array<{ kind: string; code: string }>;
 }
@@ -21,6 +28,7 @@ export interface RuleListItem {
   category: string;
   description: string;
   implemented: boolean;
+  status: RuleStatus;
 }
 
 export const allRules: RuleData[] = rulesJson as RuleData[];

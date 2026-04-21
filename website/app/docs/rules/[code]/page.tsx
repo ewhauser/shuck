@@ -4,7 +4,7 @@ import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { codeToHtml } from "shiki";
 import { allRules, getRuleByCode } from "@/app/lib/rules-data";
-import { CategoryBadge, SeverityBadge, ImplementedBadge } from "@/app/components/docs/RuleBadge";
+import { CategoryBadge, SeverityBadge, RuleStatusBadge } from "@/app/components/docs/RuleBadge";
 
 interface Props {
   params: Promise<{ code: string }>;
@@ -67,8 +67,19 @@ export default async function RuleDetailPage({ params }: Props) {
       <div className="mb-6 flex flex-wrap gap-2">
         <CategoryBadge category={rule.category} />
         {rule.severity && <SeverityBadge severity={rule.severity} />}
-        <ImplementedBadge implemented={rule.implemented} />
+        <RuleStatusBadge status={rule.status} />
       </div>
+
+      {rule.status === "implemented_with_known_shellcheck_divergences" && (
+        <section className="mb-6 rounded-lg border border-yellow-500/25 bg-yellow-500/10 p-4">
+          <h2 className="mb-1 text-sm font-semibold text-yellow-200">ShellCheck compatibility note</h2>
+          <p className="text-sm leading-relaxed text-yellow-100/85">
+            This rule is implemented in shuck, but the large-corpus compatibility metadata tracks
+            reviewed divergences from ShellCheck for it. That is why this rule is shown in yellow
+            instead of green in the documentation.
+          </p>
+        </section>
+      )}
 
       {/* Description */}
       <section className="mb-6">
@@ -130,6 +141,14 @@ export default async function RuleDetailPage({ params }: Props) {
               <dd className="text-fg-primary">{rule.severity}</dd>
             </>
           )}
+          <dt className="text-fg-secondary">Documentation status</dt>
+          <dd className="text-fg-primary">
+            {rule.status === "implemented_with_known_shellcheck_divergences"
+              ? "Implemented with known ShellCheck divergences"
+              : rule.status === "implemented"
+                ? "Implemented"
+                : "Planned"}
+          </dd>
           <dt className="text-fg-secondary">Category</dt>
           <dd className="text-fg-primary">{rule.category}</dd>
         </dl>

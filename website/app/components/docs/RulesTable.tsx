@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { Search } from "lucide-react";
 import type { RuleListItem } from "@/app/lib/rules-data";
 import { categories } from "@/app/lib/rules-data";
-import { CategoryBadge } from "./RuleBadge";
+import { RuleStatusDot } from "./RuleBadge";
 
 interface Props {
   rules: RuleListItem[];
@@ -139,11 +139,7 @@ export default function RulesTable({ rules }: Props) {
                       <span className="line-clamp-1">{rule.description}</span>
                     </td>
                     <td className="px-3 py-2 text-center">
-                      {rule.implemented ? (
-                        <span className="inline-block h-2 w-2 rounded-full bg-green-400" title="Implemented" />
-                      ) : (
-                        <span className="inline-block h-2 w-2 rounded-full bg-fg-dim/40" title="Planned" />
-                      )}
+                      <RuleStatusDot status={rule.status} />
                     </td>
                   </tr>
                 ))}
