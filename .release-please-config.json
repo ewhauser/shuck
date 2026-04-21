@@ -1,16 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
-  "packages": {
-    ".": {
-      "release-type": "rust",
-      "package-name": "shuck",
-      "include-component-in-tag": false,
-      "include-v-in-tag": true,
-      "changelog-path": "CHANGELOG.md",
-      "bump-minor-pre-major": true,
-      "bump-patch-for-minor-pre-major": true
-    }
-  },
+  "bump-minor-pre-major": true,
+  "bump-patch-for-minor-pre-major": true,
+  "include-v-in-tag": true,
   "changelog-sections": [
     { "type": "feat", "section": "Features" },
     { "type": "fix", "section": "Bug Fixes" },
@@ -23,5 +15,26 @@
     { "type": "chore", "section": "Miscellaneous", "hidden": true },
     { "type": "test", "section": "Tests", "hidden": true },
     { "type": "style", "section": "Styles", "hidden": true }
-  ]
+  ],
+  "packages": {
+    "crates/shuck": {
+      "release-type": "rust",
+      "package-name": "shuck",
+      "component": "shuck",
+      "include-component-in-tag": false,
+      "changelog-path": "../../CHANGELOG.md",
+      "extra-files": [
+        { "type": "toml", "path": "../../Cargo.toml", "jsonpath": "$.workspace.package.version" },
+        { "type": "toml", "path": "../../Cargo.toml", "jsonpath": "$.workspace.dependencies.shuck.version" },
+        { "type": "toml", "path": "../../Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-ast'].version" },
+        { "type": "toml", "path": "../../Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-cache'].version" },
+        { "type": "toml", "path": "../../Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-format'].version" },
+        { "type": "toml", "path": "../../Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-formatter'].version" },
+        { "type": "toml", "path": "../../Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-indexer'].version" },
+        { "type": "toml", "path": "../../Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-linter'].version" },
+        { "type": "toml", "path": "../../Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-parser'].version" },
+        { "type": "toml", "path": "../../Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-semantic'].version" }
+      ]
+    }
+  }
 }
