@@ -1,0 +1,71 @@
+# ShellCheck Compatibility
+
+Shuck can expose a ShellCheck-shaped CLI for teams that want to migrate existing editor integrations, CI jobs, or local workflows without changing every call site at once.
+
+This mode is powered by Shuck's parser and linter, not by embedding ShellCheck itself. That means the interface is intentionally familiar, while the implementation continues to evolve with the rest of Shuck.
+
+## Activate compatibility mode
+
+There are two supported ways to turn the compatibility surface on:
+
+1. Invoke the binary as `shellcheck`.
+2. Set `SHUCK_SHELLCHECK_COMPAT=1` before running `shuck`.
+
+```bash
+# Make shuck available as `shellcheck`
+ln -s "$(command -v shuck)" ~/bin/shellcheck
+shellcheck --version
+
+# Or force compat mode for a single command
+SHUCK_SHELLCHECK_COMPAT=1 shuck --version
+```
+
+Compat mode only affects that invocation. Running `shuck check ...` directly still uses Shuck's native CLI.
+
+## What it supports today
+
+The compatibility surface currently covers the pieces that are most useful for migration:
+
+- Familiar `--help` and `--version` output
+- Common output formats: `tty`, `json`, `json1`, `checkstyle`, `gcc`, `diff`, and `quiet`
+- ShellCheck-style code filtering with `--include` and `--exclude`
+- Severity filtering with `--severity`
+- Source resolution controls like `--check-sourced`, `--external-sources`, and `--source-path`
+- Shell overrides for `sh`, `bash`, `dash`, `ksh`, and `busybox`
+- Optional-check discovery with `--list-optional`
+- Standard stdin usage with `-` as the input path
+
+```bash
+# Machine-readable output for editor tooling or CI
+SHUCK_SHELLCHECK_COMPAT=1 shuck -f json1 script.sh
+
+# Only keep selected SC codes
+SHUCK_SHELLCHECK_COMPAT=1 shuck --include=SC2086,SC2154 script.sh
+
+# Follow sourced files and add extra lookup roots
+SHUCK_SHELLCHECK_COMPAT=1 shuck -a -P scripts:lib main.sh
+```
+
+## `.shellcheckrc` support
+
+Compat mode searches for `.shellcheckrc` from the current working directory upward. You can keep the default search, skip it with `--norc`, or point at a specific file with `--rcfile`.
+
+Supported config keys today are `check-sourced`, `color`, `disable`, `enable`, `extended-analysis`, `external-sources`, `format`, `include`, `severity`, `shell`, `source-path`, and `wiki-link-count`.
+
+```bash
+# Use the nearest .shellcheckrc
+shellcheck script.sh
+
+# Ignore discovered config
+shellcheck --norc script.sh
+
+# Use an explicit config file
+shellcheck --rcfile ci/shellcheckrc script.sh
+```
+
+## Migration notes
+
+- Exit status follows the usual ShellCheck shape: `0` for no diagnostics, `1` when diagnostics are reported, and `2` for file or runtime errors.
+- Diagnostic codes, suppressions, and filters use `SCxxxx` identifiers, so existing `# shellcheck disable=...` comments continue to work.
+- `--list-optional` is available, but not every named optional check is implemented yet. Treat that catalog as a compatibility target rather than a guarantee that every check can already be enabled.
+- If you want Shuck-only features such as the native multi-dialect workflow or automatic fixes, use the regular [`shuck check` docs](/docs/getting-started) instead of the compatibility surface.
