@@ -226,6 +226,13 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         &self.derived().double_quoted_expansion_spans
     }
 
+    pub fn single_quoted_equivalent_if_plain_double_quoted(
+        self,
+        source: &str,
+    ) -> Option<String> {
+        single_quoted_equivalent_if_plain_double_quoted_word(self.word(), source)
+    }
+
     pub fn unquoted_literal_between_double_quoted_segments_spans(self) -> &'facts [Span] {
         &self
             .derived()
@@ -4260,6 +4267,59 @@ fn double_quoted_expansion_part_spans(word: &Word) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_double_quoted_expansion_spans(&word.parts, false, &mut spans);
     spans
+}
+
+fn single_quoted_equivalent_if_plain_double_quoted_word(
+    word: &Word,
+    source: &str,
+) -> Option<String> {
+    let [part] = word.parts.as_slice() else {
+        return None;
+    };
+    let WordPart::DoubleQuoted { dollar: false, .. } = &part.kind else {
+        return None;
+    };
+
+    let text = word.span.slice(source);
+    let body = text.strip_prefix('"')?.strip_suffix('"')?;
+    let mut cooked = String::with_capacity(body.len());
+    push_cooked_double_quoted_word_text(body, &mut cooked);
+
+    Some(shell_single_quoted_literal(&cooked))
+}
+
+fn push_cooked_double_quoted_word_text(text: &str, out: &mut String) {
+    let mut chars = text.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            out.push(ch);
+            continue;
+        }
+
+        match chars.next() {
+            Some(escaped @ ('$' | '"' | '\\' | '`')) => out.push(escaped),
+            Some('\n') => {}
+            Some(other) => {
+                out.push('\\');
+                out.push(other);
+            }
+            None => out.push('\\'),
+        }
+    }
+}
+
+fn shell_single_quoted_literal(text: &str) -> String {
+    let mut quoted = String::with_capacity(text.len() + 2);
+    quoted.push('\'');
+    for ch in text.chars() {
+        if ch == '\'' {
+            quoted.push_str("'\\''");
+        } else {
+            quoted.push(ch);
+        }
+    }
+    quoted.push('\'');
+    quoted
 }
 
 fn collect_double_quoted_expansion_spans(
