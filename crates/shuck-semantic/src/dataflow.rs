@@ -265,6 +265,17 @@ fn analyze_uninitialized_references_exact(
         if exact.unreachable_blocks.contains(block_id.index()) {
             continue;
         }
+        // File-entry contracts describe ambient names supplied by the caller
+        // environment, not assignments performed by this file, so a read that
+        // resolves only to such an import remains uninitialized until we see a
+        // real write in dataflow.
+        if reference_resolves_to_file_entry_contract_variable(context, reference) {
+            uninitialized_references.push(UninitializedReference {
+                reference: reference.id,
+                certainty: UninitializedCertainty::Definite,
+            });
+            continue;
+        }
         let Some(name_id) = exact.names.get(&reference.name) else {
             continue;
         };
@@ -285,6 +296,23 @@ fn analyze_uninitialized_references_exact(
     }
 
     uninitialized_references
+}
+
+fn reference_resolves_to_file_entry_contract_variable(
+    context: &DataflowContext<'_>,
+    reference: &Reference,
+) -> bool {
+    let Some(binding_id) = context.resolved.get(&reference.id).copied() else {
+        return false;
+    };
+    let binding = &context.bindings[binding_id.index()];
+    matches!(binding.kind, BindingKind::Imported)
+        && !binding
+            .attributes
+            .contains(BindingAttributes::IMPORTED_FUNCTION)
+        && binding
+            .attributes
+            .contains(BindingAttributes::IMPORTED_FILE_ENTRY)
 }
 
 fn build_dead_code(cfg: &ControlFlowGraph) -> Vec<DeadCode> {

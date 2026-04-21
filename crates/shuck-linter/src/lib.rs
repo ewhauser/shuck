@@ -750,7 +750,7 @@ End
     }
 
     #[test]
-    fn ambient_build_style_contract_suppresses_void_packages_c006_noise() {
+    fn ambient_build_style_contract_keeps_uppercase_context_but_reports_lowercase_reads() {
         let diagnostics = lint_named_source(
             Path::new("/tmp/void-packages/common/build-style/void-cross.sh"),
             "\
@@ -763,11 +763,40 @@ build
             &LinterSettings::for_rule(Rule::UndefinedVariable),
         );
 
-        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("pkgname"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("pkgver"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("configure_args"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("cross_gcc_configure_args"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("wrksrc"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.message.contains("XBPS_SRCPKGDIR"))
+        );
     }
 
     #[test]
-    fn ambient_build_style_contract_suppresses_flattened_corpus_paths() {
+    fn ambient_build_style_contract_reports_lowercase_reads_on_flattened_corpus_paths() {
         let diagnostics = lint_named_source(
             Path::new("/tmp/scripts/void-linux__void-packages__common__build-style__void-cross.sh"),
             "\
@@ -779,11 +808,25 @@ build
             &LinterSettings::for_rule(Rule::UndefinedVariable),
         );
 
-        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("configure_args"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("wrksrc"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.message.contains("XBPS_SRCPKGDIR"))
+        );
     }
 
     #[test]
-    fn ambient_pre_pkg_hook_contract_suppresses_void_packages_c006_noise() {
+    fn ambient_pre_pkg_hook_contract_keeps_uppercase_context_but_reports_lowercase_reads() {
         let diagnostics = lint_named_source(
             Path::new("/tmp/void-packages/common/hooks/pre-pkg/99-pkglint.sh"),
             "\
@@ -805,11 +848,30 @@ hook
             &LinterSettings::for_rule(Rule::UndefinedVariable),
         );
 
-        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("pkgname"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("pkgver"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.message.contains("XBPS_COMMONDIR"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.message.contains("XBPS_QUERY_XCMD"))
+        );
     }
 
     #[test]
-    fn ambient_xbps_src_shutils_contract_suppresses_void_packages_c006_noise() {
+    fn ambient_xbps_src_shutils_contract_keeps_uppercase_context_but_reports_lowercase_reads() {
         let diagnostics = lint_named_source(
             Path::new("/tmp/void-packages/common/xbps-src/shutils/common.sh"),
             "\
@@ -821,11 +883,40 @@ helper
             &LinterSettings::for_rule(Rule::UndefinedVariable),
         );
 
-        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("pkgname"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("build_style"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.message.contains("XBPS_COMMONDIR"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.message.contains("XBPS_SRCPKGDIR"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.message.contains("XBPS_STATEDIR"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.message.contains("NOCOLORS"))
+        );
     }
 
     #[test]
-    fn ambient_xbps_src_libexec_contract_suppresses_void_packages_c006_noise() {
+    fn ambient_xbps_src_libexec_contract_keeps_uppercase_context_but_reports_lowercase_reads() {
         let diagnostics = lint_named_source(
             Path::new("/tmp/void-packages/common/xbps-src/libexec/build.sh"),
             "\
@@ -840,11 +931,45 @@ printf '%s\\n' \"$XBPS_TARGET\" \"$pkgname\"
             &LinterSettings::for_rule(Rule::UndefinedVariable),
         );
 
-        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("subpackages"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("sourcepkg"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("pkgname"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.message.contains("XBPS_LIBEXECDIR"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.message.contains("XBPS_CROSS_BUILD"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.message.contains("XBPS_STATEDIR"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.message.contains("XBPS_TARGET"))
+        );
     }
 
     #[test]
-    fn ambient_pycompile_trigger_contract_suppresses_void_packages_c006_noise() {
+    fn ambient_pycompile_trigger_contract_reports_lowercase_reads() {
         let diagnostics = lint_named_source(
             Path::new("/tmp/void-packages/srcpkgs/xbps-triggers/files/pycompile"),
             "\
@@ -869,7 +994,21 @@ esac
             &LinterSettings::for_rule(Rule::UndefinedVariable),
         );
 
-        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("pycompile_dirs"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("pycompile_module"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("pycompile_version"))
+        );
     }
 
     #[test]
