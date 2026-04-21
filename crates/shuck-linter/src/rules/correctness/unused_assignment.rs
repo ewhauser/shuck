@@ -164,7 +164,8 @@ fn participates_in_unused_assignment_family(
     is_reportable_unused_assignment(kind, attributes)
         || matches!(
             kind,
-            BindingKind::AppendAssignment
+            BindingKind::LoopVariable
+                | BindingKind::AppendAssignment
                 | BindingKind::ParameterDefaultAssignment
                 | BindingKind::Declaration(_)
         )
@@ -326,6 +327,23 @@ done
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.start.line, 2);
         assert_eq!(diagnostics[0].span.slice(source), "unused");
+    }
+
+    #[test]
+    fn used_loop_variables_keep_prior_dead_assignments_separate() {
+        let source = "\
+#!/bin/bash
+foo=1
+foo=2
+for foo in a b; do
+  printf '%s\\n' \"$foo\"
+done
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[1].span.start.line, 3);
     }
 
     #[test]
