@@ -197,6 +197,41 @@ assoc[$key/sfx]=z
     }
 
     #[test]
+    fn ignores_mixed_assoc_and_indexed_assignment_subscripts_in_branches() {
+        let source = "\
+#!/bin/bash
+f() {
+  if cond; then
+    local -A arr
+  else
+    local -a arr
+  fi
+  idx=0
+  arr[${idx}]=x
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_mixed_assoc_and_indexed_assignment_subscripts_in_linear_flow() {
+        let source = "\
+#!/bin/bash
+f() {
+  local -A arr
+  local -a arr
+  idx=0
+  arr[${idx}]=x
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn ignores_quoted_indexed_assignment_subscripts() {
         let source = "\
 #!/bin/bash
