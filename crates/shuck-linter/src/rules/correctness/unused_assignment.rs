@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use shuck_semantic::{Binding, BindingAttributes, BindingKind, ScopeId};
+use shuck_semantic::{Binding, BindingAttributes, BindingKind, ScopeId, ScopeKind, SemanticModel};
 
 use crate::{Checker, Rule, Violation};
 
@@ -38,7 +38,7 @@ pub fn unused_assignment(checker: &mut Checker) {
         }
 
         if !unused_binding_ids.contains(&binding.id) {
-            families_with_used_reportable_bindings.insert(binding_family_key(binding));
+            families_with_used_reportable_bindings.insert(binding_family_key(semantic, binding));
         }
     }
 
@@ -52,7 +52,7 @@ pub fn unused_assignment(checker: &mut Checker) {
             continue;
         }
 
-        let family = binding_family_key(binding);
+        let family = binding_family_key(semantic, binding);
 
         unused_bindings_by_family
             .entry(family.clone())
@@ -144,16 +144,26 @@ fn binding_follows_in_source(
         || (candidate_start == current_start && candidate_end > current_end)
 }
 
-fn binding_family_key(binding: &Binding) -> BindingFamilyKey {
-    // `local`-scoped bindings should not collapse across functions, but plain
-    // assignments still participate in the wider variable family even when
-    // they appear inside a function body.
-    let scope = binding
-        .attributes
-        .contains(BindingAttributes::LOCAL)
-        .then_some(binding.scope);
+fn binding_family_key(semantic: &SemanticModel, binding: &Binding) -> BindingFamilyKey {
+    // `local` bindings are function-scoped, while assignments inside
+    // nonpersistent execution scopes (subshells, pipelines, command
+    // substitutions) should not collapse into the parent shell state.
+    let scope = if binding.attributes.contains(BindingAttributes::LOCAL) {
+        Some(binding.scope)
+    } else {
+        isolated_family_scope(semantic, binding.scope)
+    };
 
     (scope, binding.name.to_string())
+}
+
+fn isolated_family_scope(semantic: &SemanticModel, scope: ScopeId) -> Option<ScopeId> {
+    semantic.ancestor_scopes(scope).find(|candidate| {
+        matches!(
+            semantic.scope_kind(*candidate),
+            ScopeKind::Subshell | ScopeKind::CommandSubstitution | ScopeKind::Pipeline
+        )
+    })
 }
 
 #[cfg(test)]
@@ -214,5 +224,15 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.start.line, 2);
+    }
+
+    #[test]
+    fn isolated_execution_scopes_keep_separate_dedup_families() {
+        let source = "#!/bin/bash\nfoo=1\n(foo=2)\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[1].span.start.line, 3);
     }
 }
