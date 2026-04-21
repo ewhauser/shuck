@@ -1,13 +1,34 @@
 use std::fs;
+use std::path::Path;
+use std::process::Output;
 
 use assert_cmd::Command;
 use predicates::prelude::*;
+use serde_json::Value;
 use tempfile::tempdir;
 
 fn compat_cmd() -> Command {
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     cmd.env("SHUCK_SHELLCHECK_COMPAT", "1");
     cmd
+}
+
+fn run_compat(args: &[&str], cwd: &Path) -> Output {
+    compat_cmd().current_dir(cwd).args(args).output().unwrap()
+}
+
+fn json1_comments(output: &Output) -> Vec<Value> {
+    serde_json::from_slice::<Value>(&output.stdout).unwrap()["comments"]
+        .as_array()
+        .unwrap()
+        .clone()
+}
+
+fn comment_by_code<'a>(comments: &'a [Value], code: u64) -> &'a Value {
+    comments
+        .iter()
+        .find(|comment| comment["code"].as_u64() == Some(code))
+        .unwrap()
 }
 
 #[test]
@@ -186,4 +207,160 @@ fn compat_dash_path_reads_from_stdin() {
         .stdout(predicate::str::contains("\"file\":\"-\""))
         .stdout(predicate::str::contains("\"code\":2086"))
         .stderr(predicate::str::is_empty());
+}
+
+#[test]
+fn compat_enable_all_is_accepted() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("x.sh"), "#!/bin/sh\necho $foo\n").unwrap();
+
+    let output = run_compat(
+        ["--norc", "--enable=all", "-f", "json1", "x.sh"].as_slice(),
+        tempdir.path(),
+    );
+    assert_eq!(output.status.code(), Some(1));
+
+    let comments = json1_comments(&output);
+    assert!(
+        comments
+            .iter()
+            .any(|comment| comment["code"].as_u64() == Some(2086))
+    );
+    assert!(
+        comments
+            .iter()
+            .any(|comment| comment["code"].as_u64() == Some(2154))
+    );
+}
+
+#[test]
+fn compat_accepts_named_unimplemented_optional_checks_as_noops() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("x.sh"), "#!/bin/sh\necho $foo\n").unwrap();
+
+    for check in ["add-default-case", "useless-use-of-cat"] {
+        let output = run_compat(
+            ["--norc", "--enable", check, "-f", "json1", "x.sh"].as_slice(),
+            tempdir.path(),
+        );
+        assert_eq!(output.status.code(), Some(1), "optional check {check}");
+
+        let comments = json1_comments(&output);
+        assert!(
+            comments
+                .iter()
+                .any(|comment| comment["code"].as_u64() == Some(2086))
+        );
+        assert!(
+            comments
+                .iter()
+                .any(|comment| comment["code"].as_u64() == Some(2154))
+        );
+    }
+}
+
+#[test]
+fn compat_json1_orders_higher_severity_before_lower_severity_at_same_span() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("x.sh"), "#!/bin/sh\necho $foo\n").unwrap();
+
+    let output = run_compat(["--norc", "-f", "json1", "x.sh"].as_slice(), tempdir.path());
+    assert_eq!(output.status.code(), Some(1));
+
+    let comments = json1_comments(&output);
+    let ordered_codes = comments
+        .iter()
+        .map(|comment| comment["code"].as_u64().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(ordered_codes, vec![2154, 2086]);
+}
+
+#[test]
+fn compat_json1_emits_sc2086_fix_payload_for_plain_expansions() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("x.sh"), "#!/bin/sh\necho $foo\n").unwrap();
+
+    let output = run_compat(["--norc", "-f", "json1", "x.sh"].as_slice(), tempdir.path());
+    assert_eq!(output.status.code(), Some(1));
+
+    let comments = json1_comments(&output);
+    let sc2086 = comment_by_code(&comments, 2086);
+    let replacements = sc2086["fix"]["replacements"].as_array().unwrap();
+    assert_eq!(replacements.len(), 2);
+    assert_eq!(replacements[0]["column"].as_u64(), Some(6));
+    assert_eq!(replacements[0]["endColumn"].as_u64(), Some(6));
+    assert_eq!(replacements[0]["insertionPoint"].as_str(), Some("afterEnd"));
+    assert_eq!(replacements[0]["replacement"].as_str(), Some("\""));
+    assert_eq!(replacements[1]["column"].as_u64(), Some(10));
+    assert_eq!(replacements[1]["endColumn"].as_u64(), Some(10));
+    assert_eq!(
+        replacements[1]["insertionPoint"].as_str(),
+        Some("beforeStart")
+    );
+    assert_eq!(replacements[1]["replacement"].as_str(), Some("\""));
+}
+
+#[test]
+fn compat_json1_emits_sc2086_fix_payload_for_mixed_words() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("x.sh"),
+        "#!/bin/sh\nprintf %s prefix${name}suffix\n",
+    )
+    .unwrap();
+
+    let output = run_compat(["--norc", "-f", "json1", "x.sh"].as_slice(), tempdir.path());
+    assert_eq!(output.status.code(), Some(1));
+
+    let comments = json1_comments(&output);
+    let sc2086 = comment_by_code(&comments, 2086);
+    let replacements = sc2086["fix"]["replacements"].as_array().unwrap();
+    assert_eq!(replacements.len(), 2);
+    assert_eq!(replacements[0]["column"].as_u64(), Some(17));
+    assert_eq!(replacements[0]["endColumn"].as_u64(), Some(17));
+    assert_eq!(replacements[0]["insertionPoint"].as_str(), Some("afterEnd"));
+    assert_eq!(replacements[1]["column"].as_u64(), Some(24));
+    assert_eq!(replacements[1]["endColumn"].as_u64(), Some(24));
+    assert_eq!(
+        replacements[1]["insertionPoint"].as_str(),
+        Some("beforeStart")
+    );
+}
+
+#[test]
+fn compat_diff_reports_when_diagnostics_are_not_auto_fixable() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("x.sh"),
+        "#!/bin/bash\nprintf '%s\\n' x &;\n",
+    )
+    .unwrap();
+
+    let output = run_compat(["--norc", "-f", "diff", "x.sh"].as_slice(), tempdir.path());
+    assert_eq!(output.status.code(), Some(1));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stdout.is_empty());
+    assert_eq!(
+        stderr,
+        "Issues were detected, but none were auto-fixable. Use another format to see them.\n"
+    );
+    assert!(!stderr.contains("@@ compatibility mode @@"));
+    assert!(!stderr.contains("--- x.sh"));
+}
+
+#[test]
+fn compat_diff_emits_unified_patch_for_fixable_sc2086() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("x.sh"), "#!/bin/sh\necho $foo\n").unwrap();
+
+    let output = run_compat(["--norc", "-f", "diff", "x.sh"].as_slice(), tempdir.path());
+    assert_eq!(output.status.code(), Some(1));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("--- a/x.sh"));
+    assert!(stdout.contains("+++ b/x.sh"));
+    assert!(stdout.contains("-echo $foo"));
+    assert!(stdout.contains("+echo \"$foo\""));
 }
