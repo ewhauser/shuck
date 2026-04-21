@@ -389,7 +389,15 @@ fn template_tokens(template: &str) -> Vec<String> {
                 '\'' => state = QuoteState::SingleQuoted,
                 '"' => state = QuoteState::DoubleQuoted,
                 '\\' => match chars.next() {
-                    Some(escaped) => current.push(escaped),
+                    Some(escaped)
+                        if escaped.is_whitespace() || matches!(escaped, '"' | '\'' | '\\') =>
+                    {
+                        current.push(escaped);
+                    }
+                    Some(escaped) => {
+                        current.push(ch);
+                        current.push(escaped);
+                    }
                     None => current.push(ch),
                 },
                 ch if ch.is_whitespace() => push_template_token(&mut tokens, &mut current),
@@ -405,7 +413,13 @@ fn template_tokens(template: &str) -> Vec<String> {
             QuoteState::DoubleQuoted => match ch {
                 '"' => state = QuoteState::Unquoted,
                 '\\' => match chars.next() {
-                    Some(escaped) => current.push(escaped),
+                    Some(escaped) if matches!(escaped, '"' | '\\' | '$' | '`') => {
+                        current.push(escaped);
+                    }
+                    Some(escaped) => {
+                        current.push(ch);
+                        current.push(escaped);
+                    }
                     None => current.push(ch),
                 },
                 _ => current.push(ch),
@@ -424,9 +438,9 @@ fn push_template_token(tokens: &mut Vec<String>, current: &mut String) {
 }
 
 fn shell_token_basename(token: &str) -> String {
-    let basename = Path::new(token)
-        .file_name()
-        .and_then(|value| value.to_str())
+    let basename = token
+        .rsplit(['/', '\\'])
+        .next()
         .unwrap_or(token)
         .to_ascii_lowercase();
 
@@ -507,7 +521,11 @@ fn runner_kind(runs_on: Option<&Node>) -> RunnerKind {
         return RunnerKind::Unknown;
     }
 
-    RunnerKind::Unix
+    if node_contains_unix_runner_label(runs_on) {
+        RunnerKind::Unix
+    } else {
+        RunnerKind::Unknown
+    }
 }
 
 fn node_contains_runner_label(node: &Node, label: &str) -> bool {
@@ -541,6 +559,12 @@ fn node_contains_github_expression(node: &Node) -> bool {
                 .is_some_and(|scalar| scalar.as_str().contains("${{"))
         })
     })
+}
+
+fn node_contains_unix_runner_label(node: &Node) -> bool {
+    ["ubuntu", "linux", "macos"]
+        .into_iter()
+        .any(|label| node_contains_runner_label(node, label))
 }
 
 fn build_embedded_script(
@@ -884,14 +908,38 @@ jobs:
         run: echo hi
       - shell: '"C:/Program Files/Git/bin/bash.exe" -e {0}'
         run: echo hi
+      - shell: '"C:\Program Files\Git\bin\bash.exe" -e {0}'
+        run: echo hi
 "#;
 
         let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
-        assert_eq!(scripts.len(), 4);
+        assert_eq!(scripts.len(), 5);
         assert_eq!(scripts[0].dialect, ExtractedDialect::Bash);
         assert_eq!(scripts[1].dialect, ExtractedDialect::Bash);
         assert_eq!(scripts[2].dialect, ExtractedDialect::Sh);
         assert_eq!(scripts[3].dialect, ExtractedDialect::Bash);
+        assert_eq!(scripts[4].dialect, ExtractedDialect::Bash);
+    }
+
+    #[test]
+    fn skips_default_shell_for_ambiguous_runner_labels() {
+        let source = r#"
+on: push
+jobs:
+  self_hosted:
+    runs-on: self-hosted
+    steps:
+      - run: echo hi
+  labeled:
+    runs-on: [self-hosted, x64]
+    steps:
+      - run: echo hi
+"#;
+
+        let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
+        assert_eq!(scripts.len(), 2);
+        assert_eq!(scripts[0].dialect, ExtractedDialect::Unsupported);
+        assert_eq!(scripts[1].dialect, ExtractedDialect::Unsupported);
     }
 
     #[test]
