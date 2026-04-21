@@ -2442,6 +2442,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
         for argument in args {
             let Some(text) = static_word_text(argument, self.source) else {
+                if parsing_options {
+                    return;
+                }
                 parsing_options = false;
                 continue;
             };
