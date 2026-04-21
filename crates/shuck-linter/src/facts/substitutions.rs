@@ -9,13 +9,16 @@ pub enum SubstitutionHostKind {
     Other,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct SubstitutionFact {
     span: Span,
     kind: CommandSubstitutionKind,
     command_syntax: Option<CommandSubstitutionSyntax>,
     stdout_intent: SubstitutionOutputIntent,
+    terminal_stdout_intent: SubstitutionOutputIntent,
     has_stdout_redirect: bool,
+    stdout_redirect_spans: Box<[Span]>,
+    stdout_dev_null_redirect_spans: Box<[Span]>,
     body_contains_ls: bool,
     body_contains_echo: bool,
     body_contains_grep: bool,
@@ -50,8 +53,20 @@ impl SubstitutionFact {
         self.stdout_intent
     }
 
+    pub fn terminal_stdout_intent(&self) -> SubstitutionOutputIntent {
+        self.terminal_stdout_intent
+    }
+
     pub fn has_stdout_redirect(&self) -> bool {
         self.has_stdout_redirect
+    }
+
+    pub fn stdout_redirect_spans(&self) -> &[Span] {
+        &self.stdout_redirect_spans
+    }
+
+    pub fn stdout_dev_null_redirect_spans(&self) -> &[Span] {
+        &self.stdout_dev_null_redirect_spans
     }
 
     pub fn body_contains_ls(&self) -> bool {
@@ -270,7 +285,10 @@ fn collect_or_update_substitution_facts_from_occurrences<'a>(
             kind: occurrence.kind,
             command_syntax: occurrence.command_syntax,
             stdout_intent: body_facts.stdout_intent,
+            terminal_stdout_intent: body_facts.terminal_stdout_intent,
             has_stdout_redirect: body_facts.has_stdout_redirect,
+            stdout_redirect_spans: body_facts.stdout_redirect_spans,
+            stdout_dev_null_redirect_spans: body_facts.stdout_dev_null_redirect_spans,
             body_contains_ls: body_facts.body_contains_ls,
             body_contains_echo: body_facts.body_contains_echo,
             body_contains_grep: body_facts.body_contains_grep,
@@ -438,10 +456,13 @@ fn collect_arithmetic_lvalue_substitution_occurrences<'a>(
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct SubstitutionBodyFacts {
     stdout_intent: SubstitutionOutputIntent,
+    terminal_stdout_intent: SubstitutionOutputIntent,
     has_stdout_redirect: bool,
+    stdout_redirect_spans: Box<[Span]>,
+    stdout_dev_null_redirect_spans: Box<[Span]>,
     body_contains_ls: bool,
     body_contains_echo: bool,
     body_contains_grep: bool,
@@ -458,6 +479,24 @@ fn classify_substitution_body<'a>(
     command_ids_by_span: &CommandLookupIndex,
     source: &str,
 ) -> SubstitutionBodyFacts {
+    let redirect_state_for_command = |command, redirects| {
+        if let Some(id) = command_id_for_command(command, command_ids_by_span) {
+            let redirects = command_fact(commands, id).redirect_facts();
+            (
+                classify_redirect_facts(redirects),
+                stdout_redirect_spans_for_fix(redirects),
+                stdout_dev_null_redirect_spans_for_fix(redirects),
+            )
+        } else {
+            let redirect_facts = build_redirect_facts(redirects, source, None);
+            (
+                classify_redirect_facts(&redirect_facts),
+                stdout_redirect_spans_for_fix(&redirect_facts),
+                stdout_dev_null_redirect_spans_for_fix(&redirect_facts),
+            )
+        }
+    };
+
     let visits = query::iter_commands(
         body,
         CommandWalkOptions {
@@ -465,16 +504,12 @@ fn classify_substitution_body<'a>(
         },
     )
     .collect::<Vec<_>>();
+
     let mut stdout_intent: Option<SubstitutionOutputIntent> = None;
     let mut has_stdout_redirect = false;
 
     for visit in &visits {
-        let state = if let Some(id) = command_id_for_command(visit.command, command_ids_by_span) {
-            classify_redirect_facts(command_fact(commands, id).redirect_facts())
-        } else {
-            let redirect_facts = build_redirect_facts(visit.redirects, source, None);
-            classify_redirect_facts(&redirect_facts)
-        };
+        let (state, _, _) = redirect_state_for_command(visit.command, visit.redirects);
 
         has_stdout_redirect |= state.has_stdout_redirect;
         stdout_intent = Some(match stdout_intent {
@@ -484,9 +519,27 @@ fn classify_substitution_body<'a>(
         });
     }
 
+    let mut terminal_stdout_intent = SubstitutionOutputIntent::Captured;
+    let mut stdout_redirect_spans = Vec::new();
+    let mut stdout_dev_null_redirect_spans = Vec::new();
+
+    for stmt in &body.stmts {
+        let (state, redirect_spans, dev_null_redirect_spans) =
+            redirect_state_for_command(&stmt.command, &stmt.redirects);
+
+        if !matches!(state.stdout_intent, SubstitutionOutputIntent::Captured) {
+            stdout_redirect_spans.extend(redirect_spans);
+            stdout_dev_null_redirect_spans.extend(dev_null_redirect_spans);
+        }
+        terminal_stdout_intent = state.stdout_intent;
+    }
+
     SubstitutionBodyFacts {
         stdout_intent: stdout_intent.unwrap_or(SubstitutionOutputIntent::Captured),
+        terminal_stdout_intent,
         has_stdout_redirect,
+        stdout_redirect_spans: stdout_redirect_spans.into_boxed_slice(),
+        stdout_dev_null_redirect_spans: stdout_dev_null_redirect_spans.into_boxed_slice(),
         body_contains_ls: substitution_body_contains_ls(body, commands, command_ids_by_span),
         body_contains_echo: substitution_body_contains_echo(body, source),
         body_contains_grep: substitution_body_contains_grep(body, source),
@@ -564,6 +617,42 @@ fn classify_redirect_facts(redirects: &[RedirectFact<'_>]) -> RedirectState {
         stdout_intent,
         has_stdout_redirect,
     }
+}
+
+fn stdout_redirect_spans_for_fix(redirects: &[RedirectFact<'_>]) -> Vec<Span> {
+    redirects
+        .iter()
+        .filter(|redirect| redirect_affects_stdout(redirect))
+        .map(|redirect| redirect.redirect().span)
+        .collect()
+}
+
+fn stdout_dev_null_redirect_spans_for_fix(redirects: &[RedirectFact<'_>]) -> Vec<Span> {
+    redirects
+        .iter()
+        .filter(|redirect| redirect_targets_stdout_dev_null(redirect))
+        .map(|redirect| redirect.redirect().span)
+        .collect()
+}
+
+fn redirect_affects_stdout(redirect: &RedirectFact<'_>) -> bool {
+    match redirect.redirect().kind {
+        RedirectKind::Output
+        | RedirectKind::Clobber
+        | RedirectKind::Append
+        | RedirectKind::DupOutput => redirect.redirect().fd.unwrap_or(1) == 1,
+        RedirectKind::OutputBoth => true,
+        RedirectKind::Input
+        | RedirectKind::ReadWrite
+        | RedirectKind::HereDoc
+        | RedirectKind::HereDocStrip
+        | RedirectKind::HereString
+        | RedirectKind::DupInput => false,
+    }
+}
+
+fn redirect_targets_stdout_dev_null(redirect: &RedirectFact<'_>) -> bool {
+    redirect_affects_stdout(redirect) && redirect_file_sink(redirect) == OutputSink::DevNull
 }
 
 fn substitution_body_contains_echo(body: &StmtSeq, source: &str) -> bool {

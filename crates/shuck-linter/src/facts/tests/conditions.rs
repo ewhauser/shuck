@@ -13,7 +13,7 @@ conditional=$( [[ -n $value ]] && printf '%s\\n' ok )
         let substitutions = facts
             .commands()
             .iter()
-            .flat_map(|fact| fact.substitution_facts().iter().copied())
+            .flat_map(|fact| fact.substitution_facts().iter().cloned())
             .map(|fact| {
                 (
                     fact.span().slice(source).to_owned(),
@@ -59,7 +59,7 @@ brace_like=$(echo {a,b})
         let substitutions = facts
             .commands()
             .iter()
-            .flat_map(|fact| fact.substitution_facts().iter().copied())
+            .flat_map(|fact| fact.substitution_facts().iter().cloned())
             .map(|fact| {
                 (
                     fact.span().slice(source).to_owned(),
@@ -107,7 +107,7 @@ CANDIDATES+=(\"$(echo \"$line\" | cut -d' ' -f2-)\")
         let substitutions = facts
             .commands()
             .iter()
-            .flat_map(|fact| fact.substitution_facts().iter().copied())
+            .flat_map(|fact| fact.substitution_facts().iter().cloned())
             .filter(|fact| fact.span().slice(source).contains("$(echo"))
             .map(|fact| {
                 (
@@ -149,7 +149,7 @@ legacy=`nvm ls | grep '^ *\\.'`
         let substitutions = facts
             .commands()
             .iter()
-            .flat_map(|fact| fact.substitution_facts().iter().copied())
+            .flat_map(|fact| fact.substitution_facts().iter().cloned())
             .map(|fact| {
                 (
                     fact.span().slice(source).to_owned(),
@@ -201,7 +201,7 @@ printf '%s\\n' $(<input.txt) \"$( < spaced.txt )\" $(0< fd.txt) $(< quiet.txt 2>
         let substitutions = facts
             .commands()
             .iter()
-            .flat_map(|fact| fact.substitution_facts().iter().copied())
+            .flat_map(|fact| fact.substitution_facts().iter().cloned())
             .map(|fact| {
                 (
                     fact.span().slice(source).to_owned(),
