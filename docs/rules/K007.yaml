@@ -1,0 +1,24 @@
+legacy_code: SH-325
+legacy_name: chmod-world-writable-sensitive-path
+new_category: Security
+new_code: K007
+runtime_kind: ast
+shellcheck_code: null
+shells:
+  - sh
+  - bash
+  - dash
+  - ksh
+description: Making a sensitive path world-writable weakens the protections that path is supposed to provide.
+rationale: Keep privileged directories and credential stores restricted to the intended owner or group instead of granting universal write access.
+safe_fix: false
+fix_description: null
+source:
+  shell_checks_rule: rules/SH-325.yaml
+  shell_checks_example: examples/325.sh
+examples:
+  - kind: invalid
+    source: shell-checks/examples/325.sh
+    code: |
+      #!/bin/sh
+      chmod -R 777 ~/.ssh
