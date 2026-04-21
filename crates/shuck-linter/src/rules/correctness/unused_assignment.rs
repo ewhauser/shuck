@@ -148,11 +148,13 @@ fn binding_family_key(semantic: &SemanticModel, binding: &Binding) -> BindingFam
     // `local` bindings are function-scoped, while assignments inside
     // nonpersistent execution scopes (subshells, pipelines, command
     // substitutions) should not collapse into the parent shell state.
-    let scope = if binding.attributes.contains(BindingAttributes::LOCAL) {
-        Some(binding.scope)
-    } else {
-        isolated_family_scope(semantic, binding.scope)
-    };
+    let scope = isolated_family_scope(semantic, binding.scope).or_else(|| {
+        if binding.attributes.contains(BindingAttributes::LOCAL) {
+            Some(binding.scope)
+        } else {
+            local_family_scope(semantic, binding)
+        }
+    });
 
     (scope, binding.name.to_string())
 }
@@ -164,6 +166,25 @@ fn isolated_family_scope(semantic: &SemanticModel, scope: ScopeId) -> Option<Sco
             ScopeKind::Subshell | ScopeKind::CommandSubstitution | ScopeKind::Pipeline
         )
     })
+}
+
+fn local_family_scope(semantic: &SemanticModel, binding: &Binding) -> Option<ScopeId> {
+    let mut probe = binding;
+
+    loop {
+        let prior =
+            semantic.previous_visible_binding(&probe.name, probe.span, Some(probe.span))?;
+
+        if prior.attributes.contains(BindingAttributes::LOCAL) {
+            return Some(prior.scope);
+        }
+
+        if prior.scope != probe.scope {
+            return None;
+        }
+
+        probe = prior;
+    }
 }
 
 #[cfg(test)]
@@ -229,6 +250,16 @@ mod tests {
     #[test]
     fn isolated_execution_scopes_keep_separate_dedup_families() {
         let source = "#!/bin/bash\nfoo=1\n(foo=2)\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[1].span.start.line, 3);
+    }
+
+    #[test]
+    fn later_local_reassignments_stay_separate_across_functions() {
+        let source = "#!/bin/bash\nf(){ local foo=; foo=1; }\ng(){ local foo=; foo=2; }\nf\ng\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
         assert_eq!(diagnostics.len(), 2);
