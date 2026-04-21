@@ -82,6 +82,17 @@ def check(content):
         if "HOMEBREW_TAP_TOKEN" in section and "environment: release" not in section:
             issues.append("publish-homebrew-formula missing environment: release")
 
+    # Check 6: global release artifacts still need cargo-cyclonedx for the SBOM extra artifact.
+    start, end = get_job_section(lines, "build-global-artifacts")
+    if start is not None:
+        section = "\n".join(lines[start:end])
+        if "Install cargo-cyclonedx" not in section:
+            issues.append("build-global-artifacts missing cargo-cyclonedx install")
+
+    # Check 7: release publishing must handle tags that already have a GitHub Release.
+    if 'gh release upload "${NEEDS_PLAN_OUTPUTS_TAG}" artifacts/* --clobber' not in content:
+        issues.append("release publishing no longer updates existing GitHub releases")
+
     return issues
 
 
@@ -208,6 +219,42 @@ def fix(content):
                 if lines[i].strip().startswith("runs-on:"):
                     lines.insert(i + 1, "    environment: release")
                     break
+
+    # Fix 6: restore cargo-cyclonedx for the release SBOM artifact.
+    start, end = get_job_section(lines, "build-global-artifacts")
+    if start is not None:
+        section_text = "\n".join(lines[start:end])
+        if "Install cargo-cyclonedx" not in section_text:
+            for i in range(start, end):
+                if lines[i] == "      - run: chmod +x ~/.cargo/bin/dist":
+                    lines.insert(i + 1, "      - name: Install cargo-cyclonedx")
+                    lines.insert(i + 2, "        run: |")
+                    lines.insert(
+                        i + 3,
+                        "          if ! cargo cyclonedx --version >/dev/null 2>&1; then",
+                    )
+                    lines.insert(
+                        i + 4,
+                        "            cargo install cargo-cyclonedx --locked --version 0.5.9",
+                    )
+                    lines.insert(i + 5, "          fi")
+                    break
+
+    # Fix 7: preserve the existing-release upload fallback used with release-please tags.
+    simple_release = (
+        '          gh release create "${NEEDS_PLAN_OUTPUTS_TAG}" --target "$RELEASE_COMMIT" '
+        '$PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*'
+    )
+    for i, line in enumerate(lines):
+        if line == simple_release:
+            lines[i : i + 1] = [
+                '          if gh release view "${NEEDS_PLAN_OUTPUTS_TAG}" >/dev/null 2>&1; then',
+                '            gh release upload "${NEEDS_PLAN_OUTPUTS_TAG}" artifacts/* --clobber',
+                "          else",
+                '            gh release create "${NEEDS_PLAN_OUTPUTS_TAG}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*',
+                "          fi",
+            ]
+            break
 
     return "\n".join(lines) + "\n"
 

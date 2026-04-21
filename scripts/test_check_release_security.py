@@ -31,6 +31,7 @@ jobs:
   build-global-artifacts:
     runs-on: ubuntu-22.04
     steps:
+      - run: chmod +x ~/.cargo/bin/dist
       - id: cargo-dist
         shell: bash
         run: |
@@ -85,6 +86,12 @@ class CheckReleaseSecurityTests(unittest.TestCase):
             "release creation uses direct template expansion in run block", issues
         )
         self.assertIn("publish-homebrew-formula missing environment: release", issues)
+        self.assertIn(
+            "build-global-artifacts missing cargo-cyclonedx install", issues
+        )
+        self.assertIn(
+            "release publishing no longer updates existing GitHub releases", issues
+        )
 
     def test_fix_hardens_generated_release_workflow(self) -> None:
         fixed = fix(SAMPLE_WORKFLOW)
@@ -105,6 +112,11 @@ class CheckReleaseSecurityTests(unittest.TestCase):
         )
         self.assertIn(
             "          NEEDS_PLAN_OUTPUTS_TAG: ${{ needs.plan.outputs.tag }}",
+            fixed,
+        )
+        self.assertIn("      - name: Install cargo-cyclonedx", fixed)
+        self.assertIn(
+            '            gh release upload "${NEEDS_PLAN_OUTPUTS_TAG}" artifacts/* --clobber',
             fixed,
         )
         self.assertIn(
