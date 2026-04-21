@@ -1,16 +1,22 @@
 use shuck_ast::Span;
 
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, FixAvailability, Rule, Violation};
 
 pub struct BackslashBeforeClosingBacktick;
 
 impl Violation for BackslashBeforeClosingBacktick {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::BackslashBeforeClosingBacktick
     }
 
     fn message(&self) -> String {
         "remove the escaped trailing space before closing backtick".to_owned()
+    }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("remove the backslash before the closing backtick".to_owned())
     }
 }
 
@@ -24,7 +30,12 @@ pub fn backslash_before_closing_backtick(checker: &mut Checker) {
         })
         .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || BackslashBeforeClosingBacktick);
+    for span in spans {
+        checker.report_diagnostic_dedup(
+            crate::Diagnostic::new(BackslashBeforeClosingBacktick, span)
+                .with_fix(crate::Fix::unsafe_edit(crate::Edit::deletion(span))),
+        );
+    }
 }
 
 fn backslash_before_closing_backtick_span(span: Span, source: &str) -> Option<Span> {
@@ -46,13 +57,15 @@ fn backslash_before_closing_backtick_span(span: Span, source: &str) -> Option<Sp
 
     let prefix = &text[..1 + backslash_index];
     let start = span.start.advanced_by(prefix);
-    Some(Span::at(start))
+    Some(Span::from_positions(start, start.advanced_by("\\")))
 }
 
 #[cfg(test)]
 mod tests {
     use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::test::{test_path_with_fix, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, assert_diagnostics_diff};
+    use std::path::Path;
 
     #[test]
     fn reports_backslash_space_before_closing_backtick() {
@@ -77,7 +90,7 @@ echo \"$ARCH\"
         assert!(
             diagnostics
                 .iter()
-                .all(|diagnostic| diagnostic.span.start == diagnostic.span.end)
+                .all(|diagnostic| diagnostic.span.slice(source) == "\\")
         );
     }
 
@@ -95,5 +108,63 @@ echo \"$ARCH\"
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_unsafe_fix_to_backslash_before_closing_backtick() {
+        let source = "\
+#!/bin/bash
+# shellcheck disable=2006
+ARCH=`uname -a | cut -f12 -d\\ `
+echo \"$ARCH\"
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::BackslashBeforeClosingBacktick),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/bash
+# shellcheck disable=2006
+ARCH=`uname -a | cut -f12 -d `
+echo \"$ARCH\"
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn leaves_similar_backticks_unchanged_when_fixing() {
+        let source = "\
+#!/bin/bash
+# shellcheck disable=2006
+ARCH=`uname -a | cut -f12 -d ','`
+echo \"$ARCH\"
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::BackslashBeforeClosingBacktick),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn snapshots_unsafe_fix_output_for_fixture() -> anyhow::Result<()> {
+        let result = test_path_with_fix(
+            Path::new("correctness").join("C069.sh").as_path(),
+            &LinterSettings::for_rule(Rule::BackslashBeforeClosingBacktick),
+            Applicability::Unsafe,
+        )?;
+
+        assert_diagnostics_diff!("C069_fix_C069.sh", result);
+        Ok(())
     }
 }
