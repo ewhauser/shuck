@@ -2610,46 +2610,11 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         owner_name_span: Option<Span>,
         subscript: &Subscript,
     ) -> Option<bool> {
-        let offset = owner_name_span
-            .map(|span| span.start.offset)
-            .unwrap_or(subscript.span().start.offset);
+        let lookup_span = owner_name_span.unwrap_or(subscript.span());
         let current_scope = self.semantic.scope_at(subscript.span().start.offset);
-        let bindings = self.semantic.bindings_for(owner_name);
-        if let Some(visible) = self.assoc_binding_visible_in_scope(
-            bindings,
-            current_scope,
-            offset,
-            true,
-        ) {
-            return Some(visible);
-        }
-
         self.semantic
-            .ancestor_scopes(current_scope)
-            .skip(1)
-            .find_map(|scope| self.assoc_binding_visible_in_scope(bindings, scope, offset, false))
-    }
-
-    fn assoc_binding_visible_in_scope(
-        &self,
-        bindings: &[BindingId],
-        scope: ScopeId,
-        offset: usize,
-        current_scope: bool,
-    ) -> Option<bool> {
-        for binding_id in bindings.iter().rev() {
-            let binding = self.semantic.binding(*binding_id);
-            if binding.scope != scope || binding.span.start.offset >= offset {
-                continue;
-            }
-            if current_scope && !binding_blocks_same_scope_assoc_lookup(binding) {
-                continue;
-            }
-
-            return Some(binding.attributes.contains(BindingAttributes::ASSOC));
-        }
-
-        None
+            .visible_binding_for_assoc_lookup(owner_name, current_scope, lookup_span)
+            .map(|binding| binding.attributes.contains(BindingAttributes::ASSOC))
     }
 
     fn assoc_binding_visible_from_named_callers(&self, owner_name: &Name, span: Span) -> bool {
@@ -2720,17 +2685,6 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             &mut self.arithmetic.dollar_in_arithmetic_spans,
         );
     }
-}
-
-fn binding_blocks_same_scope_assoc_lookup(binding: &shuck_semantic::Binding) -> bool {
-    binding.attributes.contains(BindingAttributes::LOCAL)
-        || !matches!(
-            binding.kind,
-            shuck_semantic::BindingKind::Assignment
-                | shuck_semantic::BindingKind::AppendAssignment
-                | shuck_semantic::BindingKind::ArrayAssignment
-                | shuck_semantic::BindingKind::ArithmeticAssignment
-        )
 }
 
 fn pattern_has_glob_structure(pattern: &Pattern, source: &str) -> bool {
