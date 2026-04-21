@@ -28,6 +28,31 @@ jobs:
           config-file: .release-please-config.json
           manifest-file: .release-please-manifest.json
 
+      # When `"draft": true` is set in .release-please-config.json, release-please
+      # creates the GitHub Release as a draft. GitHub's API does not create the
+      # underlying Git tag for draft releases until they are published, so the
+      # tag-push triggers for release.yml (cargo-dist) and crates-publish.yml
+      # would never fire, deadlocking the pipeline. Create the tag explicitly
+      # here using RELEASE_PAT so the resulting push event dispatches those
+      # workflows. (GITHUB_TOKEN pushes do not trigger other workflows; PATs do.)
+      - name: Create tag for draft release
+        if: ${{ steps.release-please.outputs.releases_created == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          TAG: ${{ steps.release-please.outputs.tag_name }}
+          SHA: ${{ steps.release-please.outputs.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/${REPO}/git/refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists; nothing to do."
+            exit 0
+          fi
+          echo "Creating tag ${TAG} -> ${SHA}"
+          gh api "repos/${REPO}/git/refs" \
+            -f "ref=refs/tags/${TAG}" \
+            -f "sha=${SHA}"
+
   # Release-please updates Cargo.toml but does not touch Cargo.lock files.
   # Refresh both lockfiles on the release PR branch so `cargo publish --locked`
   # in crates-publish.yml sees matching internal crate versions.
