@@ -106,6 +106,8 @@ fn check_help_includes_add_ignore_flag() {
         .stdout(predicate::str::contains("shuck ignore directives"))
         .stdout(predicate::str::contains("--add-noqa").not());
 }
+
+#[test]
 fn format_subcommand_requires_experimental_env() {
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     cmd.arg("format");
