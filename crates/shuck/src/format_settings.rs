@@ -144,7 +144,7 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
-    use crate::args::FormatCommand;
+    use crate::args::{FileSelectionArgs, FormatCommand};
     use crate::config::{CONFIG_DIALECT_UNSUPPORTED_ERROR, FormatConfig};
 
     fn format_args() -> FormatCommand {
@@ -154,7 +154,7 @@ mod tests {
             diff: false,
             no_cache: false,
             stdin_filename: None,
-            exclude: Vec::new(),
+            file_selection: FileSelectionArgs::default(),
             dialect: None,
             indent_style: None,
             indent_width: None,
@@ -172,10 +172,6 @@ mod tests {
             no_never_split: false,
             simplify: false,
             minify: false,
-            respect_gitignore: false,
-            no_respect_gitignore: false,
-            force_exclude: false,
-            no_force_exclude: false,
         }
     }
 

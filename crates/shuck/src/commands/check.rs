@@ -18,7 +18,7 @@ use shuck_parser::{
 };
 
 use crate::ExitStatus;
-use crate::args::CheckCommand;
+use crate::args::{CheckCommand, FileSelectionArgs};
 use crate::cache::resolve_cache_root;
 use crate::commands::check_output::{
     DisplayPosition, DisplaySpan, DisplayedDiagnostic, DisplayedDiagnosticKind, print_report_to,
@@ -160,9 +160,12 @@ fn run_check_with_cwd(args: &CheckCommand, cwd: &Path, cache_root: &Path) -> Res
         &args.paths,
         cwd,
         &DiscoveryOptions {
+            exclude_patterns: args.file_selection.exclude.clone(),
+            extend_exclude_patterns: args.file_selection.extend_exclude.clone(),
+            respect_gitignore: args.respect_gitignore(),
+            force_exclude: args.force_exclude(),
             parallel: true,
             cache_root: Some(cache_root.to_path_buf()),
-            ..DiscoveryOptions::default()
         },
         cache_root,
         args.no_cache,
@@ -263,6 +266,7 @@ pub(crate) fn benchmark_check_paths(
             no_cache: true,
             output_format,
             paths: paths.to_vec(),
+            file_selection: FileSelectionArgs::default(),
             exit_zero: false,
             exit_non_zero_on_fix: false,
         },
@@ -459,6 +463,7 @@ mod tests {
             no_cache,
             output_format,
             paths: Vec::new(),
+            file_selection: FileSelectionArgs::default(),
             exit_zero: false,
             exit_non_zero_on_fix: false,
         }

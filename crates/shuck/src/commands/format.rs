@@ -140,7 +140,8 @@ fn run_format_with_cwd(
 ) -> Result<FormatReport> {
     let cli_settings = args.format_settings_patch();
     let options = DiscoveryOptions {
-        exclude_patterns: args.exclude.clone(),
+        exclude_patterns: args.file_selection.exclude.clone(),
+        extend_exclude_patterns: args.file_selection.extend_exclude.clone(),
         respect_gitignore: args.respect_gitignore(),
         force_exclude: args.force_exclude(),
         parallel: false,
@@ -294,6 +295,7 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+    use crate::args::FileSelectionArgs;
 
     fn make_file_read_only(path: &Path) {
         let mut permissions = fs::metadata(path).unwrap().permissions();
@@ -308,7 +310,7 @@ mod tests {
             diff: false,
             no_cache,
             stdin_filename: None,
-            exclude: Vec::new(),
+            file_selection: FileSelectionArgs::default(),
             dialect: None,
             indent_style: None,
             indent_width: None,
@@ -326,10 +328,6 @@ mod tests {
             no_never_split: false,
             simplify: false,
             minify: false,
-            respect_gitignore: false,
-            no_respect_gitignore: false,
-            force_exclude: false,
-            no_force_exclude: false,
         }
     }
 
