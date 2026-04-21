@@ -140,6 +140,21 @@ fn compat_list_optional_prints_catalog() {
 }
 
 #[test]
+fn compat_check_sourced_reports_resolved_source_diagnostics() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("main.sh"), "#!/bin/sh\n. ./lib.sh\n").unwrap();
+    fs::write(tempdir.path().join("lib.sh"), "echo $foo\n").unwrap();
+
+    let mut cmd = compat_cmd();
+    cmd.current_dir(tempdir.path())
+        .args(["-a", "-f", "json1", "main.sh"]);
+    cmd.assert()
+        .code(1)
+        .stdout(predicate::str::contains("\"file\":\"lib.sh\""))
+        .stdout(predicate::str::contains("\"code\":2086"));
+}
+
+#[test]
 fn compat_color_flags_do_not_consume_filename() {
     let tempdir = tempdir().unwrap();
     fs::write(tempdir.path().join("x.sh"), "#!/bin/sh\necho $foo\n").unwrap();

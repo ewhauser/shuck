@@ -1,5 +1,5 @@
 use std::cmp::min;
-use std::io::{self, Write};
+use std::io::{self, ErrorKind, Write};
 
 use colored::Colorize;
 use serde::Serialize;
@@ -75,10 +75,18 @@ pub fn print_report(report: &CompatReport, options: &CompatOptions) -> Result<()
     };
 
     let mut stdout = io::stdout().lock();
-    stdout
-        .write_all(rendered.as_bytes())
-        .map_err(|err| CompatCliError::runtime(2, format!("could not write report: {err}")))?;
-    Ok(())
+    write_rendered(&mut stdout, &rendered)
+}
+
+fn write_rendered<W: Write>(writer: &mut W, rendered: &str) -> Result<(), CompatCliError> {
+    match writer.write_all(rendered.as_bytes()) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == ErrorKind::BrokenPipe => Ok(()),
+        Err(err) => Err(CompatCliError::runtime(
+            2,
+            format!("could not write report: {err}"),
+        )),
+    }
 }
 
 fn render_checkstyle(report: &CompatReport) -> String {
@@ -334,5 +342,31 @@ fn stylize(
         style(value.normal()).to_string()
     } else {
         value
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::write_rendered;
+
+    struct BrokenPipeWriter;
+
+    impl std::io::Write for BrokenPipeWriter {
+        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "broken pipe",
+            ))
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn broken_pipe_is_treated_as_success() {
+        let mut writer = BrokenPipeWriter;
+        assert!(write_rendered(&mut writer, "hello").is_ok());
     }
 }

@@ -858,18 +858,15 @@ fn analyze_one(
 
     if options.check_sourced {
         for sourced in resolved_paths {
-            let canonical = canonicalize_or_clone(&sourced);
-            if final_explicit.contains(&canonical) {
-                analyze_one(
-                    &sourced,
-                    cwd,
-                    options,
-                    &final_explicit,
-                    visited,
-                    diagnostics,
-                    file_errors,
-                )?;
-            }
+            analyze_one(
+                &sourced,
+                cwd,
+                options,
+                &final_explicit,
+                visited,
+                diagnostics,
+                file_errors,
+            )?;
         }
     }
 
