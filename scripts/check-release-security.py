@@ -67,6 +67,32 @@ def check(content):
         if "environment: release" not in section:
             issues.append("host job missing environment: release")
 
+    # Check 4: release commands should not interpolate needs.* expressions directly in shell.
+    if "dist build ${{ needs.plan.outputs.tag-flag }}" in content:
+        issues.append("dist build uses direct template expansion in run block")
+    if "dist host ${{ needs.plan.outputs.tag-flag }}" in content:
+        issues.append("host dist command uses direct template expansion in run block")
+    if 'gh release create "${{ needs.plan.outputs.tag }}"' in content:
+        issues.append("release creation uses direct template expansion in run block")
+
+    # Check 5: Homebrew publishing uses a secret and should be behind the release environment.
+    start, end = get_job_section(lines, "publish-homebrew-formula")
+    if start is not None:
+        section = "\n".join(lines[start:end])
+        if "HOMEBREW_TAP_TOKEN" in section and "environment: release" not in section:
+            issues.append("publish-homebrew-formula missing environment: release")
+
+    # Check 6: global release artifacts still need cargo-cyclonedx for the SBOM extra artifact.
+    start, end = get_job_section(lines, "build-global-artifacts")
+    if start is not None:
+        section = "\n".join(lines[start:end])
+        if "Install cargo-cyclonedx" not in section:
+            issues.append("build-global-artifacts missing cargo-cyclonedx install")
+
+    # Check 7: release publishing must handle tags that already have a GitHub Release.
+    if 'gh release upload "${NEEDS_PLAN_OUTPUTS_TAG}" artifacts/* --clobber' not in content:
+        issues.append("release publishing no longer updates existing GitHub releases")
+
     return issues
 
 
@@ -121,6 +147,114 @@ def fix(content):
                     for j, new_line in enumerate(insert):
                         lines.insert(i + j, new_line)
                     break
+
+    # Fix 4: move generated needs.plan expressions out of run blocks and into env vars.
+    substitutions = {
+        "          dist build ${{ needs.plan.outputs.tag-flag }} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json":
+        "          dist build ${NEEDS_PLAN_OUTPUTS_TAG_FLAG} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json",
+        "          dist build ${{ needs.plan.outputs.tag-flag }} --output-format=json \"--artifacts=global\" > dist-manifest.json":
+        "          dist build ${NEEDS_PLAN_OUTPUTS_TAG_FLAG} --output-format=json \"--artifacts=global\" > dist-manifest.json",
+        "          dist host ${{ needs.plan.outputs.tag-flag }} --steps=upload --steps=release --output-format=json > dist-manifest.json":
+        "          dist host ${NEEDS_PLAN_OUTPUTS_TAG_FLAG} --steps=upload --steps=release --output-format=json > dist-manifest.json",
+        "          gh release create \"${{ needs.plan.outputs.tag }}\" --target \"$RELEASE_COMMIT\" $PRERELEASE_FLAG --title \"$ANNOUNCEMENT_TITLE\" --notes-file \"$RUNNER_TEMP/notes.txt\" artifacts/*":
+        "          gh release create \"${NEEDS_PLAN_OUTPUTS_TAG}\" --target \"$RELEASE_COMMIT\" $PRERELEASE_FLAG --title \"$ANNOUNCEMENT_TITLE\" --notes-file \"$RUNNER_TEMP/notes.txt\" artifacts/*",
+    }
+    lines = [substitutions.get(line, line) for line in lines]
+
+    for i, line in enumerate(lines):
+        if line == "      - name: Build artifacts" and i + 1 < len(lines):
+            if lines[i + 1] == "        run: |":
+                lines.insert(i + 1, "        env:")
+                lines.insert(
+                    i + 2,
+                    "          NEEDS_PLAN_OUTPUTS_TAG_FLAG: ${{ needs.plan.outputs.tag-flag }}",
+                )
+            break
+
+    for i, line in enumerate(lines):
+        if line == "      - id: cargo-dist" and i + 2 < len(lines):
+            if (
+                lines[i + 1] == "        shell: bash"
+                and lines[i + 2] == "        run: |"
+            ):
+                lines.insert(i + 2, "        env:")
+                lines.insert(
+                    i + 3,
+                    "          NEEDS_PLAN_OUTPUTS_TAG_FLAG: ${{ needs.plan.outputs.tag-flag }}",
+                )
+            break
+
+    for i, line in enumerate(lines):
+        if line == "      - id: host" and i + 2 < len(lines):
+            if (
+                lines[i + 1] == "        shell: bash"
+                and lines[i + 2] == "        run: |"
+            ):
+                lines.insert(i + 2, "        env:")
+                lines.insert(
+                    i + 3,
+                    "          NEEDS_PLAN_OUTPUTS_TAG_FLAG: ${{ needs.plan.outputs.tag-flag }}",
+                )
+            break
+
+    for i, line in enumerate(lines):
+        if line == '          RELEASE_COMMIT: "${{ github.sha }}"':
+            if (
+                i + 1 < len(lines)
+                and lines[i + 1]
+                != "          NEEDS_PLAN_OUTPUTS_TAG: ${{ needs.plan.outputs.tag }}"
+            ):
+                lines.insert(
+                    i + 1,
+                    "          NEEDS_PLAN_OUTPUTS_TAG: ${{ needs.plan.outputs.tag }}",
+                )
+            break
+
+    # Fix 5: require the protected release environment for Homebrew publish job.
+    start, end = get_job_section(lines, "publish-homebrew-formula")
+    if start is not None:
+        section_text = "\n".join(lines[start:end])
+        if "environment: release" not in section_text:
+            for i in range(start, end):
+                if lines[i].strip().startswith("runs-on:"):
+                    lines.insert(i + 1, "    environment: release")
+                    break
+
+    # Fix 6: restore cargo-cyclonedx for the release SBOM artifact.
+    start, end = get_job_section(lines, "build-global-artifacts")
+    if start is not None:
+        section_text = "\n".join(lines[start:end])
+        if "Install cargo-cyclonedx" not in section_text:
+            for i in range(start, end):
+                if lines[i] == "      - run: chmod +x ~/.cargo/bin/dist":
+                    lines.insert(i + 1, "      - name: Install cargo-cyclonedx")
+                    lines.insert(i + 2, "        run: |")
+                    lines.insert(
+                        i + 3,
+                        "          if ! cargo cyclonedx --version >/dev/null 2>&1; then",
+                    )
+                    lines.insert(
+                        i + 4,
+                        "            cargo install cargo-cyclonedx --locked --version 0.5.9",
+                    )
+                    lines.insert(i + 5, "          fi")
+                    break
+
+    # Fix 7: preserve the existing-release upload fallback used with release-please tags.
+    simple_release = (
+        '          gh release create "${NEEDS_PLAN_OUTPUTS_TAG}" --target "$RELEASE_COMMIT" '
+        '$PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*'
+    )
+    for i, line in enumerate(lines):
+        if line == simple_release:
+            lines[i : i + 1] = [
+                '          if gh release view "${NEEDS_PLAN_OUTPUTS_TAG}" >/dev/null 2>&1; then',
+                '            gh release upload "${NEEDS_PLAN_OUTPUTS_TAG}" artifacts/* --clobber',
+                "          else",
+                '            gh release create "${NEEDS_PLAN_OUTPUTS_TAG}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*',
+                "          fi",
+            ]
+            break
 
     return "\n".join(lines) + "\n"
 

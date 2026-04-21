@@ -15,6 +15,12 @@ Shuck parses and analyzes shell scripts to catch common bugs, style issues, and 
 
 ## Installation
 
+### Homebrew
+
+```sh
+brew install ewhauser/tap/shuck
+```
+
 ### From source
 
 ```sh
