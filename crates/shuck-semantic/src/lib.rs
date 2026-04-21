@@ -948,7 +948,7 @@ impl SemanticModel {
             for (source_ref, resolution) in self
                 .source_refs
                 .iter_mut()
-                .zip(source_ref_resolutions.into_iter())
+                .zip(source_ref_resolutions)
             {
                 source_ref.resolution = resolution;
             }
@@ -958,7 +958,7 @@ impl SemanticModel {
             for (source_ref, explicitly_provided) in self
                 .source_refs
                 .iter_mut()
-                .zip(source_ref_explicitness.into_iter())
+                .zip(source_ref_explicitness)
             {
                 source_ref.explicitly_provided = explicitly_provided;
             }
@@ -968,7 +968,7 @@ impl SemanticModel {
             for (source_ref, diagnostic_class) in self
                 .source_refs
                 .iter_mut()
-                .zip(source_ref_diagnostic_classes.into_iter())
+                .zip(source_ref_diagnostic_classes)
             {
                 source_ref.diagnostic_class = diagnostic_class;
             }
