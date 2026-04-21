@@ -280,6 +280,9 @@ pub struct CheckCommand {
     /// Choose the text output format for reported diagnostics.
     #[arg(long = "output-format", value_enum, default_value_t = CheckOutputFormatArg::Full)]
     pub output_format: CheckOutputFormatArg,
+    /// Run in watch mode by re-running whenever files change.
+    #[arg(short = 'w', long, conflicts_with = "add_ignore")]
+    pub watch: bool,
     /// Files or directories to check.
     pub paths: Vec<PathBuf>,
     #[command(flatten)]
@@ -677,6 +680,20 @@ mod tests {
     }
 
     #[test]
+    fn parses_short_watch_flag() {
+        let command = parse_check(["shuck", "check", "-w"]);
+
+        assert!(command.watch);
+    }
+
+    #[test]
+    fn parses_long_watch_flag() {
+        let command = parse_check(["shuck", "check", "--watch"]);
+
+        assert!(command.watch);
+    }
+
+    #[test]
     fn rejects_add_noqa_alias() {
         let error = StableCli::try_parse_from(["shuck", "check", "--add-noqa=legacy"]).unwrap_err();
 
@@ -687,6 +704,14 @@ mod tests {
     fn rejects_add_ignore_with_fix_flags() {
         let error =
             StableCli::try_parse_from(["shuck", "check", "--add-ignore", "--fix"]).unwrap_err();
+
+        assert_eq!(error.kind(), ErrorKind::ArgumentConflict);
+    }
+
+    #[test]
+    fn rejects_watch_with_add_ignore() {
+        let error =
+            StableCli::try_parse_from(["shuck", "check", "--watch", "--add-ignore"]).unwrap_err();
 
         assert_eq!(error.kind(), ErrorKind::ArgumentConflict);
     }

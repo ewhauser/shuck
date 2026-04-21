@@ -12,11 +12,13 @@ categories = ["command-line-utilities", "development-tools"]
 [dependencies]
 annotate-snippets = { workspace = true }
 anyhow = { workspace = true }
+clearscreen = { workspace = true }
 clap = { workspace = true }
 colored = { workspace = true }
 etcetera = { workspace = true }
 globset = { workspace = true }
 ignore = { workspace = true }
+notify = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
 shuck-cache = { path = "../shuck-cache" }

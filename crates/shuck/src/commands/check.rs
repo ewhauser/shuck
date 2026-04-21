@@ -1,9 +1,12 @@
 use std::fs;
-use std::io::{self, BufWriter};
+use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::mpsc::channel;
+use std::{ffi::OsStr, io::IsTerminal};
 
 use anyhow::{Result, anyhow};
+use notify::{RecursiveMode, Watcher, recommended_watcher};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use shuck_cache::{CacheKey, CacheKeyHasher};
@@ -24,8 +27,8 @@ use crate::commands::check_output::{
     DisplayPosition, DisplaySpan, DisplayedDiagnostic, DisplayedDiagnosticKind, print_report_to,
 };
 use crate::commands::project_runner::{PendingProjectFile, prepare_project_runs};
-use crate::config::ConfigArguments;
-use crate::discover::DiscoveryOptions;
+use crate::config::{ConfigArguments, resolve_project_root_for_input};
+use crate::discover::{DEFAULT_IGNORED_DIR_NAMES, DiscoveryOptions, normalize_path};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct CheckReport {
@@ -150,6 +153,10 @@ pub(crate) fn check(
 ) -> Result<ExitStatus> {
     let cwd = std::env::current_dir()?;
     let cache_root = resolve_cache_root(&cwd, cache_dir)?;
+    if args.watch {
+        return watch_check(&args, config_arguments, &cwd, &cache_root);
+    }
+
     if let Some(raw_reason) = args.add_ignore.as_deref() {
         if raw_reason.contains(['\n', '\r']) {
             return Err(anyhow!(
@@ -184,6 +191,42 @@ pub(crate) fn check(
     Ok(report.exit_status(args.exit_zero, args.exit_non_zero_on_fix))
 }
 
+fn watch_check(
+    args: &CheckCommand,
+    config_arguments: &ConfigArguments,
+    cwd: &Path,
+    cache_root: &Path,
+) -> Result<ExitStatus> {
+    let watch_roots = collect_watch_roots(&args.paths, cwd, config_arguments.use_config_roots())?;
+    let (tx, rx) = channel();
+    let mut watcher = recommended_watcher(tx)?;
+    for root in &watch_roots {
+        watcher.watch(root, RecursiveMode::Recursive)?;
+    }
+
+    clear_screen()?;
+    print_watch_banner("Starting linter in watch mode...")?;
+    let report = run_check_with_cwd(args, config_arguments, cwd, cache_root)?;
+    print_report(&report, args.output_format)?;
+
+    loop {
+        match rx.recv() {
+            Ok(Ok(event)) => {
+                if !watch_event_requires_rerun(&event, cache_root) {
+                    continue;
+                }
+
+                clear_screen()?;
+                print_watch_banner("File change detected...")?;
+                let report = run_check_with_cwd(args, config_arguments, cwd, cache_root)?;
+                print_report(&report, args.output_format)?;
+            }
+            Ok(Err(error)) => return Err(error.into()),
+            Err(error) => return Err(error.into()),
+        }
+    }
+}
+
 fn print_report(
     report: &CheckReport,
     output_format: crate::args::CheckOutputFormatArg,
@@ -203,6 +246,101 @@ fn print_diagnostics(
         colored::control::SHOULD_COLORIZE.should_colorize(),
     )?;
     Ok(())
+}
+
+fn clear_screen() -> Result<()> {
+    if !io::stdout().is_terminal() && !io::stderr().is_terminal() {
+        return Ok(());
+    }
+    clearscreen::clear()?;
+    Ok(())
+}
+
+fn print_watch_banner(message: &str) -> Result<()> {
+    let mut stderr = BufWriter::new(io::stderr().lock());
+    writeln!(stderr, "{message}")?;
+    stderr.flush()?;
+    Ok(())
+}
+
+fn effective_check_inputs(paths: &[PathBuf]) -> Vec<PathBuf> {
+    if paths.is_empty() {
+        vec![PathBuf::from(".")]
+    } else {
+        paths.to_vec()
+    }
+}
+
+fn collect_watch_roots(
+    paths: &[PathBuf],
+    cwd: &Path,
+    use_config_roots: bool,
+) -> Result<Vec<PathBuf>> {
+    let inputs = effective_check_inputs(paths);
+    let mut roots = Vec::new();
+    for input in inputs {
+        let resolved_input = if input.is_absolute() {
+            normalize_path(&input)
+        } else {
+            normalize_path(&cwd.join(&input))
+        };
+
+        roots.push(
+            fs::canonicalize(resolve_project_root_for_input(
+                &resolved_input,
+                use_config_roots,
+            )?)
+            .map_err(anyhow::Error::from)?,
+        );
+
+        if fs::metadata(&resolved_input)?.is_dir() {
+            roots.push(fs::canonicalize(&resolved_input).map_err(anyhow::Error::from)?);
+        }
+    }
+
+    roots.sort_by(|left, right| {
+        left.components()
+            .count()
+            .cmp(&right.components().count())
+            .then_with(|| left.cmp(right))
+    });
+
+    let mut deduped = Vec::new();
+    for root in roots {
+        if deduped.iter().any(|existing| root.starts_with(existing)) {
+            continue;
+        }
+        deduped.push(root);
+    }
+
+    Ok(deduped)
+}
+
+fn watch_event_requires_rerun(event: &notify::Event, cache_root: &Path) -> bool {
+    if event.kind.is_access() || event.kind.is_other() {
+        return false;
+    }
+
+    if event.need_rescan() {
+        return true;
+    }
+
+    event
+        .paths
+        .iter()
+        .any(|path| !watch_event_path_is_ignored(path, cache_root))
+}
+
+fn watch_event_path_is_ignored(path: &Path, cache_root: &Path) -> bool {
+    path.starts_with(cache_root)
+        || path.components().any(|component| {
+            let std::path::Component::Normal(part) = component else {
+                return false;
+            };
+            DEFAULT_IGNORED_DIR_NAMES
+                .iter()
+                .any(|name| part == OsStr::new(name))
+        })
 }
 
 fn run_check_with_cwd(
@@ -406,6 +544,7 @@ pub(crate) fn benchmark_check_paths(
             add_ignore: None,
             no_cache: true,
             output_format,
+            watch: false,
             paths: paths.to_vec(),
             file_selection: FileSelectionArgs::default(),
             exit_zero: false,
@@ -628,6 +767,7 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::Arc;
 
+    use notify::event::{CreateKind, EventAttributes, ModifyKind, RemoveKind, RenameMode};
     use tempfile::tempdir;
 
     use super::*;
@@ -666,6 +806,7 @@ mod tests {
             add_ignore: None,
             no_cache,
             output_format,
+            watch: false,
             paths: Vec::new(),
             file_selection: FileSelectionArgs::default(),
             exit_zero: false,
@@ -1136,5 +1277,121 @@ mod tests {
             .as_ref()
             .expect("full output should retain source");
         assert!(Arc::ptr_eq(diagnostic_source, &source));
+    }
+
+    #[test]
+    fn watch_event_filter_ignores_access_other_ignored_dirs_and_cache_paths() {
+        let cache_root = Path::new("/tmp/shuck-cache");
+
+        assert!(!watch_event_requires_rerun(
+            &notify::Event {
+                kind: notify::EventKind::Access(notify::event::AccessKind::Any),
+                paths: vec![PathBuf::from("script.sh")],
+                attrs: EventAttributes::default(),
+            },
+            cache_root,
+        ));
+        assert!(!watch_event_requires_rerun(
+            &notify::Event {
+                kind: notify::EventKind::Other,
+                paths: vec![PathBuf::from("script.sh")],
+                attrs: EventAttributes::default(),
+            },
+            cache_root,
+        ));
+        assert!(!watch_event_requires_rerun(
+            &notify::Event {
+                kind: notify::EventKind::Create(CreateKind::File),
+                paths: vec![PathBuf::from(".git/hooks/post-commit")],
+                attrs: EventAttributes::default(),
+            },
+            cache_root,
+        ));
+        assert!(!watch_event_requires_rerun(
+            &notify::Event {
+                kind: notify::EventKind::Modify(ModifyKind::Data(
+                    notify::event::DataChange::Content,
+                )),
+                paths: vec![cache_root.join("entry.bin")],
+                attrs: EventAttributes::default(),
+            },
+            cache_root,
+        ));
+    }
+
+    #[test]
+    fn watch_event_filter_triggers_on_create_modify_remove_rename_and_rescan() {
+        let cache_root = Path::new("/tmp/shuck-cache");
+
+        assert!(watch_event_requires_rerun(
+            &notify::Event {
+                kind: notify::EventKind::Create(CreateKind::File),
+                paths: vec![PathBuf::from("script.sh")],
+                attrs: EventAttributes::default(),
+            },
+            cache_root,
+        ));
+        assert!(watch_event_requires_rerun(
+            &notify::Event {
+                kind: notify::EventKind::Modify(ModifyKind::Data(
+                    notify::event::DataChange::Content,
+                )),
+                paths: vec![PathBuf::from("script.sh")],
+                attrs: EventAttributes::default(),
+            },
+            cache_root,
+        ));
+        assert!(watch_event_requires_rerun(
+            &notify::Event {
+                kind: notify::EventKind::Remove(RemoveKind::File),
+                paths: vec![PathBuf::from("script.sh")],
+                attrs: EventAttributes::default(),
+            },
+            cache_root,
+        ));
+        assert!(watch_event_requires_rerun(
+            &notify::Event {
+                kind: notify::EventKind::Modify(ModifyKind::Name(RenameMode::Both)),
+                paths: vec![PathBuf::from("old.sh"), PathBuf::from("new.sh")],
+                attrs: EventAttributes::default(),
+            },
+            cache_root,
+        ));
+
+        let mut attrs = EventAttributes::default();
+        attrs.set_flag(notify::event::Flag::Rescan);
+        assert!(watch_event_requires_rerun(
+            &notify::Event {
+                kind: notify::EventKind::Modify(ModifyKind::Any),
+                paths: vec![],
+                attrs,
+            },
+            cache_root,
+        ));
+    }
+
+    #[test]
+    fn collect_watch_roots_dedupes_nested_paths_and_defaults_to_current_directory() {
+        let tempdir = tempdir().unwrap();
+        let nested = tempdir.path().join("nested");
+        let deeper = nested.join("deeper");
+        fs::create_dir_all(&deeper).unwrap();
+        fs::write(tempdir.path().join("shuck.toml"), "[format]\n").unwrap();
+
+        let default_roots = collect_watch_roots(&[], tempdir.path()).unwrap();
+        assert_eq!(
+            default_roots,
+            vec![fs::canonicalize(tempdir.path()).unwrap()]
+        );
+
+        let nested_roots = collect_watch_roots(
+            &[PathBuf::from("nested"), PathBuf::from("nested/deeper")],
+            tempdir.path(),
+        )
+        .unwrap();
+        assert_eq!(
+            nested_roots,
+            vec![fs::canonicalize(tempdir.path()).unwrap()]
+        );
     }
 }
