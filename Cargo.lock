@@ -1469,14 +1469,14 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
 name = "shuck-ast"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "compact_str",
 ]
 
 [[package]]
 name = "shuck-benchmark"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "criterion",
  "serde",
@@ -1493,7 +1493,7 @@ dependencies = [
 
 [[package]]
 name = "shuck-cache"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "bincode",
  "serde",
@@ -1503,7 +1503,7 @@ dependencies = [
 
 [[package]]
 name = "shuck-cli"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "annotate-snippets",
  "anyhow",
@@ -1541,14 +1541,14 @@ dependencies = [
 
 [[package]]
 name = "shuck-format"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "unicode-width 0.2.2",
 ]
 
 [[package]]
 name = "shuck-formatter"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "shuck-ast",
  "shuck-benchmark",
@@ -1561,7 +1561,7 @@ dependencies = [
 
 [[package]]
 name = "shuck-indexer"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "shuck-ast",
  "shuck-parser",
@@ -1569,7 +1569,7 @@ dependencies = [
 
 [[package]]
 name = "shuck-linter"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "anyhow",
  "globset",
@@ -1590,7 +1590,7 @@ dependencies = [
 
 [[package]]
 name = "shuck-parser"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "memchr",
  "serde",
@@ -1601,7 +1601,7 @@ dependencies = [
 
 [[package]]
 name = "shuck-semantic"
-version = "0.0.15"
+version = "0.0.16"
 dependencies = [
  "bitflags 2.11.0",
  "rustc-hash",

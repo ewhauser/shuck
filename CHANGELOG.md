@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.16](https://github.com/ewhauser/shuck/compare/v0.0.15...v0.0.16) (2026-04-21)
+
+
+### Bug Fixes
+
+* **linter:** report unread loop variables in C001 ([#414](https://github.com/ewhauser/shuck/issues/414)) ([14f9c0c](https://github.com/ewhauser/shuck/commit/14f9c0cca929b78b62b568be7cc203efe5968750))
+* **linter:** stop flagging mapfile process substitution ([#416](https://github.com/ewhauser/shuck/issues/416)) ([c730cfb](https://github.com/ewhauser/shuck/commit/c730cfb88c99c2e91e7de70a40388798d50a6bd5))
+* **linter:** treat self-referential initializers as reads ([#413](https://github.com/ewhauser/shuck/issues/413)) ([8cda0a1](https://github.com/ewhauser/shuck/commit/8cda0a1b4c79bf7f2aa8425444013ba84326dd6b))
+* **semantic:** keep or-fallback reachable after conditional exit ([#415](https://github.com/ewhauser/shuck/issues/415)) ([0005f86](https://github.com/ewhauser/shuck/commit/0005f86a7e56d1aed4f8557e1b75b41367b2c2cd))
+
 ## [0.0.15](https://github.com/ewhauser/shuck/compare/v0.0.14...v0.0.15) (2026-04-21)
 
 
