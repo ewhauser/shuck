@@ -1880,15 +1880,21 @@ fn future_reads_contain_after_until(
     transitive_reads: &[DenseBitSet],
 ) -> bool {
     let plan = &read_plans[scope.index()];
-    let start = plan.events.partition_point(|event| event.offset <= after_offset);
-    let end = plan.events.partition_point(|event| event.offset < before_offset);
+    let start = plan
+        .events
+        .partition_point(|event| event.offset <= after_offset);
+    let end = plan
+        .events
+        .partition_point(|event| event.offset < before_offset);
 
-    plan.events[start..end].iter().any(|event| match event.kind {
-        ScopeReadEventKind::Direct(candidate) => candidate == name_id,
-        ScopeReadEventKind::Call(callee_scope) => {
-            transitive_reads[callee_scope.index()].contains(name_id.index())
-        }
-    })
+    plan.events[start..end]
+        .iter()
+        .any(|event| match event.kind {
+            ScopeReadEventKind::Direct(candidate) => candidate == name_id,
+            ScopeReadEventKind::Call(callee_scope) => {
+                transitive_reads[callee_scope.index()].contains(name_id.index())
+            }
+        })
 }
 
 fn mark_reaching_defs_for_names_used(
