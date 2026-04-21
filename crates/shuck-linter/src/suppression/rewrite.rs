@@ -246,9 +246,10 @@ fn build_ignore_edit(
     }
 
     if let Some(directive) = existing_ignore {
-        return (directive.range.slice(source) != comment).then_some(IgnoreEdit {
+        let replacement = preserve_trailing_carriage_return(directive.range.slice(source), comment);
+        return (directive.range.slice(source) != replacement).then_some(IgnoreEdit {
             range: directive.range,
-            replacement: comment,
+            replacement,
         });
     }
 
@@ -257,6 +258,13 @@ fn build_ignore_edit(
         range: TextRange::new(insertion_offset, insertion_offset),
         replacement: format!("  {comment}"),
     })
+}
+
+fn preserve_trailing_carriage_return(existing: &str, mut replacement: String) -> String {
+    if existing.ends_with('\r') {
+        replacement.push('\r');
+    }
+    replacement
 }
 
 fn existing_ignore_reason<'a>(
@@ -592,6 +600,20 @@ mod tests {
         assert_eq!(
             updated,
             "#!/bin/bash\r\necho $foo  # shuck: ignore=C006\r\n"
+        );
+    }
+
+    #[test]
+    fn preserves_crlf_line_endings_when_rewriting_existing_ignores() {
+        let settings =
+            LinterSettings::for_rules([Rule::UndefinedVariable, Rule::UnquotedExpansion]);
+        let source = "#!/bin/bash\r\necho $foo  # shuck: ignore=S001 # legacy\r\n";
+        let (result, updated) = run_add_ignore_with_settings(source, &settings, None);
+
+        assert_eq!(result.directives_added, 1);
+        assert_eq!(
+            updated,
+            "#!/bin/bash\r\necho $foo  # shuck: ignore=C006, S001 # legacy\r\n"
         );
     }
 
