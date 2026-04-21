@@ -29,7 +29,16 @@ pub fn unused_assignment(checker: &mut Checker) {
     let mut families_with_used_bindings = HashSet::new();
     let mut unused_bindings_by_family = HashMap::<BindingFamilyKey, Vec<_>>::new();
     let mut last_unused_binding_by_family = HashMap::new();
-    let mut family_scopes = HashMap::new();
+    let mut family_scopes = HashMap::with_capacity(semantic.bindings().len());
+
+    for binding in semantic.bindings() {
+        if binding.name.as_str() == "_" {
+            continue;
+        }
+
+        let scope = binding_family_scope(semantic, &family_scopes, binding);
+        family_scopes.insert(binding.id, scope);
+    }
 
     for binding in semantic.bindings() {
         if binding.name.as_str() == "_" {
@@ -41,11 +50,7 @@ pub fn unused_assignment(checker: &mut Checker) {
         }
 
         if !unused_binding_ids.contains(&binding.id) {
-            families_with_used_bindings.insert(binding_family_key(
-                semantic,
-                &mut family_scopes,
-                binding,
-            ));
+            families_with_used_bindings.insert(binding_family_key(&family_scopes, binding));
         }
     }
 
@@ -59,7 +64,7 @@ pub fn unused_assignment(checker: &mut Checker) {
             continue;
         }
 
-        let family = binding_family_key(semantic, &mut family_scopes, binding);
+        let family = binding_family_key(&family_scopes, binding);
 
         unused_bindings_by_family
             .entry(family.clone())
@@ -163,40 +168,29 @@ fn binding_follows_in_source(
 }
 
 fn binding_family_key(
-    semantic: &SemanticModel,
-    family_scopes: &mut HashMap<BindingId, Option<ScopeId>>,
+    family_scopes: &HashMap<BindingId, Option<ScopeId>>,
     binding: &Binding,
 ) -> BindingFamilyKey {
-    // `local` bindings are function-scoped, while assignments inside
-    // nonpersistent execution scopes (subshells, pipelines, command
-    // substitutions) should not collapse into the parent shell state.
-    let scope = binding_family_scope(semantic, family_scopes, binding);
-
-    (scope, binding.name.to_string())
+    (
+        family_scopes.get(&binding.id).copied().flatten(),
+        binding.name.to_string(),
+    )
 }
 
 fn binding_family_scope(
     semantic: &SemanticModel,
-    family_scopes: &mut HashMap<BindingId, Option<ScopeId>>,
+    family_scopes: &HashMap<BindingId, Option<ScopeId>>,
     binding: &Binding,
 ) -> Option<ScopeId> {
     if let Some(scope) = isolated_family_scope(semantic, binding.scope) {
         return Some(scope);
     }
 
-    if let Some(scope) = family_scopes.get(&binding.id).copied() {
-        return scope;
-    }
-
-    let scope = if binding.attributes.contains(BindingAttributes::LOCAL) {
+    if binding.attributes.contains(BindingAttributes::LOCAL) {
         Some(binding.scope)
     } else {
         inherited_local_family_scope(semantic, family_scopes, binding)
-    };
-
-    family_scopes.insert(binding.id, scope);
-
-    scope
+    }
 }
 
 fn isolated_family_scope(semantic: &SemanticModel, scope: ScopeId) -> Option<ScopeId> {
@@ -210,13 +204,15 @@ fn isolated_family_scope(semantic: &SemanticModel, scope: ScopeId) -> Option<Sco
 
 fn inherited_local_family_scope(
     semantic: &SemanticModel,
-    family_scopes: &mut HashMap<BindingId, Option<ScopeId>>,
+    family_scopes: &HashMap<BindingId, Option<ScopeId>>,
     binding: &Binding,
 ) -> Option<ScopeId> {
     let prior =
         semantic.previous_visible_binding(&binding.name, binding.span, Some(binding.span))?;
 
-    (prior.scope == binding.scope).then(|| binding_family_scope(semantic, family_scopes, prior))?
+    (prior.scope == binding.scope)
+        .then(|| family_scopes.get(&prior.id).copied().flatten())
+        .flatten()
 }
 
 #[cfg(test)]
