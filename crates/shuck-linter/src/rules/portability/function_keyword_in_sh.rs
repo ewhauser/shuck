@@ -5,7 +5,7 @@ use crate::{
 pub struct FunctionKeywordInSh;
 
 impl Violation for FunctionKeywordInSh {
-    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Sometimes;
 
     fn rule() -> Rule {
         Rule::FunctionKeywordInSh
@@ -32,10 +32,11 @@ pub fn function_keyword_in_sh(checker: &mut Checker) {
         .filter(|header| header.uses_function_keyword() && header.has_trailing_parens())
         .map(|header| {
             let span = header.function_span_in_source(checker.source());
-            let fix = function_keyword_in_sh_fix(header)
-                .expect("X052 diagnostics should expose function keyword and name spans");
-
-            crate::Diagnostic::new(FunctionKeywordInSh, span).with_fix(fix)
+            let diagnostic = crate::Diagnostic::new(FunctionKeywordInSh, span);
+            match function_keyword_in_sh_fix(header) {
+                Some(fix) => diagnostic.with_fix(fix),
+                None => diagnostic,
+            }
         })
         .collect::<Vec<_>>();
 
@@ -145,6 +146,28 @@ function greet { :; }
         assert_eq!(result.fixes_applied, 0);
         assert_eq!(result.fixed_source, source);
         assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_dynamic_function_names_without_panicking_or_fixing() {
+        let source = "\
+#!/bin/sh
+function $0_error() { :; }
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionKeywordInSh),
+            Applicability::Safe,
+        );
+
+        assert_eq!(result.diagnostics.len(), 1);
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+        assert_eq!(result.fixed_diagnostics.len(), 1);
+        assert_eq!(
+            result.fixed_diagnostics[0].span.slice(source),
+            "function $0_error() { :; }"
+        );
     }
 
     #[test]
