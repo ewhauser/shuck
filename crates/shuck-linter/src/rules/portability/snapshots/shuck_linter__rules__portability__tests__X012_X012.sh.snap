@@ -1,9 +1,14 @@
 ---
 source: crates/shuck-linter/src/rules/portability/mod.rs
-assertion_line: 19
 ---
 X012 use of `&>` is not portable in `sh`
  --> <source>:2:3
   |
 2 | : &>out
+  |
+
+X012 use of `&>` is not portable in `sh`
+ --> <source>:3:9
+  |
+3 | echo ok &> /dev/null
   |
