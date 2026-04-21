@@ -31,7 +31,7 @@ export default function Home() {
               <div>
                 <p className="text-xs text-fg-dim mb-1 font-medium">Install</p>
                 <pre className="rounded-md bg-bg-secondary border border-fg-dim/20 px-3 py-2 text-sm font-mono text-fg-primary overflow-x-auto">
-                  cargo install shuck
+                  cargo install shuck-cli
                 </pre>
               </div>
               <div>

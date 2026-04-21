@@ -27,9 +27,6 @@ brew install ewhauser/tap/shuck
 cargo install shuck-cli
 ```
 
-The crate is published as `shuck-cli` on crates.io (the `shuck` name was taken);
-the installed binary is still named `shuck`.
-
 ### Pre-built binaries
 
 Pre-built binaries are available for macOS (aarch64) and Linux (x86_64) from the [releases page](https://github.com/ewhauser/shuck/releases).
