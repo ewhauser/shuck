@@ -107,3 +107,7 @@ install-updater = false
 pr-run-mode = "skip"
 # We pin actions to commit SHAs, so skip the CI file freshness check
 allow-dirty = ["ci"]
+
+[[workspace.metadata.dist.extra-artifacts]]
+artifacts = ["shuck.cdx.xml"]
+build = ["./scripts/generate-release-sbom.sh"]
