@@ -2440,23 +2440,31 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
 
         for argument in args {
             let Some(text) = static_word_text(argument, self.source) else {
+                parsing_options = false;
                 continue;
             };
 
-            if parsing_options && text == "--" {
-                parsing_options = false;
-                continue;
-            }
+            if parsing_options {
+                if text == "--" {
+                    parsing_options = false;
+                    continue;
+                }
 
-            if parsing_options && text.starts_with('-') && text != "-" {
-                let flags = text.trim_start_matches('-');
-                if flags.contains('f') {
-                    function_mode = true;
+                if text.starts_with('-') && text != "-" {
+                    let flags = text.trim_start_matches('-');
+                    if !unset_flags_are_valid(flags) {
+                        return;
+                    }
+                    if flags.contains('f') {
+                        function_mode = true;
+                    }
+                    if flags.contains('v') {
+                        function_mode = false;
+                    }
+                    continue;
                 }
-                if flags.contains('v') {
-                    function_mode = false;
-                }
-                continue;
+
+                parsing_options = false;
             }
 
             if function_mode || !is_name(&text) {
@@ -3871,6 +3879,12 @@ fn static_tail_text_starts_with_slash(
     collect_static_word_text(parts, source, &mut result)
         && collect_static_word_text(trailing, source, &mut result)
         && result.starts_with('/')
+}
+
+fn unset_flags_are_valid(flags: &str) -> bool {
+    !flags.is_empty()
+        && flags.chars().all(|flag| matches!(flag, 'f' | 'v'))
+        && !(flags.contains('f') && flags.contains('v'))
 }
 
 fn parse_source_directives(
