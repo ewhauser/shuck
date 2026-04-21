@@ -48,6 +48,10 @@ pub fn unused_assignment(checker: &mut Checker) {
             continue;
         }
 
+        if !is_reportable_unused_assignment(binding.kind, binding.attributes) {
+            continue;
+        }
+
         let family = binding_family_key(binding);
 
         unused_bindings_by_family
@@ -201,5 +205,14 @@ mod tests {
         assert_eq!(diagnostics.len(), 2);
         assert_eq!(diagnostics[0].span.start.line, 2);
         assert_eq!(diagnostics[1].span.start.line, 3);
+    }
+
+    #[test]
+    fn later_non_reportable_bindings_do_not_hide_earlier_assignments() {
+        let source = "#!/bin/bash\nfoo=1\nfoo+=2\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 2);
     }
 }
