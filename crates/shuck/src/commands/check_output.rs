@@ -1490,7 +1490,7 @@ beta.sh:
         let mut json_output = Vec::new();
         print_report_to(
             &mut json_output,
-            &[diagnostic.clone()],
+            std::slice::from_ref(&diagnostic),
             CheckOutputFormatArg::Json,
             false,
         )
@@ -1501,7 +1501,7 @@ beta.sh:
         let mut github_output = Vec::new();
         print_report_to(
             &mut github_output,
-            &[diagnostic.clone()],
+            std::slice::from_ref(&diagnostic),
             CheckOutputFormatArg::Github,
             false,
         )
@@ -1514,7 +1514,7 @@ beta.sh:
         let mut rdjson_output = Vec::new();
         print_report_to(
             &mut rdjson_output,
-            &[diagnostic.clone()],
+            std::slice::from_ref(&diagnostic),
             CheckOutputFormatArg::Rdjson,
             false,
         )
