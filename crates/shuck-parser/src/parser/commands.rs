@@ -1,4 +1,5 @@
 use super::*;
+use smallvec::SmallVec;
 
 #[derive(Debug, Clone, Copy)]
 enum ForHeaderSurface {
@@ -1070,7 +1071,7 @@ impl<'a> Parser<'a> {
             let left_paren_span = self.current_span;
             self.advance();
 
-            let mut words = Vec::new();
+            let mut words = SmallVec::<[Word; 2]>::new();
             while !self.at(TokenKind::RightParen) {
                 if self.at(TokenKind::Newline) {
                     self.skip_newlines()?;
@@ -1296,15 +1297,15 @@ impl<'a> Parser<'a> {
 
         self.pop_depth();
         Ok(CompoundCommand::For(ForCommand {
-            targets,
-            words,
+            targets: targets.into_vec(),
+            words: words.map(SmallVec::into_vec),
             body,
             syntax,
             span: start_span.merge(end_span),
         }))
     }
 
-    fn parse_for_targets(&mut self, allow_zsh_targets: bool) -> Result<Vec<ForTarget>> {
+    fn parse_for_targets(&mut self, allow_zsh_targets: bool) -> Result<SmallVec<[ForTarget; 1]>> {
         let allow_digits = allow_zsh_targets;
         let first_target = self
             .current_for_target(allow_digits)
@@ -1312,7 +1313,7 @@ impl<'a> Parser<'a> {
         let first_word = first_target.word.clone();
         self.advance_past_word(&first_word);
 
-        let mut targets = vec![first_target];
+        let mut targets = SmallVec::from_vec(vec![first_target]);
         if !allow_zsh_targets {
             return Ok(targets);
         }
@@ -1354,8 +1355,8 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_for_word_list_until_body_separator(&mut self) -> Result<(Vec<Word>, bool)> {
-        let mut words = Vec::new();
+    fn parse_for_word_list_until_body_separator(&mut self) -> Result<(SmallVec<[Word; 2]>, bool)> {
+        let mut words = SmallVec::<[Word; 2]>::new();
         loop {
             match self.current_token_kind {
                 Some(kind)
@@ -1552,7 +1553,7 @@ impl<'a> Parser<'a> {
             let left_paren_span = self.current_span;
             self.advance();
 
-            let mut words = Vec::new();
+            let mut words = SmallVec::<[Word; 2]>::new();
             while !self.at(TokenKind::RightParen) {
                 match self.current_token_kind {
                     Some(kind) if kind.is_word_like() => {
@@ -1598,7 +1599,7 @@ impl<'a> Parser<'a> {
             let in_span = self.current_span;
             self.advance();
 
-            let mut words = Vec::new();
+            let mut words = SmallVec::<[Word; 2]>::new();
             let saw_separator = loop {
                 match self.current_token_kind {
                     _ if self.current_keyword() == Some(Keyword::Do) => break false,
@@ -1667,7 +1668,7 @@ impl<'a> Parser<'a> {
         Ok(CompoundCommand::Foreach(ForeachCommand {
             variable,
             variable_span,
-            words,
+            words: words.into_vec(),
             body,
             syntax,
             span: start_span.merge(end_span),
@@ -1700,7 +1701,7 @@ impl<'a> Parser<'a> {
         self.advance(); // consume 'in'
 
         // Parse word list until do/newline/;
-        let mut words = Vec::new();
+        let mut words = SmallVec::<[Word; 2]>::new();
         loop {
             match self.current_token_kind {
                 _ if self.current_keyword() == Some(Keyword::Do) => break,
@@ -1742,7 +1743,7 @@ impl<'a> Parser<'a> {
         Ok(CompoundCommand::Select(SelectCommand {
             variable,
             variable_span,
-            words,
+            words: words.into_vec(),
             body,
             span: start_span.merge(self.current_span),
         }))
@@ -1865,7 +1866,7 @@ impl<'a> Parser<'a> {
                     span,
                     vec![Self::lower_non_sequence_command_to_stmt(Command::Compound(
                         Box::new(body),
-                        Vec::new(),
+                        SmallVec::<[Redirect; 1]>::new(),
                     ))],
                 ),
                 self.current_span,
@@ -1934,7 +1935,7 @@ impl<'a> Parser<'a> {
                     span,
                     vec![Self::lower_non_sequence_command_to_stmt(Command::Compound(
                         Box::new(body),
-                        Vec::new(),
+                        SmallVec::<[Redirect; 1]>::new(),
                     ))],
                 ),
                 self.current_span,
@@ -1951,7 +1952,7 @@ impl<'a> Parser<'a> {
                     span,
                     vec![Self::lower_non_sequence_command_to_stmt(Command::Compound(
                         Box::new(brace_group),
-                        Vec::new(),
+                        SmallVec::<[Redirect; 1]>::new(),
                     ))],
                 ),
                 right_brace_span,
@@ -2004,7 +2005,7 @@ impl<'a> Parser<'a> {
                     span,
                     vec![Self::lower_non_sequence_command_to_stmt(Command::Compound(
                         Box::new(body),
-                        Vec::new(),
+                        SmallVec::<[Redirect; 1]>::new(),
                     ))],
                 ),
                 self.current_span,
@@ -2021,7 +2022,7 @@ impl<'a> Parser<'a> {
                     span,
                     vec![Self::lower_non_sequence_command_to_stmt(Command::Compound(
                         Box::new(brace_group),
-                        Vec::new(),
+                        SmallVec::<[Redirect; 1]>::new(),
                     ))],
                 ),
                 right_brace_span,
@@ -4098,8 +4099,8 @@ impl<'a> Parser<'a> {
         Ok(stmt)
     }
 
-    fn parse_anonymous_function_args(&mut self) -> Result<Vec<Word>> {
-        let mut args = Vec::new();
+    fn parse_anonymous_function_args(&mut self) -> Result<SmallVec<[Word; 2]>> {
+        let mut args = SmallVec::<[Word; 2]>::new();
         while self.current_token_kind.is_some_and(TokenKind::is_word_like) {
             let word = self
                 .take_current_word_and_advance()
@@ -4142,7 +4143,7 @@ impl<'a> Parser<'a> {
                             function_keyword_span: start_span,
                         },
                         body: Box::new(body),
-                        args,
+                        args: args.into_vec(),
                         span,
                     },
                     redirects,
@@ -4269,7 +4270,7 @@ impl<'a> Parser<'a> {
             AnonymousFunctionCommand {
                 surface: AnonymousFunctionSurface::Parens { parens_span },
                 body: Box::new(body),
-                args,
+                args: args.into_vec(),
                 span,
             },
             redirects,
@@ -4335,9 +4336,9 @@ impl<'a> Parser<'a> {
         self.check_error_token()?;
         let start_span = self.current_span;
 
-        let mut assignments = SmallAssignmentList::new();
-        let mut words = SmallWordList::new();
-        let mut redirects = Vec::with_capacity(1);
+        let mut assignments = SmallVec::<[Assignment; 1]>::new();
+        let mut words = SmallVec::<[Word; 2]>::new();
+        let mut redirects = SmallVec::<[Redirect; 1]>::new();
 
         loop {
             self.check_error_token()?;
@@ -4527,9 +4528,9 @@ impl<'a> Parser<'a> {
         if words.is_empty() && (!assignments.is_empty() || !redirects.is_empty()) {
             return Ok(Some(SimpleCommand {
                 name: Word::literal(""),
-                args: Vec::new(),
+                args: SmallVec::new(),
                 redirects,
-                assignments: assignments.into_vec(),
+                assignments,
                 span: start_span.merge(self.current_span),
             }));
         }
@@ -4538,7 +4539,6 @@ impl<'a> Parser<'a> {
             return Ok(None);
         }
 
-        let mut words = words.into_vec();
         let name = words.remove(0);
         let args = words;
 
@@ -4546,7 +4546,7 @@ impl<'a> Parser<'a> {
             name,
             args,
             redirects,
-            assignments: assignments.into_vec(),
+            assignments,
             span: start_span.merge(self.current_span),
         }))
     }
@@ -4554,7 +4554,7 @@ impl<'a> Parser<'a> {
     /// Extract fd-variable name from `{varname}` pattern in the last word.
     /// If the last word is a single literal `{identifier}`, pop it and return the name.
     /// Used for `exec {var}>file` / `exec {var}>&-` syntax.
-    fn pop_fd_var(&self, words: &mut SmallWordList) -> (Option<Name>, Option<Span>) {
+    fn pop_fd_var(&self, words: &mut SmallVec<[Word; 2]>) -> (Option<Name>, Option<Span>) {
         if let Some(last) = words.last()
             && last.parts.len() == 1
             && let WordPart::Literal(ref s) = last.parts[0].kind
@@ -4587,7 +4587,7 @@ impl<'a> Parser<'a> {
 
     fn pop_line_continuation_fd_var(
         &self,
-        words: &mut SmallWordList,
+        words: &mut SmallVec<[Word; 2]>,
     ) -> (Option<Name>, Option<Span>) {
         let Some(last) = words.last() else {
             return (None, None);

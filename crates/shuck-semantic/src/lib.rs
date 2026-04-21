@@ -35,6 +35,7 @@ pub use source_ref::{SourceRef, SourceRefDiagnosticClass, SourceRefKind, SourceR
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{Command, File, Name, Span};
 use shuck_indexer::Indexer;
+use smallvec::{Array, SmallVec};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -144,8 +145,8 @@ fn dedup_synthetic_reads(reads: Vec<SyntheticRead>) -> Vec<SyntheticRead> {
 fn build_call_graph(
     scopes: &[Scope],
     all_bindings: &[Binding],
-    functions: &FxHashMap<Name, Vec<BindingId>>,
-    call_sites: &FxHashMap<Name, Vec<CallSite>>,
+    functions: &FxHashMap<Name, SmallVec<[BindingId; 2]>>,
+    call_sites: &FxHashMap<Name, SmallVec<[CallSite; 2]>>,
 ) -> CallGraph {
     let mut reachable = FxHashSet::default();
     let mut worklist = call_sites
@@ -248,13 +249,41 @@ fn previous_visible_binding_id_from_slice(
         .find(|binding_id| ignored_binding_span != Some(all_bindings[binding_id.index()].span))
 }
 
+trait BindingIdCollection {
+    fn as_slice(&self) -> &[BindingId];
+    fn insert_binding_id(&mut self, index: usize, id: BindingId);
+}
+
+impl BindingIdCollection for Vec<BindingId> {
+    fn as_slice(&self) -> &[BindingId] {
+        self
+    }
+
+    fn insert_binding_id(&mut self, index: usize, id: BindingId) {
+        self.insert(index, id);
+    }
+}
+
+impl<A> BindingIdCollection for SmallVec<A>
+where
+    A: Array<Item = BindingId>,
+{
+    fn as_slice(&self) -> &[BindingId] {
+        self
+    }
+
+    fn insert_binding_id(&mut self, index: usize, id: BindingId) {
+        self.insert(index, id);
+    }
+}
+
 fn insert_binding_id_sorted(
-    bindings: &mut Vec<BindingId>,
+    bindings: &mut impl BindingIdCollection,
     all_bindings: &[Binding],
     id: BindingId,
 ) {
     let target = &all_bindings[id.index()];
-    let insertion = bindings.partition_point(|candidate_id| {
+    let insertion = bindings.as_slice().partition_point(|candidate_id| {
         let candidate = &all_bindings[candidate_id.index()];
         candidate.span.start.offset < target.span.start.offset
             || (candidate.span.start.offset == target.span.start.offset
@@ -263,7 +292,7 @@ fn insert_binding_id_sorted(
                 && candidate.span.end.offset == target.span.end.offset
                 && candidate.id.index() < target.id.index())
     });
-    bindings.insert(insertion, id);
+    bindings.insert_binding_id(insertion, id);
 }
 
 #[derive(Debug)]
@@ -353,14 +382,14 @@ pub struct SemanticModel {
     scope_lookup: ScopeLookup,
     bindings: Vec<Binding>,
     references: Vec<Reference>,
-    reference_index: FxHashMap<Name, Vec<ReferenceId>>,
+    reference_index: FxHashMap<Name, SmallVec<[ReferenceId; 2]>>,
     predefined_runtime_refs: FxHashSet<ReferenceId>,
     guarded_parameter_refs: FxHashSet<ReferenceId>,
-    binding_index: FxHashMap<Name, Vec<BindingId>>,
+    binding_index: FxHashMap<Name, SmallVec<[BindingId; 2]>>,
     resolved: FxHashMap<ReferenceId, BindingId>,
     unresolved: Vec<ReferenceId>,
-    functions: FxHashMap<Name, Vec<BindingId>>,
-    call_sites: FxHashMap<Name, Vec<CallSite>>,
+    functions: FxHashMap<Name, SmallVec<[BindingId; 2]>>,
+    call_sites: FxHashMap<Name, SmallVec<[CallSite; 2]>>,
     call_graph: CallGraph,
     source_refs: Vec<SourceRef>,
     runtime: RuntimePrelude,
@@ -371,8 +400,8 @@ pub struct SemanticModel {
     entry_bindings: Vec<BindingId>,
     flow_contexts: Vec<(Span, FlowContext)>,
     recorded_program: RecordedProgram,
-    command_bindings: FxHashMap<SpanKey, Vec<BindingId>>,
-    command_references: FxHashMap<SpanKey, Vec<ReferenceId>>,
+    command_bindings: FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
+    command_references: FxHashMap<SpanKey, SmallVec<[ReferenceId; 4]>>,
     import_origins_by_binding: FxHashMap<BindingId, Vec<PathBuf>>,
     heuristic_unused_assignments: Vec<BindingId>,
     zsh_option_analysis: Option<ZshOptionAnalysis>,
@@ -535,7 +564,7 @@ impl SemanticModel {
     pub fn bindings_for(&self, name: &Name) -> &[BindingId] {
         self.binding_index
             .get(name)
-            .map(Vec::as_slice)
+            .map(SmallVec::as_slice)
             .unwrap_or(&[])
     }
 
@@ -997,11 +1026,17 @@ impl SemanticModel {
     }
 
     pub fn function_definitions(&self, name: &Name) -> &[BindingId] {
-        self.functions.get(name).map(Vec::as_slice).unwrap_or(&[])
+        self.functions
+            .get(name)
+            .map(SmallVec::as_slice)
+            .unwrap_or(&[])
     }
 
     pub fn call_sites_for(&self, name: &Name) -> &[CallSite] {
-        self.call_sites.get(name).map(Vec::as_slice).unwrap_or(&[])
+        self.call_sites
+            .get(name)
+            .map(SmallVec::as_slice)
+            .unwrap_or(&[])
     }
 
     pub fn call_graph(&self) -> &CallGraph {
