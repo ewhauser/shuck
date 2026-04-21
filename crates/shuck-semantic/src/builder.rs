@@ -3913,8 +3913,7 @@ fn static_tail_text_starts_with_slash(
 }
 
 fn unset_flags_are_valid(flags: &str) -> bool {
-    !flags.is_empty()
-        && flags.chars().all(|flag| matches!(flag, 'f' | 'v' | 'n'))
+    !flags.is_empty() && flags.chars().all(|flag| matches!(flag, 'f' | 'v' | 'n'))
 }
 
 fn parse_source_directives(
