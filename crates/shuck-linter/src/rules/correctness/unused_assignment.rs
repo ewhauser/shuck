@@ -172,8 +172,7 @@ fn local_family_scope(semantic: &SemanticModel, binding: &Binding) -> Option<Sco
     let mut probe = binding;
 
     loop {
-        let prior =
-            semantic.previous_visible_binding(&probe.name, probe.span, Some(probe.span))?;
+        let prior = semantic.previous_visible_binding(&probe.name, probe.span, Some(probe.span))?;
 
         if prior.attributes.contains(BindingAttributes::LOCAL) {
             return Some(prior.scope);
