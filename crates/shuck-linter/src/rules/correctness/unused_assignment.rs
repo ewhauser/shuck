@@ -437,6 +437,14 @@ mod tests {
     }
 
     #[test]
+    fn pre_use_empty_initializer_in_used_family_is_suppressed() {
+        let source = "#!/bin/bash\nfoo=\nfoo=1\n: \"$foo\"\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn used_non_reportable_bindings_keep_dead_branch_arms_separate() {
         let source = "#!/bin/bash\nif a; then\n  foo=1\nelif b; then\n  foo+=x\n  echo \"$foo\"\nelse\n  foo=3\nfi\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
