@@ -8,10 +8,7 @@ Shuck is pre-1.0. Only the latest published release receives security updates. I
 
 **Please do not open a public GitHub issue for security problems.**
 
-Report vulnerabilities privately through one of the following:
-
-1. **GitHub private vulnerability reporting** — [open a report](https://github.com/ewhauser/shuck/security/advisories/new) on this repository. This is the preferred channel.
-2. **Email** — `ewhauser@gmail.com`.
+Report vulnerabilities privately via GitHub private vulnerability reporting — [open a report](https://github.com/ewhauser/shuck/security/advisories/new) on this repository.
 
 Please include:
 

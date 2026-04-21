@@ -166,7 +166,7 @@ Disable caching with `--no-cache` or remove a project's cache entries with `shuc
 
 Shuck builds on ideas and inspiration from several excellent open-source projects. This section is a thank-you to those communities — it does not imply endorsement, affiliation, or any formal relationship between shuck and these projects.
 
-- **[bashkit](https://github.com/everruns/bashkit)** — Source of the bash lexer and parser that powers shuck-parser.
+- **[bashkit](https://github.com/everruns/bashkit)** — shuck-parser was originally forked from bashkit's bash lexer and parser; it has since evolved substantially to meet the needs of a linter (comment and trivia preservation, error recovery, multi-dialect parse views, extended AST coverage).
 - **[Ruff](https://github.com/astral-sh/ruff)** — Linter architecture inspiration, particularly around caching, rule organization, and diagnostic output.
 - **[ShellCheck](https://github.com/koalaman/shellcheck)** — An amazing project and the original source of inspiration for shuck. ShellCheck set the standard for shell script analysis.
 - **[gbash](https://github.com/ewhauser/gbash)** — A lot of lessons learned from this earlier project carried forward into shuck.
