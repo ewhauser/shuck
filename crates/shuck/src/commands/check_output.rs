@@ -1156,7 +1156,7 @@ mod tests {
     fn diagnostic_paths(path: &str) -> (PathBuf, PathBuf, PathBuf) {
         let display = PathBuf::from(path);
         let relative = PathBuf::from(path);
-        let absolute = PathBuf::from(format!("/tmp/{path}"));
+        let absolute = std::env::temp_dir().join(path);
         (display, relative, absolute)
     }
 
