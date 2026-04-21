@@ -128,6 +128,77 @@ fn check_good_file_succeeds() {
 }
 
 #[test]
+fn check_fix_rewrites_safe_s074_and_bypasses_cache() {
+    let tempdir = tempdir().unwrap();
+    let script = tempdir.path().join("warn.sh");
+    fs::write(&script, "#!/bin/bash\nprintf '%s\\n' x &;\n").unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path()).args(["check", "--fix"]);
+    cmd.assert().success().stdout("");
+
+    assert_eq!(
+        fs::read_to_string(script).unwrap(),
+        "#!/bin/bash\nprintf '%s\\n' x &\n"
+    );
+    assert!(!cache_dir(tempdir.path()).exists());
+}
+
+#[test]
+fn check_without_fix_leaves_s074_file_unchanged() {
+    let tempdir = tempdir().unwrap();
+    let script = tempdir.path().join("warn.sh");
+    let source = "#!/bin/bash\nprintf '%s\\n' x &;\n";
+    fs::write(&script, source).unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path()).arg("check");
+    cmd.assert()
+        .code(1)
+        .stdout(predicate::str::contains("warning[S074]:"));
+
+    assert_eq!(fs::read_to_string(script).unwrap(), source);
+}
+
+#[test]
+fn check_exit_non_zero_on_fix_returns_failure_when_fix_is_applied() {
+    let tempdir = tempdir().unwrap();
+    let script = tempdir.path().join("warn.sh");
+    fs::write(&script, "#!/bin/bash\nprintf '%s\\n' x &;\n").unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--fix", "--exit-non-zero-on-fix"]);
+    cmd.assert().code(1).stdout("");
+
+    assert_eq!(
+        fs::read_to_string(script).unwrap(),
+        "#!/bin/bash\nprintf '%s\\n' x &\n"
+    );
+}
+
+#[test]
+fn check_unsafe_fixes_applies_safe_s074_fix() {
+    let tempdir = tempdir().unwrap();
+    let script = tempdir.path().join("warn.sh");
+    fs::write(&script, "#!/bin/bash\nprintf '%s\\n' x &;\n").unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--unsafe-fixes"]);
+    cmd.assert().success().stdout("");
+
+    assert_eq!(
+        fs::read_to_string(script).unwrap(),
+        "#!/bin/bash\nprintf '%s\\n' x &\n"
+    );
+}
+
+#[test]
 fn check_unterminated_quote_reports_parse_error() {
     let tempdir = tempdir().unwrap();
     fs::write(

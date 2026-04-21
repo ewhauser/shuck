@@ -42,7 +42,10 @@ impl LinterSettings {
 
     pub fn default_rules() -> RuleSet {
         Rule::iter()
-            .filter(|rule| matches!(rule.category(), Category::Correctness | Category::Security))
+            .filter(|rule| {
+                matches!(rule.category(), Category::Correctness | Category::Security)
+                    || matches!(rule, Rule::AmpersandSemicolon)
+            })
             .collect()
     }
 

@@ -1,0 +1,49 @@
+---
+source: crates/shuck-linter/src/rules/style/ampersand_semicolon.rs
+---
+Diagnostics:
+S074 background command should not be followed by `;`
+ --> <source>:2:18
+  |
+2 | printf '%s\n' x &;
+  |
+
+S074 background command should not be followed by `;`
+ --> <source>:3:19
+  |
+3 | printf '%s\n' y & ;
+  |
+
+
+Applied fixes: 2
+
+Diff:
+--- before
++++ after
+@@ -1,6 +1,6 @@
+ #!/bin/bash
+-printf '%s\n' x &;
+-printf '%s\n' y & ;
++printf '%s\n' x &
++printf '%s\n' y & 
+ 
+ printf '%s\n' ok &
+ wait
+
+Fixed source:
+#!/bin/bash
+printf '%s\n' x &
+printf '%s\n' y & 
+
+printf '%s\n' ok &
+wait
+
+case ${1-} in
+  break) printf '%s\n' ok &;;
+  spaced) printf '%s\n' ok & ;;
+  fallthrough) printf '%s\n' ok & ;&
+  continue) printf '%s\n' ok & ;;&
+esac
+
+Remaining diagnostics:
+<none>

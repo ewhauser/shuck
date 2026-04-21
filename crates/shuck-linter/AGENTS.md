@@ -77,6 +77,86 @@ A rule file should be small. The shape is:
 Anything more — tree walking, source rescans, ad hoc command/word analysis —
 belongs in a lower layer.
 
+## Authoring fixes
+
+Autofix follows the same layering rule as diagnostics:
+
+- Rules decide **whether** a fix exists for a specific diagnostic.
+- The shared fixer in `src/fix.rs` decides **how** edits are filtered,
+  deconflicted, sorted, and applied.
+- The CLI owns file rewriting and rerunning lint after edits land.
+
+Keep fix generation rule-local, but keep fix application centralized.
+
+### Where fix logic lives
+
+- Put edit construction next to the rule that owns the policy. For example, a
+  rule can emit `Diagnostic::new(...).with_fix(...)` when it has enough
+  already-computed structure to describe an exact edit.
+- Do **not** apply edits inside a rule, inside `Checker`, or inside tests.
+  Always go through the shared fixer entrypoint.
+- Do **not** teach rules to resolve edit conflicts with each other. Emit the
+  best local fix you can; conflict handling belongs in `src/fix.rs`.
+
+### What makes a good fix
+
+- Prefer fixes that are **purely local** and anchored on spans we already
+  trust from facts, semantic data, or parser output.
+- Prefer exact span edits over source rescans. If a fact already exposes the
+  token/span to remove or replace, use that span directly.
+- Keep edits minimal. Do not widen a fix span just to clean up nearby trivia
+  unless the rule specifically owns that trivia and the result is still
+  clearly safe.
+- If a rule cannot describe the edit without rediscovering structure from raw
+  source, stop and push that missing structure down into facts or another
+  lower layer first.
+
+### Safety and applicability
+
+- `Applicability::Safe` is for edits that preserve intent with very high
+  confidence and do not depend on command-resolution guesses or semantic
+  reinterpretation.
+- `Applicability::Unsafe` is for edits that may change behavior, rely on
+  inference, or make a policy choice the user may not want.
+- Set `Violation::FIX_AVAILABILITY` accurately:
+  `None` when no fix exists, `Always` when every emitted diagnostic has a
+  fix, and `Sometimes` when only some instances can be fixed.
+- Provide a `fix_title()` when the rule emits a fix so downstream callers can
+  describe the action without rephrasing the rule message.
+
+When in doubt, classify the fix as unsafe first and only tighten to safe when
+the edit is obviously local and semantics-preserving.
+
+### Edit construction guidelines
+
+- Use the shared primitives in `src/fix.rs`: `Edit`, `Fix`,
+  `Applicability`, and `FixAvailability`.
+- Build edits from offsets/spans already exposed by the linter stack. Prefer
+  `Edit::deletion(span)`, `Edit::replacement(...)`, and
+  `Edit::insertion(...)` over ad hoc offset math.
+- A single diagnostic may carry one fix made of one or more edits. Keep those
+  edits tightly related and non-overlapping.
+- If a rule only needs the default diagnostic shape plus a fix, attach it via
+  `Diagnostic::new(...).with_fix(...)`. If it needs custom fix metadata, use
+  the diagnostic builder methods instead of bypassing `Diagnostic`.
+
+### Testing fixes
+
+- Add unit tests for the fixer when changing conflict resolution or edit
+  application behavior in `src/fix.rs`.
+- Add rule-level tests that cover:
+  positive diagnostic cases, negative cases, fixable cases, and cases that
+  must remain unchanged.
+- For autofix snapshots, use the helper in `src/test.rs` so snapshots show
+  diagnostics plus the applied diff/fixed source.
+- If the fix is reachable from the CLI, add or update integration coverage in
+  `crates/shuck/tests/` for `check --fix`, `--unsafe-fixes`, and any relevant
+  exit behavior.
+
+The first question for any new fix should be: "Do we already have an exact
+span for the token/text we want to edit?" If not, the next change probably
+belongs in facts, not in the rule.
+
 ## Extending facts (the right escape hatch)
 
 When a rule needs information that no fact exposes:
