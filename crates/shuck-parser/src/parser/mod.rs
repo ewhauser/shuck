@@ -6518,7 +6518,7 @@ impl<'a> Parser<'a> {
                     inline_comment: None,
                     span,
                 }
-            },
+            }
             Command::Decl(command) => {
                 let command = *command;
                 Stmt {
@@ -6537,7 +6537,7 @@ impl<'a> Parser<'a> {
                     inline_comment: None,
                     span: command.span,
                 }
-            },
+            }
             Command::Compound(compound, redirects) => {
                 let span = Self::compound_span(&compound);
                 Stmt {
