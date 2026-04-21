@@ -1,0 +1,53 @@
+---
+source: crates/shuck-linter/src/rules/correctness/quoted_bash_regex.rs
+assertion_line: 242
+---
+Diagnostics:
+C009 quoting the right-hand side of `=~` forces a literal string match
+ --> <source>:6:14
+  |
+6 | [[ $value =~ "$re" ]]
+  |
+
+C009 quoting the right-hand side of `=~` forces a literal string match
+ --> <source>:9:11
+  |
+9 | [[ foo =~ "a+" ]]
+  |
+
+
+Applied fixes: 2
+
+Diff:
+--- before
++++ after
+@@ -3,10 +3,10 @@
+ re='a+'
+ 
+ # Invalid: quoting the regex makes bash treat it as a literal string
+-[[ $value =~ "$re" ]]
++[[ $value =~ $re ]]
+ 
+ # Invalid: quoted literal regexes are also treated literally
+-[[ foo =~ "a+" ]]
++[[ foo =~ a+ ]]
+ 
+ # Valid: unquoted regexes keep regex semantics
+ [[ $value =~ $re ]]
+
+Fixed source:
+#!/bin/bash
+
+re='a+'
+
+# Invalid: quoting the regex makes bash treat it as a literal string
+[[ $value =~ $re ]]
+
+# Invalid: quoted literal regexes are also treated literally
+[[ foo =~ a+ ]]
+
+# Valid: unquoted regexes keep regex semantics
+[[ $value =~ $re ]]
+
+Remaining diagnostics:
+<none>
