@@ -8,6 +8,7 @@ use clap::{
     Args as ClapArgs, ColorChoice, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum,
 };
 use shuck_formatter::{IndentStyle, ShellDialect};
+use shuck_linter::RuleSelector;
 
 use crate::config::{ConfigArgumentParser, ConfigArguments, SingleConfigArgument};
 use crate::format_settings::FormatSettingsPatch;
@@ -286,6 +287,8 @@ pub struct CheckCommand {
     /// Files or directories to check.
     pub paths: Vec<PathBuf>,
     #[command(flatten)]
+    pub rule_selection: RuleSelectionArgs,
+    #[command(flatten)]
     pub file_selection: FileSelectionArgs,
     /// Disable cache reads and writes.
     #[arg(long = "no-cache", help_heading = "Miscellaneous")]
@@ -306,6 +309,122 @@ impl CheckCommand {
     pub fn force_exclude(&self) -> bool {
         self.file_selection.force_exclude()
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PatternRuleSelectorPair {
+    pub pattern: String,
+    pub selector: RuleSelector,
+}
+
+impl std::str::FromStr for PatternRuleSelectorPair {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let (pattern, selector) = value
+            .rsplit_once(':')
+            .ok_or_else(|| "expected <FilePattern>:<RuleCode>".to_owned())?;
+        let pattern = pattern.trim();
+        let selector = selector.trim();
+
+        if pattern.is_empty() || selector.is_empty() {
+            return Err("expected <FilePattern>:<RuleCode>".to_owned());
+        }
+
+        Ok(Self {
+            pattern: pattern.to_owned(),
+            selector: parse_cli_rule_selector(selector)?,
+        })
+    }
+}
+
+fn parse_cli_rule_selector(value: &str) -> Result<RuleSelector, String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err("rule selector cannot be empty".to_owned());
+    }
+
+    value.parse::<RuleSelector>().map_err(|err| err.to_string())
+}
+
+#[derive(Debug, Clone, Default, ClapArgs)]
+pub struct RuleSelectionArgs {
+    /// Comma-separated list of rule codes to enable (or ALL, to enable all rules).
+    #[arg(
+        long,
+        value_delimiter = ',',
+        value_parser = parse_cli_rule_selector,
+        value_name = "RULE_CODE",
+        help_heading = "Rule selection",
+        hide_possible_values = true
+    )]
+    pub select: Option<Vec<RuleSelector>>,
+    /// Comma-separated list of rule codes to disable.
+    #[arg(
+        long,
+        value_delimiter = ',',
+        value_parser = parse_cli_rule_selector,
+        value_name = "RULE_CODE",
+        help_heading = "Rule selection",
+        hide_possible_values = true
+    )]
+    pub ignore: Vec<RuleSelector>,
+    /// Like --select, but adds additional rule codes on top of those already specified.
+    #[arg(
+        long,
+        value_delimiter = ',',
+        value_parser = parse_cli_rule_selector,
+        value_name = "RULE_CODE",
+        help_heading = "Rule selection",
+        hide_possible_values = true
+    )]
+    pub extend_select: Vec<RuleSelector>,
+    /// List of mappings from file pattern to code to exclude.
+    #[arg(
+        long,
+        value_delimiter = ',',
+        value_name = "PER_FILE_IGNORES",
+        help_heading = "Rule selection"
+    )]
+    pub per_file_ignores: Option<Vec<PatternRuleSelectorPair>>,
+    /// Like `--per-file-ignores`, but adds additional ignores on top of those already specified.
+    #[arg(
+        long,
+        value_delimiter = ',',
+        value_name = "EXTEND_PER_FILE_IGNORES",
+        help_heading = "Rule selection"
+    )]
+    pub extend_per_file_ignores: Vec<PatternRuleSelectorPair>,
+    /// List of rule codes to treat as eligible for fix. Only applicable when fix itself is enabled (e.g., via `--fix`).
+    #[arg(
+        long,
+        value_delimiter = ',',
+        value_parser = parse_cli_rule_selector,
+        value_name = "RULE_CODE",
+        help_heading = "Rule selection",
+        hide_possible_values = true
+    )]
+    pub fixable: Option<Vec<RuleSelector>>,
+    /// List of rule codes to treat as ineligible for fix. Only applicable when fix itself is enabled (e.g., via `--fix`).
+    #[arg(
+        long,
+        value_delimiter = ',',
+        value_parser = parse_cli_rule_selector,
+        value_name = "RULE_CODE",
+        help_heading = "Rule selection",
+        hide_possible_values = true
+    )]
+    pub unfixable: Vec<RuleSelector>,
+    /// Like --fixable, but adds additional rule codes on top of those already specified.
+    #[arg(
+        long,
+        value_delimiter = ',',
+        value_parser = parse_cli_rule_selector,
+        value_name = "RULE_CODE",
+        help_heading = "Rule selection",
+        hide_possible_values = true
+    )]
+    pub extend_fixable: Vec<RuleSelector>,
 }
 
 fn parse_with_color<Cli, I, T>(itr: I) -> Result<Cli, clap::Error>
@@ -576,6 +695,7 @@ pub struct CleanCommand {
 mod tests {
     use super::*;
     use clap::builder::TypedValueParser;
+    use shuck_linter::Rule;
 
     #[test]
     fn global_config_override_is_available_after_subcommand() {
@@ -691,6 +811,114 @@ mod tests {
         let command = parse_check(["shuck", "check", "--watch"]);
 
         assert!(command.watch);
+    }
+
+    #[test]
+    fn parses_rule_selection_flags() {
+        let command = parse_check([
+            "shuck",
+            "check",
+            "--select",
+            "C001",
+            "--select",
+            "S,C002",
+            "--ignore",
+            "C003,C004",
+            "--extend-select",
+            "X",
+            "--fixable",
+            "ALL",
+            "--unfixable",
+            "C001",
+            "--extend-fixable",
+            "S074",
+        ]);
+
+        assert_eq!(
+            command.rule_selection.select,
+            Some(vec![
+                RuleSelector::Rule(Rule::UnusedAssignment),
+                RuleSelector::Category(shuck_linter::Category::Style),
+                RuleSelector::Rule(Rule::DynamicSourcePath),
+            ])
+        );
+        assert_eq!(
+            command.rule_selection.ignore,
+            vec![
+                RuleSelector::Rule(Rule::UntrackedSourceFile),
+                RuleSelector::Rule(Rule::UncheckedDirectoryChange),
+            ]
+        );
+        assert_eq!(
+            command.rule_selection.extend_select,
+            vec![RuleSelector::Category(shuck_linter::Category::Portability)]
+        );
+        assert_eq!(
+            command.rule_selection.fixable,
+            Some(vec![RuleSelector::All])
+        );
+        assert_eq!(
+            command.rule_selection.unfixable,
+            vec![RuleSelector::Rule(Rule::UnusedAssignment)]
+        );
+        assert_eq!(
+            command.rule_selection.extend_fixable,
+            vec![RuleSelector::Rule(Rule::AmpersandSemicolon)]
+        );
+    }
+
+    #[test]
+    fn parses_per_file_ignore_pairs() {
+        let command = parse_check([
+            "shuck",
+            "check",
+            "--per-file-ignores",
+            "tests/*.sh:C001",
+            "--extend-per-file-ignores",
+            "!src/*.sh:S",
+        ]);
+
+        assert_eq!(
+            command.rule_selection.per_file_ignores,
+            Some(vec![PatternRuleSelectorPair {
+                pattern: "tests/*.sh".to_owned(),
+                selector: RuleSelector::Rule(Rule::UnusedAssignment),
+            }])
+        );
+        assert_eq!(
+            command.rule_selection.extend_per_file_ignores,
+            vec![PatternRuleSelectorPair {
+                pattern: "!src/*.sh".to_owned(),
+                selector: RuleSelector::Category(shuck_linter::Category::Style),
+            }]
+        );
+    }
+
+    #[test]
+    fn parses_per_file_ignore_pairs_with_colons_in_pattern() {
+        let command = parse_check(["shuck", "check", "--per-file-ignores", r"C:\repo\*.sh:C001"]);
+
+        assert_eq!(
+            command.rule_selection.per_file_ignores,
+            Some(vec![PatternRuleSelectorPair {
+                pattern: r"C:\repo\*.sh".to_owned(),
+                selector: RuleSelector::Rule(Rule::UnusedAssignment),
+            }])
+        );
+    }
+
+    #[test]
+    fn rejects_empty_cli_rule_selectors() {
+        let error = StableCli::try_parse_from(["shuck", "check", "--select", ""]).unwrap_err();
+
+        assert_eq!(error.kind(), ErrorKind::ValueValidation);
+    }
+
+    #[test]
+    fn rejects_empty_cli_rule_selectors_after_value_delimiter() {
+        let error = StableCli::try_parse_from(["shuck", "check", "--select", "C001,"]).unwrap_err();
+
+        assert_eq!(error.kind(), ErrorKind::ValueValidation);
     }
 
     #[test]

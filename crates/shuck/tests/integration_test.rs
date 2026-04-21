@@ -178,6 +178,27 @@ fn check_help_shows_file_selection_options() {
 }
 
 #[test]
+fn check_help_shows_rule_selection_options() {
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    cmd.args(["check", "--help"]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("Rule selection"))
+        .stdout(predicate::str::contains("--select <RULE_CODE>"))
+        .stdout(predicate::str::contains("--ignore <RULE_CODE>"))
+        .stdout(predicate::str::contains("--extend-select <RULE_CODE>"))
+        .stdout(predicate::str::contains(
+            "--per-file-ignores <PER_FILE_IGNORES>",
+        ))
+        .stdout(predicate::str::contains(
+            "--extend-per-file-ignores <EXTEND_PER_FILE_IGNORES>",
+        ))
+        .stdout(predicate::str::contains("--fixable <RULE_CODE>"))
+        .stdout(predicate::str::contains("--unfixable <RULE_CODE>"))
+        .stdout(predicate::str::contains("--extend-fixable <RULE_CODE>"));
+}
+
+#[test]
 fn format_help_shows_file_selection_options() {
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     enable_experimental(&mut cmd);
@@ -308,6 +329,88 @@ fn check_unsafe_fixes_applies_safe_s074_fix() {
         fs::read_to_string(script).unwrap(),
         "#!/bin/bash\nprintf '%s\\n' x &\n"
     );
+}
+
+#[test]
+fn check_cli_select_replaces_config_selection() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("shuck.toml"),
+        "[lint]\nselect = ['C001']\n",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("script.sh"),
+        "#!/bin/sh\nunused=1\nread\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path()).args([
+        "check",
+        "--select",
+        "S036",
+        "--output-format",
+        "concise",
+    ]);
+    cmd.assert()
+        .code(1)
+        .stdout(predicate::str::contains("warning[S036]"))
+        .stdout(predicate::str::contains("warning[C001]").not());
+}
+
+#[test]
+fn check_per_file_ignores_skip_matching_files() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("ignored.sh"),
+        "#!/bin/bash\nunused=1\necho ok\n",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("kept.sh"),
+        "#!/bin/bash\nunused=1\necho ok\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path()).args([
+        "check",
+        "--per-file-ignores",
+        "ignored.sh:C001",
+        "--output-format",
+        "concise",
+    ]);
+    cmd.assert()
+        .code(1)
+        .stdout(predicate::str::contains("kept.sh:2:1: warning[C001]"))
+        .stdout(predicate::str::contains("ignored.sh:").not());
+}
+
+#[test]
+fn check_unfixable_prevents_fixing_matching_rules() {
+    let tempdir = tempdir().unwrap();
+    let script = tempdir.path().join("warn.sh");
+    let source = "#!/bin/bash\nprintf '%s\\n' x &;\n";
+    fs::write(&script, source).unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path()).args([
+        "check",
+        "--fix",
+        "--unfixable",
+        "S074",
+        "--output-format",
+        "concise",
+    ]);
+    cmd.assert()
+        .code(1)
+        .stdout(predicate::str::contains("warning[S074]"));
+
+    assert_eq!(fs::read_to_string(script).unwrap(), source);
 }
 
 #[test]

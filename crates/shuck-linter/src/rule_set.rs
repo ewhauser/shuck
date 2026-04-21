@@ -30,6 +30,14 @@ impl RuleSet {
         self.0[word] &= !(1u64 << bit);
     }
 
+    pub fn set(&mut self, rule: Rule, enabled: bool) {
+        if enabled {
+            self.insert(rule);
+        } else {
+            self.remove(rule);
+        }
+    }
+
     pub fn union(&self, other: &Self) -> Self {
         let mut words = [0; WORD_COUNT];
         let mut index = 0;

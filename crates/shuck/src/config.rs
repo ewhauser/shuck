@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::fs;
 use std::io;
@@ -14,7 +15,7 @@ use crate::format_settings::{FormatSettingsPatch, parse_config_indent_style};
 
 const CONFIG_FILENAMES: [&str; 2] = [".shuck.toml", "shuck.toml"];
 pub(crate) const CONFIG_DIALECT_UNSUPPORTED_ERROR: &str = "`[format].dialect` is not supported; formatter dialect is auto-discovered from the file name or shebang. Use `--dialect` for a per-run override";
-const CONFIG_OVERRIDE_ROOT_KEYS: &[&str] = &["format"];
+const CONFIG_OVERRIDE_ROOT_KEYS: &[&str] = &["format", "lint"];
 const CONFIG_OVERRIDE_FORMAT_KEYS: &[&str] = &[
     "dialect",
     "indent-style",
@@ -26,11 +27,22 @@ const CONFIG_OVERRIDE_FORMAT_KEYS: &[&str] = &[
     "function-next-line",
     "never-split",
 ];
+const CONFIG_OVERRIDE_LINT_KEYS: &[&str] = &[
+    "select",
+    "ignore",
+    "extend-select",
+    "per-file-ignores",
+    "extend-per-file-ignores",
+    "fixable",
+    "unfixable",
+    "extend-fixable",
+];
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default)]
 pub(crate) struct ShuckConfig {
     pub format: FormatConfig,
+    pub lint: LintConfig,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
@@ -45,6 +57,19 @@ pub(crate) struct FormatConfig {
     pub keep_padding: Option<bool>,
     pub function_next_line: Option<bool>,
     pub never_split: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub(crate) struct LintConfig {
+    pub select: Option<Vec<String>>,
+    pub ignore: Option<Vec<String>>,
+    pub extend_select: Option<Vec<String>>,
+    pub per_file_ignores: Option<BTreeMap<String, Vec<String>>>,
+    pub extend_per_file_ignores: Option<BTreeMap<String, Vec<String>>>,
+    pub fixable: Option<Vec<String>>,
+    pub unfixable: Option<Vec<String>>,
+    pub extend_fixable: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -65,7 +90,7 @@ impl ConfigArguments {
         for option in config_options {
             match option {
                 SingleConfigArgument::SettingsOverride(config_override) => {
-                    overrides.apply_overrides(config_override);
+                    overrides.apply_overrides(*config_override);
                 }
                 SingleConfigArgument::FilePath(path) => {
                     if isolated {
@@ -124,7 +149,7 @@ You cannot specify more than one configuration file on the command line.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum SingleConfigArgument {
     FilePath(PathBuf),
-    SettingsOverride(ShuckConfig),
+    SettingsOverride(Box<ShuckConfig>),
 }
 
 #[derive(Clone)]
@@ -157,6 +182,7 @@ impl TypedValueParser for ConfigArgumentParser {
         };
 
         parse_config_override(value)
+            .map(Box::new)
             .map(SingleConfigArgument::SettingsOverride)
             .map_err(|detail| invalid_config_argument(cmd, arg, value, &detail))
     }
@@ -238,6 +264,7 @@ impl FormatConfig {
 impl ShuckConfig {
     fn apply_overrides(&mut self, overrides: ShuckConfig) {
         self.format.apply_overrides(overrides.format);
+        self.lint.apply_overrides(overrides.lint);
     }
 }
 
@@ -273,6 +300,35 @@ impl FormatConfig {
     }
 }
 
+impl LintConfig {
+    fn apply_overrides(&mut self, overrides: LintConfig) {
+        if overrides.select.is_some() {
+            self.select = overrides.select;
+        }
+        if overrides.ignore.is_some() {
+            self.ignore = overrides.ignore;
+        }
+        if overrides.extend_select.is_some() {
+            self.extend_select = overrides.extend_select;
+        }
+        if overrides.per_file_ignores.is_some() {
+            self.per_file_ignores = overrides.per_file_ignores;
+        }
+        if overrides.extend_per_file_ignores.is_some() {
+            self.extend_per_file_ignores = overrides.extend_per_file_ignores;
+        }
+        if overrides.fixable.is_some() {
+            self.fixable = overrides.fixable;
+        }
+        if overrides.unfixable.is_some() {
+            self.unfixable = overrides.unfixable;
+        }
+        if overrides.extend_fixable.is_some() {
+            self.extend_fixable = overrides.extend_fixable;
+        }
+    }
+}
+
 fn load_config_file(config_path: &Path) -> Result<ShuckConfig> {
     let source = fs::read_to_string(config_path)
         .with_context(|| format!("read {}", config_path.display()))?;
@@ -304,6 +360,20 @@ fn validate_override_table(table: &toml::Table) -> std::result::Result<(), Strin
                 return Err(format!(
                     "unsupported `[format]` option `{key}`; expected one of: {}",
                     CONFIG_OVERRIDE_FORMAT_KEYS.join(", ")
+                ));
+            }
+        }
+    }
+
+    if let Some(lint_value) = table.get("lint") {
+        let lint = lint_value
+            .as_table()
+            .ok_or_else(|| "`lint` must be a TOML table".to_owned())?;
+        for key in lint.keys() {
+            if !CONFIG_OVERRIDE_LINT_KEYS.contains(&key.as_str()) {
+                return Err(format!(
+                    "unsupported `[lint]` option `{key}`; expected one of: {}",
+                    CONFIG_OVERRIDE_LINT_KEYS.join(", ")
                 ));
             }
         }
@@ -444,16 +514,28 @@ mod tests {
     }
 
     #[test]
+    fn inline_config_overrides_validate_supported_lint_keys() {
+        let config = parse_config_override("lint.select = ['C001']").unwrap();
+        assert_eq!(config.lint.select, Some(vec!["C001".to_owned()]));
+    }
+
+    #[test]
+    fn inline_config_overrides_reject_unknown_lint_keys() {
+        let err = parse_config_override("lint.preview = true").unwrap_err();
+        assert!(err.contains("unsupported `[lint]` option `preview`"));
+    }
+
+    #[test]
     fn config_arguments_allow_multiple_inline_overrides_with_last_one_winning() {
         let tempdir = tempdir().unwrap();
         let config = ConfigArguments::from_cli(
             vec![
-                SingleConfigArgument::SettingsOverride(
+                SingleConfigArgument::SettingsOverride(Box::new(
                     parse_config_override("format.indent-width = 2").unwrap(),
-                ),
-                SingleConfigArgument::SettingsOverride(
+                )),
+                SingleConfigArgument::SettingsOverride(Box::new(
                     parse_config_override("format.indent-width = 4").unwrap(),
-                ),
+                )),
             ],
             false,
         )
@@ -461,6 +543,26 @@ mod tests {
 
         let loaded = load_project_config(tempdir.path(), &config).unwrap();
         assert_eq!(loaded.format.indent_width, Some(4));
+    }
+
+    #[test]
+    fn lint_config_arguments_allow_last_override_to_win() {
+        let tempdir = tempdir().unwrap();
+        let config = ConfigArguments::from_cli(
+            vec![
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override("lint.select = ['C001']").unwrap(),
+                )),
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override("lint.select = ['C002']").unwrap(),
+                )),
+            ],
+            false,
+        )
+        .unwrap();
+
+        let loaded = load_project_config(tempdir.path(), &config).unwrap();
+        assert_eq!(loaded.lint.select, Some(vec!["C002".to_owned()]));
     }
 
     #[test]
@@ -506,9 +608,9 @@ mod tests {
         .unwrap();
 
         let config = ConfigArguments::from_cli(
-            vec![SingleConfigArgument::SettingsOverride(
+            vec![SingleConfigArgument::SettingsOverride(Box::new(
                 parse_config_override("format.indent-width = 2").unwrap(),
-            )],
+            ))],
             true,
         )
         .unwrap();
