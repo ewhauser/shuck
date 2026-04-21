@@ -4,6 +4,7 @@
 //!
 //! The semantic model tracks scopes, bindings, references, control flow, and selected dataflow
 //! facts so higher-level crates can reason about shell behavior without re-traversing the AST.
+#[allow(missing_docs)]
 mod binding;
 #[allow(missing_docs)]
 mod builder;

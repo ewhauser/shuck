@@ -4,6 +4,7 @@
 //!
 //! This crate is shell-agnostic. It provides the document tree, formatter traits, and printer
 //! implementation that higher-level crates use to build language-specific formatting rules.
+#[allow(missing_docs)]
 mod buffer;
 #[allow(missing_docs)]
 mod format_element;
@@ -11,8 +12,8 @@ mod format_element;
 mod formatter;
 #[allow(missing_docs)]
 mod macros;
-#[allow(missing_docs)]
 /// Re-exports commonly used when implementing [`crate::Format`] values.
+#[allow(missing_docs)]
 pub mod prelude;
 #[allow(missing_docs)]
 mod printer;
