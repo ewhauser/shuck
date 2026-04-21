@@ -1,0 +1,185 @@
+# Configuration
+
+Shuck can be configured through a `shuck.toml` or `.shuck.toml` file.
+
+This page covers Shuck's stable native configuration for `shuck check`. ShellCheck compatibility mode uses `.shellcheckrc` instead; see the [ShellCheck compatibility guide](/docs/shellcheck-compat).
+
+## Default behavior
+
+If you do not add a config file, Shuck behaves as though it were configured like this:
+
+```toml
+[lint]
+select = ["C", "K", "S074"]
+ignore = []
+fixable = ["ALL"]
+unfixable = []
+```
+
+That default rule set enables:
+
+- All correctness rules (`C`)
+- All security rules (`K`)
+- `S074`, which catches `&;` command separators
+
+You only need a config file when you want to change that baseline.
+
+For example, the following configuration keeps the defaults, adds all style rules, and ignores one specific rule:
+
+```toml
+[lint]
+select = ["C", "K", "S074"]
+extend-select = ["S"]
+ignore = ["S074"]
+fixable = ["ALL"]
+unfixable = []
+```
+
+## Config file discovery
+
+When Shuck needs configuration for a file or input path, it searches upward from that path for either:
+
+- `.shuck.toml`
+- `shuck.toml`
+
+If both files exist in the same directory, `.shuck.toml` wins.
+
+Shuck uses the nearest matching config root for each analyzed path. A single invocation can therefore pick up different config files when you lint inputs from different project roots.
+
+Discovered config files do not cascade or merge. Shuck uses the closest config file it finds and ignores parent config files.
+
+## Precedence
+
+Configuration is resolved in this order:
+
+1. `--isolated` disables discovered config files.
+2. `--config path/to/file.toml` uses one explicit config file for the entire run.
+3. Otherwise, Shuck discovers the nearest `.shuck.toml` or `shuck.toml` for each analyzed path.
+4. Inline overrides passed as `--config "<key> = <value>"` are applied last.
+5. If you pass the same inline setting more than once, the last one wins.
+
+`--isolated` cannot be combined with `--config path/to/file.toml`, but it can still be used with inline overrides.
+
+```bash
+# Use the nearest discovered config
+shuck check .
+
+# Use one explicit config file for the whole run
+shuck --config ci/shuck.toml check .
+
+# Ignore discovered config files and rely only on inline overrides
+shuck --isolated --config "lint.select = ['C001']" check .
+```
+
+## Lint settings
+
+Shuck's stable config surface lives under `[lint]`.
+
+### `select`
+
+Replaces the default rule set with the selectors you provide.
+
+Selectors can be:
+
+- A full category prefix like `C` or `K`
+- A narrower prefix like `C12`
+- An exact rule code like `S074`
+- `ALL`
+
+```toml
+[lint]
+select = ["C", "K", "S074"]
+```
+
+### `ignore`
+
+Removes rules from the currently selected set.
+
+```toml
+[lint]
+select = ["C", "K", "S074"]
+ignore = ["C011", "S074"]
+```
+
+### `extend-select`
+
+Adds more rules on top of the current selection.
+
+```toml
+[lint]
+select = ["C", "K", "S074"]
+extend-select = ["S", "P"]
+```
+
+### `per-file-ignores`
+
+Defines rule ignores for files matching a glob pattern.
+
+```toml
+[lint]
+select = ["C", "K", "S074"]
+
+[lint.per-file-ignores]
+"scripts/*.sh" = ["S074"]
+"testdata/**" = ["ALL"]
+```
+
+### `extend-per-file-ignores`
+
+Adds more per-file ignores on top of any existing `per-file-ignores` entries.
+
+```toml
+[lint]
+select = ["C", "K", "S074"]
+extend-per-file-ignores = { "vendor/**" = ["ALL"], "scripts/*.sh" = ["S074"] }
+```
+
+### `fixable`
+
+Restricts which rules are eligible when you run `shuck check --fix`.
+
+By default, all rules are considered fixable candidates when fixes exist.
+
+```toml
+[lint]
+select = ["C", "K", "S074"]
+fixable = ["C", "S074"]
+```
+
+### `unfixable`
+
+Marks selected rules as ineligible for automatic fixes, even when `--fix` is enabled.
+
+```toml
+[lint]
+select = ["C", "K", "S074"]
+unfixable = ["C001"]
+```
+
+### `extend-fixable`
+
+Adds more fixable rules on top of an existing `fixable` selection.
+
+```toml
+[lint]
+select = ["C", "K", "S074"]
+fixable = ["C"]
+extend-fixable = ["S074"]
+```
+
+## CLI-only file selection
+
+Some commonly expected settings are command-line flags today, not `shuck.toml` keys. In particular:
+
+- `--exclude`
+- `--extend-exclude`
+- `--respect-gitignore` and `--no-respect-gitignore`
+- `--force-exclude` and `--no-force-exclude`
+
+Use those flags directly on `shuck check`:
+
+```bash
+shuck check --exclude vendor --extend-exclude fixtures --force-exclude .
+```
+
+Shuck does not currently support configuring those file-selection options in `shuck.toml`.

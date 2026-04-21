@@ -9,6 +9,7 @@ export const docsNavigation: NavItem[] = [
     title: "Getting Started",
     items: [
       { title: "Overview", href: "/docs/getting-started" },
+      { title: "Configuration", href: "/docs/configuration" },
       { title: "ShellCheck Compatibility", href: "/docs/shellcheck-compat" },
     ],
   },
