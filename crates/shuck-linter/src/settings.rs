@@ -72,6 +72,7 @@ struct CompiledPerFileIgnore {
     pattern: String,
     basename_matcher: GlobMatcher,
     relative_matcher: GlobMatcher,
+    absolute_matcher: GlobMatcher,
     negated: bool,
     rules: RuleSet,
 }
@@ -171,11 +172,15 @@ impl CompiledPerFileIgnoreList {
                 let relative_matcher = Glob::new(&pattern)
                     .with_context(|| format!("invalid glob {:?}", per_file_ignore.pattern()))?
                     .compile_matcher();
+                let absolute_matcher = Glob::new(&pattern)
+                    .with_context(|| format!("invalid glob {:?}", per_file_ignore.pattern()))?
+                    .compile_matcher();
 
                 Ok(CompiledPerFileIgnore {
                     pattern: per_file_ignore.pattern().to_owned(),
                     basename_matcher,
                     relative_matcher,
+                    absolute_matcher,
                     negated,
                     rules: per_file_ignore.rules(),
                 })
@@ -201,7 +206,8 @@ impl CompiledPerFileIgnoreList {
 
         self.entries.iter().fold(RuleSet::EMPTY, |ignored, entry| {
             let matches = entry.basename_matcher.is_match(file_name)
-                || entry.relative_matcher.is_match(relative_path);
+                || entry.relative_matcher.is_match(relative_path)
+                || entry.absolute_matcher.is_match(path);
             let applies = if entry.negated { !matches } else { matches };
 
             if applies {
@@ -210,5 +216,38 @@ impl CompiledPerFileIgnoreList {
                 ignored
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::tempdir;
+
+    use super::{CompiledPerFileIgnoreList, PerFileIgnore};
+    use crate::{Rule, RuleSet};
+
+    #[test]
+    fn matches_absolute_per_file_ignore_patterns() {
+        let tempdir = tempdir().unwrap();
+        let project_root = tempdir.path().to_path_buf();
+        let script_path = project_root.join("nested").join("script.sh");
+        let absolute_pattern = script_path
+            .parent()
+            .unwrap()
+            .join("*.sh")
+            .to_string_lossy()
+            .into_owned();
+        let per_file_ignores = CompiledPerFileIgnoreList::resolve(
+            project_root,
+            [PerFileIgnore::new(
+                absolute_pattern,
+                RuleSet::from_iter([Rule::UnusedAssignment]),
+            )],
+        )
+        .unwrap();
+
+        let ignored_rules = per_file_ignores.ignored_rules(&script_path);
+
+        assert!(ignored_rules.contains(Rule::UnusedAssignment));
     }
 }
