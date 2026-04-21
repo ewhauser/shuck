@@ -1,0 +1,40 @@
+---
+source: crates/shuck-linter/src/rules/portability/function_keyword_in_sh.rs
+---
+Diagnostics:
+X052 `function` with trailing `()` is not portable in `sh` scripts
+ --> <source>:4:1
+  |
+4 | function with_parens()
+  |
+
+
+Applied fixes: 1
+
+Diff:
+--- before
++++ after
+@@ -1,7 +1,7 @@
+ #!/bin/sh
+ 
+ # Should trigger: function keyword with parens in sh
+-function with_parens()
++with_parens()
+ {
+   :
+ }
+
+Fixed source:
+#!/bin/sh
+
+# Should trigger: function keyword with parens in sh
+with_parens()
+{
+  :
+}
+
+# Should not trigger: function keyword without parens belongs to X004
+function keyword_only { :; }
+
+Remaining diagnostics:
+<none>
