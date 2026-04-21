@@ -1,8 +1,8 @@
 name: Website
 
 on:
-  push:
-    branches: [main]
+  release:
+    types: [published]
   pull_request:
     paths:
       - "website/**"
@@ -26,6 +26,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
+          ref: ${{ github.event.release.tag_name || github.ref }}
 
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
         with:
@@ -45,7 +46,7 @@ jobs:
         run: pnpm build
 
   deploy:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'release'
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -63,10 +64,11 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
+          ref: ${{ github.event.release.tag_name || github.ref }}
 
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: false
 
       - name: Install Rust toolchain
         run: rustup show
@@ -91,12 +93,12 @@ jobs:
             --bench-dir "$SHUCK_BENCHMARK_OUTPUT_DIR" \
             --output website/generated/benchmarks/ci-latest.json \
             --dataset-id ci-latest \
-            --dataset-name "GitHub Actions latest main snapshot" \
-            --dataset-description "Regenerated during the GitHub Pages deploy on the latest main commit." \
+            --dataset-name "GitHub Actions latest release snapshot" \
+            --dataset-description "Regenerated during the GitHub Pages deploy for the latest published release." \
             --environment-kind ci \
             --environment-label "GitHub Actions ubuntu-latest" \
             --source-command "make bench-macro" \
-            --notes "This snapshot is rebuilt during every Pages deploy from the current main commit." \
+            --notes "This snapshot is rebuilt during every Pages deploy for the latest published release." \
             --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
 
       - name: Note benchmark fallback

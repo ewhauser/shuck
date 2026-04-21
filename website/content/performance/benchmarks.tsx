@@ -183,8 +183,8 @@ function SnapshotDetails({ dataset }: { dataset: BenchmarkDataset }) {
       {!dataset.available ? (
         <blockquote>
           The checked-in placeholder was used for this build. The GitHub Pages
-          deployment on <code>main</code> regenerates the CI snapshot before exporting
-          the site.
+          deployment for the latest published release regenerates the CI snapshot
+          before exporting the site.
         </blockquote>
       ) : null}
     </>
@@ -274,8 +274,8 @@ export default function BenchmarksDoc() {
           A checked-in Apple M5 Max snapshot generated from local benchmark exports.
         </li>
         <li>
-          A Linux CI snapshot regenerated during the GitHub Pages deploy on{" "}
-          <code>main</code>.
+          A Linux CI snapshot regenerated during the GitHub Pages deploy for the
+          latest published release.
         </li>
       </ul>
 
@@ -330,8 +330,8 @@ python3 ./scripts/benchmarks/export_website_data.py \\
   --bench-dir .cache \\
   --output website/generated/benchmarks/ci-latest.json \\
   --dataset-id ci-latest \\
-  --dataset-name "GitHub Actions latest main snapshot" \\
-  --dataset-description "Generated during the website deploy workflow." \\
+  --dataset-name "GitHub Actions latest release snapshot" \\
+  --dataset-description "Generated during the website deploy workflow for the latest published release." \\
   --environment-kind ci \\
   --environment-label "GitHub Actions ubuntu-latest"`}</code>
       </pre>

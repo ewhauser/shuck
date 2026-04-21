@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "available": false,
   "id": "ci-latest",
-  "name": "GitHub Actions latest main snapshot",
-  "description": "A fresh Linux snapshot is generated during the GitHub Pages deploy on main. Local builds and pull request builds use this placeholder instead.",
+  "name": "GitHub Actions latest release snapshot",
+  "description": "A fresh Linux snapshot is generated during the GitHub Pages deploy for the latest published release. Local builds and pull request builds use this placeholder instead.",
   "generatedAt": "2026-04-20T00:00:00Z",
   "commit": {
     "sha": null,
@@ -35,7 +35,7 @@
     "ignoreFailure": true,
     "shuckCommand": "shuck check --no-cache <fixture>",
     "comparisonCommand": "shellcheck --severity=style <fixture>",
-    "notes": "The website deploy on main overwrites this placeholder with a fresh benchmark snapshot."
+    "notes": "The website deploy for the latest published release overwrites this placeholder with a fresh benchmark snapshot."
   },
   "corpus": {
     "fixtureCount": 0,
