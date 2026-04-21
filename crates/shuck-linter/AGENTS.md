@@ -150,7 +150,7 @@ the edit is obviously local and semantics-preserving.
 - For autofix snapshots, use the helper in `src/test.rs` so snapshots show
   diagnostics plus the applied diff/fixed source.
 - If the fix is reachable from the CLI, add or update integration coverage in
-  `crates/shuck/tests/` for `check --fix`, `--unsafe-fixes`, and any relevant
+  `crates/shuck-cli/tests/` for `check --fix`, `--unsafe-fixes`, and any relevant
   exit behavior.
 
 The first question for any new fix should be: "Do we already have an exact

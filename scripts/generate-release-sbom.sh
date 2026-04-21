@@ -11,5 +11,5 @@ cd "$repo_root"
 # SBOM to the repository root and clean up the temporary workspace files.
 find crates -name '*.cdx.xml' -delete
 cargo cyclonedx --manifest-path Cargo.toml --format xml -q
-cp crates/shuck/shuck.cdx.xml shuck.cdx.xml
+cp crates/shuck-cli/shuck-cli.cdx.xml shuck.cdx.xml
 find crates -name '*.cdx.xml' -delete

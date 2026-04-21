@@ -53,7 +53,7 @@ const CATEGORY_PREFIX: Record<string, string> = {
 
 const rootDir = resolve(__dirname, "../..");
 const rulesDir = join(rootDir, "docs/rules");
-const corpusMetadataDir = join(rootDir, "crates/shuck/tests/testdata/corpus-metadata");
+const corpusMetadataDir = join(rootDir, "crates/shuck-cli/tests/testdata/corpus-metadata");
 const registryPath = join(rootDir, "crates/shuck-linter/src/registry.rs");
 const outPath = join(__dirname, "../app/lib/rules-data.generated.json");
 

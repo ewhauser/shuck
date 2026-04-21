@@ -27,7 +27,7 @@ shuck-indexer = { path = "crates/shuck-indexer", version = "0.0.12" }
 shuck-linter = { path = "crates/shuck-linter", version = "0.0.12" }
 shuck-parser = { path = "crates/shuck-parser", version = "0.0.12" }
 shuck-semantic = { path = "crates/shuck-semantic", version = "0.0.12" }
-shuck-cli = { path = "crates/shuck", version = "0.0.12" }
+shuck-cli = { path = "crates/shuck-cli", version = "0.0.12" }
 
 # Error handling
 thiserror = "2"

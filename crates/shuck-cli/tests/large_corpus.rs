@@ -2193,7 +2193,7 @@ fn corpus_dir_looks_valid(dir: &Path) -> bool {
 
 fn repo_root() -> PathBuf {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    // crates/shuck -> workspace root
+    // crates/shuck-cli -> workspace root
     manifest_dir
         .parent()
         .and_then(|p| p.parent())
