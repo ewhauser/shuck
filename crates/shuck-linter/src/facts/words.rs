@@ -103,6 +103,10 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         self.word().span
     }
 
+    pub fn single_double_quoted_replacement(self, source: &str) -> Box<str> {
+        rewrite_word_as_single_double_quoted_string(self.word(), source)
+    }
+
     pub fn command_id(self) -> CommandId {
         self.occurrence().command_id
     }
