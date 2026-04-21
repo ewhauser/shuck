@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.0.13](https://github.com/ewhauser/shuck/compare/v0.0.12...v0.0.13) (2026-04-21)
+
+
+### Features
+
+* **release:** publish shuck to homebrew tap ([#399](https://github.com/ewhauser/shuck/issues/399)) ([b0d66dd](https://github.com/ewhauser/shuck/commit/b0d66dd4877e80de94a0a3ed14ef4fee4b383ab5))
+
+
+### Refactor
+
+* remove non-test unwrap-style calls ([#401](https://github.com/ewhauser/shuck/issues/401)) ([6df705b](https://github.com/ewhauser/shuck/commit/6df705b0aeae5a00bb3d7fcc97c09346adff4fd9))
+
 ## [0.0.12](https://github.com/ewhauser/shuck/compare/v0.0.11...v0.0.12) (2026-04-21)
 
 
