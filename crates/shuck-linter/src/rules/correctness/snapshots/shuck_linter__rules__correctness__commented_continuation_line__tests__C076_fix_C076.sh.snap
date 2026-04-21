@@ -1,0 +1,39 @@
+---
+source: crates/shuck-linter/src/rules/correctness/commented_continuation_line.rs
+---
+Diagnostics:
+C076 line continuation is followed by a comment-only line
+ --> <source>:3:11
+  |
+3 |   #world \
+  |
+
+
+Applied fixes: 1
+
+Diff:
+--- before
++++ after
+@@ -1,6 +1,6 @@
+ #!/bin/bash
+ echo hello \
+-  #world \
++  #world 
+   foo
+ 
+ echo hello \
+
+Fixed source:
+#!/bin/bash
+echo hello \
+  #world 
+  foo
+
+echo hello \
+  world
+
+echo hello
+  #world
+
+Remaining diagnostics:
+<none>
