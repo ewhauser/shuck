@@ -1776,8 +1776,66 @@ fn remap_embedded_position(
     column: usize,
 ) -> DisplayPosition {
     let line = embedded.host_start_line + line.saturating_sub(1);
-    let column = embedded.host_start_column + column.saturating_sub(1);
+    let column = remap_embedded_column(embedded, line, column);
     DisplayPosition::new(line, column)
+}
+
+fn remap_embedded_column(
+    embedded: &EmbeddedScript,
+    host_line: usize,
+    snippet_column: usize,
+) -> usize {
+    let snippet_line = host_line
+        .saturating_sub(embedded.host_start_line)
+        .saturating_add(1);
+    let local_column = snippet_column.saturating_sub(1);
+    let mut cumulative_delta = 0isize;
+
+    for placeholder in &embedded.placeholders {
+        let (placeholder_line, placeholder_column) =
+            source_line_column_for_offset(&embedded.source, placeholder.substituted_span.start);
+        if placeholder_line != snippet_line {
+            continue;
+        }
+
+        let substituted_start = placeholder_column.saturating_sub(1);
+        let substituted_len = placeholder.substituted_span.len();
+        let substituted_end = substituted_start + substituted_len;
+        let host_len = placeholder.host_span.len();
+
+        if local_column >= substituted_end {
+            cumulative_delta += host_len as isize - substituted_len as isize;
+            continue;
+        }
+
+        if local_column >= substituted_start {
+            let host_start = substituted_start as isize + cumulative_delta;
+            let relative = local_column - substituted_start;
+            let mapped = host_start + relative.min(host_len.saturating_sub(1)) as isize;
+            return embedded.host_start_column + mapped.max(0) as usize;
+        }
+    }
+
+    embedded.host_start_column + (local_column as isize + cumulative_delta).max(0) as usize
+}
+
+fn source_line_column_for_offset(source: &str, offset: usize) -> (usize, usize) {
+    let mut line = 1usize;
+    let mut column = 1usize;
+
+    for (index, ch) in source.char_indices() {
+        if index >= offset {
+            break;
+        }
+        if ch == '\n' {
+            line += 1;
+            column = 1;
+        } else {
+            column += 1;
+        }
+    }
+
+    (line, column)
 }
 
 fn prefixed_embedded_message(embedded: &EmbeddedScript, message: &str) -> String {
@@ -2072,6 +2130,32 @@ jobs:
         let position = remap_embedded_position(&embedded, 2, 5);
         assert_eq!(position.line, 8);
         assert_eq!(position.column, 13);
+    }
+
+    #[test]
+    fn remaps_columns_after_placeholder_expansion_on_the_same_line() {
+        let embedded = EmbeddedScript {
+            source: "echo ${_SHUCK_GHA_1}$FOO\n".to_owned(),
+            host_offset: 0,
+            host_start_line: 7,
+            host_start_column: 9,
+            dialect: ExtractedDialect::Bash,
+            label: "jobs.test.steps[0].run".to_owned(),
+            format: EmbeddedFormat::GitHubActions,
+            placeholders: vec![shuck_extract::PlaceholderMapping {
+                name: "_SHUCK_GHA_1".to_owned(),
+                original: "${{ github.ref }}".to_owned(),
+                expression: "github.ref".to_owned(),
+                taint: shuck_extract::ExpressionTaint::Trusted,
+                substituted_span: 5..20,
+                host_span: 5..23,
+            }],
+            implicit_flags: ImplicitShellFlags::default(),
+        };
+
+        let position = remap_embedded_position(&embedded, 1, 21);
+        assert_eq!(position.line, 7);
+        assert_eq!(position.column, 32);
     }
 
     #[test]

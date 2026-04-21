@@ -493,12 +493,11 @@ fn substitute_github_actions_expressions(
         let start = cursor + start_relative;
         output.push_str(&source[cursor..start]);
         let expression_start = start + 3;
-        let Some(end_relative) = source[expression_start..].find("}}") else {
+        let Some(end) = find_github_actions_expression_end(source, expression_start) else {
             output.push_str(&source[start..]);
             cursor = source.len();
             break;
         };
-        let end = expression_start + end_relative + 2;
         let original = &source[start..end];
         let expression = original
             .trim_start_matches("${{")
@@ -527,6 +526,41 @@ fn substitute_github_actions_expressions(
     }
 
     (output, placeholders)
+}
+
+fn find_github_actions_expression_end(source: &str, expression_start: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut index = expression_start;
+    let mut in_single_quoted_string = false;
+
+    while index + 1 < bytes.len() {
+        if in_single_quoted_string {
+            if bytes[index] == b'\'' {
+                // GitHub Actions expressions escape `'` inside string literals as `''`.
+                if index + 1 < bytes.len() && bytes[index + 1] == b'\'' {
+                    index += 2;
+                    continue;
+                }
+                in_single_quoted_string = false;
+            }
+            index += 1;
+            continue;
+        }
+
+        if bytes[index] == b'\'' {
+            in_single_quoted_string = true;
+            index += 1;
+            continue;
+        }
+
+        if bytes[index] == b'}' && bytes[index + 1] == b'}' {
+            return Some(index + 2);
+        }
+
+        index += 1;
+    }
+
+    None
 }
 
 fn classify_expression_taint(expression: &str) -> ExpressionTaint {
@@ -742,6 +776,27 @@ jobs:
         assert_eq!(scripts.len(), 1);
         assert_eq!(scripts[0].source, "echo ${_SHUCK_GHA_1}suffix");
         assert_eq!(scripts[0].placeholders[0].substituted_span, 5..20);
+    }
+
+    #[test]
+    fn keeps_double_closing_braces_inside_expression_string_literals() {
+        let source = r#"
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ${{ format('}}', github.ref) }}
+"#;
+
+        let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
+        assert_eq!(scripts.len(), 1);
+        assert_eq!(scripts[0].source, "echo ${_SHUCK_GHA_1}");
+        assert_eq!(scripts[0].placeholders.len(), 1);
+        assert_eq!(
+            scripts[0].placeholders[0].expression,
+            "format('}}', github.ref)"
+        );
     }
 
     #[test]
