@@ -7,6 +7,7 @@ members = ["crates/*"]
 [workspace.package]
 version = "0.0.10"
 edition = "2024"
+rust-version = "1.94.1"
 license = "MIT"
 authors = ["Eric Hauser"]
 repository = "https://github.com/ewhauser/shuck"

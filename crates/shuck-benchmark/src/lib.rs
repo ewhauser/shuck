@@ -1,3 +1,7 @@
+#![warn(missing_docs)]
+
+//! Shared benchmark fixtures and helpers for the shuck workspace.
+
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
@@ -5,6 +9,7 @@ use shuck_parser::parser::{ParseResult, Parser};
 #[cfg(feature = "parser-benchmarking")]
 use shuck_parser::parser::{ParseStatus, ParserBenchmarkCounters};
 
+#[allow(missing_docs)]
 /// Categorize fixtures by expected runtime so Criterion can spend
 /// more time where it is useful without making the slowest cases drag.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,6 +19,7 @@ pub enum TestCaseSpeed {
     Slow,
 }
 
+#[allow(missing_docs)]
 impl TestCaseSpeed {
     pub fn sample_size(self) -> usize {
         match self {
@@ -25,6 +31,8 @@ impl TestCaseSpeed {
     }
 }
 
+/// Benchmark fixture source bundled with this crate.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TestFile {
     pub name: &'static str,
@@ -32,6 +40,8 @@ pub struct TestFile {
     pub speed: TestCaseSpeed,
 }
 
+/// Benchmark case made up of one or more bundled test files.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TestCase {
     pub name: &'static str,
@@ -39,6 +49,7 @@ pub struct TestCase {
     pub speed: TestCaseSpeed,
 }
 
+#[allow(missing_docs)]
 impl TestCase {
     pub fn total_bytes(self) -> u64 {
         self.files.iter().map(|file| file.source.len() as u64).sum()
@@ -59,6 +70,7 @@ fn fixture_source(bytes: &'static [u8]) -> &'static str {
     }
 }
 
+/// Built-in benchmark fixtures used by the benchmark suite.
 pub static TEST_FILES: LazyLock<Vec<TestFile>> = LazyLock::new(|| {
     vec![
         TestFile {
@@ -89,6 +101,7 @@ pub static TEST_FILES: LazyLock<Vec<TestFile>> = LazyLock::new(|| {
     ]
 });
 
+/// Returns single-file and aggregate benchmark cases derived from `TEST_FILES`.
 pub fn benchmark_cases() -> Vec<TestCase> {
     let mut cases = TEST_FILES
         .iter()
@@ -108,10 +121,12 @@ pub fn benchmark_cases() -> Vec<TestCase> {
     cases
 }
 
+/// Returns the benchmark resources directory within this crate.
 pub fn resources_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("resources")
 }
 
+/// Parses a bundled fixture with the default parser configuration.
 pub fn parse_fixture(source: &str) -> ParseResult {
     Parser::new(source).parse()
 }
@@ -136,6 +151,7 @@ pub fn parse_fixture_with_benchmark_counters(source: &str) -> CountedParseFixtur
     }
 }
 
+/// Configures the benchmark allocator used by this crate's benches.
 #[macro_export]
 macro_rules! configure_benchmark_allocator {
     () => {

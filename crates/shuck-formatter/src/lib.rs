@@ -1,18 +1,35 @@
+#![warn(missing_docs)]
 #![recursion_limit = "256"]
 
+//! Shell script formatter with configurable style options.
+
+#[allow(missing_docs)]
 mod ast_format;
+#[allow(missing_docs)]
 mod command;
+#[allow(missing_docs)]
 mod comments;
+#[allow(missing_docs)]
 mod context;
+#[allow(missing_docs)]
 mod facts;
+#[allow(missing_docs)]
 mod generated;
+#[allow(missing_docs)]
 mod options;
+#[allow(missing_docs)]
 mod prelude;
+#[allow(missing_docs)]
 mod redirect;
+#[allow(missing_docs)]
 mod script;
+#[allow(missing_docs)]
 mod shared_traits;
+#[allow(missing_docs)]
 mod simplify;
+#[allow(missing_docs)]
 mod streaming;
+#[allow(missing_docs)]
 mod word;
 
 use std::path::Path;
@@ -24,9 +41,12 @@ use shuck_parser::{Error as ParseError, parser::Parser};
 #[cfg(feature = "benchmarking")]
 use crate::facts::FormatterFacts;
 
+/// Formatter option types exposed by the shell formatter.
 pub use crate::options::{ResolvedShellFormatOptions, ShellDialect, ShellFormatOptions};
+/// Indentation styles supported by the underlying pretty-printer.
 pub use shuck_format::IndentStyle;
 
+/// Formatter specialized for shell formatting contexts.
 pub type ShellFormatter<'source, 'buf> =
     shuck_format::Formatter<context::ShellFormatContext<'source>>;
 
@@ -34,12 +54,15 @@ pub(crate) trait FormatNodeRule<N> {
     fn fmt(&self, node: &N, formatter: &mut ShellFormatter<'_, '_>) -> FormatResult<()>;
 }
 
+/// Result of formatting shell source.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FormattedSource {
     Unchanged,
     Formatted(String),
 }
 
+#[allow(missing_docs)]
 impl FormattedSource {
     #[must_use]
     pub fn is_changed(&self) -> bool {
@@ -47,6 +70,8 @@ impl FormattedSource {
     }
 }
 
+/// Errors that can occur while parsing or formatting shell source.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FormatError {
     Parse {
@@ -84,8 +109,10 @@ impl From<shuck_format::FormatError> for FormatError {
     }
 }
 
+/// Convenient result alias for shell formatting operations.
 pub type Result<T> = std::result::Result<T, FormatError>;
 
+/// Formats a shell source string using the provided options.
 pub fn format_source(
     source: &str,
     path: Option<&Path>,
@@ -116,6 +143,7 @@ pub fn source_is_formatted(
     check_file(source, parsed.file, resolved)
 }
 
+/// Formats a parsed shell file using the provided options.
 pub fn format_file_ast(
     source: &str,
     file: File,

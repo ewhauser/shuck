@@ -21,6 +21,7 @@ env:
   CARGO_INCREMENTAL: 0
   CARGO_NET_RETRY: 10
   CARGO_TERM_COLOR: always
+  RUST_VERSION: 1.94.1
   RUSTUP_MAX_RETRIES: 10
 
 jobs:
@@ -83,6 +84,39 @@ jobs:
         run: cargo fetch
       - name: "Clippy"
         run: cargo clippy --workspace --all-targets --all-features --offline -- -D warnings
+
+  cargo-deny:
+    name: "cargo deny"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - name: "Run cargo-deny"
+        uses: EmbarkStudios/cargo-deny-action@91bf2b620e09e18d6eb78b92e7861937469acedb # v2.0.17
+        with:
+          rust-version: ${{ env.RUST_VERSION }}
+          command: "check bans licenses sources"
+          arguments: --all-features
+
+  cargo-audit:
+    name: "cargo audit"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      checks: write
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - name: "Run cargo audit"
+        uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
   cargo-test-linux:
     name: "cargo test (linux)"

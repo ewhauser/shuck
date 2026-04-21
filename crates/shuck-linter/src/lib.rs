@@ -1,28 +1,56 @@
+#![warn(missing_docs)]
+
+//! Linting engine and public rule surface for shuck.
+
+#[allow(missing_docs)]
 mod ambient_contracts;
+#[allow(missing_docs)]
 mod checker;
+/// File-context helpers used to classify sourced and executed scripts.
+#[allow(missing_docs)]
 pub mod context;
+#[allow(missing_docs)]
 mod diagnostic;
+#[allow(missing_docs)]
 mod facts;
+#[allow(missing_docs)]
 mod fix;
+#[allow(missing_docs)]
 mod parse_diagnostics;
+#[allow(missing_docs)]
 mod registry;
+#[allow(missing_docs)]
 mod rule_metadata;
+#[allow(missing_docs)]
 mod rule_selector;
+#[allow(missing_docs)]
 mod rule_set;
+/// Built-in lint rules and rule families.
+#[allow(missing_docs)]
 pub mod rules;
+#[allow(missing_docs)]
 mod settings;
+#[allow(missing_docs)]
 mod shell;
+#[allow(missing_docs)]
 mod suppression;
+#[allow(missing_docs)]
 mod violation;
 
 #[cfg(test)]
+/// Test helpers for rule and fix assertions.
+#[allow(missing_docs)]
 pub mod test;
 
+/// Primary checker API for walking facts and emitting diagnostics.
 pub use checker::Checker;
+/// File-context classification types.
 pub use context::{
     ContextRegion, ContextRegionKind, FileContext, FileContextTag, classify_file_context,
 };
+/// Rule diagnostics and severity levels.
 pub use diagnostic::{Diagnostic, Severity};
+/// Extracted structural facts available to rules and callers.
 pub use facts::{
     BacktickFragmentFact, CommandFact, CommandOptionFacts, ConditionalBareWordFact,
     ConditionalBinaryFact, ConditionalFact, ConditionalNodeFact, ConditionalOperandFact,
@@ -38,18 +66,29 @@ pub use facts::{
     WaitCommandFacts, WordFactContext, WordFactHostKind, WordOccurrence, WordOccurrenceIter,
     WordOccurrenceRef, XargsCommandFacts, leading_literal_word_prefix,
 };
+/// Fact collection types and stable identifiers into those collections.
 pub use facts::{CommandId, FactSpan, LinterFacts};
+/// Autofix types and fix application helpers.
 pub use fix::{Applicability, AppliedFixes, Edit, Fix, FixAvailability, apply_fixes};
+/// Rule identifiers, categories, and registry lookup helpers.
 pub use registry::{Category, Rule, code_to_rule};
+/// Rule metadata lookup utilities.
 pub use rule_metadata::{RuleMetadata, rule_metadata, rule_metadata_by_code};
+/// Rule selector parsing types.
 pub use rule_selector::{RuleSelector, SelectorParseError};
+/// Sets of enabled or disabled rules.
 pub use rule_set::RuleSet;
-pub use rules::common::command::{DeclarationKind, WrapperKind};
+#[allow(unused_imports)]
+pub(crate) use rules::common::command::{DeclarationKind, WrapperKind};
 pub(crate) use rules::common::expansion::{ComparablePathKey, comparable_path};
-pub use rules::common::expansion::{ExpansionContext, WordQuote};
-pub use rules::common::query::CommandSubstitutionKind;
-pub use rules::common::safe_value::{SafeValueIndex, SafeValueQuery};
-pub use rules::common::span::{
+#[allow(unused_imports)]
+pub(crate) use rules::common::expansion::{ExpansionContext, WordQuote};
+#[allow(unused_imports)]
+pub(crate) use rules::common::query::CommandSubstitutionKind;
+#[allow(unused_imports)]
+pub(crate) use rules::common::safe_value::{SafeValueIndex, SafeValueQuery};
+#[allow(unused_imports)]
+pub(crate) use rules::common::span::{
     all_elements_array_expansion_part_spans, assignment_name_span,
     case_item_suspicious_bracket_glob_spans, command_substitution_part_spans,
     conditional_array_subscript_span, conditional_extglob_span,
@@ -75,19 +114,24 @@ pub use rules::common::span::{
     word_unquoted_star_splat_spans, word_unquoted_word_after_single_quoted_segment_spans,
     word_use_replacement_spans, word_zsh_flag_modifier_spans, word_zsh_nested_expansion_spans,
 };
-pub use rules::common::word::{
+#[allow(unused_imports)]
+pub(crate) use rules::common::word::{
     TestOperandClass, WordClassification, conditional_binary_op_is_string_match,
     is_shell_variable_name, static_word_text, text_is_self_contained_arithmetic_expression,
     text_looks_like_nontrivial_arithmetic_expression, word_is_standalone_status_capture,
     word_is_standalone_variable_like,
 };
+/// Linter configuration and per-file ignore types.
 pub use settings::{CompiledPerFileIgnoreList, LinterSettings, PerFileIgnore};
+/// Shell dialect selection used by the linter.
 pub use shell::ShellDialect;
+/// Suppression directives, shellcheck mappings, and rewrite helpers.
 pub use suppression::{
     AddIgnoreParseError, AddIgnoreResult, ShellCheckCodeMap, SuppressionAction,
     SuppressionDirective, SuppressionIndex, SuppressionSource, add_ignores_to_path,
     first_statement_line, parse_directives,
 };
+/// Trait implemented by rule-specific diagnostic payloads.
 pub use violation::Violation;
 
 use rustc_hash::FxHashSet;
@@ -101,8 +145,11 @@ use shuck_semantic::{
 };
 use std::path::Path;
 
+/// Combined semantic model and diagnostic output for a file analysis pass.
 pub struct AnalysisResult {
+    /// Semantic model built for the analyzed file.
     pub semantic: SemanticModel,
+    /// Diagnostics emitted by linter rules and parse checks.
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -119,6 +166,7 @@ impl LintTraversalObserver {
 
 impl TraversalObserver for LintTraversalObserver {}
 
+/// Builds semantic facts and linter diagnostics for a parsed file.
 pub fn analyze_file(
     file: &File,
     source: &str,
@@ -162,6 +210,7 @@ pub fn benchmark_collect_word_facts(file: &File, source: &str, semantic: &Semant
     facts::benchmark_collect_word_facts(file, source, semantic)
 }
 
+/// Builds semantic facts and linter diagnostics for a parsed file at an optional source path.
 pub fn analyze_file_at_path(
     file: &File,
     source: &str,
@@ -181,6 +230,7 @@ pub fn analyze_file_at_path(
     )
 }
 
+/// Builds semantic facts and linter diagnostics with a custom source-path resolver.
 pub fn analyze_file_at_path_with_resolver(
     file: &File,
     source: &str,
@@ -317,6 +367,7 @@ fn parse_error_position(parse_result: &ParseResult) -> Option<(usize, usize)> {
         .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.start.column))
 }
 
+/// Lints a parsed file and returns diagnostics only.
 pub fn lint_file(
     file: &File,
     source: &str,
@@ -327,6 +378,7 @@ pub fn lint_file(
     lint_file_at_path(file, source, indexer, settings, suppression_index, None)
 }
 
+/// Lints a parsed file located at an optional source path.
 pub fn lint_file_at_path(
     file: &File,
     source: &str,
@@ -346,6 +398,7 @@ pub fn lint_file_at_path(
     )
 }
 
+/// Lints a parsed file with a custom source-path resolver.
 pub fn lint_file_at_path_with_resolver(
     file: &File,
     source: &str,
@@ -396,6 +449,7 @@ pub fn lint_file_at_path_with_resolver(
     diagnostics
 }
 
+/// Lints an existing parse result while preserving parse-aware diagnostics.
 #[allow(clippy::too_many_arguments)]
 pub fn lint_file_at_path_with_resolver_and_parse_result(
     parse_result: &ParseResult,
@@ -449,6 +503,7 @@ pub fn lint_file_at_path_with_resolver_and_parse_result(
     diagnostics
 }
 
+/// Lints an existing parse result located at an optional source path.
 pub fn lint_file_at_path_with_parse_result(
     parse_result: &ParseResult,
     source: &str,

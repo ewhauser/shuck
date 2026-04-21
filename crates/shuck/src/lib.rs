@@ -1,3 +1,9 @@
+#![warn(missing_docs)]
+
+//! Programmatic entry points for the `shuck` CLI.
+
+/// Command-line argument types and parsing helpers.
+#[allow(missing_docs)]
 pub mod args;
 
 mod cache;
@@ -19,6 +25,8 @@ use anyhow::Result;
 use crate::args::{Args, Command, FormatCommand, TerminalColor};
 use crate::config::ConfigArguments;
 
+/// Process exit codes returned by the CLI.
+#[allow(missing_docs)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum ExitStatus {
     Success,
@@ -36,6 +44,7 @@ impl From<ExitStatus> for ExitCode {
     }
 }
 
+/// Runs the CLI with pre-parsed arguments.
 pub fn run(args: Args) -> Result<ExitStatus> {
     let Args {
         cache_dir,

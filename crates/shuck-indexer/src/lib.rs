@@ -1,9 +1,19 @@
+#![warn(missing_docs)]
+
+//! Positional and structural indexes over parsed shell scripts.
+
+#[allow(missing_docs)]
 mod comment_index;
+#[allow(missing_docs)]
 mod line_index;
+#[allow(missing_docs)]
 mod region_index;
 
+/// Comment lookup types derived from parser output.
 pub use comment_index::{CommentIndex, IndexedComment};
+/// Line-based offset lookup utilities.
 pub use line_index::LineIndex;
+/// Structural region indexes over parsed shell source.
 pub use region_index::{RegionIndex, RegionKind};
 
 use shuck_ast::TextSize;
@@ -18,6 +28,7 @@ pub struct Indexer {
     continuation_lines: Vec<TextSize>,
 }
 
+#[allow(missing_docs)]
 impl Indexer {
     /// Build an index from parser output and the original source text.
     pub fn new(source: &str, output: &ParseResult) -> Self {
