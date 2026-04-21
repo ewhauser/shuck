@@ -1,0 +1,159 @@
+---
+source: crates/shuck-linter/src/rules/correctness/single_quoted_literal.rs
+assertion_line: 470
+---
+Diagnostics:
+C005 shell expansion inside single quotes stays literal
+ --> <source>:4:6
+  |
+4 | echo '$HOME'
+  |
+
+C005 shell expansion inside single quotes stays literal
+ --> <source>:7:15
+  |
+7 | printf '%s\n' '${value:-fallback}'
+  |
+
+C005 shell expansion inside single quotes stays literal
+  --> <source>:10:5
+   |
+10 | msg='$(pwd)'
+   |
+
+C005 shell expansion inside single quotes stays literal
+  --> <source>:13:6
+   |
+13 | echo '`pwd`'
+   |
+
+C005 shell expansion inside single quotes stays literal
+  --> <source>:16:8
+   |
+16 | sed -n '$pattern'
+   |
+
+C005 shell expansion inside single quotes stays literal
+  --> <source>:19:19
+   |
+19 | find . -exec echo '$1' {} +
+   |
+
+C005 shell expansion inside single quotes stays literal
+  --> <source>:22:5
+   |
+22 | git '$a'
+   |
+
+
+Applied fixes: 7
+
+Diff:
+--- before
++++ after
+@@ -1,25 +1,25 @@
+ #!/bin/bash
+ 
+ # Invalid: single-quoted variable reference stays literal
+-echo '$HOME'
++echo "$HOME"
+ 
+ # Invalid: parameter expansion is also literal inside single quotes
+-printf '%s\n' '${value:-fallback}'
++printf '%s\n' "${value:-fallback}"
+ 
+ # Invalid: command substitution text inside single quotes is not executed
+-msg='$(pwd)'
++msg="$(pwd)"
+ 
+ # Invalid: backticks inside single quotes are also literal
+-echo '`pwd`'
++echo "`pwd`"
+ 
+ # Invalid: sed should still warn for variable-like single-quoted text
+-sed -n '$pattern'
++sed -n "$pattern"
+ 
+ # Invalid: find -exec should use the effective subcommand
+-find . -exec echo '$1' {} +
++find . -exec echo "$1" {} +
+ 
+ # Invalid: git subcommands should still warn when not exempt
+-git '$a'
++git "$a"
+ 
+ # Valid: double-quoted variable references still expand
+ echo "$HOME"
+
+Fixed source:
+#!/bin/bash
+
+# Invalid: single-quoted variable reference stays literal
+echo "$HOME"
+
+# Invalid: parameter expansion is also literal inside single quotes
+printf '%s\n' "${value:-fallback}"
+
+# Invalid: command substitution text inside single quotes is not executed
+msg="$(pwd)"
+
+# Invalid: backticks inside single quotes are also literal
+echo "`pwd`"
+
+# Invalid: sed should still warn for variable-like single-quoted text
+sed -n "$pattern"
+
+# Invalid: find -exec should use the effective subcommand
+find . -exec echo "$1" {} +
+
+# Invalid: git subcommands should still warn when not exempt
+git "$a"
+
+# Valid: double-quoted variable references still expand
+echo "$HOME"
+
+# Valid: ordinary single-quoted text is fine
+echo 'hello world'
+
+# Valid: escaped dollar in double quotes is explicit literal text
+echo "\$HOME"
+
+# Valid: ShellCheck does not flag special parameters for SC2016
+echo '$$'
+echo '$?'
+echo '$#'
+echo '$@'
+echo '$*'
+echo '$!'
+echo '$-'
+
+# Valid: sed-specific patterns are exempt
+sed 's/foo$/bar/'
+sed -n '$p'
+sed '${/lol/d}'
+
+# Valid: awk programs are exempt
+awk '{print $1}'
+busybox awk '{print $1}'
+find . -exec awk '{print $1}' {} \;
+
+# Valid: command-specific exemptions
+trap 'echo $SECONDS' EXIT
+eval 'echo $1'
+alias hosts='sudo $EDITOR /etc/hosts'
+git filter-branch 'test $GIT_COMMIT'
+rename 's/(.)a/$1/g' *
+jq '$__loc__'
+command jq '$__loc__'
+exec jq '$__loc__'
+exec -c -a foo jq '$__loc__'
+
+# Valid: prompt assignments are exempt
+PS1='$PWD \\$ '
+export PS4='$PWD'
+
+# Valid: -v test operands are exempt
+[ -v 'bar[$foo]' ]
+
+Remaining diagnostics:
+<none>
