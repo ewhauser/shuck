@@ -108,8 +108,13 @@ git -C "$REPO_ROOT" checkout -b "$RELEASE_BRANCH"
 perl -pi -e "s/^version = \"$CURRENT\"/version = \"$NEW_VERSION\"/" "$CARGO_TOML"
 perl -pi -e "s{(path = \"crates/shuck[A-Za-z0-9_-]*\", version = \")$CURRENT(\")}{\${1}$NEW_VERSION\${2}}g" "$CARGO_TOML"
 
+# Refresh lockfiles so `cargo publish --locked` at the tagged commit works
+# (internal crates in Cargo.lock must match the new workspace version).
+cargo metadata --manifest-path "$REPO_ROOT/Cargo.toml" --format-version 1 >/dev/null
+cargo metadata --manifest-path "$REPO_ROOT/fuzz/Cargo.toml" --format-version 1 >/dev/null
+
 # Commit
-git -C "$REPO_ROOT" add Cargo.toml
+git -C "$REPO_ROOT" add Cargo.toml Cargo.lock fuzz/Cargo.lock
 git -C "$REPO_ROOT" commit -m "release: v$NEW_VERSION"
 
 # Push branch and create PR

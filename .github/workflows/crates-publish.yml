@@ -25,6 +25,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: release
+    # id-token: write is required for crates.io trusted publishing via OIDC.
+    # The crate must also have GitHub Actions trust configured on crates.io
+    # (Settings → Trusted Publishing) for this repo/workflow.
+    permissions:
+      contents: read
+      id-token: write
     env:
       CARGO_TERM_COLOR: always
       CARGO_NET_RETRY: 10
@@ -51,9 +57,13 @@ jobs:
             echo "Publish mode: uploads enabled"
           fi
 
+      - name: Authenticate to crates.io (trusted publishing)
+        uses: rust-lang/crates-io-auth-action@bbd81622f20ce9e2dd9622e3218b975523e45bbe # v1.0.4
+        id: crates-auth
+
       - name: Publish crates in dependency order
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
           PUBLISH_FLAG: ${{ steps.flags.outputs.flag }}
         run: |
           set -euo pipefail
