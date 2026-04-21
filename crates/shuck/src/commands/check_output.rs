@@ -377,7 +377,7 @@ fn write_rdjson_diagnostics(
             name: "shuck",
             url: env!("CARGO_PKG_REPOSITORY"),
         },
-        severity: "WARNING",
+        severity: rdjson_payload_severity(diagnostics),
         diagnostics: diagnostics.iter().map(rdjson_diagnostic).collect(),
     };
     serde_json::to_writer_pretty(&mut *writer, &payload).map_err(io::Error::other)?;
@@ -740,6 +740,7 @@ struct RdjsonDiagnostic {
     code: RdjsonCode,
     location: RdjsonLocation,
     message: String,
+    severity: &'static str,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     suggestions: Vec<RdjsonSuggestion>,
 }
@@ -755,6 +756,7 @@ fn rdjson_diagnostic(diagnostic: &DisplayedDiagnostic) -> RdjsonDiagnostic {
             range: rdjson_range(diagnostic.span.start, diagnostic.span.end),
         },
         message: diagnostic.message.clone(),
+        severity: rdjson_severity(diagnostic.severity()),
         suggestions: diagnostic
             .fix
             .as_ref()
@@ -768,6 +770,31 @@ fn rdjson_diagnostic(diagnostic: &DisplayedDiagnostic) -> RdjsonDiagnostic {
                     .collect()
             })
             .unwrap_or_default(),
+    }
+}
+
+fn rdjson_payload_severity(diagnostics: &[DisplayedDiagnostic]) -> &'static str {
+    diagnostics
+        .iter()
+        .map(|diagnostic| rdjson_severity(diagnostic.severity()))
+        .max_by_key(|severity| rdjson_severity_rank(severity))
+        .unwrap_or("WARNING")
+}
+
+fn rdjson_severity(severity: &str) -> &'static str {
+    match severity {
+        "error" => "ERROR",
+        "hint" | "info" => "INFO",
+        _ => "WARNING",
+    }
+}
+
+fn rdjson_severity_rank(severity: &str) -> u8 {
+    match severity {
+        "ERROR" => 3,
+        "WARNING" => 2,
+        "INFO" => 1,
+        _ => 0,
     }
 }
 
@@ -1711,5 +1738,30 @@ beta.sh:
                 ["endColumn"],
             4
         );
+    }
+
+    #[test]
+    fn rdjson_preserves_error_severity() {
+        let diagnostics = vec![parse_diagnostic(
+            "broken.sh",
+            2,
+            1,
+            "unterminated construct",
+            "#!/bin/bash\nif true\n",
+        )];
+
+        let mut output = Vec::new();
+        print_report_to(
+            &mut output,
+            &diagnostics,
+            CheckOutputFormatArg::Rdjson,
+            false,
+        )
+        .unwrap();
+
+        let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+        assert_eq!(value["severity"], "ERROR");
+        assert_eq!(value["diagnostics"][0]["severity"], "ERROR");
+        assert_eq!(value["diagnostics"][0]["code"]["value"], "parse-error");
     }
 }
