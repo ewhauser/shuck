@@ -317,9 +317,12 @@ fn run_add_ignore_with_cwd(
         &args.paths,
         cwd,
         &DiscoveryOptions {
+            exclude_patterns: args.file_selection.exclude.clone(),
+            extend_exclude_patterns: args.file_selection.extend_exclude.clone(),
+            respect_gitignore: args.respect_gitignore(),
+            force_exclude: args.force_exclude(),
             parallel: false,
             cache_root: Some(cache_root.to_path_buf()),
-            ..DiscoveryOptions::default()
         },
         cache_root,
         true,

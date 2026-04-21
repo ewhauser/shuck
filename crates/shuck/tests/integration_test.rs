@@ -325,6 +325,31 @@ fn check_add_ignore_respects_exit_zero_for_warning_leftovers() {
 }
 
 #[test]
+fn check_add_ignore_respects_force_exclude_for_explicit_files() {
+    let tempdir = tempdir().unwrap();
+    let script = tempdir.path().join("ignored.sh");
+    let source = "#!/bin/bash\necho $foo\n";
+    fs::write(&script, source).unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path()).args([
+        "check",
+        "--add-ignore",
+        "--exclude",
+        "ignored.sh",
+        "--force-exclude",
+        "ignored.sh",
+    ]);
+    cmd.assert()
+        .success()
+        .stdout("")
+        .stderr(predicate::str::is_empty());
+
+    assert_eq!(fs::read_to_string(script).unwrap(), source);
+}
+
+#[test]
 fn inline_shuck_ignore_suppresses_only_its_own_line() {
     let tempdir = tempdir().unwrap();
     fs::write(
