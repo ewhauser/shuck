@@ -1668,6 +1668,31 @@ fn builds_word_facts_for_filename_builder_command_substitutions() {
 }
 
 #[test]
+fn builds_word_facts_for_docker_inspect_command_substitutions() {
+    let source = "\
+#!/bin/bash
+docker inspect -f '{{ if ne \"true\" (index .Config.Labels \"com.dokku.devcontainer\") }}{{.ID}} {{ end }}' $(docker ps -q)
+";
+
+    with_facts(source, None, |_, facts| {
+        let fact = facts
+            .expansion_word_facts(ExpansionContext::CommandArgument)
+            .find(|fact| fact.span().slice(source) == "$(docker ps -q)")
+            .expect("expected docker inspect argument fact");
+
+        assert_eq!(
+            fact.unquoted_command_substitution_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$(docker ps -q)"],
+            "parts: {:?}",
+            fact.word().parts
+        );
+    });
+}
+
+#[test]
 fn builds_word_facts_for_quoted_all_elements_array_expansions() {
     let source = "\
 #!/bin/bash

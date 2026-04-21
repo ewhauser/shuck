@@ -1896,6 +1896,7 @@ fn next_shadowing_local_declaration_offset(
         .find(|candidate| {
             candidate.name == binding.name
                 && candidate.scope == binding.scope
+                && candidate.span.start.offset > binding.span.start.offset
                 && matches!(candidate.kind, BindingKind::Declaration(_))
                 && candidate.attributes.contains(BindingAttributes::LOCAL)
         })
@@ -1910,6 +1911,10 @@ fn future_reads_contain_after_until(
     read_plans: &[ScopeReadPlan],
     transitive_reads: &[DenseBitSet],
 ) -> bool {
+    if before_offset <= after_offset {
+        return false;
+    }
+
     let plan = &read_plans[scope.index()];
     let start = plan
         .events
@@ -1926,6 +1931,34 @@ fn future_reads_contain_after_until(
                 transitive_reads[callee_scope.index()].contains(name_id.index())
             }
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn future_reads_contain_after_until_ignores_backwards_intervals() {
+        let plan = ScopeReadPlan {
+            direct_reads: DenseBitSet::new(1),
+            calls: Vec::new(),
+            events: vec![ScopeReadEvent {
+                offset: 0,
+                kind: ScopeReadEventKind::Direct(NameId(0)),
+            }],
+            is_function: false,
+        };
+        let transitive_reads = vec![DenseBitSet::new(1)];
+
+        assert!(!future_reads_contain_after_until(
+            ScopeId(0),
+            10,
+            5,
+            NameId(0),
+            &[plan],
+            &transitive_reads,
+        ));
+    }
 }
 
 fn mark_reaching_defs_for_names_used(
