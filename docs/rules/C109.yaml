@@ -9,14 +9,14 @@ shells:
   - bash
   - dash
   - ksh
-description: "A `mapfile` command reads from a process substitution."
-rationale: Use a pipe or temporary file if the shell version does not support this.
+description: "Reserved for historical SC2339 compatibility; current ShellCheck accepts `mapfile` and `readarray` reading from process substitution."
+rationale: "The `mapfile -t var < <(cmd)` idiom keeps the builtin in the current shell, so it avoids the pipeline subshell pitfall. Shuck keeps C109 reserved for compatibility but does not report this pattern."
 safe_fix: false
 fix_description: null
 source:
   shell_checks_rule: rules/SH-244.yaml
   shell_checks_example: examples/244.sh
 examples:
-  - kind: invalid
+  - kind: valid
     source: shell-checks/examples/244.sh
-    code: "#!/bin/bash\n# shellcheck disable=2034\nmapfile -t files < <(find -name \"*.pyc\" -printf '%f\n')\n"
+    code: "#!/bin/bash\nmapfile -t files < <(find -name \"*.pyc\" -printf '%f\\n')\necho \"${files[@]}\"\n"
