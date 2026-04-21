@@ -18,8 +18,11 @@ Shuck parses and analyzes shell scripts to catch common bugs, style issues, and 
 ### From source
 
 ```sh
-cargo install shuck
+cargo install shuck-cli
 ```
+
+The crate is published as `shuck-cli` on crates.io (the `shuck` name was taken);
+the installed binary is still named `shuck`.
 
 ### Pre-built binaries
 

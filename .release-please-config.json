@@ -25,7 +25,7 @@
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.package.version" },
-        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies.shuck.version" },
+        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-cli'].version" },
         { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-ast'].version" },
         { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-cache'].version" },
         { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-format'].version" },

@@ -60,7 +60,7 @@ fuzz-run:
 	bash -lc '$(FUZZ_CARGO_ENV) cd fuzz && cargo +nightly fuzz run $(FUZZ_SANITIZER_ARG) "$(FUZZ_TARGET)" -- $(FUZZ_ARGS)'
 
 fuzz-cli:
-	cargo build -p shuck
+	cargo build -p shuck-cli
 	python3 ./scripts/fuzz_cli.py --shuck-bin ./target/debug/shuck $(FUZZ_CLI_ARGS)
 
 ensure-cache:
@@ -86,7 +86,7 @@ test-large-corpus: ensure-cache
 			SHUCK_LARGE_CORPUS_MAPPED_ONLY=$(SHUCK_LARGE_CORPUS_MAPPED_ONLY) \
 			SHUCK_LARGE_CORPUS_KEEP_GOING=$(SHUCK_LARGE_CORPUS_KEEP_GOING) \
 			SHUCK_LARGE_CORPUS_TIMING=$(SHUCK_LARGE_CORPUS_TIMING) \
-			$(NIX_DEVELOP) cargo test -p shuck --test large_corpus large_corpus_conforms_with_shellcheck -- --ignored --exact --nocapture ;; \
+			$(NIX_DEVELOP) cargo test -p shuck-cli --test large_corpus large_corpus_conforms_with_shellcheck -- --ignored --exact --nocapture ;; \
 		*) \
 			SHUCK_TEST_LARGE_CORPUS=1 \
 			SHUCK_LARGE_CORPUS_TIMEOUT_SECS=$(SHUCK_LARGE_CORPUS_TIMEOUT_SECS) \
@@ -96,7 +96,7 @@ test-large-corpus: ensure-cache
 			SHUCK_LARGE_CORPUS_MAPPED_ONLY=$(SHUCK_LARGE_CORPUS_MAPPED_ONLY) \
 			SHUCK_LARGE_CORPUS_KEEP_GOING=$(SHUCK_LARGE_CORPUS_KEEP_GOING) \
 			SHUCK_LARGE_CORPUS_TIMING=$(SHUCK_LARGE_CORPUS_TIMING) \
-			$(NIX_DEVELOP) cargo test -p shuck --test large_corpus -- --ignored --nocapture ;; \
+			$(NIX_DEVELOP) cargo test -p shuck-cli --test large_corpus -- --ignored --nocapture ;; \
 	esac
 
 test-large-corpus-zsh: ensure-cache
@@ -105,7 +105,7 @@ test-large-corpus-zsh: ensure-cache
 	SHUCK_LARGE_CORPUS_SHUCK_TIMEOUT_SECS=$(SHUCK_LARGE_CORPUS_SHUCK_TIMEOUT_SECS) \
 	SHUCK_LARGE_CORPUS_SAMPLE_PERCENT=$(SHUCK_LARGE_CORPUS_SAMPLE_PERCENT) \
 	SHUCK_LARGE_CORPUS_KEEP_GOING=$(SHUCK_LARGE_CORPUS_KEEP_GOING) \
-	$(NIX_DEVELOP) cargo test -p shuck --test large_corpus large_corpus_zsh_fixtures_parse -- --ignored --exact --nocapture
+	$(NIX_DEVELOP) cargo test -p shuck-cli --test large_corpus large_corpus_zsh_fixtures_parse -- --ignored --exact --nocapture
 
 large-corpus-report-from-log:
 	test -f "$(LARGE_CORPUS_REPORT_LOG)"
@@ -143,10 +143,10 @@ test-oracle-shfmt-benchmark:
 	$(NIX_DEVELOP) cargo test -p shuck-formatter --test oracle_shfmt benchmark_corpus_matches_shfmt -- --ignored --exact --nocapture
 
 test-oracle-shellcheck-cli:
-	$(NIX_DEVELOP) cargo test -p shuck --test oracle_shellcheck_cli -- --ignored --nocapture
+	$(NIX_DEVELOP) cargo test -p shuck-cli --test oracle_shellcheck_cli -- --ignored --nocapture
 
 run:
-	cargo run -p shuck -- $(ARGS)
+	cargo run -p shuck-cli -- $(ARGS)
 
 bench:
 	cargo bench -p shuck-benchmark
@@ -258,7 +258,7 @@ flame-linter:
 
 flame-cli:
 	@mkdir -p $(PROFILE_DIR)
-	cargo flamegraph --profile profiling -p shuck -o $(PROFILE_DIR)/flame-cli.svg -- check --no-cache "$(PROFILE_FILE)"
+	cargo flamegraph --profile profiling -p shuck-cli -o $(PROFILE_DIR)/flame-cli.svg -- check --no-cache "$(PROFILE_FILE)"
 	open $(PROFILE_DIR)/flame-cli.svg
 
 harden-release:
@@ -268,7 +268,7 @@ check-release-security:
 	python3 scripts/check-release-security.py check
 
 check-scripts:
-	cargo run -q -p shuck -- check --no-cache scripts
+	cargo run -q -p shuck-cli -- check --no-cache scripts
 check:
 	cargo fmt -- --check
 	cargo clippy --all-targets -- -D warnings

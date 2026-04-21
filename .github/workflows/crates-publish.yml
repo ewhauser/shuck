@@ -79,7 +79,7 @@ jobs:
             shuck-semantic
             shuck-linter
             shuck-formatter
-            shuck
+            shuck-cli
           )
 
           for crate in "${crates[@]}"; do

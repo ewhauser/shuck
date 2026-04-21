@@ -35,20 +35,20 @@ This project is a clean-room reimplementation of ShellCheck. To preserve the int
 
 ```bash
 # Build just the shuck crates (fast iteration)
-make build                    # cargo build -p shuck -p shuck-cache
+make build                    # cargo build -p shuck-cli -p shuck-cache
 
 # Test just the shuck crates
-make test                     # cargo test -p shuck -p shuck-cache
+make test                     # cargo test -p shuck-cli -p shuck-cache
 
 # Run the shuck CLI
-make run ARGS="check ."       # cargo run -p shuck -- check .
+make run ARGS="check ."       # cargo run -p shuck-cli -- check .
 
 # Build/test everything (including shuck-parser)
 cargo build
 cargo test --features http_client
 
 # Run a single test
-cargo test -p shuck -- test_name
+cargo test -p shuck-cli -- test_name
 cargo test -p shuck-syntax -- test_name
 cargo test -p shuck-parser -- test_name
 

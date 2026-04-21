@@ -81,7 +81,7 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: "Build shuck"
-        run: cargo build -p shuck
+        run: cargo build -p shuck-cli
       - name: "Run CLI fuzzers"
         run: |
           status=0

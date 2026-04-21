@@ -10,7 +10,7 @@ if [ "$#" -eq 0 ]; then
 fi
 
 echo "Building shuck in release mode..."
-cargo build --release -p shuck --manifest-path="$repo_root/Cargo.toml"
+cargo build --release -p shuck-cli --manifest-path="$repo_root/Cargo.toml"
 
 echo "Verifying benchmark dependencies..."
 for binary in "$@"; do
