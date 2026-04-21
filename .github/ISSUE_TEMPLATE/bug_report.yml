@@ -1,0 +1,65 @@
+name: Bug report
+description: Report incorrect behavior, a crash, or unexpected output from shuck
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report. Please fill in the details below so we can reproduce the issue quickly.
+
+        If you believe this is a security vulnerability, please do **not** file a public issue — see [SECURITY.md](https://github.com/ewhauser/shuck/blob/main/SECURITY.md) for private reporting instructions.
+  - type: input
+    id: version
+    attributes:
+      label: Shuck version
+      description: Output of `shuck --version`.
+      placeholder: e.g. 0.0.10
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system and architecture
+      placeholder: e.g. macOS 14.4 (aarch64), Ubuntu 22.04 (x86_64)
+    validations:
+      required: true
+  - type: input
+    id: install-method
+    attributes:
+      label: How did you install shuck?
+      placeholder: e.g. install script, cargo install, built from source
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: A shell script or snippet that demonstrates the issue. Please reduce it to the smallest example that still triggers the problem.
+      render: bash
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command invoked
+      description: The exact `shuck` command line you ran.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include the full stdout/stderr output and the exit code.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Backtraces (re-run with `RUST_BACKTRACE=1`), your `.shuck.toml`, related rules, or anything else that might help.
