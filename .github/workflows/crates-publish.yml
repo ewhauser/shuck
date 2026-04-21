@@ -1,0 +1,84 @@
+name: Publish to crates.io
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry-run only (no upload)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crates-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: cargo publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: release
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_NET_RETRY: 10
+      RUSTUP_MAX_RETRIES: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        run: rustup show
+
+      - name: Resolve publish flags
+        id: flags
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DRY_RUN_INPUT: ${{ github.event.inputs.dry_run }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$DRY_RUN_INPUT" = "true" ]; then
+            echo "flag=--dry-run" >> "$GITHUB_OUTPUT"
+            echo "Dry-run mode: skipping upload"
+          else
+            echo "flag=" >> "$GITHUB_OUTPUT"
+            echo "Publish mode: uploads enabled"
+          fi
+
+      - name: Publish crates in dependency order
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          PUBLISH_FLAG: ${{ steps.flags.outputs.flag }}
+        run: |
+          set -euo pipefail
+
+          # Publish order follows the internal dependency graph, deepest first.
+          # shuck-benchmark is publish = false and excluded.
+          crates=(
+            shuck-ast
+            shuck-format
+            shuck-parser
+            shuck-indexer
+            shuck-cache
+            shuck-semantic
+            shuck-linter
+            shuck-formatter
+            shuck
+          )
+
+          for crate in "${crates[@]}"; do
+            echo "::group::Publishing ${crate}"
+            cargo publish -p "${crate}" --locked ${PUBLISH_FLAG}
+            echo "::endgroup::"
+            if [ -z "${PUBLISH_FLAG}" ]; then
+              # Give the crates.io index a moment to propagate before the next crate
+              # depends on it. Skip during dry-run where nothing is uploaded.
+              sleep 20
+            fi
+          done

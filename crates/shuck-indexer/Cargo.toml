@@ -10,5 +10,5 @@ keywords = ["shell", "bash", "indexer", "static-analysis"]
 categories = ["parsing", "development-tools"]
 
 [dependencies]
-shuck-ast = { path = "../shuck-ast" }
-shuck-parser = { path = "../shuck-parser" }
+shuck-ast = { workspace = true }
+shuck-parser = { workspace = true }

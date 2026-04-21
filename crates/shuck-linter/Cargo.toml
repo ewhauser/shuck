@@ -18,10 +18,10 @@ globset = { workspace = true }
 rustc-hash = "2"
 smallvec.workspace = true
 thiserror = { workspace = true }
-shuck-ast = { path = "../shuck-ast" }
-shuck-indexer = { path = "../shuck-indexer" }
-shuck-semantic = { path = "../shuck-semantic" }
-shuck-parser = { path = "../shuck-parser" }
+shuck-ast = { workspace = true }
+shuck-indexer = { workspace = true }
+shuck-semantic = { workspace = true }
+shuck-parser = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }

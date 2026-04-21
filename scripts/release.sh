@@ -103,7 +103,10 @@ RELEASE_BRANCH="release/v$NEW_VERSION"
 git -C "$REPO_ROOT" checkout -b "$RELEASE_BRANCH"
 
 # Bump version in workspace Cargo.toml (portable across GNU and BSD sed)
+#   - [workspace.package].version
+#   - internal crates in [workspace.dependencies] (same workspace version)
 perl -pi -e "s/^version = \"$CURRENT\"/version = \"$NEW_VERSION\"/" "$CARGO_TOML"
+perl -pi -e "s{(path = \"crates/shuck[A-Za-z0-9_-]*\", version = \")$CURRENT(\")}{\${1}$NEW_VERSION\${2}}g" "$CARGO_TOML"
 
 # Commit
 git -C "$REPO_ROOT" add Cargo.toml

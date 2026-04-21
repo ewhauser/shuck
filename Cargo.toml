@@ -15,6 +15,19 @@ keywords = ["shell", "bash", "linter", "static-analysis", "cli"]
 categories = ["command-line-utilities", "development-tools"]
 
 [workspace.dependencies]
+# Internal crates — path plus version so publishes to crates.io resolve.
+# The release script bumps these in lockstep with workspace.package.version.
+shuck-ast = { path = "crates/shuck-ast", version = "0.0.10" }
+shuck-benchmark = { path = "crates/shuck-benchmark" }
+shuck-cache = { path = "crates/shuck-cache", version = "0.0.10" }
+shuck-format = { path = "crates/shuck-format", version = "0.0.10" }
+shuck-formatter = { path = "crates/shuck-formatter", version = "0.0.10" }
+shuck-indexer = { path = "crates/shuck-indexer", version = "0.0.10" }
+shuck-linter = { path = "crates/shuck-linter", version = "0.0.10" }
+shuck-parser = { path = "crates/shuck-parser", version = "0.0.10" }
+shuck-semantic = { path = "crates/shuck-semantic", version = "0.0.10" }
+shuck = { path = "crates/shuck", version = "0.0.10" }
+
 # Error handling
 thiserror = "2"
 anyhow = "1"
@@ -72,7 +85,7 @@ lto = "thin"
 
 # Config for 'dist'
 [workspace.metadata.dist]
-# The preferred dist version to use in CI (Conditions for К update this if you update dist)
+# The preferred dist version to use in CI (aim to keep this in sync with the installed dist CLI)
 cargo-dist-version = "0.31.0"
 # CI backends to support
 ci = "github"

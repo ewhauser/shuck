@@ -16,7 +16,7 @@ readme = "../../README.md"
 benchmarking = []
 
 [dependencies]
-shuck-ast = { path = "../shuck-ast" }
+shuck-ast = { workspace = true }
 memchr.workspace = true
 smallvec.workspace = true
 
