@@ -265,6 +265,10 @@ fn analyze_uninitialized_references_exact(
         if exact.unreachable_blocks.contains(block_id.index()) {
             continue;
         }
+        // File-entry contracts describe ambient names supplied by the caller
+        // environment, not assignments performed by this file, so a read that
+        // resolves only to such an import remains uninitialized until we see a
+        // real write in dataflow.
         if reference_resolves_to_file_entry_contract_variable(context, reference) {
             uninitialized_references.push(UninitializedReference {
                 reference: reference.id,
