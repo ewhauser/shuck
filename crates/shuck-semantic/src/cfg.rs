@@ -686,31 +686,45 @@ impl<'a> GraphBuilder<'a> {
         rest: RecordedListItemRange,
         loops: &[LoopTarget],
     ) -> SequenceResult {
-        let mut current = self.build_command(first, loops);
+        let current = self.build_command(first, loops);
         let entry = current.entry;
-        let mut shortcut_exits = Vec::new();
+        let mut success_exits = current.exits.clone();
+        let mut failure_exits = current.exits;
 
         for item in self.program.list_items(rest) {
             let next = self.build_command(item.command, loops);
+            let (triggering_exits, edge_kind) = match item.operator {
+                RecordedListOperator::And => (&success_exits, EdgeKind::ConditionalTrue),
+                RecordedListOperator::Or => (&failure_exits, EdgeKind::ConditionalFalse),
+            };
+
             if let Some(next_entry) = next.entry {
-                for exit in &current.exits {
-                    let edge = match item.operator {
-                        RecordedListOperator::And => EdgeKind::ConditionalTrue,
-                        RecordedListOperator::Or => EdgeKind::ConditionalFalse,
-                    };
-                    self.add_edge(*exit, next_entry, edge);
+                for exit in triggering_exits {
+                    self.add_edge(*exit, next_entry, edge_kind);
                 }
             }
 
-            shortcut_exits.extend(current.exits.clone());
-            current = SequenceResult {
-                entry,
-                exits: next.exits,
+            let next_reachable = next.entry.is_some() && !triggering_exits.is_empty();
+            let (next_success_exits, mut next_failure_exits) = if next_reachable {
+                (next.exits.clone(), next.exits)
+            } else {
+                (Vec::new(), Vec::new())
             };
+
+            match item.operator {
+                RecordedListOperator::And => {
+                    append_unique_block_ids(&mut failure_exits, &next_failure_exits);
+                    success_exits = next_success_exits;
+                }
+                RecordedListOperator::Or => {
+                    append_unique_block_ids(&mut success_exits, &next_success_exits);
+                    failure_exits = std::mem::take(&mut next_failure_exits);
+                }
+            }
         }
 
-        let mut exits = current.exits;
-        exits.extend(shortcut_exits);
+        let mut exits = success_exits;
+        append_unique_block_ids(&mut exits, &failure_exits);
         self.wrap_sequence_with_command_header(command, SequenceResult { entry, exits }, loops)
     }
 
@@ -1055,4 +1069,12 @@ fn compute_unreachable(
         .iter()
         .filter_map(|block| (!visited.contains_key(&block.id)).then_some(block.id))
         .collect()
+}
+
+fn append_unique_block_ids(target: &mut Vec<BlockId>, source: &[BlockId]) {
+    for &block in source {
+        if !target.contains(&block) {
+            target.push(block);
+        }
+    }
 }
