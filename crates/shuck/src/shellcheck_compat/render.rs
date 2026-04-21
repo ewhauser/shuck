@@ -316,10 +316,14 @@ fn marker_for(diagnostic: &CompatDiagnostic, line_len: usize) -> String {
 }
 
 fn truncate(value: &str, max_len: usize) -> String {
-    if value.len() <= max_len {
+    if value.chars().count() <= max_len {
         value.to_owned()
     } else {
-        format!("{}...", &value[..max_len.saturating_sub(3)])
+        let prefix = value
+            .chars()
+            .take(max_len.saturating_sub(3))
+            .collect::<String>();
+        format!("{prefix}...")
     }
 }
 
@@ -347,7 +351,7 @@ fn stylize(
 
 #[cfg(test)]
 mod tests {
-    use super::write_rendered;
+    use super::{truncate, write_rendered};
 
     struct BrokenPipeWriter;
 
@@ -368,5 +372,12 @@ mod tests {
     fn broken_pipe_is_treated_as_success() {
         let mut writer = BrokenPipeWriter;
         assert!(write_rendered(&mut writer, "hello").is_ok());
+    }
+
+    #[test]
+    fn truncate_handles_multibyte_text() {
+        assert_eq!(truncate("naive cafe", 7), "naiv...");
+        assert_eq!(truncate("naive café", 7), "naiv...");
+        assert_eq!(truncate("emoji 😅 test", 9), "emoji ...");
     }
 }
