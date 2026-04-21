@@ -3,12 +3,18 @@ name: Release Please
 on:
   push:
     branches: [main]
+  # Rerun when release.yml flips a draft release to published. The first run
+  # (from the push that merged the release PR) can't see its own just-created
+  # draft via the GitHub API and proposes a stale next-version PR. The rerun
+  # sees the published release and rewrites the PR with the correct version.
+  release:
+    types: [published]
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref_name }}
+  group: ${{ github.workflow }}
   cancel-in-progress: false
 
 jobs:
