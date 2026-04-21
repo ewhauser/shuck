@@ -1942,34 +1942,6 @@ fn future_reads_contain_after_until(
         })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn future_reads_contain_after_until_ignores_backwards_intervals() {
-        let plan = ScopeReadPlan {
-            direct_reads: DenseBitSet::new(1),
-            calls: Vec::new(),
-            events: vec![ScopeReadEvent {
-                offset: 0,
-                kind: ScopeReadEventKind::Direct(NameId(0)),
-            }],
-            is_function: false,
-        };
-        let transitive_reads = vec![DenseBitSet::new(1)];
-
-        assert!(!future_reads_contain_after_until(
-            ScopeId(0),
-            10,
-            5,
-            NameId(0),
-            &[plan],
-            &transitive_reads,
-        ));
-    }
-}
-
 fn mark_reaching_defs_for_names_used(
     used_bindings: &mut DenseBitSet,
     incoming: &DenseBitSet,
@@ -2196,4 +2168,32 @@ fn is_function_escape_candidate(binding: &Binding, scopes: &[Scope]) -> bool {
 
 fn ancestor_scopes(scopes: &[Scope], start: ScopeId) -> impl Iterator<Item = ScopeId> + '_ {
     std::iter::successors(Some(start), move |scope| scopes[scope.index()].parent)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn future_reads_contain_after_until_ignores_backwards_intervals() {
+        let plan = ScopeReadPlan {
+            direct_reads: DenseBitSet::new(1),
+            calls: Vec::new(),
+            events: vec![ScopeReadEvent {
+                offset: 0,
+                kind: ScopeReadEventKind::Direct(NameId(0)),
+            }],
+            is_function: false,
+        };
+        let transitive_reads = vec![DenseBitSet::new(1)];
+
+        assert!(!future_reads_contain_after_until(
+            ScopeId(0),
+            10,
+            5,
+            NameId(0),
+            &[plan],
+            &transitive_reads,
+        ));
+    }
 }
