@@ -442,6 +442,14 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
         self.line_start = true;
     }
 
+    fn line_continuation(&mut self) {
+        self.flush_pending_heredocs();
+        // A backslash only escapes the following LF, so CRLF here would change
+        // the command structure by leaving the carriage return behind.
+        self.push_output_str(" \\\n");
+        self.line_start = true;
+    }
+
     fn write_line_breaks(&mut self, count: usize) {
         for _ in 0..count {
             self.newline();
@@ -880,8 +888,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
             .get(previous_end..next_start)
             .is_some_and(|between| between.contains('\n'))
         {
-            self.write_text(" \\");
-            self.newline();
+            self.line_continuation();
             self.write_indent_units(1);
         } else {
             self.write_space();
@@ -918,8 +925,7 @@ impl<'source, 'facts> ShellStreamFormatter<'source, 'facts> {
                     .map(|(operator, _)| binary_operator(operator))
                     .unwrap_or("|");
                 if multiline {
-                    self.write_text(" \\");
-                    self.newline();
+                    self.line_continuation();
                     self.with_indent(|formatter| {
                         formatter.write_text(operator);
                         formatter.write_space();

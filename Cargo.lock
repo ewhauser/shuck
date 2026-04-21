@@ -1553,6 +1553,8 @@ dependencies = [
  "shuck-ast",
  "shuck-benchmark",
  "shuck-format",
+ "shuck-indexer",
+ "shuck-linter",
  "shuck-parser",
  "similar",
 ]

@@ -5093,6 +5093,24 @@ impl<'a> Parser<'a> {
         SourceText::source(Span::from_positions(pos, pos))
     }
 
+    fn input_prefix_ends_with(&self, end_offset: usize, ch: char) -> bool {
+        self.input
+            .get(..end_offset)
+            .is_some_and(|prefix| prefix.ends_with(ch))
+    }
+
+    fn input_span_ends_with(&self, start: Position, end: Position, ch: char) -> bool {
+        self.input
+            .get(start.offset..end.offset)
+            .is_some_and(|slice| slice.ends_with(ch))
+    }
+
+    fn input_suffix_starts_with(&self, start_offset: usize, ch: char) -> bool {
+        self.input
+            .get(start_offset..)
+            .is_some_and(|suffix| suffix.starts_with(ch))
+    }
+
     fn subscript_source_text(&self, raw: &str, span: Span) -> (SourceText, Option<SourceText>) {
         if raw.len() >= 2
             && ((raw.starts_with('"') && raw.ends_with('"'))
@@ -6029,8 +6047,10 @@ impl<'a> Parser<'a> {
 
     fn source_matches(&self, span: Span, text: &str) -> bool {
         span.start.offset <= span.end.offset
-            && span.end.offset <= self.input.len()
-            && span.slice(self.input) == text
+            && self
+                .input
+                .get(span.start.offset..span.end.offset)
+                .is_some_and(|slice| slice == text)
     }
 
     fn checkpoint(&self) -> ParserCheckpoint<'a> {

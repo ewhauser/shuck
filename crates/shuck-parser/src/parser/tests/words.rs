@@ -7452,3 +7452,25 @@ fn test_parse_malformed_parameter_replacement_fuzz_regression_does_not_panic() {
     let conditional_script = format!("if [[ \"hello.world\" == {} ]]; then echo y; fi\n", input);
     let _ = Parser::new(&conditional_script).parse();
 }
+
+#[test]
+fn test_parse_arithmetic_utf8_parameter_replacement_fuzz_regression_does_not_panic() {
+    const INPUT: &str = "#!/ di[@]}\")\")#!/bin/$x)\narr=($(]x ib) echo#b;;\n#!/bi/nbash\n\narr=${in/bas\nunc(#!${in/sa\nar\0\0\0)\0\0<\0<\0=\u{2018}woin/sa\u{2019}es\0 \"two worac\ntr";
+
+    let script = format!("echo $(({}))\n", INPUT);
+    let _ = Parser::new(&script).parse();
+}
+
+#[test]
+fn test_parse_glob_utf8_parameter_replacement_fuzz_regression_does_not_panic() {
+    const INPUT: &str = "'a\0b'\nar=(\n\n{)${!f/e¢}\")\ni";
+
+    let case_script = format!(
+        "case \"test.txt\" in {}) echo match;; *) echo no;; esac\n",
+        INPUT
+    );
+    let _ = Parser::new(&case_script).parse();
+
+    let conditional_script = format!("if [[ \"hello.world\" == {} ]]; then echo y; fi\n", INPUT);
+    let _ = Parser::new(&conditional_script).parse();
+}
