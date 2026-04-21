@@ -1,8 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
-use shuck_semantic::{BindingAttributes, BindingKind};
+use shuck_semantic::{Binding, BindingAttributes, BindingKind, ScopeId};
 
 use crate::{Checker, Rule, Violation};
+
+type BindingFamilyKey = (Option<ScopeId>, String);
 
 pub struct UnusedAssignment {
     pub name: String,
@@ -22,9 +24,9 @@ pub fn unused_assignment(checker: &mut Checker) {
     let semantic = checker.semantic();
     let unused_bindings = checker.semantic_analysis().unused_assignments();
     let unused_binding_ids = unused_bindings.iter().copied().collect::<HashSet<_>>();
-    let mut names_with_used_reportable_bindings = HashSet::new();
-    let mut unused_bindings_by_name = HashMap::<_, Vec<_>>::new();
-    let mut last_unused_binding_by_name = HashMap::new();
+    let mut families_with_used_reportable_bindings = HashSet::new();
+    let mut unused_bindings_by_family = HashMap::<BindingFamilyKey, Vec<_>>::new();
+    let mut last_unused_binding_by_family = HashMap::new();
 
     for binding in semantic.bindings() {
         if binding.name.as_str() == "_" {
@@ -36,7 +38,7 @@ pub fn unused_assignment(checker: &mut Checker) {
         }
 
         if !unused_binding_ids.contains(&binding.id) {
-            names_with_used_reportable_bindings.insert(binding.name.clone());
+            families_with_used_reportable_bindings.insert(binding_family_key(binding));
         }
     }
 
@@ -46,13 +48,15 @@ pub fn unused_assignment(checker: &mut Checker) {
             continue;
         }
 
-        unused_bindings_by_name
-            .entry(binding.name.clone())
+        let family = binding_family_key(binding);
+
+        unused_bindings_by_family
+            .entry(family.clone())
             .or_default()
             .push(*binding_id);
 
-        last_unused_binding_by_name
-            .entry(binding.name.clone())
+        last_unused_binding_by_family
+            .entry(family)
             .and_modify(|current_binding_id| {
                 let current = semantic.binding(*current_binding_id);
                 if binding_follows_in_source(
@@ -68,13 +72,13 @@ pub fn unused_assignment(checker: &mut Checker) {
     }
 
     let mut reportable_bindings = Vec::new();
-    for (name, binding_ids) in unused_bindings_by_name {
-        if names_with_used_reportable_bindings.contains(&name) {
+    for (family, binding_ids) in unused_bindings_by_family {
+        if families_with_used_reportable_bindings.contains(&family) {
             reportable_bindings.extend(binding_ids);
             continue;
         }
 
-        if let Some(binding_id) = last_unused_binding_by_name.get(&name).copied() {
+        if let Some(binding_id) = last_unused_binding_by_family.get(&family).copied() {
             reportable_bindings.push(binding_id);
         }
     }
@@ -136,6 +140,18 @@ fn binding_follows_in_source(
         || (candidate_start == current_start && candidate_end > current_end)
 }
 
+fn binding_family_key(binding: &Binding) -> BindingFamilyKey {
+    // `local`-scoped bindings should not collapse across functions, but plain
+    // assignments still participate in the wider variable family even when
+    // they appear inside a function body.
+    let scope = binding
+        .attributes
+        .contains(BindingAttributes::LOCAL)
+        .then_some(binding.scope);
+
+    (scope, binding.name.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use crate::test::test_snippet;
@@ -175,5 +191,15 @@ mod tests {
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn keeps_distinct_local_scopes_separate() {
+        let source = "#!/bin/bash\nf(){ local foo=1; }\ng(){ local foo=2; }\nf\ng\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[1].span.start.line, 3);
     }
 }
