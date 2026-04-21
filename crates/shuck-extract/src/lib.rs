@@ -304,6 +304,7 @@ struct ShellResolution {
 enum RunnerKind {
     Unix,
     Windows,
+    Unknown,
 }
 
 fn resolve_shell(shell: Option<&str>, runner_kind: RunnerKind) -> ShellResolution {
@@ -318,6 +319,10 @@ fn resolve_shell(shell: Option<&str>, runner_kind: RunnerKind) -> ShellResolutio
                 },
             },
             RunnerKind::Windows => ShellResolution {
+                dialect: ExtractedDialect::Unsupported,
+                implicit_flags: ImplicitShellFlags::default(),
+            },
+            RunnerKind::Unknown => ShellResolution {
                 dialect: ExtractedDialect::Unsupported,
                 implicit_flags: ImplicitShellFlags::default(),
             },
@@ -338,24 +343,47 @@ fn resolve_shell(shell: Option<&str>, runner_kind: RunnerKind) -> ShellResolutio
                 template: Some("sh -e {0}".to_owned()),
             },
         },
-        Some(value) => {
-            let base = value
-                .split_whitespace()
-                .next()
-                .map(|token| token.to_ascii_lowercase())
-                .unwrap_or_default();
-            let dialect = match base.as_str() {
-                "bash" => ExtractedDialect::Bash,
-                "sh" => ExtractedDialect::Sh,
-                "pwsh" | "powershell" | "cmd" | "python" => ExtractedDialect::Unsupported,
-                _ => ExtractedDialect::Unsupported,
-            };
+        Some(value) => ShellResolution {
+            dialect: detect_shell_dialect(value),
+            implicit_flags: parse_template_flags(value),
+        },
+    }
+}
 
-            ShellResolution {
-                dialect,
-                implicit_flags: parse_template_flags(value),
+fn detect_shell_dialect(template: &str) -> ExtractedDialect {
+    let mut tokens = template.split_whitespace();
+    let Some(first) = tokens.next() else {
+        return ExtractedDialect::Unsupported;
+    };
+
+    let first = shell_token_basename(first);
+    if first == "env" {
+        for token in tokens {
+            if token == "{0}" || token.starts_with('-') {
+                continue;
             }
+            return shell_name_dialect(&shell_token_basename(token));
         }
+        return ExtractedDialect::Unsupported;
+    }
+
+    shell_name_dialect(&first)
+}
+
+fn shell_token_basename(token: &str) -> String {
+    Path::new(token)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or(token)
+        .to_ascii_lowercase()
+}
+
+fn shell_name_dialect(name: &str) -> ExtractedDialect {
+    match name {
+        "bash" => ExtractedDialect::Bash,
+        "sh" => ExtractedDialect::Sh,
+        "pwsh" | "powershell" | "cmd" | "python" => ExtractedDialect::Unsupported,
+        _ => ExtractedDialect::Unsupported,
     }
 }
 
@@ -411,23 +439,48 @@ fn runner_kind(runs_on: Option<&Node>) -> RunnerKind {
         return RunnerKind::Unix;
     };
 
-    if runs_on
-        .as_scalar()
-        .is_some_and(|scalar| scalar.as_str().to_ascii_lowercase().contains("windows"))
-    {
+    if node_contains_runner_label(runs_on, "windows") {
         return RunnerKind::Windows;
     }
 
-    if let Some(sequence) = runs_on.as_sequence()
-        && sequence.iter().any(|node| {
-            node.as_scalar()
-                .is_some_and(|scalar| scalar.as_str().to_ascii_lowercase().contains("windows"))
-        })
-    {
-        return RunnerKind::Windows;
+    if node_contains_github_expression(runs_on) {
+        return RunnerKind::Unknown;
     }
 
     RunnerKind::Unix
+}
+
+fn node_contains_runner_label(node: &Node, label: &str) -> bool {
+    let label = label.to_ascii_lowercase();
+    if node
+        .as_scalar()
+        .is_some_and(|scalar| scalar.as_str().to_ascii_lowercase().contains(&label))
+    {
+        return true;
+    }
+
+    node.as_sequence().is_some_and(|sequence| {
+        sequence.iter().any(|item| {
+            item.as_scalar()
+                .is_some_and(|scalar| scalar.as_str().to_ascii_lowercase().contains(&label))
+        })
+    })
+}
+
+fn node_contains_github_expression(node: &Node) -> bool {
+    if node
+        .as_scalar()
+        .is_some_and(|scalar| scalar.as_str().contains("${{"))
+    {
+        return true;
+    }
+
+    node.as_sequence().is_some_and(|sequence| {
+        sequence.iter().any(|item| {
+            item.as_scalar()
+                .is_some_and(|scalar| scalar.as_str().contains("${{"))
+        })
+    })
 }
 
 fn build_embedded_script(
@@ -737,6 +790,45 @@ jobs:
         assert!(scripts[0].implicit_flags.errexit);
         assert!(scripts[0].implicit_flags.pipefail);
         assert_eq!(scripts[1].dialect, ExtractedDialect::Unsupported);
+    }
+
+    #[test]
+    fn skips_default_shell_when_runner_is_dynamic() {
+        let source = r#"
+on: push
+jobs:
+  dynamic:
+    runs-on: ${{ matrix.os }}
+    steps:
+      - run: echo hi
+"#;
+
+        let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
+        assert_eq!(scripts.len(), 1);
+        assert_eq!(scripts[0].dialect, ExtractedDialect::Unsupported);
+    }
+
+    #[test]
+    fn recognizes_path_and_env_shell_templates() {
+        let source = r#"
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - shell: /bin/bash -e {0}
+        run: echo hi
+      - shell: /usr/bin/env bash -e {0}
+        run: echo hi
+      - shell: /bin/sh -e {0}
+        run: echo hi
+"#;
+
+        let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
+        assert_eq!(scripts.len(), 3);
+        assert_eq!(scripts[0].dialect, ExtractedDialect::Bash);
+        assert_eq!(scripts[1].dialect, ExtractedDialect::Bash);
+        assert_eq!(scripts[2].dialect, ExtractedDialect::Sh);
     }
 
     #[test]
