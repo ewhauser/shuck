@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use shuck_semantic::{BindingAttributes, BindingKind};
 
@@ -21,13 +21,35 @@ impl Violation for UnusedAssignment {
 pub fn unused_assignment(checker: &mut Checker) {
     let semantic = checker.semantic();
     let unused_bindings = checker.semantic_analysis().unused_assignments();
+    let unused_binding_ids = unused_bindings.iter().copied().collect::<HashSet<_>>();
+    let mut names_with_used_reportable_bindings = HashSet::new();
+    let mut unused_bindings_by_name = HashMap::<_, Vec<_>>::new();
     let mut last_unused_binding_by_name = HashMap::new();
+
+    for binding in semantic.bindings() {
+        if binding.name.as_str() == "_" {
+            continue;
+        }
+
+        if !is_reportable_unused_assignment(binding.kind, binding.attributes) {
+            continue;
+        }
+
+        if !unused_binding_ids.contains(&binding.id) {
+            names_with_used_reportable_bindings.insert(binding.name.clone());
+        }
+    }
 
     for binding_id in unused_bindings {
         let binding = semantic.binding(*binding_id);
         if binding.name.as_str() == "_" {
             continue;
         }
+
+        unused_bindings_by_name
+            .entry(binding.name.clone())
+            .or_default()
+            .push(*binding_id);
 
         last_unused_binding_by_name
             .entry(binding.name.clone())
@@ -45,9 +67,17 @@ pub fn unused_assignment(checker: &mut Checker) {
             .or_insert(*binding_id);
     }
 
-    let mut reportable_bindings = last_unused_binding_by_name
-        .into_values()
-        .collect::<Vec<_>>();
+    let mut reportable_bindings = Vec::new();
+    for (name, binding_ids) in unused_bindings_by_name {
+        if names_with_used_reportable_bindings.contains(&name) {
+            reportable_bindings.extend(binding_ids);
+            continue;
+        }
+
+        if let Some(binding_id) = last_unused_binding_by_name.get(&name).copied() {
+            reportable_bindings.push(binding_id);
+        }
+    }
     reportable_bindings
         .sort_unstable_by_key(|binding_id| semantic.binding(*binding_id).span.start.offset);
 
