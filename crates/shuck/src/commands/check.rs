@@ -39,18 +39,7 @@ impl CheckReport {
         if exit_non_zero_on_fix && self.fixes_applied > 0 {
             return ExitStatus::Failure;
         }
-        let has_fatal = self.diagnostics.iter().any(|d| match &d.kind {
-            DisplayedDiagnosticKind::ParseError => true,
-            DisplayedDiagnosticKind::Lint { severity, .. } => severity == "error",
-        });
-        if has_fatal {
-            return ExitStatus::Failure;
-        }
-        if self.diagnostics.is_empty() || exit_zero {
-            ExitStatus::Success
-        } else {
-            ExitStatus::Failure
-        }
+        diagnostics_exit_status(&self.diagnostics, exit_zero)
     }
 }
 
@@ -61,12 +50,23 @@ struct AddIgnoreReport {
 }
 
 impl AddIgnoreReport {
-    fn exit_status(&self) -> ExitStatus {
-        if self.diagnostics.is_empty() {
-            ExitStatus::Success
-        } else {
-            ExitStatus::Failure
-        }
+    fn exit_status(&self, exit_zero: bool) -> ExitStatus {
+        diagnostics_exit_status(&self.diagnostics, exit_zero)
+    }
+}
+
+fn diagnostics_exit_status(diagnostics: &[DisplayedDiagnostic], exit_zero: bool) -> ExitStatus {
+    let has_fatal = diagnostics.iter().any(|d| match &d.kind {
+        DisplayedDiagnosticKind::ParseError => true,
+        DisplayedDiagnosticKind::Lint { severity, .. } => severity == "error",
+    });
+    if has_fatal {
+        return ExitStatus::Failure;
+    }
+    if diagnostics.is_empty() || exit_zero {
+        ExitStatus::Success
+    } else {
+        ExitStatus::Failure
     }
 }
 
@@ -169,7 +169,7 @@ pub(crate) fn check(args: CheckCommand, cache_dir: Option<&Path>) -> Result<Exit
             );
         }
         print_diagnostics(&report.diagnostics, args.output_format)?;
-        return Ok(report.exit_status());
+        return Ok(report.exit_status(args.exit_zero));
     }
 
     let report = run_check_with_cwd(&args, &cwd, &cache_root)?;

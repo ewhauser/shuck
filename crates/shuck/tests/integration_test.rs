@@ -299,6 +299,30 @@ fn check_add_ignore_leaves_uneditable_trailing_comment_lines_failing() {
 }
 
 #[test]
+fn check_add_ignore_respects_exit_zero_for_warning_leftovers() {
+    let tempdir = tempdir().unwrap();
+    let script = tempdir.path().join("warn.sh");
+    let source = "#!/bin/bash\nunused=1 # existing comment\necho ok\n";
+    fs::write(&script, source).unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path()).args([
+        "check",
+        "--add-ignore",
+        "--exit-zero",
+        "--output-format",
+        "concise",
+    ]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("warning[C001]"))
+        .stderr(predicate::str::is_empty());
+
+    assert_eq!(fs::read_to_string(script).unwrap(), source);
+}
+
+#[test]
 fn inline_shuck_ignore_suppresses_only_its_own_line() {
     let tempdir = tempdir().unwrap();
     fs::write(

@@ -4,7 +4,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use rustc_hash::FxHashMap;
-use shuck_ast::TextRange;
+use shuck_ast::{TextRange, TextSize};
 use shuck_indexer::Indexer;
 use shuck_parser::{
     Error as ParseError, ShellDialect as ParseShellDialect, ShellProfile,
@@ -99,6 +99,7 @@ pub fn add_ignores_to_path(
 struct AnalyzedSource {
     directives: Vec<SuppressionDirective>,
     diagnostics: Vec<Diagnostic>,
+    strict_parse_error: Option<AddIgnoreParseError>,
     parse_error: Option<AddIgnoreParseError>,
     indexer: Indexer,
 }
@@ -133,21 +134,22 @@ fn analyze_source(
         suppression_index.as_ref(),
         Some(path),
     );
-    let parse_error = raw_parse_error(&parse_result, &diagnostics);
+    let strict_parse_error = strict_parse_error(&parse_result);
+    let parse_error = strict_parse_error
+        .clone()
+        .filter(|_| diagnostics.is_empty());
 
     AnalyzedSource {
         directives,
         diagnostics,
+        strict_parse_error,
         parse_error,
         indexer,
     }
 }
 
-fn raw_parse_error(
-    parse_result: &ParseResult,
-    diagnostics: &[Diagnostic],
-) -> Option<AddIgnoreParseError> {
-    if !parse_result.is_err() || !diagnostics.is_empty() {
+fn strict_parse_error(parse_result: &ParseResult) -> Option<AddIgnoreParseError> {
+    if !parse_result.is_err() {
         return None;
     }
 
@@ -250,8 +252,9 @@ fn build_ignore_edit(
         });
     }
 
+    let insertion_offset = inline_comment_insertion_offset(line_range, source);
     Some(IgnoreEdit {
-        range: TextRange::new(line_range.end(), line_range.end()),
+        range: TextRange::new(insertion_offset, insertion_offset),
         replacement: format!("  {comment}"),
     })
 }
@@ -283,7 +286,7 @@ fn edit_is_valid(
     line: usize,
     line_diagnostics: &[Diagnostic],
 ) -> bool {
-    if candidate.parse_error != current.parse_error {
+    if candidate.strict_parse_error != current.strict_parse_error {
         return false;
     }
 
@@ -316,26 +319,41 @@ fn edit_is_valid(
         return false;
     }
 
-    diagnostics_are_subset(&current.diagnostics, &candidate.diagnostics)
+    diagnostics_match_after_removing_targets(
+        &current.diagnostics,
+        &candidate.diagnostics,
+        line_diagnostics,
+    )
 }
 
-fn diagnostics_are_subset(current: &[Diagnostic], candidate: &[Diagnostic]) -> bool {
-    let mut counts = FxHashMap::default();
-    for key in current.iter().map(DiagnosticKey::new) {
-        *counts.entry(key).or_insert(0usize) += 1;
-    }
+fn diagnostics_match_after_removing_targets(
+    current: &[Diagnostic],
+    candidate: &[Diagnostic],
+    removed: &[Diagnostic],
+) -> bool {
+    let mut current_counts = diagnostic_counts(current);
+    let removed_counts = diagnostic_counts(removed);
 
-    for key in candidate.iter().map(DiagnosticKey::new) {
-        let Some(count) = counts.get_mut(&key) else {
+    for (key, removed_count) in removed_counts {
+        let Some(current_count) = current_counts.get_mut(&key) else {
             return false;
         };
-        if *count == 0 {
+        if *current_count < removed_count {
             return false;
         }
-        *count -= 1;
+        *current_count -= removed_count;
     }
 
-    true
+    current_counts.retain(|_, count| *count > 0);
+    current_counts == diagnostic_counts(candidate)
+}
+
+fn diagnostic_counts(diagnostics: &[Diagnostic]) -> FxHashMap<DiagnosticKey, usize> {
+    let mut counts = FxHashMap::default();
+    for key in diagnostics.iter().map(DiagnosticKey::new) {
+        *counts.entry(key).or_insert(0usize) += 1;
+    }
+    counts
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -369,6 +387,16 @@ fn apply_edit(source: &str, edit: &IgnoreEdit) -> String {
     output.push_str(&edit.replacement);
     output.push_str(&source[end..]);
     output
+}
+
+fn inline_comment_insertion_offset(line_range: TextRange, source: &str) -> TextSize {
+    let mut end = line_range.end();
+    if usize::from(end) > usize::from(line_range.start())
+        && source.as_bytes()[usize::from(end) - 1] == b'\r'
+    {
+        end = TextSize::new(end.to_u32() - 1);
+    }
+    end
 }
 
 fn join_codes(rules: &[Rule]) -> String {
@@ -553,5 +581,63 @@ mod tests {
         assert!(result.diagnostics.is_empty());
         assert!(result.parse_error.is_some());
         assert_eq!(updated, "#!/bin/bash\necho \"unterminated\n");
+    }
+
+    #[test]
+    fn preserves_crlf_line_endings_when_appending_ignores() {
+        let source = "#!/bin/bash\r\necho $foo\r\n";
+        let (result, updated) = run_add_ignore(source, None);
+
+        assert_eq!(result.directives_added, 1);
+        assert_eq!(
+            updated,
+            "#!/bin/bash\r\necho $foo  # shuck: ignore=C006\r\n"
+        );
+    }
+
+    #[test]
+    fn rejects_candidate_edits_that_introduce_parse_errors() {
+        let settings = LinterSettings::for_rule(Rule::UndefinedVariable);
+        let shellcheck_map = ShellCheckCodeMap::default();
+        let path = Path::new("script.sh");
+        let current_source = "#!/bin/bash\necho $foo\necho $bar\n";
+        let candidate_source =
+            "#!/bin/bash\necho $foo  # shuck: ignore=C006\necho $bar\necho \"unterminated\n";
+
+        let current = analyze_source(path, current_source, &settings, &shellcheck_map);
+        let candidate = analyze_source(path, candidate_source, &settings, &shellcheck_map);
+        let line_diagnostics = current
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.span.start.line == 2)
+            .cloned()
+            .collect::<Vec<_>>();
+
+        assert!(current.strict_parse_error.is_none());
+        assert!(candidate.parse_error.is_none());
+        assert!(candidate.strict_parse_error.is_some());
+        assert!(!edit_is_valid(&current, &candidate, 2, &line_diagnostics));
+    }
+
+    #[test]
+    fn rejects_candidate_edits_that_change_unrelated_diagnostics() {
+        let settings = LinterSettings::for_rule(Rule::UndefinedVariable);
+        let shellcheck_map = ShellCheckCodeMap::default();
+        let path = Path::new("script.sh");
+        let current_source = "#!/bin/bash\necho $foo\necho $bar\n";
+        let candidate_source = "#!/bin/bash\necho $foo  # shuck: ignore=C006\necho ok\n";
+
+        let current = analyze_source(path, current_source, &settings, &shellcheck_map);
+        let candidate = analyze_source(path, candidate_source, &settings, &shellcheck_map);
+        let line_diagnostics = current
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.span.start.line == 2)
+            .cloned()
+            .collect::<Vec<_>>();
+
+        assert_eq!(current.diagnostics.len(), 2);
+        assert_eq!(candidate.diagnostics.len(), 0);
+        assert!(!edit_is_valid(&current, &candidate, 2, &line_diagnostics));
     }
 }
