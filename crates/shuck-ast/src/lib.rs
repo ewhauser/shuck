@@ -1,4 +1,5 @@
 #![warn(missing_docs)]
+#![cfg_attr(not(test), warn(clippy::unwrap_used))]
 
 //! AST, token, and span types shared across the Shuck workspace.
 //!

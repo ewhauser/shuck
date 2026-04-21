@@ -1,4 +1,5 @@
 #![warn(missing_docs)]
+#![cfg_attr(not(test), warn(clippy::unwrap_used))]
 
 //! Generic document and pretty-printing primitives used by `shuck-formatter`.
 //!

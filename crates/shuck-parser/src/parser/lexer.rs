@@ -1381,7 +1381,10 @@ impl<'a> Lexer<'a> {
     /// or just a regular word starting with a digit
     fn read_word_or_fd_redirect(&mut self) -> Option<LexedToken<'a>> {
         if let Some(first_digit) = self.peek_char().filter(|ch| ch.is_ascii_digit()) {
-            let fd: i32 = first_digit.to_digit(10).unwrap() as i32;
+            let fd: i32 = first_digit
+                .to_digit(10)
+                .expect("peeked ASCII digit should convert to a base-10 digit")
+                as i32;
 
             match (self.second_char(), self.third_char()) {
                 (Some('>'), Some('>')) => {

@@ -239,11 +239,18 @@ fn collect_directory_parallel(
     let mut visitor = ShellFilesVisitorBuilder::new(input, cwd, exclude_matcher, &state);
     walker.visit(&mut visitor);
 
-    if let Some(error) = state.error.into_inner().unwrap() {
+    if let Some(error) = state
+        .error
+        .into_inner()
+        .map_err(|_| anyhow!("parallel discovery error state mutex poisoned"))?
+    {
         return Err(error);
     }
 
-    let mut matched_paths = state.matched_paths.into_inner().unwrap();
+    let mut matched_paths = state
+        .matched_paths
+        .into_inner()
+        .map_err(|_| anyhow!("parallel discovery matched-path state mutex poisoned"))?;
     matched_paths.sort();
     for matched_path in matched_paths {
         add_file(
@@ -310,12 +317,11 @@ impl ExplicitIgnoreCache {
             self.matchers.insert(key.clone(), gitignore);
         }
 
-        Ok(!self
+        let matcher = self
             .matchers
             .get(&key)
-            .unwrap()
-            .matched_path_or_any_parents(path, false)
-            .is_ignore())
+            .expect("gitignore matcher should be cached for the computed key");
+        Ok(!matcher.matched_path_or_any_parents(path, false).is_ignore())
     }
 }
 
@@ -486,15 +492,12 @@ impl ParallelVisitor for ShellFilesVisitor<'_> {
 impl Drop for ShellFilesVisitor<'_> {
     fn drop(&mut self) {
         if !self.local_paths.is_empty() {
-            self.state
-                .matched_paths
-                .lock()
-                .unwrap()
-                .append(&mut self.local_paths);
+            let mut matched_paths = lock_or_recover(&self.state.matched_paths);
+            matched_paths.append(&mut self.local_paths);
         }
 
         if let Some(error) = self.local_error.take() {
-            let mut state_error = self.state.error.lock().unwrap();
+            let mut state_error = lock_or_recover(&self.state.error);
             if state_error.is_none() {
                 *state_error = Some(error);
             }
@@ -554,6 +557,13 @@ pub(crate) fn display_path(path: &Path, cwd: &Path) -> PathBuf {
     path.strip_prefix(cwd)
         .map(Path::to_path_buf)
         .unwrap_or_else(|_| normalize_path(path))
+}
+
+fn lock_or_recover<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
 }
 
 pub(crate) fn normalize_path(path: &Path) -> PathBuf {
