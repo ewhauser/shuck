@@ -2,6 +2,7 @@
 
 //! Extract embedded shell scripts from non-shell host files.
 
+use std::collections::HashSet;
 use std::ops::Range;
 use std::path::Path;
 
@@ -9,6 +10,7 @@ use anyhow::{Result, anyhow};
 use marked_yaml::{Node, parse_yaml};
 
 const GITHUB_ACTIONS_SOURCE_ID: usize = 0;
+const GITHUB_ACTIONS_PLACEHOLDER_PREFIX: &str = "_SHUCK_GHA_";
 
 /// A shell snippet extracted from a host file.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1365,6 +1367,7 @@ fn substitute_github_actions_expressions(
 ) -> (String, Vec<PlaceholderMapping>) {
     let mut output = String::with_capacity(source.len());
     let mut placeholders = Vec::new();
+    let mut occupied_names = collect_placeholder_names(source);
     let mut cursor = 0usize;
     let mut counter = 1usize;
 
@@ -1383,7 +1386,7 @@ fn substitute_github_actions_expressions(
             .trim_end_matches("}}")
             .trim()
             .to_owned();
-        let name = format!("_SHUCK_GHA_{counter}");
+        let name = next_placeholder_name(&mut occupied_names, &mut counter);
         let replacement = format!("${{{name}}}");
         let substituted_start = output.len();
         output.push_str(&replacement);
@@ -1396,7 +1399,6 @@ fn substitute_github_actions_expressions(
             substituted_span: substituted_start..substituted_end,
             host_span: host_offset + start..host_offset + end,
         });
-        counter += 1;
         cursor = end;
     }
 
@@ -1405,6 +1407,50 @@ fn substitute_github_actions_expressions(
     }
 
     (output, placeholders)
+}
+
+fn collect_placeholder_names(source: &str) -> HashSet<String> {
+    let mut names = HashSet::new();
+    let bytes = source.as_bytes();
+    let mut index = 0usize;
+
+    while index < bytes.len() {
+        if !is_shell_identifier_start(bytes[index]) {
+            index += 1;
+            continue;
+        }
+
+        let start = index;
+        index += 1;
+        while index < bytes.len() && is_shell_identifier_continue(bytes[index]) {
+            index += 1;
+        }
+
+        let candidate = &source[start..index];
+        if candidate.starts_with(GITHUB_ACTIONS_PLACEHOLDER_PREFIX) {
+            names.insert(candidate.to_owned());
+        }
+    }
+
+    names
+}
+
+fn next_placeholder_name(occupied_names: &mut HashSet<String>, counter: &mut usize) -> String {
+    loop {
+        let name = format!("{GITHUB_ACTIONS_PLACEHOLDER_PREFIX}{counter}");
+        *counter += 1;
+        if occupied_names.insert(name.clone()) {
+            return name;
+        }
+    }
+}
+
+fn is_shell_identifier_start(byte: u8) -> bool {
+    byte.is_ascii_alphabetic() || byte == b'_'
+}
+
+fn is_shell_identifier_continue(byte: u8) -> bool {
+    is_shell_identifier_start(byte) || byte.is_ascii_digit()
 }
 
 fn find_github_actions_expression_end(source: &str, expression_start: usize) -> Option<usize> {
@@ -1966,6 +2012,29 @@ jobs:
         assert_eq!(scripts.len(), 1);
         assert_eq!(scripts[0].source, "echo ${_SHUCK_GHA_1}suffix");
         assert_eq!(scripts[0].placeholders[0].substituted_span, 5..20);
+    }
+
+    #[test]
+    fn skips_placeholder_names_already_present_in_source() {
+        let source = r#"
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          _SHUCK_GHA_1=1
+          echo "${{ github.ref }}"
+"#;
+
+        let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
+        assert_eq!(scripts.len(), 1);
+        assert_eq!(
+            scripts[0].source,
+            "_SHUCK_GHA_1=1\necho \"${_SHUCK_GHA_2}\"\n"
+        );
+        assert_eq!(scripts[0].placeholders.len(), 1);
+        assert_eq!(scripts[0].placeholders[0].name, "_SHUCK_GHA_2");
     }
 
     #[test]
