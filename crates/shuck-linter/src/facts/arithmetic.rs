@@ -483,27 +483,406 @@ fn build_double_paren_grouping_spans(commands: &[CommandFact<'_>], source: &str)
         .collect()
 }
 
-fn build_arithmetic_for_update_operator_spans(
-    commands: &[CommandFact<'_>],
-    source: &str,
-) -> Vec<Span> {
+fn build_arithmetic_update_operator_spans(body: &StmtSeq, source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
 
-    for fact in commands {
-        let Command::Compound(CompoundCommand::ArithmeticFor(command)) = fact.command() else {
-            continue;
-        };
-
-        collect_arithmetic_update_operator_spans(command.init_ast.as_ref(), source, &mut spans);
-        collect_arithmetic_update_operator_spans(
-            command.condition_ast.as_ref(),
-            source,
-            &mut spans,
-        );
-        collect_arithmetic_update_operator_spans(command.step_ast.as_ref(), source, &mut spans);
+    for visit in query::iter_commands(
+        body,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+    ) {
+        collect_all_arithmetic_update_operator_spans_in_command(visit.command, source, &mut spans);
+        for redirect in visit.redirects {
+            if let Some(word) = redirect.word_target() {
+                collect_all_arithmetic_update_operator_spans_in_word(word, source, &mut spans);
+            }
+        }
     }
 
     spans
+}
+
+fn collect_all_arithmetic_update_operator_spans_in_command(
+    command: &Command,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match command {
+        Command::Simple(command) => {
+            for assignment in &command.assignments {
+                collect_all_arithmetic_update_operator_spans_in_assignment(assignment, source, spans);
+            }
+            collect_all_arithmetic_update_operator_spans_in_word(&command.name, source, spans);
+            for word in &command.args {
+                collect_all_arithmetic_update_operator_spans_in_word(word, source, spans);
+            }
+        }
+        Command::Builtin(command) => match command {
+            BuiltinCommand::Break(command) => {
+                for assignment in &command.assignments {
+                    collect_all_arithmetic_update_operator_spans_in_assignment(
+                        assignment, source, spans,
+                    );
+                }
+                if let Some(word) = &command.depth {
+                    collect_all_arithmetic_update_operator_spans_in_word(word, source, spans);
+                }
+                for word in &command.extra_args {
+                    collect_all_arithmetic_update_operator_spans_in_word(word, source, spans);
+                }
+            }
+            BuiltinCommand::Continue(command) => {
+                for assignment in &command.assignments {
+                    collect_all_arithmetic_update_operator_spans_in_assignment(
+                        assignment, source, spans,
+                    );
+                }
+                if let Some(word) = &command.depth {
+                    collect_all_arithmetic_update_operator_spans_in_word(word, source, spans);
+                }
+                for word in &command.extra_args {
+                    collect_all_arithmetic_update_operator_spans_in_word(word, source, spans);
+                }
+            }
+            BuiltinCommand::Return(command) => {
+                for assignment in &command.assignments {
+                    collect_all_arithmetic_update_operator_spans_in_assignment(
+                        assignment, source, spans,
+                    );
+                }
+                if let Some(word) = &command.code {
+                    collect_all_arithmetic_update_operator_spans_in_word(word, source, spans);
+                }
+                for word in &command.extra_args {
+                    collect_all_arithmetic_update_operator_spans_in_word(word, source, spans);
+                }
+            }
+            BuiltinCommand::Exit(command) => {
+                for assignment in &command.assignments {
+                    collect_all_arithmetic_update_operator_spans_in_assignment(
+                        assignment, source, spans,
+                    );
+                }
+                if let Some(word) = &command.code {
+                    collect_all_arithmetic_update_operator_spans_in_word(word, source, spans);
+                }
+                for word in &command.extra_args {
+                    collect_all_arithmetic_update_operator_spans_in_word(word, source, spans);
+                }
+            }
+        },
+        Command::Decl(command) => {
+            for assignment in &command.assignments {
+                collect_all_arithmetic_update_operator_spans_in_assignment(assignment, source, spans);
+            }
+            for operand in &command.operands {
+                match operand {
+                    DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
+                        collect_all_arithmetic_update_operator_spans_in_word(word, source, spans);
+                    }
+                    DeclOperand::Assignment(assignment) => {
+                        collect_all_arithmetic_update_operator_spans_in_assignment(
+                            assignment, source, spans,
+                        );
+                    }
+                    DeclOperand::Name(_) => {}
+                }
+            }
+        }
+        Command::Compound(command) => match command {
+            CompoundCommand::For(command) => {
+                if let Some(words) = &command.words {
+                    for word in words {
+                        collect_all_arithmetic_update_operator_spans_in_word(word, source, spans);
+                    }
+                }
+            }
+            CompoundCommand::Repeat(command) => {
+                collect_all_arithmetic_update_operator_spans_in_word(&command.count, source, spans);
+            }
+            CompoundCommand::Foreach(command) => {
+                for word in &command.words {
+                    collect_all_arithmetic_update_operator_spans_in_word(word, source, spans);
+                }
+            }
+            CompoundCommand::Arithmetic(command) => {
+                if let Some(expression) = &command.expr_ast {
+                    collect_arithmetic_update_operator_spans(Some(expression), source, spans);
+                }
+            }
+            CompoundCommand::ArithmeticFor(command) => {
+                if let Some(expression) = &command.init_ast {
+                    collect_arithmetic_update_operator_spans(Some(expression), source, spans);
+                }
+                if let Some(expression) = &command.condition_ast {
+                    collect_arithmetic_update_operator_spans(Some(expression), source, spans);
+                }
+                if let Some(expression) = &command.step_ast {
+                    collect_arithmetic_update_operator_spans(Some(expression), source, spans);
+                }
+            }
+            CompoundCommand::Case(command) => {
+                collect_all_arithmetic_update_operator_spans_in_word(&command.word, source, spans);
+                for item in &command.cases {
+                    for pattern in &item.patterns {
+                        collect_all_arithmetic_update_operator_spans_in_pattern(pattern, source, spans);
+                    }
+                }
+            }
+            CompoundCommand::Select(command) => {
+                for word in &command.words {
+                    collect_all_arithmetic_update_operator_spans_in_word(word, source, spans);
+                }
+            }
+            CompoundCommand::If(_)
+            | CompoundCommand::Conditional(_)
+            | CompoundCommand::While(_)
+            | CompoundCommand::Until(_)
+            | CompoundCommand::Subshell(_)
+            | CompoundCommand::BraceGroup(_)
+            | CompoundCommand::Always(_)
+            | CompoundCommand::Coproc(_)
+            | CompoundCommand::Time(_) => {}
+        },
+        Command::Binary(_) | Command::Function(_) | Command::AnonymousFunction(_) => {}
+    }
+}
+
+fn collect_all_arithmetic_update_operator_spans_in_assignment(
+    assignment: &Assignment,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    collect_all_arithmetic_update_operator_spans_in_var_ref(&assignment.target, source, spans);
+
+    match &assignment.value {
+        AssignmentValue::Scalar(word) => {
+            collect_all_arithmetic_update_operator_spans_in_word(word, source, spans);
+        }
+        AssignmentValue::Compound(array) => {
+            for element in &array.elements {
+                match element {
+                    ArrayElem::Sequential(word) => {
+                        collect_all_arithmetic_update_operator_spans_in_word(word, source, spans);
+                    }
+                    ArrayElem::Keyed { value, .. } | ArrayElem::KeyedAppend { value, .. } => {
+                        // Compound-assignment keys can be associative literals like `[c++]`.
+                        // Without the word-fact layer's binding-aware interpretation, treating
+                        // every key as arithmetic over-reports update operators here.
+                        collect_all_arithmetic_update_operator_spans_in_word(value, source, spans);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn collect_all_arithmetic_update_operator_spans_in_word(
+    word: &Word,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for part in &word.parts {
+        collect_all_arithmetic_update_operator_spans_in_word_part(part, source, spans);
+    }
+}
+
+fn collect_all_arithmetic_update_operator_spans_in_word_part(
+    part: &WordPartNode,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match &part.kind {
+        WordPart::DoubleQuoted { parts, .. } => {
+            for part in parts {
+                collect_all_arithmetic_update_operator_spans_in_word_part(part, source, spans);
+            }
+        }
+        WordPart::ArithmeticExpansion { expression_ast, .. } => {
+            if let Some(expression) = expression_ast {
+                collect_arithmetic_update_operator_spans(Some(expression), source, spans);
+            }
+        }
+        WordPart::Parameter(parameter) => {
+            collect_all_arithmetic_update_operator_spans_in_parameter_expansion(
+                parameter, source, spans,
+            );
+        }
+        WordPart::ParameterExpansion {
+            reference,
+            operand_word_ast,
+            ..
+        }
+        | WordPart::IndirectExpansion {
+            reference,
+            operand_word_ast,
+            ..
+        } => {
+            collect_all_arithmetic_update_operator_spans_in_var_ref(reference, source, spans);
+            if let Some(word) = operand_word_ast {
+                collect_all_arithmetic_update_operator_spans_in_word(word, source, spans);
+            }
+        }
+        WordPart::Length(reference)
+        | WordPart::ArrayAccess(reference)
+        | WordPart::ArrayLength(reference)
+        | WordPart::ArrayIndices(reference)
+        | WordPart::Transformation { reference, .. } => {
+            collect_all_arithmetic_update_operator_spans_in_var_ref(reference, source, spans);
+        }
+        WordPart::Substring {
+            reference,
+            offset_ast,
+            offset_word_ast,
+            length_ast,
+            length_word_ast,
+            ..
+        }
+        | WordPart::ArraySlice {
+            reference,
+            offset_ast,
+            offset_word_ast,
+            length_ast,
+            length_word_ast,
+            ..
+        } => {
+            collect_all_arithmetic_update_operator_spans_in_var_ref(reference, source, spans);
+            if let Some(expression) = offset_ast {
+                collect_arithmetic_update_operator_spans(Some(expression), source, spans);
+            } else {
+                collect_all_arithmetic_update_operator_spans_in_word(offset_word_ast, source, spans);
+            }
+            if let Some(expression) = length_ast {
+                collect_arithmetic_update_operator_spans(Some(expression), source, spans);
+            } else if let Some(word) = length_word_ast {
+                collect_all_arithmetic_update_operator_spans_in_word(word, source, spans);
+            }
+        }
+        WordPart::ZshQualifiedGlob(_)
+        | WordPart::Literal(_)
+        | WordPart::SingleQuoted { .. }
+        | WordPart::Variable(_)
+        | WordPart::PrefixMatch { .. }
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ProcessSubstitution { .. } => {}
+    }
+}
+
+fn collect_all_arithmetic_update_operator_spans_in_parameter_expansion(
+    parameter: &shuck_ast::ParameterExpansion,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+            BourneParameterExpansion::Access { reference }
+            | BourneParameterExpansion::Length { reference }
+            | BourneParameterExpansion::Indices { reference }
+            | BourneParameterExpansion::Transformation { reference, .. } => {
+                collect_all_arithmetic_update_operator_spans_in_var_ref(reference, source, spans);
+            }
+            BourneParameterExpansion::Indirect {
+                reference,
+                operand_word_ast,
+                ..
+            }
+            | BourneParameterExpansion::Operation {
+                reference,
+                operand_word_ast,
+                ..
+            } => {
+                collect_all_arithmetic_update_operator_spans_in_var_ref(reference, source, spans);
+                if let Some(word) = operand_word_ast.as_ref() {
+                    collect_all_arithmetic_update_operator_spans_in_word(word, source, spans);
+                }
+            }
+            BourneParameterExpansion::Slice {
+                reference,
+                offset_ast,
+                length_ast,
+                ..
+            } => {
+                collect_all_arithmetic_update_operator_spans_in_var_ref(reference, source, spans);
+                if let Some(expression) = offset_ast {
+                    collect_arithmetic_update_operator_spans(Some(expression), source, spans);
+                }
+                if let Some(expression) = length_ast {
+                    collect_arithmetic_update_operator_spans(Some(expression), source, spans);
+                }
+            }
+            BourneParameterExpansion::PrefixMatch { .. } => {}
+        },
+        ParameterExpansionSyntax::Zsh(syntax) => {
+            collect_all_arithmetic_update_operator_spans_in_zsh_target(
+                &syntax.target,
+                source,
+                spans,
+            );
+        }
+    }
+}
+
+fn collect_all_arithmetic_update_operator_spans_in_zsh_target(
+    target: &shuck_ast::ZshExpansionTarget,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match target {
+        shuck_ast::ZshExpansionTarget::Reference(reference) => {
+            collect_all_arithmetic_update_operator_spans_in_var_ref(reference, source, spans);
+        }
+        shuck_ast::ZshExpansionTarget::Nested(parameter) => {
+            collect_all_arithmetic_update_operator_spans_in_parameter_expansion(
+                parameter, source, spans,
+            );
+        }
+        shuck_ast::ZshExpansionTarget::Word(word) => {
+            collect_all_arithmetic_update_operator_spans_in_word(word, source, spans);
+        }
+        shuck_ast::ZshExpansionTarget::Empty => {}
+    }
+}
+
+fn collect_all_arithmetic_update_operator_spans_in_pattern(
+    pattern: &Pattern,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for (part, _) in pattern.parts_with_spans() {
+        match part {
+            PatternPart::Group { patterns, .. } => {
+                for pattern in patterns {
+                    collect_all_arithmetic_update_operator_spans_in_pattern(pattern, source, spans);
+                }
+            }
+            PatternPart::Word(word) => {
+                collect_all_arithmetic_update_operator_spans_in_word(word, source, spans);
+            }
+            PatternPart::Literal(_)
+            | PatternPart::AnyString
+            | PatternPart::AnyChar
+            | PatternPart::CharClass(_) => {}
+        }
+    }
+}
+
+fn collect_all_arithmetic_update_operator_spans_in_var_ref(
+    reference: &VarRef,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    collect_all_arithmetic_update_operator_spans_in_subscript(reference.subscript.as_ref(), source, spans);
+}
+
+fn collect_all_arithmetic_update_operator_spans_in_subscript(
+    subscript: Option<&Subscript>,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    if let Some(expression) = subscript.and_then(|subscript| subscript.arithmetic_ast.as_ref()) {
+        collect_arithmetic_update_operator_spans(Some(expression), source, spans);
+    }
 }
 
 fn collect_arithmetic_update_operator_spans(

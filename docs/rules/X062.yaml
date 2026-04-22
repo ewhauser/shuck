@@ -8,10 +8,10 @@ shellcheck_level: warning
 shells:
   - sh
   - dash
-description: A C-style for loop with arithmetic uses bashism syntax in POSIX sh.
-rationale: Use a while loop for portable iteration.
+description: Arithmetic increment and decrement operators use non-POSIX syntax in `sh` scripts.
+rationale: Spell increment and decrement updates out explicitly, or switch to a shell that supports `++` and `--`.
 safe_fix: false
-fix_description: Rewrite the C-style loop as a `while` loop and spell each reported `++` or `--` as an explicit arithmetic assignment.
+fix_description: Rewrite each reported `++` or `--` as an explicit arithmetic assignment.
 source:
   shell_checks_rule: rules/SH-269.yaml
   shell_checks_example: examples/269.sh
@@ -22,3 +22,7 @@ examples:
       #!/bin/sh
       # shellcheck disable=3005,3010
       for ((i = 0; i < 3; i++)); do echo "$i"; done
+  - kind: invalid
+    code: |
+      #!/bin/sh
+      ((count++))
