@@ -1482,7 +1482,7 @@ fn continued_line_chain_start(target: Position, source: &str) -> Option<Position
             .rfind('\n')
             .map_or(0, |index| index + 1);
         let previous_line = &source[previous_line_start..previous_line_end];
-        if !previous_line.trim_end_matches([' ', '\t']).ends_with('\\') {
+        if !line_has_escaped_newline_continuation(previous_line) {
             break;
         }
         line_start_offset = previous_line_start;
@@ -1494,6 +1494,17 @@ fn continued_line_chain_start(target: Position, source: &str) -> Option<Position
         column: 1,
         offset: line_start_offset,
     })
+}
+
+fn line_has_escaped_newline_continuation(line: &str) -> bool {
+    let trailing_backslashes = line
+        .trim_end_matches([' ', '\t'])
+        .as_bytes()
+        .iter()
+        .rev()
+        .take_while(|byte| **byte == b'\\')
+        .count();
+    trailing_backslashes % 2 == 1
 }
 
 fn shellcheck_collapsed_position(
@@ -3779,7 +3790,8 @@ mod tests {
 
     use super::{
         all_elements_array_expansion_part_spans, array_expansion_part_spans,
-        command_substitution_part_spans, find_extglob_bounds, scalar_expansion_part_spans,
+        command_substitution_part_spans, find_extglob_bounds,
+        line_has_escaped_newline_continuation, scalar_expansion_part_spans,
         unquoted_all_elements_array_expansion_part_spans,
         unquoted_command_substitution_part_spans_in_source, unquoted_scalar_expansion_part_spans,
         word_all_elements_array_slice_span_in_source, word_all_elements_array_slice_spans,
@@ -4265,6 +4277,16 @@ eval command sudo \\\"\\${sudo_args[@]}\\\" \\\"\\$@\\\"
         };
 
         assert!(all_elements_array_expansion_part_spans(&command.args[2], source).is_empty());
+    }
+
+    #[test]
+    fn escaped_newline_continuations_require_an_odd_backslash_count() {
+        assert!(line_has_escaped_newline_continuation("echo foo \\"));
+        assert!(line_has_escaped_newline_continuation("echo foo \\\\\\"));
+        assert!(!line_has_escaped_newline_continuation("echo foo \\\\"));
+        assert!(!line_has_escaped_newline_continuation("echo foo"));
+        assert!(line_has_escaped_newline_continuation("echo foo \\   "));
+        assert!(!line_has_escaped_newline_continuation("echo foo \\\\   "));
     }
 
     #[test]
