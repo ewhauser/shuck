@@ -1394,6 +1394,44 @@ for entry in $(command find . -type f -exec basename {} \\;); do :; done
 }
 
 #[test]
+fn builds_loop_header_line_oriented_substitution_detection() {
+    let source = "\
+#!/bin/bash
+for entry in $(cat input.txt); do :; done
+for entry in $(grep foo input.txt | cut -d: -f1); do :; done
+for entry in $(printf '%s\\n' a b); do :; done
+for entry in $(echo a b | rev); do :; done
+for entry in $(cat input.txt | head -n1); do :; done
+for entry in $(find . -type f); do :; done
+";
+
+    with_facts(source, None, |_, facts| {
+        let words = facts
+            .for_headers()
+            .iter()
+            .map(|header| header.words()[0].contains_line_oriented_substitution())
+            .collect::<Vec<_>>();
+
+        assert_eq!(words, vec![true, true, false, false, false, false]);
+    });
+}
+
+#[test]
+fn keeps_mixed_word_lists_and_find_exec_substitutions_out_of_line_oriented_detection() {
+    let source = "\
+#!/bin/bash
+for entry in literal $(cat input.txt); do :; done
+for entry in $(find . -type f -exec grep -Pl '\\r$' {} \\;); do :; done
+";
+
+    with_facts(source, None, |_, facts| {
+        assert_eq!(facts.for_headers().len(), 2);
+        assert!(facts.for_headers()[0].words()[1].contains_line_oriented_substitution());
+        assert!(!facts.for_headers()[1].words()[0].contains_line_oriented_substitution());
+    });
+}
+
+#[test]
 fn zsh_for_headers_only_track_iteration_words() {
     let source = "\
 #!/usr/bin/env zsh

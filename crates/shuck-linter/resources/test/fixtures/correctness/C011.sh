@@ -5,8 +5,8 @@ for line in $(cat input.txt); do
   printf '%s\n' "$line"
 done
 
-# Invalid: backticks are the same pattern.
-for line in `printf '%s\n' alpha beta`; do
+# Invalid: all-line-oriented pipelines behave the same way.
+for line in $(grep foo input.txt | cut -d: -f1); do
   printf '%s\n' "$line"
 done
 
@@ -14,3 +14,8 @@ done
 while IFS= read -r line; do
   printf '%s\n' "$line"
 done < input.txt
+
+# Valid: safe generators and mixed pipelines do not match this rule.
+for line in `printf '%s\n' alpha beta`; do
+  printf '%s\n' "$line"
+done

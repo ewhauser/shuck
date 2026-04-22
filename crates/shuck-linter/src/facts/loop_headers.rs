@@ -3,6 +3,7 @@ pub struct LoopHeaderWordFact<'a> {
     word: &'a Word,
     classification: WordClassification,
     has_unquoted_command_substitution: bool,
+    contains_line_oriented_substitution: bool,
     contains_ls_substitution: bool,
     contains_find_substitution: bool,
 }
@@ -26,6 +27,10 @@ impl<'a> LoopHeaderWordFact<'a> {
 
     pub fn has_unquoted_command_substitution(&self) -> bool {
         self.has_unquoted_command_substitution
+    }
+
+    pub fn contains_line_oriented_substitution(&self) -> bool {
+        self.contains_line_oriented_substitution
     }
 
     pub fn contains_ls_substitution(&self) -> bool {
@@ -191,6 +196,11 @@ fn build_loop_header_word_facts<'a>(
                 classification,
                 has_unquoted_command_substitution: classification.has_command_substitution()
                     && !span::unquoted_command_substitution_part_spans(word).is_empty(),
+                contains_line_oriented_substitution: word_contains_line_oriented_substitution(
+                    word,
+                    commands,
+                    command_ids_by_span,
+                ),
                 contains_ls_substitution: word_contains_command_substitution_named(
                     word,
                     "ls",
@@ -207,5 +217,4 @@ fn build_loop_header_word_facts<'a>(
         .collect::<Vec<_>>()
         .into_boxed_slice()
 }
-
 
