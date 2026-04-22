@@ -231,6 +231,21 @@ impl ZshParameterIndexFlagFragmentFact {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct CommandSubstitutionParameterOperationFragmentFact {
+    span: Span,
+}
+
+impl CommandSubstitutionParameterOperationFragmentFact {
+    pub(super) fn new(span: Span) -> Self {
+        Self { span }
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct SubstringExpansionFragmentFact {
     span: Span,
 }

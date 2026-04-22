@@ -1,8 +1,21 @@
 ---
 source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 172
 ---
-X076 zsh parameter flags are not portable to this shell
- --> <source>:5:17
+X076 this shell can't apply parameter operators directly to command substitutions
+ --> <source>:5:4
   |
 5 | x="${$(svn info):gs/%/%%}"
   |
+
+X076 this shell can't apply parameter operators directly to command substitutions
+ --> <source>:8:13
+  |
+8 | first_char="${$(svn info):0:1}"
+  |
+
+X076 this shell can't apply parameter operators directly to command substitutions
+  --> <source>:11:11
+   |
+11 | fallback="${$(svn info):-default}"
+   |
