@@ -95,13 +95,11 @@ fn list_runs_as_if_or_elif_condition(checker: &Checker<'_>, list: &ListFact<'_>)
 }
 
 fn list_exempts_warning(checker: &Checker<'_>, list: &ListFact<'_>) -> bool {
-    if list
-        .segments()
-        .iter()
-        .all(|segment| checker
+    if list.segments().iter().all(|segment| {
+        checker
             .facts()
-            .command_is_in_completion_registered_function(segment.command_id()))
-    {
+            .command_is_in_completion_registered_function(segment.command_id())
+    }) {
         return true;
     }
 

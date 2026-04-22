@@ -8,12 +8,6 @@ C007 raw `find` output piped to `xargs` can break on whitespace
   |
 
 C007 raw `find` output piped to `xargs` can break on whitespace
- --> <source>:7:1
-  |
-7 | find . -type f | xargs -0 wc -l
-  |
-
-C007 raw `find` output piped to `xargs` can break on whitespace
   --> <source>:10:1
    |
 10 | find "$pkg" -print0 | xargs rm

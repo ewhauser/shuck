@@ -3930,13 +3930,13 @@ fn dynamic_root_with_slash_tail(word: &Word, source: &str) -> bool {
 }
 
 fn root_word_part_is_dynamic_root(part: &WordPart) -> bool {
-    match part {
+    matches!(
+        part,
         WordPart::Variable(_)
-        | WordPart::ArrayAccess(_)
-        | WordPart::Parameter(_)
-        | WordPart::CommandSubstitution { .. } => true,
-        _ => false,
-    }
+            | WordPart::ArrayAccess(_)
+            | WordPart::Parameter(_)
+            | WordPart::CommandSubstitution { .. }
+    )
 }
 
 fn static_parts_text(parts: &[WordPartNode], source: &str) -> Option<String> {

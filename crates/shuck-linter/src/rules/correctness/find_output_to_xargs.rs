@@ -62,11 +62,9 @@ fn unsafe_find_to_xargs_diagnostics(
                 return None;
             }
 
-            if right
-                .options()
-                .xargs()
-                .is_some_and(|xargs| xargs.uses_null_input || xargs_uses_shellcheck_parallel_exemption(xargs))
-            {
+            if right.options().xargs().is_some_and(|xargs| {
+                xargs.uses_null_input || xargs_uses_shellcheck_parallel_exemption(xargs)
+            }) {
                 return None;
             }
 

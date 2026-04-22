@@ -1,7 +1,6 @@
 use super::*;
 use shuck_ast::{
-    HeredocBody, HeredocBodyPart, HeredocBodyPartNode, PatternGroupKind, PatternPartNode,
-    Position,
+    HeredocBody, HeredocBodyPart, HeredocBodyPartNode, PatternGroupKind, PatternPartNode, Position,
 };
 
 #[derive(Debug)]
@@ -1254,14 +1253,18 @@ impl<'a> SurfaceFragmentSink<'a> {
             return part_span;
         }
 
-        let escaped_dollar_count = backtick_display_escaped_dollar_count(part_span.slice(self.source));
+        let escaped_dollar_count =
+            backtick_display_escaped_dollar_count(part_span.slice(self.source));
         let Some(chain_start) = continued_line_chain_start(part_span.start, self.source) else {
             return adjust_end_column(part_span, escaped_dollar_count);
         };
 
         let start = shellcheck_collapsed_position(chain_start, part_span.start, self.source);
         let end = adjust_end_column(
-            Span::from_positions(start, shellcheck_collapsed_position(chain_start, part_span.end, self.source)),
+            Span::from_positions(
+                start,
+                shellcheck_collapsed_position(chain_start, part_span.end, self.source),
+            ),
             escaped_dollar_count,
         )
         .end;
@@ -1349,7 +1352,10 @@ fn adjust_end_column(span: Span, display_escape_count: usize) -> Span {
 }
 
 fn backtick_display_escaped_dollar_count(text: &str) -> usize {
-    let Some(inner) = text.strip_prefix('\'').and_then(|text| text.strip_suffix('\'')) else {
+    let Some(inner) = text
+        .strip_prefix('\'')
+        .and_then(|text| text.strip_suffix('\''))
+    else {
         return 0;
     };
 

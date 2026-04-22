@@ -3053,7 +3053,11 @@ source \"$d\"
             let model = model(source);
 
             assert_eq!(model.source_refs().len(), 1, "{source}");
-            assert_eq!(model.source_refs()[0].kind, SourceRefKind::Dynamic, "{source}");
+            assert_eq!(
+                model.source_refs()[0].kind,
+                SourceRefKind::Dynamic,
+                "{source}"
+            );
             assert_eq!(
                 model.source_refs()[0].diagnostic_class,
                 SourceRefDiagnosticClass::UntrackedFile,
@@ -3072,7 +3076,11 @@ source \"$d\"
             let model = model(source);
 
             assert_eq!(model.source_refs().len(), 1, "{source}");
-            assert_eq!(model.source_refs()[0].kind, SourceRefKind::Dynamic, "{source}");
+            assert_eq!(
+                model.source_refs()[0].kind,
+                SourceRefKind::Dynamic,
+                "{source}"
+            );
             assert_eq!(
                 model.source_refs()[0].diagnostic_class,
                 SourceRefDiagnosticClass::UntrackedFile,
