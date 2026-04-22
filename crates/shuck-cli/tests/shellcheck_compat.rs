@@ -140,6 +140,66 @@ fn compat_include_and_severity_filter_work_on_sc_codes() {
 }
 
 #[test]
+fn compat_json1_uses_metadata_info_level_for_sc1091() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("x.sh"), "#!/bin/sh\n. ./lib.sh\n").unwrap();
+
+    let output = run_compat(["--norc", "-f", "json1", "x.sh"].as_slice(), tempdir.path());
+    assert_eq!(output.status.code(), Some(1));
+
+    let comments = json1_comments(&output);
+    let sc1091 = comment_by_code(&comments, 1091);
+    assert_eq!(sc1091["level"].as_str(), Some("info"));
+}
+
+#[test]
+fn compat_severity_filter_respects_metadata_info_level_for_sc1091() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("x.sh"), "#!/bin/sh\n. ./lib.sh\n").unwrap();
+
+    let output = run_compat(
+        ["--norc", "-f", "json1", "--severity=warning", "x.sh"].as_slice(),
+        tempdir.path(),
+    );
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(json1_comments(&output), Vec::<Value>::new());
+}
+
+#[test]
+fn compat_json1_uses_metadata_style_level_for_sc2003() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("x.sh"),
+        "#!/bin/sh\nprintf '%s\\n' \"$(expr 1 + 2)\"\n",
+    )
+    .unwrap();
+
+    let output = run_compat(["--norc", "-f", "json1", "x.sh"].as_slice(), tempdir.path());
+    assert_eq!(output.status.code(), Some(1));
+
+    let comments = json1_comments(&output);
+    let sc2003 = comment_by_code(&comments, 2003);
+    assert_eq!(sc2003["level"].as_str(), Some("style"));
+}
+
+#[test]
+fn compat_severity_filter_respects_metadata_style_level_for_sc2003() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("x.sh"),
+        "#!/bin/sh\nprintf '%s\\n' \"$(expr 1 + 2)\"\n",
+    )
+    .unwrap();
+
+    let output = run_compat(
+        ["--norc", "-f", "json1", "--severity=info", "x.sh"].as_slice(),
+        tempdir.path(),
+    );
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(json1_comments(&output), Vec::<Value>::new());
+}
+
+#[test]
 fn compat_include_unknown_sc_code_is_accepted_as_empty_selection() {
     let tempdir = tempdir().unwrap();
     fs::write(tempdir.path().join("x.sh"), "#!/bin/sh\necho $foo\n").unwrap();
