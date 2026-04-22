@@ -522,9 +522,7 @@ pub fn word_standalone_literal_backslash_span(word: &Word, source: &str) -> Opti
 pub fn word_unquoted_star_parameter_spans(word: &Word, unquoted_array_spans: &[Span]) -> Vec<Span> {
     word.parts_with_spans()
         .filter_map(|(part, span)| {
-            (unquoted_array_spans.contains(&span)
-                && matches!(part, WordPart::Variable(name) if name.as_str() == "*"))
-            .then_some(span)
+            (unquoted_array_spans.contains(&span) && part_uses_star_splat(part)).then_some(span)
         })
         .collect()
 }
@@ -4485,6 +4483,30 @@ printf '%s\\n' $* ${*} ${*:1} ${arr[*]} ${arr[*]:1:2} ${!arr[*]} ${arr[@]} ${arr
             spans,
             vec!["$*", "${*}", "${*:1}", "${arr[*]}", "${arr[*]:1:2}"]
         );
+    }
+
+    #[test]
+    fn word_unquoted_star_parameter_spans_tracks_star_selector_forms_only() {
+        let source = "\
+printf '%s\\n' $* ${arr[*]} ${arr[*]:1:2} ${!arr[*]} ${arr[@]} ${arr[@]:1} ${arr[0]} \"$*\" \"${arr[*]}\"
+";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let spans = command
+            .args
+            .iter()
+            .flat_map(|word| {
+                let unquoted_array_spans = super::unquoted_array_expansion_part_spans(word, source);
+                super::word_unquoted_star_parameter_spans(word, &unquoted_array_spans)
+            })
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(spans, vec!["$*", "${arr[*]}", "${arr[*]:1:2}"]);
     }
 
     #[test]

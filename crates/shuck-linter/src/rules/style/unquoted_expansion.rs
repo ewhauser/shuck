@@ -45,6 +45,7 @@ pub fn unquoted_expansion(checker: &mut Checker) {
         report_word_expansions(
             &mut spans,
             &mut safe_values,
+            source,
             fact,
             context,
             colon_command_ids.contains(&fact.command_id()),
@@ -72,6 +73,7 @@ fn should_check_context(context: ExpansionContext, shell: ShellDialect) -> bool 
 fn report_word_expansions(
     spans: &mut Vec<shuck_ast::Span>,
     safe_values: &mut SafeValueIndex<'_>,
+    source: &str,
     fact: WordOccurrenceRef<'_, '_>,
     context: ExpansionContext,
     in_colon_command: bool,
@@ -116,7 +118,7 @@ fn report_word_expansions(
             continue;
         }
 
-        spans.push(part_span);
+        spans.push(fact.diagnostic_part_span(part, part_span, source));
     }
 }
 
@@ -190,6 +192,254 @@ printf '%s\\n' prefix\"$HOME\"/$suffix
     }
 
     #[test]
+    fn reports_unquoted_expansions_in_case_cli_dispatch_entry_functions_with_top_level_exit_status()
+    {
+        let source = "\
+#!/bin/sh
+exec=/usr/sbin/collectd
+pidfile=/var/run/collectd.pid
+configfile=/etc/collectd.conf
+
+start() {
+  [ -x $exec ] || exit 5
+  [ -f $pidfile ] && rm $pidfile
+  $exec -P $pidfile -C $configfile
+}
+
+case \"$1\" in
+  start) $1 ;;
+esac
+exit $?
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$exec", "$pidfile", "$pidfile", "$pidfile", "$configfile"]
+        );
+    }
+
+    #[test]
+    fn reports_collectd_style_case_cli_dispatch_entry_functions() {
+        let source = "\
+#!/bin/sh
+exec=/usr/sbin/collectd
+prog=$(basename $exec)
+configfile=/etc/collectd.conf
+pidfile=/var/run/collectd.pid
+
+start() {
+  [ -x $exec ] || exit 5
+  if [ -f $pidfile ]; then
+    echo \"Seems that an active process is up and running with pid $(cat $pidfile)\"
+    echo \"If this is not true try first to remove pidfile $pidfile\"
+    exit 5
+  fi
+  echo $\"Starting $prog\"
+  $exec -P $pidfile -C $configfile
+}
+
+stop() {
+  if [ -e $pidfile ]; then
+    echo \"Stopping $prog\"
+    kill -QUIT $(cat $pidfile) 2>/dev/null
+    rm $pidfile
+  fi
+}
+
+status() {
+  echo -n \"$prog is \"
+  CHECK=$(ps aux | grep $exec | grep -v grep)
+  STATUS=$?
+  if [ \"$STATUS\" == \"1\" ]; then
+    echo \"not running\"
+  else
+    echo \"running\"
+  fi
+}
+
+restart() {
+  stop
+  start
+}
+
+case \"$1\" in
+  start)
+    $1
+    ;;
+  stop)
+    $1
+    ;;
+  restart)
+    $1
+    ;;
+  status)
+    $1
+    ;;
+esac
+exit $?
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "$exec",
+                "$pidfile",
+                "$pidfile",
+                "$pidfile",
+                "$configfile",
+                "$pidfile",
+                "$pidfile",
+                "$pidfile",
+                "$exec",
+            ]
+        );
+    }
+
+    #[test]
+    fn reports_spice_vdagent_style_case_cli_dispatch_entry_functions() {
+        let source = "\
+#!/bin/sh
+exec=\"/usr/sbin/spice-vdagentd\"
+prog=\"spice-vdagentd\"
+port=\"/dev/virtio-ports/com.redhat.spice.0\"
+pid=\"/var/run/spice-vdagentd/spice-vdagentd.pid\"
+lockfile=/var/lock/subsys/$prog
+
+start() {
+  /sbin/modprobe uinput > /dev/null 2>&1
+  /usr/bin/rm -f /var/run/spice-vdagentd/spice-vdagent-sock
+  /usr/bin/mkdir -p /var/run/spice-vdagentd
+  /usr/bin/echo \"Starting $prog: \"
+  $exec -s $port
+  retval=$?
+  /usr/bin/echo
+  [ $retval -eq 0 ] && echo \"$(pidof $prog)\" > $pid && /usr/bin/touch $lockfile
+  return $retval
+}
+
+stop() {
+  if [ \"$(pidof $prog)\" ]; then
+    /usr/bin/echo \"Stopping $prog: \"
+    /bin/kill $(cat $pid)
+  else
+    /usr/bin/echo \"$prog not running\"
+    return 1
+  fi
+  retval=$?
+  /usr/bin/echo
+  [ $retval -eq 0 ] && rm -f $lockfile $pid
+  return $retval
+}
+
+restart() {
+  stop
+  start
+}
+
+case \"$1\" in
+  start)
+    $1
+    ;;
+  stop)
+    $1
+    ;;
+  restart)
+    $1
+    ;;
+  *)
+    /usr/bin/echo $\"Usage: $0 {start|stop|restart}\"
+    exit 2
+esac
+exit $?
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+        let spans = diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(spans.iter().filter(|span| **span == "$port").count(), 1);
+        assert_eq!(spans.iter().filter(|span| **span == "$retval").count(), 4);
+        assert_eq!(spans.iter().filter(|span| **span == "$prog").count(), 2);
+        assert_eq!(spans.iter().filter(|span| **span == "$pid").count(), 3);
+        assert_eq!(spans.iter().filter(|span| **span == "$lockfile").count(), 2);
+    }
+
+    #[test]
+    fn does_not_broaden_dynamic_case_dispatch_without_top_level_exit_status() {
+        let source = "\
+#!/bin/sh
+exec=/usr/sbin/collectd
+pidfile=/var/run/collectd.pid
+
+start() {
+  [ -x $exec ] || exit 5
+  $exec -P $pidfile
+}
+
+case \"$1\" in
+  start) $1 ;;
+esac
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn keeps_unknown_option_bundle_warnings_without_broad_command_name_reports() {
+        let source = "\
+#!/bin/sh
+BLUEALSA_BIN=/usr/bin/bluealsa
+
+start() {
+  $BLUEALSA_BIN $BLUEALSA_OPTS
+}
+
+case \"$1\" in
+  start) $1 ;;
+esac
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$BLUEALSA_OPTS"]
+        );
+    }
+
+    #[test]
+    fn ignores_static_case_dispatch_calls() {
+        let source = "\
+#!/bin/sh
+exec=/usr/sbin/collectd
+
+start() {
+  $exec
+}
+
+case \"$1\" in
+  start) start ;;
+esac
+exit $?
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn skips_for_lists_but_reports_here_strings_and_redirect_targets() {
         let source = "\
 #!/bin/bash
@@ -250,6 +500,24 @@ $HOME/bin/tool $arg
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$HOME", "$arg"]
+        );
+    }
+
+    #[test]
+    fn reports_unquoted_star_selector_expansions() {
+        let source = "\
+#!/bin/bash
+RSYNC_OPTIONS=(-a -v)
+rsync ${RSYNC_OPTIONS[*]} src dst
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${RSYNC_OPTIONS[*]}"]
         );
     }
 
@@ -374,6 +642,27 @@ printf '%s\\n' ${z:=fallback}
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["${x:=fallback}", "${y:=out}"]
+        );
+    }
+
+    #[test]
+    fn reports_dynamic_values_inside_nested_command_substitution_arguments() {
+        let source = "\
+#!/bin/sh
+PRGNAM=cproc
+GIT_SHA=$( git rev-parse --short HEAD )
+DATE=$( git log --date=format:%Y%m%d --format=%cd | head -1 )
+VERSION=${DATE}_${GIT_SHA}
+echo \"MD5SUM=\\\"$( md5sum $PRGNAM-$VERSION.tar.xz | cut -d' ' -f1 )\\\"\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$VERSION"]
         );
     }
 

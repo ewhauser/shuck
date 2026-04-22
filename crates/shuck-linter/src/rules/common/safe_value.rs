@@ -71,9 +71,10 @@ pub struct SafeValueIndex<'a> {
     analysis: &'a SemanticAnalysis<'a>,
     facts: &'a LinterFacts<'a>,
     source: &'a str,
+    definite_uninitialized_refs: FxHashSet<FactSpan>,
     maybe_uninitialized_refs: FxHashSet<FactSpan>,
-    memo: FxHashMap<(FactSpan, SafeValueQuery), bool>,
-    visiting: FxHashSet<(FactSpan, SafeValueQuery)>,
+    memo: FxHashMap<(FactSpan, SafeValueQuery, Option<ScopeId>), bool>,
+    visiting: FxHashSet<(FactSpan, SafeValueQuery, Option<ScopeId>)>,
     helper_binding_memo: FxHashMap<(Name, ScopeId, FactSpan), Box<[BindingId]>>,
     helper_binding_visiting: FxHashSet<(Name, ScopeId, FactSpan)>,
 }
@@ -85,6 +86,12 @@ impl<'a> SafeValueIndex<'a> {
         facts: &'a LinterFacts<'a>,
         source: &'a str,
     ) -> Self {
+        let definite_uninitialized_refs = analysis
+            .uninitialized_references()
+            .iter()
+            .filter(|uninitialized| uninitialized.certainty == UninitializedCertainty::Definite)
+            .map(|uninitialized| FactSpan::new(semantic.reference(uninitialized.reference).span))
+            .collect();
         let maybe_uninitialized_refs = analysis
             .uninitialized_references()
             .iter()
@@ -97,6 +104,7 @@ impl<'a> SafeValueIndex<'a> {
             analysis,
             facts,
             source,
+            definite_uninitialized_refs,
             maybe_uninitialized_refs,
             memo: FxHashMap::default(),
             visiting: FxHashSet::default(),
@@ -218,21 +226,154 @@ impl<'a> SafeValueIndex<'a> {
         if bindings.is_empty() {
             return safe_numeric_shell_variable(name);
         }
-        if self.maybe_uninitialized_refs.contains(&FactSpan::new(at))
-            && !bindings
+        let case_cli_scope = matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
+            .then(|| self.case_cli_dispatch_scope_at(at.start.offset))
+            .flatten();
+        let binding_belongs_to_case_cli_scope = case_cli_scope.is_some_and(|scope| {
+            bindings
                 .iter()
                 .copied()
-                .any(|binding_id| self.binding_dominates_reference(binding_id, name, at))
+                .any(|binding_id| self.binding_is_in_scope_or_descendant(binding_id, scope))
+        });
+        if matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
+            && case_cli_scope.is_some()
+            && !self.case_cli_dispatch_outer_bindings_can_stay_safe(&bindings, at, query)
+            && !binding_belongs_to_case_cli_scope
+        {
+            return safe_numeric_shell_variable(name);
+        }
+        if matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
+            && self.bindings_are_all_plain_empty_static_literals(&bindings)
         {
             return false;
+        }
+        let helper_bindings = self
+            .called_helper_bindings_for_name(name, at)
+            .into_iter()
+            .collect::<FxHashSet<_>>();
+        if helper_bindings.is_empty()
+            && matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
+            && !self.bindings_cover_all_paths_to_reference(&bindings, name, at)
+        {
+            return false;
+        }
+        if self
+            .definite_uninitialized_refs
+            .contains(&FactSpan::new(at))
+        {
+            if bindings.iter().copied().any(|binding_id| {
+                !helper_bindings.contains(&binding_id)
+                    && self.binding_is_guarded_before_reference(binding_id, at)
+            }) {
+                return false;
+            }
+        } else if self.maybe_uninitialized_refs.contains(&FactSpan::new(at)) {
+            let has_dominating_binding = bindings
+                .iter()
+                .copied()
+                .any(|binding_id| self.binding_dominates_reference(binding_id, name, at));
+            if !has_dominating_binding
+                && !bindings
+                    .iter()
+                    .copied()
+                    .all(|binding_id| helper_bindings.contains(&binding_id))
+            {
+                return false;
+            }
         }
 
         bindings
             .into_iter()
-            .all(|binding_id| self.binding_is_safe(binding_id, query))
+            .all(|binding_id| self.binding_is_safe(binding_id, query, case_cli_scope))
     }
 
-    fn binding_is_safe(&mut self, binding_id: BindingId, query: SafeValueQuery) -> bool {
+    fn case_cli_dispatch_scope_at(&self, offset: usize) -> Option<ScopeId> {
+        self.semantic
+            .ancestor_scopes(self.semantic.scope_at(offset))
+            .find(|scope| {
+                self.facts
+                    .function_cli_dispatch_facts(*scope)
+                    .exported_from_case_cli()
+            })
+    }
+
+    pub fn in_case_cli_dispatch_entrypoint(&self, offset: usize) -> bool {
+        self.case_cli_dispatch_scope_at(offset).is_some()
+    }
+
+    fn case_cli_dispatch_outer_bindings_can_stay_safe(
+        &self,
+        bindings: &[BindingId],
+        at: Span,
+        query: SafeValueQuery,
+    ) -> bool {
+        if query != SafeValueQuery::Argv || !self.is_argument_of_dynamic_command(at) {
+            return false;
+        }
+
+        bindings
+            .iter()
+            .copied()
+            .all(|binding_id| self.binding_is_quoted_static_literal(binding_id))
+    }
+
+    fn binding_is_in_scope_or_descendant(
+        &self,
+        binding_id: BindingId,
+        ancestor_scope: ScopeId,
+    ) -> bool {
+        self.semantic
+            .ancestor_scopes(self.semantic.binding(binding_id).scope)
+            .any(|scope| scope == ancestor_scope)
+    }
+
+    fn is_argument_of_dynamic_command(&self, at: Span) -> bool {
+        self.facts.commands().iter().any(|command| {
+            command.body_args().iter().any(|word| word.span == at)
+                && command
+                    .body_name_word()
+                    .is_some_and(crate::word_is_standalone_variable_like)
+        })
+    }
+
+    fn binding_is_quoted_static_literal(&self, binding_id: BindingId) -> bool {
+        self.facts
+            .binding_value(binding_id)
+            .and_then(|value| value.scalar_word())
+            .is_some_and(|word| {
+                word.is_fully_quoted() && static_word_text(word, self.source).is_some()
+            })
+    }
+
+    fn binding_is_plain_empty_static_literal(&self, binding_id: BindingId) -> bool {
+        matches!(
+            self.semantic.binding(binding_id).origin,
+            BindingOrigin::Assignment {
+                value: AssignmentValueOrigin::StaticLiteral,
+                ..
+            }
+        ) && self
+            .facts
+            .binding_value(binding_id)
+            .and_then(|value| value.scalar_word())
+            .and_then(|word| static_word_text(word, self.source))
+            .is_some_and(|text| text.is_empty())
+    }
+
+    fn bindings_are_all_plain_empty_static_literals(&self, bindings: &[BindingId]) -> bool {
+        !bindings.is_empty()
+            && bindings
+                .iter()
+                .copied()
+                .all(|binding_id| self.binding_is_plain_empty_static_literal(binding_id))
+    }
+
+    fn binding_is_safe(
+        &mut self,
+        binding_id: BindingId,
+        query: SafeValueQuery,
+        case_cli_scope: Option<ScopeId>,
+    ) -> bool {
         let binding = self.semantic.binding(binding_id);
         let binding_key = FactSpan::new(binding.span);
         if binding.attributes.contains(BindingAttributes::INTEGER)
@@ -241,7 +382,7 @@ impl<'a> SafeValueIndex<'a> {
             return true;
         }
 
-        let key = (binding_key, query);
+        let key = (binding_key, query, case_cli_scope);
         if let Some(result) = self.memo.get(&key) {
             return *result;
         }
@@ -260,7 +401,14 @@ impl<'a> SafeValueIndex<'a> {
                     .binding_value(binding_id)
                     .filter(|value| !value.conditional_assignment_shortcut())
                     .and_then(|value| value.scalar_word());
-                scalar_word.is_some_and(|word| self.word_is_safe(word, query))
+                if case_cli_scope == Some(binding.scope)
+                    && matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
+                    && scalar_word.is_some_and(crate::word_is_standalone_status_capture)
+                {
+                    false
+                } else {
+                    scalar_word.is_some_and(|word| self.word_is_safe(word, query))
+                }
             }
             BindingOrigin::LoopVariable {
                 items: LoopValueOrigin::StaticWords,
@@ -319,6 +467,9 @@ impl<'a> SafeValueIndex<'a> {
         if bindings.is_empty() {
             return false;
         }
+        let case_cli_scope = matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
+            .then(|| self.case_cli_dispatch_scope_at(at.start.offset))
+            .flatten();
 
         bindings.into_iter().all(|binding_id| {
             let targets = self.semantic.indirect_targets_for_binding(binding_id);
@@ -326,7 +477,7 @@ impl<'a> SafeValueIndex<'a> {
                 && targets
                     .iter()
                     .copied()
-                    .all(|target| self.binding_is_safe(target, query))
+                    .all(|target| self.binding_is_safe(target, query, case_cli_scope))
         })
     }
 
@@ -344,16 +495,24 @@ impl<'a> SafeValueIndex<'a> {
                 bindings = expanded;
             }
         }
+        let helper_bindings = self.called_helper_bindings_for_name(name, at);
         if bindings.is_empty() {
-            bindings = self.called_helper_bindings_for_name(name, at);
+            bindings = helper_bindings;
+        } else if !helper_bindings.is_empty() {
+            bindings.extend(helper_bindings);
+            bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+            bindings.dedup();
         }
 
         bindings
     }
 
     fn called_helper_bindings_for_name(&mut self, name: &Name, at: Span) -> Vec<BindingId> {
-        let scope = self.semantic.scope_at(at.start.offset);
-        let mut bindings = self.called_helper_bindings_before(name, scope, at);
+        let mut bindings = self
+            .semantic
+            .ancestor_scopes(self.semantic.scope_at(at.start.offset))
+            .flat_map(|scope| self.called_helper_bindings_before(name, scope, at))
+            .collect::<Vec<_>>();
         bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
         bindings.dedup();
         bindings
@@ -436,7 +595,7 @@ impl<'a> SafeValueIndex<'a> {
     ) -> Vec<BindingId> {
         let mut bindings = Vec::new();
 
-        for callee_scope in self.helper_scopes_definitely_providing_name(name) {
+        for callee_scope in self.helper_scopes_providing_name(name) {
             let Some(function_kind) = self.named_function_kind(callee_scope) else {
                 continue;
             };
@@ -499,12 +658,47 @@ impl<'a> SafeValueIndex<'a> {
         true
     }
 
-    fn helper_scopes_definitely_providing_name(&self, name: &Name) -> Vec<ScopeId> {
-        self.analysis
-            .definite_provider_scopes(name)
+    fn binding_is_guarded_before_reference(&self, binding_id: BindingId, at: Span) -> bool {
+        let binding = self.semantic.binding(binding_id);
+        let Some(mut current) = self
+            .facts
+            .innermost_command_id_at(binding.span.start.offset)
+            .and_then(|id| self.facts.command_parent_id(id))
+        else {
+            return false;
+        };
+
+        loop {
+            let command = self.facts.command(current);
+            if self.facts.command_is_dominance_barrier(current)
+                && command.span().end.offset <= at.start.offset
+            {
+                return true;
+            }
+
+            let Some(parent_id) = self.facts.command_parent_id(current) else {
+                return false;
+            };
+            current = parent_id;
+        }
+    }
+
+    fn helper_scopes_providing_name(&self, name: &Name) -> Vec<ScopeId> {
+        self.semantic
+            .bindings_for(name)
             .iter()
             .copied()
-            .filter(|scope| matches!(self.semantic.scope(*scope).kind, ScopeKind::Function(_)))
+            .filter_map(|binding_id| {
+                let binding = self.semantic.binding(binding_id);
+                (!binding.attributes.contains(BindingAttributes::LOCAL)
+                    && matches!(
+                        self.semantic.scope(binding.scope).kind,
+                        ScopeKind::Function(_)
+                    ))
+                .then_some(binding.scope)
+            })
+            .collect::<FxHashSet<_>>()
+            .into_iter()
             .collect()
     }
 
@@ -530,12 +724,15 @@ impl<'a> SafeValueIndex<'a> {
             return false;
         };
         if binding_block == reference_block {
-            return true;
+            return !self.binding_is_guarded_before_reference(binding_id, at);
         }
 
         let cfg = self.analysis.cfg();
         let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
-        let mut stack = vec![cfg.entry()];
+        let mut stack = vec![self.flow_entry_block_for_binding_scopes(
+            &[self.semantic.binding(binding_id).scope],
+            at.start.offset,
+        )];
         let mut seen = FxHashSet::default();
         while let Some(block_id) = stack.pop() {
             if block_id == binding_block
@@ -554,6 +751,95 @@ impl<'a> SafeValueIndex<'a> {
 
         true
     }
+
+    fn bindings_cover_all_paths_to_reference(
+        &self,
+        bindings: &[BindingId],
+        name: &Name,
+        at: Span,
+    ) -> bool {
+        let Some(reference_id) = self.reference_id_for_name_at(name, at) else {
+            return true;
+        };
+        let Some(reference_block) = self.block_for_reference(reference_id) else {
+            return true;
+        };
+
+        let cover_blocks = bindings
+            .iter()
+            .copied()
+            .filter_map(|binding_id| {
+                let binding_block = self.block_for_binding(binding_id)?;
+                if binding_block == reference_block
+                    && self.binding_is_guarded_before_reference(binding_id, at)
+                {
+                    None
+                } else {
+                    Some(binding_block)
+                }
+            })
+            .collect::<FxHashSet<_>>();
+        if cover_blocks.contains(&reference_block) {
+            return true;
+        }
+
+        let cfg = self.analysis.cfg();
+        let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
+        let binding_scopes = bindings
+            .iter()
+            .copied()
+            .map(|binding_id| self.semantic.binding(binding_id).scope)
+            .collect::<Vec<_>>();
+        let mut stack =
+            vec![self.flow_entry_block_for_binding_scopes(&binding_scopes, at.start.offset)];
+        let mut seen = FxHashSet::default();
+        while let Some(block_id) = stack.pop() {
+            if cover_blocks.contains(&block_id)
+                || unreachable.contains(&block_id)
+                || !seen.insert(block_id)
+            {
+                continue;
+            }
+            if block_id == reference_block {
+                return false;
+            }
+            for (successor, _) in cfg.successors(block_id) {
+                stack.push(*successor);
+            }
+        }
+
+        true
+    }
+
+    fn flow_entry_block_for_binding_scopes(
+        &self,
+        binding_scopes: &[ScopeId],
+        reference_offset: usize,
+    ) -> BlockId {
+        let cfg = self.analysis.cfg();
+        self.semantic
+            .ancestor_scopes(self.semantic.scope_at(reference_offset))
+            .find_map(|scope| {
+                if !matches!(
+                    self.semantic.scope(scope).kind,
+                    ScopeKind::Function(_) | ScopeKind::File
+                ) {
+                    return None;
+                }
+                binding_scopes
+                    .iter()
+                    .copied()
+                    .all(|binding_scope| {
+                        self.semantic
+                            .ancestor_scopes(binding_scope)
+                            .any(|ancestor| ancestor == scope)
+                    })
+                    .then(|| cfg.scope_entry(scope))
+                    .flatten()
+            })
+            .unwrap_or_else(|| cfg.entry())
+    }
+
     fn reference_id_for_name_at(&self, name: &Name, at: Span) -> Option<ReferenceId> {
         self.semantic
             .references()
@@ -1245,6 +1531,218 @@ f() {
     }
 
     #[test]
+    fn conditional_same_block_initializers_do_not_dominate_later_uses() {
+        let source = "\
+#!/bin/bash
+counter=0
+while [ \"$counter\" -eq 0 ]; do
+  if [ \"$1\" = validate ] || [ \"$1\" = install ]; then
+    validate=validate
+  fi
+  steamcmd ${validate} +quit
+  break
+done
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "${validate}"
+            })
+            .expect("expected conditional initializer command argument");
+
+        assert!(!safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn branch_ladder_pipeline_uses_stay_unsafe_after_guarded_initializers() {
+        let source = "\
+#!/bin/bash
+if [ \"$1\" = validate ] || [ \"$1\" = install ]; then
+  validate=validate
+fi
+
+if [ \"$mode\" = a ]; then
+  steamcmd ${validate} +quit | tee /dev/null
+elif [ \"$mode\" = b ]; then
+  steamcmd ${validate} +runscript foo | tee /dev/null
+else
+  steamcmd ${validate} +app_update 1 | tee /dev/null
+fi
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let validate_uses = facts
+            .word_facts()
+            .iter()
+            .filter(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "${validate}"
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(validate_uses.len(), 3, "expected all sibling pipeline uses");
+        assert!(
+            validate_uses
+                .into_iter()
+                .all(|fact| !safe_values.word_occurrence_is_safe(fact, SafeValueQuery::Argv))
+        );
+    }
+
+    #[test]
+    fn function_local_guarded_initializers_do_not_dominate_later_uses() {
+        let source = "\
+#!/bin/bash
+f() {
+  if [ \"$1\" = validate ]; then
+    validate=validate
+  fi
+  echo ${validate}
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "${validate}"
+            })
+            .expect("expected function-local validate command argument");
+
+        assert!(!safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn function_local_pipeline_uses_stay_unsafe_after_guarded_initializers() {
+        let source = "\
+#!/bin/bash
+f() {
+  if [ \"$1\" = validate ]; then
+    validate=validate
+  fi
+  while :; do
+    if [ \"$appid\" = 90 ]; then
+      if [ -n \"$branch\" ] && [ -n \"$beta\" ]; then
+        echo ${validate} | tee /dev/null
+      elif [ -n \"$branch\" ]; then
+        echo ${validate} | tee /dev/null
+      else
+        echo ${validate} | tee /dev/null
+      fi
+    fi
+    break
+  done
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let validate_uses = facts
+            .word_facts()
+            .iter()
+            .filter(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "${validate}"
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            validate_uses.len(),
+            3,
+            "expected all function-local pipeline uses"
+        );
+        assert!(
+            validate_uses
+                .into_iter()
+                .all(|fact| !safe_values.word_occurrence_is_safe(fact, SafeValueQuery::Argv))
+        );
+    }
+
+    #[test]
+    fn case_defaults_distinguish_maybe_uninitialized_from_explicit_empty_bindings() {
+        let source = "\
+#!/bin/bash
+case $1 in
+  nfs|dir)
+    disk_ext=.qcow2
+    ;;
+  btrfs)
+    disk_ext=.raw
+    ;;
+esac
+printf '%s\\n' vm-${disk_ext:-}
+
+case $2 in
+  nfs|dir)
+    disk_ext_with_default=.qcow2
+    ;;
+  btrfs)
+    disk_ext_with_default=.raw
+    ;;
+  *)
+    disk_ext_with_default=
+    ;;
+esac
+printf '%s\\n' vm-${disk_ext_with_default:-}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let maybe_uninitialized = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "vm-${disk_ext:-}"
+            })
+            .expect("expected maybe-uninitialized command argument");
+        let explicit_default = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "vm-${disk_ext_with_default:-}"
+            })
+            .expect("expected explicit-default command argument");
+
+        assert!(!safe_values.word_occurrence_is_safe(maybe_uninitialized, SafeValueQuery::Argv));
+        assert!(safe_values.word_occurrence_is_safe(explicit_default, SafeValueQuery::Argv));
+    }
+
+    #[test]
     fn unconditional_safe_overwrites_stay_safe() {
         let source = "\
 #!/bin/bash
@@ -1356,6 +1854,231 @@ value=\"$(free ${humanreadable} | awk '{print $2}')\"
     }
 
     #[test]
+    fn nested_command_substitution_arguments_with_dynamic_values_stay_unsafe() {
+        let source = "\
+#!/bin/sh
+PRGNAM=cproc
+GIT_SHA=$( git rev-parse --short HEAD )
+DATE=$( git log --date=format:%Y%m%d --format=%cd | head -1 )
+VERSION=${DATE}_${GIT_SHA}
+echo \"MD5SUM=\\\"$( md5sum $PRGNAM-$VERSION.tar.xz | cut -d' ' -f1 )\\\"\"
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let version_use = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.is_nested_word_command()
+                    && fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source).contains("VERSION")
+            })
+            .expect("expected nested command argument fact for VERSION");
+
+        assert!(!safe_values.word_occurrence_is_safe(version_use, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn definite_uninitialized_bindings_stay_unsafe() {
+        let source = "\
+#!/bin/bash
+if [ \"${PULSE:-yes}\" != \"yes\" ]; then
+  pulseopt=\"--without-pulse\"
+fi
+
+config() {
+  ./configure \\
+    $pulseopt \\
+    --prefix=/usr
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "$pulseopt"
+            })
+            .expect("expected pulseopt command-argument fact");
+
+        assert!(
+            analysis
+                .uninitialized_references()
+                .iter()
+                .any(|uninitialized| {
+                    semantic.reference(uninitialized.reference).span == word_fact.span()
+                }),
+            "expected pulseopt to be marked uninitialized"
+        );
+        assert!(!safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn all_empty_static_literal_bindings_stay_unsafe_but_mixed_option_bindings_can_stay_safe() {
+        let source = "\
+#!/bin/bash
+gl2ps=
+if true; then
+  libdirsuffix=
+else
+  libdirsuffix=
+fi
+
+if true; then
+  mixedsuffix=64
+else
+  mixedsuffix=
+fi
+
+cmake $gl2ps -DOPT=1
+mkdir -p /tmp/usr/lib${libdirsuffix}/ladspa
+mkdir -p /tmp/usr/lib${mixedsuffix}/ladspa
+
+if true; then
+  opt=-n
+else
+  opt=
+fi
+printf '%s\\n' $opt hi
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let unsafe_words = facts
+            .word_facts()
+            .iter()
+            .filter(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && (fact.span().slice(source) == "$gl2ps"
+                        || fact
+                            .span()
+                            .slice(source)
+                            .contains("lib${libdirsuffix}/ladspa"))
+            })
+            .collect::<Vec<_>>();
+        let safe_words = facts
+            .word_facts()
+            .iter()
+            .filter(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && (fact.span().slice(source) == "$opt"
+                        || fact
+                            .span()
+                            .slice(source)
+                            .contains("lib${mixedsuffix}/ladspa"))
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(unsafe_words.len(), 2, "expected both empty-only uses");
+        assert!(
+            unsafe_words
+                .into_iter()
+                .all(|fact| !safe_values.word_occurrence_is_safe(fact, SafeValueQuery::Argv))
+        );
+        assert_eq!(safe_words.len(), 2, "expected both mixed-value uses");
+        assert!(
+            safe_words
+                .into_iter()
+                .all(|fact| safe_values.word_occurrence_is_safe(fact, SafeValueQuery::Argv))
+        );
+    }
+
+    #[test]
+    fn helper_call_sequences_can_make_outer_safe_globals_unsafe() {
+        let source = "\
+#!/bin/bash
+Region=default
+
+GetRegion() {
+  Region=\"$(printf '%s' \"$1\")\"
+}
+
+GetAMI() {
+  aws ec2 describe-images --region $Region
+}
+
+GetRegion \"$1\"
+GetAMI
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "$Region"
+            })
+            .expect("expected Region command-argument fact");
+
+        assert!(!safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn conditional_helper_globals_stay_unsafe_inside_nested_command_substitution_consumers() {
+        let source = "\
+#!/bin/bash
+Region=default
+
+GetRegion() {
+  if [ \"$Region\" = default ]; then
+    Region=\"$(printf '%s' \"$1\")\"
+  fi
+}
+
+GetAMI() {
+  AMI=$(aws ssm get-parameters --region $Region)
+}
+
+GetRegion \"$1\"
+GetAMI
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "$Region"
+            })
+            .expect("expected nested command-substitution helper-derived argument");
+
+        assert!(!safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
+    }
+
+    #[test]
     fn helper_initialized_option_flags_stay_safe_across_top_level_call_sequences() {
         let source = "\
 #!/bin/bash
@@ -1411,6 +2134,230 @@ fn_backup_compression
             .expect("expected helper-provided command argument fact");
 
         assert!(safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn case_cli_dispatch_entry_functions_do_not_inherit_outer_safe_globals() {
+        let source = "\
+#!/bin/sh
+exec=/usr/sbin/collectd
+pidfile=/var/run/collectd.pid
+configfile=/etc/collectd.conf
+
+start() {
+  [ -x $exec ] || exit 5
+  $exec -P $pidfile -C $configfile
+}
+
+case \"$1\" in
+  start) $1 ;;
+esac
+exit $?
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let command_name = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandName)
+                    && fact.span().slice(source) == "$exec"
+            })
+            .expect("expected dynamic command-name fact");
+        let command_arg = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "$pidfile"
+            })
+            .expect("expected dynamic command-argument fact");
+
+        assert!(!safe_values.word_occurrence_is_safe(command_name, SafeValueQuery::Argv));
+        assert!(!safe_values.word_occurrence_is_safe(command_arg, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn case_cli_dispatch_without_top_level_exit_keeps_outer_safe_globals() {
+        let source = "\
+#!/bin/sh
+exec=/usr/sbin/collectd
+pidfile=/var/run/collectd.pid
+configfile=/etc/collectd.conf
+
+start() {
+  [ -x $exec ] || exit 5
+  $exec -P $pidfile -C $configfile
+}
+
+case \"$1\" in
+  start) $1 ;;
+esac
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let command_name = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandName)
+                    && fact.span().slice(source) == "$exec"
+            })
+            .expect("expected dynamic command-name fact");
+        let command_arg = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "$pidfile"
+            })
+            .expect("expected dynamic command-argument fact");
+
+        assert!(safe_values.word_occurrence_is_safe(command_name, SafeValueQuery::Argv));
+        assert!(safe_values.word_occurrence_is_safe(command_arg, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn case_cli_scope_memoization_does_not_leak_status_capture_unsafety_into_helpers() {
+        let source = "\
+#!/bin/sh
+start() {
+  status=$?
+  printf '%s\\n' ${status}
+}
+
+case \"$1\" in
+  start) $1 ;;
+esac
+exit $?
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let dispatched_use = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "${status}"
+            })
+            .expect("expected case-cli entrypoint status use");
+        let binding_id = safe_values
+            .safe_bindings_for_name(&Name::new("status"), dispatched_use.span())
+            .into_iter()
+            .next()
+            .expect("expected reaching status binding");
+        let case_cli_scope =
+            safe_values.case_cli_dispatch_scope_at(dispatched_use.span().start.offset);
+
+        assert_eq!(
+            case_cli_scope,
+            Some(semantic.binding(binding_id).scope),
+            "expected the status binding to belong to the case-cli scope"
+        );
+
+        assert!(!safe_values.binding_is_safe(binding_id, SafeValueQuery::Argv, case_cli_scope));
+        assert!(safe_values.binding_is_safe(binding_id, SafeValueQuery::Argv, None));
+    }
+
+    #[test]
+    fn case_cli_dispatch_entry_functions_keep_nested_scope_safe_bindings() {
+        let source = "\
+#!/bin/sh
+start() {
+  printf '%s\n' \"$(
+    cmd=/bin/echo
+    arg=hello
+    $cmd $arg
+  )\"
+}
+
+case \"$1\" in
+  start) $1 ;;
+esac
+exit $?
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let command_name = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandName)
+                    && fact.span().slice(source) == "$cmd"
+            })
+            .expect("expected nested command-substitution command name");
+        let command_arg = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "$arg"
+            })
+            .expect("expected nested command-substitution command argument");
+
+        assert!(command_name.is_nested_word_command());
+        assert!(command_arg.is_nested_word_command());
+        assert!(safe_values.word_occurrence_is_safe(command_name, SafeValueQuery::Argv));
+        assert!(safe_values.word_occurrence_is_safe(command_arg, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn case_cli_dispatch_indirect_status_targets_stay_unsafe() {
+        let source = "\
+#!/bin/bash
+start() {
+  status=$?
+  ref=status
+  printf '%s\n' ${!ref}
+}
+
+case \"$1\" in
+  start) $1 ;;
+esac
+exit $?
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let indirect_use = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "${!ref}"
+            })
+            .expect("expected indirect case-cli status use");
+
+        assert!(!safe_values.word_occurrence_is_safe(indirect_use, SafeValueQuery::Argv));
     }
 
     #[test]
