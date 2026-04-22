@@ -8,7 +8,8 @@ use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use shuck_indexer::Indexer;
 use shuck_linter::{
-    Checker, ExpansionContext, RuleSet, ShellDialect, WordFactContext, classify_file_context,
+    AmbientShellOptions, Checker, ExpansionContext, RuleSet, ShellDialect, WordFactContext,
+    classify_file_context,
 };
 use shuck_parser::parser::Parser;
 use shuck_parser::{ShellDialect as ParseShellDialect, ShellProfile};
@@ -150,6 +151,7 @@ fn run_fixture(fixture: &Fixture) -> Result<()> {
         &indexer,
         &rules,
         ShellDialect::Zsh,
+        AmbientShellOptions::default(),
         false,
         shuck_linter::LinterRuleOptions::default(),
         &file_context,

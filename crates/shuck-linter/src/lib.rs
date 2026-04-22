@@ -133,7 +133,8 @@ pub(crate) use rules::common::word::{
 };
 /// Linter configuration and per-file ignore types.
 pub use settings::{
-    C001RuleOptions, CompiledPerFileIgnoreList, LinterRuleOptions, LinterSettings, PerFileIgnore,
+    AmbientShellOptions, C001RuleOptions, CompiledPerFileIgnoreList, LinterRuleOptions,
+    LinterSettings, PerFileIgnore,
 };
 /// Shell dialect selection used by the linter.
 pub use shell::ShellDialect;
@@ -312,6 +313,7 @@ fn analyze_file_at_path_with_resolver_and_shell(
         indexer,
         &settings.rules,
         shell,
+        settings.ambient_shell_options,
         settings.report_environment_style_names,
         settings.rule_options.clone(),
         &file_context,

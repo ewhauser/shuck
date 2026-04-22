@@ -48,6 +48,14 @@ fn stdout_string(output: &std::process::Output) -> String {
     String::from_utf8(output.stdout.clone()).unwrap()
 }
 
+fn platform_path(path: &str) -> String {
+    if std::path::MAIN_SEPARATOR == '/' {
+        path.to_owned()
+    } else {
+        path.replace('/', std::path::MAIN_SEPARATOR_STR)
+    }
+}
+
 #[derive(Clone, Copy)]
 enum StreamKind {
     Stdout,
@@ -642,6 +650,344 @@ fn check_concise_output_preserves_legacy_one_line_format() {
     cmd.assert()
         .code(1)
         .stdout("warn.sh:2:1: warning[C001] variable `unused` is assigned but never used\n");
+}
+
+#[test]
+fn check_concise_output_reports_realistic_issue_workflow_lint() {
+    let tempdir = tempdir().unwrap();
+    fs::create_dir_all(tempdir.path().join(".github/workflows")).unwrap();
+    fs::write(
+        tempdir.path().join(".github/workflows/issues.yml"),
+        r#"on:
+  issues:
+    types: [opened, edited]
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build summary
+        run: |
+          summary="${{ github.event.issue.title }}"
+"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--output-format", "concise"]);
+    let expected = format!(
+        "{}:10:11: warning[C001] jobs.triage.steps[0].run: variable `summary` is assigned but never used\n",
+        platform_path(".github/workflows/issues.yml")
+    );
+    cmd.assert().code(1).stdout(expected);
+}
+
+#[test]
+fn check_concise_output_avoids_placeholder_collisions_with_user_variables() {
+    let tempdir = tempdir().unwrap();
+    fs::create_dir_all(tempdir.path().join(".github/workflows")).unwrap();
+    fs::write(
+        tempdir.path().join(".github/workflows/collision.yml"),
+        r#"on: push
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          _SHUCK_GHA_1=1
+          echo "${{ github.ref }}"
+"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--output-format", "concise"]);
+    let expected = format!(
+        "{}:7:11: warning[C001] jobs.triage.steps[0].run: variable `_SHUCK_GHA_1` is assigned but never used\n",
+        platform_path(".github/workflows/collision.yml")
+    );
+    cmd.assert().code(1).stdout(expected);
+}
+
+#[test]
+fn check_concise_output_reports_realistic_issue_comment_workflow_parse_rule() {
+    let tempdir = tempdir().unwrap();
+    fs::create_dir_all(tempdir.path().join(".github/workflows")).unwrap();
+    fs::write(
+        tempdir.path().join(".github/workflows/comment.yml"),
+        r#"on:
+  issue_comment:
+    types: [created]
+jobs:
+  reply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Render comment
+        run: |
+          if [ -n "${{ github.event.comment.body }}" ]; then
+            echo ready
+"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--output-format", "concise"]);
+    let expected = format!(
+        "{}:12:11: error[C035] jobs.reply.steps[0].run: this `if` block is missing a closing `fi`\n",
+        platform_path(".github/workflows/comment.yml")
+    );
+    cmd.assert().code(1).stdout(expected);
+}
+
+#[test]
+fn check_concise_output_uses_implicit_github_actions_errexit() {
+    let tempdir = tempdir().unwrap();
+    fs::create_dir_all(tempdir.path().join(".github/workflows")).unwrap();
+    fs::write(
+        tempdir.path().join(".github/workflows/deploy.yml"),
+        r#"on: push
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          cd /tmp
+          echo ready
+"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--output-format", "concise"]);
+    cmd.assert().code(0).stdout("");
+}
+
+#[test]
+fn check_concise_output_reports_mapping_form_runs_on_workflow_lint() {
+    let tempdir = tempdir().unwrap();
+    fs::create_dir_all(tempdir.path().join(".github/workflows")).unwrap();
+    fs::write(
+        tempdir.path().join(".github/workflows/mapping.yml"),
+        r#"on: push
+jobs:
+  triage:
+    runs-on:
+      group: hosted
+      labels: ubuntu-latest
+    steps:
+      - run: |
+          unused=1
+"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--output-format", "concise"]);
+    let expected = format!(
+        "{}:9:11: warning[C001] jobs.triage.steps[0].run: variable `unused` is assigned but never used\n",
+        platform_path(".github/workflows/mapping.yml")
+    );
+    cmd.assert().code(1).stdout(expected);
+}
+
+#[test]
+fn check_concise_output_ignores_windows_substrings_in_self_hosted_runner_labels() {
+    let tempdir = tempdir().unwrap();
+    fs::create_dir_all(tempdir.path().join(".github/workflows")).unwrap();
+    fs::write(
+        tempdir.path().join(".github/workflows/self-hosted.yml"),
+        r#"on: push
+jobs:
+  triage:
+    runs-on:
+      - self-hosted
+      - linux
+      - windows-tools
+    steps:
+      - run: |
+          unused=1
+"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--output-format", "concise"]);
+    let expected = format!(
+        "{}:10:11: warning[C001] jobs.triage.steps[0].run: variable `unused` is assigned but never used\n",
+        platform_path(".github/workflows/self-hosted.yml")
+    );
+    cmd.assert().code(1).stdout(expected);
+}
+
+#[test]
+fn check_concise_output_preserves_folded_workflow_line_gaps() {
+    let tempdir = tempdir().unwrap();
+    fs::create_dir_all(tempdir.path().join(".github/workflows")).unwrap();
+    fs::write(
+        tempdir.path().join(".github/workflows/folded.yml"),
+        r#"on: push
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - run: >
+          echo ok
+
+          unused=1
+"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--output-format", "concise"]);
+    let expected = format!(
+        "{}:9:11: warning[C001] jobs.triage.steps[0].run: variable `unused` is assigned but never used\n",
+        platform_path(".github/workflows/folded.yml")
+    );
+    cmd.assert().code(1).stdout(expected);
+}
+
+#[test]
+fn check_concise_output_keeps_embedded_workflows_out_of_source_tracking() {
+    let tempdir = tempdir().unwrap();
+    fs::create_dir_all(tempdir.path().join(".github/workflows")).unwrap();
+    fs::write(
+        tempdir.path().join("main.sh"),
+        "#!/bin/sh\n. ./.github/workflows/ci.yml\n",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join(".github/workflows/ci.yml"),
+        r#"on: push
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok
+"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--output-format", "concise"]);
+    let expected = format!(
+        "{}:2:3: warning[C003] sourced file is not available to this analysis\n",
+        platform_path("main.sh")
+    );
+    cmd.assert().code(1).stdout(expected);
+}
+
+#[test]
+fn check_concise_output_remaps_folded_double_quoted_workflow_lines() {
+    let tempdir = tempdir().unwrap();
+    fs::create_dir_all(tempdir.path().join(".github/workflows")).unwrap();
+    fs::write(
+        tempdir.path().join(".github/workflows/quoted.yml"),
+        r#"on: push
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - run: "echo ok
+          ; unused=1"
+"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--output-format", "concise"]);
+    let expected = format!(
+        "{}:7:13: warning[C001] jobs.triage.steps[0].run: variable `unused` is assigned but never used\n",
+        platform_path(".github/workflows/quoted.yml")
+    );
+    cmd.assert().code(1).stdout(expected);
+}
+
+#[test]
+fn check_concise_output_remaps_double_quoted_workflow_line_continuations() {
+    let tempdir = tempdir().unwrap();
+    fs::create_dir_all(tempdir.path().join(".github/workflows")).unwrap();
+    fs::write(
+        tempdir.path().join(".github/workflows/continued.yml"),
+        "on: push\njobs:\n  triage:\n    runs-on: ubuntu-latest\n    steps:\n      - run: \"echo a\\\n          ; unused=1\"\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--output-format", "concise"]);
+    let expected = format!(
+        "{}:7:13: warning[C001] jobs.triage.steps[0].run: variable `unused` is assigned but never used\n",
+        platform_path(".github/workflows/continued.yml")
+    );
+    cmd.assert().code(1).stdout(expected);
+}
+
+#[test]
+fn check_concise_output_remaps_single_quoted_workflow_runs() {
+    let tempdir = tempdir().unwrap();
+    fs::create_dir_all(tempdir.path().join(".github/workflows")).unwrap();
+    fs::write(
+        tempdir.path().join(".github/workflows/single-quoted.yml"),
+        "on: push\njobs:\n  triage:\n    runs-on: ubuntu-latest\n    steps:\n      - run: 'echo ''ok''; unused=1'\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--output-format", "concise"]);
+    let expected = format!(
+        "{}:6:28: warning[C001] jobs.triage.steps[0].run: variable `unused` is assigned but never used\n",
+        platform_path(".github/workflows/single-quoted.yml")
+    );
+    cmd.assert().code(1).stdout(expected);
+}
+
+#[test]
+fn check_concise_output_remaps_plain_multiline_workflow_runs() {
+    let tempdir = tempdir().unwrap();
+    fs::create_dir_all(tempdir.path().join(".github/workflows")).unwrap();
+    fs::write(
+        tempdir.path().join(".github/workflows/plain.yml"),
+        r#"on: push
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok
+          ; unused=1
+"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--output-format", "concise"]);
+    let expected = format!(
+        "{}:7:13: warning[C001] jobs.triage.steps[0].run: variable `unused` is assigned but never used\n",
+        platform_path(".github/workflows/plain.yml")
+    );
+    cmd.assert().code(1).stdout(expected);
 }
 
 #[test]

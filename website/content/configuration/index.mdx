@@ -65,9 +65,28 @@ shuck --config ci/shuck.toml check .
 shuck --isolated --config "lint.select = ['C001']" check .
 ```
 
+## Check settings
+
+The `[check]` section controls file-level analysis behavior.
+
+### `embedded`
+
+Enables linting for supported embedded shell scripts in non-shell files such as GitHub Actions workflows and composite actions.
+
+This setting defaults to `true`.
+
+```toml
+[check]
+embedded = true
+```
+
+Set it to `false` if you want `shuck check` to ignore embedded `run:` blocks and only lint standalone shell files.
+
+See the [Embedded Scripts guide](/docs/embedded-scripts) for the supported file types and how diagnostics are remapped back to workflow YAML.
+
 ## Lint settings
 
-Shuck's stable config surface lives under `[lint]`.
+Shuck's stable rule-selection config surface lives under `[lint]`.
 
 ### `select`
 

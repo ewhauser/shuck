@@ -167,7 +167,7 @@ struct GlobalArgs {
 
 #[derive(Debug, Subcommand)]
 enum StableCommand {
-    /// Parse shell files and report syntax failures.
+    /// Lint shell files and supported embedded shell scripts.
     Check(CheckCommand),
     #[command(hide = true)]
     Format(FormatCommand),
@@ -177,7 +177,7 @@ enum StableCommand {
 
 #[derive(Debug, Subcommand)]
 enum ExperimentalCommand {
-    /// Parse shell files and report syntax failures.
+    /// Lint shell files and supported embedded shell scripts.
     Check(CheckCommand),
     /// Format shell files.
     Format(FormatCommand),
@@ -279,7 +279,7 @@ impl Args {
 /// Supported `shuck` subcommands.
 #[derive(Debug, Clone, Subcommand)]
 pub enum Command {
-    /// Parse shell files and report syntax failures.
+    /// Lint shell files and supported embedded shell scripts.
     Check(CheckCommand),
     /// Format shell files.
     Format(FormatCommand),

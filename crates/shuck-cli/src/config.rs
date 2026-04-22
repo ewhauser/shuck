@@ -15,7 +15,8 @@ use crate::format_settings::{FormatSettingsPatch, parse_config_indent_style};
 
 const CONFIG_FILENAMES: [&str; 2] = [".shuck.toml", "shuck.toml"];
 pub(crate) const CONFIG_DIALECT_UNSUPPORTED_ERROR: &str = "`[format].dialect` is not supported; formatter dialect is auto-discovered from the file name or shebang. Use `--dialect` for a per-run override";
-const CONFIG_OVERRIDE_ROOT_KEYS: &[&str] = &["format", "lint"];
+const CONFIG_OVERRIDE_ROOT_KEYS: &[&str] = &["check", "format", "lint"];
+const CONFIG_OVERRIDE_CHECK_KEYS: &[&str] = &["embedded"];
 const CONFIG_OVERRIDE_FORMAT_KEYS: &[&str] = &[
     "dialect",
     "indent-style",
@@ -45,8 +46,15 @@ const CONFIG_OVERRIDE_C001_RULE_OPTION_KEYS: &[&str] =
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default)]
 pub(crate) struct ShuckConfig {
+    pub check: CheckConfig,
     pub format: FormatConfig,
     pub lint: LintConfig,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub(crate) struct CheckConfig {
+    pub embedded: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
@@ -297,8 +305,17 @@ impl FormatConfig {
 
 impl ShuckConfig {
     fn apply_overrides(&mut self, overrides: ShuckConfig) {
+        self.check.apply_overrides(overrides.check);
         self.format.apply_overrides(overrides.format);
         self.lint.apply_overrides(overrides.lint);
+    }
+}
+
+impl CheckConfig {
+    fn apply_overrides(&mut self, overrides: CheckConfig) {
+        if overrides.embedded.is_some() {
+            self.embedded = overrides.embedded;
+        }
     }
 }
 
@@ -399,6 +416,20 @@ fn validate_override_table(table: &toml::Table) -> std::result::Result<(), Strin
                 return Err(format!(
                     "unsupported `[format]` option `{key}`; expected one of: {}",
                     CONFIG_OVERRIDE_FORMAT_KEYS.join(", ")
+                ));
+            }
+        }
+    }
+
+    if let Some(check_value) = table.get("check") {
+        let check = check_value
+            .as_table()
+            .ok_or_else(|| "`check` must be a TOML table".to_owned())?;
+        for key in check.keys() {
+            if !CONFIG_OVERRIDE_CHECK_KEYS.contains(&key.as_str()) {
+                return Err(format!(
+                    "unsupported `[check]` option `{key}`; expected one of: {}",
+                    CONFIG_OVERRIDE_CHECK_KEYS.join(", ")
                 ));
             }
         }
@@ -580,9 +611,21 @@ mod tests {
     }
 
     #[test]
+    fn inline_config_overrides_validate_supported_check_keys() {
+        let config = parse_config_override("check.embedded = false").unwrap();
+        assert_eq!(config.check.embedded, Some(false));
+    }
+
+    #[test]
+    fn inline_config_overrides_reject_unknown_check_keys() {
+        let err = parse_config_override("check.preview = true").unwrap_err();
+        assert!(err.contains("unsupported `[check]` option `preview`"));
+    }
+
+    #[test]
     fn inline_config_overrides_reject_unknown_root_keys() {
-        let err = parse_config_override("check.embedded = false").unwrap_err();
-        assert!(err.contains("unsupported config option `check`"));
+        let err = parse_config_override("unknown.value = false").unwrap_err();
+        assert!(err.contains("unsupported config option `unknown`"));
     }
 
     #[test]

@@ -120,7 +120,33 @@ impl<'a> LinterFacts<'a> {
         indexer: &'a Indexer,
         file_context: &'a FileContext,
     ) -> Self {
-        LinterFactsBuilder::new(file, source, semantic, indexer, file_context).build()
+        Self::build_with_ambient_shell_options(
+            file,
+            source,
+            semantic,
+            indexer,
+            file_context,
+            AmbientShellOptions::default(),
+        )
+    }
+
+    pub fn build_with_ambient_shell_options(
+        file: &'a File,
+        source: &'a str,
+        semantic: &'a SemanticModel,
+        indexer: &'a Indexer,
+        file_context: &'a FileContext,
+        ambient_shell_options: AmbientShellOptions,
+    ) -> Self {
+        LinterFactsBuilder::new(
+            file,
+            source,
+            semantic,
+            indexer,
+            file_context,
+            ambient_shell_options,
+        )
+        .build()
     }
 
     pub fn commands(&self) -> &[CommandFact<'a>] {
