@@ -11,3 +11,9 @@ reviewed_divergences:
     column: 6
     end_column: 11
     reason: "This shellspec source-helper uses `test dummy` as a fixed-status probe during harness setup. Shuck still treats that plain literal `test` call as a constant condition, but the current oracle does not emit the mapped comparison warning there."
+  - side: shellcheck-only
+    path_suffix: "acmesh-official__acme.sh__acme.sh"
+    line: 987
+    column: 5
+    end_column: 7
+    reason: "This acme.sh helper uses `[ \"\" ]` as an already-explicit false sentinel. Shuck intentionally keeps explicit boolean literals out of C020 so the rule can focus on accidental constant probes and its autofix does not rewrite one warned literal into another."

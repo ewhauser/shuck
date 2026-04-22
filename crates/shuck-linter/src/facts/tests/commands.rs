@@ -2894,7 +2894,7 @@ docker inspect -f '{{ if ne \"true\" (index .Config.Labels \"com.dokku.devcontai
         let substitution = facts
             .commands()
             .iter()
-            .flat_map(|fact| fact.substitution_facts().iter().copied())
+            .flat_map(|fact| fact.substitution_facts().iter())
             .find(|fact| fact.span().slice(source) == "$(docker ps -q)")
             .expect("expected docker ps substitution fact");
 

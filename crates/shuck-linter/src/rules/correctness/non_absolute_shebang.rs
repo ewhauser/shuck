@@ -44,8 +44,11 @@ fn rewrite_shebang(shebang_line: &str) -> String {
         .and_then(|name| name.to_str())
         .unwrap_or(interpreter);
 
-    let mut rewritten = String::from("#!/usr/bin/env ");
-    rewritten.push_str(interpreter);
+    let mut rewritten = String::from("#!/usr/bin/env");
+    if interpreter != "env" {
+        rewritten.push(' ');
+        rewritten.push_str(interpreter);
+    }
 
     for arg in words {
         rewritten.push(' ');
@@ -121,6 +124,24 @@ mod tests {
         assert_eq!(result.fixes_applied, 1);
         assert_eq!(result.fixed_source, "#!/usr/bin/env sh -x\n:\n");
         assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn preserves_existing_env_interpreters_when_rewriting() {
+        for (source, expected) in [
+            ("#!env bash\n:\n", "#!/usr/bin/env bash\n:\n"),
+            ("#!env -S bash -e\n:\n", "#!/usr/bin/env -S bash -e\n:\n"),
+        ] {
+            let result = test_snippet_with_fix(
+                source,
+                &LinterSettings::for_rule(Rule::NonAbsoluteShebang),
+                Applicability::Unsafe,
+            );
+
+            assert_eq!(result.fixes_applied, 1);
+            assert_eq!(result.fixed_source, expected);
+            assert!(result.fixed_diagnostics.is_empty());
+        }
     }
 
     #[test]

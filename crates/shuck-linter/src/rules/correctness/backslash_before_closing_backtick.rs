@@ -26,19 +26,19 @@ pub fn backslash_before_closing_backtick(checker: &mut Checker) {
         .backtick_fragments()
         .iter()
         .filter_map(|fragment| {
-            backslash_before_closing_backtick_span(fragment.span(), checker.source())
+            backslash_before_closing_backtick_spans(fragment.span(), checker.source())
         })
         .collect::<Vec<_>>();
 
-    for span in spans {
+    for (report_span, fix_span) in spans {
         checker.report_diagnostic_dedup(
-            crate::Diagnostic::new(BackslashBeforeClosingBacktick, span)
-                .with_fix(crate::Fix::unsafe_edit(crate::Edit::deletion(span))),
+            crate::Diagnostic::new(BackslashBeforeClosingBacktick, report_span)
+                .with_fix(crate::Fix::unsafe_edit(crate::Edit::deletion(fix_span))),
         );
     }
 }
 
-fn backslash_before_closing_backtick_span(span: Span, source: &str) -> Option<Span> {
+fn backslash_before_closing_backtick_spans(span: Span, source: &str) -> Option<(Span, Span)> {
     let text = span.slice(source);
     if !text.starts_with('`') || !text.ends_with('`') || text.len() < 3 {
         return None;
@@ -57,7 +57,9 @@ fn backslash_before_closing_backtick_span(span: Span, source: &str) -> Option<Sp
 
     let prefix = &text[..1 + backslash_index];
     let start = span.start.advanced_by(prefix);
-    Some(Span::from_positions(start, start.advanced_by("\\")))
+    let report_span = Span::from_positions(start, start);
+    let fix_span = Span::from_positions(start, start.advanced_by("\\"));
+    Some((report_span, fix_span))
 }
 
 #[cfg(test)]
@@ -83,14 +85,21 @@ echo \"$ARCH\"
         assert_eq!(
             diagnostics
                 .iter()
-                .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.start.column))
+                .map(|diagnostic| {
+                    (
+                        diagnostic.span.start.line,
+                        diagnostic.span.start.column,
+                        diagnostic.span.end.line,
+                        diagnostic.span.end.column,
+                    )
+                })
                 .collect::<Vec<_>>(),
-            vec![(3, 29)]
+            vec![(3, 29, 3, 29)]
         );
         assert!(
             diagnostics
                 .iter()
-                .all(|diagnostic| diagnostic.span.slice(source) == "\\")
+                .all(|diagnostic| diagnostic.span.slice(source).is_empty())
         );
     }
 
