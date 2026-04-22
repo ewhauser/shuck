@@ -239,3 +239,30 @@ o() {
         );
     });
 }
+
+#[test]
+fn marks_commands_inside_completion_registration_chain_functions() {
+    let source = "\
+#!/bin/bash
+_comp_cmd_hostname() {
+  [[ $cur == -* ]] && _comp_compgen_help || _comp_compgen_usage
+} &&
+  complete -F _comp_cmd_hostname hostname
+_comp_cmd_later() {
+  [[ $cur == -* ]] && _comp_compgen_help || _comp_compgen_usage
+}
+complete -F _comp_cmd_later later
+";
+
+    with_facts(source, None, |_, facts| {
+        let flagged_lines = facts
+            .commands()
+            .iter()
+            .filter(|command| facts.command_is_in_completion_registered_function(command.id()))
+            .map(|command| command.span().start.line)
+            .collect::<Vec<_>>();
+
+        assert!(!flagged_lines.is_empty());
+        assert!(flagged_lines.iter().all(|line| *line == 3));
+    });
+}
