@@ -321,7 +321,9 @@ impl<'a> LinterFactsBuilder<'a> {
             if let shuck_semantic::BindingOrigin::ArithmeticAssignment { target_span, .. } =
                 &binding.origin
             {
-                binding_target_spans.entry(binding.id).or_insert(*target_span);
+                binding_target_spans
+                    .entry(binding.id)
+                    .or_insert(*target_span);
             }
         }
         populate_linebreak_in_test_facts(&mut commands, self.source);
@@ -334,6 +336,12 @@ impl<'a> LinterFactsBuilder<'a> {
         let presence_tested_names = build_presence_tested_names(&commands, self.source);
         let function_headers =
             build_function_header_facts(self.semantic, &functions, &commands, self.source);
+        let function_cli_dispatch_facts = build_function_cli_dispatch_facts(
+            self.semantic,
+            &function_headers,
+            self.file,
+            self.source,
+        );
         sort_and_dedup_spans(&mut condition_status_capture_spans);
         sort_and_dedup_spans(&mut condition_command_substitution_spans);
         sort_and_dedup_case_pattern_expansions(&mut case_pattern_expansions);
@@ -619,6 +627,7 @@ impl<'a> LinterFactsBuilder<'a> {
             arithmetic_command_substitution_spans: arithmetic_summary
                 .arithmetic_command_substitution_spans,
             function_positional_parameter_facts,
+            function_cli_dispatch_facts,
             single_quoted_fragments: single_quoted,
             dollar_double_quoted_fragments: dollar_double_quoted,
             open_double_quote_fragments: open_double_quotes,

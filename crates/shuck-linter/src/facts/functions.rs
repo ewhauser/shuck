@@ -96,6 +96,27 @@ impl FunctionCallArityFacts {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct FunctionCliDispatchFacts {
+    exported_from_case_cli: bool,
+    dispatcher_span: Option<Span>,
+}
+
+impl FunctionCliDispatchFacts {
+    pub fn exported_from_case_cli(self) -> bool {
+        self.exported_from_case_cli
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn dispatcher_span(self) -> Option<Span> {
+        self.dispatcher_span
+    }
+
+    fn record_dispatch(&mut self, span: Span) {
+        self.exported_from_case_cli = true;
+        self.dispatcher_span.get_or_insert(span);
+    }
+}
 
 fn build_function_header_facts<'a>(
     semantic: &SemanticModel,
@@ -124,6 +145,89 @@ fn build_function_header_facts<'a>(
             }
         })
         .collect()
+}
+
+fn build_function_cli_dispatch_facts(
+    semantic: &SemanticModel,
+    function_headers: &[FunctionHeaderFact<'_>],
+    file: &File,
+    source: &str,
+) -> FxHashMap<ScopeId, FunctionCliDispatchFacts> {
+    let mut facts = FxHashMap::<ScopeId, FunctionCliDispatchFacts>::default();
+    let scopes_by_binding = function_headers
+        .iter()
+        .filter_map(|header| Some((header.binding_id()?, header.function_scope()?)))
+        .collect::<FxHashMap<_, _>>();
+
+    for pair in file.body.as_slice().windows(2) {
+        let [case_stmt, trailing_exit_stmt] = pair else {
+            continue;
+        };
+        let Command::Compound(CompoundCommand::Case(case_command)) = &case_stmt.command else {
+            continue;
+        };
+        if case_subject_variable_name(&case_command.word) != Some("1") {
+            continue;
+        }
+        if !stmt_is_top_level_status_exit(trailing_exit_stmt) {
+            continue;
+        }
+
+        for item in &case_command.cases {
+            let Some(dispatcher_span) = first_positional_dispatch_in_commands(&item.body) else {
+                continue;
+            };
+
+            for pattern in &item.patterns {
+                let Some(name) = static_case_pattern_text(pattern, source) else {
+                    continue;
+                };
+                if !is_plausible_shell_function_name(&name) {
+                    continue;
+                }
+
+                let name = Name::from(name.as_str());
+                let Some(binding_id) = visible_function_binding_for_call_offset(
+                    semantic,
+                    &name,
+                    dispatcher_span.start.offset,
+                ) else {
+                    continue;
+                };
+                let Some(scope) = scopes_by_binding.get(&binding_id).copied() else {
+                    continue;
+                };
+
+                facts
+                    .entry(scope)
+                    .or_default()
+                    .record_dispatch(dispatcher_span);
+            }
+        }
+    }
+
+    facts
+}
+
+fn stmt_is_top_level_status_exit(stmt: &Stmt) -> bool {
+    if stmt.negated || matches!(stmt.terminator, Some(StmtTerminator::Background(_))) {
+        return false;
+    }
+
+    let Command::Builtin(BuiltinCommand::Exit(command)) = &stmt.command else {
+        return false;
+    };
+    if !command.extra_args.is_empty()
+        || !command.assignments.is_empty()
+        || !stmt.redirects.is_empty()
+    {
+        return false;
+    }
+
+    command
+        .code
+        .as_ref()
+        .is_some_and(|code| crate::word_is_standalone_status_capture(code))
 }
 
 fn build_function_parameter_fallback_spans(
@@ -419,6 +523,112 @@ fn visible_function_binding_for_call_offset(
             })
         })
 }
+
+fn first_positional_dispatch_in_commands(commands: &StmtSeq) -> Option<Span> {
+    commands
+        .iter()
+        .find_map(|stmt| first_positional_dispatch_in_command(&stmt.command))
+}
+
+fn first_positional_dispatch_in_command(command: &Command) -> Option<Span> {
+    match command {
+        Command::Binary(command) => first_positional_dispatch_in_command(&command.left.command)
+            .or_else(|| first_positional_dispatch_in_command(&command.right.command)),
+        Command::Compound(CompoundCommand::BraceGroup(commands))
+        | Command::Compound(CompoundCommand::Subshell(commands)) => {
+            first_positional_dispatch_in_commands(commands)
+        }
+        Command::Compound(CompoundCommand::If(command)) => {
+            first_positional_dispatch_in_commands(&command.condition)
+                .or_else(|| first_positional_dispatch_in_commands(&command.then_branch))
+                .or_else(|| {
+                    command
+                        .elif_branches
+                        .iter()
+                        .find_map(|(condition, branch)| {
+                            first_positional_dispatch_in_commands(condition)
+                                .or_else(|| first_positional_dispatch_in_commands(branch))
+                        })
+                })
+                .or_else(|| {
+                    command
+                        .else_branch
+                        .as_ref()
+                        .and_then(|branch| first_positional_dispatch_in_commands(branch))
+                })
+        }
+        Command::Compound(CompoundCommand::While(command)) => {
+            first_positional_dispatch_in_commands(&command.condition)
+                .or_else(|| first_positional_dispatch_in_commands(&command.body))
+        }
+        Command::Compound(CompoundCommand::Until(command)) => {
+            first_positional_dispatch_in_commands(&command.condition)
+                .or_else(|| first_positional_dispatch_in_commands(&command.body))
+        }
+        Command::Compound(CompoundCommand::For(command)) => {
+            first_positional_dispatch_in_commands(&command.body)
+        }
+        Command::Compound(CompoundCommand::Select(command)) => {
+            first_positional_dispatch_in_commands(&command.body)
+        }
+        Command::Compound(CompoundCommand::Case(command)) => command
+            .cases
+            .iter()
+            .find_map(|item| first_positional_dispatch_in_commands(&item.body)),
+        Command::Compound(CompoundCommand::Time(command)) => command
+            .command
+            .as_ref()
+            .and_then(|stmt| first_positional_dispatch_in_command(&stmt.command)),
+        Command::Compound(CompoundCommand::Conditional(_))
+        | Command::Compound(_)
+        | Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => None,
+        Command::Simple(command) => {
+            word_is_plain_positional_parameter(&command.name, "1").then_some(command.name.span)
+        }
+    }
+}
+
+fn word_is_plain_positional_parameter(word: &Word, target: &str) -> bool {
+    let [part] = word.parts.as_slice() else {
+        return false;
+    };
+
+    word_part_is_plain_positional_parameter(&part.kind, target)
+}
+
+fn word_part_is_plain_positional_parameter(part: &WordPart, target: &str) -> bool {
+    match part {
+        WordPart::Variable(name) => name.as_str() == target,
+        WordPart::DoubleQuoted { parts, .. } => {
+            let [part] = parts.as_slice() else {
+                return false;
+            };
+            word_part_is_plain_positional_parameter(&part.kind, target)
+        }
+        WordPart::Parameter(parameter) => match &parameter.syntax {
+            ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference }) => {
+                reference.subscript.is_none() && reference.name.as_str() == target
+            }
+            ParameterExpansionSyntax::Zsh(syntax) => {
+                syntax.length_prefix.is_none()
+                    && syntax.operation.is_none()
+                    && syntax.modifiers.is_empty()
+                    && matches!(
+                        &syntax.target,
+                        ZshExpansionTarget::Reference(reference)
+                            if reference.subscript.is_none()
+                                && reference.name.as_str() == target
+                    )
+            }
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
 fn function_body_without_braces_span(function: &FunctionDef) -> Option<Span> {
     match &function.body.command {
         Command::Compound(CompoundCommand::BraceGroup(_)) => None,
@@ -796,4 +1006,3 @@ fn special_positional_parameter_name(name: &str) -> Option<bool> {
         _ => None,
     }
 }
-

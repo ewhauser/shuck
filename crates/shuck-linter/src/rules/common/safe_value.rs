@@ -218,6 +218,19 @@ impl<'a> SafeValueIndex<'a> {
         if bindings.is_empty() {
             return safe_numeric_shell_variable(name);
         }
+        let case_cli_scope = matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
+            .then(|| self.case_cli_dispatch_scope_at(at.start.offset))
+            .flatten();
+        if matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget) {
+            if case_cli_scope.is_some()
+                && !self.case_cli_dispatch_outer_bindings_can_stay_safe(&bindings, at, query)
+                && !bindings.iter().copied().any(|binding_id| {
+                    Some(self.semantic.binding(binding_id).scope) == case_cli_scope
+                })
+            {
+                return safe_numeric_shell_variable(name);
+            }
+        }
         if self.maybe_uninitialized_refs.contains(&FactSpan::new(at))
             && !bindings
                 .iter()
@@ -229,10 +242,63 @@ impl<'a> SafeValueIndex<'a> {
 
         bindings
             .into_iter()
-            .all(|binding_id| self.binding_is_safe(binding_id, query))
+            .all(|binding_id| self.binding_is_safe(binding_id, query, case_cli_scope))
     }
 
-    fn binding_is_safe(&mut self, binding_id: BindingId, query: SafeValueQuery) -> bool {
+    fn case_cli_dispatch_scope_at(&self, offset: usize) -> Option<ScopeId> {
+        self.semantic
+            .ancestor_scopes(self.semantic.scope_at(offset))
+            .find(|scope| {
+                self.facts
+                    .function_cli_dispatch_facts(*scope)
+                    .exported_from_case_cli()
+            })
+    }
+
+    pub fn in_case_cli_dispatch_entrypoint(&self, offset: usize) -> bool {
+        self.case_cli_dispatch_scope_at(offset).is_some()
+    }
+
+    fn case_cli_dispatch_outer_bindings_can_stay_safe(
+        &self,
+        bindings: &[BindingId],
+        at: Span,
+        query: SafeValueQuery,
+    ) -> bool {
+        if query != SafeValueQuery::Argv || !self.is_argument_of_dynamic_command(at) {
+            return false;
+        }
+
+        bindings
+            .iter()
+            .copied()
+            .all(|binding_id| self.binding_is_quoted_static_literal(binding_id))
+    }
+
+    fn is_argument_of_dynamic_command(&self, at: Span) -> bool {
+        self.facts.commands().iter().any(|command| {
+            command.body_args().iter().any(|word| word.span == at)
+                && command
+                    .body_name_word()
+                    .is_some_and(crate::word_is_standalone_variable_like)
+        })
+    }
+
+    fn binding_is_quoted_static_literal(&self, binding_id: BindingId) -> bool {
+        self.facts
+            .binding_value(binding_id)
+            .and_then(|value| value.scalar_word())
+            .is_some_and(|word| {
+                word.is_fully_quoted() && static_word_text(word, self.source).is_some()
+            })
+    }
+
+    fn binding_is_safe(
+        &mut self,
+        binding_id: BindingId,
+        query: SafeValueQuery,
+        case_cli_scope: Option<ScopeId>,
+    ) -> bool {
         let binding = self.semantic.binding(binding_id);
         let binding_key = FactSpan::new(binding.span);
         if binding.attributes.contains(BindingAttributes::INTEGER)
@@ -260,7 +326,14 @@ impl<'a> SafeValueIndex<'a> {
                     .binding_value(binding_id)
                     .filter(|value| !value.conditional_assignment_shortcut())
                     .and_then(|value| value.scalar_word());
-                scalar_word.is_some_and(|word| self.word_is_safe(word, query))
+                if case_cli_scope == Some(binding.scope)
+                    && matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
+                    && scalar_word.is_some_and(crate::word_is_standalone_status_capture)
+                {
+                    false
+                } else {
+                    scalar_word.is_some_and(|word| self.word_is_safe(word, query))
+                }
             }
             BindingOrigin::LoopVariable {
                 items: LoopValueOrigin::StaticWords,
@@ -326,7 +399,7 @@ impl<'a> SafeValueIndex<'a> {
                 && targets
                     .iter()
                     .copied()
-                    .all(|target| self.binding_is_safe(target, query))
+                    .all(|target| self.binding_is_safe(target, query, None))
         })
     }
 
@@ -1442,6 +1515,99 @@ fn_backup_compression
             .expect("expected helper-provided command argument fact");
 
         assert!(safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn case_cli_dispatch_entry_functions_do_not_inherit_outer_safe_globals() {
+        let source = "\
+#!/bin/sh
+exec=/usr/sbin/collectd
+pidfile=/var/run/collectd.pid
+configfile=/etc/collectd.conf
+
+start() {
+  [ -x $exec ] || exit 5
+  $exec -P $pidfile -C $configfile
+}
+
+case \"$1\" in
+  start) $1 ;;
+esac
+exit $?
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let command_name = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandName)
+                    && fact.span().slice(source) == "$exec"
+            })
+            .expect("expected dynamic command-name fact");
+        let command_arg = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "$pidfile"
+            })
+            .expect("expected dynamic command-argument fact");
+
+        assert!(!safe_values.word_occurrence_is_safe(command_name, SafeValueQuery::Argv));
+        assert!(!safe_values.word_occurrence_is_safe(command_arg, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn case_cli_dispatch_without_top_level_exit_keeps_outer_safe_globals() {
+        let source = "\
+#!/bin/sh
+exec=/usr/sbin/collectd
+pidfile=/var/run/collectd.pid
+configfile=/etc/collectd.conf
+
+start() {
+  [ -x $exec ] || exit 5
+  $exec -P $pidfile -C $configfile
+}
+
+case \"$1\" in
+  start) $1 ;;
+esac
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let command_name = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandName)
+                    && fact.span().slice(source) == "$exec"
+            })
+            .expect("expected dynamic command-name fact");
+        let command_arg = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "$pidfile"
+            })
+            .expect("expected dynamic command-argument fact");
+
+        assert!(safe_values.word_occurrence_is_safe(command_name, SafeValueQuery::Argv));
+        assert!(safe_values.word_occurrence_is_safe(command_arg, SafeValueQuery::Argv));
     }
 
     #[test]

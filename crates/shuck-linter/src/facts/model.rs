@@ -81,6 +81,7 @@ pub struct LinterFacts<'a> {
     dollar_in_arithmetic_spans: Vec<Span>,
     arithmetic_command_substitution_spans: Vec<Span>,
     function_positional_parameter_facts: FxHashMap<ScopeId, FunctionPositionalParameterFacts>,
+    function_cli_dispatch_facts: FxHashMap<ScopeId, FunctionCliDispatchFacts>,
     single_quoted_fragments: Vec<SingleQuotedFragmentFact>,
     dollar_double_quoted_fragments: Vec<DollarDoubleQuotedFragmentFact>,
     open_double_quote_fragments: Vec<OpenDoubleQuoteFragmentFact>,
@@ -191,6 +192,16 @@ impl<'a> LinterFacts<'a> {
         scope: ScopeId,
     ) -> FunctionPositionalParameterFacts {
         self.function_positional_parameter_facts
+            .get(&scope)
+            .copied()
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn function_cli_dispatch_facts(
+        &self,
+        scope: ScopeId,
+    ) -> FunctionCliDispatchFacts {
+        self.function_cli_dispatch_facts
             .get(&scope)
             .copied()
             .unwrap_or_default()

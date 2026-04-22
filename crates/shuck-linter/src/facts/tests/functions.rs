@@ -167,6 +167,109 @@ value=\"`greet`\"
 }
 
 #[test]
+fn function_cli_dispatch_facts_track_case_positional_entrypoints_with_top_level_exit_status() {
+    let source = "\
+#!/bin/sh
+start() { echo hi; }
+stop() { echo bye; }
+case \"$1\" in
+  start) $1 ;;
+  stop) \"$1\" ;;
+esac
+exit $?
+";
+
+    with_facts(source, None, |_, facts| {
+        for name in ["start", "stop"] {
+            let header = facts
+                .function_headers()
+                .iter()
+                .find(|header| {
+                    header
+                        .static_name_entry()
+                        .is_some_and(|(candidate, _)| candidate == name)
+                })
+                .expect("expected dispatched function header");
+            let scope = header.function_scope().expect("expected function scope");
+            let dispatch = facts.function_cli_dispatch_facts(scope);
+
+            assert!(
+                dispatch.exported_from_case_cli(),
+                "expected {name} to be marked"
+            );
+            assert_eq!(
+                dispatch
+                    .dispatcher_span()
+                    .expect("expected dispatcher span")
+                    .slice(source),
+                if name == "start" { "$1" } else { "\"$1\"" }
+            );
+        }
+    });
+}
+
+#[test]
+fn function_cli_dispatch_facts_ignore_case_positional_entrypoints_without_top_level_exit_status() {
+    let source = "\
+#!/bin/sh
+start() { echo hi; }
+case \"$1\" in
+  start) $1 ;;
+esac
+";
+
+    with_facts(source, None, |_, facts| {
+        let header = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(candidate, _)| candidate == "start")
+            })
+            .expect("expected start header");
+        let scope = header.function_scope().expect("expected function scope");
+
+        assert!(
+            !facts
+                .function_cli_dispatch_facts(scope)
+                .exported_from_case_cli()
+        );
+    });
+}
+
+#[test]
+fn function_cli_dispatch_facts_ignore_static_case_calls() {
+    let source = "\
+#!/bin/sh
+start() { echo hi; }
+case \"$1\" in
+  start) start ;;
+esac
+exit $?
+";
+
+    with_facts(source, None, |_, facts| {
+        let header = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(candidate, _)| candidate == "start")
+            })
+            .expect("expected start header");
+        let scope = header.function_scope().expect("expected function scope");
+
+        assert!(
+            !facts
+                .function_cli_dispatch_facts(scope)
+                .exported_from_case_cli()
+        );
+    });
+}
+
+#[test]
 fn builds_function_style_spans() {
     let source = "\
 #!/bin/bash
