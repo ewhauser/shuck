@@ -1364,6 +1364,79 @@ fi
     }
 
     #[test]
+    fn skips_static_suffix_bindings_in_realistic_slackbuild_path_words() {
+        let path = Path::new("/tmp/example.SlackBuild");
+        let source = "\
+#!/bin/bash
+if [ -z \"$ARCH\" ]; then
+  ARCH=$(uname -m)
+  export ARCH
+fi
+
+if [ \"$ARCH\" = \"x86_64\" ]; then
+  MULTILIB=\"YES\"
+else
+  MULTILIB=\"NO\"
+fi
+
+if [ \"$ARCH\" = \"i386\" ]; then
+  LIBDIRSUFFIX=\"\"
+  LIB_ARCH=i386
+elif [ \"$ARCH\" = \"i486\" ]; then
+  LIBDIRSUFFIX=\"\"
+  LIB_ARCH=i386
+elif [ \"$ARCH\" = \"i586\" ]; then
+  LIBDIRSUFFIX=\"\"
+  LIB_ARCH=i386
+elif [ \"$ARCH\" = \"i686\" ]; then
+  LIBDIRSUFFIX=\"\"
+  LIB_ARCH=i386
+elif [ \"$ARCH\" = \"s390\" ]; then
+  LIBDIRSUFFIX=\"\"
+  LIB_ARCH=s390
+elif [ \"$ARCH\" = \"x86_64\" ]; then
+  LIBDIRSUFFIX=\"64\"
+  LIB_ARCH=amd64
+elif [ \"$ARCH\" = \"armv7hl\" ]; then
+  LIBDIRSUFFIX=\"\"
+  LIB_ARCH=armv7hl
+else
+  LIBDIRSUFFIX=\"\"
+  LIB_ARCH=$ARCH
+fi
+
+(
+  ./configure \
+    --prefix=/usr \
+    --libdir=/usr/lib$LIBDIRSUFFIX \
+    --with-python-dir=/lib$LIBDIRSUFFIX/python2.7/site-packages \
+    --with-java-home=/usr/lib$LIBDIRSUFFIX/jvm/jre \
+    --with-jvm-root-dir=/usr/lib$LIBDIRSUFFIX/jvm \
+    --with-jvm-jar-dir=/usr/lib$LIBDIRSUFFIX/jvm/jvm-exports \
+    --with-arch-directory=$LIB_ARCH
+)
+
+if [ ! -r /pkg/usr/lib${LIBDIRSUFFIX}/gcc/x/y/specs ]; then
+  cat stage1-gcc/specs > /pkg/usr/lib${LIBDIRSUFFIX}/gcc/x/y/specs
+fi
+if [ -d /pkg/usr/lib${LIBDIRSUFFIX} ]; then
+  mv /pkg/usr/lib${LIBDIRSUFFIX}/lib* /pkg/usr/lib${LIBDIRSUFFIX}/gcc/x/y/
+fi
+";
+        let settings = LinterSettings::for_rule(Rule::UnquotedExpansion)
+            .with_analyzed_paths([path.to_path_buf()]);
+        let diagnostics = test_snippet_at_path(path, source, &settings);
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$LIB_ARCH"]
+        );
+    }
+
+    #[test]
     fn keeps_safe_indirect_bindings_but_reports_parameter_operator_results() {
         let source = "\
 #!/bin/bash
