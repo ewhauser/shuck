@@ -3001,6 +3001,29 @@ source \"$x\"
     }
 
     #[test]
+    fn dev_null_source_directive_persists_until_overridden() {
+        let source = "\
+# shellcheck source=/dev/null
+foo() { echo hi; }
+source \"$a\"
+source \"$b\"
+# shellcheck source=./helper.sh
+source \"$c\"
+source \"$d\"
+";
+        let model = model(source);
+
+        assert_eq!(model.source_refs().len(), 4);
+        assert_eq!(model.source_refs()[0].kind, SourceRefKind::DirectiveDevNull);
+        assert_eq!(model.source_refs()[1].kind, SourceRefKind::DirectiveDevNull);
+        assert_eq!(
+            model.source_refs()[2].kind,
+            SourceRefKind::Directive("./helper.sh".to_string())
+        );
+        assert_eq!(model.source_refs()[3].kind, SourceRefKind::Dynamic);
+    }
+
+    #[test]
     fn escaped_dot_source_builtin_still_records_dynamic_source_refs() {
         let source = "\
 #!/bin/bash
@@ -3014,6 +3037,48 @@ source \"$x\"
             model.source_refs()[0].diagnostic_class,
             SourceRefDiagnosticClass::DynamicPath
         );
+    }
+
+    #[test]
+    fn parameter_expansion_roots_with_static_path_tails_are_untracked_source_refs() {
+        for source in [
+            "#!/bin/bash\nsource \"${ROOT?}/helper.sh\"\n",
+            "#!/bin/bash\nsource \"${ROOT:-$HOME/.config}/helper.sh\"\n",
+            "#!/bin/bash\nsource \"${ROOT+vendor}/helper.sh\"\n",
+            "#!/bin/bash\nsource \"${#ROOT}/helper.sh\"\n",
+            "#!/bin/bash\nsource \"${ROOT%/*}/helper.sh\"\n",
+            "#!/bin/bash\nsource \"${ROOT/file/repl}/helper.sh\"\n",
+            "#!/bin/bash\nsource \"${!ROOT}/helper.sh\"\n",
+        ] {
+            let model = model(source);
+
+            assert_eq!(model.source_refs().len(), 1, "{source}");
+            assert_eq!(model.source_refs()[0].kind, SourceRefKind::Dynamic, "{source}");
+            assert_eq!(
+                model.source_refs()[0].diagnostic_class,
+                SourceRefDiagnosticClass::UntrackedFile,
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
+    fn command_substitution_roots_with_static_path_tails_are_untracked_source_refs() {
+        for source in [
+            "#!/bin/bash\nsource \"$(git --exec-path)/git-sh-setup\"\n",
+            "#!/bin/sh\n. \"$(dirname \"$0\")/autopause-fcns.sh\"\n",
+            "#!/bin/ksh\nsource \"$(cd \"$(dirname \"${0}\")\"; pwd)/../nb\"\n",
+        ] {
+            let model = model(source);
+
+            assert_eq!(model.source_refs().len(), 1, "{source}");
+            assert_eq!(model.source_refs()[0].kind, SourceRefKind::Dynamic, "{source}");
+            assert_eq!(
+                model.source_refs()[0].diagnostic_class,
+                SourceRefDiagnosticClass::UntrackedFile,
+                "{source}"
+            );
+        }
     }
 
     #[test]

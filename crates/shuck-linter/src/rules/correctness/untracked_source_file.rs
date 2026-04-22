@@ -235,6 +235,44 @@ mod tests {
     }
 
     #[test]
+    fn reports_parameter_operator_roots_with_static_path_tails() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let source = "#!/bin/sh\n. \"${BUILD_ROOT:-$HOME/.config}/sh/functions.sh\"\n";
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::UntrackedSourceFile),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "\"${BUILD_ROOT:-$HOME/.config}/sh/functions.sh\""
+        );
+    }
+
+    #[test]
+    fn reports_command_substitution_roots_with_static_path_tails() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let source = "#!/bin/sh\n. \"$(dirname \"$0\")/autopause-fcns.sh\"\n";
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::UntrackedSourceFile),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "\"$(dirname \"$0\")/autopause-fcns.sh\""
+        );
+    }
+
+    #[test]
     fn reports_negated_parameter_expansion_roots_with_static_path_tails() {
         let temp = tempdir().unwrap();
         let main = temp.path().join("main.sh");
