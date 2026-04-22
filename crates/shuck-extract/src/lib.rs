@@ -712,6 +712,10 @@ fn source_mapping_for_scalar(source: &str, start_offset: usize, scalar: &str) ->
         return mapping;
     }
 
+    if let Some(mapping) = folded_block_source_mapping(source, start_offset, scalar) {
+        return mapping;
+    }
+
     let host_offset = adjust_offset_to_scalar_content(source, start_offset, scalar);
     let (host_start_line, host_start_column) = line_column_for_offset(source, host_offset);
     SourceMapping {
@@ -789,6 +793,165 @@ fn double_quoted_source_mapping(
     }
 
     None
+}
+
+fn folded_block_source_mapping(
+    source: &str,
+    start_offset: usize,
+    scalar: &str,
+) -> Option<SourceMapping> {
+    let host_offset = adjust_offset_to_scalar_content(source, start_offset, scalar);
+    let (host_start_line, host_start_column) = line_column_for_offset(source, host_offset);
+    let content_line_start = line_start_offset(source, host_offset);
+    let header_line = previous_line_text(source, content_line_start)?;
+    if !header_line_is_folded_block(header_line) {
+        return None;
+    }
+
+    let content_indent = host_start_column.saturating_sub(1);
+    let expected_line_count = decoded_line_count(scalar);
+    let mut host_line_starts = vec![HostLineStart {
+        line: host_start_line,
+        column: host_start_column,
+    }];
+    let mut current_line_start = content_line_start;
+    let mut current_line_number = host_start_line;
+    let mut previous_nonblank = classify_block_scalar_line(
+        source,
+        current_line_start,
+        current_line_number,
+        content_indent,
+    )?;
+    let mut pending_blank_lines = Vec::new();
+
+    while let Some(next_line_start) = next_line_start_offset(source, current_line_start) {
+        current_line_number += 1;
+        let next_line = classify_block_scalar_line(
+            source,
+            next_line_start,
+            current_line_number,
+            content_indent,
+        )?;
+        if next_line.ends_block {
+            break;
+        }
+        current_line_start = next_line_start;
+
+        if next_line.is_blank {
+            pending_blank_lines.push(next_line.line);
+            continue;
+        }
+
+        if !pending_blank_lines.is_empty() {
+            for blank_line in pending_blank_lines
+                .iter()
+                .copied()
+                .take(pending_blank_lines.len().saturating_sub(1))
+            {
+                host_line_starts.push(HostLineStart {
+                    line: blank_line,
+                    column: host_start_column,
+                });
+            }
+            host_line_starts.push(HostLineStart {
+                line: next_line.line,
+                column: host_start_column,
+            });
+            pending_blank_lines.clear();
+        } else if previous_nonblank.is_more_indented || next_line.is_more_indented {
+            host_line_starts.push(HostLineStart {
+                line: next_line.line,
+                column: host_start_column,
+            });
+        }
+
+        previous_nonblank = next_line;
+
+        if host_line_starts.len() >= expected_line_count {
+            break;
+        }
+    }
+
+    while host_line_starts.len() < expected_line_count {
+        let previous = host_line_starts.last().copied().unwrap_or(HostLineStart {
+            line: host_start_line,
+            column: host_start_column,
+        });
+        host_line_starts.push(HostLineStart {
+            line: previous.line + 1,
+            column: host_start_column,
+        });
+    }
+
+    Some(SourceMapping {
+        host_offset,
+        host_line_starts,
+        host_column_mappings: Vec::new(),
+    })
+}
+
+#[derive(Clone, Copy)]
+struct BlockScalarLine {
+    line: usize,
+    is_blank: bool,
+    is_more_indented: bool,
+    ends_block: bool,
+}
+
+fn classify_block_scalar_line(
+    source: &str,
+    line_start: usize,
+    line_number: usize,
+    content_indent: usize,
+) -> Option<BlockScalarLine> {
+    let line_end = source[line_start..]
+        .find('\n')
+        .map(|relative| line_start + relative)
+        .unwrap_or(source.len());
+    let line = source.get(line_start..line_end)?.trim_end_matches('\r');
+    let indent = line.chars().take_while(|&ch| ch == ' ').count();
+    let is_blank = line.trim().is_empty();
+    Some(BlockScalarLine {
+        line: line_number,
+        is_blank,
+        is_more_indented: !is_blank && indent > content_indent,
+        ends_block: !is_blank && indent < content_indent,
+    })
+}
+
+fn line_start_offset(source: &str, offset: usize) -> usize {
+    source[..offset]
+        .rfind('\n')
+        .map(|index| index + 1)
+        .unwrap_or(0)
+}
+
+fn previous_line_text(source: &str, line_start: usize) -> Option<&str> {
+    if line_start == 0 {
+        return None;
+    }
+
+    let previous_line_end = line_start - 1;
+    let previous_line_start = source[..previous_line_end]
+        .rfind('\n')
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    source
+        .get(previous_line_start..previous_line_end)
+        .map(|line| line.trim_end_matches('\r'))
+}
+
+fn next_line_start_offset(source: &str, line_start: usize) -> Option<usize> {
+    source[line_start..]
+        .find('\n')
+        .map(|relative| line_start + relative + 1)
+        .filter(|offset| *offset <= source.len())
+}
+
+fn header_line_is_folded_block(line: &str) -> bool {
+    line.rsplit_once(':')
+        .map(|(_, value)| value.trim_start().starts_with('>'))
+        .unwrap_or(false)
 }
 
 struct ParsedYamlEscape {
@@ -1348,6 +1511,51 @@ jobs:
                     line: 1,
                     column: 9,
                     host_columns: 2,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn preserves_host_line_gaps_for_folded_block_runs() {
+        let source = r#"on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: >
+          if true
+
+          then
+            echo hi
+          fi
+"#;
+
+        let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
+        assert_eq!(scripts.len(), 1);
+        assert_eq!(scripts[0].source, "if true\nthen\n  echo hi\nfi\n");
+        assert_eq!(
+            scripts[0].host_line_starts,
+            vec![
+                HostLineStart {
+                    line: 7,
+                    column: 11
+                },
+                HostLineStart {
+                    line: 9,
+                    column: 11
+                },
+                HostLineStart {
+                    line: 10,
+                    column: 11,
+                },
+                HostLineStart {
+                    line: 11,
+                    column: 11,
+                },
+                HostLineStart {
+                    line: 12,
+                    column: 11,
                 },
             ]
         );
