@@ -366,10 +366,6 @@ impl<'a> SafeValueIndex<'a> {
                     .filter_map(|call_span| self.command_for_name_word_span(*call_span))
                     .any(|command| {
                         !command.is_nested_word_command()
-                            && !matches!(
-                                command.stmt().terminator,
-                                Some(StmtTerminator::Background(_))
-                            )
                             && command.body_args().is_empty()
                             && command.redirects().is_empty()
                             && self.command_runs_in_unconditional_flow(command.id(), at)
@@ -445,6 +441,9 @@ impl<'a> SafeValueIndex<'a> {
         {
             return false;
         }
+        if self.command_is_in_background_context(command_id) {
+            return false;
+        }
 
         let mut parent_id = self.facts.command_parent_id(command_id);
         while let Some(id) = parent_id {
@@ -454,6 +453,20 @@ impl<'a> SafeValueIndex<'a> {
             parent_id = self.facts.command_parent_id(id);
         }
         true
+    }
+
+    fn command_is_in_background_context(&self, command_id: crate::facts::CommandId) -> bool {
+        let mut current = Some(command_id);
+        while let Some(id) = current {
+            if matches!(
+                self.facts.command(id).stmt().terminator,
+                Some(StmtTerminator::Background(_))
+            ) {
+                return true;
+            }
+            current = self.facts.command_parent_id(id);
+        }
+        false
     }
 
     fn enclosing_function_scope_at(&self, offset: usize) -> Option<ScopeId> {
@@ -1269,7 +1282,7 @@ fn stmt_seq_terminal_flow_kind(commands: &StmtSeq) -> TerminalFlowKind {
 }
 
 fn stmt_terminal_flow_kind(stmt: &Stmt) -> TerminalFlowKind {
-    if stmt.negated || matches!(stmt.terminator, Some(StmtTerminator::Background(_))) {
+    if matches!(stmt.terminator, Some(StmtTerminator::Background(_))) {
         return TerminalFlowKind::None;
     }
 
@@ -2937,6 +2950,32 @@ helper() {
 #!/bin/sh
 helper() {
   FOO=1 exit 1
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let helper_header = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(name, _)| name.as_str() == "helper")
+            })
+            .expect("expected helper function header");
+
+        assert!(function_has_terminal_exit(helper_header.function()));
+    }
+
+    #[test]
+    fn negated_exit_makes_function_terminal() {
+        let source = "\
+#!/bin/sh
+helper() {
+  ! exit 1
 }
 ";
         let output = Parser::new(source).parse().unwrap();
