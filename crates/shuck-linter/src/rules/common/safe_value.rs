@@ -376,7 +376,7 @@ impl<'a> SafeValueIndex<'a> {
                                     .end
                                     .offset
                                     <= call_span.start.offset
-                                    && self.command_runs_in_unconditional_flow(
+                                    && self.definition_command_is_visible_at_call(
                                         function_definition_command.id(),
                                         call_span,
                                     )
@@ -398,6 +398,28 @@ impl<'a> SafeValueIndex<'a> {
                 Command::Function(candidate) if candidate.span == function.span
             )
         })
+    }
+
+    fn definition_command_is_visible_at_call(
+        &self,
+        command_id: crate::facts::CommandId,
+        call_span: Span,
+    ) -> bool {
+        let command = self.facts.command(command_id);
+        let command_scope = self.enclosing_function_scope_at(command.span().start.offset);
+        let call_scope = self.enclosing_function_scope_at(call_span.start.offset);
+        if command_scope.is_some() && command_scope != call_scope {
+            return false;
+        }
+
+        let mut parent_id = self.facts.command_parent_id(command_id);
+        while let Some(id) = parent_id {
+            if self.facts.command_is_dominance_barrier(id) {
+                return false;
+            }
+            parent_id = self.facts.command_parent_id(id);
+        }
+        true
     }
 
     fn command_for_name_word_span(&self, span: Span) -> Option<&crate::facts::CommandFact<'a>> {
