@@ -10,5 +10,5 @@ C011 iterating over command output in a `for` loop splits lines on whitespace
 C011 iterating over command output in a `for` loop splits lines on whitespace
  --> <source>:9:13
   |
-9 | for line in `printf '%s\n' alpha beta`; do
+9 | for line in $(grep foo input.txt | cut -d: -f1); do
   |

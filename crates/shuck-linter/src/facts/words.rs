@@ -4608,6 +4608,7 @@ fn mapfile_option_takes_argument(flag: char) -> bool {
 
 fn parse_xargs_command(args: &[&Word], source: &str) -> XargsCommandFacts {
     let mut uses_null_input = false;
+    let mut max_procs = None;
     let mut inline_replace_option_spans = Vec::new();
     let mut index = 0usize;
 
@@ -4628,8 +4629,14 @@ fn parse_xargs_command(args: &[&Word], source: &str) -> XargsCommandFacts {
         }
 
         if let Some(long) = text.strip_prefix("--") {
-            if long == "null" {
+            if long_name(long) == "null" {
                 uses_null_input = true;
+            }
+            if long_name(long) == "max-procs"
+                && let Some(argument) =
+                    xargs_long_option_argument(long, args.get(index + 1), source)
+            {
+                max_procs = argument.parse::<u64>().ok();
             }
 
             let consume_next_argument = xargs_long_option_requires_separate_argument(long);
@@ -4648,6 +4655,20 @@ fn parse_xargs_command(args: &[&Word], source: &str) -> XargsCommandFacts {
             }
             if flag == 'i' {
                 inline_replace_option_spans.push(word.span);
+            }
+            if flag == 'P' {
+                let remainder = chars.collect::<String>();
+                let has_inline_argument = !remainder.is_empty();
+                let argument = if has_inline_argument {
+                    Some(remainder)
+                } else {
+                    args.get(index + 1)
+                        .and_then(|next| static_word_text(next, source))
+                        .map(|value| value.into_owned())
+                };
+                max_procs = argument.and_then(|value| value.parse::<u64>().ok());
+                consume_next_argument = !has_inline_argument;
+                break;
             }
 
             match xargs_short_option_argument_style(flag) {
@@ -4670,8 +4691,27 @@ fn parse_xargs_command(args: &[&Word], source: &str) -> XargsCommandFacts {
 
     XargsCommandFacts {
         uses_null_input,
+        max_procs,
         inline_replace_option_spans: inline_replace_option_spans.into_boxed_slice(),
     }
+}
+
+fn xargs_long_option_argument(
+    option: &str,
+    next_word: Option<&&Word>,
+    source: &str,
+) -> Option<String> {
+    if let Some((_, value)) = option.split_once('=') {
+        return Some(value.to_owned());
+    }
+
+    next_word
+        .and_then(|word| static_word_text(word, source))
+        .map(|value| value.into_owned())
+}
+
+fn long_name(option: &str) -> &str {
+    option.split_once('=').map_or(option, |(name, _)| name)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

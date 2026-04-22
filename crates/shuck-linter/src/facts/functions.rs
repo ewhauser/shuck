@@ -143,6 +143,119 @@ fn build_function_parameter_fallback_spans(
         .collect()
 }
 
+fn build_completion_registered_function_command_flags(
+    semantic: &SemanticModel,
+    commands: &[CommandFact<'_>],
+    lists: &[ListFact<'_>],
+    source: &str,
+) -> Vec<bool> {
+    let registered_scopes =
+        build_completion_registered_function_scopes(semantic, commands, lists, source);
+
+    commands
+        .iter()
+        .map(|command| {
+            enclosing_function_scope(semantic, command.span().start.offset)
+                .is_some_and(|scope| registered_scopes.contains(&scope))
+        })
+        .collect()
+}
+
+fn build_completion_registered_function_scopes(
+    semantic: &SemanticModel,
+    commands: &[CommandFact<'_>],
+    lists: &[ListFact<'_>],
+    source: &str,
+) -> FxHashSet<ScopeId> {
+    let function_candidates = commands
+        .iter()
+        .map(|command| completion_registered_function_candidate(semantic, command))
+        .collect::<Vec<_>>();
+    let mut scopes = FxHashSet::default();
+
+    for list in lists {
+        for (index, segment) in list.segments().iter().enumerate() {
+            let Some(candidate) = function_candidates[segment.command_id().index()].as_ref() else {
+                continue;
+            };
+
+            if list.segments()[index + 1..].iter().any(|later_segment| {
+                command_registers_completion_function(
+                    command_fact(commands, later_segment.command_id()),
+                    source,
+                    &candidate.name,
+                )
+            }) {
+                scopes.insert(candidate.scope);
+            }
+        }
+    }
+
+    scopes
+}
+
+fn completion_registered_function_candidate(
+    semantic: &SemanticModel,
+    command: &CommandFact<'_>,
+) -> Option<CompletionRegisteredFunctionCandidate> {
+    let Command::Function(function) = command.command() else {
+        return None;
+    };
+    let (name, _) = function.static_name_entries().next()?;
+    let scope = semantic.scope_at(function.body.span.start.offset);
+
+    Some(CompletionRegisteredFunctionCandidate {
+        scope,
+        name: name.as_str().to_owned().into_boxed_str(),
+    })
+}
+
+fn command_registers_completion_function(
+    command: &CommandFact<'_>,
+    source: &str,
+    expected_name: &str,
+) -> bool {
+    if command.effective_or_literal_name() != Some("complete") {
+        return false;
+    }
+
+    let mut expects_function_name = false;
+    for word in command.body_args() {
+        let Some(text) = static_word_text(word, source) else {
+            expects_function_name = false;
+            continue;
+        };
+
+        if expects_function_name {
+            return text == expected_name;
+        }
+
+        if text == "--" {
+            return false;
+        }
+        if text == "-F" || text == "--function" {
+            expects_function_name = true;
+            continue;
+        }
+        if let Some(name) = text.strip_prefix("-F")
+            && !name.is_empty()
+        {
+            return name == expected_name;
+        }
+        if let Some(name) = text.strip_prefix("--function=") {
+            return name == expected_name;
+        }
+    }
+
+    false
+}
+
+#[derive(Debug, Clone)]
+struct CompletionRegisteredFunctionCandidate {
+    scope: ScopeId,
+    name: Box<str>,
+}
+
 fn function_parameter_fallback_span(pair: &[&CommandFact<'_>], source: &str) -> Option<Span> {
     let [first, second] = pair else {
         return None;
@@ -683,5 +796,4 @@ fn special_positional_parameter_name(name: &str) -> Option<bool> {
         _ => None,
     }
 }
-
 

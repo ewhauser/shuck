@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     AnonymousFunctionCommand, ArithmeticAssignOp, ArithmeticExpr, ArithmeticExprNode,
@@ -84,7 +86,7 @@ pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     recorded_program: RecordedProgram,
     command_bindings: FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
     command_references: FxHashMap<SpanKey, SmallVec<[ReferenceId; 4]>>,
-    source_directives: FxHashMap<usize, SourceDirectiveOverride>,
+    source_directives: BTreeMap<usize, SourceDirectiveOverride>,
     cleared_variables: FxHashMap<(ScopeId, Name), usize>,
     runtime: RuntimePrelude,
     completed_scopes: FxHashSet<ScopeId>,
@@ -2543,10 +2545,24 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             return Some(directive.kind.clone());
         }
 
-        let previous = line.checked_sub(1)?;
-        self.source_directives
-            .get(&previous)
-            .and_then(|directive| directive.own_line.then_some(directive.kind.clone()))
+        if let Some(previous) = line.checked_sub(1)
+            && let Some(directive) = self.source_directives.get(&previous)
+            && directive.own_line
+        {
+            return Some(directive.kind.clone());
+        }
+
+        let directive = self
+            .source_directives
+            .range(..line)
+            .rev()
+            .find(|(_, directive)| directive.own_line)
+            .map(|(_, directive)| directive)?;
+
+        match directive.kind {
+            SourceRefKind::DirectiveDevNull => Some(SourceRefKind::DirectiveDevNull),
+            _ => None,
+        }
     }
 
     fn declaration_scope_and_attributes(
@@ -3914,14 +3930,13 @@ fn dynamic_root_with_slash_tail(word: &Word, source: &str) -> bool {
 }
 
 fn root_word_part_is_dynamic_root(part: &WordPart) -> bool {
-    match part {
-        WordPart::Variable(_) | WordPart::ArrayAccess(_) => true,
-        WordPart::Parameter(parameter) => matches!(
-            parameter.syntax,
-            ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { .. })
-        ),
-        _ => false,
-    }
+    matches!(
+        part,
+        WordPart::Variable(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::Parameter(_)
+            | WordPart::CommandSubstitution { .. }
+    )
 }
 
 fn static_parts_text(parts: &[WordPartNode], source: &str) -> Option<String> {
@@ -3947,8 +3962,8 @@ fn unset_flags_are_valid(flags: &str) -> bool {
 fn parse_source_directives(
     source: &str,
     indexer: &Indexer,
-) -> FxHashMap<usize, SourceDirectiveOverride> {
-    let mut directives = FxHashMap::default();
+) -> BTreeMap<usize, SourceDirectiveOverride> {
+    let mut directives = BTreeMap::new();
     let mut pending_own_line: Option<SourceDirectiveOverride> = None;
     let mut previous_comment_line = None;
 

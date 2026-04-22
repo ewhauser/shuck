@@ -1139,6 +1139,16 @@ fn word_contains_find_substitution<'a>(
         .any(|part| part_contains_find_substitution(&part.kind, commands, command_ids_by_span))
 }
 
+fn word_contains_line_oriented_substitution<'a>(
+    word: &'a Word,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+) -> bool {
+    word.parts.iter().any(|part| {
+        part_contains_line_oriented_substitution(&part.kind, commands, command_ids_by_span)
+    })
+}
+
 fn word_contains_command_substitution_named<'a>(
     word: &'a Word,
     name: &str,
@@ -1172,6 +1182,26 @@ fn part_contains_command_substitution_named<'a>(
     }
 }
 
+fn part_contains_line_oriented_substitution<'a>(
+    part: &WordPart,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+) -> bool {
+    match part {
+        WordPart::DoubleQuoted { parts, .. } => parts.iter().any(|part| {
+            part_contains_line_oriented_substitution(
+                &part.kind,
+                commands,
+                command_ids_by_span,
+            )
+        }),
+        WordPart::CommandSubstitution { body, .. } => {
+            substitution_body_is_line_oriented(body, commands, command_ids_by_span)
+        }
+        _ => false,
+    }
+}
+
 fn part_contains_find_substitution<'a>(
     part: &WordPart,
     commands: &[CommandFact<'a>],
@@ -1194,6 +1224,17 @@ fn substitution_body_is_find<'a>(
     command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
     matches!(body.as_slice(), [stmt] if stmt_invokes_find(stmt, commands, command_ids_by_span))
+}
+
+fn substitution_body_is_line_oriented<'a>(
+    body: &'a StmtSeq,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+) -> bool {
+    matches!(
+        body.as_slice(),
+        [stmt] if command_is_line_oriented_substitution_body(&stmt.command, commands, command_ids_by_span)
+    )
 }
 
 fn substitution_body_is_pgrep_lookup<'a>(
@@ -1226,6 +1267,74 @@ fn substitution_body_is_simple_command_named<'a>(
     command_ids_by_span: &CommandLookupIndex,
 ) -> bool {
     matches!(body.as_slice(), [stmt] if stmt_literal_name_is(stmt, name, commands, command_ids_by_span))
+}
+
+fn command_is_line_oriented_substitution_body<'a>(
+    command: &'a Command,
+    commands: &[CommandFact<'a>],
+    command_ids_by_span: &CommandLookupIndex,
+) -> bool {
+    match command {
+        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => {
+            command_fact_for_command(command, commands, command_ids_by_span)
+                .is_some_and(command_fact_is_line_oriented_utility)
+        }
+        Command::Binary(binary) => match binary.op {
+            BinaryOp::Pipe | BinaryOp::PipeAll => {
+                command_is_line_oriented_substitution_body(
+                    &binary.left.command,
+                    commands,
+                    command_ids_by_span,
+                ) && command_is_line_oriented_substitution_body(
+                    &binary.right.command,
+                    commands,
+                    command_ids_by_span,
+                )
+            }
+            BinaryOp::And | BinaryOp::Or => false,
+        },
+        Command::Compound(CompoundCommand::Time(command)) => command
+            .command
+            .as_deref()
+            .is_some_and(|stmt| {
+                command_is_line_oriented_substitution_body(
+                    &stmt.command,
+                    commands,
+                    command_ids_by_span,
+                )
+            }),
+        Command::Compound(
+            CompoundCommand::If(_)
+            | CompoundCommand::For(_)
+            | CompoundCommand::Repeat(_)
+            | CompoundCommand::Foreach(_)
+            | CompoundCommand::ArithmeticFor(_)
+            | CompoundCommand::While(_)
+            | CompoundCommand::Until(_)
+            | CompoundCommand::Case(_)
+            | CompoundCommand::Select(_)
+            | CompoundCommand::Arithmetic(_)
+            | CompoundCommand::Conditional(_)
+            | CompoundCommand::Subshell(_)
+            | CompoundCommand::BraceGroup(_)
+            | CompoundCommand::Coproc(_)
+            | CompoundCommand::Always(_),
+        ) => false,
+        Command::Function(_) | Command::AnonymousFunction(_) => false,
+    }
+}
+
+fn command_fact_is_line_oriented_utility(fact: &CommandFact<'_>) -> bool {
+    if command_fact_invokes_find(fact) {
+        return false;
+    }
+
+    fact.effective_or_literal_name().is_some_and(|name| {
+        matches!(
+            name.rsplit('/').next().unwrap_or(name),
+            "cat" | "grep" | "egrep" | "fgrep" | "awk" | "sed" | "cut" | "sort"
+        )
+    })
 }
 
 fn stmt_invokes_find<'a>(

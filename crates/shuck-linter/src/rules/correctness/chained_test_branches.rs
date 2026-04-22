@@ -95,6 +95,14 @@ fn list_runs_as_if_or_elif_condition(checker: &Checker<'_>, list: &ListFact<'_>)
 }
 
 fn list_exempts_warning(checker: &Checker<'_>, list: &ListFact<'_>) -> bool {
+    if list.segments().iter().all(|segment| {
+        checker
+            .facts()
+            .command_is_in_completion_registered_function(segment.command_id())
+    }) {
+        return true;
+    }
+
     if matches_status_propagation_assignment(list) {
         return true;
     }
@@ -262,6 +270,43 @@ test -d x && chmod 755 y || echo fail
             test_snippet(source, &LinterSettings::for_rule(Rule::ChainedTestBranches));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_mixed_short_circuit_inside_completion_registration_chains() {
+        let source = "\
+_comp_cmd_hostname() {
+  [[ $cur == -* ]] && _comp_compgen_help || _comp_compgen_usage
+} &&
+  complete -F _comp_cmd_hostname hostname
+_comp_cmd_mussh() {
+  [[ $cur == *@* ]] && _comp_complete_user_at_host \"$@\" || _comp_compgen_known_hosts -a -- \"$cur\"
+} && echo ready &&
+  complete -F _comp_cmd_mussh mussh
+_comp_cmd_rcs() {
+  [[ ${#COMPREPLY[@]} -eq 0 && $1 == *ci ]] && _comp_compgen -a filedir || _comp_compgen -a filedir -d
+} ||
+  complete -F _comp_cmd_rcs ci
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::ChainedTestBranches));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn still_reports_when_complete_registration_is_not_in_the_same_chain() {
+        let source = "\
+_comp_cmd_hostname() {
+  [[ $cur == -* ]] && _comp_compgen_help || _comp_compgen_usage
+}
+complete -F _comp_cmd_hostname hostname
+";
+        let diagnostics =
+            test_snippet(source, &LinterSettings::for_rule(Rule::ChainedTestBranches));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "&&");
     }
 
     #[test]

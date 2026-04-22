@@ -27,6 +27,7 @@ pub struct LinterFacts<'a> {
     unquoted_command_argument_use_offsets: FxHashMap<Name, Vec<usize>>,
     array_assignment_split_word_ids: Vec<WordOccurrenceId>,
     brace_variable_before_bracket_spans: Vec<Span>,
+    completion_registered_function_command_flags: Vec<bool>,
     function_headers: Vec<FunctionHeaderFact<'a>>,
     function_in_alias_spans: Vec<Span>,
     alias_definition_expansion_spans: Vec<Span>,
@@ -436,6 +437,13 @@ impl<'a> LinterFacts<'a> {
 
     pub fn brace_variable_before_bracket_spans(&self) -> &[Span] {
         &self.brace_variable_before_bracket_spans
+    }
+
+    pub fn command_is_in_completion_registered_function(&self, id: CommandId) -> bool {
+        self.completion_registered_function_command_flags
+            .get(id.index())
+            .copied()
+            .unwrap_or(false)
     }
 
     pub fn function_headers(&self) -> &[FunctionHeaderFact<'a>] {

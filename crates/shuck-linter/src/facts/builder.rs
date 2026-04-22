@@ -357,6 +357,13 @@ impl<'a> LinterFactsBuilder<'a> {
             fact.scope_read_source_words = words;
         }
         let lists = build_list_facts(&commands, &command_ids_by_span, self.source);
+        let completion_registered_function_command_flags =
+            build_completion_registered_function_command_flags(
+                self.semantic,
+                &commands,
+                &lists,
+                self.source,
+            );
         annotate_conditional_assignment_shortcuts(self.semantic, &lists, &mut binding_values);
         let statement_facts =
             build_statement_facts(&commands, &command_ids_by_span, &self.file.body);
@@ -554,6 +561,7 @@ impl<'a> LinterFactsBuilder<'a> {
             unquoted_command_argument_use_offsets,
             array_assignment_split_word_ids,
             brace_variable_before_bracket_spans,
+            completion_registered_function_command_flags,
             function_headers,
             function_in_alias_spans,
             alias_definition_expansion_spans,

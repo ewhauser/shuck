@@ -61,4 +61,45 @@ mod tests {
             assert!(diagnostics.is_empty(), "{source}");
         }
     }
+
+    #[test]
+    fn ignores_parameter_expansion_roots_with_static_path_tails() {
+        for source in [
+            "#!/bin/bash\nsource \"${rvm_path?}/scripts/rvm\"\n",
+            "#!/bin/bash\nsource \"${XDG_CONFIG_HOME:-$HOME/.config}/fzf/fzf.bash\"\n",
+            "#!/bin/bash\nsource \"${rvm_path%/*}/scripts/rvm\"\n",
+        ] {
+            let diagnostics =
+                test_snippet(source, &LinterSettings::for_rule(Rule::DynamicSourcePath));
+
+            assert!(diagnostics.is_empty(), "{source}");
+        }
+    }
+
+    #[test]
+    fn ignores_dynamic_sources_when_own_line_source_directive_persists() {
+        for source in [
+            "#!/bin/bash\n# shellcheck source=/dev/null\nfoo() { echo hi; }\nsource \"$x\"\n",
+            "#!/bin/bash\n# shellcheck source=/dev/null\nif true; then\n  source \"$config_file\"\nfi\n",
+        ] {
+            let diagnostics =
+                test_snippet(source, &LinterSettings::for_rule(Rule::DynamicSourcePath));
+
+            assert!(diagnostics.is_empty(), "{source}");
+        }
+    }
+
+    #[test]
+    fn ignores_command_substitution_roots_with_static_path_tails() {
+        for source in [
+            "#!/bin/bash\nsource \"$(git --exec-path)/git-sh-setup\"\n",
+            "#!/bin/sh\n. \"$(dirname \"$0\")/autopause-fcns.sh\"\n",
+            "#!/bin/ksh\nsource \"$(cd \"$(dirname \"${0}\")\"; pwd)/../nb\"\n",
+        ] {
+            let diagnostics =
+                test_snippet(source, &LinterSettings::for_rule(Rule::DynamicSourcePath));
+
+            assert!(diagnostics.is_empty(), "{source}");
+        }
+    }
 }

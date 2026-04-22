@@ -1,4 +1,0 @@
-reviewed_divergences:
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__packages__tsocks__04_getpeername.patch"
-    reason: "This corpus fixture is a patch artifact rather than an executable shell script. Shuck still tokenizes diff hunk text and surfaces leading wildcard arguments there, while ShellCheck bails out on the patch syntax before it makes a comparable C012-style decision, so we review this corpus-only mismatch instead of weakening the rule for real shell code."

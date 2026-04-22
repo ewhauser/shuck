@@ -1162,12 +1162,27 @@ impl<'a> ArithmeticParser<'a> {
     }
 
     fn skip_whitespace(&mut self) {
-        while let Some(ch) = self.current_char() {
+        loop {
+            let Some(ch) = self.current_char() else {
+                break;
+            };
+
             if ch.is_whitespace() {
                 self.index += ch.len_utf8();
-            } else {
-                break;
+                continue;
             }
+
+            if self.input[self.index..].starts_with("\\\r\n") {
+                self.index += "\\\r\n".len();
+                continue;
+            }
+
+            if self.input[self.index..].starts_with("\\\n") {
+                self.index += "\\\n".len();
+                continue;
+            }
+
+            break;
         }
     }
 

@@ -1359,6 +1359,54 @@ fn test_parse_arithmetic_for_preserves_header_spans() {
 }
 
 #[test]
+fn test_parse_arithmetic_for_with_line_continuations_inside_function_body() {
+    let input = "\
+subcommand()
+{
+    local args_index=$positional_start
+    local usage_args_index
+    for ((\\
+    usage_args_index = 0;  \\
+    usage_args_index < ${#args[@]};  \\
+    args_index++, usage_args_index++)); do
+        echo ok
+    done
+}
+";
+    let parsed = Parser::new(input).parse();
+
+    assert_eq!(parsed.status, ParseStatus::Clean);
+    assert!(parsed.diagnostics.is_empty());
+    assert!(parsed.terminal_error.is_none());
+
+    let function = expect_function(&parsed.file.body[0]);
+    let (compound, redirects) = expect_compound(function.body.as_ref());
+    let AstCompoundCommand::BraceGroup(body) = compound else {
+        panic!("expected brace-group function body");
+    };
+
+    assert!(redirects.is_empty());
+    assert_eq!(body.len(), 3);
+    let (compound, redirects) = expect_compound(&body[2]);
+    let AstCompoundCommand::ArithmeticFor(command) = compound else {
+        panic!("expected arithmetic for compound command");
+    };
+    assert!(redirects.is_empty());
+    assert_eq!(
+        command.init_span.unwrap().slice(input),
+        "\\\n    usage_args_index = 0"
+    );
+    assert_eq!(
+        command.condition_span.unwrap().slice(input),
+        "  \\\n    usage_args_index < ${#args[@]}"
+    );
+    assert_eq!(
+        command.step_span.unwrap().slice(input),
+        "  \\\n    args_index++, usage_args_index++"
+    );
+}
+
+#[test]
 fn test_parse_arithmetic_for_with_nested_double_parens_in_segments() {
     let input = "for (( x = ((1 + 2) * (3 - 4)); y < ((5 + 6) * (7 - 8)); z = ((9 + 10) * (11 - 12)) )); do :; done\n";
     let script = Parser::new(input).parse().unwrap().file;
