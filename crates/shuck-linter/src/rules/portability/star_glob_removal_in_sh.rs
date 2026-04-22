@@ -8,7 +8,7 @@ impl Violation for StarGlobRemovalInSh {
     }
 
     fn message(&self) -> String {
-        "`${*%%pattern}` is not portable in `sh`".to_owned()
+        "prefix/suffix trimming on `$@` or `$*` is not portable in `sh`".to_owned()
     }
 }
 
@@ -33,10 +33,10 @@ mod tests {
     use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
-    fn anchors_only_on_star_longest_suffix_removal() {
+    fn anchors_on_positional_parameter_trim_operations() {
         let source = "\
 #!/bin/sh
-printf '%s\n' \"${*%%dBm*}\" \"${*%dBm*}\" \"${@%%dBm*}\" \"${@##*.}\" \"${name%%dBm*}\"
+printf '%s\n' \"${*%%dBm*}\" \"${*%dBm*}\" \"${*##dBm*}\" \"${*#dBm*}\" \"${@%%dBm*}\" \"${@%dBm*}\" \"${@##*.}\" \"${@#*.}\" \"${name%%dBm*}\" \"${*//dBm/x}\"
 ";
         let diagnostics =
             test_snippet(source, &LinterSettings::for_rule(Rule::StarGlobRemovalInSh));
@@ -46,7 +46,16 @@ printf '%s\n' \"${*%%dBm*}\" \"${*%dBm*}\" \"${@%%dBm*}\" \"${@##*.}\" \"${name%
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["${*%%dBm*}"]
+            vec![
+                "${*%%dBm*}",
+                "${*%dBm*}",
+                "${*##dBm*}",
+                "${*#dBm*}",
+                "${@%%dBm*}",
+                "${@%dBm*}",
+                "${@##*.}",
+                "${@#*.}",
+            ]
         );
     }
 

@@ -1,8 +1,14 @@
 ---
 source: crates/shuck-linter/src/rules/portability/mod.rs
 ---
-X081 `${*%%pattern}` is not portable in `sh`
+X081 prefix/suffix trimming on `$@` or `$*` is not portable in `sh`
  --> <source>:4:7
   |
 4 | echo "${*%%dBm*}"
+  |
+
+X081 prefix/suffix trimming on `$@` or `$*` is not portable in `sh`
+ --> <source>:7:7
+  |
+7 | echo "${@##*.}"
   |

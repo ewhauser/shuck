@@ -764,9 +764,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                     ) {
                         self.record_replacement_expansion(part.span);
                     }
-                    if matches!(operator, ParameterOp::RemoveSuffixLong { .. })
-                        && reference.name.as_str() == "*"
-                    {
+                    if parameter_is_positional_pattern_removal(reference, operator) {
                         self.record_star_glob_removal(part.span);
                     }
                     self.record_var_ref_subscript(reference);
@@ -1075,7 +1073,7 @@ impl<'a> SurfaceFragmentSink<'a> {
         if parameter_has_replacement_expansion(parameter) {
             self.record_replacement_expansion(span);
         }
-        if parameter_has_star_glob_removal(parameter) {
+        if parameter_has_positional_pattern_removal(parameter) {
             self.record_star_glob_removal(span);
         }
         self.record_parameter_subscripts(parameter);
@@ -1889,15 +1887,27 @@ fn parameter_has_replacement_expansion(parameter: &shuck_ast::ParameterExpansion
     }
 }
 
-fn parameter_has_star_glob_removal(parameter: &shuck_ast::ParameterExpansion) -> bool {
+fn parameter_has_positional_pattern_removal(parameter: &shuck_ast::ParameterExpansion) -> bool {
     matches!(
         &parameter.syntax,
         ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
             reference,
-            operator: ParameterOp::RemoveSuffixLong { .. },
+            operator,
             ..
-        }) if reference.name.as_str() == "*"
+        }) if parameter_is_positional_pattern_removal(reference, operator)
     )
+}
+
+fn parameter_is_positional_pattern_removal(reference: &VarRef, operator: &ParameterOp) -> bool {
+    reference.subscript.is_none()
+        && matches!(reference.name.as_str(), "@" | "*")
+        && matches!(
+            operator,
+            ParameterOp::RemovePrefixShort { .. }
+                | ParameterOp::RemovePrefixLong { .. }
+                | ParameterOp::RemoveSuffixShort { .. }
+                | ParameterOp::RemoveSuffixLong { .. }
+        )
 }
 
 fn reference_has_array_subscript(reference: &VarRef) -> bool {
