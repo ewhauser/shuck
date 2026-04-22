@@ -1356,6 +1356,37 @@ value=\"$(free ${humanreadable} | awk '{print $2}')\"
     }
 
     #[test]
+    fn nested_command_substitution_arguments_with_dynamic_values_stay_unsafe() {
+        let source = "\
+#!/bin/sh
+PRGNAM=cproc
+GIT_SHA=$( git rev-parse --short HEAD )
+DATE=$( git log --date=format:%Y%m%d --format=%cd | head -1 )
+VERSION=${DATE}_${GIT_SHA}
+echo \"MD5SUM=\\\"$( md5sum $PRGNAM-$VERSION.tar.xz | cut -d' ' -f1 )\\\"\"
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let version_use = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.is_nested_word_command()
+                    && fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source).contains("VERSION")
+            })
+            .expect("expected nested command argument fact for VERSION");
+
+        assert!(!safe_values.word_occurrence_is_safe(version_use, SafeValueQuery::Argv));
+    }
+
+    #[test]
     fn helper_initialized_option_flags_stay_safe_across_top_level_call_sequences() {
         let source = "\
 #!/bin/bash

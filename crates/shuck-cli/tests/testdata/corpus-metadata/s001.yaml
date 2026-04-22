@@ -1,4 +1,3 @@
-review_all_divergences: true
 reviewed_divergences:
   - side: shellcheck-only
     path_suffix: "acmesh-official__acme.sh__acme.sh"

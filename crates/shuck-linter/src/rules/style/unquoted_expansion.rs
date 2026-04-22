@@ -45,6 +45,7 @@ pub fn unquoted_expansion(checker: &mut Checker) {
         report_word_expansions(
             &mut spans,
             &mut safe_values,
+            source,
             fact,
             context,
             colon_command_ids.contains(&fact.command_id()),
@@ -69,9 +70,35 @@ fn should_check_context(context: ExpansionContext, shell: ShellDialect) -> bool 
     }
 }
 
+fn report_span_for_part(part: &shuck_ast::WordPart, part_span: shuck_ast::Span, source: &str) -> shuck_ast::Span {
+    let shuck_ast::WordPart::Variable(name) = part else {
+        return part_span;
+    };
+
+    let expected = format!("${}", name.as_str());
+    if part_span.slice(source) == expected {
+        return part_span;
+    }
+
+    let search_start = part_span.start.offset.saturating_sub(1);
+    let search_end = (part_span.end.offset + 1).min(source.len());
+    let Some(window) = source.get(search_start..search_end) else {
+        return part_span;
+    };
+    let Some(relative_start) = window.find(&expected) else {
+        return part_span;
+    };
+    let start_offset = search_start + relative_start;
+    let end_offset = start_offset + expected.len();
+    let start = shuck_ast::Position::new().advanced_by(&source[..start_offset]);
+    let end = shuck_ast::Position::new().advanced_by(&source[..end_offset]);
+    shuck_ast::Span::from_positions(start, end)
+}
+
 fn report_word_expansions(
     spans: &mut Vec<shuck_ast::Span>,
     safe_values: &mut SafeValueIndex<'_>,
+    source: &str,
     fact: WordOccurrenceRef<'_, '_>,
     context: ExpansionContext,
     in_colon_command: bool,
@@ -116,7 +143,7 @@ fn report_word_expansions(
             continue;
         }
 
-        spans.push(part_span);
+        spans.push(report_span_for_part(part, part_span, source));
     }
 }
 
@@ -254,6 +281,24 @@ $HOME/bin/tool $arg
     }
 
     #[test]
+    fn reports_unquoted_star_selector_expansions() {
+        let source = "\
+#!/bin/bash
+RSYNC_OPTIONS=(-a -v)
+rsync ${RSYNC_OPTIONS[*]} src dst
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${RSYNC_OPTIONS[*]}"]
+        );
+    }
+
+    #[test]
     fn reports_bourne_transformations_in_command_arguments() {
         let source = "\
 #!/bin/bash
@@ -374,6 +419,27 @@ printf '%s\\n' ${z:=fallback}
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["${x:=fallback}", "${y:=out}"]
+        );
+    }
+
+    #[test]
+    fn reports_dynamic_values_inside_nested_command_substitution_arguments() {
+        let source = "\
+#!/bin/sh
+PRGNAM=cproc
+GIT_SHA=$( git rev-parse --short HEAD )
+DATE=$( git log --date=format:%Y%m%d --format=%cd | head -1 )
+VERSION=${DATE}_${GIT_SHA}
+echo \"MD5SUM=\\\"$( md5sum $PRGNAM-$VERSION.tar.xz | cut -d' ' -f1 )\\\"\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$VERSION"]
         );
     }
 
