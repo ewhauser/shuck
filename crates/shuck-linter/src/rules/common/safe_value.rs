@@ -1,7 +1,8 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
-    BourneParameterExpansion, Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp,
-    RedirectKind, SourceText, Span, VarRef, Word, WordPart, WordPartNode,
+    BourneParameterExpansion, BuiltinCommand, Command, CompoundCommand, FunctionDef, Name,
+    ParameterExpansion, ParameterExpansionSyntax, ParameterOp, RedirectKind, SourceText, Span,
+    Stmt, StmtSeq, StmtTerminator, VarRef, Word, WordPart, WordPartNode,
 };
 use shuck_semantic::{
     AssignmentValueOrigin, BindingAttributes, BindingKind, BindingOrigin, LoopValueOrigin, ScopeId,
@@ -222,7 +223,12 @@ impl<'a> SafeValueIndex<'a> {
             return true;
         }
 
-        let bindings = self.safe_bindings_for_name(name, at);
+        let mut bindings = self.safe_bindings_for_name(name, at);
+        if matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget) {
+            bindings.retain(|binding_id| {
+                !self.binding_is_blocked_by_exit_like_function_call(*binding_id, at)
+            });
+        }
         if bindings.is_empty() {
             return safe_numeric_shell_variable(name);
         }
@@ -337,6 +343,41 @@ impl<'a> SafeValueIndex<'a> {
                 && command
                     .body_name_word()
                     .is_some_and(crate::word_is_standalone_variable_like)
+        })
+    }
+
+    fn binding_is_blocked_by_exit_like_function_call(
+        &self,
+        binding_id: BindingId,
+        at: Span,
+    ) -> bool {
+        let binding = self.semantic.binding(binding_id);
+        let exit_like_names = self
+            .facts
+            .function_headers()
+            .iter()
+            .filter(|header| function_has_terminal_exit(header.function()))
+            .filter_map(|header| header.static_name_entry().map(|(name, _)| name.as_str()))
+            .collect::<FxHashSet<_>>();
+
+        self.facts.commands().iter().any(|command| {
+            !command.is_nested_word_command()
+                && command.body_args().is_empty()
+                && command.redirects().is_empty()
+                && command
+                    .effective_or_literal_name()
+                    .is_some_and(|name| exit_like_names.contains(name))
+                && !self.facts.commands().iter().any(|other| {
+                    other.id() != command.id()
+                        && !other.is_nested_word_command()
+                        && span_strictly_contains(other.span(), command.span())
+                })
+                && {
+                    let call_span = command.span_in_source(self.source);
+                    call_span.end.offset <= at.start.offset
+                        && (call_span.start.offset >= binding.span.end.offset
+                            || call_span.end.offset <= binding.span.start.offset)
+                }
         })
     }
 
@@ -1121,9 +1162,48 @@ fn special_parameter_slice_reference(reference: &VarRef) -> bool {
     matches!(reference.name.as_str(), "@" | "*")
 }
 
+fn function_has_terminal_exit(function: &FunctionDef) -> bool {
+    stmt_has_terminal_exit(&function.body)
+}
+
+fn stmt_seq_has_terminal_exit(commands: &StmtSeq) -> bool {
+    commands.last().is_some_and(stmt_has_terminal_exit)
+}
+
+fn stmt_has_terminal_exit(stmt: &Stmt) -> bool {
+    if stmt.negated || matches!(stmt.terminator, Some(StmtTerminator::Background(_))) {
+        return false;
+    }
+
+    command_has_terminal_exit(&stmt.command)
+}
+
+fn command_has_terminal_exit(command: &Command) -> bool {
+    match command {
+        Command::Builtin(BuiltinCommand::Exit(exit)) => {
+            exit.assignments.is_empty() && exit.extra_args.is_empty()
+        }
+        Command::Compound(CompoundCommand::BraceGroup(body))
+        | Command::Compound(CompoundCommand::Subshell(body)) => stmt_seq_has_terminal_exit(body),
+        Command::Simple(_)
+        | Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => false,
+    }
+}
+
+fn span_strictly_contains(outer: Span, inner: Span) -> bool {
+    outer.start.offset <= inner.start.offset
+        && outer.end.offset >= inner.end.offset
+        && outer != inner
+}
+
 #[cfg(test)]
 mod tests {
-    use shuck_ast::{Command, Name};
+    use shuck_ast::{Command, Name, RedirectKind};
     use shuck_indexer::Indexer;
     use shuck_parser::parser::Parser;
     use shuck_semantic::{
@@ -1131,7 +1211,7 @@ mod tests {
         SemanticBuildOptions, SemanticModel,
     };
 
-    use super::{SafeValueIndex, SafeValueQuery};
+    use super::{SafeValueIndex, SafeValueQuery, function_has_terminal_exit};
     use crate::LinterFacts;
     use crate::rules::common::expansion::ExpansionContext;
     use crate::{ShellDialect, classify_file_context};
@@ -2638,5 +2718,61 @@ fi
             .insert(crate::FactSpan::new(part_span));
 
         assert!(safe_values.part_is_safe(part, part_span, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn exit_like_function_calls_invalidate_prior_and_later_safe_bindings() {
+        let source = "\
+#!/bin/sh
+OPTION_BINARY_FILE=\"../lynis\"
+Exit() { exit 0; }
+Exit
+OPENBSD_CONTENTS=\"openbsd/+CONTENTS\"
+FIND=$(sh -n ${OPTION_BINARY_FILE} ; echo $?)
+echo x >> ${OPENBSD_CONTENTS}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+        let exit_header = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(name, _)| name.as_str() == "Exit")
+            })
+            .expect("expected Exit function header");
+
+        let nested_argument = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.is_nested_word_command()
+                    && fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "${OPTION_BINARY_FILE}"
+            })
+            .expect("expected nested command argument fact");
+        let redirect_target = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context()
+                    == Some(ExpansionContext::RedirectTarget(RedirectKind::Append))
+                    && fact.span().slice(source) == "${OPENBSD_CONTENTS}"
+            })
+            .expect("expected redirect target fact");
+
+        assert!(function_has_terminal_exit(exit_header.function()));
+        assert_eq!(exit_header.call_arity().zero_arg_call_spans().len(), 1);
+
+        assert!(!safe_values.word_occurrence_is_safe(nested_argument, SafeValueQuery::Argv));
+        assert!(
+            !safe_values.word_occurrence_is_safe(redirect_target, SafeValueQuery::RedirectTarget)
+        );
     }
 }

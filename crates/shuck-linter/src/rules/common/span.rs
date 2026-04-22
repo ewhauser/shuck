@@ -84,6 +84,10 @@ pub fn unescaped_backtick_command_substitution_span(span: Span, source: &str) ->
     Some(normalized)
 }
 
+pub(crate) fn shellcheck_collapsed_backtick_part_span_in_source(span: Span, source: &str) -> Span {
+    collapse_backtick_continuation_span(span, source).unwrap_or(span)
+}
+
 pub fn array_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_array_expansion_spans(&word.parts, false, false, &mut spans);
@@ -1432,6 +1436,115 @@ fn normalize_command_substitution_span(span: Span, source: &str) -> Span {
     }
 
     span
+}
+
+fn collapse_backtick_continuation_span(span: Span, source: &str) -> Option<Span> {
+    containing_backtick_substitution_span(span, source)?;
+    let chain_start = continued_line_chain_start(span.start, source)?;
+    Some(Span::from_positions(
+        shellcheck_collapsed_position(chain_start, span.start, source),
+        shellcheck_collapsed_position(chain_start, span.end, source),
+    ))
+}
+
+fn containing_backtick_substitution_span(target: Span, source: &str) -> Option<Span> {
+    let bytes = source.as_bytes();
+    let mut index = target.start.offset;
+
+    while index > 0 {
+        index -= 1;
+        if bytes.get(index) != Some(&b'`') || text_position_is_escaped(source, index) {
+            continue;
+        }
+
+        let start = position_at_offset(source, index)?;
+        let end = position_at_offset(source, index + 1)?;
+        let candidate = Span::from_positions(start, end);
+        let backtick_span = widen_backtick_command_substitution_span(candidate, source)?;
+        if span_contains(backtick_span, target) {
+            return Some(backtick_span);
+        }
+    }
+
+    None
+}
+
+fn continued_line_chain_start(target: Position, source: &str) -> Option<Position> {
+    let mut line_start_offset = source[..target.offset]
+        .rfind('\n')
+        .map_or(0, |index| index + 1);
+    let mut line = target.line;
+    let original_start = line_start_offset;
+
+    while line_start_offset > 0 {
+        let previous_line_end = line_start_offset - 1;
+        let previous_line_start = source[..previous_line_end]
+            .rfind('\n')
+            .map_or(0, |index| index + 1);
+        let previous_line = &source[previous_line_start..previous_line_end];
+        if !previous_line.trim_end_matches([' ', '\t']).ends_with('\\') {
+            break;
+        }
+        line_start_offset = previous_line_start;
+        line -= 1;
+    }
+
+    (line_start_offset != original_start).then_some(Position {
+        line,
+        column: 1,
+        offset: line_start_offset,
+    })
+}
+
+fn shellcheck_collapsed_position(
+    chain_start: Position,
+    target: Position,
+    source: &str,
+) -> Position {
+    let mut line = chain_start.line;
+    let mut column = chain_start.column;
+    let mut in_collapsed_continuation = false;
+    let prefix = &source[chain_start.offset..target.offset];
+    let mut index = 0usize;
+
+    while index < prefix.len() {
+        if prefix[index..].starts_with("\\\r\n") {
+            index += "\\\r\n".len();
+            in_collapsed_continuation = true;
+            continue;
+        }
+
+        if prefix[index..].starts_with("\\\n") {
+            index += "\\\n".len();
+            in_collapsed_continuation = true;
+            continue;
+        }
+
+        let ch = prefix[index..]
+            .chars()
+            .next()
+            .expect("prefix iteration should stay on UTF-8 boundaries");
+        if ch == '\n' {
+            line += 1;
+            column = 1;
+            in_collapsed_continuation = false;
+        } else if ch == '\t' && in_collapsed_continuation {
+            column = ((column - 1) / 8 + 1) * 8 + 2;
+        } else {
+            column += 1;
+        }
+        index += ch.len_utf8();
+    }
+
+    Position {
+        line,
+        column,
+        offset: target.offset,
+    }
+}
+
+fn span_contains(outer: Span, inner: Span) -> bool {
+    outer.start.offset <= inner.start.offset && outer.end.offset >= inner.end.offset
 }
 
 fn widen_dollar_paren_command_substitution_span(span: Span, source: &str) -> Option<Span> {
