@@ -398,7 +398,7 @@ value=\"`greet`\"
     }
 
     #[test]
-    fn calls_before_definition_do_not_count_toward_mixed_arity() {
+    fn earlier_calls_in_same_scope_still_count_toward_mixed_arity() {
         let source = "\
 #!/bin/sh
 greet ok
@@ -410,11 +410,7 @@ greet
             &LinterSettings::for_rule(Rule::FunctionCalledWithoutArgs),
         );
 
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(
-            diagnostics[0].span.slice(source),
-            "greet() { echo \"$1\"; }"
-        );
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
     #[test]

@@ -353,6 +353,10 @@ impl<'a> SafeValueIndex<'a> {
     ) -> bool {
         let binding = self.semantic.binding(binding_id);
         self.facts.function_headers().iter().any(|header| {
+            let Some(function_binding_id) = header.binding_id() else {
+                return false;
+            };
+            let function_binding = self.semantic.binding(function_binding_id);
             function_has_terminal_exit(header.function())
                 && header
                     .call_arity()
@@ -366,7 +370,8 @@ impl<'a> SafeValueIndex<'a> {
                             && self.command_runs_in_unconditional_flow(command.id(), at)
                             && {
                                 let call_span = command.span_in_source(self.source);
-                                call_span.end.offset <= at.start.offset
+                                call_span.start.offset >= function_binding.span.start.offset
+                                    && call_span.end.offset <= at.start.offset
                                     && (call_span.start.offset >= binding.span.end.offset
                                         || call_span.end.offset <= binding.span.start.offset)
                             }
