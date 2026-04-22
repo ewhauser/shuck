@@ -2522,6 +2522,29 @@ printf '%s\\n' '${\"$bar\"[1]}'
 }
 
 #[test]
+fn surface_facts_track_parameter_operations_on_command_substitution_targets() {
+    let source = "\
+#!/bin/sh
+printf '%s\\n' \"${$(svn info):gs/%/%%}\"
+printf '%s\\n' \"${$(svn info):0:1}\"
+printf '%s\\n' \"${$(svn info):-fallback}\"
+printf '%s\\n' \"${${custom_datafile:-$HOME/.z}:A}\"
+printf '%s\\n' '${$(svn info):0:1}'
+";
+
+    with_facts(source, None, |_, facts| {
+        assert_eq!(
+            facts
+                .command_substitution_parameter_operation_fragments()
+                .iter()
+                .map(|fragment| fragment.span().slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${$(svn info)", "${$(svn info)", "${$(svn info)"]
+        );
+    });
+}
+
+#[test]
 fn shared_command_traversal_collects_word_facts_and_surface_fragments() {
     let source = "\
 #!/bin/bash

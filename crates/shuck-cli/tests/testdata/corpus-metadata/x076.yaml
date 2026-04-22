@@ -1,8 +1,0 @@
-reviewed_divergences:
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__oh-my-zsh.sh"
-    line: 51
-    end_line: 51
-    column: 44
-    end_column: 45
-    reason: "This bootstrap file is sourced by zsh entrypoints despite its `.sh` suffix, so the nested `${${(%):-%x}:a:h}` path setup is intentional project-specific zsh code."

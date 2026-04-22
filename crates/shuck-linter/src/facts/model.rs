@@ -107,6 +107,8 @@ pub struct LinterFacts<'a> {
     indexed_array_reference_fragments: Vec<IndexedArrayReferenceFragmentFact>,
     parameter_pattern_special_target_fragments: Vec<ParameterPatternSpecialTargetFragmentFact>,
     zsh_parameter_index_flag_fragments: Vec<ZshParameterIndexFlagFragmentFact>,
+    command_substitution_parameter_operation_fragments:
+        Vec<CommandSubstitutionParameterOperationFragmentFact>,
     substring_expansion_fragments: Vec<SubstringExpansionFragmentFact>,
     case_modification_fragments: Vec<CaseModificationFragmentFact>,
     replacement_expansion_fragments: Vec<ReplacementExpansionFragmentFact>,
@@ -765,6 +767,12 @@ impl<'a> LinterFacts<'a> {
 
     pub fn zsh_parameter_index_flag_fragments(&self) -> &[ZshParameterIndexFlagFragmentFact] {
         &self.zsh_parameter_index_flag_fragments
+    }
+
+    pub fn command_substitution_parameter_operation_fragments(
+        &self,
+    ) -> &[CommandSubstitutionParameterOperationFragmentFact] {
+        &self.command_substitution_parameter_operation_fragments
     }
 
     pub fn substring_expansion_fragments(&self) -> &[SubstringExpansionFragmentFact] {

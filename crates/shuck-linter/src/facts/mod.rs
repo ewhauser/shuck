@@ -19,7 +19,8 @@ use self::{
     escape_scan::{EscapeScanContext, EscapeScanInputs, build_escape_scan_matches},
     presence::build_presence_tested_names,
     surface::{
-        CaseModificationFragmentFact, CasePatternExpansionFact, DollarDoubleQuotedFragmentFact,
+        CaseModificationFragmentFact, CasePatternExpansionFact,
+        CommandSubstitutionParameterOperationFragmentFact, DollarDoubleQuotedFragmentFact,
         IndexedArrayReferenceFragmentFact, IndirectExpansionFragmentFact,
         NestedParameterExpansionFragmentFact, OpenDoubleQuoteFragmentFact,
         ParameterPatternSpecialTargetFragmentFact, ReplacementExpansionFragmentFact,

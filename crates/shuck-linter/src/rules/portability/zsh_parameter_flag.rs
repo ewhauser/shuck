@@ -1,5 +1,3 @@
-use shuck_ast::Span;
-
 use super::targets_non_zsh_shell;
 use crate::{Checker, Rule, Violation};
 
@@ -11,7 +9,7 @@ impl Violation for ZshParameterFlag {
     }
 
     fn message(&self) -> String {
-        "zsh parameter flags are not portable to this shell".to_owned()
+        "this shell can't apply parameter operators directly to command substitutions".to_owned()
     }
 }
 
@@ -22,160 +20,12 @@ pub fn zsh_parameter_flag(checker: &mut Checker) {
 
     let spans = checker
         .facts()
-        .word_facts()
+        .command_substitution_parameter_operation_fragments()
         .iter()
-        .flat_map(|fact| parameter_flag_spans(fact.span().slice(checker.source()), fact.span()))
+        .map(|fragment| fragment.span())
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || ZshParameterFlag);
-}
-
-fn parameter_flag_spans(text: &str, span: Span) -> Vec<Span> {
-    let mut spans = Vec::new();
-    let mut index = 0usize;
-
-    while let Some(start) = next_unquoted_parameter_start(text, index) {
-        let Some(end) = parameter_expansion_end(text, start) else {
-            break;
-        };
-        let content = &text[start + 2..end];
-        if let Some(flag_offset) = nested_target_modifier_offset(content) {
-            let absolute = start + 2 + flag_offset;
-            let colon_start = span.start.advanced_by(&text[..absolute]);
-            spans.push(Span::from_positions(
-                colon_start,
-                colon_start.advanced_by(":"),
-            ));
-        }
-        index = end + 1;
-    }
-
-    spans
-}
-
-fn next_unquoted_parameter_start(text: &str, search_from: usize) -> Option<usize> {
-    let bytes = text.as_bytes();
-    let mut index = search_from;
-    let mut in_single = false;
-    let mut in_double = false;
-
-    while index + 1 < bytes.len() {
-        if in_single {
-            if bytes[index] == b'\'' {
-                in_single = false;
-            }
-            index += 1;
-            continue;
-        }
-
-        if bytes[index] == b'\\' {
-            index += usize::from(index + 1 < bytes.len()) + 1;
-            continue;
-        }
-
-        if bytes[index] == b'\'' && !in_double {
-            in_single = true;
-            index += 1;
-            continue;
-        }
-
-        if bytes[index] == b'"' {
-            in_double = !in_double;
-            index += 1;
-            continue;
-        }
-
-        if bytes[index..].starts_with(b"${") {
-            return Some(index);
-        }
-
-        index += 1;
-    }
-
-    None
-}
-
-fn parameter_expansion_end(text: &str, start: usize) -> Option<usize> {
-    let bytes = text.as_bytes();
-    let mut depth = 0usize;
-    let mut index = start;
-
-    while index < bytes.len() {
-        if bytes[index..].starts_with(b"${") {
-            depth += 1;
-            index += 2;
-            continue;
-        }
-        if bytes[index] == b'}' {
-            depth = depth.saturating_sub(1);
-            if depth == 0 {
-                return Some(index);
-            }
-        }
-        index += 1;
-    }
-
-    None
-}
-
-fn nested_target_modifier_offset(content: &str) -> Option<usize> {
-    if !(content.starts_with("$(") || content.starts_with("${")) {
-        return None;
-    }
-
-    let bytes = content.as_bytes();
-    let mut index = 0usize;
-    let mut parameter_depth = 0usize;
-    let mut paren_depth = 0usize;
-
-    while index < bytes.len() {
-        if bytes[index..].starts_with(b"${") {
-            parameter_depth += 1;
-            index += 2;
-            continue;
-        }
-        if bytes[index..].starts_with(b"$(") {
-            paren_depth += 1;
-            index += 2;
-            continue;
-        }
-        if bytes[index] == b'}' && parameter_depth > 0 {
-            parameter_depth -= 1;
-            index += 1;
-            continue;
-        }
-        if bytes[index] == b')' && paren_depth > 0 {
-            paren_depth -= 1;
-            index += 1;
-            continue;
-        }
-        if bytes[index] != b':' || parameter_depth > 0 || paren_depth > 0 {
-            index += 1;
-            continue;
-        }
-        let Some(&next) = bytes.get(index + 1) else {
-            break;
-        };
-        if !next.is_ascii_alphabetic() {
-            index += 1;
-            continue;
-        }
-
-        let mut cursor = index + 2;
-        while bytes
-            .get(cursor)
-            .is_some_and(|byte| byte.is_ascii_alphabetic())
-        {
-            cursor += 1;
-        }
-        let terminator = bytes.get(cursor).copied();
-        if matches!(terminator, Some(b'/') | Some(b':') | Some(b'}')) {
-            return Some(index);
-        }
-        index = cursor;
-    }
-
-    None
 }
 
 #[cfg(test)]
@@ -184,7 +34,7 @@ mod tests {
     use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
-    fn ignores_defaulting_and_numeric_slice_forms() {
+    fn ignores_defaulting_and_numeric_slice_forms_on_regular_parameters() {
         let source = "#!/bin/sh\nx=${value:-fallback}\ny=${value:0:1}\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ZshParameterFlag));
 
@@ -192,7 +42,35 @@ mod tests {
     }
 
     #[test]
-    fn ignores_simple_non_nested_colon_forms() {
+    fn reports_parameter_operators_on_command_substitution_targets() {
+        let source = "\
+#!/bin/sh
+x=${$(svn info):gs/%/%%}
+y=${$(svn info):0:1}
+z=${$(svn info):-fallback}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ZshParameterFlag));
+
+        assert_eq!(diagnostics.len(), 3);
+        assert_eq!(diagnostics[0].span.slice(source), "${$(svn info)");
+        assert_eq!(diagnostics[1].span.slice(source), "${$(svn info)");
+        assert_eq!(diagnostics[2].span.slice(source), "${$(svn info)");
+    }
+
+    #[test]
+    fn ignores_nested_parameter_targets() {
+        let source = "\
+#!/bin/sh
+path=${${(%):-%x}:a:h}
+dir=${${custom_datafile:-$HOME/.z}:A}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ZshParameterFlag));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_simple_non_command_substitution_colon_forms() {
         let source = "#!/bin/sh\nx=${branch:gs/%/%%}\ny=${PWD:h}\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ZshParameterFlag));
 

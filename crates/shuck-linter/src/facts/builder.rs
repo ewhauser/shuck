@@ -546,6 +546,12 @@ impl<'a> LinterFactsBuilder<'a> {
         );
         let brace_variable_before_bracket_spans =
             build_brace_variable_before_bracket_spans(&word_nodes, &word_occurrences, source);
+        let command_substitution_parameter_operation_fragments =
+            build_command_substitution_parameter_operation_fragments(
+                &word_nodes,
+                &word_occurrences,
+                source,
+            );
         let alias_definition_expansion_spans = build_alias_definition_expansion_spans(
             &commands,
             &word_nodes,
@@ -675,6 +681,7 @@ impl<'a> LinterFactsBuilder<'a> {
             indexed_array_reference_fragments: indexed_array_references,
             parameter_pattern_special_target_fragments: parameter_pattern_special_targets,
             zsh_parameter_index_flag_fragments: zsh_parameter_index_flags,
+            command_substitution_parameter_operation_fragments,
             substring_expansion_fragments: substring_expansions,
             case_modification_fragments: case_modifications,
             replacement_expansion_fragments: replacement_expansions,
@@ -719,6 +726,195 @@ fn stmt_contains_nested_control_flow(stmt: &Stmt) -> bool {
     }
 }
 
+fn build_command_substitution_parameter_operation_fragments(
+    word_nodes: &[WordNode<'_>],
+    word_occurrences: &[WordOccurrence],
+    source: &str,
+) -> Vec<CommandSubstitutionParameterOperationFragmentFact> {
+    let mut seen_words = FxHashSet::default();
+    let mut fragments = Vec::new();
+
+    for occurrence in word_occurrences {
+        let node = &word_nodes[occurrence.node_id.index()];
+        let span = node.word.span;
+        if !seen_words.insert(FactSpan::new(span)) {
+            continue;
+        }
+
+        fragments.extend(
+            command_substitution_parameter_operation_spans(span.slice(source), span)
+                .into_iter()
+                .map(CommandSubstitutionParameterOperationFragmentFact::new),
+        );
+    }
+
+    fragments
+}
+
+fn command_substitution_parameter_operation_spans(
+    text: &str,
+    span: Span,
+) -> Vec<Span> {
+    let mut spans = Vec::new();
+    let mut index = 0usize;
+
+    while let Some(start) = next_unquoted_parameter_start(text, index) {
+        let Some(end) = parameter_expansion_end(text, start) else {
+            break;
+        };
+        let content = &text[start + 2..end];
+        let Some(target_end) = command_substitution_target_end(content) else {
+            index = end + 1;
+            continue;
+        };
+
+        if target_end + 1 < content.len() {
+            let report_start = span.start.advanced_by(&text[..start]);
+            let report_end = span.start.advanced_by(&text[..start + 2 + target_end + 1]);
+            spans.push(Span::from_positions(report_start, report_end));
+        }
+
+        index = end + 1;
+    }
+
+    spans
+}
+
+fn next_unquoted_parameter_start(text: &str, search_from: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut index = search_from;
+    let mut in_single = false;
+    let mut in_double = false;
+
+    while index + 1 < bytes.len() {
+        if in_single {
+            if bytes[index] == b'\'' {
+                in_single = false;
+            }
+            index += 1;
+            continue;
+        }
+
+        if bytes[index] == b'\\' {
+            index += usize::from(index + 1 < bytes.len()) + 1;
+            continue;
+        }
+
+        if bytes[index] == b'\'' && !in_double {
+            in_single = true;
+            index += 1;
+            continue;
+        }
+
+        if bytes[index] == b'"' {
+            in_double = !in_double;
+            index += 1;
+            continue;
+        }
+
+        if bytes[index..].starts_with(b"${") {
+            return Some(index);
+        }
+
+        index += 1;
+    }
+
+    None
+}
+
+fn parameter_expansion_end(text: &str, start: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut depth = 0usize;
+    let mut index = start;
+
+    while index < bytes.len() {
+        if bytes[index..].starts_with(b"${") {
+            depth += 1;
+            index += 2;
+            continue;
+        }
+        if bytes[index] == b'}' {
+            depth = depth.saturating_sub(1);
+            if depth == 0 {
+                return Some(index);
+            }
+        }
+        index += 1;
+    }
+
+    None
+}
+
+fn command_substitution_target_end(content: &str) -> Option<usize> {
+    if !content.starts_with("$(") {
+        return None;
+    }
+
+    let bytes = content.as_bytes();
+    let mut index = 0usize;
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut parameter_depth = 0usize;
+    let mut paren_depth = 0usize;
+
+    while index < bytes.len() {
+        if in_single {
+            if bytes[index] == b'\'' {
+                in_single = false;
+            }
+            index += 1;
+            continue;
+        }
+
+        if bytes[index] == b'\\' {
+            index += usize::from(index + 1 < bytes.len()) + 1;
+            continue;
+        }
+
+        if bytes[index] == b'\'' && !in_double {
+            in_single = true;
+            index += 1;
+            continue;
+        }
+
+        if bytes[index] == b'"' {
+            in_double = !in_double;
+            index += 1;
+            continue;
+        }
+
+        if bytes[index..].starts_with(b"${") {
+            parameter_depth += 1;
+            index += 2;
+            continue;
+        }
+
+        if bytes[index..].starts_with(b"$(") {
+            paren_depth += 1;
+            index += 2;
+            continue;
+        }
+
+        if bytes[index] == b'}' && parameter_depth > 0 {
+            parameter_depth -= 1;
+            index += 1;
+            continue;
+        }
+
+        if bytes[index] == b')' && paren_depth > 0 {
+            paren_depth -= 1;
+            index += 1;
+            if paren_depth == 0 && parameter_depth == 0 {
+                return Some(index - 1);
+            }
+            continue;
+        }
+
+        index += 1;
+    }
+
+    None
+}
 fn populate_linebreak_in_test_facts(commands: &mut [CommandFact<'_>], source: &str) {
     for index in 0..commands.len().saturating_sub(1) {
         let (current_slice, next_slice) = commands.split_at_mut(index + 1);
