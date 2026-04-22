@@ -714,6 +714,10 @@ fn source_mapping_for_scalar(source: &str, start_offset: usize, scalar: &str) ->
         return mapping;
     }
 
+    if let Some(mapping) = single_quoted_source_mapping(source, start_offset, scalar) {
+        return mapping;
+    }
+
     if let Some(mapping) = folded_block_source_mapping(source, start_offset, scalar) {
         return mapping;
     }
@@ -804,9 +808,100 @@ fn double_quoted_source_mapping(
             }
             '\n' => {
                 let folded =
-                    scan_double_quoted_physical_newline(source, content_offset, relative_offset)?;
+                    scan_quoted_physical_newline(source, content_offset, relative_offset, '"')?;
                 let next_relative_offset = folded.next_relative_offset;
-                consume_double_quoted_fold(
+                consume_quoted_fold(
+                    scalar,
+                    &mut decoded_offset,
+                    &mut decoded_line,
+                    &mut decoded_column,
+                    &mut host_line_starts,
+                    &mut host_column_mappings,
+                    folded,
+                )?;
+                relative_offset = next_relative_offset;
+            }
+            _ => {
+                consume_decoded_char(
+                    scalar,
+                    &mut decoded_offset,
+                    &mut decoded_line,
+                    &mut decoded_column,
+                )?;
+                relative_offset += ch.len_utf8();
+            }
+        }
+    }
+
+    None
+}
+
+fn single_quoted_source_mapping(
+    source: &str,
+    start_offset: usize,
+    scalar: &str,
+) -> Option<SourceMapping> {
+    if source.get(start_offset..)?.chars().next()? != '\'' {
+        return None;
+    }
+
+    let content_offset = start_offset + '\''.len_utf8();
+    let mut host_line_starts = vec![{
+        let (line, column) = line_column_for_offset(source, content_offset);
+        HostLineStart { line, column }
+    }];
+    let mut host_column_mappings = Vec::new();
+    let expected_line_count = decoded_line_count(scalar);
+    let mut decoded_line = 1usize;
+    let mut decoded_column = 1usize;
+    let mut decoded_offset = 0usize;
+    let mut relative_offset = 0usize;
+    let content = &source[content_offset..];
+
+    while relative_offset < content.len() {
+        let absolute_offset = content_offset + relative_offset;
+        let ch = source[absolute_offset..].chars().next()?;
+        match ch {
+            '\'' => {
+                let escaped_quote_offset = absolute_offset + '\''.len_utf8();
+                if source.get(escaped_quote_offset..)?.starts_with('\'') {
+                    consume_decoded_char(
+                        scalar,
+                        &mut decoded_offset,
+                        &mut decoded_line,
+                        &mut decoded_column,
+                    )?;
+                    let (line, column) =
+                        line_column_for_offset(source, escaped_quote_offset + '\''.len_utf8());
+                    if decoded_offset < scalar.len() {
+                        push_host_column_mapping(
+                            &mut host_column_mappings,
+                            HostColumnMapping {
+                                line: decoded_line,
+                                column: decoded_column,
+                                host_line: line,
+                                host_column: column,
+                            },
+                        );
+                    }
+                    relative_offset += '\''.len_utf8() * 2;
+                    continue;
+                }
+
+                if host_line_starts.len() == expected_line_count {
+                    return Some(SourceMapping {
+                        host_offset: content_offset,
+                        host_line_starts,
+                        host_column_mappings,
+                    });
+                }
+                return None;
+            }
+            '\n' => {
+                let folded =
+                    scan_quoted_physical_newline(source, content_offset, relative_offset, '\'')?;
+                let next_relative_offset = folded.next_relative_offset;
+                consume_quoted_fold(
                     scalar,
                     &mut decoded_offset,
                     &mut decoded_line,
@@ -859,18 +954,20 @@ fn consume_decoded_char(
     Some(ch)
 }
 
-struct DoubleQuotedPhysicalNewline {
+struct QuotedPhysicalNewline {
     next_relative_offset: usize,
     continuation: HostLineStart,
     continuation_char: char,
+    quote_char: char,
     blank_lines: Vec<usize>,
 }
 
-fn scan_double_quoted_physical_newline(
+fn scan_quoted_physical_newline(
     source: &str,
     content_offset: usize,
     relative_offset: usize,
-) -> Option<DoubleQuotedPhysicalNewline> {
+    quote_char: char,
+) -> Option<QuotedPhysicalNewline> {
     let mut scan_offset = relative_offset;
     let mut blank_lines = Vec::new();
 
@@ -899,31 +996,32 @@ fn scan_double_quoted_physical_newline(
         }
 
         let (line, column) = line_column_for_offset(source, content_start);
-        return Some(DoubleQuotedPhysicalNewline {
+        return Some(QuotedPhysicalNewline {
             next_relative_offset: content_start - content_offset,
             continuation: HostLineStart { line, column },
             continuation_char,
+            quote_char,
             blank_lines,
         });
     }
 }
 
-fn consume_double_quoted_fold(
+fn consume_quoted_fold(
     scalar: &str,
     decoded_offset: &mut usize,
     decoded_line: &mut usize,
     decoded_column: &mut usize,
     host_line_starts: &mut Vec<HostLineStart>,
     host_column_mappings: &mut Vec<HostColumnMapping>,
-    folded: DoubleQuotedPhysicalNewline,
+    folded: QuotedPhysicalNewline,
 ) -> Option<()> {
     let mut folded_output = Vec::new();
 
     while let Some(ch) = scalar.get(*decoded_offset..)?.chars().next() {
-        if ch == folded.continuation_char && folded.continuation_char != '"' {
+        if ch == folded.continuation_char && folded.continuation_char != folded.quote_char {
             break;
         }
-        if folded.continuation_char == '"' && *decoded_offset == scalar.len() {
+        if folded.continuation_char == folded.quote_char && *decoded_offset == scalar.len() {
             break;
         }
         if !matches!(ch, ' ' | '\n') {
@@ -963,7 +1061,10 @@ fn consume_double_quoted_fold(
         }
     }
 
-    if newline_count == 0 && folded.continuation_char != '"' && *decoded_offset < scalar.len() {
+    if newline_count == 0
+        && folded.continuation_char != folded.quote_char
+        && *decoded_offset < scalar.len()
+    {
         push_host_column_mapping(
             host_column_mappings,
             HostColumnMapping {
@@ -1776,6 +1877,32 @@ jobs:
                 host_line: 7,
                 host_column: 11,
             }]
+        );
+    }
+
+    #[test]
+    fn remaps_single_quoted_runs_after_doubled_quotes() {
+        let source = "on: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: 'echo ''ok''; unused=1'\n";
+
+        let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
+        assert_eq!(scripts.len(), 1);
+        assert_eq!(scripts[0].source, "echo 'ok'; unused=1");
+        assert_eq!(
+            scripts[0].host_column_mappings,
+            vec![
+                HostColumnMapping {
+                    line: 1,
+                    column: 7,
+                    host_line: 6,
+                    host_column: 22,
+                },
+                HostColumnMapping {
+                    line: 1,
+                    column: 10,
+                    host_line: 6,
+                    host_column: 26,
+                },
+            ]
         );
     }
 
