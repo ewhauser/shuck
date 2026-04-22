@@ -1218,9 +1218,19 @@ impl<'model> SemanticAnalysis<'model> {
             return self.unused_assignments();
         }
 
+        if !self.model.needs_precise_unused_assignments() {
+            return &self.model.heuristic_unused_assignments;
+        }
+
         self.unused_assignments_shellcheck_compat
             .get_or_init(|| {
                 let cfg = self.cfg();
+                if self
+                    .model
+                    .can_use_heuristic_unused_assignments_with_linear_cfg(cfg)
+                {
+                    return self.model.heuristic_unused_assignments.clone();
+                }
                 let context = self.model.dataflow_context(cfg);
                 let exact = self.exact_variable_dataflow();
                 dataflow::analyze_unused_assignments_with_options(&context, exact, options)
@@ -5202,6 +5212,22 @@ printf '%s\\n' \"${!name}\"
 
         assert_eq!(default_unused, vec!["other"]);
         assert_eq!(compat_unused, vec!["target", "other"]);
+    }
+
+    #[test]
+    fn unused_assignment_options_preserve_heuristic_fast_path_without_indirect_targets() {
+        let model = model("unused=1\n");
+        let analysis = model.analysis();
+
+        let compat_unused = analysis
+            .unused_assignments_with_options(UnusedAssignmentAnalysisOptions {
+                treat_indirect_expansion_targets_as_used: false,
+            })
+            .to_vec();
+
+        assert!(analysis.exact_variable_dataflow.get().is_none());
+        assert!(analysis.dataflow.get().is_none());
+        assert_eq!(binding_names(&model, &compat_unused), vec!["unused"]);
     }
 
     #[test]
