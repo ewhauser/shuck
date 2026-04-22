@@ -71,6 +71,7 @@ pub struct SafeValueIndex<'a> {
     analysis: &'a SemanticAnalysis<'a>,
     facts: &'a LinterFacts<'a>,
     source: &'a str,
+    definite_uninitialized_refs: FxHashSet<FactSpan>,
     maybe_uninitialized_refs: FxHashSet<FactSpan>,
     memo: FxHashMap<(FactSpan, SafeValueQuery), bool>,
     visiting: FxHashSet<(FactSpan, SafeValueQuery)>,
@@ -85,6 +86,12 @@ impl<'a> SafeValueIndex<'a> {
         facts: &'a LinterFacts<'a>,
         source: &'a str,
     ) -> Self {
+        let definite_uninitialized_refs = analysis
+            .uninitialized_references()
+            .iter()
+            .filter(|uninitialized| uninitialized.certainty == UninitializedCertainty::Definite)
+            .map(|uninitialized| FactSpan::new(semantic.reference(uninitialized.reference).span))
+            .collect();
         let maybe_uninitialized_refs = analysis
             .uninitialized_references()
             .iter()
@@ -97,6 +104,7 @@ impl<'a> SafeValueIndex<'a> {
             analysis,
             facts,
             source,
+            definite_uninitialized_refs,
             maybe_uninitialized_refs,
             memo: FxHashMap::default(),
             visiting: FxHashSet::default(),
@@ -231,13 +239,40 @@ impl<'a> SafeValueIndex<'a> {
                 return safe_numeric_shell_variable(name);
             }
         }
-        if self.maybe_uninitialized_refs.contains(&FactSpan::new(at))
-            && !bindings
-                .iter()
-                .copied()
-                .any(|binding_id| self.binding_dominates_reference(binding_id, name, at))
+        if bindings.len() == 1
+            && matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
+            && self.binding_is_plain_empty_static_literal(bindings[0])
         {
             return false;
+        }
+        let helper_bindings = self
+            .called_helper_bindings_for_name(name, at)
+            .into_iter()
+            .collect::<FxHashSet<_>>();
+        if self.definite_uninitialized_refs.contains(&FactSpan::new(at)) {
+            if bindings
+                .iter()
+                .copied()
+                .any(|binding_id| {
+                    !helper_bindings.contains(&binding_id)
+                        && self.binding_is_guarded_before_reference(binding_id, at)
+                })
+            {
+                return false;
+            }
+        } else if self.maybe_uninitialized_refs.contains(&FactSpan::new(at)) {
+            let has_dominating_binding = bindings
+                .iter()
+                .copied()
+                .any(|binding_id| self.binding_dominates_reference(binding_id, name, at));
+            if !has_dominating_binding
+                && !bindings
+                    .iter()
+                    .copied()
+                    .all(|binding_id| helper_bindings.contains(&binding_id))
+            {
+                return false;
+            }
         }
 
         bindings
@@ -291,6 +326,21 @@ impl<'a> SafeValueIndex<'a> {
             .is_some_and(|word| {
                 word.is_fully_quoted() && static_word_text(word, self.source).is_some()
             })
+    }
+
+    fn binding_is_plain_empty_static_literal(&self, binding_id: BindingId) -> bool {
+        matches!(
+            self.semantic.binding(binding_id).origin,
+            BindingOrigin::Assignment {
+                value: AssignmentValueOrigin::StaticLiteral,
+                ..
+            }
+        ) && self
+            .facts
+            .binding_value(binding_id)
+            .and_then(|value| value.scalar_word())
+            .and_then(|word| static_word_text(word, self.source))
+            .is_some_and(|text| text.is_empty())
     }
 
     fn binding_is_safe(
@@ -417,8 +467,13 @@ impl<'a> SafeValueIndex<'a> {
                 bindings = expanded;
             }
         }
+        let helper_bindings = self.called_helper_bindings_for_name(name, at);
         if bindings.is_empty() {
-            bindings = self.called_helper_bindings_for_name(name, at);
+            bindings = helper_bindings;
+        } else if !helper_bindings.is_empty() {
+            bindings.extend(helper_bindings);
+            bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+            bindings.dedup();
         }
 
         bindings
@@ -570,6 +625,31 @@ impl<'a> SafeValueIndex<'a> {
         }
 
         true
+    }
+
+    fn binding_is_guarded_before_reference(&self, binding_id: BindingId, at: Span) -> bool {
+        let binding = self.semantic.binding(binding_id);
+        let Some(mut current) = self
+            .facts
+            .innermost_command_id_at(binding.span.start.offset)
+            .and_then(|id| self.facts.command_parent_id(id))
+        else {
+            return false;
+        };
+
+        loop {
+            let command = self.facts.command(current);
+            if self.facts.command_is_dominance_barrier(current)
+                && command.span().end.offset <= at.start.offset
+            {
+                return true;
+            }
+
+            let Some(parent_id) = self.facts.command_parent_id(current) else {
+                return false;
+            };
+            current = parent_id;
+        }
     }
 
     fn helper_scopes_definitely_providing_name(&self, name: &Name) -> Vec<ScopeId> {
@@ -1457,6 +1537,134 @@ echo \"MD5SUM=\\\"$( md5sum $PRGNAM-$VERSION.tar.xz | cut -d' ' -f1 )\\\"\"
             .expect("expected nested command argument fact for VERSION");
 
         assert!(!safe_values.word_occurrence_is_safe(version_use, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn definite_uninitialized_bindings_stay_unsafe() {
+        let source = "\
+#!/bin/bash
+if [ \"${PULSE:-yes}\" != \"yes\" ]; then
+  pulseopt=\"--without-pulse\"
+fi
+
+config() {
+  ./configure \\
+    $pulseopt \\
+    --prefix=/usr
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "$pulseopt"
+            })
+            .expect("expected pulseopt command-argument fact");
+
+        assert!(
+            analysis.uninitialized_references().iter().any(|uninitialized| {
+                semantic.reference(uninitialized.reference).span == word_fact.span()
+            }),
+            "expected pulseopt to be marked uninitialized"
+        );
+        assert!(!safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn lone_empty_static_literal_bindings_stay_unsafe_but_optional_flags_can_stay_safe() {
+        let source = "\
+#!/bin/bash
+gl2ps=
+libdirsuffix=
+cmake $gl2ps -DOPT=1
+mkdir -p /tmp/usr/lib${libdirsuffix}/ladspa
+
+if true; then
+  opt=-n
+else
+  opt=
+fi
+printf '%s\\n' $opt hi
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let unsafe_words = facts
+            .word_facts()
+            .iter()
+            .filter(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && (fact.span().slice(source) == "$gl2ps"
+                        || fact.span().slice(source).contains("lib${libdirsuffix}/ladspa"))
+            })
+            .collect::<Vec<_>>();
+        let safe_word = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "$opt"
+            })
+            .expect("expected optional flag command-argument fact");
+
+        assert_eq!(unsafe_words.len(), 2, "expected both lone empty literal uses");
+        assert!(
+            unsafe_words
+                .into_iter()
+                .all(|fact| !safe_values.word_occurrence_is_safe(fact, SafeValueQuery::Argv))
+        );
+        assert!(safe_values.word_occurrence_is_safe(safe_word, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn helper_call_sequences_can_make_outer_safe_globals_unsafe() {
+        let source = "\
+#!/bin/bash
+Region=default
+
+GetRegion() {
+  Region=\"$(printf '%s' \"$1\")\"
+}
+
+GetAMI() {
+  aws ec2 describe-images --region $Region
+}
+
+GetRegion \"$1\"
+GetAMI
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "$Region"
+            })
+            .expect("expected Region command-argument fact");
+
+        assert!(!safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
     }
 
     #[test]
