@@ -208,6 +208,34 @@ echo x >> ${OPENBSD_CONTENTS}
     }
 
     #[test]
+    fn ignores_pre_definition_exit_like_calls_before_function_definitions() {
+        let source = "\
+#!/bin/sh
+SAFE=foo
+Exit
+Exit() { exit 0; }
+echo /tmp/$SAFE
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_returning_helpers_with_unreachable_trailing_exit() {
+        let source = "\
+#!/bin/sh
+SAFE=foo
+Exit() { return 0; exit 1; }
+Exit
+echo /tmp/$SAFE
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn ignores_safe_bindings_after_conditional_exit_like_helper_calls() {
         let source = "\
 #!/bin/sh

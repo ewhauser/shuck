@@ -220,6 +220,24 @@ greet
     }
 
     #[test]
+    fn calls_before_definition_do_not_suppress_zero_argument_call_reports() {
+        let source = "\
+#!/bin/sh
+greet ok ok
+greet() { echo \"$2\"; }
+greet
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "greet");
+        assert_eq!(diagnostics[0].span.start.line, 4);
+    }
+
+    #[test]
     fn nested_scopes_resolve_calls_to_the_visible_binding() {
         let source = "\
 #!/bin/sh

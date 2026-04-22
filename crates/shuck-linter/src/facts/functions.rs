@@ -415,7 +415,7 @@ fn build_function_call_arity_facts<'a>(
             let Some(name_word) = command.body_name_word() else {
                 continue;
             };
-            let Some(binding_id) = visible_function_binding_for_call_offset(
+            let Some(binding_id) = visible_function_binding_defined_before_offset(
                 semantic,
                 name,
                 name_word.span.start.offset,
@@ -489,39 +489,6 @@ fn function_header_scope_id(
             && function_scope.contains_name(name))
         .then_some(scope.id)
     })
-}
-
-fn visible_function_binding_for_call_offset(
-    semantic: &SemanticModel,
-    name: &Name,
-    site_offset: usize,
-) -> Option<BindingId> {
-    let scopes = semantic
-        .ancestor_scopes(semantic.scope_at(site_offset))
-        .collect::<Vec<_>>();
-
-    scopes
-        .iter()
-        .copied()
-        .find_map(|scope| {
-            semantic
-                .function_definitions(name)
-                .iter()
-                .copied()
-                .filter(|candidate| semantic.binding(*candidate).scope == scope)
-                .filter(|candidate| semantic.binding(*candidate).span.start.offset < site_offset)
-                .max_by_key(|candidate| semantic.binding(*candidate).span.start.offset)
-        })
-        .or_else(|| {
-            scopes.iter().copied().find_map(|scope| {
-                semantic
-                    .function_definitions(name)
-                    .iter()
-                    .copied()
-                    .filter(|candidate| semantic.binding(*candidate).scope == scope)
-                    .min_by_key(|candidate| semantic.binding(*candidate).span.start.offset)
-            })
-        })
 }
 
 fn visible_function_binding_defined_before_offset(

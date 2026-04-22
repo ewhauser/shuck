@@ -1192,34 +1192,56 @@ fn special_parameter_slice_reference(reference: &VarRef) -> bool {
 }
 
 fn function_has_terminal_exit(function: &FunctionDef) -> bool {
-    stmt_has_terminal_exit(&function.body)
+    matches!(
+        stmt_terminal_flow_kind(&function.body),
+        TerminalFlowKind::Exit
+    )
 }
 
-fn stmt_seq_has_terminal_exit(commands: &StmtSeq) -> bool {
-    commands.iter().any(stmt_has_terminal_exit)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TerminalFlowKind {
+    None,
+    Exit,
+    Stop,
 }
 
-fn stmt_has_terminal_exit(stmt: &Stmt) -> bool {
-    if stmt.negated || matches!(stmt.terminator, Some(StmtTerminator::Background(_))) {
-        return false;
+fn stmt_seq_terminal_flow_kind(commands: &StmtSeq) -> TerminalFlowKind {
+    for stmt in commands.as_slice() {
+        match stmt_terminal_flow_kind(stmt) {
+            TerminalFlowKind::None => {}
+            flow => return flow,
+        }
     }
 
-    command_has_terminal_exit(&stmt.command)
+    TerminalFlowKind::None
 }
 
-fn command_has_terminal_exit(command: &Command) -> bool {
+fn stmt_terminal_flow_kind(stmt: &Stmt) -> TerminalFlowKind {
+    if stmt.negated || matches!(stmt.terminator, Some(StmtTerminator::Background(_))) {
+        return TerminalFlowKind::None;
+    }
+
+    command_terminal_flow_kind(&stmt.command)
+}
+
+fn command_terminal_flow_kind(command: &Command) -> TerminalFlowKind {
     match command {
         Command::Builtin(BuiltinCommand::Exit(exit)) => {
-            exit.assignments.is_empty() && exit.extra_args.is_empty()
+            if exit.assignments.is_empty() && exit.extra_args.is_empty() {
+                TerminalFlowKind::Exit
+            } else {
+                TerminalFlowKind::None
+            }
         }
-        Command::Compound(CompoundCommand::BraceGroup(body)) => stmt_seq_has_terminal_exit(body),
+        Command::Builtin(BuiltinCommand::Return(_)) => TerminalFlowKind::Stop,
+        Command::Compound(CompoundCommand::BraceGroup(body)) => stmt_seq_terminal_flow_kind(body),
         Command::Simple(_)
         | Command::Builtin(_)
         | Command::Decl(_)
         | Command::Binary(_)
         | Command::Compound(_)
         | Command::Function(_)
-        | Command::AnonymousFunction(_) => false,
+        | Command::AnonymousFunction(_) => TerminalFlowKind::None,
     }
 }
 
@@ -2855,5 +2877,32 @@ helper() {
             .expect("expected helper function header");
 
         assert!(function_has_terminal_exit(helper_header.function()));
+    }
+
+    #[test]
+    fn return_before_exit_does_not_make_function_terminal() {
+        let source = "\
+#!/bin/sh
+helper() {
+  return 0
+  exit 1
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let helper_header = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(name, _)| name.as_str() == "helper")
+            })
+            .expect("expected helper function header");
+
+        assert!(!function_has_terminal_exit(helper_header.function()));
     }
 }

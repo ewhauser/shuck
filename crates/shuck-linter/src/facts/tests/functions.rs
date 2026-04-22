@@ -18,7 +18,7 @@ fn function_header_fact_span_in_source_stops_at_header() {
 }
 
 #[test]
-fn function_header_fact_tracks_binding_scope_and_call_arity() {
+fn function_header_fact_ignores_calls_before_definition_in_call_arity() {
     let source = "#!/bin/sh\ngreet ok\ngreet() { echo \"$1\"; }\ngreet\n";
 
     with_facts(source, None, |_, facts| {
@@ -34,9 +34,9 @@ fn function_header_fact_tracks_binding_scope_and_call_arity() {
 
         assert!(header.binding_id().is_some());
         assert!(header.function_scope().is_some());
-        assert_eq!(header.call_arity().call_count(), 2);
+        assert_eq!(header.call_arity().call_count(), 1);
         assert_eq!(header.call_arity().min_arg_count(), Some(0));
-        assert_eq!(header.call_arity().max_arg_count(), Some(1));
+        assert_eq!(header.call_arity().max_arg_count(), Some(0));
         assert_eq!(header.call_arity().zero_arg_call_spans().len(), 1);
         assert_eq!(
             header.call_arity().zero_arg_call_spans()[0].slice(source),
