@@ -113,23 +113,19 @@ fn numeric_comparison_redirect_diagnostic(
         return None;
     }
 
-    let operator_text = source
-        .get(operator_span.start.offset..target.span.start.offset)?
-        .trim_end();
-    if operator_text != operator_span.slice(source) {
+    let gap = source.get(operator_span.end.offset..target.span.start.offset)?;
+    if !is_shell_token_gap(gap) {
         return None;
     }
 
     let fix_span = Span::from_positions(operator_span.start, target.span.start);
-    let leading_separator = source[..operator_span.start.offset]
-        .chars()
-        .next_back()
-        .filter(|ch| !ch.is_whitespace())
-        .map(|_| " ")
-        .unwrap_or("");
-    let separator = source
-        .get(operator_span.end.offset..target.span.start.offset)
-        .filter(|text| !text.is_empty())
+    let leading_separator = if has_trailing_token_boundary(&source[..operator_span.start.offset]) {
+        ""
+    } else {
+        " "
+    };
+    let separator = Some(gap)
+        .filter(|text| has_trailing_token_boundary(text))
         .unwrap_or(" ");
 
     Some(
@@ -140,6 +136,50 @@ fn numeric_comparison_redirect_diagnostic(
             ),
         )),
     )
+}
+
+fn is_shell_token_gap(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+
+    while index < bytes.len() {
+        match bytes[index] {
+            b' ' | b'\t' | b'\r' | b'\n' => index += 1,
+            b'\\' if bytes.get(index + 1) == Some(&b'\n') => index += 2,
+            _ => return false,
+        }
+    }
+
+    true
+}
+
+fn has_trailing_token_boundary(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut end = bytes.len();
+
+    while end > 0 {
+        match bytes[end - 1] {
+            b' ' | b'\t' | b'\r' => return true,
+            b'\n' => {
+                let mut cursor = end - 1;
+                let mut backslashes = 0usize;
+                while cursor > 0 && bytes[cursor - 1] == b'\\' {
+                    backslashes += 1;
+                    cursor -= 1;
+                }
+
+                if backslashes % 2 == 1 {
+                    end = cursor;
+                    continue;
+                }
+
+                return true;
+            }
+            _ => return false,
+        }
+    }
+
+    false
 }
 
 fn double_bracket_numeric_comparison_diagnostics(
@@ -453,6 +493,35 @@ limit=3
 #!/bin/bash
 [ \"$version\" -gt \"10\" ]
 [ \"$version\" -lt 10 ]
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn normalizes_escaped_newline_separators_in_bracket_numeric_comparisons() {
+        let source = "\
+#!/bin/bash
+[ \"$version\">\\
+\"10\" ]
+[ \"$version\"\\
+<\\
+10 ]
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::GreaterThanInTest),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/bash
+[ \"$version\" -gt \"10\" ]
+[ \"$version\"\\
+ -lt 10 ]
 "
         );
         assert!(result.fixed_diagnostics.is_empty());

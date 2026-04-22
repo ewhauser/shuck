@@ -109,15 +109,17 @@ fn reordered_redirect_segment(
 
     for index in stderr_index + 1..=stdout_index {
         let span = redirects[index].redirect().span;
+        if index > stderr_index + 1 {
+            replacement.push_str(
+                &source[redirects[index - 1].redirect().span.end.offset..span.start.offset],
+            );
+        }
         replacement.push_str(span.slice(source));
-        replacement
-            .push_str(&source[redirects[index - 1].redirect().span.end.offset..span.start.offset]);
     }
 
-    if !replacement.ends_with(char::is_whitespace) {
-        replacement.push(' ');
-    }
-
+    // Always force a real separator before the moved redirect so adjacent
+    // redirects and escaped newlines cannot merge the tokens back together.
+    replacement.push(' ');
     replacement.push_str(moved_span.slice(source));
     replacement
 }
@@ -227,7 +229,31 @@ echo ok 2>&1 3>aux>out
             "\
 #!/bin/sh
 echo ok >/dev/null 2>&1
-echo ok 3>aux >out 2>&1
+echo ok 3>aux>out 2>&1
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn inserts_a_real_separator_after_escaped_newline_redirect_gaps() {
+        let source = "\
+#!/bin/sh
+echo ok 2>&1\\
+>/tmp/out
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::StderrBeforeStdoutRedirect),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/sh
+echo ok >/tmp/out 2>&1
 "
         );
         assert!(result.fixed_diagnostics.is_empty());
