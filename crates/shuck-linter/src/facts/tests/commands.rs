@@ -2568,6 +2568,41 @@ xargs -a inputs -iX echo X
             .collect::<Vec<_>>(),
         vec!["-iX"]
     );
+    assert_eq!(xargs_facts[0].max_procs(), None);
+    assert_eq!(xargs_facts[1].max_procs(), None);
+}
+
+#[test]
+fn parses_xargs_max_procs_values() {
+    let source = "\
+#!/bin/bash
+find . | xargs -P10 echo
+find . | xargs -P1 echo
+find . | xargs -P 0 echo
+find . | xargs --max-procs=10 echo
+find . | xargs --max-procs \"$N\" echo
+";
+    let output = Parser::new(source).parse().unwrap();
+    let indexer = Indexer::new(source, &output);
+    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let file_context = classify_file_context(source, None, ShellDialect::Bash);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+    let xargs_facts = facts
+        .commands()
+        .iter()
+        .filter(|fact| fact.effective_name_is("xargs"))
+        .filter_map(|fact| fact.options().xargs())
+        .collect::<Vec<_>>();
+
+    assert_eq!(xargs_facts.len(), 5);
+    assert_eq!(
+        xargs_facts
+            .iter()
+            .map(|xargs| xargs.max_procs())
+            .collect::<Vec<_>>(),
+        vec![Some(10), Some(1), Some(0), Some(10), None]
+    );
 }
 
 #[test]

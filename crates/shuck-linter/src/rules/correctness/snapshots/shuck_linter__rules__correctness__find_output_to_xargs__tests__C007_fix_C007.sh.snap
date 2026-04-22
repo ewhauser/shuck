@@ -1,17 +1,12 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/find_output_to_xargs.rs
+assertion_line: 300
 ---
 Diagnostics:
 C007 raw `find` output piped to `xargs` can break on whitespace
  --> <source>:4:1
   |
 4 | find . -name '*.txt' | xargs rm
-  |
-
-C007 raw `find` output piped to `xargs` can break on whitespace
- --> <source>:7:1
-  |
-7 | find . -type f | xargs -0 wc -l
   |
 
 C007 raw `find` output piped to `xargs` can break on whitespace
@@ -27,7 +22,7 @@ C007 raw `find` output piped to `xargs` can break on whitespace
    |
 
 
-Applied fixes: 4
+Applied fixes: 3
 
 Diff:
 --- before
@@ -39,9 +34,8 @@ Diff:
 -find . -name '*.txt' | xargs rm
 +find . -name '*.txt' -print0 | xargs -0 rm
  
- # Invalid: only enabling -0 on xargs is not enough
--find . -type f | xargs -0 wc -l
-+find . -type f -print0 | xargs -0 wc -l
+ # Valid: ShellCheck treats xargs -0 as the safety opt-in for this check
+ find . -type f | xargs -0 wc -l
  
  # Invalid: only enabling -print0 on find is not enough
 -find "$pkg" -print0 | xargs rm
@@ -60,8 +54,8 @@ Fixed source:
 # Invalid: raw find output is split on whitespace by xargs
 find . -name '*.txt' -print0 | xargs -0 rm
 
-# Invalid: only enabling -0 on xargs is not enough
-find . -type f -print0 | xargs -0 wc -l
+# Valid: ShellCheck treats xargs -0 as the safety opt-in for this check
+find . -type f | xargs -0 wc -l
 
 # Invalid: only enabling -print0 on find is not enough
 find "$pkg" -print0 | xargs -0 rm

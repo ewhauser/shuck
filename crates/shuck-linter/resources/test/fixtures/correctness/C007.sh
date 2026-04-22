@@ -3,7 +3,7 @@
 # Invalid: raw find output is split on whitespace by xargs
 find . -name '*.txt' | xargs rm
 
-# Invalid: only enabling -0 on xargs is not enough
+# Valid: ShellCheck treats xargs -0 as the safety opt-in for this check
 find . -type f | xargs -0 wc -l
 
 # Invalid: only enabling -print0 on find is not enough

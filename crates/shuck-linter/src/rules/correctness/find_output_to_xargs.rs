@@ -62,11 +62,10 @@ fn unsafe_find_to_xargs_diagnostics(
                 return None;
             }
 
-            if left.options().find().is_some_and(|find| find.has_print0)
-                && right
-                    .options()
-                    .xargs()
-                    .is_some_and(|xargs| xargs.uses_null_input)
+            if right
+                .options()
+                .xargs()
+                .is_some_and(|xargs| xargs.uses_null_input || xargs_uses_shellcheck_parallel_exemption(xargs))
             {
                 return None;
             }
@@ -140,6 +139,12 @@ fn find_command_span(segment: &PipelineSegmentFact<'_>, fact: &CommandFact<'_>) 
     }
 }
 
+fn xargs_uses_shellcheck_parallel_exemption(xargs: &crate::XargsCommandFacts) -> bool {
+    xargs
+        .max_procs()
+        .is_some_and(|max_procs| max_procs == 0 || max_procs >= 10)
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -190,9 +195,29 @@ command find . -type f | xargs rm
     }
 
     #[test]
-    fn reports_parallel_xargs_without_null_delimiters() {
+    fn ignores_xargs_null_mode_even_when_find_does_not_use_print0() {
+        let source = "\
+find \"$pkg\" -print1 | xargs -0 file
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FindOutputToXargs));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_parallel_xargs_when_shellcheck_does() {
         let source = "\
 find \"$dir\" \\( -type f -o -type l \\) -and -not -path \"$dir/plugins/*\" | xargs -I % -P10 bash -c '. /tmp/lib.sh && foo %'
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FindOutputToXargs));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn still_reports_replacement_xargs_when_parallelism_does_not_trigger_the_exemption() {
+        let source = "\
+find \"$dir\" \\( -type f -o -type l \\) -and -not -path \"$dir/plugins/*\" | xargs -I % -P1 bash -c '. /tmp/lib.sh && foo %'
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FindOutputToXargs));
 
@@ -231,13 +256,13 @@ command find . -type f | command xargs wc -l
             Applicability::Unsafe,
         );
 
-        assert_eq!(result.fixes_applied, 4);
+        assert_eq!(result.fixes_applied, 3);
         assert_eq!(
             result.fixed_source,
             "\
 #!/bin/sh
 find . -name '*.txt' -print0 | xargs -0 rm
-find . -type f -print0 | xargs -0 wc -l
+find . -type f | xargs -0 wc -l
 find \"$pkg\" -print0 | xargs -0 rm
 command find . -type f -print0 | command xargs -0 wc -l
 "

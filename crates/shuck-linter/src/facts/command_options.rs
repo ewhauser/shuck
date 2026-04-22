@@ -215,10 +215,15 @@ impl MapfileCommandFacts {
 #[derive(Debug, Clone)]
 pub struct XargsCommandFacts {
     pub uses_null_input: bool,
+    max_procs: Option<u64>,
     inline_replace_option_spans: Box<[Span]>,
 }
 
 impl XargsCommandFacts {
+    pub fn max_procs(&self) -> Option<u64> {
+        self.max_procs
+    }
+
     pub fn inline_replace_option_spans(&self) -> &[Span] {
         &self.inline_replace_option_spans
     }
