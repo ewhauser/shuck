@@ -711,7 +711,10 @@ impl<'a> SafeValueIndex<'a> {
 
         let cfg = self.analysis.cfg();
         let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
-        let mut stack = vec![cfg.entry()];
+        let mut stack = vec![self.flow_entry_block_for_binding_scopes(
+            &[self.semantic.binding(binding_id).scope],
+            at.start.offset,
+        )];
         let mut seen = FxHashSet::default();
         while let Some(block_id) = stack.pop() {
             if block_id == binding_block
@@ -764,7 +767,15 @@ impl<'a> SafeValueIndex<'a> {
 
         let cfg = self.analysis.cfg();
         let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
-        let mut stack = vec![cfg.entry()];
+        let binding_scopes = bindings
+            .iter()
+            .copied()
+            .map(|binding_id| self.semantic.binding(binding_id).scope)
+            .collect::<Vec<_>>();
+        let mut stack = vec![self.flow_entry_block_for_binding_scopes(
+            &binding_scopes,
+            at.start.offset,
+        )];
         let mut seen = FxHashSet::default();
         while let Some(block_id) = stack.pop() {
             if cover_blocks.contains(&block_id)
@@ -783,6 +794,34 @@ impl<'a> SafeValueIndex<'a> {
 
         true
     }
+
+    fn flow_entry_block_for_binding_scopes(
+        &self,
+        binding_scopes: &[ScopeId],
+        reference_offset: usize,
+    ) -> BlockId {
+        let cfg = self.analysis.cfg();
+        self.semantic
+            .ancestor_scopes(self.semantic.scope_at(reference_offset))
+            .find_map(|scope| {
+                if !matches!(self.semantic.scope(scope).kind, ScopeKind::Function(_) | ScopeKind::File)
+                {
+                    return None;
+                }
+                binding_scopes
+                    .iter()
+                    .copied()
+                    .all(|binding_scope| {
+                        self.semantic
+                            .ancestor_scopes(binding_scope)
+                            .any(|ancestor| ancestor == scope)
+                    })
+                    .then(|| cfg.scope_entry(scope))
+                    .flatten()
+            })
+            .unwrap_or_else(|| cfg.entry())
+    }
+
     fn reference_id_for_name_at(&self, name: &Name, at: Span) -> Option<ReferenceId> {
         self.semantic
             .references()
@@ -1540,6 +1579,84 @@ fi
             .collect::<Vec<_>>();
 
         assert_eq!(validate_uses.len(), 3, "expected all sibling pipeline uses");
+        assert!(
+            validate_uses
+                .into_iter()
+                .all(|fact| !safe_values.word_occurrence_is_safe(fact, SafeValueQuery::Argv))
+        );
+    }
+
+    #[test]
+    fn function_local_guarded_initializers_do_not_dominate_later_uses() {
+        let source = "\
+#!/bin/bash
+f() {
+  if [ \"$1\" = validate ]; then
+    validate=validate
+  fi
+  echo ${validate}
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "${validate}"
+            })
+            .expect("expected function-local validate command argument");
+
+        assert!(!safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn function_local_pipeline_uses_stay_unsafe_after_guarded_initializers() {
+        let source = "\
+#!/bin/bash
+f() {
+  if [ \"$1\" = validate ]; then
+    validate=validate
+  fi
+  while :; do
+    if [ \"$appid\" = 90 ]; then
+      if [ -n \"$branch\" ] && [ -n \"$beta\" ]; then
+        echo ${validate} | tee /dev/null
+      elif [ -n \"$branch\" ]; then
+        echo ${validate} | tee /dev/null
+      else
+        echo ${validate} | tee /dev/null
+      fi
+    fi
+    break
+  done
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let validate_uses = facts
+            .word_facts()
+            .iter()
+            .filter(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "${validate}"
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(validate_uses.len(), 3, "expected all function-local pipeline uses");
         assert!(
             validate_uses
                 .into_iter()

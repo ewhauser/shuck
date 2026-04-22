@@ -84,6 +84,10 @@ impl ControlFlowGraph {
         &self.exits
     }
 
+    pub fn scope_entry(&self, scope: ScopeId) -> Option<BlockId> {
+        self.scope_entries.get(&scope).copied()
+    }
+
     pub(crate) fn scope_exits(&self, scope: ScopeId) -> Option<&[BlockId]> {
         self.scope_exits.get(&scope).map(Vec::as_slice)
     }
