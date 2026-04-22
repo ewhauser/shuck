@@ -278,7 +278,8 @@ fn check_fix_rewrites_safe_s074_and_bypasses_cache() {
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut cmd, tempdir.path());
-    cmd.current_dir(tempdir.path()).args(["check", "--fix"]);
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--fix", "--select", "S074"]);
     cmd.assert().success().stdout("");
 
     assert_eq!(
@@ -297,7 +298,8 @@ fn check_without_fix_leaves_s074_file_unchanged() {
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut cmd, tempdir.path());
-    cmd.current_dir(tempdir.path()).arg("check");
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--select", "S074"]);
     cmd.assert()
         .code(1)
         .stdout(predicate::str::contains("warning[S074]:"));
@@ -313,8 +315,13 @@ fn check_exit_non_zero_on_fix_returns_failure_when_fix_is_applied() {
 
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut cmd, tempdir.path());
-    cmd.current_dir(tempdir.path())
-        .args(["check", "--fix", "--exit-non-zero-on-fix"]);
+    cmd.current_dir(tempdir.path()).args([
+        "check",
+        "--fix",
+        "--exit-non-zero-on-fix",
+        "--select",
+        "S074",
+    ]);
     cmd.assert().code(1).stdout("");
 
     assert_eq!(
@@ -332,7 +339,7 @@ fn check_unsafe_fixes_applies_safe_s074_fix() {
     let mut cmd = Command::cargo_bin("shuck").unwrap();
     configure_env_cache(&mut cmd, tempdir.path());
     cmd.current_dir(tempdir.path())
-        .args(["check", "--unsafe-fixes"]);
+        .args(["check", "--unsafe-fixes", "--select", "S074"]);
     cmd.assert().success().stdout("");
 
     assert_eq!(
@@ -519,6 +526,8 @@ fn check_unfixable_prevents_fixing_matching_rules() {
     cmd.current_dir(tempdir.path()).args([
         "check",
         "--fix",
+        "--select",
+        "S074",
         "--unfixable",
         "S074",
         "--output-format",
@@ -809,13 +818,19 @@ fn check_json_output_is_identical_on_cache_hit_for_fix_payloads() {
     )
     .unwrap();
 
-    let first = run_check_output(tempdir.path(), &["check", "--output-format", "json"]);
+    let first = run_check_output(
+        tempdir.path(),
+        &["check", "--select", "S074", "--output-format", "json"],
+    );
     assert_eq!(first.status.code(), Some(1));
     let first_stdout = stdout_string(&first);
     let first_value: serde_json::Value = serde_json::from_str(&first_stdout).unwrap();
     assert!(first_value[0]["fix"].is_object());
 
-    let second = run_check_output(tempdir.path(), &["check", "--output-format", "json"]);
+    let second = run_check_output(
+        tempdir.path(),
+        &["check", "--select", "S074", "--output-format", "json"],
+    );
     assert_eq!(second.status.code(), Some(1));
     assert_eq!(stdout_string(&second), first_stdout);
 }

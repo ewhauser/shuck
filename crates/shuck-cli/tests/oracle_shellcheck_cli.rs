@@ -234,6 +234,70 @@ fn oracle_check_unassigned_uppercase_matches_shellcheck() {
 
 #[test]
 #[ignore]
+fn oracle_uppercase_optional_is_disabled_by_default() {
+    if !shellcheck_available() {
+        return;
+    }
+
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("x.sh"), "#!/bin/sh\necho $VAR\n").unwrap();
+
+    let args = vec!["--norc", "-f", "json1", "x.sh"];
+    let shellcheck = run_shellcheck(&args, tempdir.path());
+    let compat = run_compat(&args, tempdir.path());
+    assert_eq!(shellcheck.status.code(), compat.status.code());
+    assert_eq!(
+        json1_comment_shapes(&shellcheck),
+        json1_comment_shapes(&compat)
+    );
+}
+
+#[test]
+#[ignore]
+fn oracle_include_sc2248_does_not_select_bare_slash_marker() {
+    if !shellcheck_available() {
+        return;
+    }
+
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("x.sh"), "#!/bin/sh\n*/\n").unwrap();
+
+    let args = vec!["--norc", "--include=SC2248", "-f", "json1", "x.sh"];
+    let shellcheck = run_shellcheck(&args, tempdir.path());
+    let compat = run_compat(&args, tempdir.path());
+    assert_eq!(shellcheck.status.code(), compat.status.code());
+    assert_eq!(
+        json1_comment_shapes(&shellcheck),
+        json1_comment_shapes(&compat)
+    );
+}
+
+#[test]
+#[ignore]
+fn oracle_include_sc2335_does_not_select_unquoted_path_in_mkdir() {
+    if !shellcheck_available() {
+        return;
+    }
+
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("x.sh"),
+        "#!/bin/bash\nmkdir -p -m 750 $PKG/var/lib/app\n",
+    )
+    .unwrap();
+
+    let args = vec!["--norc", "--include=SC2335", "-f", "json1", "x.sh"];
+    let shellcheck = run_shellcheck(&args, tempdir.path());
+    let compat = run_compat(&args, tempdir.path());
+    assert_eq!(shellcheck.status.code(), compat.status.code());
+    assert_eq!(
+        json1_comment_shapes(&shellcheck),
+        json1_comment_shapes(&compat)
+    );
+}
+
+#[test]
+#[ignore]
 fn oracle_config_precedence_matches_for_simple_disable_cases() {
     if !shellcheck_available() {
         return;

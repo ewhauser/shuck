@@ -6,21 +6,16 @@ This page covers Shuck's stable native configuration for `shuck check`. ShellChe
 
 ## Default behavior
 
-If you do not add a config file, Shuck behaves as though it were configured like this:
+If you do not add a config file, Shuck enables all implemented non-style rules by default.
 
-```toml
-[lint]
-select = ["C", "K", "S074"]
-ignore = []
-fixable = ["ALL"]
-unfixable = []
-```
+That baseline includes:
 
-That default rule set enables:
+- Correctness rules (`C`)
+- Performance rules (`P`)
+- Portability rules (`X`)
+- Security rules (`K`)
 
-- All correctness rules (`C`)
-- All security rules (`K`)
-- `S074`, which catches `&;` command separators
+All style rules are disabled by default, including `S074`. Shuck also reserves a small internal compatibility exclude list for ShellCheck-style opt-in checks when they map to standalone non-style rules.
 
 You only need a config file when you want to change that baseline.
 
@@ -28,7 +23,6 @@ For example, the following configuration keeps the defaults, adds all style rule
 
 ```toml
 [lint]
-select = ["C", "K", "S074"]
 extend-select = ["S"]
 ignore = ["S074"]
 fixable = ["ALL"]
@@ -88,7 +82,7 @@ Selectors can be:
 
 ```toml
 [lint]
-select = ["C", "K", "S074"]
+select = ["ALL"]
 ```
 
 ### `ignore`
@@ -97,8 +91,8 @@ Removes rules from the currently selected set.
 
 ```toml
 [lint]
-select = ["C", "K", "S074"]
-ignore = ["C011", "S074"]
+select = ["ALL"]
+ignore = ["S", "C011"]
 ```
 
 ### `extend-select`
@@ -107,8 +101,7 @@ Adds more rules on top of the current selection.
 
 ```toml
 [lint]
-select = ["C", "K", "S074"]
-extend-select = ["S", "P"]
+extend-select = ["S"]
 ```
 
 ### `per-file-ignores`
@@ -117,7 +110,7 @@ Defines rule ignores for files matching a glob pattern.
 
 ```toml
 [lint]
-select = ["C", "K", "S074"]
+extend-select = ["S"]
 
 [lint.per-file-ignores]
 "scripts/*.sh" = ["S074"]
@@ -130,7 +123,7 @@ Adds more per-file ignores on top of any existing `per-file-ignores` entries.
 
 ```toml
 [lint]
-select = ["C", "K", "S074"]
+extend-select = ["S"]
 extend-per-file-ignores = { "vendor/**" = ["ALL"], "scripts/*.sh" = ["S074"] }
 ```
 
@@ -142,7 +135,7 @@ By default, all rules are considered fixable candidates when fixes exist.
 
 ```toml
 [lint]
-select = ["C", "K", "S074"]
+extend-select = ["S"]
 fixable = ["C", "S074"]
 ```
 
@@ -152,7 +145,7 @@ Marks selected rules as ineligible for automatic fixes, even when `--fix` is ena
 
 ```toml
 [lint]
-select = ["C", "K", "S074"]
+select = ["ALL"]
 unfixable = ["C001"]
 ```
 
@@ -162,7 +155,7 @@ Adds more fixable rules on top of an existing `fixable` selection.
 
 ```toml
 [lint]
-select = ["C", "K", "S074"]
+extend-select = ["S"]
 fixable = ["C"]
 extend-fixable = ["S074"]
 ```

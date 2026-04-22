@@ -1518,7 +1518,7 @@ mod tests {
     use std::sync::Arc;
 
     use notify::event::{CreateKind, EventAttributes, ModifyKind, RemoveKind, RenameMode};
-    use shuck_linter::{Rule, RuleSelector};
+    use shuck_linter::{Category, Rule, RuleSelector};
     use tempfile::tempdir;
 
     use super::*;
@@ -1766,6 +1766,113 @@ mod tests {
     }
 
     #[test]
+    fn style_rules_are_disabled_by_default() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("script.sh"),
+            "#!/bin/bash\nprintf '%s\\n' x &;\n",
+        )
+        .unwrap();
+
+        let report = run_check_with_cwd(
+            &check_args(true),
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+
+        assert!(report.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn extend_select_can_reenable_s074() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("script.sh"),
+            "#!/bin/bash\nprintf '%s\\n' x &;\n",
+        )
+        .unwrap();
+
+        let mut args = check_args(true);
+        args.rule_selection = RuleSelectionArgs {
+            extend_select: vec![RuleSelector::Rule(Rule::AmpersandSemicolon)],
+            ..RuleSelectionArgs::default()
+        };
+
+        let report = run_check_with_cwd(
+            &args,
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            diagnostic_codes(&report),
+            vec![Rule::AmpersandSemicolon.code().to_owned()]
+        );
+    }
+
+    #[test]
+    fn extend_select_category_reenables_style_rules() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("script.sh"),
+            "#!/bin/bash\nprintf '%s\\n' x &;\n",
+        )
+        .unwrap();
+
+        let mut args = check_args(true);
+        args.rule_selection = RuleSelectionArgs {
+            extend_select: vec![RuleSelector::Category(Category::Style)],
+            ..RuleSelectionArgs::default()
+        };
+
+        let report = run_check_with_cwd(
+            &args,
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            diagnostic_codes(&report),
+            vec![Rule::AmpersandSemicolon.code().to_owned()]
+        );
+    }
+
+    #[test]
+    fn select_all_includes_style_rules() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("script.sh"),
+            "#!/bin/bash\nprintf '%s\\n' x &;\n",
+        )
+        .unwrap();
+
+        let mut args = check_args(true);
+        args.rule_selection = RuleSelectionArgs {
+            select: Some(vec![RuleSelector::All]),
+            ..RuleSelectionArgs::default()
+        };
+
+        let report = run_check_with_cwd(
+            &args,
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+
+        assert_eq!(
+            diagnostic_codes(&report),
+            vec![Rule::AmpersandSemicolon.code().to_owned()]
+        );
+    }
+
+    #[test]
     fn extend_select_adds_on_top_of_config_selection() {
         let tempdir = tempdir().unwrap();
         fs::write(
@@ -1893,6 +2000,7 @@ mod tests {
         let mut args = check_args(true);
         args.fix = true;
         args.rule_selection = RuleSelectionArgs {
+            extend_select: vec![RuleSelector::Rule(Rule::AmpersandSemicolon)],
             unfixable: vec![RuleSelector::Rule(Rule::AmpersandSemicolon)],
             ..RuleSelectionArgs::default()
         };
