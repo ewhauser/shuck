@@ -1,4 +1,11 @@
 use super::*;
+use crate::facts::{
+    collect_precise_function_return_guard_suppressions,
+    collect_precise_function_return_guard_suppressions_in_seq,
+    stmt_is_unary_test_return_status_guard,
+    stmt_is_non_test_return_status_guard,
+};
+use shuck_ast::{Command, CompoundCommand};
 
 #[test]
 fn assignment_value_facts_ignore_line_continuation_backslashes_for_shell_quoting_literals() {
@@ -259,6 +266,71 @@ fi
 }
 
 #[test]
+fn recognizes_precise_function_return_guard_shapes() {
+    let source = "\
+#!/bin/bash
+build_config() {
+  helper || return $?
+  [[ -n \"${flag:-}\" ]] || return $?
+  export out=\"$(printf ok)\"
+}
+pkg_check() {
+  [[ -f \"${base}/include/$1\" ]] || return $?
+  case \"$mode\" in
+    a) ext=a ;;
+    *) ext=b ;;
+  esac
+  file=\"$(find \"${base}\" -name \"$2.$ext\" | head -n 1)\"
+  [[ -n \"$file\" ]] || return $?
+}
+";
+
+    let output = Parser::new(source).parse().unwrap();
+    let Command::Function(build_config) = &output.file.body[0].command else {
+        panic!("expected function");
+    };
+    let Command::Compound(CompoundCommand::BraceGroup(build_body)) = &build_config.body.command else {
+        panic!("expected brace-group function body");
+    };
+    let Command::Function(pkg_check) = &output.file.body[1].command else {
+        panic!("expected second function");
+    };
+    let Command::Compound(CompoundCommand::BraceGroup(pkg_body)) = &pkg_check.body.command else {
+        panic!("expected brace-group function body");
+    };
+
+    assert!(stmt_is_non_test_return_status_guard(&build_body[0], source));
+    assert!(stmt_is_unary_test_return_status_guard(&build_body[1], source));
+    assert!(stmt_is_unary_test_return_status_guard(&pkg_body[0], source));
+
+    let mut body_spans = Vec::new();
+    collect_precise_function_return_guard_suppressions_in_seq(
+        build_body,
+        source,
+        &mut body_spans,
+        true,
+    );
+    collect_precise_function_return_guard_suppressions_in_seq(
+        pkg_body,
+        source,
+        &mut body_spans,
+        true,
+    );
+    assert_eq!(
+        body_spans.iter().map(|span| span.start.line).collect::<Vec<_>>(),
+        vec![4, 8]
+    );
+
+    let mut spans = Vec::new();
+    collect_precise_function_return_guard_suppressions(&output.file.body, source, &mut spans);
+
+    assert_eq!(
+        spans.iter().map(|span| span.start.line).collect::<Vec<_>>(),
+        vec![4, 8]
+    );
+}
+
+#[test]
 fn includes_nested_jq_file_operands_in_writer_scope_reads() {
     let source = "#!/bin/bash\ncat <<<$(jq '.dns={}' \"$cfg\") >\"$cfg\"\n";
 
@@ -478,6 +550,121 @@ while [[ $? -ne 0 ]]; do break; done
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$?", "$?", "$?", "$?", "$?", "$?"]
+        );
+    });
+}
+
+#[test]
+fn collects_c056_status_reads_after_sequential_test_statements() {
+    let source = "\
+#!/bin/bash
+[[ \"${second_line}\" == \"quz\" ]];
+tend $?
+[[ ${s0} == \"${s2}\" ]] &&
+[[ ${s1} != *f* ]]
+tend $?
+[[ \"${later}\" == \"ok\" ]]
+if [ -f foo ]; then :; fi
+saved=$?
+while [ -f foo ]; do break; done
+again=$?
+";
+
+    with_facts(source, None, |_, facts| {
+        assert_eq!(
+            facts
+                .condition_status_capture_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$?", "$?"]
+        );
+    });
+}
+
+#[test]
+fn keeps_c056_off_one_off_test_followups_without_later_test_blocks() {
+    let source = "\
+#!/bin/bash
+[[ \"${second_line}\" == \"quz\" ]]
+tend $?
+nextcmd
+";
+
+    with_facts(source, None, |_, facts| {
+        assert!(
+            facts.condition_status_capture_spans().is_empty(),
+            "expected no C056 spans for one-off sequential test followup"
+        );
+    });
+}
+
+#[test]
+fn collects_c056_for_complex_status_blocks_but_skips_late_repeats() {
+    let source = "\
+#!/bin/bash
+tbegin one
+A=a B=b C=c
+evar_push A B C
+pu=$?
+A=A B=B C=C
+evar_pop 1
+po1=$?
+[[ ${A}${B}${C} == \"ABc\" ]]
+po2=$?
+evar_pop 2
+po3=$?
+var=$(bash -c 'echo ${VAR+set}')
+[[ ${pu}${po1}${po2}${po3}${A}${B}${C} == \"0000abc\" ]]
+tend $?
+
+tbegin two
+VAR=1
+evar_push_set VAR 2
+pu=$?
+[[ ${VAR} == \"2\" ]]
+po1=$?
+evar_pop
+po2=$?
+[[ ${pu}${po1}${po2}${VAR} == \"0001\" ]]
+tend $?
+";
+
+    with_facts(source, None, |_, facts| {
+        assert_eq!(
+            facts
+                .condition_status_capture_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$?"]
+        );
+    });
+}
+
+#[test]
+fn collects_c056_for_shellspec_style_followup_chains_when_sibling_groups_continue_testing() {
+    let source = "\
+#!/bin/bash
+(
+  [ \"$line\" = ok ]
+  [ $? -eq 0 ] && no_problem || affect
+)
+
+(
+  [ \"$other\" = ok ]
+  :
+)
+";
+
+    with_facts(source, None, |_, facts| {
+        assert_eq!(
+            facts
+                .condition_status_capture_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$?"]
         );
     });
 }
