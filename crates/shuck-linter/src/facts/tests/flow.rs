@@ -606,6 +606,34 @@ nextcmd
 }
 
 #[test]
+fn collects_c056_when_later_loop_conditions_continue_testing() {
+    let source = "\
+#!/bin/bash
+[ -f first ]
+tend $?
+while [ -f loop_one ]; do
+  :
+done
+[ -f second ]
+tend $?
+until [ -f loop_two ]; do
+  break
+done
+";
+
+    with_facts(source, None, |_, facts| {
+        assert_eq!(
+            facts
+                .condition_status_capture_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$?", "$?"]
+        );
+    });
+}
+
+#[test]
 fn collects_c056_for_complex_status_blocks_but_skips_late_repeats() {
     let source = "\
 #!/bin/bash

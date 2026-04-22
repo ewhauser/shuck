@@ -665,14 +665,20 @@ fn stmt_or_nested_sequence_contains_test_command(stmt: &Stmt, source: &str) -> b
                             .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source))
                     })
             }
-            CompoundCommand::While(command) => command
-                .body
-                .iter()
-                .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source)),
-            CompoundCommand::Until(command) => command
-                .body
-                .iter()
-                .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source)),
+            CompoundCommand::While(command) => {
+                condition_terminals_are_test_commands(&command.condition, source)
+                    || command
+                        .body
+                        .iter()
+                        .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source))
+            }
+            CompoundCommand::Until(command) => {
+                condition_terminals_are_test_commands(&command.condition, source)
+                    || command
+                        .body
+                        .iter()
+                        .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source))
+            }
             CompoundCommand::For(command) => command
                 .body
                 .iter()
