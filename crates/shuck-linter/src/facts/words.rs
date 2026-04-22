@@ -280,7 +280,11 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
             _ => return part_span,
         };
 
-        span::shellcheck_collapsed_backtick_part_span_in_source(adjusted, source)
+        span::shellcheck_collapsed_backtick_part_span(
+            adjusted,
+            source,
+            self.facts.backtick_substitution_spans(),
+        )
     }
 
     pub fn has_direct_all_elements_array_expansion_in_source(self, source: &str) -> bool {

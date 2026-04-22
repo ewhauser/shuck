@@ -1,5 +1,3 @@
-use std::cell::RefCell;
-
 use shuck_ast::{
     ArithmeticExpr, Assignment, BinaryCommand, BourneParameterExpansion, CaseItem, ConditionalExpr,
     ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternGroupKind,
@@ -86,8 +84,17 @@ pub fn unescaped_backtick_command_substitution_span(span: Span, source: &str) ->
     Some(normalized)
 }
 
+pub(crate) fn shellcheck_collapsed_backtick_part_span(
+    span: Span,
+    source: &str,
+    backtick_spans: &[Span],
+) -> Span {
+    collapse_backtick_continuation_span(span, source, backtick_spans).unwrap_or(span)
+}
+
 pub(crate) fn shellcheck_collapsed_backtick_part_span_in_source(span: Span, source: &str) -> Span {
-    collapse_backtick_continuation_span(span, source).unwrap_or(span)
+    let backtick_spans = backtick_substitution_spans(source);
+    shellcheck_collapsed_backtick_part_span(span, source, &backtick_spans)
 }
 
 pub fn array_expansion_part_spans(word: &Word, _source: &str) -> Vec<Span> {
@@ -1440,8 +1447,12 @@ fn normalize_command_substitution_span(span: Span, source: &str) -> Span {
     span
 }
 
-fn collapse_backtick_continuation_span(span: Span, source: &str) -> Option<Span> {
-    containing_backtick_substitution_span(span, source)?;
+fn collapse_backtick_continuation_span(
+    span: Span,
+    source: &str,
+    backtick_spans: &[Span],
+) -> Option<Span> {
+    containing_backtick_substitution_span(span, backtick_spans)?;
     let chain_start = continued_line_chain_start(span.start, source)?;
     Some(Span::from_positions(
         shellcheck_collapsed_position(chain_start, span.start, source),
@@ -1449,13 +1460,11 @@ fn collapse_backtick_continuation_span(span: Span, source: &str) -> Option<Span>
     ))
 }
 
-fn containing_backtick_substitution_span(target: Span, source: &str) -> Option<Span> {
-    with_backtick_substitution_spans(source, |spans| {
-        spans
-            .iter()
-            .copied()
-            .find(|span| span_contains(*span, target))
-    })
+fn containing_backtick_substitution_span(target: Span, backtick_spans: &[Span]) -> Option<Span> {
+    backtick_spans
+        .iter()
+        .copied()
+        .find(|span| span_contains(*span, target))
 }
 
 #[derive(Clone, Copy, Default)]
@@ -1472,55 +1481,7 @@ fn backtick_shell_comment_can_start(previous_char: Option<char>) -> bool {
     })
 }
 
-const BACKTICK_SPAN_CACHE_SAMPLE_LEN: usize = 8;
-
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
-struct BacktickSpanCacheKey {
-    ptr: usize,
-    len: usize,
-    head: [u8; BACKTICK_SPAN_CACHE_SAMPLE_LEN],
-    tail: [u8; BACKTICK_SPAN_CACHE_SAMPLE_LEN],
-}
-
-#[derive(Default)]
-struct BacktickSpanCache {
-    key: BacktickSpanCacheKey,
-    spans: Vec<Span>,
-}
-
-thread_local! {
-    static BACKTICK_SPAN_CACHE: RefCell<BacktickSpanCache> = RefCell::new(BacktickSpanCache::default());
-}
-
-fn backtick_span_cache_key(source: &str) -> BacktickSpanCacheKey {
-    let bytes = source.as_bytes();
-    let mut key = BacktickSpanCacheKey {
-        ptr: bytes.as_ptr() as usize,
-        len: bytes.len(),
-        ..BacktickSpanCacheKey::default()
-    };
-
-    let head_len = bytes.len().min(BACKTICK_SPAN_CACHE_SAMPLE_LEN);
-    key.head[..head_len].copy_from_slice(&bytes[..head_len]);
-
-    let tail_len = bytes.len().min(BACKTICK_SPAN_CACHE_SAMPLE_LEN);
-    key.tail[..tail_len].copy_from_slice(&bytes[bytes.len() - tail_len..]);
-    key
-}
-
-fn with_backtick_substitution_spans<T>(source: &str, f: impl FnOnce(&[Span]) -> T) -> T {
-    BACKTICK_SPAN_CACHE.with(|cache| {
-        let mut cache = cache.borrow_mut();
-        let key = backtick_span_cache_key(source);
-        if cache.key != key {
-            cache.key = key;
-            cache.spans = backtick_substitution_spans(source);
-        }
-        f(&cache.spans)
-    })
-}
-
-fn backtick_substitution_spans(source: &str) -> Vec<Span> {
+pub(crate) fn backtick_substitution_spans(source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
     let mut contexts = vec![BacktickQuoteContext::default()];
     let mut backtick_start_offsets = Vec::<usize>::new();
