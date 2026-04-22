@@ -1195,7 +1195,7 @@ fn part_contains_line_oriented_substitution<'a>(
                 command_ids_by_span,
             )
         }),
-        WordPart::CommandSubstitution { body, .. } | WordPart::ProcessSubstitution { body, .. } => {
+        WordPart::CommandSubstitution { body, .. } => {
             substitution_body_is_line_oriented(body, commands, command_ids_by_span)
         }
         _ => false,

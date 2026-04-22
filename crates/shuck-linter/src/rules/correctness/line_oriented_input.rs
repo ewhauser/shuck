@@ -94,4 +94,15 @@ done
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn ignores_process_substitution_loop_words() {
+        let source = "\
+for line in <(cat input.txt); do :; done
+for line in \"<(grep foo input.txt)\"; do :; done
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LineOrientedInput));
+
+        assert!(diagnostics.is_empty());
+    }
 }
