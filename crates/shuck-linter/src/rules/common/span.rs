@@ -1448,25 +1448,85 @@ fn collapse_backtick_continuation_span(span: Span, source: &str) -> Option<Span>
 }
 
 fn containing_backtick_substitution_span(target: Span, source: &str) -> Option<Span> {
-    let bytes = source.as_bytes();
-    let mut index = target.start.offset;
+    backtick_substitution_spans(source)
+        .into_iter()
+        .find(|span| span_contains(*span, target))
+}
 
-    while index > 0 {
-        index -= 1;
-        if bytes.get(index) != Some(&b'`') || text_position_is_escaped(source, index) {
+#[derive(Clone, Copy, Default)]
+struct BacktickQuoteContext {
+    in_single_quote: bool,
+    in_double_quote: bool,
+}
+
+fn backtick_substitution_spans(source: &str) -> Vec<Span> {
+    let mut spans = Vec::new();
+    let mut contexts = vec![BacktickQuoteContext::default()];
+    let mut backtick_start_offsets = Vec::<usize>::new();
+    let mut index = 0usize;
+
+    while index < source.len() {
+        let ch = source[index..]
+            .chars()
+            .next()
+            .expect("index should remain on UTF-8 boundaries");
+        let ch_len = ch.len_utf8();
+        let context = contexts
+            .last_mut()
+            .expect("scanner should always retain a root context");
+
+        if context.in_single_quote {
+            if ch == '\'' {
+                context.in_single_quote = false;
+            }
+            index += ch_len;
             continue;
         }
 
-        let start = position_at_offset(source, index)?;
-        let end = position_at_offset(source, index + 1)?;
-        let candidate = Span::from_positions(start, end);
-        let backtick_span = widen_backtick_command_substitution_span(candidate, source)?;
-        if span_contains(backtick_span, target) {
-            return Some(backtick_span);
+        match ch {
+            '\\' => {
+                index += ch_len;
+                if index < source.len() {
+                    let escaped = source[index..]
+                        .chars()
+                        .next()
+                        .expect("index should remain on UTF-8 boundaries");
+                    index += escaped.len_utf8();
+                }
+            }
+            '\'' if !context.in_double_quote => {
+                context.in_single_quote = true;
+                index += ch_len;
+            }
+            '"' => {
+                context.in_double_quote = !context.in_double_quote;
+                index += ch_len;
+            }
+            '`' => {
+                if let Some(start_offset) = backtick_start_offsets.pop() {
+                    let _ = contexts.pop();
+                    let Some(start) = position_at_offset(source, start_offset) else {
+                        index += ch_len;
+                        continue;
+                    };
+                    let Some(end) = position_at_offset(source, index + ch_len) else {
+                        index += ch_len;
+                        continue;
+                    };
+                    spans.push(Span::from_positions(start, end));
+                } else {
+                    backtick_start_offsets.push(index);
+                    contexts.push(BacktickQuoteContext::default());
+                }
+                index += ch_len;
+            }
+            _ => {
+                index += ch_len;
+            }
         }
     }
 
-    None
+    spans
 }
 
 fn continued_line_chain_start(target: Position, source: &str) -> Option<Position> {
@@ -3787,12 +3847,14 @@ fn span_is_escaped(span: Span, source: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use shuck_ast::Span;
     use shuck_parser::parser::Parser;
 
     use super::{
         all_elements_array_expansion_part_spans, array_expansion_part_spans,
         command_substitution_part_spans, find_extglob_bounds,
-        line_has_escaped_newline_continuation, scalar_expansion_part_spans,
+        line_has_escaped_newline_continuation, position_at_offset, scalar_expansion_part_spans,
+        shellcheck_collapsed_backtick_part_span_in_source,
         unquoted_all_elements_array_expansion_part_spans,
         unquoted_command_substitution_part_spans_in_source, unquoted_scalar_expansion_part_spans,
         word_all_elements_array_slice_span_in_source, word_all_elements_array_slice_spans,
@@ -4942,6 +5004,22 @@ exec \"$@\" \"${@}\" \"${@:1}\" \"${@:-fallback}\" \"${@:${args_offset}}\" \"${@
                 .expect("expected folded positional span")
                 .slice(source),
             "$@"
+        );
+    }
+
+    #[test]
+    fn shellcheck_collapsed_backtick_part_span_in_source_ignores_single_quoted_backticks() {
+        let source = "printf '%s\\n' '`'\\\n  \"$foo\"\\\n  '`'\n";
+        let start_offset = source.find("$foo").expect("expected expansion");
+        let end_offset = start_offset + "$foo".len();
+        let span = Span::from_positions(
+            position_at_offset(source, start_offset).expect("expected start position"),
+            position_at_offset(source, end_offset).expect("expected end position"),
+        );
+
+        assert_eq!(
+            shellcheck_collapsed_backtick_part_span_in_source(span, source),
+            span
         );
     }
 

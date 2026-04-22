@@ -353,10 +353,11 @@ impl<'a> SafeValueIndex<'a> {
     ) -> bool {
         let binding = self.semantic.binding(binding_id);
         self.facts.function_headers().iter().any(|header| {
-            let Some(function_binding_id) = header.binding_id() else {
+            let Some(function_definition_command) =
+                self.function_definition_command(header.function())
+            else {
                 return false;
             };
-            let function_binding = self.semantic.binding(function_binding_id);
             function_has_terminal_exit(header.function())
                 && header
                     .call_arity()
@@ -370,12 +371,32 @@ impl<'a> SafeValueIndex<'a> {
                             && self.command_runs_in_unconditional_flow(command.id(), at)
                             && {
                                 let call_span = command.span_in_source(self.source);
-                                call_span.start.offset >= function_binding.span.start.offset
+                                function_definition_command
+                                    .span_in_source(self.source)
+                                    .end
+                                    .offset
+                                    <= call_span.start.offset
+                                    && self.command_runs_in_unconditional_flow(
+                                        function_definition_command.id(),
+                                        call_span,
+                                    )
                                     && call_span.end.offset <= at.start.offset
                                     && (call_span.start.offset >= binding.span.end.offset
                                         || call_span.end.offset <= binding.span.start.offset)
                             }
                     })
+        })
+    }
+
+    fn function_definition_command(
+        &self,
+        function: &FunctionDef,
+    ) -> Option<&crate::facts::CommandFact<'a>> {
+        self.facts.commands().iter().find(|command| {
+            matches!(
+                command.command(),
+                Command::Function(candidate) if candidate.span == function.span
+            )
         })
     }
 
