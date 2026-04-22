@@ -14,6 +14,8 @@ const SUPPRESSION_ALIAS_CODES: &[(u32, Rule)] = &[
     (2321, Rule::FunctionKeywordInSh),
     (2234, Rule::SingleTestSubshell),
     (2351, Rule::XPrefixInTest),
+    (3046, Rule::SourceInsideFunctionInSh),
+    (3051, Rule::SourceInsideFunctionInSh),
     (3084, Rule::SourceInsideFunctionInSh),
 ];
 
@@ -160,6 +162,14 @@ mod tests {
         );
         assert_eq!(map.resolve_all("SC2234"), vec![Rule::SingleTestSubshell]);
         assert_eq!(
+            map.resolve_all("SC3046"),
+            vec![Rule::SourceBuiltinInSh, Rule::SourceInsideFunctionInSh]
+        );
+        assert_eq!(
+            map.resolve_all("SC3051"),
+            vec![Rule::SourceInsideFunctionInSh]
+        );
+        assert_eq!(
             map.resolve_all("SC3084"),
             vec![Rule::SourceInsideFunctionInSh]
         );
@@ -200,6 +210,7 @@ mod tests {
             Some(1087)
         );
         assert_eq!(map.code_for_rule(Rule::BackslashBeforeCommand), None);
+        assert_eq!(map.code_for_rule(Rule::SourceInsideFunctionInSh), None);
         assert_eq!(
             map.code_for_rule(Rule::LeadingGlobInGrepPattern),
             Some(2063)

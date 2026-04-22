@@ -3,8 +3,8 @@ legacy_name: source-inside-function-in-sh
 new_category: Portability
 new_code: X080
 runtime_kind: ast
-shellcheck_code: SC3051
-shellcheck_level: warning
+shellcheck_code: null
+shellcheck_level: null
 shells:
   - sh
   - dash

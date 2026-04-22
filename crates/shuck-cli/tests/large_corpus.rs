@@ -1275,6 +1275,10 @@ fn evaluate_fixture_compatibility(
     shellcheck_filter_codes: Option<&HashSet<u32>>,
     shuck_path_resolver: Arc<LargeCorpusPathResolver>,
 ) -> FixtureEvaluation {
+    if !large_corpus_has_active_shellcheck_comparison(shellcheck_filter_codes) {
+        return FixtureEvaluation::default();
+    }
+
     let mut evaluation = FixtureEvaluation::default();
     let src = fs::read(&fixture.path).unwrap_or_default();
     let shuck_timeout = effective_shuck_timeout(&src, shuck_timeout);
@@ -1520,6 +1524,12 @@ fn filter_shellcheck_run(
         .retain(|diag| shellcheck_filter_codes.contains(&diag.code));
     run.parse_aborted |= shellcheck_parse_aborted(&run.diagnostics);
     run
+}
+
+fn large_corpus_has_active_shellcheck_comparison(
+    shellcheck_filter_codes: Option<&HashSet<u32>>,
+) -> bool {
+    !matches!(shellcheck_filter_codes, Some(codes) if codes.is_empty())
 }
 
 fn merge_fixture_evaluation(
@@ -3708,6 +3718,26 @@ mod tests {
         let codes = build_selected_shellcheck_codes(&selected_rules);
 
         assert_eq!(codes, HashSet::from([2112]));
+    }
+
+    #[test]
+    fn selected_rule_shellcheck_filters_are_empty_for_rules_without_active_code() {
+        let selected_rules =
+            shuck_linter::RuleSet::from_iter([shuck_linter::Rule::SourceInsideFunctionInSh]);
+        let codes = build_selected_shellcheck_codes(&selected_rules);
+
+        assert!(codes.is_empty());
+    }
+
+    #[test]
+    fn empty_shellcheck_filter_disables_active_compatibility_comparison() {
+        assert!(!large_corpus_has_active_shellcheck_comparison(Some(
+            &HashSet::new()
+        )));
+        assert!(large_corpus_has_active_shellcheck_comparison(None));
+        assert!(large_corpus_has_active_shellcheck_comparison(Some(
+            &HashSet::from([3046,])
+        )));
     }
 
     #[test]
