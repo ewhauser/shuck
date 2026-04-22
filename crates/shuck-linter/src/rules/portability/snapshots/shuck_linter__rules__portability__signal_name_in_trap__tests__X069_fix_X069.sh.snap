@@ -1,0 +1,27 @@
+---
+source: crates/shuck-linter/src/rules/portability/signal_name_in_trap.rs
+---
+Diagnostics:
+X069 symbolic signal names with a `SIG` prefix are not portable in `sh` scripts
+ --> <source>:2:9
+  |
+2 | trap "" SIGHUP
+  |
+
+
+Applied fixes: 1
+
+Diff:
+--- before
++++ after
+@@ -1,2 +1,2 @@
+ #!/bin/sh
+-trap "" SIGHUP
++trap "" HUP
+
+Fixed source:
+#!/bin/sh
+trap "" HUP
+
+Remaining diagnostics:
+<none>
