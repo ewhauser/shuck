@@ -493,8 +493,11 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn called_helper_bindings_for_name(&mut self, name: &Name, at: Span) -> Vec<BindingId> {
-        let scope = self.semantic.scope_at(at.start.offset);
-        let mut bindings = self.called_helper_bindings_before(name, scope, at);
+        let mut bindings = self
+            .semantic
+            .ancestor_scopes(self.semantic.scope_at(at.start.offset))
+            .flat_map(|scope| self.called_helper_bindings_before(name, scope, at))
+            .collect::<Vec<_>>();
         bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
         bindings.dedup();
         bindings
@@ -577,7 +580,7 @@ impl<'a> SafeValueIndex<'a> {
     ) -> Vec<BindingId> {
         let mut bindings = Vec::new();
 
-        for callee_scope in self.helper_scopes_definitely_providing_name(name) {
+        for callee_scope in self.helper_scopes_providing_name(name) {
             let Some(function_kind) = self.named_function_kind(callee_scope) else {
                 continue;
             };
@@ -665,12 +668,19 @@ impl<'a> SafeValueIndex<'a> {
         }
     }
 
-    fn helper_scopes_definitely_providing_name(&self, name: &Name) -> Vec<ScopeId> {
-        self.analysis
-            .definite_provider_scopes(name)
+    fn helper_scopes_providing_name(&self, name: &Name) -> Vec<ScopeId> {
+        self.semantic
+            .bindings_for(name)
             .iter()
             .copied()
-            .filter(|scope| matches!(self.semantic.scope(*scope).kind, ScopeKind::Function(_)))
+            .filter_map(|binding_id| {
+                let binding = self.semantic.binding(binding_id);
+                (!binding.attributes.contains(BindingAttributes::LOCAL)
+                    && matches!(self.semantic.scope(binding.scope).kind, ScopeKind::Function(_)))
+                .then_some(binding.scope)
+            })
+            .collect::<FxHashSet<_>>()
+            .into_iter()
             .collect()
     }
 
@@ -1497,6 +1507,47 @@ done
     }
 
     #[test]
+    fn branch_ladder_pipeline_uses_stay_unsafe_after_guarded_initializers() {
+        let source = "\
+#!/bin/bash
+if [ \"$1\" = validate ] || [ \"$1\" = install ]; then
+  validate=validate
+fi
+
+if [ \"$mode\" = a ]; then
+  steamcmd ${validate} +quit | tee /dev/null
+elif [ \"$mode\" = b ]; then
+  steamcmd ${validate} +runscript foo | tee /dev/null
+else
+  steamcmd ${validate} +app_update 1 | tee /dev/null
+fi
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let validate_uses = facts
+            .word_facts()
+            .iter()
+            .filter(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "${validate}"
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(validate_uses.len(), 3, "expected all sibling pipeline uses");
+        assert!(
+            validate_uses
+                .into_iter()
+                .all(|fact| !safe_values.word_occurrence_is_safe(fact, SafeValueQuery::Argv))
+        );
+    }
+
+    #[test]
     fn case_defaults_distinguish_maybe_uninitialized_from_explicit_empty_bindings() {
         let source = "\
 #!/bin/bash
@@ -1836,6 +1887,45 @@ GetAMI
                     && fact.span().slice(source) == "$Region"
             })
             .expect("expected Region command-argument fact");
+
+        assert!(!safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn conditional_helper_globals_stay_unsafe_inside_nested_command_substitution_consumers() {
+        let source = "\
+#!/bin/bash
+Region=default
+
+GetRegion() {
+  if [ \"$Region\" = default ]; then
+    Region=\"$(printf '%s' \"$1\")\"
+  fi
+}
+
+GetAMI() {
+  AMI=$(aws ssm get-parameters --region $Region)
+}
+
+GetRegion \"$1\"
+GetAMI
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "$Region"
+            })
+            .expect("expected nested command-substitution helper-derived argument");
 
         assert!(!safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
     }
