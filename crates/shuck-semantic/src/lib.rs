@@ -3286,6 +3286,28 @@ emoji[smile]=2
     }
 
     #[test]
+    fn branch_only_duplicate_bindings_still_trigger_precise_unused_assignment_analysis() {
+        let model = model(
+            "\
+if [ \"$ARCH\" = \"arm\" ]; then
+  LIBDIRSUFFIX=\"\"
+elif [ \"$ARCH\" = \"x86_64\" ]; then
+  LIBDIRSUFFIX=\"64\"
+else
+  LIBDIRSUFFIX=\"\"
+fi
+",
+        );
+        let analysis = model.analysis();
+
+        let precise = analysis.unused_assignments().to_vec();
+
+        assert!(analysis.model.needs_precise_unused_assignments());
+        assert!(analysis.exact_variable_dataflow.get().is_some());
+        assert_eq!(binding_names(&model, &precise), vec!["LIBDIRSUFFIX"; 3]);
+    }
+
+    #[test]
     fn heuristic_unused_assignment_path_skips_exact_variable_dataflow_bundle() {
         let model = model("unused=1\n");
         let analysis = model.analysis();
