@@ -522,8 +522,7 @@ pub fn word_standalone_literal_backslash_span(word: &Word, source: &str) -> Opti
 pub fn word_unquoted_star_parameter_spans(word: &Word, unquoted_array_spans: &[Span]) -> Vec<Span> {
     word.parts_with_spans()
         .filter_map(|(part, span)| {
-            (unquoted_array_spans.contains(&span) && part_uses_star_splat(part))
-                .then_some(span)
+            (unquoted_array_spans.contains(&span) && part_uses_star_splat(part)).then_some(span)
         })
         .collect()
 }
@@ -4507,10 +4506,7 @@ printf '%s\\n' $* ${arr[*]} ${arr[*]:1:2} ${!arr[*]} ${arr[@]} ${arr[@]:1} ${arr
             .map(|span| span.slice(source))
             .collect::<Vec<_>>();
 
-        assert_eq!(
-            spans,
-            vec!["$*", "${arr[*]}", "${arr[*]:1:2}"]
-        );
+        assert_eq!(spans, vec!["$*", "${arr[*]}", "${arr[*]:1:2}"]);
     }
 
     #[test]

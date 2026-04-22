@@ -255,6 +255,31 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         self.word().parts_with_spans()
     }
 
+    pub fn diagnostic_part_span(self, part: &WordPart, part_span: Span, source: &str) -> Span {
+        let WordPart::Variable(name) = part else {
+            return part_span;
+        };
+
+        let expected = format!("${}", name.as_str());
+        if part_span.slice(source) == expected {
+            return part_span;
+        }
+
+        let search_start = part_span.start.offset.saturating_sub(1);
+        let search_end = (part_span.end.offset + 1).min(source.len());
+        let Some(window) = source.get(search_start..search_end) else {
+            return part_span;
+        };
+        let Some(relative_start) = window.find(&expected) else {
+            return part_span;
+        };
+        let start_offset = search_start + relative_start;
+        let end_offset = start_offset + expected.len();
+        let start = Position::new().advanced_by(&source[..start_offset]);
+        let end = Position::new().advanced_by(&source[..end_offset]);
+        Span::from_positions(start, end)
+    }
+
     pub fn has_direct_all_elements_array_expansion_in_source(self, source: &str) -> bool {
         crate::word_has_direct_all_elements_array_expansion_in_source(self.word(), source)
     }

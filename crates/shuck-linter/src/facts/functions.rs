@@ -227,7 +227,7 @@ fn stmt_is_top_level_status_exit(stmt: &Stmt) -> bool {
     command
         .code
         .as_ref()
-        .is_some_and(|code| crate::word_is_standalone_status_capture(code))
+        .is_some_and(crate::word_is_standalone_status_capture)
 }
 
 fn build_function_parameter_fallback_spans(
@@ -554,7 +554,7 @@ fn first_positional_dispatch_in_command(command: &Command) -> Option<Span> {
                     command
                         .else_branch
                         .as_ref()
-                        .and_then(|branch| first_positional_dispatch_in_commands(branch))
+                        .and_then(first_positional_dispatch_in_commands)
                 })
         }
         Command::Compound(CompoundCommand::While(command)) => {

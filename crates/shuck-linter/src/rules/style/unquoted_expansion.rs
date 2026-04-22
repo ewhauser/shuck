@@ -70,35 +70,6 @@ fn should_check_context(context: ExpansionContext, shell: ShellDialect) -> bool 
     }
 }
 
-fn report_span_for_part(
-    part: &shuck_ast::WordPart,
-    part_span: shuck_ast::Span,
-    source: &str,
-) -> shuck_ast::Span {
-    let shuck_ast::WordPart::Variable(name) = part else {
-        return part_span;
-    };
-
-    let expected = format!("${}", name.as_str());
-    if part_span.slice(source) == expected {
-        return part_span;
-    }
-
-    let search_start = part_span.start.offset.saturating_sub(1);
-    let search_end = (part_span.end.offset + 1).min(source.len());
-    let Some(window) = source.get(search_start..search_end) else {
-        return part_span;
-    };
-    let Some(relative_start) = window.find(&expected) else {
-        return part_span;
-    };
-    let start_offset = search_start + relative_start;
-    let end_offset = start_offset + expected.len();
-    let start = shuck_ast::Position::new().advanced_by(&source[..start_offset]);
-    let end = shuck_ast::Position::new().advanced_by(&source[..end_offset]);
-    shuck_ast::Span::from_positions(start, end)
-}
-
 fn report_word_expansions(
     spans: &mut Vec<shuck_ast::Span>,
     safe_values: &mut SafeValueIndex<'_>,
@@ -147,7 +118,7 @@ fn report_word_expansions(
             continue;
         }
 
-        spans.push(report_span_for_part(part, part_span, source));
+        spans.push(fact.diagnostic_part_span(part, part_span, source));
     }
 }
 

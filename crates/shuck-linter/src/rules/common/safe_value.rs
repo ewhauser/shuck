@@ -73,8 +73,8 @@ pub struct SafeValueIndex<'a> {
     source: &'a str,
     definite_uninitialized_refs: FxHashSet<FactSpan>,
     maybe_uninitialized_refs: FxHashSet<FactSpan>,
-    memo: FxHashMap<(FactSpan, SafeValueQuery), bool>,
-    visiting: FxHashSet<(FactSpan, SafeValueQuery)>,
+    memo: FxHashMap<(FactSpan, SafeValueQuery, Option<ScopeId>), bool>,
+    visiting: FxHashSet<(FactSpan, SafeValueQuery, Option<ScopeId>)>,
     helper_binding_memo: FxHashMap<(Name, ScopeId, FactSpan), Box<[BindingId]>>,
     helper_binding_visiting: FxHashSet<(Name, ScopeId, FactSpan)>,
 }
@@ -229,15 +229,15 @@ impl<'a> SafeValueIndex<'a> {
         let case_cli_scope = matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
             .then(|| self.case_cli_dispatch_scope_at(at.start.offset))
             .flatten();
-        if matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget) {
-            if case_cli_scope.is_some()
-                && !self.case_cli_dispatch_outer_bindings_can_stay_safe(&bindings, at, query)
-                && !bindings.iter().copied().any(|binding_id| {
-                    Some(self.semantic.binding(binding_id).scope) == case_cli_scope
-                })
-            {
-                return safe_numeric_shell_variable(name);
-            }
+        if matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
+            && case_cli_scope.is_some()
+            && !self.case_cli_dispatch_outer_bindings_can_stay_safe(&bindings, at, query)
+            && !bindings
+                .iter()
+                .copied()
+                .any(|binding_id| Some(self.semantic.binding(binding_id).scope) == case_cli_scope)
+        {
+            return safe_numeric_shell_variable(name);
         }
         if matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
             && self.bindings_are_all_plain_empty_static_literals(&bindings)
@@ -254,15 +254,14 @@ impl<'a> SafeValueIndex<'a> {
         {
             return false;
         }
-        if self.definite_uninitialized_refs.contains(&FactSpan::new(at)) {
-            if bindings
-                .iter()
-                .copied()
-                .any(|binding_id| {
-                    !helper_bindings.contains(&binding_id)
-                        && self.binding_is_guarded_before_reference(binding_id, at)
-                })
-            {
+        if self
+            .definite_uninitialized_refs
+            .contains(&FactSpan::new(at))
+        {
+            if bindings.iter().copied().any(|binding_id| {
+                !helper_bindings.contains(&binding_id)
+                    && self.binding_is_guarded_before_reference(binding_id, at)
+            }) {
                 return false;
             }
         } else if self.maybe_uninitialized_refs.contains(&FactSpan::new(at)) {
@@ -370,7 +369,7 @@ impl<'a> SafeValueIndex<'a> {
             return true;
         }
 
-        let key = (binding_key, query);
+        let key = (binding_key, query, case_cli_scope);
         if let Some(result) = self.memo.get(&key) {
             return *result;
         }
@@ -676,7 +675,10 @@ impl<'a> SafeValueIndex<'a> {
             .filter_map(|binding_id| {
                 let binding = self.semantic.binding(binding_id);
                 (!binding.attributes.contains(BindingAttributes::LOCAL)
-                    && matches!(self.semantic.scope(binding.scope).kind, ScopeKind::Function(_)))
+                    && matches!(
+                        self.semantic.scope(binding.scope).kind,
+                        ScopeKind::Function(_)
+                    ))
                 .then_some(binding.scope)
             })
             .collect::<FxHashSet<_>>()
@@ -772,10 +774,8 @@ impl<'a> SafeValueIndex<'a> {
             .copied()
             .map(|binding_id| self.semantic.binding(binding_id).scope)
             .collect::<Vec<_>>();
-        let mut stack = vec![self.flow_entry_block_for_binding_scopes(
-            &binding_scopes,
-            at.start.offset,
-        )];
+        let mut stack =
+            vec![self.flow_entry_block_for_binding_scopes(&binding_scopes, at.start.offset)];
         let mut seen = FxHashSet::default();
         while let Some(block_id) = stack.pop() {
             if cover_blocks.contains(&block_id)
@@ -804,8 +804,10 @@ impl<'a> SafeValueIndex<'a> {
         self.semantic
             .ancestor_scopes(self.semantic.scope_at(reference_offset))
             .find_map(|scope| {
-                if !matches!(self.semantic.scope(scope).kind, ScopeKind::Function(_) | ScopeKind::File)
-                {
+                if !matches!(
+                    self.semantic.scope(scope).kind,
+                    ScopeKind::Function(_) | ScopeKind::File
+                ) {
                     return None;
                 }
                 binding_scopes
@@ -1656,7 +1658,11 @@ f() {
             })
             .collect::<Vec<_>>();
 
-        assert_eq!(validate_uses.len(), 3, "expected all function-local pipeline uses");
+        assert_eq!(
+            validate_uses.len(),
+            3,
+            "expected all function-local pipeline uses"
+        );
         assert!(
             validate_uses
                 .into_iter()
@@ -1894,9 +1900,12 @@ config() {
             .expect("expected pulseopt command-argument fact");
 
         assert!(
-            analysis.uninitialized_references().iter().any(|uninitialized| {
-                semantic.reference(uninitialized.reference).span == word_fact.span()
-            }),
+            analysis
+                .uninitialized_references()
+                .iter()
+                .any(|uninitialized| {
+                    semantic.reference(uninitialized.reference).span == word_fact.span()
+                }),
             "expected pulseopt to be marked uninitialized"
         );
         assert!(!safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
@@ -1944,7 +1953,10 @@ printf '%s\\n' $opt hi
             .filter(|fact| {
                 fact.expansion_context() == Some(ExpansionContext::CommandArgument)
                     && (fact.span().slice(source) == "$gl2ps"
-                        || fact.span().slice(source).contains("lib${libdirsuffix}/ladspa"))
+                        || fact
+                            .span()
+                            .slice(source)
+                            .contains("lib${libdirsuffix}/ladspa"))
             })
             .collect::<Vec<_>>();
         let safe_words = facts
@@ -1953,7 +1965,10 @@ printf '%s\\n' $opt hi
             .filter(|fact| {
                 fact.expansion_context() == Some(ExpansionContext::CommandArgument)
                     && (fact.span().slice(source) == "$opt"
-                        || fact.span().slice(source).contains("lib${mixedsuffix}/ladspa"))
+                        || fact
+                            .span()
+                            .slice(source)
+                            .contains("lib${mixedsuffix}/ladspa"))
             })
             .collect::<Vec<_>>();
 
@@ -2196,6 +2211,54 @@ esac
 
         assert!(safe_values.word_occurrence_is_safe(command_name, SafeValueQuery::Argv));
         assert!(safe_values.word_occurrence_is_safe(command_arg, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn case_cli_scope_memoization_does_not_leak_status_capture_unsafety_into_helpers() {
+        let source = "\
+#!/bin/sh
+start() {
+  status=$?
+  printf '%s\\n' ${status}
+}
+
+case \"$1\" in
+  start) $1 ;;
+esac
+exit $?
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let dispatched_use = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "${status}"
+            })
+            .expect("expected case-cli entrypoint status use");
+        let binding_id = safe_values
+            .safe_bindings_for_name(&Name::new("status"), dispatched_use.span())
+            .into_iter()
+            .next()
+            .expect("expected reaching status binding");
+        let case_cli_scope =
+            safe_values.case_cli_dispatch_scope_at(dispatched_use.span().start.offset);
+
+        assert_eq!(
+            case_cli_scope,
+            Some(semantic.binding(binding_id).scope),
+            "expected the status binding to belong to the case-cli scope"
+        );
+
+        assert!(!safe_values.binding_is_safe(binding_id, SafeValueQuery::Argv, case_cli_scope));
+        assert!(safe_values.binding_is_safe(binding_id, SafeValueQuery::Argv, None));
     }
 
     #[test]
