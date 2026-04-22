@@ -363,11 +363,7 @@ impl<'a> SafeValueIndex<'a> {
                         !command.is_nested_word_command()
                             && command.body_args().is_empty()
                             && command.redirects().is_empty()
-                            && !self.facts.commands().iter().any(|other| {
-                                other.id() != command.id()
-                                    && !other.is_nested_word_command()
-                                    && span_strictly_contains(other.span(), command.span())
-                            })
+                            && self.command_runs_in_unconditional_flow(command.id())
                             && {
                                 let call_span = command.span_in_source(self.source);
                                 call_span.end.offset <= at.start.offset
@@ -384,6 +380,17 @@ impl<'a> SafeValueIndex<'a> {
                 .body_name_word()
                 .is_some_and(|name_word| name_word.span == span)
         })
+    }
+
+    fn command_runs_in_unconditional_flow(&self, command_id: crate::facts::CommandId) -> bool {
+        let mut parent_id = self.facts.command_parent_id(command_id);
+        while let Some(id) = parent_id {
+            if self.facts.command_is_dominance_barrier(id) {
+                return false;
+            }
+            parent_id = self.facts.command_parent_id(id);
+        }
+        true
     }
 
     fn binding_is_quoted_static_literal(&self, binding_id: BindingId) -> bool {

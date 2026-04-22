@@ -1498,7 +1498,7 @@ fn continued_line_chain_start(target: Position, source: &str) -> Option<Position
 
 fn line_has_escaped_newline_continuation(line: &str) -> bool {
     let trailing_backslashes = line
-        .trim_end_matches([' ', '\t'])
+        .trim_end_matches([' ', '\t', '\r'])
         .as_bytes()
         .iter()
         .rev()
@@ -4287,6 +4287,8 @@ eval command sudo \\\"\\${sudo_args[@]}\\\" \\\"\\$@\\\"
         assert!(!line_has_escaped_newline_continuation("echo foo"));
         assert!(line_has_escaped_newline_continuation("echo foo \\   "));
         assert!(!line_has_escaped_newline_continuation("echo foo \\\\   "));
+        assert!(line_has_escaped_newline_continuation("echo foo \\\r"));
+        assert!(!line_has_escaped_newline_continuation("echo foo \\\\\r"));
     }
 
     #[test]

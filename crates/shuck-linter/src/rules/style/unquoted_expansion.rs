@@ -283,6 +283,53 @@ mkdir_umask=`expr $umask + 22 \\
     }
 
     #[test]
+    fn collapses_crlf_multiline_backtick_spans_to_shellcheck_columns() {
+        let source = "#!/bin/sh\r\nmkdir_umask=`expr $umask + 22 \\\r\n  - $umask % 100 % 40 + $umask % 20 \\\r\n  - $umask % 10 % 4 + $umask % 2\r\n`\r\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| {
+                    (
+                        diagnostic.span.start.line,
+                        diagnostic.span.start.column,
+                        diagnostic.span.end.line,
+                        diagnostic.span.end.column,
+                    )
+                })
+                .collect::<Vec<_>>(),
+            vec![
+                (2, 19, 2, 25),
+                (2, 35, 2, 41),
+                (2, 55, 2, 61),
+                (2, 71, 2, 77),
+                (2, 89, 2, 95),
+            ]
+        );
+    }
+
+    #[test]
+    fn reports_unquoted_expansions_after_brace_group_wrapped_exit_like_calls() {
+        let source = "\
+#!/bin/sh
+SAFE=foo
+Exit() { exit 0; }
+{ Exit; }
+echo /tmp/$SAFE
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$SAFE"]
+        );
+    }
+
+    #[test]
     fn ignores_expansions_inside_quoted_fragments_of_mixed_words() {
         let source = "\
 #!/bin/bash
