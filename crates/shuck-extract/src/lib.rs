@@ -755,18 +755,30 @@ fn double_quoted_source_mapping(
         match ch {
             '\\' => {
                 let escape = parse_double_quoted_yaml_escape(source, absolute_offset)?;
-                let decoded_char = consume_decoded_char(
-                    scalar,
-                    &mut decoded_offset,
-                    &mut decoded_line,
-                    &mut decoded_column,
-                )?;
                 let (line, column) =
                     line_column_for_offset(source, absolute_offset + escape.host_columns);
-                if decoded_char == '\n' {
-                    host_line_starts.push(HostLineStart { line, column });
+                if !escape.emits_char {
+                    if decoded_offset < scalar.len() {
+                        push_host_column_mapping(
+                            &mut host_column_mappings,
+                            HostColumnMapping {
+                                line: decoded_line,
+                                column: decoded_column,
+                                host_line: line,
+                                host_column: column,
+                            },
+                        );
+                    }
                 } else {
-                    if escape.host_columns > 1 && decoded_offset < scalar.len() {
+                    let decoded_char = consume_decoded_char(
+                        scalar,
+                        &mut decoded_offset,
+                        &mut decoded_line,
+                        &mut decoded_column,
+                    )?;
+                    if decoded_char == '\n' {
+                        host_line_starts.push(HostLineStart { line, column });
+                    } else if escape.host_columns > 1 && decoded_offset < scalar.len() {
                         push_host_column_mapping(
                             &mut host_column_mappings,
                             HostColumnMapping {
@@ -1127,19 +1139,33 @@ fn header_line_is_folded_block(line: &str) -> bool {
 
 struct ParsedYamlEscape {
     host_columns: usize,
+    emits_char: bool,
 }
 
 fn parse_double_quoted_yaml_escape(source: &str, offset: usize) -> Option<ParsedYamlEscape> {
     debug_assert_eq!(source[offset..].chars().next(), Some('\\'));
     let escape = source[offset + '\\'.len_utf8()..].chars().next()?;
-    let host_columns = match escape {
-        'x' => '\\'.len_utf8() + escape.len_utf8() + fixed_hex_escape_len(source, offset, 2)?,
-        'u' => '\\'.len_utf8() + escape.len_utf8() + fixed_hex_escape_len(source, offset, 4)?,
-        'U' => '\\'.len_utf8() + escape.len_utf8() + fixed_hex_escape_len(source, offset, 8)?,
-        _ => '\\'.len_utf8() + escape.len_utf8(),
+    let (host_columns, emits_char) = match escape {
+        '\n' | '\r' => (line_continuation_escape_len(source, offset)?, false),
+        'x' => (
+            '\\'.len_utf8() + escape.len_utf8() + fixed_hex_escape_len(source, offset, 2)?,
+            true,
+        ),
+        'u' => (
+            '\\'.len_utf8() + escape.len_utf8() + fixed_hex_escape_len(source, offset, 4)?,
+            true,
+        ),
+        'U' => (
+            '\\'.len_utf8() + escape.len_utf8() + fixed_hex_escape_len(source, offset, 8)?,
+            true,
+        ),
+        _ => ('\\'.len_utf8() + escape.len_utf8(), true),
     };
 
-    Some(ParsedYamlEscape { host_columns })
+    Some(ParsedYamlEscape {
+        host_columns,
+        emits_char,
+    })
 }
 
 fn fixed_hex_escape_len(source: &str, offset: usize, digits: usize) -> Option<usize> {
@@ -1150,6 +1176,36 @@ fn fixed_hex_escape_len(source: &str, offset: usize, digits: usize) -> Option<us
         .chars()
         .all(|ch| ch.is_ascii_hexdigit())
         .then_some(digits)
+}
+
+fn line_continuation_escape_len(source: &str, offset: usize) -> Option<usize> {
+    let mut absolute_offset = offset + '\\'.len_utf8();
+    let mut host_columns = '\\'.len_utf8();
+    match source.get(absolute_offset..)?.chars().next()? {
+        '\n' => {
+            absolute_offset += '\n'.len_utf8();
+            host_columns += '\n'.len_utf8();
+        }
+        '\r' => {
+            absolute_offset += '\r'.len_utf8();
+            host_columns += '\r'.len_utf8();
+            if source.get(absolute_offset..)?.starts_with('\n') {
+                absolute_offset += '\n'.len_utf8();
+                host_columns += '\n'.len_utf8();
+            }
+        }
+        _ => return None,
+    }
+
+    while matches!(
+        source.get(absolute_offset..)?.chars().next(),
+        Some(' ' | '\t')
+    ) {
+        absolute_offset += 1;
+        host_columns += 1;
+    }
+
+    Some(host_columns)
 }
 
 fn default_host_line_starts(
@@ -1699,6 +1755,24 @@ jobs:
             vec![HostColumnMapping {
                 line: 1,
                 column: 9,
+                host_line: 7,
+                host_column: 11,
+            }]
+        );
+    }
+
+    #[test]
+    fn remaps_double_quoted_line_continuations_onto_later_host_lines() {
+        let source = "on: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: \"echo a\\\n          ; unused=1\"\n";
+
+        let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
+        assert_eq!(scripts.len(), 1);
+        assert_eq!(scripts[0].source, "echo a; unused=1");
+        assert_eq!(
+            scripts[0].host_column_mappings,
+            vec![HostColumnMapping {
+                line: 1,
+                column: 7,
                 host_line: 7,
                 host_column: 11,
             }]

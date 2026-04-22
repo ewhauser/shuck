@@ -15,7 +15,7 @@ use crate::args::FormatCommand;
 use crate::cache::resolve_cache_root;
 use crate::commands::project_runner::{PendingProjectFile, prepare_project_runs};
 use crate::config::ConfigArguments;
-use crate::discover::DiscoveryOptions;
+use crate::discover::{DiscoveryOptions, FileKind};
 use crate::format_settings::{ResolvedFormatSettings, resolve_project_format_settings};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -172,6 +172,7 @@ fn run_format_with_cwd(
     let mut report = FormatReport::default();
 
     for mut run in runs {
+        run.files.retain(|file| file.kind == FileKind::Shell);
         let settings = run.settings.to_shell_format_options();
         let pending = run.take_pending_files(|file, cached| {
             report.cache_hits += 1;
@@ -498,5 +499,40 @@ mod tests {
         assert_eq!(first.cache_misses, 1);
         assert_eq!(second.cache_hits, 1);
         assert_eq!(second.cache_misses, 0);
+    }
+
+    #[test]
+    fn skips_embedded_workflow_yaml_during_format() {
+        let tempdir = tempdir().unwrap();
+        fs::create_dir_all(tempdir.path().join(".github/workflows")).unwrap();
+        fs::write(tempdir.path().join("script.sh"), "#!/bin/bash\necho ok\n").unwrap();
+        fs::write(
+            tempdir.path().join(".github/workflows/ci.yml"),
+            r#"on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok
+"#,
+        )
+        .unwrap();
+
+        let mut args = format_args(true);
+        args.check = true;
+
+        let report = run_format_with_cwd(
+            &args,
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &tempdir.path().join("cache"),
+            FormatMode::Check,
+        )
+        .unwrap();
+
+        assert_eq!(report.exit_status(FormatMode::Check), ExitStatus::Success);
+        assert!(report.errors.is_empty());
+        assert!(report.changed_files.is_empty());
+        assert_eq!(report.cache_misses, 1);
     }
 }
