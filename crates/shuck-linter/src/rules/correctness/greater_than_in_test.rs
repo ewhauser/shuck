@@ -2,13 +2,18 @@ use shuck_ast::{ConditionalBinaryOp, RedirectKind, Span};
 use shuck_semantic::{BindingAttributes, BindingId};
 
 use crate::{
-    Checker, CommandFact, ConditionalBinaryFact, ConditionalNodeFact, ConditionalOperandFact,
-    RedirectFact, Rule, SimpleTestSyntax, Violation, WordOccurrenceRef, static_word_text,
+    Checker, CommandFact, ConditionalBinaryFact, ConditionalNodeFact, ConditionalOperandFact, Edit,
+    Fix, FixAvailability, RedirectFact, Rule, SimpleTestSyntax, Violation, WordOccurrenceRef,
+    static_word_text,
 };
 
 pub struct GreaterThanInTest;
 
+const FIX_TITLE: &str = "replace `<` or `>` with `-lt` or `-gt`";
+
 impl Violation for GreaterThanInTest {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::GreaterThanInTest
     }
@@ -16,33 +21,42 @@ impl Violation for GreaterThanInTest {
     fn message(&self) -> String {
         "use `-lt`/`-gt` instead of `<`/`>` for numeric comparisons".to_owned()
     }
+
+    fn fix_title(&self) -> Option<String> {
+        Some(FIX_TITLE.to_owned())
+    }
 }
 
 pub fn greater_than_in_test(checker: &mut Checker) {
     let source = checker.source();
-    let spans = checker
+    let diagnostics = checker
         .facts()
         .commands()
         .iter()
-        .flat_map(|command| comparison_operator_spans(command, checker, source))
+        .flat_map(|command| comparison_operator_diagnostics(command, checker, source))
         .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || GreaterThanInTest);
+    for diagnostic in diagnostics {
+        checker.report_diagnostic_dedup(diagnostic);
+    }
 }
 
-fn comparison_operator_spans(
+fn comparison_operator_diagnostics(
     command: &CommandFact<'_>,
     checker: &Checker<'_>,
     source: &str,
-) -> Vec<Span> {
-    let mut spans = bracket_comparison_redirect_spans(command, source);
-    spans.extend(double_bracket_numeric_comparison_spans(
+) -> Vec<crate::Diagnostic> {
+    let mut diagnostics = bracket_comparison_redirect_diagnostics(command, source);
+    diagnostics.extend(double_bracket_numeric_comparison_diagnostics(
         command, checker, source,
     ));
-    spans
+    diagnostics
 }
 
-fn bracket_comparison_redirect_spans(command: &CommandFact<'_>, source: &str) -> Vec<Span> {
+fn bracket_comparison_redirect_diagnostics(
+    command: &CommandFact<'_>,
+    source: &str,
+) -> Vec<crate::Diagnostic> {
     let Some(simple_test) = command.simple_test() else {
         return Vec::new();
     };
@@ -61,7 +75,7 @@ fn bracket_comparison_redirect_spans(command: &CommandFact<'_>, source: &str) ->
         .redirect_facts()
         .iter()
         .filter_map(|redirect| {
-            numeric_comparison_redirect_span(
+            numeric_comparison_redirect_diagnostic(
                 redirect,
                 opening_bracket,
                 closing_bracket.span,
@@ -71,16 +85,15 @@ fn bracket_comparison_redirect_spans(command: &CommandFact<'_>, source: &str) ->
         .collect()
 }
 
-fn numeric_comparison_redirect_span(
+fn numeric_comparison_redirect_diagnostic(
     redirect: &RedirectFact<'_>,
     opening_bracket_span: Span,
     closing_bracket_span: Span,
     source: &str,
-) -> Option<Span> {
-    let redirect_data = redirect.redirect();
-    let operator = match redirect_data.kind {
-        RedirectKind::Input => "<",
-        RedirectKind::Output => ">",
+) -> Option<crate::Diagnostic> {
+    let (redirect_data, replacement) = match redirect.redirect().kind {
+        RedirectKind::Input => (redirect.redirect(), "-lt"),
+        RedirectKind::Output => (redirect.redirect(), "-gt"),
         _ => return None,
     };
 
@@ -95,24 +108,85 @@ fn numeric_comparison_redirect_span(
         return None;
     }
 
-    let operator_text = source
-        .get(redirect_data.span.start.offset..target.span.start.offset)?
-        .trim_end();
-    if operator_text != operator {
+    let operator_span = redirect.operator_span();
+    if operator_span.start.offset != redirect_data.span.start.offset {
         return None;
     }
 
-    Some(Span::from_positions(
-        redirect_data.span.start,
-        redirect_data.span.start.advanced_by(operator),
-    ))
+    let gap = source.get(operator_span.end.offset..target.span.start.offset)?;
+    if !is_shell_token_gap(gap) {
+        return None;
+    }
+
+    let fix_span = Span::from_positions(operator_span.start, target.span.start);
+    let leading_separator = if has_trailing_token_boundary(&source[..operator_span.start.offset]) {
+        ""
+    } else {
+        " "
+    };
+    let separator = Some(gap)
+        .filter(|text| has_trailing_token_boundary(text))
+        .unwrap_or(" ");
+
+    Some(
+        crate::Diagnostic::new(GreaterThanInTest, operator_span).with_fix(Fix::unsafe_edit(
+            Edit::replacement(
+                format!("{leading_separator}{replacement}{separator}"),
+                fix_span,
+            ),
+        )),
+    )
 }
 
-fn double_bracket_numeric_comparison_spans(
+fn is_shell_token_gap(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+
+    while index < bytes.len() {
+        match bytes[index] {
+            b' ' | b'\t' | b'\r' | b'\n' => index += 1,
+            b'\\' if bytes.get(index + 1) == Some(&b'\n') => index += 2,
+            _ => return false,
+        }
+    }
+
+    true
+}
+
+fn has_trailing_token_boundary(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut end = bytes.len();
+
+    while end > 0 {
+        match bytes[end - 1] {
+            b' ' | b'\t' | b'\r' => return true,
+            b'\n' => {
+                let mut cursor = end - 1;
+                let mut backslashes = 0usize;
+                while cursor > 0 && bytes[cursor - 1] == b'\\' {
+                    backslashes += 1;
+                    cursor -= 1;
+                }
+
+                if backslashes % 2 == 1 {
+                    end = cursor;
+                    continue;
+                }
+
+                return true;
+            }
+            _ => return false,
+        }
+    }
+
+    false
+}
+
+fn double_bracket_numeric_comparison_diagnostics(
     command: &CommandFact<'_>,
     checker: &Checker<'_>,
     source: &str,
-) -> Vec<Span> {
+) -> Vec<crate::Diagnostic> {
     let Some(conditional) = command.conditional() else {
         return Vec::new();
     };
@@ -120,24 +194,23 @@ fn double_bracket_numeric_comparison_spans(
     conditional
         .nodes()
         .iter()
-        .filter_map(|node| numeric_double_bracket_operator_span(node, checker, source))
+        .filter_map(|node| numeric_double_bracket_operator_diagnostic(node, checker, source))
         .collect()
 }
 
-fn numeric_double_bracket_operator_span(
+fn numeric_double_bracket_operator_diagnostic(
     node: &ConditionalNodeFact<'_>,
     checker: &Checker<'_>,
     source: &str,
-) -> Option<Span> {
+) -> Option<crate::Diagnostic> {
     let ConditionalNodeFact::Binary(binary) = node else {
         return None;
     };
-    if !matches!(
-        binary.op(),
-        ConditionalBinaryOp::LexicalBefore | ConditionalBinaryOp::LexicalAfter
-    ) {
-        return None;
-    }
+    let replacement = match binary.op() {
+        ConditionalBinaryOp::LexicalBefore => "-lt",
+        ConditionalBinaryOp::LexicalAfter => "-gt",
+        _ => return None,
+    };
 
     if has_decimal_version_like_operand(binary, source)
         || !has_numeric_operand(binary, checker, source)
@@ -145,7 +218,12 @@ fn numeric_double_bracket_operator_span(
         return None;
     }
 
-    Some(binary.operator_span())
+    let operator_span = binary.operator_span();
+    Some(
+        crate::Diagnostic::new(GreaterThanInTest, operator_span).with_fix(Fix::unsafe_edit(
+            Edit::replacement(replacement, operator_span),
+        )),
+    )
 }
 
 fn has_numeric_operand(
@@ -265,8 +343,12 @@ fn is_decimal_version_like(text: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use std::path::Path;
+
+    use crate::test::{test_path_with_fix, test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, assert_diagnostics_diff};
+
+    use super::FIX_TITLE;
 
     #[test]
     fn reports_numeric_less_and_greater_operators_in_test_expressions() {
@@ -341,5 +423,140 @@ num=7
                 .collect::<Vec<_>>(),
             vec![">", "<", ">", "<"]
         );
+    }
+
+    #[test]
+    fn attaches_unsafe_fix_metadata() {
+        let source = "#!/bin/bash\n[ \"$version\" > \"10\" ]\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::GreaterThanInTest));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].fix.as_ref().map(|fix| fix.applicability()),
+            Some(Applicability::Unsafe)
+        );
+        assert_eq!(diagnostics[0].fix_title.as_deref(), Some(FIX_TITLE));
+    }
+
+    #[test]
+    fn applies_unsafe_fix_to_numeric_test_operators() {
+        let source = "\
+#!/bin/bash
+[ \"$version\" > \"10\" ]
+[ \"$version\" < 10 ]
+count=11
+limit=3
+[[ $count > 10 ]]
+[[ \"$count\" < 1 ]]
+[[ $count > $limit ]]
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::GreaterThanInTest),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 5);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/bash
+[ \"$version\" -gt \"10\" ]
+[ \"$version\" -lt 10 ]
+count=11
+limit=3
+[[ $count -gt 10 ]]
+[[ \"$count\" -lt 1 ]]
+[[ $count -gt $limit ]]
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn inserts_a_separator_for_compact_bracket_numeric_comparisons() {
+        let source = "\
+#!/bin/bash
+[ \"$version\">\"10\" ]
+[ \"$version\"<10 ]
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::GreaterThanInTest),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/bash
+[ \"$version\" -gt \"10\" ]
+[ \"$version\" -lt 10 ]
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn normalizes_escaped_newline_separators_in_bracket_numeric_comparisons() {
+        let source = "\
+#!/bin/bash
+[ \"$version\">\\
+\"10\" ]
+[ \"$version\"\\
+<\\
+10 ]
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::GreaterThanInTest),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/bash
+[ \"$version\" -gt \"10\" ]
+[ \"$version\"\\
+ -lt 10 ]
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn leaves_string_and_version_ordering_unchanged_when_fixing() {
+        let source = "\
+#!/bin/bash
+[ \"$value\" > \"$other\" ]
+[ \"$value\" < \"$other\" ]
+[[ \"$value\" > \"$other\" ]]
+[[ \"$value\" < 1.2 ]]
+[[ 1.2 > \"$value\" ]]
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::GreaterThanInTest),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn snapshots_unsafe_fix_output_for_fixture() -> anyhow::Result<()> {
+        let result = test_path_with_fix(
+            Path::new("correctness").join("C086.sh").as_path(),
+            &LinterSettings::for_rule(Rule::GreaterThanInTest),
+            Applicability::Unsafe,
+        )?;
+
+        assert_diagnostics_diff!("C086_fix_C086.sh", result);
+        Ok(())
     }
 }

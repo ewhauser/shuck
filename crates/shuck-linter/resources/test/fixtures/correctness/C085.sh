@@ -4,6 +4,7 @@
 echo ok 2>&1 >/dev/null
 echo ok 2>&1 >>file
 echo ok 2>&1 1>/dev/null
+echo ok 2>&1 3>aux >out
 
 # Should not trigger: stdout is redirected first
 echo ok >file 2>&1

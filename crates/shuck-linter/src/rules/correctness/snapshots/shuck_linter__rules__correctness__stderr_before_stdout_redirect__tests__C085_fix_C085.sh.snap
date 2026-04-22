@@ -1,0 +1,71 @@
+---
+source: crates/shuck-linter/src/rules/correctness/stderr_before_stdout_redirect.rs
+assertion_line: 234
+---
+Diagnostics:
+C085 stderr is redirected before stdout is redirected
+ --> <source>:4:9
+  |
+4 | echo ok 2>&1 >/dev/null
+  |
+
+C085 stderr is redirected before stdout is redirected
+ --> <source>:5:9
+  |
+5 | echo ok 2>&1 >>file
+  |
+
+C085 stderr is redirected before stdout is redirected
+ --> <source>:6:9
+  |
+6 | echo ok 2>&1 1>/dev/null
+  |
+
+C085 stderr is redirected before stdout is redirected
+ --> <source>:7:9
+  |
+7 | echo ok 2>&1 3>aux >out
+  |
+
+
+Applied fixes: 4
+
+Diff:
+--- before
++++ after
+@@ -1,10 +1,10 @@
+ #!/bin/sh
+ 
+ # Should trigger: stderr is duplicated to stdout before stdout is redirected
+-echo ok 2>&1 >/dev/null
+-echo ok 2>&1 >>file
+-echo ok 2>&1 1>/dev/null
+-echo ok 2>&1 3>aux >out
++echo ok >/dev/null 2>&1
++echo ok >>file 2>&1
++echo ok 1>/dev/null 2>&1
++echo ok 3>aux >out 2>&1
+ 
+ # Should not trigger: stdout is redirected first
+ echo ok >file 2>&1
+
+Fixed source:
+#!/bin/sh
+
+# Should trigger: stderr is duplicated to stdout before stdout is redirected
+echo ok >/dev/null 2>&1
+echo ok >>file 2>&1
+echo ok 1>/dev/null 2>&1
+echo ok 3>aux >out 2>&1
+
+# Should not trigger: stdout is redirected first
+echo ok >file 2>&1
+
+# Should not trigger: stderr goes to a separate file before stdout is redirected
+echo ok 2>err >out
+
+# Should not trigger: later descriptor duplication does not redirect stdout to a file
+echo ok 2>&1 1>&3
+
+Remaining diagnostics:
+<none>

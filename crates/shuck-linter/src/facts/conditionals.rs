@@ -146,10 +146,26 @@ impl<'a> ConditionalNodeFact<'a> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConditionalMixedLogicalOperatorFact {
+    operator_span: Span,
+    grouped_subexpression_spans: Box<[Span]>,
+}
+
+impl ConditionalMixedLogicalOperatorFact {
+    pub fn operator_span(&self) -> Span {
+        self.operator_span
+    }
+
+    pub fn grouped_subexpression_spans(&self) -> &[Span] {
+        &self.grouped_subexpression_spans
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ConditionalFact<'a> {
     nodes: Box<[ConditionalNodeFact<'a>]>,
-    mixed_logical_operator_spans: Box<[Span]>,
+    mixed_logical_operators: Box<[ConditionalMixedLogicalOperatorFact]>,
 }
 
 impl<'a> ConditionalFact<'a> {
@@ -165,8 +181,8 @@ impl<'a> ConditionalFact<'a> {
         &self.nodes
     }
 
-    pub fn mixed_logical_operator_spans(&self) -> &[Span] {
-        &self.mixed_logical_operator_spans
+    pub fn mixed_logical_operators(&self) -> &[ConditionalMixedLogicalOperatorFact] {
+        &self.mixed_logical_operators
     }
 
     pub fn regex_nodes(&self) -> impl Iterator<Item = &ConditionalBinaryFact<'a>> + '_ {
@@ -234,7 +250,6 @@ fn collect_terminal_command_substitution_spans_in_command(
         | Command::AnonymousFunction(_) => {}
     }
 }
-
 
 fn collect_c107_status_spans_in_simple_test(
     command: &shuck_ast::SimpleCommand,
@@ -1047,22 +1062,17 @@ fn collect_status_parameter_spans_in_fragment(
     collect_status_parameter_spans_in_word(word, source, spans);
 }
 
-
 fn build_conditional_fact<'a>(command: &'a Command, source: &str) -> Option<ConditionalFact<'a>> {
     let Command::Compound(CompoundCommand::Conditional(command)) = command else {
         return None;
     };
     let mut nodes = Vec::new();
     collect_conditional_nodes(&command.expression, source, &mut nodes);
-    let mut mixed_logical_operator_spans = Vec::new();
-    collect_mixed_logical_operator_spans(
-        &command.expression,
-        false,
-        &mut mixed_logical_operator_spans,
-    );
+    let mut mixed_logical_operators = Vec::new();
+    collect_mixed_logical_operators(&command.expression, false, &mut mixed_logical_operators);
     (!nodes.is_empty()).then_some(ConditionalFact {
         nodes: nodes.into_boxed_slice(),
-        mixed_logical_operator_spans: mixed_logical_operator_spans.into_boxed_slice(),
+        mixed_logical_operators: mixed_logical_operators.into_boxed_slice(),
     })
 }
 
@@ -1082,40 +1092,39 @@ fn command_name_is_plain_command_substitution(word: &Word, source: &str) -> bool
         )
 }
 
-fn collect_mixed_logical_operator_spans(
+fn collect_mixed_logical_operators(
     expression: &ConditionalExpr,
     parent_in_same_logical_group: bool,
-    spans: &mut Vec<Span>,
+    operators: &mut Vec<ConditionalMixedLogicalOperatorFact>,
 ) {
     match expression {
         ConditionalExpr::Parenthesized(parenthesized) => {
-            collect_mixed_logical_operator_spans(&parenthesized.expr, false, spans);
+            collect_mixed_logical_operators(&parenthesized.expr, false, operators);
         }
         ConditionalExpr::Unary(unary) => {
-            collect_mixed_logical_operator_spans(&unary.expr, false, spans);
+            collect_mixed_logical_operators(&unary.expr, false, operators);
         }
         ConditionalExpr::Binary(binary) => {
-            let left_continues_group = matches!(
-                binary.left.as_ref(),
-                ConditionalExpr::Binary(left)
-                    if matches!(left.op, ConditionalBinaryOp::And | ConditionalBinaryOp::Or)
-            );
-            let right_continues_group = matches!(
-                binary.right.as_ref(),
-                ConditionalExpr::Binary(right)
-                    if matches!(right.op, ConditionalBinaryOp::And | ConditionalBinaryOp::Or)
-            );
+            let left_continues_group = conditional_expr_is_logical_binary(&binary.left);
+            let right_continues_group = conditional_expr_is_logical_binary(&binary.right);
 
-            collect_mixed_logical_operator_spans(&binary.left, left_continues_group, spans);
-            collect_mixed_logical_operator_spans(&binary.right, right_continues_group, spans);
+            collect_mixed_logical_operators(&binary.left, left_continues_group, operators);
+            collect_mixed_logical_operators(&binary.right, right_continues_group, operators);
 
-            if matches!(
-                binary.op,
-                ConditionalBinaryOp::And | ConditionalBinaryOp::Or
-            ) && !parent_in_same_logical_group
+            if conditional_binary_op_is_logical(binary.op)
+                && !parent_in_same_logical_group
                 && logical_operator_mask(expression) == (LOGICAL_AND_MASK | LOGICAL_OR_MASK)
             {
-                spans.push(binary.op_span);
+                let grouped_subexpression_spans =
+                    mixed_logical_grouped_subexpression_spans(expression, binary.op);
+                debug_assert!(
+                    !grouped_subexpression_spans.is_empty(),
+                    "mixed logical operators should expose at least one grouping span"
+                );
+                operators.push(ConditionalMixedLogicalOperatorFact {
+                    operator_span: binary.op_span,
+                    grouped_subexpression_spans: grouped_subexpression_spans.into_boxed_slice(),
+                });
             }
         }
         ConditionalExpr::Word(_)
@@ -1127,6 +1136,36 @@ fn collect_mixed_logical_operator_spans(
 
 const LOGICAL_AND_MASK: u8 = 0b01;
 const LOGICAL_OR_MASK: u8 = 0b10;
+
+fn mixed_logical_grouped_subexpression_spans(
+    expression: &ConditionalExpr,
+    group_op: ConditionalBinaryOp,
+) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_mixed_logical_grouped_subexpression_spans(expression, group_op, &mut spans);
+    spans
+}
+
+fn collect_mixed_logical_grouped_subexpression_spans(
+    expression: &ConditionalExpr,
+    group_op: ConditionalBinaryOp,
+    spans: &mut Vec<Span>,
+) {
+    let ConditionalExpr::Binary(binary) = expression else {
+        return;
+    };
+    if !conditional_binary_op_is_logical(binary.op) {
+        return;
+    }
+
+    if binary.op != group_op {
+        spans.push(expression.span());
+        return;
+    }
+
+    collect_mixed_logical_grouped_subexpression_spans(&binary.left, group_op, spans);
+    collect_mixed_logical_grouped_subexpression_spans(&binary.right, group_op, spans);
+}
 
 fn logical_operator_mask(expression: &ConditionalExpr) -> u8 {
     match expression {
@@ -1146,6 +1185,17 @@ fn logical_operator_mask(expression: &ConditionalExpr) -> u8 {
         | ConditionalExpr::Regex(_)
         | ConditionalExpr::VarRef(_) => 0,
     }
+}
+
+fn conditional_expr_is_logical_binary(expression: &ConditionalExpr) -> bool {
+    matches!(
+        expression,
+        ConditionalExpr::Binary(binary) if conditional_binary_op_is_logical(binary.op)
+    )
+}
+
+fn conditional_binary_op_is_logical(operator: ConditionalBinaryOp) -> bool {
+    matches!(operator, ConditionalBinaryOp::And | ConditionalBinaryOp::Or)
 }
 
 fn collect_conditional_nodes<'a>(

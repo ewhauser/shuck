@@ -18,3 +18,9 @@ C085 stderr is redirected before stdout is redirected
   |
 6 | echo ok 2>&1 1>/dev/null
   |
+
+C085 stderr is redirected before stdout is redirected
+ --> <source>:7:9
+  |
+7 | echo ok 2>&1 3>aux >out
+  |
