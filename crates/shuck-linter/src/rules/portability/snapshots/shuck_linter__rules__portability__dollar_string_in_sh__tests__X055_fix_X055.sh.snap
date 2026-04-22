@@ -1,0 +1,50 @@
+---
+source: crates/shuck-linter/src/rules/portability/dollar_string_in_sh.rs
+---
+Diagnostics:
+X055 `$"..."` strings are not portable in `sh`
+ --> <source>:4:6
+  |
+4 | echo $"Usage: $0 {start|stop}"
+  |
+
+X055 `$"..."` strings are not portable in `sh`
+ --> <source>:7:21
+  |
+7 | printf '%s\n' prefix$"translated"suffix
+  |
+
+
+Applied fixes: 2
+
+Diff:
+--- before
++++ after
+@@ -1,10 +1,10 @@
+ #!/bin/sh
+ 
+ # Should trigger: locale-translated dollar-double-quoted string
+-echo $"Usage: $0 {start|stop}"
++echo "Usage: $0 {start|stop}"
+ 
+ # Should trigger: dollar-double-quoted string in a larger word
+-printf '%s\n' prefix$"translated"suffix
++printf '%s\n' prefix"translated"suffix
+ 
+ # Should not trigger: plain double-quoted strings remain portable
+ echo "Usage: $0 {start|stop}"
+
+Fixed source:
+#!/bin/sh
+
+# Should trigger: locale-translated dollar-double-quoted string
+echo "Usage: $0 {start|stop}"
+
+# Should trigger: dollar-double-quoted string in a larger word
+printf '%s\n' prefix"translated"suffix
+
+# Should not trigger: plain double-quoted strings remain portable
+echo "Usage: $0 {start|stop}"
+
+Remaining diagnostics:
+<none>
