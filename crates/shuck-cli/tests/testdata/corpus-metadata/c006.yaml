@@ -341,6 +341,12 @@ reviewed_divergences:
   - side: shellcheck-only
     path_suffix: "leebaird__discover__dev-api-scanner.sh"
     reason: "This scanner builds an output filename from the current CORS origin, and the remaining ShellCheck-only anchor is the lower-case slug fragment inside that generated path. We review this one file narrowly instead of broadening C006 around the helper's filename templating."
+  - side: shellcheck-only
+    path_suffix: "gentoo__gentoo__sys-apps__memtest86+__files__39_memtest86+-r2"
+    reason: "This GRUB menu helper sources grub-mkconfig_lib and only uses grub_tab to indent generated submenu output, so the remaining ShellCheck-only hit is a sourced helper contract rather than a missing local assignment."
+  - side: shellcheck-only
+    path_suffix: "gentoo__gentoo__sys-apps__memtest86+__files__39_memtest86+-r3"
+    reason: "This GRUB menu helper sources grub-mkconfig_lib and only uses grub_tab to indent generated submenu output, so the remaining ShellCheck-only hit is a sourced helper contract rather than a missing local assignment."
   - side: shuck-only
     path_suffix: "233boy__v2ray__src__old.sh"
     reason: "This legacy V2Ray helper threads transport choice through sourced installer plumbing, so the remaining C006 read is a repo-local runtime handoff rather than a free-standing missing assignment."
