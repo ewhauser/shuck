@@ -75,7 +75,7 @@ pub use fix::{Applicability, AppliedFixes, Edit, Fix, FixAvailability, apply_fix
 /// Rule identifiers, categories, and registry lookup helpers.
 pub use registry::{Category, Rule, code_to_rule};
 /// Rule metadata lookup utilities.
-pub use rule_metadata::{RuleMetadata, rule_metadata, rule_metadata_by_code};
+pub use rule_metadata::{RuleMetadata, ShellCheckLevel, rule_metadata, rule_metadata_by_code};
 /// Rule selector parsing types.
 pub use rule_selector::{RuleSelector, SelectorParseError};
 /// Sets of enabled or disabled rules.

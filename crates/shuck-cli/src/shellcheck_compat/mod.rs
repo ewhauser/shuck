@@ -13,8 +13,8 @@ use std::sync::Arc;
 
 use shuck_indexer::Indexer;
 use shuck_linter::{
-    Category, LinterSettings, Rule, RuleSet, Severity, ShellCheckCodeMap, ShellDialect,
-    SuppressionIndex, first_statement_line, parse_directives,
+    LinterSettings, Rule, RuleSet, Severity, ShellCheckCodeMap, ShellCheckLevel, ShellDialect,
+    SuppressionIndex, first_statement_line, parse_directives, rule_metadata,
 };
 use shuck_parser::ShellProfile;
 use shuck_parser::parser::Parser;
@@ -1123,12 +1123,38 @@ fn compat_fix_for_diagnostic(
 }
 
 fn level_for_diagnostic(rule: Rule, severity: Severity, shellcheck_code: u32) -> CompatLevel {
+    if let Some(level) = rule_metadata(rule).and_then(|metadata| metadata.shellcheck_level) {
+        return compat_level(level);
+    }
+
+    debug_assert!(
+        false,
+        "missing shellcheck_level metadata for mapped ShellCheck-compatible rule {}",
+        rule.code()
+    );
+    legacy_level_for_diagnostic(rule, severity, shellcheck_code)
+}
+
+fn compat_level(level: ShellCheckLevel) -> CompatLevel {
+    match level {
+        ShellCheckLevel::Style => CompatLevel::Style,
+        ShellCheckLevel::Info => CompatLevel::Info,
+        ShellCheckLevel::Warning => CompatLevel::Warning,
+        ShellCheckLevel::Error => CompatLevel::Error,
+    }
+}
+
+fn legacy_level_for_diagnostic(
+    rule: Rule,
+    severity: Severity,
+    shellcheck_code: u32,
+) -> CompatLevel {
     match severity {
         Severity::Hint => CompatLevel::Style,
         Severity::Error | Severity::Warning => {
             if shellcheck_code < 2000 {
                 CompatLevel::Error
-            } else if matches!(rule.category(), Category::Style) {
+            } else if matches!(rule.category(), shuck_linter::Category::Style) {
                 CompatLevel::Info
             } else {
                 CompatLevel::Warning

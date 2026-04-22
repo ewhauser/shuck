@@ -8,9 +8,18 @@ use serde::Deserialize;
 struct RuleMetadata {
     new_code: String,
     shellcheck_code: Option<String>,
+    shellcheck_level: Option<String>,
     description: String,
     rationale: String,
     fix_description: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShellCheckLevel {
+    Style,
+    Info,
+    Warning,
+    Error,
 }
 
 fn parse_shellcheck_code_value(raw: &str) -> Result<Option<u32>, String> {
@@ -29,7 +38,24 @@ fn parse_shellcheck_code_value(raw: &str) -> Result<Option<u32>, String> {
     Ok(Some(number))
 }
 
-fn parse_rule_metadata(data: &str) -> Result<(RuleMetadata, Option<u32>), String> {
+fn parse_shellcheck_level_value(raw: &str) -> Result<Option<ShellCheckLevel>, String> {
+    let raw = raw.trim().trim_matches(|ch| matches!(ch, '"' | '\''));
+    if raw.is_empty() || raw.eq_ignore_ascii_case("null") || raw == "~" {
+        return Ok(None);
+    }
+
+    match raw.to_ascii_lowercase().as_str() {
+        "style" => Ok(Some(ShellCheckLevel::Style)),
+        "info" => Ok(Some(ShellCheckLevel::Info)),
+        "warning" => Ok(Some(ShellCheckLevel::Warning)),
+        "error" => Ok(Some(ShellCheckLevel::Error)),
+        _ => Err("invalid shellcheck_level".to_owned()),
+    }
+}
+
+fn parse_rule_metadata(
+    data: &str,
+) -> Result<(RuleMetadata, Option<u32>, Option<ShellCheckLevel>), String> {
     let metadata: RuleMetadata =
         serde_yaml::from_str(data).map_err(|err| format!("invalid rule metadata: {err}"))?;
 
@@ -45,7 +71,18 @@ fn parse_rule_metadata(data: &str) -> Result<(RuleMetadata, Option<u32>), String
         .transpose()?
         .flatten();
 
-    Ok((metadata, shellcheck_code))
+    let shellcheck_level = metadata
+        .shellcheck_level
+        .as_deref()
+        .map(parse_shellcheck_level_value)
+        .transpose()?
+        .flatten();
+
+    if shellcheck_code.is_some() && shellcheck_level.is_none() {
+        return Err("shellcheck_level must be set when shellcheck_code is set".to_owned());
+    }
+
+    Ok((metadata, shellcheck_code, shellcheck_level))
 }
 
 fn main() {
@@ -74,7 +111,7 @@ fn main() {
         let data = fs::read_to_string(&path)
             .unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
 
-        let (metadata, shellcheck_code) =
+        let (metadata, shellcheck_code, shellcheck_level) =
             parse_rule_metadata(&data).unwrap_or_else(|err| panic!("{err} in {}", path.display()));
         let rule_code = metadata.new_code.trim().to_owned();
         metadata_rows.push((
@@ -82,6 +119,7 @@ fn main() {
             metadata.description,
             metadata.rationale,
             metadata.fix_description,
+            shellcheck_level,
         ));
 
         let Some(shellcheck_code) = shellcheck_code else {
@@ -105,9 +143,19 @@ fn main() {
         .unwrap_or_else(|err| panic!("write {}: {err}", out_path.display()));
 
     let mut metadata_generated = String::from("pub const RULE_METADATA: &[RuleMetadata] = &[\n");
-    for (rule_code, description, rationale, fix_description) in metadata_rows {
+    for (rule_code, description, rationale, fix_description, shellcheck_level) in metadata_rows {
         metadata_generated.push_str("    RuleMetadata {\n");
         metadata_generated.push_str(&format!("        code: {:?},\n", rule_code));
+        metadata_generated.push_str(&format!(
+            "        shellcheck_level: {},\n",
+            match shellcheck_level {
+                Some(ShellCheckLevel::Style) => "Some(ShellCheckLevel::Style)".to_owned(),
+                Some(ShellCheckLevel::Info) => "Some(ShellCheckLevel::Info)".to_owned(),
+                Some(ShellCheckLevel::Warning) => "Some(ShellCheckLevel::Warning)".to_owned(),
+                Some(ShellCheckLevel::Error) => "Some(ShellCheckLevel::Error)".to_owned(),
+                None => "None".to_owned(),
+            }
+        ));
         metadata_generated.push_str(&format!("        description: {:?},\n", description));
         metadata_generated.push_str(&format!("        rationale: {:?},\n", rationale));
         metadata_generated.push_str(&format!(
