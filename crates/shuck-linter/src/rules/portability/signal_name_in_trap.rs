@@ -1,17 +1,35 @@
 use shuck_ast::{Span, Word};
 
 use super::trap_common::parse_trap_args;
-use crate::{Checker, Rule, ShellDialect, Violation, static_word_text};
+use crate::{
+    Checker, Edit, Fix, FixAvailability, Rule, ShellDialect, Violation,
+    quoted_word_content_span_in_source, static_word_text,
+};
+
+const SIG_PREFIX_LEN: usize = 3;
+const FIX_TITLE: &str = "remove the leading `SIG` prefix from the trap signal name";
 
 pub struct SignalNameInTrap;
 
+#[derive(Clone, Copy)]
+struct SignalNameInTrapOccurrence {
+    report_span: Span,
+    fix_span: Span,
+}
+
 impl Violation for SignalNameInTrap {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+
     fn rule() -> Rule {
         Rule::SignalNameInTrap
     }
 
     fn message(&self) -> String {
         "symbolic signal names with a `SIG` prefix are not portable in `sh` scripts".to_owned()
+    }
+
+    fn fix_title(&self) -> Option<String> {
+        Some(FIX_TITLE.to_owned())
     }
 }
 
@@ -20,18 +38,23 @@ pub fn signal_name_in_trap(checker: &mut Checker) {
         return;
     }
 
-    let spans = checker
+    let occurrences = checker
         .facts()
         .commands()
         .iter()
         .filter(|fact| fact.effective_name_is("trap"))
-        .flat_map(|fact| trap_signal_name_spans(fact.body_args(), checker.source()))
+        .flat_map(|fact| trap_signal_name_occurrences(fact.body_args(), checker.source()))
         .collect::<Vec<_>>();
 
-    checker.report_all_dedup(spans, || SignalNameInTrap);
+    for occurrence in occurrences {
+        checker.report_diagnostic_dedup(
+            crate::Diagnostic::new(SignalNameInTrap, occurrence.report_span)
+                .with_fix(signal_name_in_trap_fix(occurrence.fix_span)),
+        );
+    }
 }
 
-fn trap_signal_name_spans(args: &[&Word], source: &str) -> Vec<Span> {
+fn trap_signal_name_occurrences(args: &[&Word], source: &str) -> Vec<SignalNameInTrapOccurrence> {
     let Some(parsed) = parse_trap_args(args, source) else {
         return Vec::new();
     };
@@ -51,15 +74,31 @@ fn trap_signal_name_spans(args: &[&Word], source: &str) -> Vec<Span> {
                 && text[3..]
                     .chars()
                     .all(|character| character.is_ascii_alphanumeric()))
-            .then_some(word.span)
+            .then(|| {
+                let span = quoted_word_content_span_in_source(word, source).unwrap_or(word.span);
+                SignalNameInTrapOccurrence {
+                    report_span: span,
+                    fix_span: span,
+                }
+            })
         })
         .collect()
 }
 
+fn signal_name_in_trap_fix(span: Span) -> Fix {
+    Fix::unsafe_edit(Edit::deletion_at(
+        span.start.offset,
+        span.start.offset + SIG_PREFIX_LEN,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use std::path::Path;
+
+    use super::FIX_TITLE;
+    use crate::test::{test_path_with_fix, test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, LinterSettings, Rule, assert_diagnostics_diff};
 
     #[test]
     fn reports_sig_prefixed_signal_names() {
@@ -141,5 +180,112 @@ trap -- '' SigTerm
                 .collect::<Vec<_>>(),
             vec!["sigint", "SigTerm"]
         );
+    }
+
+    #[test]
+    fn attaches_unsafe_fix_metadata_to_reported_signal_names() {
+        let source = "\
+#!/bin/sh
+trap '' SIGINT
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SignalNameInTrap));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].fix.as_ref().map(|fix| fix.applicability()),
+            Some(Applicability::Unsafe)
+        );
+        assert_eq!(diagnostics[0].fix_title.as_deref(), Some(FIX_TITLE));
+    }
+
+    #[test]
+    fn applies_unsafe_fix_to_sig_prefixed_signal_names() {
+        let source = "\
+#!/bin/sh
+trap '' SIGHUP
+trap -- '' SIGINT
+trap SIGTERM
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::SignalNameInTrap),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 3);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/sh
+trap '' HUP
+trap -- '' INT
+trap TERM
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_unsafe_fix_inside_quoted_signal_operands() {
+        let source = "\
+#!/bin/sh
+trap '' \"SIGINT\"
+trap '' 'SIGTERM'
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::SignalNameInTrap),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(
+            result
+                .diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["SIGINT", "SIGTERM"]
+        );
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/sh
+trap '' \"INT\"
+trap '' 'TERM'
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn leaves_listing_modes_and_portable_signal_names_unchanged_when_fixing() {
+        let source = "\
+#!/bin/sh
+trap -p SIGINT
+trap -- '' HUP
+trap EXIT
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::SignalNameInTrap),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn snapshots_unsafe_fix_output_for_fixture() -> anyhow::Result<()> {
+        let result = test_path_with_fix(
+            Path::new("portability").join("X069.sh").as_path(),
+            &LinterSettings::for_rule(Rule::SignalNameInTrap),
+            Applicability::Unsafe,
+        )?;
+
+        assert_diagnostics_diff!("X069_fix_X069.sh", result);
+        Ok(())
     }
 }
