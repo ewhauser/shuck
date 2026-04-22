@@ -1196,7 +1196,7 @@ fn function_has_terminal_exit(function: &FunctionDef) -> bool {
 }
 
 fn stmt_seq_has_terminal_exit(commands: &StmtSeq) -> bool {
-    commands.last().is_some_and(stmt_has_terminal_exit)
+    commands.iter().any(stmt_has_terminal_exit)
 }
 
 fn stmt_has_terminal_exit(stmt: &Stmt) -> bool {
@@ -2828,5 +2828,32 @@ helper() (
             .expect("expected helper function header");
 
         assert!(!function_has_terminal_exit(helper_header.function()));
+    }
+
+    #[test]
+    fn early_unconditional_exit_makes_function_terminal() {
+        let source = "\
+#!/bin/sh
+helper() {
+  exit 1
+  :
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let helper_header = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(name, _)| name.as_str() == "helper")
+            })
+            .expect("expected helper function header");
+
+        assert!(function_has_terminal_exit(helper_header.function()));
     }
 }
