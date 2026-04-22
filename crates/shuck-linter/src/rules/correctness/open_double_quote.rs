@@ -230,6 +230,31 @@ say configure now
     }
 
     #[test]
+    fn applies_unsafe_fix_to_assignment_values_without_duplicating_target() {
+        let source = "\
+#!/bin/bash
+value='alpha
+beta''tail'
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::OpenDoubleQuote),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/bash
+value=\"alpha
+betatail\"
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
     fn snapshots_unsafe_fix_output_for_fixture() -> anyhow::Result<()> {
         let result = test_path_with_fix(
             Path::new("correctness").join("C039.sh").as_path(),

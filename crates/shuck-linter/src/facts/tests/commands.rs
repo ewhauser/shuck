@@ -3023,6 +3023,59 @@ fn treats_stderr_capture_before_stdout_redirect_as_captured_substitution_output(
 }
 
 #[test]
+fn applies_outer_compound_redirects_to_substitution_output() {
+    let source = "\
+#!/bin/sh
+quiet=$({ printf hi; } >/dev/null)
+shown=$({ printf hi; } >/dev/tty)
+";
+
+    with_facts(source, None, |_, facts| {
+        let quiet = facts
+            .commands()
+            .iter()
+            .flat_map(|fact| fact.substitution_facts().iter())
+            .find(|fact| fact.span().slice(source) == "$({ printf hi; } >/dev/null)")
+            .expect("expected grouped substitution fact");
+        let shown = facts
+            .commands()
+            .iter()
+            .flat_map(|fact| fact.substitution_facts().iter())
+            .find(|fact| fact.span().slice(source) == "$({ printf hi; } >/dev/tty)")
+            .expect("expected grouped substitution fact");
+
+        assert_eq!(quiet.stdout_intent(), SubstitutionOutputIntent::Discarded);
+        assert_eq!(
+            quiet
+                .stdout_redirect_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![">/dev/null"]
+        );
+        assert_eq!(
+            quiet
+                .stdout_dev_null_redirect_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![">/dev/null"]
+        );
+
+        assert_eq!(shown.stdout_intent(), SubstitutionOutputIntent::Rerouted);
+        assert_eq!(
+            shown
+                .stdout_redirect_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![">/dev/tty"]
+        );
+        assert!(shown.stdout_dev_null_redirect_spans().is_empty());
+    });
+}
+
+#[test]
 fn builds_docker_ps_substitution_facts_without_pgrep_exemptions() {
     let source = "\
 #!/bin/bash

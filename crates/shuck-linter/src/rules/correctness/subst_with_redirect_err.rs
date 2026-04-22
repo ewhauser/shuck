@@ -181,6 +181,35 @@ out=$(printf hi 3>/dev/null 1>&3)
     }
 
     #[test]
+    fn applies_unsafe_fix_to_compound_wrapper_redirects() {
+        let source = "\
+#!/bin/sh
+quiet=$({ printf hi; } >/dev/null)
+keep=$({ printf hi; } >/dev/tty)
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::SubstWithRedirectErr),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/sh
+quiet=$({ printf hi; } )
+keep=$({ printf hi; } >/dev/tty)
+"
+        );
+        assert_eq!(result.fixed_diagnostics.len(), 1);
+        assert_eq!(
+            result.fixed_diagnostics[0].span.slice(&result.fixed_source),
+            "$({ printf hi; } >/dev/tty)"
+        );
+    }
+
+    #[test]
     fn keeps_nested_substitution_redirects_scoped_to_their_own_diagnostics() {
         let source = "\
 #!/bin/sh

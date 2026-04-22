@@ -615,15 +615,40 @@ fn summarize_stmt_redirects<'a>(
 }
 
 fn summarize_compound_stmt_redirects(
-    summary: RedirectSummary,
+    mut summary: RedirectSummary,
     redirects: &[Redirect],
     source: &str,
 ) -> RedirectSummary {
-    if compound_redirects_capture_stderr_to_stdout(redirects, source) {
-        default_redirect_summary()
-    } else {
-        summary
+    let redirect_facts = build_redirect_facts(redirects, source, None);
+    if redirect_facts.is_empty() {
+        return summary;
     }
+
+    let outer_summary = summarize_redirect_facts(&redirect_facts);
+    summary.has_stdout_redirect |= outer_summary.has_stdout_redirect;
+    summary
+        .stdout_redirect_spans
+        .extend(outer_summary.stdout_redirect_spans);
+    summary
+        .stdout_dev_null_redirect_spans
+        .extend(outer_summary.stdout_dev_null_redirect_spans);
+
+    if outer_summary.has_stdout_redirect {
+        summary.stdout_intent = outer_summary.stdout_intent;
+        summary.terminal_stdout_intent = outer_summary.terminal_stdout_intent;
+    }
+
+    if compound_redirects_capture_stderr_to_stdout(&redirect_facts) {
+        summary.stdout_intent = SubstitutionOutputIntent::Captured;
+        summary.terminal_stdout_intent = SubstitutionOutputIntent::Captured;
+        if !outer_summary.has_stdout_redirect {
+            summary.has_stdout_redirect = false;
+            summary.stdout_redirect_spans.clear();
+            summary.stdout_dev_null_redirect_spans.clear();
+        }
+    }
+
+    summary
 }
 
 fn summarize_command_redirects<'a>(
@@ -633,29 +658,22 @@ fn summarize_command_redirects<'a>(
     command_ids_by_span: &CommandLookupIndex,
     source: &str,
 ) -> RedirectSummary {
-    let (state, stdout_redirect_spans, stdout_dev_null_redirect_spans) =
-        if let Some(id) = command_id_for_command(command, command_ids_by_span) {
-            let redirects = command_fact(commands, id).redirect_facts();
-            (
-                classify_redirect_facts(redirects),
-                stdout_redirect_spans_for_fix(redirects),
-                stdout_dev_null_redirect_spans_for_fix(redirects),
-            )
-        } else {
-            let redirect_facts = build_redirect_facts(redirects, source, None);
-            (
-                classify_redirect_facts(&redirect_facts),
-                stdout_redirect_spans_for_fix(&redirect_facts),
-                stdout_dev_null_redirect_spans_for_fix(&redirect_facts),
-            )
-        };
+    if let Some(id) = command_id_for_command(command, command_ids_by_span) {
+        summarize_redirect_facts(command_fact(commands, id).redirect_facts())
+    } else {
+        let redirect_facts = build_redirect_facts(redirects, source, None);
+        summarize_redirect_facts(&redirect_facts)
+    }
+}
 
+fn summarize_redirect_facts(redirects: &[RedirectFact<'_>]) -> RedirectSummary {
+    let state = classify_redirect_facts(redirects);
     RedirectSummary {
         stdout_intent: state.stdout_intent,
         terminal_stdout_intent: state.stdout_intent,
         has_stdout_redirect: state.has_stdout_redirect,
-        stdout_redirect_spans,
-        stdout_dev_null_redirect_spans,
+        stdout_redirect_spans: stdout_redirect_spans_for_fix(redirects),
+        stdout_dev_null_redirect_spans: stdout_dev_null_redirect_spans_for_fix(redirects),
     }
 }
 
@@ -803,10 +821,9 @@ fn redirect_matches_substitution_warning(redirect: &RedirectFact<'_>) -> bool {
     ) && redirect.redirect().fd.unwrap_or(1) == 1
 }
 
-fn compound_redirects_capture_stderr_to_stdout(redirects: &[Redirect], source: &str) -> bool {
-    let redirect_facts = build_redirect_facts(redirects, source, None);
-    classify_redirect_facts(&redirect_facts).stdout_intent == SubstitutionOutputIntent::Captured
-        && redirect_facts.iter().any(is_stderr_to_stdout_dup)
+fn compound_redirects_capture_stderr_to_stdout(redirects: &[RedirectFact<'_>]) -> bool {
+    classify_redirect_facts(redirects).stdout_intent == SubstitutionOutputIntent::Captured
+        && redirects.iter().any(is_stderr_to_stdout_dup)
 }
 
 fn is_stderr_to_stdout_dup(redirect: &RedirectFact<'_>) -> bool {

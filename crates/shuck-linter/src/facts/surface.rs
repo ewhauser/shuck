@@ -2278,18 +2278,14 @@ fn suspect_double_quote_spans(
 pub(super) fn rewrite_word_as_single_double_quoted_string(
     word: &Word,
     source: &str,
-    assignment_target: Option<&str>,
+    _assignment_target: Option<&str>,
 ) -> Box<str> {
     let mut rendered = String::from("\"");
     for part in &word.parts {
         render_word_part_inside_double_quotes(&mut rendered, part, source, false);
     }
     rendered.push('"');
-    if let Some(assignment_target) = assignment_target {
-        format!("{assignment_target}={rendered}").into_boxed_str()
-    } else {
-        rendered.into_boxed_str()
-    }
+    rendered.into_boxed_str()
 }
 
 pub(super) fn rewrite_pattern_as_single_double_quoted_string(

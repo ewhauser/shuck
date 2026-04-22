@@ -551,6 +551,25 @@ say \"configure\" now
 }
 
 #[test]
+fn open_double_quote_surface_facts_keep_assignment_fixes_value_scoped() {
+    let source = "\
+#!/bin/bash
+value='alpha
+beta''tail'
+";
+
+    with_facts(source, None, |_, facts| {
+        let fragment = &facts.open_double_quote_fragments()[0];
+
+        assert_eq!(
+            fragment.replacement_span().slice(source),
+            "'alpha\nbeta''tail'"
+        );
+        assert_eq!(fragment.replacement(), "\"alpha\nbetatail\"");
+    });
+}
+
+#[test]
 fn open_double_quote_surface_facts_track_backslash_prefixed_literal_gap_fragments() {
     let source = "\
 #!/bin/sh
