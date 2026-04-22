@@ -120,9 +120,15 @@ fn numeric_comparison_redirect_diagnostic(
         return None;
     }
 
+    let fix_span = Span::from_positions(operator_span.start, target.span.start);
+    let separator = source
+        .get(operator_span.end.offset..target.span.start.offset)
+        .filter(|text| !text.is_empty())
+        .unwrap_or(" ");
+
     Some(
         crate::Diagnostic::new(GreaterThanInTest, operator_span).with_fix(Fix::unsafe_edit(
-            Edit::replacement(replacement, operator_span),
+            Edit::replacement(format!("{replacement}{separator}"), fix_span),
         )),
     )
 }
@@ -413,6 +419,31 @@ limit=3
 [[ $count -gt 10 ]]
 [[ \"$count\" -lt 1 ]]
 [[ $count -gt $limit ]]
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn inserts_a_separator_for_compact_bracket_numeric_comparisons() {
+        let source = "\
+#!/bin/bash
+[ \"$version\" >\"10\" ]
+[ \"$version\" <10 ]
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::GreaterThanInTest),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/bash
+[ \"$version\" -gt \"10\" ]
+[ \"$version\" -lt 10 ]
 "
         );
         assert!(result.fixed_diagnostics.is_empty());

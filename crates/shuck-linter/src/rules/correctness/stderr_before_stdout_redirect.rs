@@ -114,6 +114,10 @@ fn reordered_redirect_segment(
             .push_str(&source[redirects[index - 1].redirect().span.end.offset..span.start.offset]);
     }
 
+    if !replacement.ends_with(char::is_whitespace) {
+        replacement.push(' ');
+    }
+
     replacement.push_str(moved_span.slice(source));
     replacement
 }
@@ -199,6 +203,31 @@ echo ok 2>&1 1>/dev/null
 echo ok >/dev/null 2>&1
 echo ok 3>aux >out 2>&1
 echo ok 1>/dev/null 2>&1
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn inserts_a_separator_when_reordering_adjacent_redirect_tokens() {
+        let source = "\
+#!/bin/sh
+echo ok 2>&1>/dev/null
+echo ok 2>&1 3>aux>out
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::StderrBeforeStdoutRedirect),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/sh
+echo ok >/dev/null 2>&1
+echo ok 3>aux >out 2>&1
 "
         );
         assert!(result.fixed_diagnostics.is_empty());
