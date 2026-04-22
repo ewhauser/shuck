@@ -4,6 +4,7 @@ struct LinterFactsBuilder<'a> {
     semantic: &'a SemanticModel,
     _indexer: &'a Indexer,
     _file_context: &'a FileContext,
+    ambient_shell_options: AmbientShellOptions,
 }
 
 #[derive(Debug, Default)]
@@ -32,6 +33,7 @@ impl<'a> LinterFactsBuilder<'a> {
         semantic: &'a SemanticModel,
         indexer: &'a Indexer,
         file_context: &'a FileContext,
+        ambient_shell_options: AmbientShellOptions,
     ) -> Self {
         Self {
             file,
@@ -39,6 +41,7 @@ impl<'a> LinterFactsBuilder<'a> {
             semantic,
             _indexer: indexer,
             _file_context: file_context,
+            ambient_shell_options,
         }
     }
 
@@ -364,7 +367,8 @@ impl<'a> LinterFactsBuilder<'a> {
         let subshell_test_group_spans =
             build_subshell_test_group_spans(&commands, &command_ids_by_span, self.source);
         let shebang_header_facts = build_shebang_header_facts(self.source);
-        let errexit_enabled_anywhere = shebang_header_facts.enables_errexit
+        let errexit_enabled_anywhere = self.ambient_shell_options.errexit
+            || shebang_header_facts.enables_errexit
             || commands
                 .iter()
                 .filter_map(|fact| fact.options().set())

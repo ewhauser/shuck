@@ -48,10 +48,17 @@ pub struct LinterSettings {
     pub rules: RuleSet,
     pub severity_overrides: FxHashMap<Rule, Severity>,
     pub shell: ShellDialect,
+    pub ambient_shell_options: AmbientShellOptions,
     pub analyzed_paths: Option<Arc<FxHashSet<PathBuf>>>,
     pub per_file_ignores: Arc<CompiledPerFileIgnoreList>,
     pub report_environment_style_names: bool,
     pub rule_options: LinterRuleOptions,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AmbientShellOptions {
+    pub errexit: bool,
+    pub pipefail: bool,
 }
 
 impl Default for LinterSettings {
@@ -60,6 +67,7 @@ impl Default for LinterSettings {
             rules: Self::default_rules(),
             severity_overrides: FxHashMap::default(),
             shell: ShellDialect::Unknown,
+            ambient_shell_options: AmbientShellOptions::default(),
             analyzed_paths: None,
             per_file_ignores: Arc::new(CompiledPerFileIgnoreList::default()),
             report_environment_style_names: false,
@@ -162,6 +170,14 @@ impl LinterSettings {
 
     pub fn with_shell(mut self, shell: ShellDialect) -> Self {
         self.shell = shell;
+        self
+    }
+
+    pub fn with_ambient_shell_options(
+        mut self,
+        ambient_shell_options: AmbientShellOptions,
+    ) -> Self {
+        self.ambient_shell_options = ambient_shell_options;
         self
     }
 

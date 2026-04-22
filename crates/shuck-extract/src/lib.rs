@@ -565,11 +565,13 @@ fn node_contains_runner_label(node: &Node, label: &str) -> bool {
     }
 
     node.as_sequence().is_some_and(|sequence| {
-        sequence.iter().any(|item| {
-            item.as_scalar()
-                .is_some_and(|scalar| scalar.as_str().to_ascii_lowercase().contains(&label))
-        })
-    })
+        sequence
+            .iter()
+            .any(|item| node_contains_runner_label(item, &label))
+    }) || node
+        .as_mapping()
+        .and_then(|mapping| mapping.get_node("labels"))
+        .is_some_and(|labels| node_contains_runner_label(labels, &label))
 }
 
 fn node_contains_github_expression(node: &Node) -> bool {
@@ -580,11 +582,17 @@ fn node_contains_github_expression(node: &Node) -> bool {
         return true;
     }
 
-    node.as_sequence().is_some_and(|sequence| {
-        sequence.iter().any(|item| {
-            item.as_scalar()
-                .is_some_and(|scalar| scalar.as_str().contains("${{"))
-        })
+    if node
+        .as_sequence()
+        .is_some_and(|sequence| sequence.iter().any(node_contains_github_expression))
+    {
+        return true;
+    }
+
+    node.as_mapping().is_some_and(|mapping| {
+        mapping
+            .iter()
+            .any(|(_, value)| node_contains_github_expression(value))
     })
 }
 
@@ -1067,6 +1075,26 @@ jobs:
         assert_eq!(scripts.len(), 2);
         assert_eq!(scripts[0].dialect, ExtractedDialect::Unsupported);
         assert_eq!(scripts[1].dialect, ExtractedDialect::Unsupported);
+    }
+
+    #[test]
+    fn infers_default_shell_from_mapping_form_runner_labels() {
+        let source = r#"
+on: push
+jobs:
+  labeled:
+    runs-on:
+      group: hosted
+      labels: ubuntu-latest
+    steps:
+      - run: echo hi
+"#;
+
+        let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
+        assert_eq!(scripts.len(), 1);
+        assert_eq!(scripts[0].dialect, ExtractedDialect::Bash);
+        assert!(scripts[0].implicit_flags.errexit);
+        assert!(scripts[0].implicit_flags.pipefail);
     }
 
     #[test]

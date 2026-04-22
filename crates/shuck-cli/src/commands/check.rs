@@ -15,9 +15,9 @@ use shuck_cache::{CacheKey, CacheKeyHasher};
 use shuck_extract::{EmbeddedScript, ExtractedDialect, HostLineStart, extract_all};
 use shuck_indexer::Indexer;
 use shuck_linter::{
-    Applicability, CompiledPerFileIgnoreList, LinterSettings, PerFileIgnore, Rule, RuleSelector,
-    RuleSet, ShellCheckCodeMap, ShellDialect, SuppressionIndex, add_ignores_to_path,
-    first_statement_line, parse_directives,
+    AmbientShellOptions, Applicability, CompiledPerFileIgnoreList, LinterSettings, PerFileIgnore,
+    Rule, RuleSelector, RuleSet, ShellCheckCodeMap, ShellDialect, SuppressionIndex,
+    add_ignores_to_path, first_statement_line, parse_directives,
 };
 use shuck_parser::{
     Error as ParseError,
@@ -1410,7 +1410,13 @@ fn analyze_embedded_file(
 
         let snippet_source: Arc<str> = Arc::from(embedded.source.clone());
         let parse_result = Parser::with_dialect(&snippet_source, parse_dialect).parse();
-        let linter_settings = base_linter_settings.clone().with_shell(shell_dialect);
+        let linter_settings = base_linter_settings
+            .clone()
+            .with_shell(shell_dialect)
+            .with_ambient_shell_options(AmbientShellOptions {
+                errexit: embedded.implicit_flags.errexit,
+                pipefail: embedded.implicit_flags.pipefail,
+            });
         let diagnostics = collect_lint_diagnostics(
             &pending,
             &snippet_source,

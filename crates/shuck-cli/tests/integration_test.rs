@@ -716,6 +716,61 @@ jobs:
 }
 
 #[test]
+fn check_concise_output_uses_implicit_github_actions_errexit() {
+    let tempdir = tempdir().unwrap();
+    fs::create_dir_all(tempdir.path().join(".github/workflows")).unwrap();
+    fs::write(
+        tempdir.path().join(".github/workflows/deploy.yml"),
+        r#"on: push
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          cd /tmp
+          echo ready
+"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--output-format", "concise"]);
+    cmd.assert().code(0).stdout("");
+}
+
+#[test]
+fn check_concise_output_reports_mapping_form_runs_on_workflow_lint() {
+    let tempdir = tempdir().unwrap();
+    fs::create_dir_all(tempdir.path().join(".github/workflows")).unwrap();
+    fs::write(
+        tempdir.path().join(".github/workflows/mapping.yml"),
+        r#"on: push
+jobs:
+  triage:
+    runs-on:
+      group: hosted
+      labels: ubuntu-latest
+    steps:
+      - run: |
+          unused=1
+"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--output-format", "concise"]);
+    let expected = format!(
+        "{}:9:11: warning[C001] jobs.triage.steps[0].run: variable `unused` is assigned but never used\n",
+        platform_path(".github/workflows/mapping.yml")
+    );
+    cmd.assert().code(1).stdout(expected);
+}
+
+#[test]
 fn check_output_format_env_var_selects_json() {
     let tempdir = tempdir().unwrap();
     fs::write(

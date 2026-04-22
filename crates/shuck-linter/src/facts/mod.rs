@@ -30,7 +30,6 @@ use self::{
         rewrite_word_as_single_double_quoted_string,
     },
 };
-use crate::FileContext;
 use crate::context::ContextRegionKind;
 use crate::rules::common::expansion::{
     ExpansionAnalysis, ExpansionContext, RedirectTargetAnalysis, RuntimeLiteralAnalysis,
@@ -50,6 +49,7 @@ use crate::rules::common::{
     },
 };
 use crate::suppression::shellcheck_directive_can_apply_to_following_command;
+use crate::{AmbientShellOptions, FileContext};
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue,
