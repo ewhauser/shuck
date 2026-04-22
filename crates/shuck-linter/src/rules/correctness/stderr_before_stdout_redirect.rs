@@ -6,7 +6,7 @@ use crate::{Checker, Edit, Fix, FixAvailability, RedirectFact, Rule, Violation};
 pub struct StderrBeforeStdoutRedirect;
 
 impl Violation for StderrBeforeStdoutRedirect {
-    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Sometimes;
 
     fn rule() -> Rule {
         Rule::StderrBeforeStdoutRedirect
@@ -52,17 +52,20 @@ pub fn stderr_before_stdout_redirect(checker: &mut Checker) {
 
                     let stdout_index =
                         last_later_stdout_file_redirect_index(&redirects[index + 1..])? + index + 1;
+                    let diagnostic = crate::Diagnostic::new(
+                        StderrBeforeStdoutRedirect,
+                        redirect.redirect().span,
+                    );
                     Some(
-                        crate::Diagnostic::new(
-                            StderrBeforeStdoutRedirect,
-                            redirect.redirect().span,
-                        )
-                        .with_fix(stderr_before_stdout_redirect_fix(
+                        match stderr_before_stdout_redirect_fix(
                             source,
                             redirects,
                             index,
                             stdout_index,
-                        )),
+                        ) {
+                            Some(fix) => diagnostic.with_fix(fix),
+                            None => diagnostic,
+                        },
                     )
                 })
         })
@@ -88,14 +91,21 @@ fn stderr_before_stdout_redirect_fix(
     redirects: &[RedirectFact<'_>],
     stderr_index: usize,
     stdout_index: usize,
-) -> Fix {
+) -> Option<Fix> {
+    if redirects[stderr_index + 1..stdout_index]
+        .iter()
+        .any(redirect_touches_stderr)
+    {
+        return None;
+    }
+
     let replacement = reordered_redirect_segment(source, redirects, stderr_index, stdout_index);
     let span = Span::from_positions(
         redirects[stderr_index].redirect().span.start,
         redirects[stdout_index].redirect().span.end,
     );
 
-    Fix::unsafe_edit(Edit::replacement(replacement, span))
+    Some(Fix::unsafe_edit(Edit::replacement(replacement, span)))
 }
 
 fn reordered_redirect_segment(
@@ -139,6 +149,11 @@ fn is_stdout_file_redirect(redirect: &RedirectFact<'_>) -> bool {
             data.kind,
             RedirectKind::Output | RedirectKind::Clobber | RedirectKind::Append
         )
+}
+
+fn redirect_touches_stderr(redirect: &RedirectFact<'_>) -> bool {
+    let data = redirect.redirect();
+    data.fd == Some(2) || data.kind == RedirectKind::OutputBoth
 }
 
 #[cfg(test)]
@@ -257,6 +272,41 @@ echo ok >/tmp/out 2>&1
 "
         );
         assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn withholds_fix_when_an_intervening_redirect_retargets_stderr() {
+        let source = "\
+#!/bin/sh
+echo ok 2>&1 2>err >out
+echo ok 2>&1 &>out >final
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::StderrBeforeStdoutRedirect),
+        );
+
+        assert_eq!(diagnostics.len(), 2);
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.fix.is_none())
+        );
+
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::StderrBeforeStdoutRedirect),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+        assert!(
+            result
+                .fixed_diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.fix.is_none())
+        );
     }
 
     #[test]
