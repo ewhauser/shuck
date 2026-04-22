@@ -2753,6 +2753,7 @@ declare -A map=([$(printf key)]=1)
 cat <<<$(printf here)
 out=$(printf hi > out.txt)
 drop=$(printf hi >/dev/null 2>&1)
+quiet=$(printf hi &>/dev/null)
 mixed=$(jq -r . <<< \"$status\" || die >&2)
 x=$(echo direct)
 y=$(foo $(echo nested))
@@ -2849,6 +2850,14 @@ z=$(ls layout.*.h | cut -d. -f2 | xargs echo)
             false,
         )));
         assert!(substitutions.contains(&(
+            "$(printf hi &>/dev/null)".to_owned(),
+            SubstitutionOutputIntent::Discarded,
+            SubstitutionHostKind::Other,
+            true,
+            false,
+            false,
+        )));
+        assert!(substitutions.contains(&(
             "$(jq -r . <<< \"$status\" || die >&2)".to_owned(),
             SubstitutionOutputIntent::Mixed,
             SubstitutionHostKind::Other,
@@ -2888,6 +2897,101 @@ z=$(ls layout.*.h | cut -d. -f2 | xargs echo)
             true,
             false,
         )));
+    });
+}
+
+#[test]
+fn excludes_output_both_dev_null_redirects_from_c058_fix_spans() {
+    let source = "\
+#!/bin/bash
+drop=$(printf hi >/dev/null 2>&1)
+quiet=$(printf hi &>/dev/null)
+";
+
+    with_facts(source, None, |_, facts| {
+        let substitutions = facts
+            .commands()
+            .iter()
+            .flat_map(|fact| fact.substitution_facts().iter())
+            .collect::<Vec<_>>();
+
+        let drop = substitutions
+            .iter()
+            .copied()
+            .find(|fact| fact.span().slice(source) == "$(printf hi >/dev/null 2>&1)")
+            .expect("expected explicit redirect substitution fact");
+        assert_eq!(
+            drop.stdout_dev_null_redirect_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![">/dev/null"]
+        );
+
+        let quiet = substitutions
+            .iter()
+            .copied()
+            .find(|fact| fact.span().slice(source) == "$(printf hi &>/dev/null)")
+            .expect("expected output-both substitution fact");
+        assert!(quiet.stdout_redirect_spans().is_empty());
+        assert!(quiet.stdout_dev_null_redirect_spans().is_empty());
+    });
+}
+
+#[test]
+fn uses_pipeline_tail_redirects_for_substitution_output_intent() {
+    let source = "\
+#!/bin/sh
+out=$(printf '%s\\n' \"$pkg\" | grep '^ok$' >/dev/null 2>&1)
+";
+
+    with_facts(source, None, |_, facts| {
+        let substitution = facts
+            .commands()
+            .iter()
+            .flat_map(|fact| fact.substitution_facts().iter())
+            .find(|fact| {
+                fact.span().slice(source)
+                    == "$(printf '%s\\n' \"$pkg\" | grep '^ok$' >/dev/null 2>&1)"
+            })
+            .expect("expected pipeline substitution fact");
+
+        assert_eq!(
+            substitution.stdout_intent(),
+            SubstitutionOutputIntent::Discarded
+        );
+        assert_eq!(
+            substitution
+                .stdout_dev_null_redirect_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![">/dev/null"]
+        );
+    });
+}
+
+#[test]
+fn outer_stderr_capture_keeps_grouped_substitution_output_captured() {
+    let source = "\
+#!/bin/sh
+error=$({ printf '%s\\n' boom >/dev/null; } 2>&1)
+";
+
+    with_facts(source, None, |_, facts| {
+        let substitution = facts
+            .commands()
+            .iter()
+            .flat_map(|fact| fact.substitution_facts().iter())
+            .find(|fact| fact.span().slice(source) == "$({ printf '%s\\n' boom >/dev/null; } 2>&1)")
+            .expect("expected grouped substitution fact");
+
+        assert_eq!(
+            substitution.stdout_intent(),
+            SubstitutionOutputIntent::Captured
+        );
+        assert!(substitution.stdout_redirect_spans().is_empty());
+        assert!(substitution.stdout_dev_null_redirect_spans().is_empty());
     });
 }
 

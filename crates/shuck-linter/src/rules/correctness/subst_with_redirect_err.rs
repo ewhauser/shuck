@@ -27,7 +27,11 @@ pub fn subst_with_redirect_err(checker: &mut Checker) {
             fact.substitution_facts()
                 .iter()
                 .filter(|substitution| substitution.kind() == CommandSubstitutionKind::Command)
-                .filter(|substitution| substitution.stdout_is_discarded())
+                .filter(|substitution| {
+                    substitution.stdout_is_discarded() || substitution.stdout_is_rerouted()
+                })
+                .filter(|substitution| !substitution.stdout_redirect_spans().is_empty())
+                .filter(|substitution| !substitution.body_is_negated())
                 .cloned()
         })
         .collect::<Vec<_>>();
@@ -56,7 +60,7 @@ mod tests {
     use crate::{Applicability, LinterSettings, Rule, assert_diagnostics_diff};
 
     #[test]
-    fn only_reports_substitutions_that_drop_output_to_dev_null() {
+    fn only_reports_substitutions_that_redirect_stdout_away() {
         let source = "\
 opts=$(getopt -o a -- \"$@\" || { usage >&2 && false; })
 menu=$(whiptail --menu pick 0 0 0 foo bar 3>&1 1>&2 2>&3)
@@ -67,11 +71,15 @@ choice=$(\"${cmd[@]}\" \"${options[@]}\" 2>&1 >/dev/tty)
 out=$(printf quiet >/dev/null; printf loud)
 out=$(printf hi >/dev/null 2>&1)
 out=$(printf hi 1>/dev/null)
+out=$(printf hi &>/dev/null)
 out=$(printf hi > \"$target\")
 out=$(printf hi > ${targets[@]})
 out=$(printf hi 2>&\"$fd\")
 declare arr[$(printf hi >/dev/null)]=1
 declare -A map=([$(printf bye 1>/dev/null)]=1)
+if $(command -v python3 &>/dev/null); then
+  :
+fi
 ";
         let diagnostics = test_snippet(
             source,
@@ -83,8 +91,26 @@ declare -A map=([$(printf bye 1>/dev/null)]=1)
                 .iter()
                 .map(|diagnostic| diagnostic.span.start.line)
                 .collect::<Vec<_>>(),
-            vec![8, 9, 13, 14]
+            vec![8, 9, 11, 12, 14, 15]
         );
+    }
+
+    #[test]
+    fn ignores_shellcheck_quiet_output_both_and_negated_substitutions() {
+        let source = "\
+#!/bin/bash
+out=$(printf hi &>/dev/null)
+probe=$(! printf hi >/dev/null 2>&1)
+if $(command -v python3 &>/dev/null); then
+  :
+fi
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubstWithRedirectErr),
+        );
+
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
@@ -130,11 +156,15 @@ other=$(printf hi )
 keep=$(printf hi > out.txt)
 "
         );
-        assert!(result.fixed_diagnostics.is_empty());
+        assert_eq!(result.fixed_diagnostics.len(), 1);
+        assert_eq!(
+            result.fixed_diagnostics[0].span.slice(&result.fixed_source),
+            "$(printf hi > out.txt)"
+        );
     }
 
     #[test]
-    fn leaves_indirect_dev_null_redirects_unchanged_when_fixing() {
+    fn ignores_indirect_dev_null_redirects_that_shellcheck_keeps_quiet() {
         let source = "\
 #!/bin/sh
 out=$(printf hi 3>/dev/null 1>&3)
@@ -147,11 +177,7 @@ out=$(printf hi 3>/dev/null 1>&3)
 
         assert_eq!(result.fixes_applied, 0);
         assert_eq!(result.fixed_source, source);
-        assert_eq!(result.fixed_diagnostics.len(), 1);
-        assert_eq!(
-            result.fixed_diagnostics[0].span.slice(source),
-            "$(printf hi 3>/dev/null 1>&3)"
-        );
+        assert!(result.fixed_diagnostics.is_empty());
     }
 
     #[test]
