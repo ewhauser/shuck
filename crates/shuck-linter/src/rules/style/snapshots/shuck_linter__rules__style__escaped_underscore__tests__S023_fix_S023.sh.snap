@@ -1,0 +1,42 @@
+---
+source: crates/shuck-linter/src/rules/style/escaped_underscore.rs
+---
+Diagnostics:
+S023 a backslash before a regular character is unnecessary in a plain word
+ --> <source>:3:9
+  |
+3 | echo foo\_bar
+  |
+
+S023 a backslash before a regular character is unnecessary in a plain word
+ --> <source>:6:9
+  |
+6 | echo foo\_bar_baz
+  |
+
+
+Applied fixes: 2
+
+Diff:
+--- before
++++ after
+@@ -1,6 +1,6 @@
+ #!/bin/sh
+ 
+-echo foo\_bar
++echo foo_bar
+ echo foo\\_bar
+ echo "foo\_bar"
+-echo foo\_bar_baz
++echo foo_bar_baz
+
+Fixed source:
+#!/bin/sh
+
+echo foo_bar
+echo foo\\_bar
+echo "foo\_bar"
+echo foo_bar_baz
+
+Remaining diagnostics:
+<none>
