@@ -17,7 +17,6 @@ impl Violation for TruthyLiteralTest {
     fn message(&self) -> String {
         "this test checks a fixed literal instead of runtime data".to_owned()
     }
-
 }
 
 pub fn truthy_literal_test(checker: &mut Checker) {

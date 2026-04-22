@@ -571,21 +571,14 @@ impl<'a> SurfaceFragmentSink<'a> {
         command_name: Option<&str>,
         assignment_target: Option<&str>,
     ) {
-        let fragments = suspect_double_quote_spans(
-            word,
-            self.source,
-            command_name,
-            assignment_target,
-        );
+        let fragments =
+            suspect_double_quote_spans(word, self.source, command_name, assignment_target);
         if fragments.is_empty() {
             return;
         }
 
-        let replacement = rewrite_word_as_single_double_quoted_string(
-            word,
-            self.source,
-            assignment_target,
-        );
+        let replacement =
+            rewrite_word_as_single_double_quoted_string(word, self.source, assignment_target);
         for (opening_span, closing_span) in fragments {
             self.facts
                 .open_double_quotes
@@ -2454,9 +2447,10 @@ fn suspicious_multiline_double_quote_suffix(
     }
 
     word_part_is_empty_literal(next, source)
-        && !word.parts[..index]
-            .iter()
-            .any(|part| matches!(part.kind, WordPart::DoubleQuoted { .. }) && part.span.slice(source).contains('\n'))
+        && !word.parts[..index].iter().any(|part| {
+            matches!(part.kind, WordPart::DoubleQuoted { .. })
+                && part.span.slice(source).contains('\n')
+        })
         && word
             .parts
             .get(index + 2)

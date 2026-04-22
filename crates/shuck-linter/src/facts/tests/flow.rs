@@ -2,8 +2,7 @@ use super::*;
 use crate::facts::{
     collect_precise_function_return_guard_suppressions,
     collect_precise_function_return_guard_suppressions_in_seq,
-    stmt_is_unary_test_return_status_guard,
-    stmt_is_non_test_return_status_guard,
+    stmt_is_non_test_return_status_guard, stmt_is_unary_test_return_status_guard,
 };
 use shuck_ast::{Command, CompoundCommand};
 
@@ -289,7 +288,8 @@ pkg_check() {
     let Command::Function(build_config) = &output.file.body[0].command else {
         panic!("expected function");
     };
-    let Command::Compound(CompoundCommand::BraceGroup(build_body)) = &build_config.body.command else {
+    let Command::Compound(CompoundCommand::BraceGroup(build_body)) = &build_config.body.command
+    else {
         panic!("expected brace-group function body");
     };
     let Command::Function(pkg_check) = &output.file.body[1].command else {
@@ -300,7 +300,10 @@ pkg_check() {
     };
 
     assert!(stmt_is_non_test_return_status_guard(&build_body[0], source));
-    assert!(stmt_is_unary_test_return_status_guard(&build_body[1], source));
+    assert!(stmt_is_unary_test_return_status_guard(
+        &build_body[1],
+        source
+    ));
     assert!(stmt_is_unary_test_return_status_guard(&pkg_body[0], source));
 
     let mut body_spans = Vec::new();
@@ -317,7 +320,10 @@ pkg_check() {
         true,
     );
     assert_eq!(
-        body_spans.iter().map(|span| span.start.line).collect::<Vec<_>>(),
+        body_spans
+            .iter()
+            .map(|span| span.start.line)
+            .collect::<Vec<_>>(),
         vec![4, 8]
     );
 
