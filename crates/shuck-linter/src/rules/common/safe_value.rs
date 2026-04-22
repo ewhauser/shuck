@@ -248,6 +248,12 @@ impl<'a> SafeValueIndex<'a> {
             .called_helper_bindings_for_name(name, at)
             .into_iter()
             .collect::<FxHashSet<_>>();
+        if helper_bindings.is_empty()
+            && matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
+            && !self.bindings_cover_all_paths_to_reference(&bindings, name, at)
+        {
+            return false;
+        }
         if self.definite_uninitialized_refs.contains(&FactSpan::new(at)) {
             if bindings
                 .iter()
@@ -690,7 +696,7 @@ impl<'a> SafeValueIndex<'a> {
             return false;
         };
         if binding_block == reference_block {
-            return true;
+            return !self.binding_is_guarded_before_reference(binding_id, at);
         }
 
         let cfg = self.analysis.cfg();
@@ -699,6 +705,59 @@ impl<'a> SafeValueIndex<'a> {
         let mut seen = FxHashSet::default();
         while let Some(block_id) = stack.pop() {
             if block_id == binding_block
+                || unreachable.contains(&block_id)
+                || !seen.insert(block_id)
+            {
+                continue;
+            }
+            if block_id == reference_block {
+                return false;
+            }
+            for (successor, _) in cfg.successors(block_id) {
+                stack.push(*successor);
+            }
+        }
+
+        true
+    }
+
+    fn bindings_cover_all_paths_to_reference(
+        &self,
+        bindings: &[BindingId],
+        name: &Name,
+        at: Span,
+    ) -> bool {
+        let Some(reference_id) = self.reference_id_for_name_at(name, at) else {
+            return true;
+        };
+        let Some(reference_block) = self.block_for_reference(reference_id) else {
+            return true;
+        };
+
+        let cover_blocks = bindings
+            .iter()
+            .copied()
+            .filter_map(|binding_id| {
+                let binding_block = self.block_for_binding(binding_id)?;
+                if binding_block == reference_block
+                    && self.binding_is_guarded_before_reference(binding_id, at)
+                {
+                    None
+                } else {
+                    Some(binding_block)
+                }
+            })
+            .collect::<FxHashSet<_>>();
+        if cover_blocks.contains(&reference_block) {
+            return true;
+        }
+
+        let cfg = self.analysis.cfg();
+        let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
+        let mut stack = vec![cfg.entry()];
+        let mut seen = FxHashSet::default();
+        while let Some(block_id) = stack.pop() {
+            if cover_blocks.contains(&block_id)
                 || unreachable.contains(&block_id)
                 || !seen.insert(block_id)
             {
@@ -1402,6 +1461,95 @@ f() {
             .expect("expected guarded function command argument");
 
         assert!(!safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn conditional_same_block_initializers_do_not_dominate_later_uses() {
+        let source = "\
+#!/bin/bash
+counter=0
+while [ \"$counter\" -eq 0 ]; do
+  if [ \"$1\" = validate ] || [ \"$1\" = install ]; then
+    validate=validate
+  fi
+  steamcmd ${validate} +quit
+  break
+done
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "${validate}"
+            })
+            .expect("expected conditional initializer command argument");
+
+        assert!(!safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn case_defaults_distinguish_maybe_uninitialized_from_explicit_empty_bindings() {
+        let source = "\
+#!/bin/bash
+case $1 in
+  nfs|dir)
+    disk_ext=.qcow2
+    ;;
+  btrfs)
+    disk_ext=.raw
+    ;;
+esac
+printf '%s\\n' vm-${disk_ext:-}
+
+case $2 in
+  nfs|dir)
+    disk_ext_with_default=.qcow2
+    ;;
+  btrfs)
+    disk_ext_with_default=.raw
+    ;;
+  *)
+    disk_ext_with_default=
+    ;;
+esac
+printf '%s\\n' vm-${disk_ext_with_default:-}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let maybe_uninitialized = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "vm-${disk_ext:-}"
+            })
+            .expect("expected maybe-uninitialized command argument");
+        let explicit_default = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "vm-${disk_ext_with_default:-}"
+            })
+            .expect("expected explicit-default command argument");
+
+        assert!(!safe_values.word_occurrence_is_safe(maybe_uninitialized, SafeValueQuery::Argv));
+        assert!(safe_values.word_occurrence_is_safe(explicit_default, SafeValueQuery::Argv));
     }
 
     #[test]
