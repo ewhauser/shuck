@@ -114,8 +114,9 @@ pub(crate) mod simple_tests {
 #[allow(unused_imports)]
 pub(crate) mod conditionals {
     pub use super::{
-        ConditionalBareWordFact, ConditionalBinaryFact, ConditionalFact, ConditionalNodeFact,
-        ConditionalOperandFact, ConditionalOperatorFamily, ConditionalUnaryFact,
+        ConditionalBareWordFact, ConditionalBinaryFact, ConditionalFact,
+        ConditionalMixedLogicalOperatorFact, ConditionalNodeFact, ConditionalOperandFact,
+        ConditionalOperatorFamily, ConditionalUnaryFact,
     };
 }
 

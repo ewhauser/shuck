@@ -55,18 +55,18 @@ pub use diagnostic::{Diagnostic, Severity};
 /// Extracted structural facts available to rules and callers.
 pub use facts::{
     BacktickFragmentFact, CommandFact, CommandOptionFacts, ConditionalBareWordFact,
-    ConditionalBinaryFact, ConditionalFact, ConditionalNodeFact, ConditionalOperandFact,
-    ConditionalOperatorFamily, ConditionalPortabilityFacts, ConditionalUnaryFact, ExitCommandFacts,
-    FindCommandFacts, FindExecCommandFacts, FindExecShellCommandFacts, ForHeaderFact,
-    FunctionCallArityFacts, FunctionHeaderFact, GrepPatternSourceKind,
-    LegacyArithmeticFragmentFact, ListFact, ListOperatorFact, LoopHeaderWordFact, PathWordFact,
-    PipelineFact, PipelineOperatorFact, PipelineSegmentFact, PositionalParameterFragmentFact,
-    PrintfCommandFacts, ReadCommandFacts, RedirectFact, RmCommandFacts, SelectHeaderFact,
-    SimpleTestFact, SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax,
-    SingleQuotedFragmentFact, SshCommandFacts, StatementFact, SubstitutionFact,
-    SubstitutionHostKind, SudoFamilyCommandFacts, SudoFamilyInvoker, UnsetCommandFacts,
-    WaitCommandFacts, WordFactContext, WordFactHostKind, WordOccurrence, WordOccurrenceIter,
-    WordOccurrenceRef, XargsCommandFacts, leading_literal_word_prefix,
+    ConditionalBinaryFact, ConditionalFact, ConditionalMixedLogicalOperatorFact,
+    ConditionalNodeFact, ConditionalOperandFact, ConditionalOperatorFamily,
+    ConditionalPortabilityFacts, ConditionalUnaryFact, ExitCommandFacts, FindCommandFacts,
+    FindExecCommandFacts, FindExecShellCommandFacts, ForHeaderFact, FunctionCallArityFacts,
+    FunctionHeaderFact, GrepPatternSourceKind, LegacyArithmeticFragmentFact, ListFact,
+    ListOperatorFact, LoopHeaderWordFact, PathWordFact, PipelineFact, PipelineOperatorFact,
+    PipelineSegmentFact, PositionalParameterFragmentFact, PrintfCommandFacts, ReadCommandFacts,
+    RedirectFact, RmCommandFacts, SelectHeaderFact, SimpleTestFact, SimpleTestOperatorFamily,
+    SimpleTestShape, SimpleTestSyntax, SingleQuotedFragmentFact, SshCommandFacts, StatementFact,
+    SubstitutionFact, SubstitutionHostKind, SudoFamilyCommandFacts, SudoFamilyInvoker,
+    UnsetCommandFacts, WaitCommandFacts, WordFactContext, WordFactHostKind, WordOccurrence,
+    WordOccurrenceIter, WordOccurrenceRef, XargsCommandFacts, leading_literal_word_prefix,
 };
 /// Fact collection types and stable identifiers into those collections.
 pub use facts::{CommandId, FactSpan, LinterFacts};

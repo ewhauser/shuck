@@ -1482,7 +1482,7 @@ fn builds_conditional_facts_with_root_normalization_and_nested_inventory() {
             regex.right().word().map(|word| word.span.slice(source)),
             Some("^\"foo\"bar$")
         );
-        assert!(logical.mixed_logical_operator_spans().is_empty());
+        assert!(logical.mixed_logical_operators().is_empty());
         assert!(
             regex
                 .right()
@@ -1583,6 +1583,7 @@ fn keeps_parenthesized_logical_groups_separate_for_mixed_operator_detection() {
 [[ -n $a && -n $b || -n $c ]]
 [[ -n $a && ( -n $b || -n $c ) ]]
 [[ ( -n $a && -n $b || -n $c ) && -n $d ]]
+[[ -n $a && -n $b || -n $c && -n $d ]]
 ";
 
     with_facts(source, None, |_, facts| {
@@ -1591,22 +1592,36 @@ fn keeps_parenthesized_logical_groups_separate_for_mixed_operator_detection() {
             .filter_map(|fact| fact.conditional())
             .collect::<Vec<_>>();
 
+        let first = &conditionals[0].mixed_logical_operators()[0];
+        assert_eq!(first.operator_span().slice(source), "||");
         assert_eq!(
-            conditionals[0]
-                .mixed_logical_operator_spans()
+            first
+                .grouped_subexpression_spans()
                 .iter()
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["||"]
+            vec!["-n $a && -n $b"]
         );
-        assert!(conditionals[1].mixed_logical_operator_spans().is_empty());
+        assert!(conditionals[1].mixed_logical_operators().is_empty());
+        let third = &conditionals[2].mixed_logical_operators()[0];
+        assert_eq!(third.operator_span().slice(source), "||");
         assert_eq!(
-            conditionals[2]
-                .mixed_logical_operator_spans()
+            third
+                .grouped_subexpression_spans()
                 .iter()
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["||"]
+            vec!["-n $a && -n $b"]
+        );
+        let fourth = &conditionals[3].mixed_logical_operators()[0];
+        assert_eq!(fourth.operator_span().slice(source), "||");
+        assert_eq!(
+            fourth
+                .grouped_subexpression_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["-n $a && -n $b", "-n $c && -n $d"]
         );
     });
 }
