@@ -1,0 +1,95 @@
+---
+source: crates/shuck-linter/src/rules/correctness/greater_than_in_test.rs
+---
+Diagnostics:
+C086 use `-lt`/`-gt` instead of `<`/`>` for numeric comparisons
+ --> <source>:4:14
+  |
+4 | [ "$version" > "10" ]
+  |
+
+C086 use `-lt`/`-gt` instead of `<`/`>` for numeric comparisons
+ --> <source>:5:14
+  |
+5 | [ "$version" < 10 ]
+  |
+
+C086 use `-lt`/`-gt` instead of `<`/`>` for numeric comparisons
+ --> <source>:8:5
+  |
+8 | [ 1 > 2 ]
+  |
+
+C086 use `-lt`/`-gt` instead of `<`/`>` for numeric comparisons
+ --> <source>:9:11
+  |
+9 | [[ $count > 10 ]]
+  |
+
+C086 use `-lt`/`-gt` instead of `<`/`>` for numeric comparisons
+  --> <source>:10:13
+   |
+10 | [[ "$count" < 1 ]]
+   |
+
+
+Applied fixes: 5
+
+Diff:
+--- before
++++ after
+@@ -1,13 +1,13 @@
+ #!/bin/bash
+ 
+ # Invalid: numeric `<`/`>` in test expressions should use `-lt`/`-gt`.
+-[ "$version" > "10" ]
+-[ "$version" < 10 ]
++[ "$version" -gt "10" ]
++[ "$version" -lt 10 ]
+ 
+ # Invalid: literal operands still use redirecting or lexical operators.
+-[ 1 > 2 ]
+-[[ $count > 10 ]]
+-[[ "$count" < 1 ]]
++[ 1 -gt 2 ]
++[[ $count -gt 10 ]]
++[[ "$count" -lt 1 ]]
+ 
+ # Valid: redirects outside the test expression are unrelated.
+ [ "$version" ] > "$log"
+
+Fixed source:
+#!/bin/bash
+
+# Invalid: numeric `<`/`>` in test expressions should use `-lt`/`-gt`.
+[ "$version" -gt "10" ]
+[ "$version" -lt 10 ]
+
+# Invalid: literal operands still use redirecting or lexical operators.
+[ 1 -gt 2 ]
+[[ $count -gt 10 ]]
+[[ "$count" -lt 1 ]]
+
+# Valid: redirects outside the test expression are unrelated.
+[ "$version" ] > "$log"
+
+# Valid: plain string ordering is outside this numeric-comparison rule.
+[ "$version" > "$other" ]
+[ "$version" < "$other" ]
+[[ "$version" > "$other" ]]
+
+# Valid: escaped or quoted operators stay test operands.
+[ "$version" \> "$other" ]
+[ "$version" \< "$other" ]
+[ "$version" ">" "$other" ]
+[ "$version" "<" "$other" ]
+
+# Valid: decimal/version ordering is handled by C087 instead.
+[[ "$version" > 1.2 ]]
+[[ 1.2 < "$version" ]]
+
+# Valid: `test` is out of scope for this rule.
+test "$version" > 10
+
+Remaining diagnostics:
+<none>
