@@ -2,8 +2,8 @@ use shuck_ast::{Span, Word};
 
 use super::trap_common::parse_trap_args;
 use crate::{
-    Checker, Edit, Fix, FixAvailability, Rule, ShellDialect, Violation,
-    quoted_word_content_span_in_source, static_word_text,
+    Checker, Fix, FixAvailability, Rule, ShellDialect, Violation,
+    leading_static_word_prefix_fix_in_source, quoted_word_content_span_in_source, static_word_text,
 };
 
 const SIG_PREFIX_LEN: usize = 3;
@@ -11,14 +11,14 @@ const FIX_TITLE: &str = "remove the leading `SIG` prefix from the trap signal na
 
 pub struct SignalNameInTrap;
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct SignalNameInTrapOccurrence {
     report_span: Span,
-    fix_span: Span,
+    fix: Option<Fix>,
 }
 
 impl Violation for SignalNameInTrap {
-    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Sometimes;
 
     fn rule() -> Rule {
         Rule::SignalNameInTrap
@@ -47,10 +47,11 @@ pub fn signal_name_in_trap(checker: &mut Checker) {
         .collect::<Vec<_>>();
 
     for occurrence in occurrences {
-        checker.report_diagnostic_dedup(
-            crate::Diagnostic::new(SignalNameInTrap, occurrence.report_span)
-                .with_fix(signal_name_in_trap_fix(occurrence.fix_span)),
-        );
+        let diagnostic = crate::Diagnostic::new(SignalNameInTrap, occurrence.report_span);
+        checker.report_diagnostic_dedup(match occurrence.fix {
+            Some(fix) => diagnostic.with_fix(fix),
+            None => diagnostic,
+        });
     }
 }
 
@@ -78,18 +79,15 @@ fn trap_signal_name_occurrences(args: &[&Word], source: &str) -> Vec<SignalNameI
                 let span = quoted_word_content_span_in_source(word, source).unwrap_or(word.span);
                 SignalNameInTrapOccurrence {
                     report_span: span,
-                    fix_span: span,
+                    fix: signal_name_in_trap_fix(word, source),
                 }
             })
         })
         .collect()
 }
 
-fn signal_name_in_trap_fix(span: Span) -> Fix {
-    Fix::unsafe_edit(Edit::deletion_at(
-        span.start.offset,
-        span.start.offset + SIG_PREFIX_LEN,
-    ))
+fn signal_name_in_trap_fix(word: &Word, source: &str) -> Option<Fix> {
+    leading_static_word_prefix_fix_in_source(word, source, SIG_PREFIX_LEN)
 }
 
 #[cfg(test)]
@@ -256,6 +254,60 @@ trap '' 'TERM'
 "
         );
         assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn applies_unsafe_fix_inside_mixed_and_dollar_quoted_signal_operands() {
+        let source = "\
+#!/bin/sh
+trap '' \"SIG\"INT
+trap '' $'SIGTERM'
+trap '' 'SIG'QUIT
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::SignalNameInTrap),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 3);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/sh
+trap '' INT
+trap '' $'TERM'
+trap '' QUIT
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn leaves_cooked_signal_prefixes_unfixed_when_raw_source_does_not_match() {
+        let source = "\
+#!/bin/sh
+trap '' $'S\\x49GINT'
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SignalNameInTrap));
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::SignalNameInTrap),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert!(diagnostics[0].fix.is_none());
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+        assert_eq!(
+            result
+                .fixed_diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$'S\\x49GINT'"]
+        );
     }
 
     #[test]
