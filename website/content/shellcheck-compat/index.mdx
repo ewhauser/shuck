@@ -63,6 +63,92 @@ shellcheck --norc script.sh
 shellcheck --rcfile ci/shellcheckrc script.sh
 ```
 
+<h2 id="rules-lint">Use Shuck with rules_lint</h2>
+
+If your Bazel repo already uses [`rules_lint`](https://github.com/aspect-build/rules_lint) for shell scripts, you can swap Shuck in without rewriting the lint aspect itself. The trick is to keep exposing a `shellcheck` executable target and let Shuck handle the CLI compatibility layer behind that name.
+
+One workable pattern is:
+
+1. Fetch the platform-specific Shuck release artifacts.
+2. Re-export each downloaded binary as an executable named `shellcheck`.
+3. Keep `lint_shellcheck_aspect` pointed at your `//tools:shellcheck` target.
+
+```bzl
+# repositories.bzl
+def shuck_deps():
+    SHUCK_VERSION = "<shuck-version>"
+
+    http_archive(
+        name = "shuck",
+        build_file = "//tools:shuck.BUILD.bazel",
+        sha256 = "<linux-x86_64-sha256>",
+        strip_prefix = "shuck-cli-x86_64-unknown-linux-gnu",
+        urls = ["https://github.com/ewhauser/shuck/releases/download/v{}/shuck-cli-x86_64-unknown-linux-gnu.tar.xz".format(SHUCK_VERSION)],
+    )
+
+    http_archive(
+        name = "shuck_linux_arm64",
+        build_file = "//tools:shuck.BUILD.bazel",
+        sha256 = "<linux-arm64-sha256>",
+        strip_prefix = "shuck-cli-aarch64-unknown-linux-gnu",
+        urls = ["https://github.com/ewhauser/shuck/releases/download/v{}/shuck-cli-aarch64-unknown-linux-gnu.tar.xz".format(SHUCK_VERSION)],
+    )
+
+    http_archive(
+        name = "shuck_osx",
+        build_file = "//tools:shuck.BUILD.bazel",
+        sha256 = "<darwin-arm64-sha256>",
+        strip_prefix = "shuck-cli-aarch64-apple-darwin",
+        urls = ["https://github.com/ewhauser/shuck/releases/download/v{}/shuck-cli-aarch64-apple-darwin.tar.xz".format(SHUCK_VERSION)],
+    )
+```
+
+```bzl
+# tools/shuck.BUILD.bazel
+package(default_visibility = ["//visibility:public"])
+
+genrule(
+    name = "shellcheck_bin",
+    srcs = ["shuck"],
+    outs = ["shellcheck"],
+    cmd = "cp $(location shuck) $@",
+    executable = True,
+)
+
+filegroup(
+    name = "file",
+    srcs = [":shellcheck_bin"],
+)
+```
+
+```bzl
+# tools/BUILD.bazel
+alias(
+    name = "shellcheck",
+    actual = select({
+        "@bazel_tools//src/conditions:linux_x86_64": "@shuck//:file",
+        "@bazel_tools//src/conditions:linux_aarch64": "@shuck_linux_arm64//:file",
+        "@bazel_tools//src/conditions:darwin_arm64": "@shuck_osx//:file",
+    }),
+    visibility = ["//visibility:public"],
+)
+```
+
+```bzl
+# tools/lint.bzl
+load("@aspect_rules_lint//lint:lint_test.bzl", "lint_test")
+load("@aspect_rules_lint//lint:shellcheck.bzl", "lint_shellcheck_aspect")
+
+shellcheck = lint_shellcheck_aspect(
+    binary = "//tools:shellcheck",
+    config = "//:.shellcheckrc",
+)
+
+shellcheck_test = lint_test(aspect = shellcheck)
+```
+
+That keeps your existing `rules_lint` entry point, target names, and `.shellcheckrc` file in place while swapping in Shuck as the implementation. In practice, the migration boundary stays at the tool label instead of spreading through every lint target in the repo.
+
 ## Migration notes
 
 - Exit status follows the usual ShellCheck shape: `0` for no diagnostics, `1` when diagnostics are reported, and `2` for file or runtime errors.
