@@ -1,6 +1,5 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
-assertion_line: 74
 ---
 C020 this test checks a fixed literal instead of runtime data
  --> <source>:4:3
@@ -9,13 +8,13 @@ C020 this test checks a fixed literal instead of runtime data
   |
 
 C020 this test checks a fixed literal instead of runtime data
- --> <source>:5:6
+ --> <source>:5:3
   |
-5 | test foo
+5 | [ "" ]
   |
 
 C020 this test checks a fixed literal instead of runtime data
  --> <source>:6:4
   |
-6 | [[ bar ]]
+6 | [[ x ]]
   |

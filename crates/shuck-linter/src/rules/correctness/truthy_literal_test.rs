@@ -1,14 +1,14 @@
 use shuck_ast::{ConditionalUnaryOp, Span, Word};
 
 use crate::{
-    Checker, ConditionalNodeFact, ConditionalOperatorFamily, Edit, Fix, FixAvailability, Rule,
-    Violation, static_word_text,
+    Checker, ConditionalNodeFact, ConditionalOperatorFamily, FixAvailability, Rule,
+    SimpleTestSyntax, Violation,
 };
 
 pub struct TruthyLiteralTest;
 
 impl Violation for TruthyLiteralTest {
-    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::None;
 
     fn rule() -> Rule {
         Rule::TruthyLiteralTest
@@ -18,9 +18,6 @@ impl Violation for TruthyLiteralTest {
         "this test checks a fixed literal instead of runtime data".to_owned()
     }
 
-    fn fix_title(&self) -> Option<String> {
-        Some("replace the bare test term with an explicit true or false literal".to_owned())
-    }
 }
 
 pub fn truthy_literal_test(checker: &mut Checker) {
@@ -50,6 +47,10 @@ fn simple_test_diagnostics(
     fact: &crate::SimpleTestFact<'_>,
     source: &str,
 ) -> Vec<crate::Diagnostic> {
+    if fact.syntax() != SimpleTestSyntax::Bracket {
+        return Vec::new();
+    }
+
     fact.truthy_expression_words(source)
         .into_iter()
         .filter_map(|word| simple_test_diagnostic(fact, word, source))
@@ -59,12 +60,8 @@ fn simple_test_diagnostics(
 fn simple_test_diagnostic(
     fact: &crate::SimpleTestFact<'_>,
     word: &Word,
-    source: &str,
+    _source: &str,
 ) -> Option<crate::Diagnostic> {
-    if truthy_word_is_explicit_boolean_literal(word, source) {
-        return None;
-    }
-
     let index = fact
         .effective_operands()
         .iter()
@@ -72,10 +69,7 @@ fn simple_test_diagnostic(
     fact.effective_operand_class(index)
         .filter(|class| class.is_fixed_literal())?;
 
-    diagnostic_for_truthy_literal(
-        word.span,
-        explicit_literal_replacement_for_word(word, source),
-    )
+    diagnostic_for_truthy_literal(word.span)
 }
 
 fn conditional_diagnostics(
@@ -126,67 +120,20 @@ fn conditional_diagnostics(
 
 fn conditional_diagnostic(
     operand: crate::ConditionalOperandFact<'_>,
-    source: &str,
+    _source: &str,
 ) -> Option<crate::Diagnostic> {
     let word = operand.word()?;
-    if truthy_word_is_explicit_boolean_literal(word, source) {
-        return None;
-    }
-
-    diagnostic_for_truthy_literal(
-        word.span,
-        explicit_literal_replacement_for_word(word, source),
-    )
+    diagnostic_for_truthy_literal(word.span)
 }
 
-fn diagnostic_for_truthy_literal(
-    span: Span,
-    replacement: &'static str,
-) -> Option<crate::Diagnostic> {
-    Some(
-        crate::Diagnostic::new(TruthyLiteralTest, span)
-            .with_fix(Fix::unsafe_edit(Edit::replacement(replacement, span))),
-    )
-}
-
-const EMPTY_LITERAL_REPLACEMENT: &str = "\"\"";
-const NON_EMPTY_LITERAL_REPLACEMENT: &str = "x";
-
-fn explicit_literal_replacement_for_word(word: &Word, source: &str) -> &'static str {
-    explicit_literal_replacement_for_text(
-        static_word_text(word, source)
-            .as_deref()
-            .unwrap_or_else(|| word.span.slice(source)),
-    )
-}
-
-fn explicit_literal_replacement_for_text(text: &str) -> &'static str {
-    if text.is_empty() || quoted_literal_body(text).is_some_and(str::is_empty) {
-        EMPTY_LITERAL_REPLACEMENT
-    } else {
-        NON_EMPTY_LITERAL_REPLACEMENT
-    }
-}
-
-fn quoted_literal_body(text: &str) -> Option<&str> {
-    let quote = text.chars().next()?;
-    if !matches!(quote, '"' | '\'') {
-        return None;
-    }
-
-    text.strip_prefix(quote)?.strip_suffix(quote)
-}
-
-fn truthy_word_is_explicit_boolean_literal(word: &Word, source: &str) -> bool {
-    matches!(word.span.slice(source), "\"\"" | "x")
+fn diagnostic_for_truthy_literal(span: Span) -> Option<crate::Diagnostic> {
+    Some(crate::Diagnostic::new(TruthyLiteralTest, span))
 }
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
-    use crate::test::{test_path_with_fix, test_snippet, test_snippet_with_fix};
-    use crate::{Applicability, LinterSettings, Rule, assert_diagnostics_diff};
+    use crate::test::test_snippet;
+    use crate::{LinterSettings, Rule};
 
     #[test]
     fn ignores_runtime_sensitive_literal_words() {
@@ -216,8 +163,9 @@ test *.sh
         let source = "\
 #!/bin/bash
 [ 1 ]
+[ \"\" ]
+[[ x ]]
 test foo
-[[ bar ]]
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TruthyLiteralTest));
 
@@ -335,7 +283,7 @@ esac
     }
 
     #[test]
-    fn ignores_explicit_boolean_literals() {
+    fn skips_test_builtin_but_reports_explicit_boolean_literals_elsewhere() {
         let source = "\
 #!/bin/bash
 [ x ]
@@ -343,95 +291,26 @@ test \"\"
 [[ x ]]
 [[ \"\" ]]
 [ ! x ]
-[[ ! \"\" ]]
+test x
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TruthyLiteralTest));
 
-        assert!(diagnostics.is_empty());
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.start.line)
+                .collect::<Vec<_>>(),
+            vec![2, 4, 5, 6]
+        );
     }
 
     #[test]
-    fn attaches_unsafe_fix_metadata() {
+    fn does_not_offer_a_fix() {
         let source = "#!/bin/bash\n[ 1 ]\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TruthyLiteralTest));
 
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(
-            diagnostics[0].fix.as_ref().map(|fix| fix.applicability()),
-            Some(Applicability::Unsafe)
-        );
-        assert_eq!(
-            diagnostics[0].fix_title.as_deref(),
-            Some("replace the bare test term with an explicit true or false literal")
-        );
-    }
-
-    #[test]
-    fn applies_unsafe_fix_to_truthy_literal_tests() {
-        let source = "\
-#!/bin/bash
-[ 1 ]
-test ''
-[[ ! bar ]]
-[[ foo || \"\" ]]
-[ \"$value\" ]
-[[ $value ]]
-";
-        let result = test_snippet_with_fix(
-            source,
-            &LinterSettings::for_rule(Rule::TruthyLiteralTest),
-            Applicability::Unsafe,
-        );
-
-        assert_eq!(result.fixes_applied, 4);
-        assert_eq!(
-            result.fixed_source,
-            "\
-#!/bin/bash
-[ x ]
-test \"\"
-[[ ! x ]]
-[[ x || \"\" ]]
-[ \"$value\" ]
-[[ $value ]]
-"
-        );
-        assert!(result.fixed_diagnostics.is_empty());
-    }
-
-    #[test]
-    fn leaves_explicit_boolean_literals_unchanged_when_fixing() {
-        let source = "\
-#!/bin/bash
-[ x ]
-test \"\"
-[[ x ]]
-[[ \"\" ]]
-[ ! x ]
-[[ ! \"\" ]]
-[ \"$value\" ]
-[[ $value ]]
-";
-        let result = test_snippet_with_fix(
-            source,
-            &LinterSettings::for_rule(Rule::TruthyLiteralTest),
-            Applicability::Unsafe,
-        );
-
-        assert_eq!(result.fixes_applied, 0);
-        assert_eq!(result.fixed_source, source);
-        assert!(result.fixed_diagnostics.is_empty());
-    }
-
-    #[test]
-    fn snapshots_unsafe_fix_output_for_fixture() -> anyhow::Result<()> {
-        let result = test_path_with_fix(
-            Path::new("correctness").join("C020.sh").as_path(),
-            &LinterSettings::for_rule(Rule::TruthyLiteralTest),
-            Applicability::Unsafe,
-        )?;
-
-        assert_diagnostics_diff!("C020_fix_C020.sh", result);
-        Ok(())
+        assert!(diagnostics[0].fix.is_none());
+        assert!(diagnostics[0].fix_title.is_none());
     }
 }
