@@ -650,14 +650,16 @@ fn stmt_or_nested_sequence_contains_test_command(stmt: &Stmt, source: &str) -> b
         }
         Command::Compound(command) => match command {
             CompoundCommand::If(command) => {
-                command
-                    .then_branch
-                    .iter()
-                    .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source))
-                    || command.elif_branches.iter().any(|(_, branch)| {
-                        branch
-                            .iter()
-                            .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source))
+                condition_terminals_are_test_commands(&command.condition, source)
+                    || command
+                        .then_branch
+                        .iter()
+                        .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source))
+                    || command.elif_branches.iter().any(|(condition, branch)| {
+                        condition_terminals_are_test_commands(condition, source)
+                            || branch.iter().any(|stmt| {
+                                stmt_or_nested_sequence_contains_test_command(stmt, source)
+                            })
                     })
                     || command.else_branch.as_ref().is_some_and(|branch| {
                         branch
@@ -1405,7 +1407,8 @@ fn stmt_starts_sequence_barrier(stmt: &Stmt) -> bool {
     matches!(
         &stmt.command,
         Command::Compound(
-            CompoundCommand::Case(_)
+            CompoundCommand::If(_)
+                | CompoundCommand::Case(_)
                 | CompoundCommand::For(_)
                 | CompoundCommand::Select(_)
                 | CompoundCommand::While(_)

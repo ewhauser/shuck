@@ -197,6 +197,32 @@ tend $?
     }
 
     #[test]
+    fn reports_sequential_followups_before_if_tail_conditions() {
+        let source = "\
+#!/bin/bash
+[[ \"${second_line}\" == \"quz\" ]]
+tend $?
+if [ -f later_if ]; then
+  :
+elif [ -f later_elif ]; then
+  :
+fi
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::StatusCaptureAfterBranchTest),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$?"]
+        );
+    }
+
+    #[test]
     fn ignores_completion_status_after_if_and_while_commands() {
         let source = "\
 #!/bin/bash

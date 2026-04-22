@@ -634,6 +634,31 @@ done
 }
 
 #[test]
+fn collects_c056_when_later_if_conditions_continue_testing() {
+    let source = "\
+#!/bin/bash
+[ -f first ]
+tend $?
+if [ -f later_if ]; then
+  :
+elif [ -f later_elif ]; then
+  :
+fi
+";
+
+    with_facts(source, None, |_, facts| {
+        assert_eq!(
+            facts
+                .condition_status_capture_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$?"]
+        );
+    });
+}
+
+#[test]
 fn collects_c056_for_complex_status_blocks_but_skips_late_repeats() {
     let source = "\
 #!/bin/bash
