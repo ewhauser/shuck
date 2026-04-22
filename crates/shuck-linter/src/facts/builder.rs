@@ -502,6 +502,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 word_occurrences: &word_occurrences,
                 pattern_exactly_one_extglob_spans: &pattern_exactly_one_extglob_spans,
                 pattern_charclass_spans: &pattern_charclass_spans,
+                parameter_pattern_spans: &parameter_pattern_spans,
                 nested_pattern_charclass_spans: &nested_pattern_charclass_spans,
             },
             source,

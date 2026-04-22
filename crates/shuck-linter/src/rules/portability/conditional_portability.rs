@@ -335,7 +335,7 @@ esac
     }
 
     #[test]
-    fn reports_caret_negation_in_parameter_patterns_in_posix_shells() {
+    fn ignores_caret_negation_in_parameter_patterns_in_posix_shells() {
         let source = "\
 #!/bin/sh
 trimmed=${value#[^a]*}
@@ -346,9 +346,7 @@ pkgopts=\"${XBPS_CURRENT_PKG//[^A-Za-z0-9_]/_}\"
             &LinterSettings::for_rule(Rule::CaretNegationInBracket),
         );
 
-        assert_eq!(diagnostics.len(), 2);
-        assert_eq!(diagnostics[0].span.slice(source), "[^a]");
-        assert_eq!(diagnostics[1].span.slice(source), "[^A-Za-z0-9_]");
+        assert!(diagnostics.is_empty());
     }
 
     #[test]

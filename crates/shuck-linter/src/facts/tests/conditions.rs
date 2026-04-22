@@ -1821,7 +1821,7 @@ for item in [^c]*; do :; done
             .map(|span| span.slice(source))
             .collect::<Vec<_>>();
         assert!(caret_negations.contains(&"[^a]"));
-        assert!(caret_negations.contains(&"[^b]"));
         assert!(caret_negations.contains(&"[^c]"));
+        assert!(!caret_negations.contains(&"[^b]"));
     });
 }
