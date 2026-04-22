@@ -3732,8 +3732,7 @@ mod tests {
                     .any(|entry| entry.rule_wide && entry.side == CompatibilitySide::ShuckOnly)
                 && rule_metadata.reviewed_divergences.iter().any(|entry| {
                     !entry.rule_wide
-                        && entry.path_contains.as_deref()
-                            == Some("termux__termux-packages__")
+                        && entry.path_contains.as_deref() == Some("termux__termux-packages__")
                 })
         }));
         assert!(
