@@ -1199,6 +1199,11 @@ impl<'model> SemanticAnalysis<'model> {
         })
     }
 
+    /// Returns every binding that dataflow proves is never read again.
+    ///
+    /// Higher layers may still collapse mutually exclusive branch families down to a single
+    /// diagnostic, but this accessor keeps the full dead-binding set so callers can make that
+    /// policy decision with complete family context.
     pub fn unused_assignments(&self) -> &[BindingId] {
         if !self.model.needs_precise_unused_assignments() {
             return &self.model.heuristic_unused_assignments;
@@ -1220,7 +1225,7 @@ impl<'model> SemanticAnalysis<'model> {
             .as_slice()
     }
 
-    /// Returns unused assignments using the requested behavior flags.
+    /// Returns every dead binding using the requested behavior flags.
     pub fn unused_assignments_with_options(
         &self,
         options: UnusedAssignmentAnalysisOptions,
@@ -2144,7 +2149,12 @@ mod tests {
     fn assert_unused_assignment_parity(model: &SemanticModel) {
         let analysis = model.analysis();
         let precise = analysis.unused_assignments().to_vec();
-        let exact = analysis.dataflow().unused_assignment_ids().to_vec();
+        let exact = analysis
+            .dataflow()
+            .unused_assignments
+            .iter()
+            .map(|unused| unused.binding)
+            .collect::<Vec<_>>();
         assert_eq!(precise, exact);
     }
 
@@ -3712,6 +3722,26 @@ fi
 
         assert_eq!(model.analysis().dataflow().unused_assignments.len(), 2);
         assert_eq!(binding_ids, vec![all_bindings[1]]);
+    }
+
+    #[test]
+    fn public_unused_assignments_keep_all_dead_branch_family_members() {
+        let source = "\
+if [ \"$ARCH\" = \"arm\" ]; then
+  LIBDIRSUFFIX=\"\"
+elif [ \"$ARCH\" = \"x86_64\" ]; then
+  LIBDIRSUFFIX=\"64\"
+else
+  LIBDIRSUFFIX=\"\"
+fi
+";
+        let model = model(source);
+        let all_bindings = model.bindings_for(&Name::from("LIBDIRSUFFIX")).to_vec();
+        let precise = model.analysis().unused_assignments().to_vec();
+        let collapsed = model.analysis().dataflow().unused_assignment_ids().to_vec();
+
+        assert_eq!(precise, all_bindings);
+        assert_eq!(collapsed, vec![all_bindings[2]]);
     }
 
     #[test]

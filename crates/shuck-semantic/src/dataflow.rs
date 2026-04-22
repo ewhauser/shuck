@@ -198,7 +198,11 @@ pub(crate) fn analyze_unused_assignments_with_options(
     exact: &ExactVariableDataflow,
     options: UnusedAssignmentAnalysisOptions,
 ) -> Vec<BindingId> {
-    analyze_unused_assignments_exact(context, exact, options).unused_assignment_ids
+    analyze_unused_assignments_exact(context, exact, options)
+        .unused_assignments
+        .into_iter()
+        .map(|unused| unused.binding)
+        .collect()
 }
 
 pub(crate) fn build_exact_variable_dataflow(

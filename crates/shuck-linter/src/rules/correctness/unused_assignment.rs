@@ -382,6 +382,42 @@ done
     }
 
     #[test]
+    fn reports_last_dead_binding_when_every_conditional_arm_assigns_the_name() {
+        let source = "\
+#!/bin/sh
+if [ \"$ARCH\" = \"arm\" ]; then
+  LIBDIRSUFFIX=\"\"
+elif [ \"$ARCH\" = \"x86_64\" ]; then
+  LIBDIRSUFFIX=\"64\"
+else
+  LIBDIRSUFFIX=\"\"
+fi
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 7);
+        assert_eq!(diagnostics[0].span.slice(source), "LIBDIRSUFFIX");
+    }
+
+    #[test]
+    fn reports_last_dead_binding_when_branch_family_ends_with_empty_clear() {
+        let source = "\
+#!/bin/sh
+if [ \"$ARCH\" = \"arm\" ]; then
+  foo=\"x\"
+else
+  foo=\"\"
+fi
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 5);
+        assert_eq!(diagnostics[0].span.slice(source), "foo");
+    }
+
+    #[test]
     fn unrelated_array_writes_do_not_collapse_to_one_report() {
         let source = "#!/bin/bash\nemoji[grinning]=1\nprintf '%s\\n' \"$OTHER\"\nemoji[smile]=2\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
