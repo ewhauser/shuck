@@ -1371,6 +1371,50 @@ grep 'foo*bar+' data.txt
 }
 
 #[test]
+fn grep_pattern_facts_track_glob_style_star_replacement_spans() {
+    let source = "\
+#!/bin/bash
+grep 'foo\\*bar*' data.txt
+grep item\\* data.txt
+grep start* data.txt
+grep --regexp='start*' data.txt
+";
+    let output = Parser::new(source).parse().unwrap();
+    let indexer = Indexer::new(source, &output);
+    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let file_context = classify_file_context(source, None, ShellDialect::Bash);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+    let grep_patterns = facts
+        .commands()
+        .iter()
+        .filter(|fact| fact.effective_name_is("grep"))
+        .filter_map(|fact| fact.options().grep())
+        .flat_map(|grep| grep.patterns().iter())
+        .map(|pattern| {
+            (
+                pattern.span().slice(source),
+                pattern
+                    .glob_style_star_replacement_spans()
+                    .iter()
+                    .map(|span| span.slice(source))
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        grep_patterns,
+        vec![
+            ("'foo\\*bar*'", vec!["*"]),
+            ("item\\*", vec!["\\*"]),
+            ("start*", vec!["*"]),
+            ("--regexp='start*'", vec!["*"]),
+        ]
+    );
+}
+
+#[test]
 fn attached_short_e_patterns_do_not_accidentally_toggle_only_matching() {
     let source = "\
 #!/bin/bash
@@ -2684,7 +2728,7 @@ z=$(ls layout.*.h | cut -d. -f2 | xargs echo)
         let substitutions = facts
             .commands()
             .iter()
-            .flat_map(|fact| fact.substitution_facts().iter().copied())
+            .flat_map(|fact| fact.substitution_facts().iter().cloned())
             .map(|fact| {
                 (
                     fact.span().slice(source).to_owned(),
@@ -2813,6 +2857,33 @@ z=$(ls layout.*.h | cut -d. -f2 | xargs echo)
 }
 
 #[test]
+fn treats_stderr_capture_before_stdout_redirect_as_captured_substitution_output() {
+    let source = "#!/bin/sh\nchoice=$(printf hi 2>&1 >/dev/tty)\n";
+
+    with_facts(source, None, |_, facts| {
+        let substitution = facts
+            .commands()
+            .iter()
+            .flat_map(|fact| fact.substitution_facts().iter())
+            .find(|fact| fact.span().slice(source) == "$(printf hi 2>&1 >/dev/tty)")
+            .expect("expected substitution fact");
+
+        assert_eq!(
+            substitution.stdout_intent(),
+            SubstitutionOutputIntent::Captured
+        );
+        assert_eq!(
+            substitution
+                .stdout_redirect_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            Vec::<&str>::new()
+        );
+    });
+}
+
+#[test]
 fn builds_docker_ps_substitution_facts_without_pgrep_exemptions() {
     let source = "\
 #!/bin/bash
@@ -2823,7 +2894,7 @@ docker inspect -f '{{ if ne \"true\" (index .Config.Labels \"com.dokku.devcontai
         let substitution = facts
             .commands()
             .iter()
-            .flat_map(|fact| fact.substitution_facts().iter().copied())
+            .flat_map(|fact| fact.substitution_facts().iter())
             .find(|fact| fact.span().slice(source) == "$(docker ps -q)")
             .expect("expected docker ps substitution fact");
 
@@ -2849,7 +2920,7 @@ printf '%s\\n' `date` $(uname) <(cat /etc/hosts)
         let substitutions = facts
             .commands()
             .iter()
-            .flat_map(|fact| fact.substitution_facts().iter().copied())
+            .flat_map(|fact| fact.substitution_facts().iter().cloned())
             .map(|fact| {
                 (
                     fact.span().slice(source).to_owned(),

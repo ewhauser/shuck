@@ -1,0 +1,32 @@
+---
+source: crates/shuck-linter/src/rules/correctness/missing_bracket_space.rs
+assertion_line: 193
+---
+Diagnostics:
+C030 this unary `[` test operator is missing its operand before the closing `]`
+ --> <source>:2:9
+  |
+2 | if [ -d /tmp]; then
+  |
+
+
+Applied fixes: 1
+
+Diff:
+--- before
++++ after
+@@ -1,4 +1,4 @@
+ #!/bin/sh
+-if [ -d /tmp]; then
++if [ -d /tmp ]; then
+   :
+ fi
+
+Fixed source:
+#!/bin/sh
+if [ -d /tmp ]; then
+  :
+fi
+
+Remaining diagnostics:
+<none>

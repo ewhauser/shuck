@@ -13,7 +13,7 @@ conditional=$( [[ -n $value ]] && printf '%s\\n' ok )
         let substitutions = facts
             .commands()
             .iter()
-            .flat_map(|fact| fact.substitution_facts().iter().copied())
+            .flat_map(|fact| fact.substitution_facts().iter().cloned())
             .map(|fact| {
                 (
                     fact.span().slice(source).to_owned(),
@@ -59,7 +59,7 @@ brace_like=$(echo {a,b})
         let substitutions = facts
             .commands()
             .iter()
-            .flat_map(|fact| fact.substitution_facts().iter().copied())
+            .flat_map(|fact| fact.substitution_facts().iter().cloned())
             .map(|fact| {
                 (
                     fact.span().slice(source).to_owned(),
@@ -107,7 +107,7 @@ CANDIDATES+=(\"$(echo \"$line\" | cut -d' ' -f2-)\")
         let substitutions = facts
             .commands()
             .iter()
-            .flat_map(|fact| fact.substitution_facts().iter().copied())
+            .flat_map(|fact| fact.substitution_facts().iter().cloned())
             .filter(|fact| fact.span().slice(source).contains("$(echo"))
             .map(|fact| {
                 (
@@ -149,7 +149,7 @@ legacy=`nvm ls | grep '^ *\\.'`
         let substitutions = facts
             .commands()
             .iter()
-            .flat_map(|fact| fact.substitution_facts().iter().copied())
+            .flat_map(|fact| fact.substitution_facts().iter().cloned())
             .map(|fact| {
                 (
                     fact.span().slice(source).to_owned(),
@@ -201,7 +201,7 @@ printf '%s\\n' $(<input.txt) \"$( < spaced.txt )\" $(0< fd.txt) $(< quiet.txt 2>
         let substitutions = facts
             .commands()
             .iter()
-            .flat_map(|fact| fact.substitution_facts().iter().copied())
+            .flat_map(|fact| fact.substitution_facts().iter().cloned())
             .map(|fact| {
                 (
                     fact.span().slice(source).to_owned(),
@@ -377,6 +377,74 @@ test
             .find(|(text, _)| text == "[ missing")
             .map(|(_, fact)| fact.simple_test());
         assert!(matches!(missing_closer, Some(None)));
+    });
+}
+
+#[test]
+fn simple_test_fact_tracks_escaped_negation_spans_for_fixes() {
+    let source = "\
+#!/bin/sh
+[ \\! -f foo ]
+test \\! -n foo
+[ \\! foo = bar ]
+[ \\! = right ]
+[ ! -f foo ]
+";
+
+    with_facts(source, None, |_, facts| {
+        let commands = facts
+            .structural_commands()
+            .map(|fact| (fact.span().slice(source).trim_end().to_owned(), fact))
+            .collect::<Vec<_>>();
+
+        let bracket_unary = commands
+            .iter()
+            .find(|(text, _)| text == "[ \\! -f foo ]")
+            .and_then(|(_, fact)| fact.simple_test())
+            .and_then(|simple_test| simple_test.escaped_negation_spans(source))
+            .expect("expected escaped negation spans for bracket unary test");
+        assert_eq!(
+            (
+                bracket_unary.0.slice(source).to_owned(),
+                bracket_unary.1.slice(source).to_owned()
+            ),
+            ("-f".to_owned(), "\\".to_owned())
+        );
+
+        let builtin_unary = commands
+            .iter()
+            .find(|(text, _)| text == "test \\! -n foo")
+            .and_then(|(_, fact)| fact.simple_test())
+            .and_then(|simple_test| simple_test.escaped_negation_spans(source))
+            .expect("expected escaped negation spans for test builtin");
+        assert_eq!(
+            (
+                builtin_unary.0.slice(source).to_owned(),
+                builtin_unary.1.slice(source).to_owned()
+            ),
+            ("\\!".to_owned(), "\\".to_owned())
+        );
+
+        let bracket_binary = commands
+            .iter()
+            .find(|(text, _)| text == "[ \\! foo = bar ]")
+            .and_then(|(_, fact)| fact.simple_test())
+            .and_then(|simple_test| simple_test.escaped_negation_spans(source))
+            .expect("expected escaped negation spans for bracket binary test");
+        assert_eq!(
+            (
+                bracket_binary.0.slice(source).to_owned(),
+                bracket_binary.1.slice(source).to_owned()
+            ),
+            ("\\!".to_owned(), "\\".to_owned())
+        );
+
+        let non_operator = commands
+            .iter()
+            .find(|(text, _)| text == "[ \\! = right ]")
+            .and_then(|(_, fact)| fact.simple_test())
+            .and_then(|simple_test| simple_test.escaped_negation_spans(source));
+        assert!(non_operator.is_none());
     });
 }
 
@@ -906,13 +974,72 @@ fn records_glued_closing_bracket_operand_spans_for_unary_tests() {
             Some((2, 6))
         );
         assert_eq!(
+            commands[0]
+                .glued_closing_bracket_insert_offset()
+                .map(|offset| &source[offset..offset + 1]),
+            Some("]")
+        );
+        assert_eq!(
             commands[1]
                 .glued_closing_bracket_operand_span()
                 .map(|span| (span.start.line, span.start.column)),
             Some((3, 8))
         );
+        assert_eq!(
+            commands[1]
+                .glued_closing_bracket_insert_offset()
+                .map(|offset| &source[offset..offset + 1]),
+            Some("]")
+        );
         assert_eq!(commands[2].glued_closing_bracket_operand_span(), None);
+        assert_eq!(commands[2].glued_closing_bracket_insert_offset(), None);
         assert_eq!(commands[3].glued_closing_bracket_operand_span(), None);
+        assert_eq!(commands[3].glued_closing_bracket_insert_offset(), None);
+    });
+}
+
+#[test]
+fn records_linebreak_in_test_fix_sites() {
+    let source = "\
+#!/bin/sh
+if [ \"$x\" = y
+]; then :; fi
+if [ \"$x\" = y \\
+]; then :; fi
+if [ \"$x\" = y ]; then :; fi
+";
+
+    with_facts(source, None, |_, facts| {
+        let commands = facts.structural_commands().collect::<Vec<_>>();
+        let broken = commands
+            .iter()
+            .find(|fact| fact.static_utility_name_is("[") && fact.span().start.line == 2)
+            .expect("expected broken bracket test");
+        let continued = commands
+            .iter()
+            .find(|fact| fact.static_utility_name_is("[") && fact.span().start.line == 4)
+            .expect("expected continued bracket test");
+        let single_line = commands
+            .iter()
+            .find(|fact| fact.static_utility_name_is("[") && fact.span().start.line == 6)
+            .expect("expected single-line bracket test");
+
+        assert_eq!(
+            broken
+                .linebreak_in_test_anchor_span()
+                .map(|span| (span.start.line, span.start.column)),
+            Some((2, 14))
+        );
+        assert_eq!(
+            broken
+                .linebreak_in_test_insert_offset()
+                .map(|offset| &source[offset..offset + 1]),
+            Some("\n")
+        );
+        assert_eq!(continued.linebreak_in_test_anchor_span(), None);
+        assert_eq!(continued.linebreak_in_test_insert_offset(), None);
+        assert_eq!(single_line.linebreak_in_test_anchor_span(), None);
+        assert_eq!(single_line.linebreak_in_test_insert_offset(), None);
     });
 }
 

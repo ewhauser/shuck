@@ -1,5 +1,7 @@
 use super::*;
-use shuck_ast::{HeredocBody, HeredocBodyPart, HeredocBodyPartNode, PatternGroupKind};
+use shuck_ast::{
+    HeredocBody, HeredocBodyPart, HeredocBodyPartNode, PatternGroupKind, PatternPartNode,
+};
 
 #[derive(Debug)]
 pub struct SingleQuotedFragmentFact {
@@ -48,14 +50,44 @@ impl DollarDoubleQuotedFragmentFact {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct OpenDoubleQuoteFragmentFact {
     span: Span,
+    replacement_span: Span,
+    replacement: Box<str>,
 }
 
 impl OpenDoubleQuoteFragmentFact {
     pub fn span(&self) -> Span {
         self.span
+    }
+
+    pub fn replacement_span(&self) -> Span {
+        self.replacement_span
+    }
+
+    pub fn replacement(&self) -> &str {
+        &self.replacement
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CasePatternExpansionFact {
+    span: Span,
+    replacement: Box<str>,
+}
+
+impl CasePatternExpansionFact {
+    pub(super) fn new(span: Span, replacement: Box<str>) -> Self {
+        Self { span, replacement }
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+
+    pub fn replacement(&self) -> &str {
+        &self.replacement
     }
 }
 
@@ -525,12 +557,20 @@ impl<'a> SurfaceFragmentSink<'a> {
     }
 
     fn collect_open_double_quote_fragments(&mut self, word: &Word, command_name: Option<&str>) {
-        for (opening_span, closing_span) in
-            suspect_double_quote_spans(word, self.source, command_name)
-        {
+        let fragments = suspect_double_quote_spans(word, self.source, command_name);
+        if fragments.is_empty() {
+            return;
+        }
+
+        let replacement = rewrite_word_as_single_double_quoted_string(word, self.source);
+        for (opening_span, closing_span) in fragments {
             self.facts
                 .open_double_quotes
-                .push(OpenDoubleQuoteFragmentFact { span: opening_span });
+                .push(OpenDoubleQuoteFragmentFact {
+                    span: opening_span,
+                    replacement_span: word.span,
+                    replacement: replacement.clone(),
+                });
             self.facts
                 .suspect_closing_quotes
                 .push(SuspectClosingQuoteFragmentFact { span: closing_span });
@@ -2098,6 +2138,130 @@ fn suspect_double_quote_spans(
             ))
         })
         .collect()
+}
+
+pub(super) fn rewrite_word_as_single_double_quoted_string(word: &Word, source: &str) -> Box<str> {
+    let mut rendered = String::from("\"");
+    for part in &word.parts {
+        render_word_part_inside_double_quotes(&mut rendered, part, source, false);
+    }
+    rendered.push('"');
+    rendered.into_boxed_str()
+}
+
+pub(super) fn rewrite_pattern_as_single_double_quoted_string(
+    pattern: &Pattern,
+    source: &str,
+) -> Box<str> {
+    let mut rendered = String::from("\"");
+    for part in &pattern.parts {
+        render_pattern_part_inside_double_quotes(&mut rendered, part, source);
+    }
+    rendered.push('"');
+    rendered.into_boxed_str()
+}
+
+fn render_pattern_part_inside_double_quotes(
+    rendered: &mut String,
+    part: &PatternPartNode,
+    source: &str,
+) {
+    match &part.kind {
+        PatternPart::Literal(text) => {
+            push_double_quoted_literal(rendered, text.as_str(source, part.span));
+        }
+        PatternPart::Word(word) => {
+            for word_part in &word.parts {
+                render_word_part_inside_double_quotes(rendered, word_part, source, false);
+            }
+        }
+        PatternPart::AnyString
+        | PatternPart::AnyChar
+        | PatternPart::CharClass(_)
+        | PatternPart::Group { .. } => {
+            let syntax = Pattern {
+                parts: vec![part.clone()],
+                span: part.span,
+            }
+            .render_syntax(source);
+            push_double_quoted_literal(rendered, &syntax);
+        }
+    }
+}
+
+fn render_word_part_inside_double_quotes(
+    rendered: &mut String,
+    part: &WordPartNode,
+    source: &str,
+    source_is_double_quoted: bool,
+) {
+    match &part.kind {
+        WordPart::Literal(text) => {
+            if source_is_double_quoted {
+                push_double_quoted_literal(rendered, text.as_str(source, part.span));
+            } else {
+                push_cooked_unquoted_literal_inside_double_quotes(
+                    rendered,
+                    text.as_str(source, part.span),
+                );
+            }
+        }
+        WordPart::SingleQuoted { value, .. } => {
+            push_double_quoted_literal(rendered, value.slice(source));
+        }
+        WordPart::DoubleQuoted { parts, .. } => {
+            for nested_part in parts {
+                render_word_part_inside_double_quotes(rendered, nested_part, source, true);
+            }
+        }
+        WordPart::Variable(name) => {
+            rendered.push_str("${");
+            rendered.push_str(name.as_ref());
+            rendered.push('}');
+        }
+        _ => rendered.push_str(&word_part_syntax(part, source)),
+    }
+}
+
+fn push_double_quoted_literal(rendered: &mut String, text: &str) {
+    for ch in text.chars() {
+        match ch {
+            '"' | '\\' | '$' | '`' => {
+                rendered.push('\\');
+                rendered.push(ch);
+            }
+            _ => rendered.push(ch),
+        }
+    }
+}
+
+fn push_cooked_unquoted_literal_inside_double_quotes(rendered: &mut String, text: &str) {
+    let mut cooked = String::with_capacity(text.len());
+    let mut chars = text.chars();
+
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            match chars.next() {
+                Some('\n') => {}
+                Some(escaped) => cooked.push(escaped),
+                None => cooked.push('\\'),
+            }
+            continue;
+        }
+
+        cooked.push(ch);
+    }
+
+    push_double_quoted_literal(rendered, &cooked);
+}
+
+fn word_part_syntax(part: &WordPartNode, source: &str) -> String {
+    Word {
+        parts: vec![part.clone()],
+        span: part.span,
+        brace_syntax: Vec::new(),
+    }
+    .render_syntax(source)
 }
 
 pub(super) fn word_has_reopened_double_quote_window(

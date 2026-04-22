@@ -1,14 +1,20 @@
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, Edit, Fix, FixAvailability, Rule, Violation};
 
 pub struct SingleQuotedLiteral;
 
 impl Violation for SingleQuotedLiteral {
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Sometimes;
+
     fn rule() -> Rule {
         Rule::SingleQuotedLiteral
     }
 
     fn message(&self) -> String {
         "shell expansion inside single quotes stays literal".to_owned()
+    }
+
+    fn fix_title(&self) -> Option<String> {
+        Some("rewrite the fragment with double quotes".to_owned())
     }
 }
 
@@ -21,7 +27,7 @@ struct ScanContext<'a> {
 
 pub fn single_quoted_literal(checker: &mut Checker) {
     let source = checker.source();
-    let spans = checker
+    let diagnostics = checker
         .facts()
         .single_quoted_fragments()
         .iter()
@@ -32,14 +38,57 @@ pub fn single_quoted_literal(checker: &mut Checker) {
                 variable_set_operand: fragment.variable_set_operand(),
             };
 
-            should_report_single_quoted_literal(fragment.span().slice(source), context)
-                .then(|| fragment.span())
+            should_report_single_quoted_literal(fragment.span().slice(source), context).then(|| {
+                let diagnostic = crate::Diagnostic::new(SingleQuotedLiteral, fragment.span());
+                match single_quoted_literal_fix(
+                    fragment.span(),
+                    fragment.span().slice(source),
+                    fragment.dollar_quoted(),
+                ) {
+                    Some(fix) => diagnostic.with_fix(fix),
+                    None => diagnostic,
+                }
+            })
         })
         .collect::<Vec<_>>();
 
-    for span in spans {
-        checker.report_dedup(SingleQuotedLiteral, span);
+    for diagnostic in diagnostics {
+        checker.report_diagnostic_dedup(diagnostic);
     }
+}
+
+fn single_quoted_literal_fix(
+    span: shuck_ast::Span,
+    text: &str,
+    dollar_quoted: bool,
+) -> Option<Fix> {
+    if dollar_quoted {
+        return None;
+    }
+
+    quoted_fragment_to_double_quotes(text)
+        .map(|replacement| Fix::unsafe_edit(Edit::replacement(replacement, span)))
+}
+
+fn quoted_fragment_to_double_quotes(text: &str) -> Option<String> {
+    if !(text.starts_with('\'') && text.ends_with('\'')) {
+        return None;
+    }
+
+    let body = &text[1..text.len() - 1];
+    let mut replacement = String::with_capacity(body.len() + 2);
+    replacement.push('"');
+    for ch in body.chars() {
+        match ch {
+            '"' | '\\' => {
+                replacement.push('\\');
+                replacement.push(ch);
+            }
+            _ => replacement.push(ch),
+        }
+    }
+    replacement.push('"');
+    Some(replacement)
 }
 
 fn should_report_single_quoted_literal(text: &str, context: ScanContext<'_>) -> bool {
@@ -150,12 +199,14 @@ fn command_name_is_exempt(command_name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::{
         assignment_target_is_exempt, command_name_is_exempt, contains_sc2016_trigger,
-        sed_text_is_exempt,
+        quoted_fragment_to_double_quotes, sed_text_is_exempt,
     };
-    use crate::test::test_snippet;
-    use crate::{Diagnostic, LinterSettings, Rule};
+    use crate::test::{test_path_with_fix, test_snippet, test_snippet_with_fix};
+    use crate::{Applicability, Diagnostic, LinterSettings, Rule, assert_diagnostics_diff};
 
     fn c005(source: &str) -> usize {
         c005_diagnostics(source).len()
@@ -163,6 +214,19 @@ mod tests {
 
     fn c005_diagnostics(source: &str) -> Vec<Diagnostic> {
         test_snippet(source, &LinterSettings::for_rule(Rule::SingleQuotedLiteral))
+    }
+
+    #[test]
+    fn rewrites_plain_single_quoted_fragments_as_double_quoted_fragments() {
+        assert_eq!(
+            quoted_fragment_to_double_quotes("'$HOME'"),
+            Some("\"$HOME\"".to_owned())
+        );
+        assert_eq!(
+            quoted_fragment_to_double_quotes("'\"$HOME\" and \\\\path'"),
+            Some("\"\\\"$HOME\\\" and \\\\\\\\path\"".to_owned())
+        );
+        assert_eq!(quoted_fragment_to_double_quotes("$'$HOME'"), None);
     }
 
     #[test]
@@ -258,7 +322,7 @@ mod tests {
     }
 
     #[test]
-    fn diagnostic_span_covers_the_full_single_quoted_region() {
+    fn diagnostic_span_covers_the_full_single_quoted_region_and_attaches_fix_metadata() {
         let diagnostics = c005_diagnostics("echo '$HOME'\n");
 
         assert_eq!(diagnostics.len(), 1);
@@ -266,6 +330,14 @@ mod tests {
         assert_eq!(diagnostics[0].span.start.column, 6);
         assert_eq!(diagnostics[0].span.end.line, 1);
         assert_eq!(diagnostics[0].span.end.column, 13);
+        assert_eq!(
+            diagnostics[0].fix.as_ref().map(|fix| fix.applicability()),
+            Some(Applicability::Unsafe)
+        );
+        assert_eq!(
+            diagnostics[0].fix_title.as_deref(),
+            Some("rewrite the fragment with double quotes")
+        );
     }
 
     #[test]
@@ -298,6 +370,53 @@ mod tests {
     #[test]
     fn reports_single_quoted_literals_inside_keyed_array_subscripts() {
         assert_eq!(c005("declare -A map=(['$HOME']=1)\n"), 1);
+    }
+
+    #[test]
+    fn applies_unsafe_fix_to_reported_single_quoted_fragments() {
+        let source = "\
+#!/bin/sh
+echo '$HOME'
+printf '%s\\n' '${value:-fallback}'
+msg='$(pwd)'
+echo '`pwd`'
+echo '\"$HOME\" and \\\\path'
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::SingleQuotedLiteral),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 5);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/sh
+echo \"$HOME\"
+printf '%s\\n' \"${value:-fallback}\"
+msg=\"$(pwd)\"
+echo \"`pwd`\"
+echo \"\\\"$HOME\\\" and \\\\\\\\path\"
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn leaves_ansi_c_single_quoted_fragments_unchanged_when_fixing() {
+        let source = "echo $'$HOME'\n";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::SingleQuotedLiteral),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.diagnostics.len(), 1);
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+        assert_eq!(result.fixed_diagnostics.len(), 1);
+        assert_eq!(result.fixed_diagnostics[0].span.slice(source), "$'$HOME'");
     }
 
     #[test]
@@ -344,5 +463,17 @@ mod tests {
     #[test]
     fn ignores_single_quoted_sequences_inside_quoted_heredoc_bodies() {
         assert_eq!(c005("cat <<'EOF'\n'$HOME'\nEOF\n"), 0);
+    }
+
+    #[test]
+    fn snapshots_unsafe_fix_output_for_fixture() -> anyhow::Result<()> {
+        let result = test_path_with_fix(
+            Path::new("correctness").join("C005.sh").as_path(),
+            &LinterSettings::for_rule(Rule::SingleQuotedLiteral),
+            Applicability::Unsafe,
+        )?;
+
+        assert_diagnostics_diff!("C005_fix_C005.sh", result);
+        Ok(())
     }
 }

@@ -1,0 +1,70 @@
+---
+source: crates/shuck-linter/src/rules/correctness/escaped_negation_in_test.rs
+assertion_line: 145
+---
+Diagnostics:
+C082 write ! directly when negating a test
+ --> <source>:4:6
+  |
+4 | [ \! -f "$file" ]
+  |
+
+C082 write ! directly when negating a test
+ --> <source>:7:6
+  |
+7 | test \! -n "$value"
+  |
+
+C082 write ! directly when negating a test
+  --> <source>:10:3
+   |
+10 | [ \! "$value" = ok ]
+   |
+
+
+Applied fixes: 3
+
+Diff:
+--- before
++++ after
+@@ -1,13 +1,13 @@
+ #!/bin/bash
+ 
+ # Invalid: bracket tests should not escape the negation token.
+-[ \! -f "$file" ]
++[ ! -f "$file" ]
+ 
+ # Invalid: the `test` builtin takes plain `!` too.
+-test \! -n "$value"
++test ! -n "$value"
+ 
+ # Invalid: escaped negation still looks wrong in longer test expressions.
+-[ \! "$value" = ok ]
++[ ! "$value" = ok ]
+ 
+ # Valid: plain negation is the intended spelling.
+ [ ! -f "$file" ]
+
+Fixed source:
+#!/bin/bash
+
+# Invalid: bracket tests should not escape the negation token.
+[ ! -f "$file" ]
+
+# Invalid: the `test` builtin takes plain `!` too.
+test ! -n "$value"
+
+# Invalid: escaped negation still looks wrong in longer test expressions.
+[ ! "$value" = ok ]
+
+# Valid: plain negation is the intended spelling.
+[ ! -f "$file" ]
+test ! -n "$value"
+
+# Valid: a literal bang used as data should not trigger.
+test !
+[ "$value" = \! ]
+[[ \! -f "$file" ]]
+
+Remaining diagnostics:
+<none>

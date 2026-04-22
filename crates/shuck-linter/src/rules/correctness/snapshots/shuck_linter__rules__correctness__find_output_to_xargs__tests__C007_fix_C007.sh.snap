@@ -1,0 +1,79 @@
+---
+source: crates/shuck-linter/src/rules/correctness/find_output_to_xargs.rs
+---
+Diagnostics:
+C007 raw `find` output piped to `xargs` can break on whitespace
+ --> <source>:4:1
+  |
+4 | find . -name '*.txt' | xargs rm
+  |
+
+C007 raw `find` output piped to `xargs` can break on whitespace
+ --> <source>:7:1
+  |
+7 | find . -type f | xargs -0 wc -l
+  |
+
+C007 raw `find` output piped to `xargs` can break on whitespace
+  --> <source>:10:1
+   |
+10 | find "$pkg" -print0 | xargs rm
+   |
+
+C007 raw `find` output piped to `xargs` can break on whitespace
+  --> <source>:13:11
+   |
+13 | summary=$(find . -type f | xargs wc -l)
+   |
+
+
+Applied fixes: 4
+
+Diff:
+--- before
++++ after
+@@ -1,16 +1,16 @@
+ #!/bin/sh
+ 
+ # Invalid: raw find output is split on whitespace by xargs
+-find . -name '*.txt' | xargs rm
++find . -name '*.txt' -print0 | xargs -0 rm
+ 
+ # Invalid: only enabling -0 on xargs is not enough
+-find . -type f | xargs -0 wc -l
++find . -type f -print0 | xargs -0 wc -l
+ 
+ # Invalid: only enabling -print0 on find is not enough
+-find "$pkg" -print0 | xargs rm
++find "$pkg" -print0 | xargs -0 rm
+ 
+ # Invalid: nested command substitutions should still be checked
+-summary=$(find . -type f | xargs wc -l)
++summary=$(find . -type f -print0 | xargs -0 wc -l)
+ 
+ # Valid: null-delimited handoff is safe
+ find . -name '*.txt' -print0 | xargs -0 rm
+
+Fixed source:
+#!/bin/sh
+
+# Invalid: raw find output is split on whitespace by xargs
+find . -name '*.txt' -print0 | xargs -0 rm
+
+# Invalid: only enabling -0 on xargs is not enough
+find . -type f -print0 | xargs -0 wc -l
+
+# Invalid: only enabling -print0 on find is not enough
+find "$pkg" -print0 | xargs -0 rm
+
+# Invalid: nested command substitutions should still be checked
+summary=$(find . -type f -print0 | xargs -0 wc -l)
+
+# Valid: null-delimited handoff is safe
+find . -name '*.txt' -print0 | xargs -0 rm
+
+# Valid: non-find pipelines are outside this rule
+printf '%s\n' ./a ./b | xargs rm
+
+Remaining diagnostics:
+<none>

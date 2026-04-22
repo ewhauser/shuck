@@ -1,0 +1,36 @@
+---
+source: crates/shuck-linter/src/rules/correctness/shebang_not_on_first_line.rs
+assertion_line: 193
+---
+Diagnostics:
+C075 move the shebang to the first line of the file
+ --> <source>:2:1
+  |
+2 | #!/bin/sh
+  |
+
+
+Applied fixes: 1
+
+Diff:
+--- before
++++ after
+@@ -1,5 +1,5 @@
++#!/bin/sh
+ 
+-#!/bin/sh
+ :
+ 
+ # should not trigger: shebang belongs on the first line, not later lines
+
+Fixed source:
+#!/bin/sh
+
+:
+
+# should not trigger: shebang belongs on the first line, not later lines
+echo ok
+#!/bin/sh
+
+Remaining diagnostics:
+<none>

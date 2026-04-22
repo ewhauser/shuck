@@ -118,6 +118,22 @@ if [[ \"$@\" =~ x ]]; then :; fi
         );
         assert_eq!(
             facts
+                .open_double_quote_fragments()
+                .iter()
+                .map(|fragment| fragment.replacement_span().slice(source))
+                .collect::<Vec<_>>(),
+            vec!["\"#!/bin/bash\nif [[ \"$@\" =~ x ]]; then :; fi\n\""]
+        );
+        assert_eq!(
+            facts
+                .open_double_quote_fragments()
+                .iter()
+                .map(|fragment| fragment.replacement().to_owned())
+                .collect::<Vec<_>>(),
+            vec!["\"#!/bin/bash\nif [[ ${@} =~ x ]]; then :; fi\n\"".to_owned()]
+        );
+        assert_eq!(
+            facts
                 .suspect_closing_quote_fragments()
                 .iter()
                 .map(|fragment| fragment.span().slice(source))
@@ -527,6 +543,10 @@ say \"configure\" now
 
         assert_eq!(open, vec![(2, 6)]);
         assert_eq!(close, vec![(3, 5)]);
+        assert_eq!(
+            facts.open_double_quote_fragments()[0].replacement(),
+            "\"help text\nsay configure now\n\""
+        );
     });
 }
 
@@ -1013,11 +1033,16 @@ esac
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
-                .case_pattern_expansion_spans()
+                .case_pattern_expansions()
                 .iter()
-                .map(|span| span.slice(source))
+                .map(|fact| (fact.span().slice(source), fact.replacement().to_owned()))
                 .collect::<Vec<_>>(),
-            vec!["$pat", "x$pat", "$(printf '%s' foo)", "\"$left\"$right"]
+            vec![
+                ("$pat", "\"${pat}\"".to_owned()),
+                ("x$pat", "\"x${pat}\"".to_owned()),
+                ("$(printf '%s' foo)", "\"$(printf '%s' foo)\"".to_owned()),
+                ("\"$left\"$right", "\"${left}${right}\"".to_owned()),
+            ]
         );
     });
 }
@@ -1039,7 +1064,7 @@ esac
 ";
 
     with_facts(source, None, |_, facts| {
-        assert!(facts.case_pattern_expansion_spans().is_empty());
+        assert!(facts.case_pattern_expansions().is_empty());
     });
 }
 

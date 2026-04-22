@@ -38,7 +38,7 @@ pub struct LinterFacts<'a> {
     case_items: Vec<CaseItemFact<'a>>,
     case_pattern_shadows: Vec<CasePatternShadowFact>,
     case_pattern_impossible_spans: Vec<Span>,
-    case_pattern_expansion_spans: Vec<Span>,
+    case_pattern_expansions: Vec<CasePatternExpansionFact>,
     getopts_cases: Vec<GetoptsCaseFact>,
     pipelines: Vec<PipelineFact<'a>>,
     lists: Vec<ListFact<'a>>,
@@ -47,8 +47,12 @@ pub struct LinterFacts<'a> {
     single_test_subshell_spans: Vec<Span>,
     subshell_test_group_spans: Vec<Span>,
     indented_shebang_span: Option<Span>,
+    indented_shebang_indent_span: Option<Span>,
     space_after_hash_bang_span: Option<Span>,
+    space_after_hash_bang_whitespace_span: Option<Span>,
     shebang_not_on_first_line_span: Option<Span>,
+    shebang_not_on_first_line_fix_span: Option<Span>,
+    shebang_not_on_first_line_preferred_newline: Option<&'static str>,
     missing_shebang_line_span: Option<Span>,
     duplicate_shebang_flag_span: Option<Span>,
     non_absolute_shebang_span: Option<Span>,
@@ -177,7 +181,8 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn innermost_command_at(&self, offset: usize) -> Option<&CommandFact<'a>> {
-        self.innermost_command_id_at(offset).map(|id| self.command(id))
+        self.innermost_command_id_at(offset)
+            .map(|id| self.command(id))
     }
 
     pub fn innermost_command_id_at(&self, offset: usize) -> Option<CommandId> {
@@ -189,7 +194,8 @@ impl<'a> LinterFacts<'a> {
     }
 
     pub fn command_parent(&self, id: CommandId) -> Option<&CommandFact<'a>> {
-        self.command_parent_id(id).map(|parent_id| self.command(parent_id))
+        self.command_parent_id(id)
+            .map(|parent_id| self.command(parent_id))
     }
 
     pub fn command_is_dominance_barrier(&self, id: CommandId) -> bool {
@@ -287,10 +293,7 @@ impl<'a> LinterFacts<'a> {
             .contains(&fact.key())
     }
 
-    pub fn expansion_word_facts(
-        &self,
-        context: ExpansionContext,
-    ) -> WordOccurrenceIter<'_, 'a> {
+    pub fn expansion_word_facts(&self, context: ExpansionContext) -> WordOccurrenceIter<'_, 'a> {
         WordOccurrenceIter {
             inner: Box::new(
                 self.word_facts()
@@ -338,9 +341,7 @@ impl<'a> LinterFacts<'a> {
             })
     }
 
-    pub fn array_assignment_split_word_facts(
-        &self,
-    ) -> WordOccurrenceIter<'_, 'a> {
+    pub fn array_assignment_split_word_facts(&self) -> WordOccurrenceIter<'_, 'a> {
         WordOccurrenceIter {
             inner: Box::new(
                 self.array_assignment_split_word_ids
@@ -359,10 +360,7 @@ impl<'a> LinterFacts<'a> {
         &self.word_occurrences[id.index()]
     }
 
-    fn word_occurrence_ids_for_command(
-        &self,
-        id: CommandId,
-    ) -> &[WordOccurrenceId] {
+    fn word_occurrence_ids_for_command(&self, id: CommandId) -> &[WordOccurrenceId] {
         self.word_occurrence_ids_by_command
             .get(id.index())
             .map_or(&[], SmallVec::as_slice)
@@ -458,8 +456,8 @@ impl<'a> LinterFacts<'a> {
         &self.case_pattern_impossible_spans
     }
 
-    pub fn case_pattern_expansion_spans(&self) -> &[Span] {
-        &self.case_pattern_expansion_spans
+    pub fn case_pattern_expansions(&self) -> &[CasePatternExpansionFact] {
+        &self.case_pattern_expansions
     }
 
     pub fn getopts_cases(&self) -> &[GetoptsCaseFact] {
@@ -494,12 +492,28 @@ impl<'a> LinterFacts<'a> {
         self.indented_shebang_span
     }
 
+    pub fn indented_shebang_indent_span(&self) -> Option<Span> {
+        self.indented_shebang_indent_span
+    }
+
     pub fn space_after_hash_bang_span(&self) -> Option<Span> {
         self.space_after_hash_bang_span
     }
 
+    pub fn space_after_hash_bang_whitespace_span(&self) -> Option<Span> {
+        self.space_after_hash_bang_whitespace_span
+    }
+
     pub fn shebang_not_on_first_line_span(&self) -> Option<Span> {
         self.shebang_not_on_first_line_span
+    }
+
+    pub fn shebang_not_on_first_line_fix_span(&self) -> Option<Span> {
+        self.shebang_not_on_first_line_fix_span
+    }
+
+    pub fn shebang_not_on_first_line_preferred_newline(&self) -> Option<&'static str> {
+        self.shebang_not_on_first_line_preferred_newline
     }
 
     pub fn missing_shebang_line_span(&self) -> Option<Span> {

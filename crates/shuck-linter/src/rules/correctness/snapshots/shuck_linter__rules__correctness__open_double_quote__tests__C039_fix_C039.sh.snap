@@ -1,0 +1,36 @@
+---
+source: crates/shuck-linter/src/rules/correctness/open_double_quote.rs
+---
+Diagnostics:
+C039 double-quoted string looks unterminated
+ --> <source>:2:6
+  |
+2 | echo "#!/bin/bash
+  |
+
+
+Applied fixes: 1
+
+Diff:
+--- before
++++ after
+@@ -1,6 +1,6 @@
+ #!/bin/bash
+ echo "#!/bin/bash
+-if [[ "$@" =~ x ]]; then :; fi
++if [[ ${@} =~ x ]]; then :; fi
+ "
+ 
+ echo "line one
+
+Fixed source:
+#!/bin/bash
+echo "#!/bin/bash
+if [[ ${@} =~ x ]]; then :; fi
+"
+
+echo "line one
+line two"
+
+Remaining diagnostics:
+<none>

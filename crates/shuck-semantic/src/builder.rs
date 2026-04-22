@@ -954,7 +954,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 parent_scope,
                 span,
                 BindingOrigin::FunctionDefinition {
-                    definition_span: span,
+                    definition_span: function.span,
                 },
                 BindingAttributes::empty(),
             );

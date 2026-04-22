@@ -1,0 +1,38 @@
+---
+source: crates/shuck-linter/src/rules/correctness/c_style_comment.rs
+---
+Diagnostics:
+C041 C-style comment syntax is not valid shell syntax
+ --> <source>:2:1
+  |
+2 | /* note */
+  |
+
+C041 C-style comment syntax is not valid shell syntax
+ --> <source>:3:1
+  |
+3 | /*compact*/
+  |
+
+
+Applied fixes: 2
+
+Diff:
+--- before
++++ after
+@@ -1,4 +1,4 @@
+ #!/bin/sh
+-/* note */
+-/*compact*/
++# /* note */
++# /*compact*/
+ echo '/* note */'
+
+Fixed source:
+#!/bin/sh
+# /* note */
+# /*compact*/
+echo '/* note */'
+
+Remaining diagnostics:
+<none>

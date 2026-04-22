@@ -1,0 +1,79 @@
+---
+source: crates/shuck-linter/src/rules/correctness/unquoted_globs_in_find.rs
+assertion_line: 363
+---
+Diagnostics:
+C078 patterns in `find -exec` arguments expand before `find` runs
+ --> <source>:2:19
+  |
+2 | find . -exec echo *.txt {} +
+  |
+
+C078 patterns in `find -exec` arguments expand before `find` runs
+ --> <source>:3:22
+  |
+3 | find . -exec echo foo[ab]bar {} +
+  |
+
+C078 patterns in `find -exec` arguments expand before `find` runs
+ --> <source>:4:19
+  |
+4 | find . -exec echo $(basename "$dir") {} +
+  |
+
+C078 patterns in `find -exec` arguments expand before `find` runs
+ --> <source>:5:19
+  |
+5 | find . -exec echo $(basename "$dir")* {} +
+  |
+
+C078 patterns in `find -exec` arguments expand before `find` runs
+ --> <source>:5:37
+  |
+5 | find . -exec echo $(basename "$dir")* {} +
+  |
+
+C078 patterns in `find -exec` arguments expand before `find` runs
+ --> <source>:6:31
+  |
+6 | find . -execdir echo "$prefix"*.tmp {} \;
+  |
+
+
+Applied fixes: 5
+
+Diff:
+--- before
++++ after
+@@ -1,9 +1,9 @@
+ #!/bin/bash
+-find . -exec echo *.txt {} +
+-find . -exec echo foo[ab]bar {} +
+-find . -exec echo $(basename "$dir") {} +
+-find . -exec echo $(basename "$dir")* {} +
+-find . -execdir echo "$prefix"*.tmp {} \;
++find . -exec echo "*.txt" {} +
++find . -exec echo "foo[ab]bar" {} +
++find . -exec echo "$(basename "$dir")" {} +
++find . -exec echo "$(basename "$dir")*" {} +
++find . -execdir echo "${prefix}*.tmp" {} \;
+ 
+ find . -exec echo "$file" {} +
+ find . -exec echo "*.txt" {} +
+
+Fixed source:
+#!/bin/bash
+find . -exec echo "*.txt" {} +
+find . -exec echo "foo[ab]bar" {} +
+find . -exec echo "$(basename "$dir")" {} +
+find . -exec echo "$(basename "$dir")*" {} +
+find . -execdir echo "${prefix}*.tmp" {} \;
+
+find . -exec echo "$file" {} +
+find . -exec echo "*.txt" {} +
+find . -exec echo "$(basename "$dir")" {} +
+find . -name *.txt -print
+printf '*.txt'
+
+Remaining diagnostics:
+<none>

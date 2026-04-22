@@ -61,7 +61,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut array_assignment_split_word_ids = Vec::new();
         let mut assoc_binding_visibility_memo = FxHashMap::default();
         let mut pattern_exactly_one_extglob_spans = Vec::new();
-        let mut case_pattern_expansion_spans = Vec::new();
+        let mut case_pattern_expansions = Vec::new();
         let mut pattern_literal_spans = Vec::new();
         let mut pattern_charclass_spans = Vec::new();
         let mut arithmetic_summary = ArithmeticFactSummary::default();
@@ -144,7 +144,7 @@ impl<'a> LinterFactsBuilder<'a> {
                     compound_assignment_value_word_spans: &mut compound_assignment_value_word_spans,
                     array_assignment_split_word_ids: &mut array_assignment_split_word_ids,
                     assoc_binding_visibility_memo: &mut assoc_binding_visibility_memo,
-                    case_pattern_expansion_spans: &mut case_pattern_expansion_spans,
+                    case_pattern_expansions: &mut case_pattern_expansions,
                     pattern_literal_spans: &mut pattern_literal_spans,
                     arithmetic: &mut arithmetic_summary,
                     surface: &mut surface_fragments,
@@ -161,6 +161,8 @@ impl<'a> LinterFactsBuilder<'a> {
             );
             let glued_closing_bracket_operand_span =
                 build_glued_closing_bracket_operand_span(visit.command, self.source);
+            let glued_closing_bracket_insert_offset =
+                build_glued_closing_bracket_insert_offset(visit.command, self.source);
             let simple_test =
                 build_simple_test_fact(visit.command, self.source, self._file_context);
             let conditional = build_conditional_fact(visit.command, self.source);
@@ -177,6 +179,9 @@ impl<'a> LinterFactsBuilder<'a> {
                 scope_read_source_words: Vec::new().into_boxed_slice(),
                 declaration_assignment_probes,
                 glued_closing_bracket_operand_span,
+                glued_closing_bracket_insert_offset,
+                linebreak_in_test_anchor_span: None,
+                linebreak_in_test_insert_offset: None,
                 simple_test,
                 conditional,
             });
@@ -316,7 +321,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 binding_target_spans.entry(binding.id).or_insert(*target_span);
             }
         }
-
+        populate_linebreak_in_test_facts(&mut commands, self.source);
         let substitution_facts =
             build_substitution_facts(&commands, &command_ids_by_span, self.source);
         for (fact, substitutions) in commands.iter_mut().zip(substitution_facts) {
@@ -328,7 +333,7 @@ impl<'a> LinterFactsBuilder<'a> {
             build_function_header_facts(self.semantic, &functions, &commands, self.source);
         sort_and_dedup_spans(&mut condition_status_capture_spans);
         sort_and_dedup_spans(&mut condition_command_substitution_spans);
-        sort_and_dedup_spans(&mut case_pattern_expansion_spans);
+        sort_and_dedup_case_pattern_expansions(&mut case_pattern_expansions);
         let function_in_alias_spans = build_function_in_alias_spans(&commands, self.source);
         let function_parameter_fallback_spans = build_function_parameter_fallback_spans(
             &commands,
@@ -486,30 +491,27 @@ impl<'a> LinterFactsBuilder<'a> {
         );
         let assignment_like_command_name_spans =
             build_assignment_like_command_name_spans(&commands, self.source);
-        let bare_command_name_assignment_spans =
-            build_bare_command_name_assignment_spans(
-                &commands,
-                &word_nodes,
-                &word_occurrences,
-                &word_index,
-                source,
-            );
-        let unquoted_command_argument_use_offsets =
-            build_unquoted_command_argument_use_offsets(
-                self.semantic,
-                &word_nodes,
-                &word_occurrences,
-            );
+        let bare_command_name_assignment_spans = build_bare_command_name_assignment_spans(
+            &commands,
+            &word_nodes,
+            &word_occurrences,
+            &word_index,
+            source,
+        );
+        let unquoted_command_argument_use_offsets = build_unquoted_command_argument_use_offsets(
+            self.semantic,
+            &word_nodes,
+            &word_occurrences,
+        );
         let brace_variable_before_bracket_spans =
             build_brace_variable_before_bracket_spans(&word_nodes, &word_occurrences, source);
-        let alias_definition_expansion_spans =
-            build_alias_definition_expansion_spans(
-                &commands,
-                &word_nodes,
-                &word_occurrences,
-                &word_index,
-                source,
-            );
+        let alias_definition_expansion_spans = build_alias_definition_expansion_spans(
+            &commands,
+            &word_nodes,
+            &word_occurrences,
+            &word_index,
+            source,
+        );
         let innermost_command_ids_by_offset = build_innermost_command_ids_by_offset(
             &commands,
             commands
@@ -518,8 +520,7 @@ impl<'a> LinterFactsBuilder<'a> {
                 .collect(),
         );
         let command_parent_ids = build_command_parent_ids(&commands);
-        let command_dominance_barrier_flags =
-            build_command_dominance_barrier_flags(&commands);
+        let command_dominance_barrier_flags = build_command_dominance_barrier_flags(&commands);
 
         LinterFacts {
             source,
@@ -560,7 +561,7 @@ impl<'a> LinterFactsBuilder<'a> {
             case_items,
             case_pattern_shadows,
             case_pattern_impossible_spans,
-            case_pattern_expansion_spans,
+            case_pattern_expansions,
             getopts_cases,
             pipelines,
             lists,
@@ -569,8 +570,15 @@ impl<'a> LinterFactsBuilder<'a> {
             single_test_subshell_spans,
             subshell_test_group_spans,
             indented_shebang_span: shebang_header_facts.indented_shebang_span,
+            indented_shebang_indent_span: shebang_header_facts.indented_shebang_indent_span,
             space_after_hash_bang_span: shebang_header_facts.space_after_hash_bang_span,
+            space_after_hash_bang_whitespace_span: shebang_header_facts
+                .space_after_hash_bang_whitespace_span,
             shebang_not_on_first_line_span: shebang_header_facts.shebang_not_on_first_line_span,
+            shebang_not_on_first_line_fix_span: shebang_header_facts
+                .shebang_not_on_first_line_fix_span,
+            shebang_not_on_first_line_preferred_newline: shebang_header_facts
+                .shebang_not_on_first_line_preferred_newline,
             missing_shebang_line_span: shebang_header_facts.missing_shebang_line_span,
             duplicate_shebang_flag_span: shebang_header_facts.duplicate_shebang_flag_span,
             non_absolute_shebang_span: shebang_header_facts.non_absolute_shebang_span,
@@ -630,5 +638,104 @@ impl<'a> LinterFactsBuilder<'a> {
             star_glob_removal_fragments: star_glob_removals,
             conditional_portability,
         }
+    }
+}
+
+fn populate_linebreak_in_test_facts(commands: &mut [CommandFact<'_>], source: &str) {
+    for index in 0..commands.len().saturating_sub(1) {
+        let (current_slice, next_slice) = commands.split_at_mut(index + 1);
+        let current = &mut current_slice[index];
+        let next = &next_slice[0];
+        let Some((anchor_span, insert_offset)) =
+            build_linebreak_in_test_site(current, next, source)
+        else {
+            continue;
+        };
+
+        current.linebreak_in_test_anchor_span = Some(anchor_span);
+        current.linebreak_in_test_insert_offset = Some(insert_offset);
+    }
+}
+
+fn build_linebreak_in_test_site(
+    current: &CommandFact<'_>,
+    next: &CommandFact<'_>,
+    source: &str,
+) -> Option<(Span, usize)> {
+    if !current.static_utility_name_is("[")
+        || !next.static_utility_name_is("]")
+        || !next.body_args().is_empty()
+    {
+        return None;
+    }
+
+    let last_arg_is_closing_bracket = current
+        .body_args()
+        .last()
+        .and_then(|word| static_word_text(word, source))
+        .as_deref()
+        == Some("]");
+    let current_span = current.span();
+    if last_arg_is_closing_bracket {
+        return None;
+    }
+    let insert_offset = linebreak_in_test_insert_offset(current_span, source)?;
+
+    let between = source.get(current_span.end.offset..next.span().start.offset)?;
+    if !between.chars().all(|char| matches!(char, ' ' | '\t')) {
+        return None;
+    }
+
+    let anchor_span = current
+        .body_args()
+        .last()
+        .map(|word| word.span)
+        .or_else(|| current.body_name_word().map(|word| word.span))
+        .map(|span| Span::from_positions(span.end, span.end))
+        .unwrap_or_else(|| Span::from_positions(current_span.end, current_span.end));
+    Some((anchor_span, insert_offset))
+}
+
+fn linebreak_in_test_insert_offset(span: Span, source: &str) -> Option<usize> {
+    let text = span.slice(source);
+    if text.ends_with("\r\n") {
+        Some(span.end.offset - 2)
+    } else if text.ends_with('\n') {
+        Some(span.end.offset - 1)
+    } else {
+        None
+    }
+}
+
+fn sort_and_dedup_case_pattern_expansions(expansions: &mut Vec<CasePatternExpansionFact>) {
+    let mut seen = FxHashSet::default();
+    expansions.retain(|fact| seen.insert(FactSpan::new(fact.span())));
+    expansions.sort_by_key(|fact| (fact.span().start.offset, fact.span().end.offset));
+}
+
+#[cfg(test)]
+mod builder_tests {
+    use shuck_ast::{Position, Span};
+
+    use super::linebreak_in_test_insert_offset;
+
+    #[test]
+    fn linebreak_in_test_insert_offset_targets_lf_newlines() {
+        let source = "if [ \"$x\" = y\n";
+        let span = Span::from_positions(Position::new(), Position::new().advanced_by(source));
+        let insert_offset =
+            linebreak_in_test_insert_offset(span, source).expect("expected LF insert offset");
+
+        assert_eq!(&source[insert_offset..], "\n");
+    }
+
+    #[test]
+    fn linebreak_in_test_insert_offset_targets_crlf_newlines() {
+        let source = "if [ \"$x\" = y\r\n";
+        let span = Span::from_positions(Position::new(), Position::new().advanced_by(source));
+        let insert_offset =
+            linebreak_in_test_insert_offset(span, source).expect("expected CRLF insert offset");
+
+        assert_eq!(&source[insert_offset..], "\r\n");
     }
 }

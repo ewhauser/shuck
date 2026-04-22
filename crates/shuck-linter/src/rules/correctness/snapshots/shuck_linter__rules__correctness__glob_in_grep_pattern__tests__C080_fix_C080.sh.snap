@@ -1,0 +1,57 @@
+---
+source: crates/shuck-linter/src/rules/correctness/glob_in_grep_pattern.rs
+assertion_line: 210
+---
+Diagnostics:
+C080 use regex-style wildcards in grep patterns, not glob-style `*`
+ --> <source>:2:6
+  |
+2 | grep start* out.txt
+  |
+
+C080 use regex-style wildcards in grep patterns, not glob-style `*`
+ --> <source>:3:6
+  |
+3 | grep 'foo\*bar*' out.txt
+  |
+
+C080 use regex-style wildcards in grep patterns, not glob-style `*`
+ --> <source>:4:6
+  |
+4 | grep item\* out.txt
+  |
+
+C080 use regex-style wildcards in grep patterns, not glob-style `*`
+ --> <source>:5:6
+  |
+5 | grep --regexp='start*' out.txt
+  |
+
+
+Applied fixes: 4
+
+Diff:
+--- before
++++ after
+@@ -1,6 +1,6 @@
+ #!/bin/sh
+-grep start* out.txt
+-grep 'foo\*bar*' out.txt
+-grep item\* out.txt
+-grep --regexp='start*' out.txt
++grep start.* out.txt
++grep 'foo\*bar.*' out.txt
++grep item.* out.txt
++grep --regexp='start.*' out.txt
+ grep --fixed-strings foo*bar out.txt
+
+Fixed source:
+#!/bin/sh
+grep start.* out.txt
+grep 'foo\*bar.*' out.txt
+grep item.* out.txt
+grep --regexp='start.*' out.txt
+grep --fixed-strings foo*bar out.txt
+
+Remaining diagnostics:
+<none>

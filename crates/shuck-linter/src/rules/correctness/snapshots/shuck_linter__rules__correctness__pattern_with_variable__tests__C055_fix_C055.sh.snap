@@ -1,0 +1,44 @@
+---
+source: crates/shuck-linter/src/rules/correctness/pattern_with_variable.rs
+---
+Diagnostics:
+C055 pattern expressions should not expand variables
+ --> <source>:7:16
+  |
+7 | trimmed=${name%$suffix}
+  |
+
+
+Applied fixes: 1
+
+Diff:
+--- before
++++ after
+@@ -4,7 +4,7 @@
+ suffix=b
+ 
+ # Invalid: a variable expansion is used inside the pattern.
+-trimmed=${name%$suffix}
++trimmed=${name%"$suffix"}
+ 
+ # Invalid: replacement patterns have the same problem.
+ rewritten=${name/$suffix/x}
+
+Fixed source:
+#!/bin/bash
+
+name=abc
+suffix=b
+
+# Invalid: a variable expansion is used inside the pattern.
+trimmed=${name%"$suffix"}
+
+# Invalid: replacement patterns have the same problem.
+rewritten=${name/$suffix/x}
+
+# Valid: literal patterns are fine.
+trimmed=${name%b}
+rewritten=${name/ab/x}
+
+Remaining diagnostics:
+<none>

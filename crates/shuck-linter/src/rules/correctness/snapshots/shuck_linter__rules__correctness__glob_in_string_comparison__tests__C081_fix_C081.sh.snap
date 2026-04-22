@@ -1,0 +1,74 @@
+---
+source: crates/shuck-linter/src/rules/correctness/glob_in_string_comparison.rs
+assertion_line: 193
+---
+Diagnostics:
+C081 quote the right-hand side so string comparisons do not turn into glob matches
+ --> <source>:2:18
+  |
+2 | if [[ $mirror == $pkgs ]]; then echo same; fi
+  |
+
+C081 quote the right-hand side so string comparisons do not turn into glob matches
+ --> <source>:3:14
+  |
+3 | if [[ "$a" = $1 ]]; then :; fi
+  |
+
+C081 quote the right-hand side so string comparisons do not turn into glob matches
+ --> <source>:4:15
+  |
+4 | if [[ "$a" != ${b%%x} ]]; then :; fi
+  |
+
+C081 quote the right-hand side so string comparisons do not turn into glob matches
+ --> <source>:5:15
+  |
+5 | if [[ "$a" == ${arr[0]} ]]; then :; fi
+  |
+
+C081 quote the right-hand side so string comparisons do not turn into glob matches
+ --> <source>:6:33
+  |
+6 | printf '%s\n' "$( [[ $mirror == $pkgs ]] && echo same )"
+  |
+
+
+Applied fixes: 5
+
+Diff:
+--- before
++++ after
+@@ -1,9 +1,9 @@
+ #!/bin/bash
+-if [[ $mirror == $pkgs ]]; then echo same; fi
+-if [[ "$a" = $1 ]]; then :; fi
+-if [[ "$a" != ${b%%x} ]]; then :; fi
+-if [[ "$a" == ${arr[0]} ]]; then :; fi
+-printf '%s\n' "$( [[ $mirror == $pkgs ]] && echo same )"
++if [[ $mirror == "$pkgs" ]]; then echo same; fi
++if [[ "$a" = "$1" ]]; then :; fi
++if [[ "$a" != "${b%%x}" ]]; then :; fi
++if [[ "$a" == "${arr[0]}" ]]; then :; fi
++printf '%s\n' "$( [[ $mirror == "$pkgs" ]] && echo same )"
+ 
+ if [[ "$a" == "$b" ]]; then :; fi
+ if [[ "$a" == $b* ]]; then :; fi
+
+Fixed source:
+#!/bin/bash
+if [[ $mirror == "$pkgs" ]]; then echo same; fi
+if [[ "$a" = "$1" ]]; then :; fi
+if [[ "$a" != "${b%%x}" ]]; then :; fi
+if [[ "$a" == "${arr[0]}" ]]; then :; fi
+printf '%s\n' "$( [[ $mirror == "$pkgs" ]] && echo same )"
+
+if [[ "$a" == "$b" ]]; then :; fi
+if [[ "$a" == $b* ]]; then :; fi
+if [[ "$a" == $b$c ]]; then :; fi
+if [[ "$a" == ${b}_x ]]; then :; fi
+if [[ "$a" < $b ]]; then :; fi
+if [ "$a" = $b ]; then :; fi
+
+Remaining diagnostics:
+<none>

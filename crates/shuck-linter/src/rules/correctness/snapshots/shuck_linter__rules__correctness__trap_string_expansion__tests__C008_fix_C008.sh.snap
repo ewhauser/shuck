@@ -1,0 +1,57 @@
+---
+source: crates/shuck-linter/src/rules/correctness/trap_string_expansion.rs
+assertion_line: 171
+---
+Diagnostics:
+C008 double-quoted trap handlers expand variables when the trap is set
+ --> <source>:7:12
+  |
+7 | trap "echo $x" EXIT
+  |
+
+C008 double-quoted trap handlers expand variables when the trap is set
+  --> <source>:10:24
+   |
+10 | trap -- "printf '%s\n' $handler" INT
+   |
+
+
+Applied fixes: 2
+
+Diff:
+--- before
++++ after
+@@ -4,10 +4,10 @@
+ handler='echo ready'
+ 
+ # Invalid: variables inside a double-quoted trap body expand immediately
+-trap "echo $x" EXIT
++trap 'echo $x' EXIT
+ 
+ # Invalid: the same issue applies with `trap --`
+-trap -- "printf '%s\n' $handler" INT
++trap -- 'printf '\''%s\n'\'' $handler' INT
+ 
+ # Valid: single quotes defer expansion until the trap runs
+ trap 'echo $x' TERM
+
+Fixed source:
+#!/bin/sh
+
+x=1
+handler='echo ready'
+
+# Invalid: variables inside a double-quoted trap body expand immediately
+trap 'echo $x' EXIT
+
+# Invalid: the same issue applies with `trap --`
+trap -- 'printf '\''%s\n'\'' $handler' INT
+
+# Valid: single quotes defer expansion until the trap runs
+trap 'echo $x' TERM
+
+# Valid: plain literal trap bodies are fine
+trap "echo ready" HUP
+
+Remaining diagnostics:
+<none>

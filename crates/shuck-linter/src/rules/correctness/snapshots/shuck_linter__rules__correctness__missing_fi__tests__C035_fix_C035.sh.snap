@@ -1,0 +1,29 @@
+---
+source: crates/shuck-linter/src/rules/correctness/missing_fi.rs
+---
+Diagnostics:
+C035 this `if` block is missing a closing `fi`
+ --> <source>:4:1
+  |
+  |
+
+
+Applied fixes: 1
+
+Diff:
+--- before
++++ after
+@@ -1,3 +1,4 @@
+ #!/bin/sh
+ if true; then
+   :
++fi
+
+Fixed source:
+#!/bin/sh
+if true; then
+  :
+fi
+
+Remaining diagnostics:
+<none>

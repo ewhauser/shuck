@@ -1,0 +1,46 @@
+---
+source: crates/shuck-linter/src/rules/correctness/overwritten_function.rs
+---
+Diagnostics:
+C063 function `myfunc` is overwritten before any direct call can reach it
+ --> <source>:4:1
+  |
+4 | myfunc() { return 1; }
+  |
+
+
+Applied fixes: 1
+
+Diff:
+--- before
++++ after
+@@ -1,7 +1,6 @@
+ #!/bin/sh
+ 
+ # Invalid: the first definition is replaced before any direct call can reach it.
+-myfunc() { return 1; }
+ myfunc() { return 0; }
+ myfunc
+ 
+
+Fixed source:
+#!/bin/sh
+
+# Invalid: the first definition is replaced before any direct call can reach it.
+myfunc() { return 0; }
+myfunc
+
+# Valid: the first definition is exercised before the overwrite happens.
+ok() { printf '%s\n' first; }
+ok
+ok() { printf '%s\n' second; }
+ok
+
+# Valid: unrelated functions are unaffected.
+left() { :; }
+right() { :; }
+left
+right
+
+Remaining diagnostics:
+<none>

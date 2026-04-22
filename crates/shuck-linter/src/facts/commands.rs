@@ -12,6 +12,9 @@ pub struct CommandFact<'a> {
     scope_read_source_words: Box<[PathWordFact<'a>]>,
     declaration_assignment_probes: Box<[DeclarationAssignmentProbe]>,
     glued_closing_bracket_operand_span: Option<Span>,
+    glued_closing_bracket_insert_offset: Option<usize>,
+    linebreak_in_test_anchor_span: Option<Span>,
+    linebreak_in_test_insert_offset: Option<usize>,
     simple_test: Option<SimpleTestFact<'a>>,
     conditional: Option<ConditionalFact<'a>>,
 }
@@ -79,6 +82,18 @@ impl<'a> CommandFact<'a> {
 
     pub fn glued_closing_bracket_operand_span(&self) -> Option<Span> {
         self.glued_closing_bracket_operand_span
+    }
+
+    pub fn glued_closing_bracket_insert_offset(&self) -> Option<usize> {
+        self.glued_closing_bracket_insert_offset
+    }
+
+    pub fn linebreak_in_test_anchor_span(&self) -> Option<Span> {
+        self.linebreak_in_test_anchor_span
+    }
+
+    pub fn linebreak_in_test_insert_offset(&self) -> Option<usize> {
+        self.linebreak_in_test_insert_offset
     }
 
     pub fn simple_test(&self) -> Option<&SimpleTestFact<'a>> {

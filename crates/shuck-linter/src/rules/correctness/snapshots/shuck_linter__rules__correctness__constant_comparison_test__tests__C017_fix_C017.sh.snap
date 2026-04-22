@@ -1,0 +1,78 @@
+---
+source: crates/shuck-linter/src/rules/correctness/constant_comparison_test.rs
+assertion_line: 346
+---
+Diagnostics:
+C017 this comparison only checks fixed literals
+ --> <source>:4:5
+  |
+4 | [ 1 = 1 ]
+  |
+
+C017 this comparison only checks fixed literals
+ --> <source>:7:10
+  |
+7 | test foo != bar
+  |
+
+C017 this comparison only checks fixed literals
+  --> <source>:10:9
+   |
+10 | [[ left == right ]]
+   |
+
+C017 this comparison only checks fixed literals
+  --> <source>:13:26
+   |
+13 | [[ "$value" = ok || left == right ]]
+   |
+
+
+Applied fixes: 4
+
+Diff:
+--- before
++++ after
+@@ -1,16 +1,16 @@
+ #!/bin/bash
+ 
+ # Invalid: simple test compares only fixed literals
+-[ 1 = 1 ]
++[ x ]
+ 
+ # Invalid: `test` with literal operands is also constant
+-test foo != bar
++test x
+ 
+ # Invalid: bash conditionals can be constant too
+-[[ left == right ]]
++[[ "" ]]
+ 
+ # Invalid: nested constant comparisons inside larger conditions are still fixed
+-[[ "$value" = ok || left == right ]]
++[[ "$value" = ok || "" ]]
+ 
+ # Valid: runtime data makes the comparison meaningful
+ [ "$value" = ok ]
+
+Fixed source:
+#!/bin/bash
+
+# Invalid: simple test compares only fixed literals
+[ x ]
+
+# Invalid: `test` with literal operands is also constant
+test x
+
+# Invalid: bash conditionals can be constant too
+[[ "" ]]
+
+# Invalid: nested constant comparisons inside larger conditions are still fixed
+[[ "$value" = ok || "" ]]
+
+# Valid: runtime data makes the comparison meaningful
+[ "$value" = ok ]
+[[ $value == right ]]
+
+Remaining diagnostics:
+<none>

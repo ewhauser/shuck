@@ -1,0 +1,36 @@
+---
+source: crates/shuck-linter/src/rules/correctness/linebreak_in_test.rs
+---
+Diagnostics:
+C040 `[` test spans lines without a trailing `\` before the newline
+ --> <source>:2:14
+  |
+2 | if [ "$x" = y
+  |
+
+
+Applied fixes: 1
+
+Diff:
+--- before
++++ after
+@@ -1,5 +1,5 @@
+ #!/bin/sh
+-if [ "$x" = y
++if [ "$x" = y\
+ ]; then :; fi
+ 
+ if [ "$x" = y \
+
+Fixed source:
+#!/bin/sh
+if [ "$x" = y\
+]; then :; fi
+
+if [ "$x" = y \
+]; then :; fi
+
+if [ "$x" = y ]; then :; fi
+
+Remaining diagnostics:
+<none>

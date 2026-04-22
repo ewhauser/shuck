@@ -1,0 +1,59 @@
+---
+source: crates/shuck-linter/src/rules/correctness/arithmetic_redirection_target.rs
+assertion_line: 111
+---
+Diagnostics:
+C050 redirection targets should not use arithmetic expansion
+ --> <source>:6:16
+  |
+6 | echo hi > "$((i++))"
+  |
+
+C050 redirection targets should not use arithmetic expansion
+  --> <source>:12:16
+   |
+12 | echo hi > "$((i--))"
+   |
+
+
+Applied fixes: 2
+
+Diff:
+--- before
++++ after
+@@ -3,13 +3,13 @@
+ i=1
+ 
+ # Invalid: arithmetic expansion should not name the redirect target.
+-echo hi > "$((i++))"
++echo hi > "$((i))"
+ 
+ # Invalid: append redirections have the same problem.
+ printf '%s\n' ok >> "$((i + 1))"
+ 
+ # Invalid: decrement updates are also not allowed here.
+-echo hi > "$((i--))"
++echo hi > "$((i))"
+ 
+ # Valid: redirect to a normal filename.
+ echo hi > output.txt
+
+Fixed source:
+#!/bin/bash
+
+i=1
+
+# Invalid: arithmetic expansion should not name the redirect target.
+echo hi > "$((i))"
+
+# Invalid: append redirections have the same problem.
+printf '%s\n' ok >> "$((i + 1))"
+
+# Invalid: decrement updates are also not allowed here.
+echo hi > "$((i))"
+
+# Valid: redirect to a normal filename.
+echo hi > output.txt
+
+Remaining diagnostics:
+<none>

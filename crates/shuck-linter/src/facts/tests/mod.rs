@@ -21,6 +21,7 @@ use crate::{LinterFacts, ShellDialect, classify_file_context};
 
 mod assignments;
 mod commands;
+mod comments;
 mod conditions;
 mod flow;
 mod functions;

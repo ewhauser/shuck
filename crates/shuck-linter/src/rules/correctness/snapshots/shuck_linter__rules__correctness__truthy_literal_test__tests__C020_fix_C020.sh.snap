@@ -1,0 +1,57 @@
+---
+source: crates/shuck-linter/src/rules/correctness/truthy_literal_test.rs
+assertion_line: 428
+---
+Diagnostics:
+C020 this test checks a fixed literal instead of runtime data
+ --> <source>:4:3
+  |
+4 | [ 1 ]
+  |
+
+C020 this test checks a fixed literal instead of runtime data
+ --> <source>:5:6
+  |
+5 | test foo
+  |
+
+C020 this test checks a fixed literal instead of runtime data
+ --> <source>:6:4
+  |
+6 | [[ bar ]]
+  |
+
+
+Applied fixes: 3
+
+Diff:
+--- before
++++ after
+@@ -1,9 +1,9 @@
+ #!/bin/bash
+ 
+ # Invalid: a bare literal in a test is predetermined
+-[ 1 ]
+-test foo
+-[[ bar ]]
++[ x ]
++test x
++[[ x ]]
+ 
+ # Valid: runtime values belong in these tests
+ [ "$value" ]
+
+Fixed source:
+#!/bin/bash
+
+# Invalid: a bare literal in a test is predetermined
+[ x ]
+test x
+[[ x ]]
+
+# Valid: runtime values belong in these tests
+[ "$value" ]
+[[ $value ]]
+
+Remaining diagnostics:
+<none>

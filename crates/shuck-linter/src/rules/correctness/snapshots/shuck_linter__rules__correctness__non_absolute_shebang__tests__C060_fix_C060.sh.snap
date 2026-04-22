@@ -1,0 +1,32 @@
+---
+source: crates/shuck-linter/src/rules/correctness/non_absolute_shebang.rs
+---
+Diagnostics:
+C060 shebang should use an absolute path or `/usr/bin/env`
+ --> <source>:1:1
+  |
+1 | #!@PREFIX@/bin/sh
+  |
+
+
+Applied fixes: 1
+
+Diff:
+--- before
++++ after
+@@ -1,4 +1,4 @@
+-#!@PREFIX@/bin/sh
++#!/usr/bin/env sh
+ :
+ 
+ # the rule should only inspect the first line
+
+Fixed source:
+#!/usr/bin/env sh
+:
+
+# the rule should only inspect the first line
+#!/bin/sh
+
+Remaining diagnostics:
+<none>
