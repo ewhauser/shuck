@@ -94,7 +94,7 @@ fn stderr_before_stdout_redirect_fix(
 ) -> Option<Fix> {
     if redirects[stderr_index + 1..stdout_index]
         .iter()
-        .any(redirect_touches_stderr)
+        .any(redirect_conflicts_with_stderr_reorder)
     {
         return None;
     }
@@ -179,9 +179,14 @@ fn is_stdout_file_redirect(redirect: &RedirectFact<'_>) -> bool {
         )
 }
 
-fn redirect_touches_stderr(redirect: &RedirectFact<'_>) -> bool {
+fn redirect_conflicts_with_stderr_reorder(redirect: &RedirectFact<'_>) -> bool {
     let data = redirect.redirect();
-    data.fd == Some(2) || data.kind == RedirectKind::OutputBoth
+    data.fd == Some(2)
+        || data.kind == RedirectKind::OutputBoth
+        || (data.kind == RedirectKind::DupOutput
+            && redirect
+                .analysis()
+                .is_some_and(|analysis| analysis.numeric_descriptor_target == Some(2)))
 }
 
 #[cfg(test)]
@@ -333,13 +338,15 @@ echo ok item 3>aux >out 2>&1
 #!/bin/sh
 echo ok 2>&1 2>err >out
 echo ok 2>&1 &>out >final
+echo ok 2>&1 1>&2 >out
+echo ok 2>&1 3>&2 >out
 ";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::StderrBeforeStdoutRedirect),
         );
 
-        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics.len(), 4);
         assert!(
             diagnostics
                 .iter()
