@@ -63,6 +63,24 @@ complex[$((i+=1))]+=x
     }
 
     #[test]
+    fn ignores_termux_style_append_in_bash_helpers() {
+        let source = "\
+termux_step_pre_configure() {
+    local _libgcc_file=\"$($CC -print-libgcc-file-name)\"
+    local _libgcc_path=\"$(dirname $_libgcc_file)\"
+    local _libgcc_name=\"$(basename $_libgcc_file)\"
+    LDFLAGS+=\" -L$_libgcc_path -l:$_libgcc_name\"
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PlusEqualsAppend).with_shell(ShellDialect::Bash),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn reports_plus_equals_in_ksh_scripts() {
         let source = "x+=64\n";
         let diagnostics = test_snippet(
