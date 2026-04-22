@@ -85,6 +85,7 @@ fn diagnostics_exit_status(diagnostics: &[DisplayedDiagnostic], exit_zero: bool)
 struct EffectiveCheckSettings {
     enabled_rules: Vec<String>,
     per_file_ignores: Vec<EffectivePerFileIgnore>,
+    rule_options: EffectiveRuleOptions,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,8 +94,17 @@ struct EffectivePerFileIgnore {
     rules: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EffectiveRuleOptions {
+    c001_treat_indirect_expansion_targets_as_used: bool,
+}
+
 impl EffectiveCheckSettings {
-    fn new(enabled_rules: RuleSet, per_file_ignores: &[PerFileIgnore]) -> Self {
+    fn new(
+        enabled_rules: RuleSet,
+        per_file_ignores: &[PerFileIgnore],
+        rule_options: &shuck_linter::LinterRuleOptions,
+    ) -> Self {
         let mut enabled_rules = enabled_rules
             .iter()
             .map(|rule| rule.code().to_owned())
@@ -121,6 +131,7 @@ impl EffectiveCheckSettings {
         Self {
             enabled_rules,
             per_file_ignores,
+            rule_options: EffectiveRuleOptions::new(rule_options),
         }
     }
 }
@@ -130,6 +141,7 @@ impl CacheKey for EffectiveCheckSettings {
         state.write_tag(b"effective-check-settings");
         self.enabled_rules.cache_key(state);
         self.per_file_ignores.cache_key(state);
+        self.rule_options.cache_key(state);
     }
 }
 
@@ -137,6 +149,24 @@ impl CacheKey for EffectivePerFileIgnore {
     fn cache_key(&self, state: &mut CacheKeyHasher) {
         self.pattern.cache_key(state);
         self.rules.cache_key(state);
+    }
+}
+
+impl EffectiveRuleOptions {
+    fn new(rule_options: &shuck_linter::LinterRuleOptions) -> Self {
+        Self {
+            c001_treat_indirect_expansion_targets_as_used: rule_options
+                .c001
+                .treat_indirect_expansion_targets_as_used,
+        }
+    }
+}
+
+impl CacheKey for EffectiveRuleOptions {
+    fn cache_key(&self, state: &mut CacheKeyHasher) {
+        state.write_tag(b"effective-rule-options");
+        self.c001_treat_indirect_expansion_targets_as_used
+            .cache_key(state);
     }
 }
 
@@ -732,6 +762,7 @@ fn resolve_project_check_settings(
         parse_lint_config_layer(&config.lint)?,
         parse_cli_rule_selection_layer(cli_rule_selection),
     ];
+    let rule_options = linter_rule_options_for_lint_config(&config.lint);
 
     let mut enabled_rules = LinterSettings::default_rules();
     let mut fixable_rules = RuleSet::all();
@@ -761,17 +792,32 @@ fn resolve_project_check_settings(
         project_root.canonical_root.clone(),
         per_file_ignores.clone(),
     )?;
-    let effective = EffectiveCheckSettings::new(enabled_rules, &per_file_ignores);
+    let effective = EffectiveCheckSettings::new(enabled_rules, &per_file_ignores, &rule_options);
 
     Ok(ResolvedCheckSettings {
         linter_settings: LinterSettings {
             rules: enabled_rules,
             per_file_ignores: Arc::new(compiled_per_file_ignores),
+            rule_options,
             ..LinterSettings::default()
         },
         fixable_rules,
         effective,
     })
+}
+
+fn linter_rule_options_for_lint_config(lint: &LintConfig) -> shuck_linter::LinterRuleOptions {
+    let mut rule_options = shuck_linter::LinterRuleOptions::default();
+    if let Some(value) = lint
+        .rule_options
+        .as_ref()
+        .and_then(|options| options.c001.as_ref())
+        .and_then(|c001| c001.treat_indirect_expansion_targets_as_used)
+    {
+        rule_options.c001.treat_indirect_expansion_targets_as_used = value;
+    }
+
+    rule_options
 }
 
 fn parse_lint_config_layer(lint: &LintConfig) -> Result<RuleSelectionLayer> {
@@ -2102,6 +2148,51 @@ mod tests {
         assert_eq!(second.cache_hits, 0);
         assert_eq!(second.cache_misses, 1);
         assert_eq!(second.diagnostics.len(), 1);
+    }
+
+    #[test]
+    fn invalidates_cache_when_rule_options_change() {
+        let tempdir = tempdir().unwrap();
+        let script = tempdir.path().join("script.sh");
+        fs::write(
+            &script,
+            "#!/bin/bash\ntarget=ok\nname=target\nprintf '%s\\n' \"${!name}\"\n",
+        )
+        .unwrap();
+        fs::write(
+            tempdir.path().join("shuck.toml"),
+            "[lint]\nselect = ['C001']\n",
+        )
+        .unwrap();
+
+        let first = run_check_with_cwd(
+            &check_args(false),
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+        assert_eq!(first.cache_hits, 0);
+        assert_eq!(first.cache_misses, 1);
+        assert!(first.diagnostics.is_empty());
+
+        fs::write(
+            tempdir.path().join("shuck.toml"),
+            "[lint]\nselect = ['C001']\n\n[lint.rule-options.c001]\ntreat-indirect-expansion-targets-as-used = false\n",
+        )
+        .unwrap();
+
+        let second = run_check_with_cwd(
+            &check_args(false),
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+        assert_eq!(second.cache_hits, 0);
+        assert_eq!(second.cache_misses, 1);
+        assert_eq!(second.diagnostics.len(), 1);
+        assert!(second.diagnostics[0].message.contains("target"));
     }
 
     #[test]

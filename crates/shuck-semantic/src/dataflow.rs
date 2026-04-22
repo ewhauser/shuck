@@ -8,6 +8,7 @@ use crate::{
     Binding, BindingAttributes, BindingId, BindingKind, BlockId, CallSite, ContractCertainty,
     ControlFlowGraph, EdgeKind, FunctionScopeKind, ProvidedBinding, ProvidedBindingKind, Reference,
     ReferenceId, ReferenceKind, Scope, ScopeId, ScopeKind, SpanKey, SyntheticRead,
+    UnusedAssignmentAnalysisOptions,
 };
 use std::sync::OnceLock;
 
@@ -184,7 +185,19 @@ pub(crate) fn analyze_unused_assignments(
     context: &DataflowContext<'_>,
     exact: &ExactVariableDataflow,
 ) -> Vec<BindingId> {
-    analyze_unused_assignments_exact(context, exact).unused_assignment_ids
+    analyze_unused_assignments_with_options(
+        context,
+        exact,
+        UnusedAssignmentAnalysisOptions::default(),
+    )
+}
+
+pub(crate) fn analyze_unused_assignments_with_options(
+    context: &DataflowContext<'_>,
+    exact: &ExactVariableDataflow,
+    options: UnusedAssignmentAnalysisOptions,
+) -> Vec<BindingId> {
+    analyze_unused_assignments_exact(context, exact, options).unused_assignment_ids
 }
 
 pub(crate) fn build_exact_variable_dataflow(
@@ -216,7 +229,11 @@ pub(crate) fn analyze(
     context: &DataflowContext<'_>,
     exact: &ExactVariableDataflow,
 ) -> DataflowResult {
-    let unused_assignments = analyze_unused_assignments_exact(context, exact);
+    let unused_assignments = analyze_unused_assignments_exact(
+        context,
+        exact,
+        UnusedAssignmentAnalysisOptions::default(),
+    );
     let uninitialized_references = analyze_uninitialized_references_exact(context, exact);
     let dead_code = build_dead_code(context.cfg);
     let reaching_definitions = exact.reaching_definitions(context);
@@ -352,6 +369,7 @@ fn build_bindings_by_name(bindings: &[Binding]) -> FxHashMap<Name, SmallVec<[Bin
 fn analyze_unused_assignments_exact(
     context: &DataflowContext<'_>,
     exact: &ExactVariableDataflow,
+    options: UnusedAssignmentAnalysisOptions,
 ) -> UnusedAssignmentsResult {
     let reaching_definitions = exact.reaching_definitions(context);
     let reference_name_ids = context
@@ -454,7 +472,8 @@ fn analyze_unused_assignments_exact(
             );
         }
 
-        if let Some(candidates) = context.indirect_targets_by_reference.get(&reference.id)
+        if options.treat_indirect_expansion_targets_as_used
+            && let Some(candidates) = context.indirect_targets_by_reference.get(&reference.id)
             && !candidates.is_empty()
         {
             mark_reaching_candidate_bindings_used(&mut used_bindings, incoming, candidates);

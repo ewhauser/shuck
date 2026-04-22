@@ -131,7 +131,9 @@ pub(crate) use rules::common::word::{
     word_is_standalone_status_capture, word_is_standalone_variable_like,
 };
 /// Linter configuration and per-file ignore types.
-pub use settings::{CompiledPerFileIgnoreList, LinterSettings, PerFileIgnore};
+pub use settings::{
+    C001RuleOptions, CompiledPerFileIgnoreList, LinterRuleOptions, LinterSettings, PerFileIgnore,
+};
 /// Shell dialect selection used by the linter.
 pub use shell::ShellDialect;
 /// Suppression directives, shellcheck mappings, and rewrite helpers.
@@ -310,6 +312,7 @@ fn analyze_file_at_path_with_resolver_and_shell(
         &settings.rules,
         shell,
         settings.report_environment_style_names,
+        settings.rule_options.clone(),
         &file_context,
         first_parse_error,
     );
@@ -1705,6 +1708,40 @@ echo $bar
         assert_eq!(diagnostics[0].rule, Rule::UnusedAssignment);
         assert!(diagnostics[0].message.contains("foo"));
         assert_eq!(diagnostics[0].span.slice(source), "foo");
+    }
+
+    #[test]
+    fn unused_assignment_keeps_indirect_only_target_live_by_default() {
+        let diagnostics = lint_for_rule(
+            "\
+#!/bin/bash
+target=ok
+name=target
+printf '%s\\n' \"${!name}\"
+",
+            Rule::UnusedAssignment,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn unused_assignment_shellcheck_compat_flags_indirect_only_target() {
+        let source = "\
+#!/bin/bash
+target=ok
+name=target
+printf '%s\\n' \"${!name}\"
+";
+        let diagnostics = lint(
+            source,
+            &LinterSettings::for_rule(Rule::UnusedAssignment)
+                .with_c001_treat_indirect_expansion_targets_as_used(false),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnusedAssignment);
+        assert_eq!(diagnostics[0].span.slice(source), "target");
     }
 
     #[test]

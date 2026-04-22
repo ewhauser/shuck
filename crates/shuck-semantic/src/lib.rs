@@ -118,6 +118,21 @@ pub struct SyntheticRead {
     pub(crate) name: Name,
 }
 
+/// Behavior flags for unused-assignment analysis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnusedAssignmentAnalysisOptions {
+    /// Whether a resolved indirect-expansion target like `${!name}` counts as a use of the target.
+    pub treat_indirect_expansion_targets_as_used: bool,
+}
+
+impl Default for UnusedAssignmentAnalysisOptions {
+    fn default() -> Self {
+        Self {
+            treat_indirect_expansion_targets_as_used: true,
+        }
+    }
+}
+
 #[allow(missing_docs)]
 impl SyntheticRead {
     pub fn scope(&self) -> ScopeId {
@@ -449,6 +464,7 @@ pub struct SemanticAnalysis<'model> {
     exact_variable_dataflow: OnceLock<ExactVariableDataflow>,
     dataflow: OnceLock<DataflowResult>,
     unused_assignments: OnceLock<Vec<BindingId>>,
+    unused_assignments_shellcheck_compat: OnceLock<Vec<BindingId>>,
     uninitialized_references: OnceLock<Vec<UninitializedReference>>,
     dead_code: OnceLock<Vec<DeadCode>>,
     overwritten_functions: OnceLock<Vec<OverwrittenFunction>>,
@@ -1131,6 +1147,7 @@ impl<'model> SemanticAnalysis<'model> {
             exact_variable_dataflow: OnceLock::new(),
             dataflow: OnceLock::new(),
             unused_assignments: OnceLock::new(),
+            unused_assignments_shellcheck_compat: OnceLock::new(),
             uninitialized_references: OnceLock::new(),
             dead_code: OnceLock::new(),
             overwritten_functions: OnceLock::new(),
@@ -1188,6 +1205,35 @@ impl<'model> SemanticAnalysis<'model> {
                 let context = self.model.dataflow_context(cfg);
                 let exact = self.exact_variable_dataflow();
                 dataflow::analyze_unused_assignments(&context, exact)
+            })
+            .as_slice()
+    }
+
+    /// Returns unused assignments using the requested behavior flags.
+    pub fn unused_assignments_with_options(
+        &self,
+        options: UnusedAssignmentAnalysisOptions,
+    ) -> &[BindingId] {
+        if options == UnusedAssignmentAnalysisOptions::default() {
+            return self.unused_assignments();
+        }
+
+        if !self.model.needs_precise_unused_assignments() {
+            return &self.model.heuristic_unused_assignments;
+        }
+
+        self.unused_assignments_shellcheck_compat
+            .get_or_init(|| {
+                let cfg = self.cfg();
+                if self
+                    .model
+                    .can_use_heuristic_unused_assignments_with_linear_cfg(cfg)
+                {
+                    return self.model.heuristic_unused_assignments.clone();
+                }
+                let context = self.model.dataflow_context(cfg);
+                let exact = self.exact_variable_dataflow();
+                dataflow::analyze_unused_assignments_with_options(&context, exact, options)
             })
             .as_slice()
     }
@@ -5142,6 +5188,46 @@ printf '%s\\n' \"${!name}\"
             binding_names(&model, model.indirect_targets_for_reference(reference.id)),
             vec!["target"]
         );
+    }
+
+    #[test]
+    fn unused_assignment_options_only_change_indirect_target_liveness() {
+        let source = "\
+#!/bin/bash
+target=ok
+name=target
+other=1
+printf '%s\\n' \"${!name}\"
+";
+        let model = model(source);
+        let default_unused = binding_names(&model, model.analysis().unused_assignments());
+        let compat_unused = binding_names(
+            &model,
+            model
+                .analysis()
+                .unused_assignments_with_options(UnusedAssignmentAnalysisOptions {
+                    treat_indirect_expansion_targets_as_used: false,
+                }),
+        );
+
+        assert_eq!(default_unused, vec!["other"]);
+        assert_eq!(compat_unused, vec!["target", "other"]);
+    }
+
+    #[test]
+    fn unused_assignment_options_preserve_heuristic_fast_path_without_indirect_targets() {
+        let model = model("unused=1\n");
+        let analysis = model.analysis();
+
+        let compat_unused = analysis
+            .unused_assignments_with_options(UnusedAssignmentAnalysisOptions {
+                treat_indirect_expansion_targets_as_used: false,
+            })
+            .to_vec();
+
+        assert!(analysis.exact_variable_dataflow.get().is_none());
+        assert!(analysis.dataflow.get().is_none());
+        assert_eq!(binding_names(&model, &compat_unused), vec!["unused"]);
     }
 
     #[test]
