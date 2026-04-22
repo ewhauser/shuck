@@ -251,9 +251,12 @@ impl<'a> SafeValueIndex<'a> {
             .called_helper_bindings_for_name(name, at)
             .into_iter()
             .collect::<FxHashSet<_>>();
+        let bindings_cover_all_paths = helper_bindings.is_empty()
+            && matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
+            && self.bindings_cover_all_paths_to_reference(&bindings, name, at);
         if helper_bindings.is_empty()
             && matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
-            && !self.bindings_cover_all_paths_to_reference(&bindings, name, at)
+            && !bindings_cover_all_paths
         {
             return false;
         }
@@ -273,6 +276,7 @@ impl<'a> SafeValueIndex<'a> {
                 .copied()
                 .any(|binding_id| self.binding_dominates_reference(binding_id, name, at));
             if !has_dominating_binding
+                && !bindings_cover_all_paths
                 && !bindings
                     .iter()
                     .copied()
@@ -2580,5 +2584,59 @@ printf '%s\\n' ${debug:+\"a b\"}
             .expect("expected replacement-operator command argument fact");
 
         assert!(safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn exhaustive_safe_bindings_override_conservative_maybe_uninitialized_refs() {
+        let source = "\
+#!/bin/bash
+if [ \"$ARCH\" = \"i386\" ]; then
+  LIBDIRSUFFIX=\"\"
+elif [ \"$ARCH\" = \"x86_64\" ]; then
+  LIBDIRSUFFIX=\"64\"
+else
+  LIBDIRSUFFIX=\"\"
+fi
+
+TARGET=$ARCH-linux
+VERSION=${TARGET}_$(date +%s)
+if [ ! -r /pkg/usr/lib${LIBDIRSUFFIX}/gcc/${TARGET}/${VERSION}/specs ]; then
+  :
+fi
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source)
+                        == "/pkg/usr/lib${LIBDIRSUFFIX}/gcc/${TARGET}/${VERSION}/specs"
+            })
+            .expect("expected mixed path command argument");
+        let (part, part_span) = word_fact
+            .parts_with_spans()
+            .find(|(_, span)| span.slice(source) == "${LIBDIRSUFFIX}")
+            .expect("expected LIBDIRSUFFIX part");
+        let name = Name::from("LIBDIRSUFFIX");
+        let bindings = safe_values.safe_bindings_for_name(&name, part_span);
+
+        assert!(
+            safe_values.bindings_cover_all_paths_to_reference(&bindings, &name, part_span),
+            "expected exhaustive branch ladder to cover all paths"
+        );
+
+        safe_values
+            .maybe_uninitialized_refs
+            .insert(crate::FactSpan::new(part_span));
+
+        assert!(safe_values.part_is_safe(part, part_span, SafeValueQuery::Argv));
     }
 }
