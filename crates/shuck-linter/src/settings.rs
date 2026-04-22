@@ -24,7 +24,8 @@ pub struct LinterRuleOptions {
 /// Behavior overrides for `C001` unused-assignment analysis.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct C001RuleOptions {
-    /// Whether resolved indirect-expansion targets like `${!name}` count as a use of the target.
+    /// Whether scalar indirect-expansion targets like `${!name}` count as a use of the target.
+    /// Array-like targets such as `name=arr[@]; ${!name}` stay live in both modes.
     pub treat_indirect_expansion_targets_as_used: bool,
 }
 

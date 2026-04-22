@@ -75,6 +75,7 @@ pub(crate) struct DataflowContext<'a> {
     pub(crate) resolved: &'a FxHashMap<ReferenceId, BindingId>,
     pub(crate) call_sites: &'a FxHashMap<Name, SmallVec<[CallSite; 2]>>,
     pub(crate) indirect_targets_by_reference: &'a FxHashMap<ReferenceId, Vec<BindingId>>,
+    pub(crate) array_like_indirect_expansion_refs: &'a FxHashSet<ReferenceId>,
     pub(crate) synthetic_reads: &'a [SyntheticRead],
     pub(crate) entry_bindings: &'a [BindingId],
 }
@@ -472,7 +473,10 @@ fn analyze_unused_assignments_exact(
             );
         }
 
-        if options.treat_indirect_expansion_targets_as_used
+        if (options.treat_indirect_expansion_targets_as_used
+            || context
+                .array_like_indirect_expansion_refs
+                .contains(&reference.id))
             && let Some(candidates) = context.indirect_targets_by_reference.get(&reference.id)
             && !candidates.is_empty()
         {

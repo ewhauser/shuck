@@ -121,7 +121,9 @@ pub struct SyntheticRead {
 /// Behavior flags for unused-assignment analysis.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UnusedAssignmentAnalysisOptions {
-    /// Whether a resolved indirect-expansion target like `${!name}` counts as a use of the target.
+    /// Whether a resolved scalar indirect-expansion target like `${!name}` counts as a use
+    /// of the target. Array-like targets such as `name=arr[@]; ${!name}` stay live in
+    /// both modes.
     pub treat_indirect_expansion_targets_as_used: bool,
 }
 
@@ -444,6 +446,7 @@ pub struct SemanticModel {
     declarations: Vec<Declaration>,
     indirect_targets_by_binding: FxHashMap<BindingId, Vec<BindingId>>,
     indirect_targets_by_reference: FxHashMap<ReferenceId, Vec<BindingId>>,
+    array_like_indirect_expansion_refs: FxHashSet<ReferenceId>,
     synthetic_reads: Vec<SyntheticRead>,
     entry_bindings: Vec<BindingId>,
     flow_contexts: Vec<(Span, FlowContext)>,
@@ -510,6 +513,12 @@ impl SemanticModel {
             &built.indirect_expansion_refs,
             &indirect_targets_by_binding,
         );
+        let array_like_indirect_expansion_refs = build_array_like_indirect_expansion_refs(
+            &built.references,
+            &built.resolved,
+            &built.indirect_expansion_refs,
+            &built.indirect_target_hints,
+        );
         let zsh_option_analysis = zsh_options::analyze(
             &built.shell_profile,
             &built.scopes,
@@ -537,6 +546,7 @@ impl SemanticModel {
             declarations: built.declarations,
             indirect_targets_by_binding,
             indirect_targets_by_reference,
+            array_like_indirect_expansion_refs,
             synthetic_reads: Vec::new(),
             entry_bindings: Vec::new(),
             flow_contexts: built.flow_contexts,
@@ -1132,6 +1142,7 @@ impl SemanticModel {
             resolved: &self.resolved,
             call_sites: &self.call_sites,
             indirect_targets_by_reference: &self.indirect_targets_by_reference,
+            array_like_indirect_expansion_refs: &self.array_like_indirect_expansion_refs,
             synthetic_reads: &self.synthetic_reads,
             entry_bindings: &self.entry_bindings,
         }
@@ -1884,6 +1895,34 @@ fn build_indirect_targets_by_reference(
         }
     }
     targets_by_reference
+}
+
+fn build_array_like_indirect_expansion_refs(
+    references: &[Reference],
+    resolved: &FxHashMap<ReferenceId, BindingId>,
+    indirect_expansion_refs: &FxHashSet<ReferenceId>,
+    indirect_target_hints: &FxHashMap<BindingId, IndirectTargetHint>,
+) -> FxHashSet<ReferenceId> {
+    let mut array_like_refs = FxHashSet::default();
+    for reference in references {
+        if !indirect_expansion_refs.contains(&reference.id) {
+            continue;
+        }
+        let Some(binding_id) = resolved.get(&reference.id).copied() else {
+            continue;
+        };
+        let Some(hint) = indirect_target_hints.get(&binding_id) else {
+            continue;
+        };
+        let array_like = match hint {
+            IndirectTargetHint::Exact { array_like, .. }
+            | IndirectTargetHint::Pattern { array_like, .. } => *array_like,
+        };
+        if array_like {
+            array_like_refs.insert(reference.id);
+        }
+    }
+    array_like_refs
 }
 
 fn build_binding_block_index(blocks: &[BasicBlock], binding_count: usize) -> Vec<Vec<BlockId>> {
@@ -5212,6 +5251,30 @@ printf '%s\\n' \"${!name}\"
 
         assert_eq!(default_unused, vec!["other"]);
         assert_eq!(compat_unused, vec!["target", "other"]);
+    }
+
+    #[test]
+    fn unused_assignment_options_keep_array_like_indirect_targets_live() {
+        let source = "\
+#!/bin/bash
+apache_args=(--apache)
+unused_args=(--unused)
+args_var=apache_args[@]
+printf '%s\\n' \"${!args_var}\"
+";
+        let model = model(source);
+        let default_unused = binding_names(&model, model.analysis().unused_assignments());
+        let compat_unused = binding_names(
+            &model,
+            model
+                .analysis()
+                .unused_assignments_with_options(UnusedAssignmentAnalysisOptions {
+                    treat_indirect_expansion_targets_as_used: false,
+                }),
+        );
+
+        assert_eq!(default_unused, vec!["unused_args"]);
+        assert_eq!(compat_unused, vec!["unused_args"]);
     }
 
     #[test]
