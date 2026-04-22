@@ -428,6 +428,13 @@ fn collect_base_prefix_spans_in_text(span: Span, source: &str, spans: &mut Vec<S
             continue;
         }
 
+        // `${1#-}` and similar trims on positional parameters are expansion
+        // operators, not arithmetic base prefixes.
+        if index >= 2 && bytes[index - 2] == b'$' && bytes[index - 1] == b'{' {
+            index += 1;
+            continue;
+        }
+
         if index > 0 {
             let previous = bytes[index - 1];
             if previous.is_ascii_alphanumeric() || previous == b'_' {
@@ -635,4 +642,3 @@ fn double_paren_grouping_anchor(span: Span, source: &str) -> Option<Span> {
 
     Some(Span::at(anchor_start))
 }
-

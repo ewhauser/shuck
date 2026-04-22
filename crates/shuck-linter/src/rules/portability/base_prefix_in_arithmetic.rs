@@ -79,4 +79,18 @@ echo ${foo:-${1##*/}}
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn ignores_positional_parameter_trim_operators_in_arithmetic() {
+        let source = "\
+#!/bin/sh
+set -- \"$1\" \"$2\" $((42949 - ${1#-} / 100000)) $((67296 - ${1#-} % 100000))
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::BasePrefixInArithmetic),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
 }

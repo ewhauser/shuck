@@ -1561,6 +1561,21 @@ echo ${foo:-${1##*/}}
 }
 
 #[test]
+fn ignores_positional_parameter_trim_operators_inside_arithmetic() {
+    let source = "\
+#!/bin/bash
+set -- \"$1\" \"$2\" $((42949 - ${1#-} / 100000)) $((67296 - ${1#-} % 100000))
+";
+    let output = Parser::new(source).parse().unwrap();
+    let indexer = Indexer::new(source, &output);
+    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let file_context = classify_file_context(source, None, ShellDialect::Bash);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+    assert!(facts.base_prefix_arithmetic_spans().is_empty());
+}
+
+#[test]
 fn builds_find_exec_shell_command_facts_for_execdir_shell_targets() {
     let source = "\
 #!/bin/sh
