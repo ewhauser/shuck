@@ -352,32 +352,37 @@ impl<'a> SafeValueIndex<'a> {
         at: Span,
     ) -> bool {
         let binding = self.semantic.binding(binding_id);
-        let exit_like_names = self
-            .facts
-            .function_headers()
-            .iter()
-            .filter(|header| function_has_terminal_exit(header.function()))
-            .filter_map(|header| header.static_name_entry().map(|(name, _)| name.as_str()))
-            .collect::<FxHashSet<_>>();
+        self.facts.function_headers().iter().any(|header| {
+            function_has_terminal_exit(header.function())
+                && header
+                    .call_arity()
+                    .zero_arg_call_spans()
+                    .iter()
+                    .filter_map(|call_span| self.command_for_name_word_span(*call_span))
+                    .any(|command| {
+                        !command.is_nested_word_command()
+                            && command.body_args().is_empty()
+                            && command.redirects().is_empty()
+                            && !self.facts.commands().iter().any(|other| {
+                                other.id() != command.id()
+                                    && !other.is_nested_word_command()
+                                    && span_strictly_contains(other.span(), command.span())
+                            })
+                            && {
+                                let call_span = command.span_in_source(self.source);
+                                call_span.end.offset <= at.start.offset
+                                    && (call_span.start.offset >= binding.span.end.offset
+                                        || call_span.end.offset <= binding.span.start.offset)
+                            }
+                    })
+        })
+    }
 
-        self.facts.commands().iter().any(|command| {
-            !command.is_nested_word_command()
-                && command.body_args().is_empty()
-                && command.redirects().is_empty()
-                && command
-                    .effective_or_literal_name()
-                    .is_some_and(|name| exit_like_names.contains(name))
-                && !self.facts.commands().iter().any(|other| {
-                    other.id() != command.id()
-                        && !other.is_nested_word_command()
-                        && span_strictly_contains(other.span(), command.span())
-                })
-                && {
-                    let call_span = command.span_in_source(self.source);
-                    call_span.end.offset <= at.start.offset
-                        && (call_span.start.offset >= binding.span.end.offset
-                            || call_span.end.offset <= binding.span.start.offset)
-                }
+    fn command_for_name_word_span(&self, span: Span) -> Option<&crate::facts::CommandFact<'a>> {
+        self.facts.commands().iter().find(|command| {
+            command
+                .body_name_word()
+                .is_some_and(|name_word| name_word.span == span)
         })
     }
 
@@ -1183,8 +1188,7 @@ fn command_has_terminal_exit(command: &Command) -> bool {
         Command::Builtin(BuiltinCommand::Exit(exit)) => {
             exit.assignments.is_empty() && exit.extra_args.is_empty()
         }
-        Command::Compound(CompoundCommand::BraceGroup(body))
-        | Command::Compound(CompoundCommand::Subshell(body)) => stmt_seq_has_terminal_exit(body),
+        Command::Compound(CompoundCommand::BraceGroup(body)) => stmt_seq_has_terminal_exit(body),
         Command::Simple(_)
         | Command::Builtin(_)
         | Command::Decl(_)
@@ -2774,5 +2778,31 @@ echo x >> ${OPENBSD_CONTENTS}
         assert!(
             !safe_values.word_occurrence_is_safe(redirect_target, SafeValueQuery::RedirectTarget)
         );
+    }
+
+    #[test]
+    fn subshell_exit_does_not_make_function_terminal() {
+        let source = "\
+#!/bin/sh
+helper() (
+  exit 1
+)
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let helper_header = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(name, _)| name.as_str() == "helper")
+            })
+            .expect("expected helper function header");
+
+        assert!(!function_has_terminal_exit(helper_header.function()));
     }
 }

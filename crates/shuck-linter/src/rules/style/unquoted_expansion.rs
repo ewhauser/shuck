@@ -202,6 +202,21 @@ echo /usr/lib${LIBDIRSUFFIX}
     }
 
     #[test]
+    fn ignores_safe_bindings_after_shadowed_exit_like_helper_names() {
+        let source = "\
+#!/bin/sh
+Exit() { exit 0; }
+Exit() { :; }
+SAFE=foo
+Exit
+echo /tmp/$SAFE
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn collapses_multiline_backtick_spans_to_shellcheck_columns() {
         let source = "\
 #!/bin/sh
