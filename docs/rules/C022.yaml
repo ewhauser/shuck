@@ -4,6 +4,7 @@ new_category: Correctness
 new_code: C022
 runtime_kind: ast
 shellcheck_code: SC2212
+shellcheck_level: style
 shells:
   - sh
   - bash

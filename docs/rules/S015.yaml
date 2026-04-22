@@ -4,6 +4,7 @@ new_category: Style
 new_code: S015
 runtime_kind: ast
 shellcheck_code: SC2066
+shellcheck_level: error
 shells:
   - sh
   - bash

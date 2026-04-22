@@ -4,6 +4,7 @@ new_category: Correctness
 new_code: C080
 runtime_kind: ast
 shellcheck_code: SC2022
+shellcheck_level: info
 shells:
   - sh
   - bash

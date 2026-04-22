@@ -4,6 +4,7 @@ new_category: Correctness
 new_code: C129
 runtime_kind: ast
 shellcheck_code: SC2222
+shellcheck_level: warning
 shells:
   - sh
   - bash

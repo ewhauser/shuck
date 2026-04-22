@@ -4,6 +4,7 @@ new_category: Correctness
 new_code: C126
 runtime_kind: ast
 shellcheck_code: SC2104
+shellcheck_level: error
 shells:
   - sh
   - bash

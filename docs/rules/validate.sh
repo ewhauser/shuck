@@ -181,7 +181,16 @@ validate_file() {
   if ! check_yq "${file}" '.runtime_kind == "token" or .runtime_kind == "logical_line" or .runtime_kind == "ast" or .runtime_kind == "physical_line"' "runtime_kind must be one of token, logical_line, ast, or physical_line"; then
     failed=1
   fi
-  if ! check_yq "${file}" '(.shellcheck_code == null) or (((.shellcheck_code | type) == "!!str") and (.shellcheck_code | test("^SC[0-9]+$")))' "shellcheck_code must be absent or look like SC2086"; then
+  if ! check_yq "${file}" 'has("shellcheck_code")' "shellcheck_code must be present"; then
+    failed=1
+  fi
+  if ! check_yq "${file}" '(.shellcheck_code == null) or (((.shellcheck_code | type) == "!!str") and (.shellcheck_code | test("^SC[0-9]+$")))' "shellcheck_code must be null or look like SC2086"; then
+    failed=1
+  fi
+  if ! check_yq "${file}" 'has("shellcheck_level")' "shellcheck_level must be present"; then
+    failed=1
+  fi
+  if ! check_yq "${file}" '(.shellcheck_level == null) or (.shellcheck_level == "error") or (.shellcheck_level == "warning") or (.shellcheck_level == "info") or (.shellcheck_level == "style")' "shellcheck_level must be null or be one of error, warning, info, or style"; then
     failed=1
   fi
   if ! check_yq "${file}" '((.shells | type) == "!!seq") and ((.shells | length) > 0) and ([.shells[] | (((type == "!!str") and (length > 0)))] | all)' "shells must be a non-empty list of strings"; then

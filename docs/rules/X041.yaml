@@ -3,6 +3,8 @@ legacy_name: array-subscript-condition
 new_category: Portability
 new_code: X041
 runtime_kind: ast
+shellcheck_code: null
+shellcheck_level: null
 shells:
   - sh
   - bash

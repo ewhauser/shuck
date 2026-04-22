@@ -4,6 +4,7 @@ new_category: Portability
 new_code: X043
 runtime_kind: ast
 shellcheck_code: SC2296
+shellcheck_level: error
 shells:
   - sh
   - bash

@@ -3,6 +3,8 @@ legacy_name: zsh-assignment-to-zero
 new_category: Portability
 new_code: X053
 runtime_kind: ast
+shellcheck_code: null
+shellcheck_level: null
 shells:
   - bash
 description: "The variable `0` is assigned a value, which is a zsh idiom."

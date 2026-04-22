@@ -250,6 +250,7 @@ new_category: Correctness
 new_code: C042
 runtime_kind: ast          # ast, semantic, or flow
 shellcheck_code: SC2034    # ShellCheck compatibility code, if applicable
+shellcheck_level: warning  # Populate from the ShellCheck oracle when shellcheck_code is set
 shells:
   - sh
   - bash
@@ -287,6 +288,13 @@ If the rule maps to a ShellCheck code, add the mapping in `crates/shuck-linter/s
 
 ```rust
 (2034, Rule::YourRuleName),  // SC2034
+```
+
+Then populate the matching ShellCheck log level in the rule metadata:
+
+```bash
+nix --extra-experimental-features 'nix-command flakes' develop --command \
+  python3 scripts/update_shellcheck_levels.py --rules C042
 ```
 
 ### Step 4: Implement the rule

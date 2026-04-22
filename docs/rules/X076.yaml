@@ -4,6 +4,7 @@ new_category: Portability
 new_code: X076
 runtime_kind: ast
 shellcheck_code: SC2300
+shellcheck_level: error
 shells:
   - sh
   - bash

@@ -4,6 +4,7 @@ new_category: Portability
 new_code: X046
 runtime_kind: ast
 shellcheck_code: SC1036
+shellcheck_level: warning
 shells:
   - sh
   - bash

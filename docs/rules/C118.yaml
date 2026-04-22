@@ -4,6 +4,7 @@ new_category: Correctness
 new_code: C118
 runtime_kind: ast
 shellcheck_code: SC1076
+shellcheck_level: warning
 shells:
   - sh
   - bash

@@ -4,6 +4,7 @@ new_category: Correctness
 new_code: C107
 runtime_kind: ast
 shellcheck_code: SC2181
+shellcheck_level: style
 shells:
   - sh
   - bash

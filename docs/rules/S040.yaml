@@ -4,6 +4,7 @@ new_category: Style
 new_code: S040
 runtime_kind: ast
 shellcheck_code: SC1012
+shellcheck_level: warning
 shells:
   - sh
   - bash

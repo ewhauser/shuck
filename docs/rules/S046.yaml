@@ -4,6 +4,7 @@ new_category: Style
 new_code: S046
 runtime_kind: ast
 shellcheck_code: SC2011
+shellcheck_level: warning
 shells:
   - sh
   - bash

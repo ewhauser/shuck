@@ -4,6 +4,7 @@ new_category: Style
 new_code: S035
 runtime_kind: ast
 shellcheck_code: SC2323
+shellcheck_level: style
 shells:
   - sh
   - bash

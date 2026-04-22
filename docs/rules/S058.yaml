@@ -4,6 +4,7 @@ new_category: Style
 new_code: S058
 runtime_kind: ast
 shellcheck_code: SC2335
+shellcheck_level: warning
 shells:
   - sh
   - bash

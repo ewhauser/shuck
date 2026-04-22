@@ -4,6 +4,7 @@ new_category: Portability
 new_code: X052
 runtime_kind: ast
 shellcheck_code: SC2112
+shellcheck_level: warning
 shells:
   - sh
   - dash
@@ -19,8 +20,6 @@ examples:
     source: shell-checks/examples/226.sh
     code: |
       #!/bin/sh
-      # shellcheck disable=2112,2120,2126,2119
-      function hgic() {
-        hg incoming "$@" | grep changeset | wc -l
+      function greet() {
+        :
       }
-      hgic

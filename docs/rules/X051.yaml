@@ -4,6 +4,7 @@ new_category: Portability
 new_code: X051
 runtime_kind: ast
 shellcheck_code: SC2082
+shellcheck_level: error
 shells:
   - sh
   - bash

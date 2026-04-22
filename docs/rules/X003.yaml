@@ -4,6 +4,7 @@ new_category: Portability
 new_code: X003
 runtime_kind: ast
 shellcheck_code: SC3043
+shellcheck_level: warning
 shells:
   - sh
 description: Using `local` in a function ties the script to shells that implement function-scoped variables.

@@ -4,6 +4,7 @@ new_category: Portability
 new_code: X030
 runtime_kind: ast
 shellcheck_code: SC2028
+shellcheck_level: info
 shells:
   - sh
   - bash

@@ -4,6 +4,7 @@ new_category: Portability
 new_code: X036
 runtime_kind: ast
 shellcheck_code: SC1070
+shellcheck_level: error
 shells:
   - sh
   - bash

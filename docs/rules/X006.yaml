@@ -4,6 +4,7 @@ new_category: Portability
 new_code: X006
 runtime_kind: ast
 shellcheck_code: SC3001
+shellcheck_level: warning
 shells:
   - sh
   - dash

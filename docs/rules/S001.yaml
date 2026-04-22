@@ -4,6 +4,7 @@ new_category: Style
 new_code: S001
 runtime_kind: ast
 shellcheck_code: SC2086
+shellcheck_level: info
 shells:
   - sh
   - bash

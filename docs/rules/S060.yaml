@@ -4,6 +4,7 @@ new_category: Style
 new_code: S060
 runtime_kind: ast
 shellcheck_code: SC2196
+shellcheck_level: info
 shells:
   - sh
   - bash

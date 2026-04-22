@@ -4,6 +4,7 @@ new_category: Style
 new_code: S007
 runtime_kind: ast
 shellcheck_code: SC2059
+shellcheck_level: info
 shells:
   - sh
   - bash

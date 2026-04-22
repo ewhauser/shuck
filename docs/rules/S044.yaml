@@ -4,6 +4,7 @@ new_category: Style
 new_code: S044
 runtime_kind: ast
 shellcheck_code: SC2001
+shellcheck_level: style
 shells:
   - bash
   - ksh

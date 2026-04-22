@@ -4,6 +4,7 @@ new_category: Correctness
 new_code: C093
 runtime_kind: ast
 shellcheck_code: SC2092
+shellcheck_level: warning
 shells:
   - sh
   - bash

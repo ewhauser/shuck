@@ -4,6 +4,7 @@ new_category: Style
 new_code: S059
 runtime_kind: ast
 shellcheck_code: SC2186
+shellcheck_level: warning
 shells:
   - sh
   - bash

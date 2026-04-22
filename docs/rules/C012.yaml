@@ -4,6 +4,7 @@ new_category: Correctness
 new_code: C012
 runtime_kind: ast
 shellcheck_code: SC2035
+shellcheck_level: info
 shells:
   - sh
   - bash

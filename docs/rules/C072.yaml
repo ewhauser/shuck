@@ -4,6 +4,7 @@ new_category: Correctness
 new_code: C072
 runtime_kind: ast
 shellcheck_code: SC1110
+shellcheck_level: warning
 shells:
   - sh
   - bash
@@ -21,4 +22,4 @@ examples:
     source: shell-checks/examples/189.sh
     code: |
       #!/bin/sh
-      echo "hello "world"
+      echo “hello”

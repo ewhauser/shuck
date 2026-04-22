@@ -4,6 +4,7 @@ new_category: Correctness
 new_code: C157
 runtime_kind: ast
 shellcheck_code: SC1069
+shellcheck_level: error
 shells:
   - sh
 description: The `if` keyword is concatenated with a `[` test.

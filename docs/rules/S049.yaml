@@ -4,6 +4,7 @@ new_category: Style
 new_code: S049
 runtime_kind: ast
 shellcheck_code: SC2021
+shellcheck_level: info
 shells:
   - sh
   - bash

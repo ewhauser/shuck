@@ -4,6 +4,7 @@ new_category: Correctness
 new_code: C130
 runtime_kind: ast
 shellcheck_code: SC2089
+shellcheck_level: warning
 shells:
   - sh
   - bash

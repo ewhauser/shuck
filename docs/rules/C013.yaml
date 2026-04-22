@@ -4,6 +4,7 @@ new_category: Correctness
 new_code: C013
 runtime_kind: ast
 shellcheck_code: SC2044
+shellcheck_level: warning
 shells:
   - sh
   - bash

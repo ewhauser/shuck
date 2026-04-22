@@ -3,6 +3,8 @@ legacy_name: mixed-and-or-in-condition
 new_category: Correctness
 new_code: C088
 runtime_kind: ast
+shellcheck_code: null
+shellcheck_level: null
 shells:
   - sh
   - bash

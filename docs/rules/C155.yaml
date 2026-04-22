@@ -4,6 +4,7 @@ new_category: Correctness
 new_code: C155
 runtime_kind: ast
 shellcheck_code: SC2031
+shellcheck_level: info
 shells:
   - sh
   - bash

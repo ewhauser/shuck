@@ -4,6 +4,7 @@ new_category: Portability
 new_code: X042
 runtime_kind: ast
 shellcheck_code: SC2240
+shellcheck_level: warning
 shells:
   - sh
   - dash

@@ -4,6 +4,7 @@ new_category: Style
 new_code: S066
 runtime_kind: ast
 shellcheck_code: SC2316
+shellcheck_level: error
 shells:
   - sh
   - bash

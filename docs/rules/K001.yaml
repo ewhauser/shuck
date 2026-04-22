@@ -4,6 +4,7 @@ new_category: Security
 new_code: K001
 runtime_kind: ast
 shellcheck_code: SC2115
+shellcheck_level: warning
 shells:
   - sh
   - bash

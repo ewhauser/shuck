@@ -4,6 +4,7 @@ new_category: Portability
 new_code: X050
 runtime_kind: ast
 shellcheck_code: SC1088
+shellcheck_level: error
 shells:
   - sh
   - bash
