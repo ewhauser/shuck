@@ -341,3 +341,69 @@ reviewed_divergences:
   - side: shellcheck-only
     path_suffix: "leebaird__discover__dev-api-scanner.sh"
     reason: "This scanner builds an output filename from the current CORS origin, and the remaining ShellCheck-only anchor is the lower-case slug fragment inside that generated path. We review this one file narrowly instead of broadening C006 around the helper's filename templating."
+  - side: shuck-only
+    path_suffix: "233boy__v2ray__src__old.sh"
+    reason: "This legacy V2Ray helper threads transport choice through sourced installer plumbing, so the remaining C006 read is a repo-local runtime handoff rather than a free-standing missing assignment."
+  - side: shuck-only
+    path_contains: "Bash-it__bash-it__"
+    reason: "Bash-it bootstraps completions, plugins, and themes by sourcing helpers that publish function names and palette globals into a shared interactive session. The remaining C006 hits in this repo family are framework-owned helper/runtime names rather than standalone-script misses."
+  - side: shuck-only
+    path_contains: "GameServerManagers__LinuxGSM__"
+    reason: "LinuxGSM modules run inside a sourced manager runtime that prepopulates lock paths, passwords, stats fields, and config locations. The remaining C006 hits in this repo family are module contracts with that runtime rather than missing local assignments."
+  - side: shuck-only
+    path_contains: "HariSekhon__DevOps-Bash-tools__"
+    reason: "These Bash-tools helpers read library-managed region, timestamp, and template state that is populated by sourced wrappers and sibling helpers. The remaining C006 hits in this repo family are reviewed library contracts rather than isolated undefined locals."
+  - side: shuck-only
+    path_contains: "RetroPie__RetroPie-Setup__"
+    reason: "RetroPie setup modules exchange menu ids, config roots, and launching-image options through the surrounding setup framework. The remaining C006 hits in this repo family are reviewed framework state rather than missing local assignments."
+  - side: shuck-only
+    path_contains: "SlackBuildsOrg__slackbuilds__"
+    reason: "These SlackBuild recipes rely on packaging-template variables and branch-local sentinels that the wider build wrapper supplies or probes conditionally. The remaining C006 hits in this repo family are reviewed packaging-framework reads rather than standalone assignment bugs."
+  - side: shuck-only
+    path_suffix: "alpinelinux__aports__scripts__mkimg.base.sh"
+    reason: "This mkimg helper assembles image options from sourced profile setup, so the remaining iso_opts read is a reviewed build-framework handoff rather than a missing local assignment."
+  - side: shuck-only
+    path_suffix: "bin456789__reinstall__reinstall.sh"
+    reason: "This distro-reinstall helper threads release metadata through large case-driven installer plumbing, so the remaining C006 read is a reviewed cross-branch handoff rather than an isolated undefined local."
+  - side: shuck-only
+    path_contains: "dokku__dokku__plugins__"
+    reason: "Dokku plugin command helpers build flag tables and dispatch metadata through the plugin runtime before the local helper consumes them. The remaining C006 hits in this repo family are reviewed plugin-framework reads rather than missing local assignments."
+  - side: shuck-only
+    path_contains: "gentoo__gentoo__"
+    reason: "These Gentoo helpers rely on service-manager and package-manager variables populated by sourced eclass and OpenRC plumbing. The remaining C006 hits in this repo family are reviewed framework contracts rather than standalone assignment bugs."
+  - side: shuck-only
+    path_suffix: "juewuy__ShellCrash__scripts__libs__logger.sh"
+    reason: "This logger helper reads notification settings injected by the broader ShellCrash runtime, so the remaining C006 hits are reviewed framework-managed settings rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "ko1nksm__shellspec__spec__libexec__translator_spec.sh"
+    reason: "This ShellSpec translator fixture compares block line markers produced by the surrounding spec harness, so the remaining C006 read is reviewed harness state rather than a free-standing missing assignment."
+  - side: shuck-only
+    path_suffix: "leebaird__discover__misc__crack-wifi.sh"
+    reason: "This interactive helper threads prompt-loop state through earlier control-flow branches, so the remaining C006 read is a reviewed loop-state handoff rather than an isolated undefined local."
+  - side: shuck-only
+    path_contains: "moovweb__gvm__"
+    reason: "These GVM helpers mix generated Autotools scripts with wrapper state sourced from the surrounding toolchain environment. The remaining C006 hits in this repo family are reviewed template or wrapper contracts rather than missing local assignments."
+  - side: shuck-only
+    path_contains: "openrc__openrc__"
+    reason: "OpenRC service helpers expect daemon options and service-command lists to arrive from the wider service runtime. The remaining C006 hits in this repo family are reviewed service-framework reads rather than standalone assignment bugs."
+  - side: shuck-only
+    path_suffix: "openvpn__easy-rsa__easyrsa3__easyrsa"
+    reason: "This Easy-RSA front-end carries shell-mode and temporary-file bookkeeping through long helper-driven control flow, so the remaining C006 reads are reviewed runtime handoffs rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "rupa__z__z.sh"
+    reason: "This directory-ranking helper builds matcher state through branch-local accumulators, so the remaining C006 read is a reviewed control-flow handoff rather than an isolated undefined local."
+  - side: shuck-only
+    path_contains: "rvm__rvm__scripts__"
+    reason: "RVM sources these script helpers into a shared mutable environment and passes state through globals, helper side effects, and indirect expansion. The remaining C006 hits in this script family are reviewed library/runtime contracts rather than standalone missing assignments."
+  - side: shuck-only
+    path_contains: "scop__bash-completion__"
+    reason: "These bash-completion helpers thread parser indices and subcommand tables through sourced completion callbacks. The remaining C006 hits in this repo family are reviewed completion-runtime state rather than missing local assignments."
+  - side: shuck-only
+    path_suffix: "tj__git-extras__bin__git-brv"
+    reason: "This formatter computes column widths across earlier display branches, so the remaining C006 reads are reviewed layout-state handoffs rather than isolated undefined locals."
+  - side: shuck-only
+    path_suffix: "void-linux__void-packages__common__scripts__lint-conflicts"
+    reason: "This xbps-src helper fills pair state while walking conflict groups, so the remaining C006 read is a reviewed packaging-framework handoff rather than a standalone missing assignment."
+  - side: shuck-only
+    path_suffix: "xwmx__nb__nb"
+    reason: "This note-search helper builds query fragments through recursive filter assembly, so the remaining C006 read is a reviewed builder-state handoff rather than an isolated undefined local."
