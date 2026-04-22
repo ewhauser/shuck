@@ -2000,6 +2000,7 @@ mod tests {
         let mut args = check_args(true);
         args.fix = true;
         args.rule_selection = RuleSelectionArgs {
+            extend_select: vec![RuleSelector::Rule(Rule::AmpersandSemicolon)],
             unfixable: vec![RuleSelector::Rule(Rule::AmpersandSemicolon)],
             ..RuleSelectionArgs::default()
         };
