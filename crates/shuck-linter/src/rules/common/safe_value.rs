@@ -239,9 +239,8 @@ impl<'a> SafeValueIndex<'a> {
                 return safe_numeric_shell_variable(name);
             }
         }
-        if bindings.len() == 1
-            && matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
-            && self.binding_is_plain_empty_static_literal(bindings[0])
+        if matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
+            && self.bindings_are_all_plain_empty_static_literals(&bindings)
         {
             return false;
         }
@@ -341,6 +340,14 @@ impl<'a> SafeValueIndex<'a> {
             .and_then(|value| value.scalar_word())
             .and_then(|word| static_word_text(word, self.source))
             .is_some_and(|text| text.is_empty())
+    }
+
+    fn bindings_are_all_plain_empty_static_literals(&self, bindings: &[BindingId]) -> bool {
+        !bindings.is_empty()
+            && bindings
+                .iter()
+                .copied()
+                .all(|binding_id| self.binding_is_plain_empty_static_literal(binding_id))
     }
 
     fn binding_is_safe(
@@ -1580,13 +1587,25 @@ config() {
     }
 
     #[test]
-    fn lone_empty_static_literal_bindings_stay_unsafe_but_optional_flags_can_stay_safe() {
+    fn all_empty_static_literal_bindings_stay_unsafe_but_mixed_option_bindings_can_stay_safe() {
         let source = "\
 #!/bin/bash
 gl2ps=
-libdirsuffix=
+if true; then
+  libdirsuffix=
+else
+  libdirsuffix=
+fi
+
+if true; then
+  mixedsuffix=64
+else
+  mixedsuffix=
+fi
+
 cmake $gl2ps -DOPT=1
 mkdir -p /tmp/usr/lib${libdirsuffix}/ladspa
+mkdir -p /tmp/usr/lib${mixedsuffix}/ladspa
 
 if true; then
   opt=-n
@@ -1612,22 +1631,28 @@ printf '%s\\n' $opt hi
                         || fact.span().slice(source).contains("lib${libdirsuffix}/ladspa"))
             })
             .collect::<Vec<_>>();
-        let safe_word = facts
+        let safe_words = facts
             .word_facts()
             .iter()
-            .find(|fact| {
+            .filter(|fact| {
                 fact.expansion_context() == Some(ExpansionContext::CommandArgument)
-                    && fact.span().slice(source) == "$opt"
+                    && (fact.span().slice(source) == "$opt"
+                        || fact.span().slice(source).contains("lib${mixedsuffix}/ladspa"))
             })
-            .expect("expected optional flag command-argument fact");
+            .collect::<Vec<_>>();
 
-        assert_eq!(unsafe_words.len(), 2, "expected both lone empty literal uses");
+        assert_eq!(unsafe_words.len(), 2, "expected both empty-only uses");
         assert!(
             unsafe_words
                 .into_iter()
                 .all(|fact| !safe_values.word_occurrence_is_safe(fact, SafeValueQuery::Argv))
         );
-        assert!(safe_values.word_occurrence_is_safe(safe_word, SafeValueQuery::Argv));
+        assert_eq!(safe_words.len(), 2, "expected both mixed-value uses");
+        assert!(
+            safe_words
+                .into_iter()
+                .all(|fact| safe_values.word_occurrence_is_safe(fact, SafeValueQuery::Argv))
+        );
     }
 
     #[test]
