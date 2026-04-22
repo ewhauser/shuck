@@ -576,7 +576,7 @@ line two\"\\foo\"tail\"
 }
 
 #[test]
-fn open_double_quote_surface_facts_ignore_empty_prefix_multiline_quotes_with_literal_suffix() {
+fn open_double_quote_surface_facts_track_multiline_quotes_with_literal_suffix() {
     let source = "\
 #!/bin/sh
 echo \"\"\"line one
@@ -584,13 +584,24 @@ line two\"suffix
 ";
 
     with_facts(source, None, |_, facts| {
-        assert!(facts.open_double_quote_fragments().is_empty());
-        assert!(facts.suspect_closing_quote_fragments().is_empty());
+        let open = facts
+            .open_double_quote_fragments()
+            .iter()
+            .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+            .collect::<Vec<_>>();
+        let close = facts
+            .suspect_closing_quote_fragments()
+            .iter()
+            .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+            .collect::<Vec<_>>();
+
+        assert_eq!(open, vec![(2, 8)]);
+        assert_eq!(close, vec![(3, 9)]);
     });
 }
 
 #[test]
-fn open_double_quote_surface_facts_ignore_valid_multiline_quotes_with_suffix_expansion() {
+fn open_double_quote_surface_facts_track_multiline_quotes_with_suffix_expansion() {
     let source = "\
 #!/bin/sh
 echo \"line one
@@ -598,13 +609,24 @@ line two\"$suffix
 ";
 
     with_facts(source, None, |_, facts| {
-        assert!(facts.open_double_quote_fragments().is_empty());
-        assert!(facts.suspect_closing_quote_fragments().is_empty());
+        let open = facts
+            .open_double_quote_fragments()
+            .iter()
+            .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+            .collect::<Vec<_>>();
+        let close = facts
+            .suspect_closing_quote_fragments()
+            .iter()
+            .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+            .collect::<Vec<_>>();
+
+        assert_eq!(open, vec![(2, 6)]);
+        assert_eq!(close, vec![(3, 9)]);
     });
 }
 
 #[test]
-fn open_double_quote_surface_facts_ignore_empty_prefix_multiline_quotes_with_suffix_expansion() {
+fn open_double_quote_surface_facts_track_empty_prefix_multiline_quotes_with_suffix_expansion() {
     let source = "\
 #!/bin/sh
 echo \"\"\"line one
@@ -612,13 +634,81 @@ line two\"$suffix
 ";
 
     with_facts(source, None, |_, facts| {
-        assert!(facts.open_double_quote_fragments().is_empty());
-        assert!(facts.suspect_closing_quote_fragments().is_empty());
+        let open = facts
+            .open_double_quote_fragments()
+            .iter()
+            .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+            .collect::<Vec<_>>();
+        let close = facts
+            .suspect_closing_quote_fragments()
+            .iter()
+            .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+            .collect::<Vec<_>>();
+
+        assert_eq!(open, vec![(2, 8)]);
+        assert_eq!(close, vec![(3, 9)]);
     });
 }
 
 #[test]
-fn open_double_quote_surface_facts_report_only_first_fragment_per_word() {
+fn open_double_quote_surface_facts_track_reopened_single_quote_fragments() {
+    let source = "\
+#!/bin/sh
+echo 'line one
+line two''tail'
+";
+
+    with_facts(source, None, |_, facts| {
+        let open = facts
+            .open_double_quote_fragments()
+            .iter()
+            .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+            .collect::<Vec<_>>();
+        let close = facts
+            .suspect_closing_quote_fragments()
+            .iter()
+            .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+            .collect::<Vec<_>>();
+
+        assert_eq!(open, vec![(2, 6)]);
+        assert_eq!(close, vec![(3, 9)]);
+    });
+}
+
+#[test]
+fn open_double_quote_surface_facts_track_recovered_single_quoted_assignment_shape() {
+    let source = "\
+#!/bin/sh
+archive_cmds='$CC -o $output_objdir/$soname $libobjs $compiler_flags $deplibs -Wl,-dll~linknames='
+archive_expsym_cmds='if test \"x`$SED 1q $export_symbols`\" = xEXPORTS; then
+    sed -n -e 's/\\\\\\\\\\\\\\(.*\\\\\\\\\\\\\\)/-link\\\\\\ -EXPORT:\\\\\\\\\\\\\\\u{1}/' -e '1\\\\\\!p' < $export_symbols > $output_objdir/$soname.exp;
+  else
+    sed -e 's/\\\\\\\\\\\\\\(.*\\\\\\\\\\\\\\)/-link\\\\\\ -EXPORT:\\\\\\\\\\\\\\\u{1}/' < $export_symbols > $output_objdir/$soname.exp;
+  fi~
+  $CC -o $tool_output_objdir$soname $libobjs $compiler_flags $deplibs \"@$tool_output_objdir$soname.exp\" -Wl,-DLL,-IMPLIB:\"$tool_output_objdir$libname.dll.lib\"~
+  linknames='
+enable_shared_with_static_runtimes=yes
+";
+
+    with_facts(source, None, |_, facts| {
+        let open = facts
+            .open_double_quote_fragments()
+            .iter()
+            .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+            .collect::<Vec<_>>();
+        let close = facts
+            .suspect_closing_quote_fragments()
+            .iter()
+            .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
+            .collect::<Vec<_>>();
+
+        assert_eq!(open, vec![(3, 21), (4, 75)]);
+        assert_eq!(close, vec![(4, 15), (6, 12)]);
+    });
+}
+
+#[test]
+fn open_double_quote_surface_facts_track_each_reopened_fragment_per_word() {
     let source = "\
 #!/bin/sh
 echo \"help text
@@ -639,8 +729,8 @@ then \"install\" later
             .map(|fragment| (fragment.span().start.line, fragment.span().start.column))
             .collect::<Vec<_>>();
 
-        assert_eq!(open, vec![(2, 6)]);
-        assert_eq!(close, vec![(3, 5)]);
+        assert_eq!(open, vec![(2, 6), (3, 15), (4, 14)]);
+        assert_eq!(close, vec![(3, 5), (4, 6), (5, 1)]);
     });
 }
 
