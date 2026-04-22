@@ -724,6 +724,10 @@ fn source_mapping_for_scalar(source: &str, start_offset: usize, scalar: &str) ->
         return mapping;
     }
 
+    if let Some(mapping) = plain_scalar_source_mapping(source, start_offset, scalar) {
+        return mapping;
+    }
+
     let host_offset = adjust_offset_to_scalar_content(source, start_offset, scalar);
     let (host_start_line, host_start_column) = line_column_for_offset(source, host_offset);
     SourceMapping {
@@ -927,6 +931,76 @@ fn single_quoted_source_mapping(
     }
 
     None
+}
+
+fn plain_scalar_source_mapping(
+    source: &str,
+    start_offset: usize,
+    scalar: &str,
+) -> Option<SourceMapping> {
+    let host_offset = adjust_offset_to_scalar_content(source, start_offset, scalar);
+    let content_line_start = line_start_offset(source, host_offset);
+    if previous_line_text(source, content_line_start).is_some_and(header_line_is_block_scalar) {
+        return None;
+    }
+
+    let (host_start_line, host_start_column) = line_column_for_offset(source, host_offset);
+    let mut host_line_starts = vec![HostLineStart {
+        line: host_start_line,
+        column: host_start_column,
+    }];
+    let mut host_column_mappings = Vec::new();
+    let mut decoded_line = 1usize;
+    let mut decoded_column = 1usize;
+    let mut decoded_offset = 0usize;
+    let mut relative_offset = 0usize;
+    let content = &source[host_offset..];
+    let mut saw_physical_newline = false;
+
+    while relative_offset < content.len() && decoded_offset < scalar.len() {
+        let absolute_offset = host_offset + relative_offset;
+        let ch = source[absolute_offset..].chars().next()?;
+        match ch {
+            '\n' => {
+                saw_physical_newline = true;
+                let folded =
+                    scan_quoted_physical_newline(source, host_offset, relative_offset, '\0')?;
+                let next_relative_offset = folded.next_relative_offset;
+                consume_quoted_fold(
+                    scalar,
+                    &mut decoded_offset,
+                    &mut decoded_line,
+                    &mut decoded_column,
+                    &mut host_line_starts,
+                    &mut host_column_mappings,
+                    folded,
+                )?;
+                relative_offset = next_relative_offset;
+            }
+            _ => {
+                let decoded_char = consume_decoded_char(
+                    scalar,
+                    &mut decoded_offset,
+                    &mut decoded_line,
+                    &mut decoded_column,
+                )?;
+                if decoded_char != ch {
+                    return None;
+                }
+                relative_offset += ch.len_utf8();
+            }
+        }
+    }
+
+    if !saw_physical_newline || decoded_offset != scalar.len() {
+        return None;
+    }
+
+    Some(SourceMapping {
+        host_offset,
+        host_line_starts,
+        host_column_mappings,
+    })
 }
 
 fn push_host_column_mapping(
@@ -1238,6 +1312,12 @@ fn header_line_is_folded_block(line: &str) -> bool {
     line.rsplit_once(':')
         .map(|(_, value)| value.trim_start().starts_with('>'))
         .unwrap_or(false)
+}
+
+fn header_line_is_block_scalar(line: &str) -> bool {
+    line.rsplit_once(':')
+        .and_then(|(_, value)| value.trim_start().chars().next())
+        .is_some_and(|indicator| matches!(indicator, '>' | '|'))
 }
 
 struct ParsedYamlEscape {
@@ -1949,6 +2029,31 @@ jobs:
                     host_column: 26,
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn remaps_plain_multiline_runs_onto_later_host_lines() {
+        let source = r#"on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok
+          ; unused=1
+"#;
+
+        let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
+        assert_eq!(scripts.len(), 1);
+        assert_eq!(scripts[0].source, "echo ok ; unused=1");
+        assert_eq!(
+            scripts[0].host_column_mappings,
+            vec![HostColumnMapping {
+                line: 1,
+                column: 9,
+                host_line: 7,
+                host_column: 11,
+            }]
         );
     }
 
