@@ -1457,6 +1457,14 @@ fn containing_backtick_substitution_span(target: Span, source: &str) -> Option<S
 struct BacktickQuoteContext {
     in_single_quote: bool,
     in_double_quote: bool,
+    in_comment: bool,
+    previous_char: Option<char>,
+}
+
+fn backtick_shell_comment_can_start(previous_char: Option<char>) -> bool {
+    previous_char.is_none_or(|ch| {
+        ch.is_ascii_whitespace() || matches!(ch, ';' | '|' | '&' | '(' | ')' | '<' | '>')
+    })
 }
 
 fn backtick_substitution_spans(source: &str) -> Vec<Span> {
@@ -1471,14 +1479,38 @@ fn backtick_substitution_spans(source: &str) -> Vec<Span> {
             .next()
             .expect("index should remain on UTF-8 boundaries");
         let ch_len = ch.len_utf8();
-        let context = contexts
-            .last_mut()
-            .expect("scanner should always retain a root context");
 
-        if context.in_single_quote {
-            if ch == '\'' {
-                context.in_single_quote = false;
+        if contexts
+            .last()
+            .expect("scanner should always retain a root context")
+            .in_comment
+        {
+            if ch == '\n' {
+                let context = contexts
+                    .last_mut()
+                    .expect("scanner should always retain a root context");
+                context.in_comment = false;
+                context.previous_char = Some(ch);
             }
+            index += ch_len;
+            continue;
+        }
+
+        if contexts
+            .last()
+            .expect("scanner should always retain a root context")
+            .in_single_quote
+        {
+            if ch == '\'' {
+                contexts
+                    .last_mut()
+                    .expect("scanner should always retain a root context")
+                    .in_single_quote = false;
+            }
+            contexts
+                .last_mut()
+                .expect("scanner should always retain a root context")
+                .previous_char = Some(ch);
             index += ch_len;
             continue;
         }
@@ -1492,14 +1524,52 @@ fn backtick_substitution_spans(source: &str) -> Vec<Span> {
                         .next()
                         .expect("index should remain on UTF-8 boundaries");
                     index += escaped.len_utf8();
+                    contexts
+                        .last_mut()
+                        .expect("scanner should always retain a root context")
+                        .previous_char = Some(escaped);
+                } else {
+                    contexts
+                        .last_mut()
+                        .expect("scanner should always retain a root context")
+                        .previous_char = Some('\\');
                 }
             }
-            '\'' if !context.in_double_quote => {
+            '\'' if !contexts
+                .last()
+                .expect("scanner should always retain a root context")
+                .in_double_quote =>
+            {
+                let context = contexts
+                    .last_mut()
+                    .expect("scanner should always retain a root context");
                 context.in_single_quote = true;
+                context.previous_char = Some(ch);
                 index += ch_len;
             }
             '"' => {
+                let context = contexts
+                    .last_mut()
+                    .expect("scanner should always retain a root context");
                 context.in_double_quote = !context.in_double_quote;
+                context.previous_char = Some(ch);
+                index += ch_len;
+            }
+            '#' if !contexts
+                .last()
+                .expect("scanner should always retain a root context")
+                .in_double_quote
+                && backtick_shell_comment_can_start(
+                    contexts
+                        .last()
+                        .expect("scanner should always retain a root context")
+                        .previous_char,
+                ) =>
+            {
+                contexts
+                    .last_mut()
+                    .expect("scanner should always retain a root context")
+                    .in_comment = true;
                 index += ch_len;
             }
             '`' => {
@@ -1514,13 +1584,25 @@ fn backtick_substitution_spans(source: &str) -> Vec<Span> {
                         continue;
                     };
                     spans.push(Span::from_positions(start, end));
+                    contexts
+                        .last_mut()
+                        .expect("scanner should always retain a root context")
+                        .previous_char = Some(ch);
                 } else {
                     backtick_start_offsets.push(index);
+                    contexts
+                        .last_mut()
+                        .expect("scanner should always retain a root context")
+                        .previous_char = Some(ch);
                     contexts.push(BacktickQuoteContext::default());
                 }
                 index += ch_len;
             }
             _ => {
+                contexts
+                    .last_mut()
+                    .expect("scanner should always retain a root context")
+                    .previous_char = Some(ch);
                 index += ch_len;
             }
         }
@@ -5010,6 +5092,22 @@ exec \"$@\" \"${@}\" \"${@:1}\" \"${@:-fallback}\" \"${@:${args_offset}}\" \"${@
     #[test]
     fn shellcheck_collapsed_backtick_part_span_in_source_ignores_single_quoted_backticks() {
         let source = "printf '%s\\n' '`'\\\n  \"$foo\"\\\n  '`'\n";
+        let start_offset = source.find("$foo").expect("expected expansion");
+        let end_offset = start_offset + "$foo".len();
+        let span = Span::from_positions(
+            position_at_offset(source, start_offset).expect("expected start position"),
+            position_at_offset(source, end_offset).expect("expected end position"),
+        );
+
+        assert_eq!(
+            shellcheck_collapsed_backtick_part_span_in_source(span, source),
+            span
+        );
+    }
+
+    #[test]
+    fn shellcheck_collapsed_backtick_part_span_in_source_ignores_backticks_in_comments() {
+        let source = "# `\nprintf '%s\\n' \\\n  \"$foo\"\n# `\n";
         let start_offset = source.find("$foo").expect("expected expansion");
         let end_offset = start_offset + "$foo".len();
         let span = Span::from_positions(

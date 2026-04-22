@@ -252,6 +252,20 @@ echo /usr/lib${LIBDIRSUFFIX}
     }
 
     #[test]
+    fn ignores_safe_bindings_after_background_exit_like_helper_calls() {
+        let source = "\
+#!/bin/sh
+SAFE=foo
+Exit() { exit 0; }
+Exit &
+echo /tmp/$SAFE
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn ignores_safe_bindings_after_shadowed_exit_like_helper_names() {
         let source = "\
 #!/bin/sh

@@ -366,6 +366,10 @@ impl<'a> SafeValueIndex<'a> {
                     .filter_map(|call_span| self.command_for_name_word_span(*call_span))
                     .any(|command| {
                         !command.is_nested_word_command()
+                            && !matches!(
+                                command.stmt().terminator,
+                                Some(StmtTerminator::Background(_))
+                            )
                             && command.body_args().is_empty()
                             && command.redirects().is_empty()
                             && self.command_runs_in_unconditional_flow(command.id(), at)
