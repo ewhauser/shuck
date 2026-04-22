@@ -23,6 +23,8 @@ pub struct EmbeddedScript {
     pub host_start_column: usize,
     /// Per-line host positions for decoded snippet lines.
     pub host_line_starts: Vec<HostLineStart>,
+    /// Host column expansions for decoded characters that came from YAML escapes.
+    pub host_column_mappings: Vec<HostColumnMapping>,
     /// The shell dialect for this snippet.
     pub dialect: ExtractedDialect,
     /// Human-readable location label inside the host file.
@@ -60,6 +62,17 @@ pub struct HostLineStart {
     pub line: usize,
     /// 1-based column number in the host file.
     pub column: usize,
+}
+
+/// Host-file span of a decoded snippet character.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HostColumnMapping {
+    /// 1-based decoded snippet line number.
+    pub line: usize,
+    /// 1-based decoded snippet column number.
+    pub column: usize,
+    /// Number of host-file columns consumed by the source character.
+    pub host_columns: usize,
 }
 
 /// Mapping between a synthetic placeholder and the original template expression.
@@ -580,10 +593,9 @@ fn runner_kind(runs_on: Option<&Node>) -> RunnerKind {
 }
 
 fn node_contains_runner_label(node: &Node, label: &str) -> bool {
-    let label = label.to_ascii_lowercase();
     if node
         .as_scalar()
-        .is_some_and(|scalar| scalar.as_str().to_ascii_lowercase().contains(&label))
+        .is_some_and(|scalar| scalar_matches_runner_label(scalar.as_str(), label))
     {
         return true;
     }
@@ -591,11 +603,41 @@ fn node_contains_runner_label(node: &Node, label: &str) -> bool {
     node.as_sequence().is_some_and(|sequence| {
         sequence
             .iter()
-            .any(|item| node_contains_runner_label(item, &label))
+            .any(|item| node_contains_runner_label(item, label))
     }) || node
         .as_mapping()
         .and_then(|mapping| mapping.get_node("labels"))
-        .is_some_and(|labels| node_contains_runner_label(labels, &label))
+        .is_some_and(|labels| node_contains_runner_label(labels, label))
+}
+
+fn scalar_matches_runner_label(scalar: &str, label: &str) -> bool {
+    let scalar = scalar.trim().to_ascii_lowercase();
+    match label {
+        "windows" => {
+            scalar == "windows"
+                || scalar.strip_prefix("windows-").is_some_and(|suffix| {
+                    suffix == "latest"
+                        || suffix.chars().next().is_some_and(|ch| ch.is_ascii_digit())
+                })
+        }
+        "ubuntu" => {
+            scalar == "ubuntu"
+                || scalar.strip_prefix("ubuntu-").is_some_and(|suffix| {
+                    suffix == "latest"
+                        || suffix == "slim"
+                        || suffix.chars().next().is_some_and(|ch| ch.is_ascii_digit())
+                })
+        }
+        "macos" => {
+            scalar == "macos"
+                || scalar.strip_prefix("macos-").is_some_and(|suffix| {
+                    suffix == "latest"
+                        || suffix.chars().next().is_some_and(|ch| ch.is_ascii_digit())
+                })
+        }
+        "linux" => scalar == "linux",
+        _ => scalar == label,
+    }
 }
 
 fn node_contains_github_expression(node: &Node) -> bool {
@@ -650,6 +692,7 @@ fn build_embedded_script(
         host_start_line,
         host_start_column,
         host_line_starts: source_mapping.host_line_starts,
+        host_column_mappings: source_mapping.host_column_mappings,
         dialect: shell.dialect,
         label: label.to_owned(),
         format,
@@ -661,6 +704,7 @@ fn build_embedded_script(
 struct SourceMapping {
     host_offset: usize,
     host_line_starts: Vec<HostLineStart>,
+    host_column_mappings: Vec<HostColumnMapping>,
 }
 
 fn source_mapping_for_scalar(source: &str, start_offset: usize, scalar: &str) -> SourceMapping {
@@ -673,6 +717,7 @@ fn source_mapping_for_scalar(source: &str, start_offset: usize, scalar: &str) ->
     SourceMapping {
         host_offset,
         host_line_starts: default_host_line_starts(host_start_line, host_start_column, scalar),
+        host_column_mappings: Vec::new(),
     }
 }
 
@@ -690,37 +735,91 @@ fn double_quoted_source_mapping(
         let (line, column) = line_column_for_offset(source, content_offset);
         HostLineStart { line, column }
     }];
+    let mut host_column_mappings = Vec::new();
     let expected_line_count = decoded_line_count(scalar);
-    let mut escaped = false;
+    let mut decoded_line = 1usize;
+    let mut decoded_column = 1usize;
+    let mut relative_offset = 0usize;
+    let content = &source[content_offset..];
 
-    for (relative_offset, ch) in source[content_offset..].char_indices() {
+    while relative_offset < content.len() {
         let absolute_offset = content_offset + relative_offset;
-        if escaped {
-            if matches!(ch, 'n' | 'r' | 'N' | 'L' | 'P') {
-                let (line, column) =
-                    line_column_for_offset(source, absolute_offset + ch.len_utf8());
-                host_line_starts.push(HostLineStart { line, column });
-            }
-            escaped = false;
-            continue;
-        }
-
+        let ch = source[absolute_offset..].chars().next()?;
         match ch {
-            '\\' => escaped = true,
+            '\\' => {
+                let escape = parse_double_quoted_yaml_escape(source, absolute_offset)?;
+                if escape.produces_newline {
+                    let (line, column) =
+                        line_column_for_offset(source, absolute_offset + escape.host_columns);
+                    host_line_starts.push(HostLineStart { line, column });
+                    decoded_line += 1;
+                    decoded_column = 1;
+                } else {
+                    if escape.host_columns > 1 {
+                        host_column_mappings.push(HostColumnMapping {
+                            line: decoded_line,
+                            column: decoded_column,
+                            host_columns: escape.host_columns,
+                        });
+                    }
+                    decoded_column += 1;
+                }
+                relative_offset += escape.host_columns;
+            }
             '"' => {
                 if host_line_starts.len() == expected_line_count {
                     return Some(SourceMapping {
                         host_offset: content_offset,
                         host_line_starts,
+                        host_column_mappings,
                     });
                 }
                 return None;
             }
-            _ => {}
+            '\n' => {
+                decoded_line += 1;
+                decoded_column = 1;
+                relative_offset += ch.len_utf8();
+            }
+            _ => {
+                decoded_column += 1;
+                relative_offset += ch.len_utf8();
+            }
         }
     }
 
     None
+}
+
+struct ParsedYamlEscape {
+    host_columns: usize,
+    produces_newline: bool,
+}
+
+fn parse_double_quoted_yaml_escape(source: &str, offset: usize) -> Option<ParsedYamlEscape> {
+    debug_assert_eq!(source[offset..].chars().next(), Some('\\'));
+    let escape = source[offset + '\\'.len_utf8()..].chars().next()?;
+    let host_columns = match escape {
+        'x' => '\\'.len_utf8() + escape.len_utf8() + fixed_hex_escape_len(source, offset, 2)?,
+        'u' => '\\'.len_utf8() + escape.len_utf8() + fixed_hex_escape_len(source, offset, 4)?,
+        'U' => '\\'.len_utf8() + escape.len_utf8() + fixed_hex_escape_len(source, offset, 8)?,
+        _ => '\\'.len_utf8() + escape.len_utf8(),
+    };
+
+    Some(ParsedYamlEscape {
+        host_columns,
+        produces_newline: matches!(escape, 'n' | 'r' | 'N' | 'L' | 'P'),
+    })
+}
+
+fn fixed_hex_escape_len(source: &str, offset: usize, digits: usize) -> Option<usize> {
+    let start = offset + '\\'.len_utf8() + 1;
+    let end = start + digits;
+    source
+        .get(start..end)?
+        .chars()
+        .all(|ch| ch.is_ascii_hexdigit())
+        .then_some(digits)
 }
 
 fn default_host_line_starts(
@@ -1067,6 +1166,27 @@ jobs:
     }
 
     #[test]
+    fn prefers_unix_runner_when_custom_self_hosted_label_mentions_windows() {
+        let source = r#"
+on: push
+jobs:
+  build:
+    runs-on:
+      - self-hosted
+      - linux
+      - windows-tools
+    steps:
+      - run: echo hi
+"#;
+
+        let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
+        assert_eq!(scripts.len(), 1);
+        assert_eq!(scripts[0].dialect, ExtractedDialect::Bash);
+        assert!(scripts[0].implicit_flags.errexit);
+        assert!(scripts[0].implicit_flags.pipefail);
+    }
+
+    #[test]
     fn recognizes_path_and_env_shell_templates() {
         let source = r#"
 on: push
@@ -1192,6 +1312,42 @@ jobs:
                 HostLineStart {
                     line: 7,
                     column: 33,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn preserves_host_columns_for_non_newline_escaped_double_quoted_runs() {
+        let source = r#"
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: "echo\t\"hi\""
+"#;
+
+        let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
+        assert_eq!(scripts.len(), 1);
+        assert_eq!(scripts[0].source, "echo\t\"hi\"");
+        assert_eq!(
+            scripts[0].host_column_mappings,
+            vec![
+                HostColumnMapping {
+                    line: 1,
+                    column: 5,
+                    host_columns: 2,
+                },
+                HostColumnMapping {
+                    line: 1,
+                    column: 6,
+                    host_columns: 2,
+                },
+                HostColumnMapping {
+                    line: 1,
+                    column: 9,
+                    host_columns: 2,
                 },
             ]
         );

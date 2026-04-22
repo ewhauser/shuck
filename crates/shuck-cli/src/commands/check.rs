@@ -1800,6 +1800,15 @@ fn remap_embedded_column(
     host_start_column: usize,
     snippet_column: usize,
 ) -> usize {
+    let decoded_column = remap_placeholder_column(embedded, snippet_line, snippet_column);
+    remap_decoded_yaml_column(embedded, snippet_line, host_start_column, decoded_column)
+}
+
+fn remap_placeholder_column(
+    embedded: &EmbeddedScript,
+    snippet_line: usize,
+    snippet_column: usize,
+) -> usize {
     let local_column = snippet_column.saturating_sub(1);
     let mut cumulative_delta = 0isize;
 
@@ -1821,14 +1830,42 @@ fn remap_embedded_column(
         }
 
         if local_column >= substituted_start {
-            let host_start = substituted_start as isize + cumulative_delta;
+            let decoded_start = substituted_start as isize + cumulative_delta;
             let relative = local_column - substituted_start;
-            let mapped = host_start + relative.min(host_len.saturating_sub(1)) as isize;
-            return host_start_column + mapped.max(0) as usize;
+            let mapped = decoded_start + relative.min(host_len.saturating_sub(1)) as isize;
+            return mapped.max(0) as usize + 1;
         }
     }
 
-    host_start_column + (local_column as isize + cumulative_delta).max(0) as usize
+    (local_column as isize + cumulative_delta).max(0) as usize + 1
+}
+
+fn remap_decoded_yaml_column(
+    embedded: &EmbeddedScript,
+    snippet_line: usize,
+    host_start_column: usize,
+    decoded_column: usize,
+) -> usize {
+    let local_column = decoded_column.saturating_sub(1);
+    let mut cumulative_delta = 0usize;
+
+    for mapping in embedded
+        .host_column_mappings
+        .iter()
+        .filter(|mapping| mapping.line == snippet_line)
+    {
+        let mapped_start = mapping.column.saturating_sub(1);
+        if local_column > mapped_start {
+            cumulative_delta += mapping.host_columns.saturating_sub(1);
+            continue;
+        }
+
+        if local_column == mapped_start {
+            return host_start_column + mapped_start + cumulative_delta;
+        }
+    }
+
+    host_start_column + local_column + cumulative_delta
 }
 
 fn source_line_column_for_offset(source: &str, offset: usize) -> (usize, usize) {
@@ -2143,6 +2180,7 @@ jobs:
                 HostLineStart { line: 8, column: 9 },
                 HostLineStart { line: 9, column: 9 },
             ],
+            host_column_mappings: Vec::new(),
             dialect: ExtractedDialect::Bash,
             label: "jobs.test.steps[0].run".to_owned(),
             format: EmbeddedFormat::GitHubActions,
@@ -2163,6 +2201,7 @@ jobs:
             host_start_line: 7,
             host_start_column: 9,
             host_line_starts: vec![HostLineStart { line: 7, column: 9 }],
+            host_column_mappings: Vec::new(),
             dialect: ExtractedDialect::Bash,
             label: "jobs.test.steps[0].run".to_owned(),
             format: EmbeddedFormat::GitHubActions,
@@ -2190,6 +2229,7 @@ jobs:
             host_start_line: 7,
             host_start_column: 9,
             host_line_starts: vec![HostLineStart { line: 7, column: 9 }],
+            host_column_mappings: Vec::new(),
             dialect: ExtractedDialect::Bash,
             label: "jobs.test.steps[0].run".to_owned(),
             format: EmbeddedFormat::GitHubActions,
@@ -2230,6 +2270,7 @@ jobs:
                     column: 33,
                 },
             ],
+            host_column_mappings: Vec::new(),
             dialect: ExtractedDialect::Bash,
             label: "jobs.test.steps[0].run".to_owned(),
             format: EmbeddedFormat::GitHubActions,
@@ -2240,6 +2281,34 @@ jobs:
         let position = remap_embedded_position(&embedded, 2, 1);
         assert_eq!(position.line, 7);
         assert_eq!(position.column, 24);
+    }
+
+    #[test]
+    fn remaps_columns_after_non_newline_yaml_escapes() {
+        let embedded = EmbeddedScript {
+            source: "echo\tif true\n".to_owned(),
+            host_offset: 0,
+            host_start_line: 7,
+            host_start_column: 15,
+            host_line_starts: vec![HostLineStart {
+                line: 7,
+                column: 15,
+            }],
+            host_column_mappings: vec![shuck_extract::HostColumnMapping {
+                line: 1,
+                column: 5,
+                host_columns: 2,
+            }],
+            dialect: ExtractedDialect::Bash,
+            label: "jobs.test.steps[0].run".to_owned(),
+            format: EmbeddedFormat::GitHubActions,
+            placeholders: Vec::new(),
+            implicit_flags: ImplicitShellFlags::default(),
+        };
+
+        let position = remap_embedded_position(&embedded, 1, 6);
+        assert_eq!(position.line, 7);
+        assert_eq!(position.column, 21);
     }
 
     #[test]
