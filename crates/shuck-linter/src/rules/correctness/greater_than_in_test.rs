@@ -121,6 +121,12 @@ fn numeric_comparison_redirect_diagnostic(
     }
 
     let fix_span = Span::from_positions(operator_span.start, target.span.start);
+    let leading_separator = source[..operator_span.start.offset]
+        .chars()
+        .next_back()
+        .filter(|ch| !ch.is_whitespace())
+        .map(|_| " ")
+        .unwrap_or("");
     let separator = source
         .get(operator_span.end.offset..target.span.start.offset)
         .filter(|text| !text.is_empty())
@@ -128,7 +134,10 @@ fn numeric_comparison_redirect_diagnostic(
 
     Some(
         crate::Diagnostic::new(GreaterThanInTest, operator_span).with_fix(Fix::unsafe_edit(
-            Edit::replacement(format!("{replacement}{separator}"), fix_span),
+            Edit::replacement(
+                format!("{leading_separator}{replacement}{separator}"),
+                fix_span,
+            ),
         )),
     )
 }
@@ -428,8 +437,8 @@ limit=3
     fn inserts_a_separator_for_compact_bracket_numeric_comparisons() {
         let source = "\
 #!/bin/bash
-[ \"$version\" >\"10\" ]
-[ \"$version\" <10 ]
+[ \"$version\">\"10\" ]
+[ \"$version\"<10 ]
 ";
         let result = test_snippet_with_fix(
             source,
