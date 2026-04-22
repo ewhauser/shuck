@@ -676,9 +676,10 @@ fn build_linebreak_in_test_site(
         .as_deref()
         == Some("]");
     let current_span = current.span();
-    if last_arg_is_closing_bracket || !current_span.slice(source).ends_with('\n') {
+    if last_arg_is_closing_bracket {
         return None;
     }
+    let insert_offset = linebreak_in_test_insert_offset(current_span, source)?;
 
     let between = source.get(current_span.end.offset..next.span().start.offset)?;
     if !between.chars().all(|char| matches!(char, ' ' | '\t')) {
@@ -692,11 +693,49 @@ fn build_linebreak_in_test_site(
         .or_else(|| current.body_name_word().map(|word| word.span))
         .map(|span| Span::from_positions(span.end, span.end))
         .unwrap_or_else(|| Span::from_positions(current_span.end, current_span.end));
-    Some((anchor_span, current_span.end.offset - 1))
+    Some((anchor_span, insert_offset))
+}
+
+fn linebreak_in_test_insert_offset(span: Span, source: &str) -> Option<usize> {
+    let text = span.slice(source);
+    if text.ends_with("\r\n") {
+        Some(span.end.offset - 2)
+    } else if text.ends_with('\n') {
+        Some(span.end.offset - 1)
+    } else {
+        None
+    }
 }
 
 fn sort_and_dedup_case_pattern_expansions(expansions: &mut Vec<CasePatternExpansionFact>) {
     let mut seen = FxHashSet::default();
     expansions.retain(|fact| seen.insert(FactSpan::new(fact.span())));
     expansions.sort_by_key(|fact| (fact.span().start.offset, fact.span().end.offset));
+}
+
+#[cfg(test)]
+mod builder_tests {
+    use shuck_ast::{Position, Span};
+
+    use super::linebreak_in_test_insert_offset;
+
+    #[test]
+    fn linebreak_in_test_insert_offset_targets_lf_newlines() {
+        let source = "if [ \"$x\" = y\n";
+        let span = Span::from_positions(Position::new(), Position::new().advanced_by(source));
+        let insert_offset =
+            linebreak_in_test_insert_offset(span, source).expect("expected LF insert offset");
+
+        assert_eq!(&source[insert_offset..], "\n");
+    }
+
+    #[test]
+    fn linebreak_in_test_insert_offset_targets_crlf_newlines() {
+        let source = "if [ \"$x\" = y\r\n";
+        let span = Span::from_positions(Position::new(), Position::new().advanced_by(source));
+        let insert_offset =
+            linebreak_in_test_insert_offset(span, source).expect("expected CRLF insert offset");
+
+        assert_eq!(&source[insert_offset..], "\r\n");
+    }
 }
