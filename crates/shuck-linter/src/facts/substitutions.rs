@@ -619,9 +619,11 @@ fn summarize_compound_stmt_redirects(
     redirects: &[Redirect],
     source: &str,
 ) -> RedirectSummary {
-    compound_redirects_capture_stderr_to_stdout(redirects, source)
-        .then_some(default_redirect_summary())
-        .unwrap_or(summary)
+    if compound_redirects_capture_stderr_to_stdout(redirects, source) {
+        default_redirect_summary()
+    } else {
+        summary
+    }
 }
 
 fn summarize_command_redirects<'a>(

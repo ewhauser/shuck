@@ -856,9 +856,7 @@ fn branch_body_logs_status_then_immediately_exits(
         return false;
     }
 
-    body.iter()
-        .nth(1)
-        .is_some_and(|stmt| stmt_is_exit_or_return_builtin(stmt))
+    body.iter().nth(1).is_some_and(stmt_is_exit_or_return_builtin)
 }
 
 fn collect_condition_status_capture_from_nested_sequences(
