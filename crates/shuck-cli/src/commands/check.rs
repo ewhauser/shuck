@@ -1082,6 +1082,7 @@ fn run_check_with_cwd(
         let analyzed_paths = run
             .files
             .iter()
+            .filter(|file| file.kind == FileKind::Shell)
             .map(|file| file.absolute_path.clone())
             .collect::<Vec<_>>();
         let project_settings = run.settings.clone();
@@ -1790,18 +1791,17 @@ fn remap_embedded_position(
             line: embedded.host_start_line + snippet_line.saturating_sub(1),
             column: embedded.host_start_column,
         });
-    let column = remap_embedded_column(embedded, snippet_line, host_line_start.column, column);
-    DisplayPosition::new(host_line_start.line, column)
+    remap_embedded_column(embedded, snippet_line, host_line_start, column)
 }
 
 fn remap_embedded_column(
     embedded: &EmbeddedScript,
     snippet_line: usize,
-    host_start_column: usize,
+    host_line_start: HostLineStart,
     snippet_column: usize,
-) -> usize {
+) -> DisplayPosition {
     let decoded_column = remap_placeholder_column(embedded, snippet_line, snippet_column);
-    remap_decoded_yaml_column(embedded, snippet_line, host_start_column, decoded_column)
+    remap_decoded_yaml_column(embedded, snippet_line, host_line_start, decoded_column)
 }
 
 fn remap_placeholder_column(
@@ -1843,29 +1843,28 @@ fn remap_placeholder_column(
 fn remap_decoded_yaml_column(
     embedded: &EmbeddedScript,
     snippet_line: usize,
-    host_start_column: usize,
+    host_line_start: HostLineStart,
     decoded_column: usize,
-) -> usize {
-    let local_column = decoded_column.saturating_sub(1);
-    let mut cumulative_delta = 0usize;
+) -> DisplayPosition {
+    let mut segment = host_line_start;
+    let mut segment_column = 1usize;
 
     for mapping in embedded
         .host_column_mappings
         .iter()
-        .filter(|mapping| mapping.line == snippet_line)
+        .filter(|mapping| mapping.line == snippet_line && mapping.column <= decoded_column)
     {
-        let mapped_start = mapping.column.saturating_sub(1);
-        if local_column > mapped_start {
-            cumulative_delta += mapping.host_columns.saturating_sub(1);
-            continue;
-        }
-
-        if local_column == mapped_start {
-            return host_start_column + mapped_start + cumulative_delta;
-        }
+        segment = HostLineStart {
+            line: mapping.host_line,
+            column: mapping.host_column,
+        };
+        segment_column = mapping.column;
     }
 
-    host_start_column + local_column + cumulative_delta
+    DisplayPosition::new(
+        segment.line,
+        segment.column + decoded_column.saturating_sub(segment_column),
+    )
 }
 
 fn source_line_column_for_offset(source: &str, offset: usize) -> (usize, usize) {
@@ -2296,8 +2295,9 @@ jobs:
             }],
             host_column_mappings: vec![shuck_extract::HostColumnMapping {
                 line: 1,
-                column: 5,
-                host_columns: 2,
+                column: 6,
+                host_line: 7,
+                host_column: 21,
             }],
             dialect: ExtractedDialect::Bash,
             label: "jobs.test.steps[0].run".to_owned(),
@@ -2309,6 +2309,35 @@ jobs:
         let position = remap_embedded_position(&embedded, 1, 6);
         assert_eq!(position.line, 7);
         assert_eq!(position.column, 21);
+    }
+
+    #[test]
+    fn remaps_columns_after_folded_double_quoted_yaml_newlines() {
+        let embedded = EmbeddedScript {
+            source: "echo ok ; unused=1\n".to_owned(),
+            host_offset: 0,
+            host_start_line: 6,
+            host_start_column: 15,
+            host_line_starts: vec![HostLineStart {
+                line: 6,
+                column: 15,
+            }],
+            host_column_mappings: vec![shuck_extract::HostColumnMapping {
+                line: 1,
+                column: 9,
+                host_line: 7,
+                host_column: 13,
+            }],
+            dialect: ExtractedDialect::Bash,
+            label: "jobs.test.steps[0].run".to_owned(),
+            format: EmbeddedFormat::GitHubActions,
+            placeholders: Vec::new(),
+            implicit_flags: ImplicitShellFlags::default(),
+        };
+
+        let position = remap_embedded_position(&embedded, 1, 9);
+        assert_eq!(position.line, 7);
+        assert_eq!(position.column, 13);
     }
 
     #[test]

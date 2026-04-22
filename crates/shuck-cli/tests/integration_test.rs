@@ -832,6 +832,66 @@ jobs:
 }
 
 #[test]
+fn check_concise_output_keeps_embedded_workflows_out_of_source_tracking() {
+    let tempdir = tempdir().unwrap();
+    fs::create_dir_all(tempdir.path().join(".github/workflows")).unwrap();
+    fs::write(
+        tempdir.path().join("main.sh"),
+        "#!/bin/sh\n. ./.github/workflows/ci.yml\n",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join(".github/workflows/ci.yml"),
+        r#"on: push
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok
+"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--output-format", "concise"]);
+    let expected = format!(
+        "{}:2:3: warning[C003] sourced file is not available to this analysis\n",
+        platform_path("main.sh")
+    );
+    cmd.assert().code(1).stdout(expected);
+}
+
+#[test]
+fn check_concise_output_remaps_folded_double_quoted_workflow_lines() {
+    let tempdir = tempdir().unwrap();
+    fs::create_dir_all(tempdir.path().join(".github/workflows")).unwrap();
+    fs::write(
+        tempdir.path().join(".github/workflows/quoted.yml"),
+        r#"on: push
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - run: "echo ok
+          ; unused=1"
+"#,
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--output-format", "concise"]);
+    let expected = format!(
+        "{}:7:13: warning[C001] jobs.triage.steps[0].run: variable `unused` is assigned but never used\n",
+        platform_path(".github/workflows/quoted.yml")
+    );
+    cmd.assert().code(1).stdout(expected);
+}
+
+#[test]
 fn check_output_format_env_var_selects_json() {
     let tempdir = tempdir().unwrap();
     fs::write(
