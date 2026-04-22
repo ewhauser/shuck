@@ -171,6 +171,71 @@ fn compat_exclude_unknown_sc_code_is_ignored() {
 }
 
 #[test]
+fn compat_optional_uppercase_check_is_disabled_by_default() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("x.sh"), "#!/bin/sh\necho $VAR\n").unwrap();
+
+    let output = run_compat(["--norc", "-f", "json1", "x.sh"].as_slice(), tempdir.path());
+    assert_eq!(output.status.code(), Some(1));
+
+    let ordered_codes = json1_comments(&output)
+        .into_iter()
+        .map(|comment| comment["code"].as_u64().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(ordered_codes, vec![2086]);
+}
+
+#[test]
+fn compat_shellcheckrc_enable_turns_on_check_unassigned_uppercase() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join(".shellcheckrc"),
+        "enable=check-unassigned-uppercase\n",
+    )
+    .unwrap();
+    fs::write(tempdir.path().join("x.sh"), "#!/bin/sh\necho $VAR\n").unwrap();
+
+    let output = run_compat(["-f", "json1", "x.sh"].as_slice(), tempdir.path());
+    assert_eq!(output.status.code(), Some(1));
+
+    let ordered_codes = json1_comments(&output)
+        .into_iter()
+        .map(|comment| comment["code"].as_u64().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(ordered_codes, vec![2154, 2086]);
+}
+
+#[test]
+fn compat_include_sc2248_does_not_select_bare_slash_marker() {
+    let tempdir = tempdir().unwrap();
+    fs::write(tempdir.path().join("x.sh"), "#!/bin/sh\n*/\n").unwrap();
+
+    let output = run_compat(
+        ["--norc", "-f", "json1", "--include=SC2248", "x.sh"].as_slice(),
+        tempdir.path(),
+    );
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(json1_comments(&output), Vec::<Value>::new());
+}
+
+#[test]
+fn compat_include_sc2335_does_not_select_unquoted_path_in_mkdir() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("x.sh"),
+        "#!/bin/bash\nmkdir -p -m 750 $PKG/var/lib/app\n",
+    )
+    .unwrap();
+
+    let output = run_compat(
+        ["--norc", "-f", "json1", "--include=SC2335", "x.sh"].as_slice(),
+        tempdir.path(),
+    );
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(json1_comments(&output), Vec::<Value>::new());
+}
+
+#[test]
 fn compat_accepts_busybox_shell_alias() {
     let tempdir = tempdir().unwrap();
     fs::write(tempdir.path().join("x.sh"), "echo hi\n").unwrap();

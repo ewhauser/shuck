@@ -3,7 +3,7 @@ legacy_name: bare-slash-marker
 new_category: Correctness
 new_code: C054
 runtime_kind: ast
-shellcheck_code: SC2248
+shellcheck_code: null
 shellcheck_level: error
 shells:
   - sh

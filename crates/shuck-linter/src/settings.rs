@@ -9,6 +9,10 @@ use rustc_hash::FxHashSet;
 
 use crate::{Category, Rule, RuleSelector, RuleSet, Severity, ShellDialect};
 
+// ShellCheck's optional checks currently map only to compat-only behavior
+// toggles in this repository, not to standalone implemented non-style rules.
+const DEFAULT_DISABLED_NON_STYLE_RULES: &[Rule] = &[];
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinterSettings {
     pub rules: RuleSet,
@@ -104,11 +108,9 @@ impl LinterSettings {
 
     pub fn default_rules() -> RuleSet {
         Rule::iter()
-            .filter(|rule| {
-                matches!(rule.category(), Category::Correctness | Category::Security)
-                    || matches!(rule, Rule::AmpersandSemicolon)
-            })
-            .collect()
+            .filter(|rule| !matches!(rule.category(), Category::Style))
+            .collect::<RuleSet>()
+            .subtract(&default_disabled_non_style_rules())
     }
 
     pub fn from_selectors(select: &[RuleSelector], ignore: &[RuleSelector]) -> Self {
@@ -151,6 +153,10 @@ impl LinterSettings {
             self.per_file_ignores.ignored_rules(path)
         })
     }
+}
+
+fn default_disabled_non_style_rules() -> RuleSet {
+    DEFAULT_DISABLED_NON_STYLE_RULES.iter().copied().collect()
 }
 
 impl CompiledPerFileIgnoreList {
@@ -244,8 +250,46 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{CompiledPerFileIgnoreList, PerFileIgnore, normalized_absolute_match_path};
-    use crate::{Rule, RuleSet};
+    use super::*;
+    use crate::RuleSet;
+
+    #[test]
+    fn default_rules_exclude_all_style_rules() {
+        let defaults = LinterSettings::default_rules();
+
+        for rule in Rule::iter().filter(|rule| matches!(rule.category(), Category::Style)) {
+            assert!(
+                !defaults.contains(rule),
+                "{rule:?} should be disabled by default"
+            );
+        }
+    }
+
+    #[test]
+    fn default_rules_include_non_style_rules() {
+        let defaults = LinterSettings::default_rules();
+
+        assert!(defaults.contains(Rule::UndefinedVariable));
+        assert!(defaults.contains(Rule::ConstantCaseSubject));
+        assert!(defaults.contains(Rule::RmGlobOnVariablePath));
+        assert!(!defaults.contains(Rule::AmpersandSemicolon));
+    }
+
+    #[test]
+    fn default_rules_exclude_verified_default_disabled_non_style_rules() {
+        let defaults = LinterSettings::default_rules();
+
+        for rule in DEFAULT_DISABLED_NON_STYLE_RULES {
+            assert!(
+                !defaults.contains(*rule),
+                "{rule:?} should be excluded from the native default baseline"
+            );
+            assert!(
+                !matches!(rule.category(), Category::Style),
+                "{rule:?} must stay in the non-style default-disabled set"
+            );
+        }
+    }
 
     #[test]
     fn matches_absolute_per_file_ignore_patterns() {

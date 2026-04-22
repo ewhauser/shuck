@@ -22,7 +22,10 @@ use shuck_semantic::SourcePathResolver;
 use shuck_semantic::SourceRefKind;
 
 use self::config::{CompatConfig, load_config, resolve_config_override};
-use self::optional::{OPTIONAL_CHECKS, find_optional_check};
+use self::optional::{
+    OPTIONAL_CHECKS, OptionalCheck, OptionalCheckBehavior, compat_default_disabled_rules,
+    find_optional_check, supported_optional_checks,
+};
 use self::render::{
     print_error_help, print_list_optional, print_report, print_version, usage_text,
 };
@@ -320,13 +323,16 @@ struct CompatOptions {
 
 #[derive(Debug, Clone, Copy, Default)]
 struct CompatOptionalState {
-    check_unassigned_uppercase: bool,
+    report_environment_style_names: bool,
 }
 
 impl CompatOptionalState {
-    fn enable(&mut self, check_name: &str) {
-        if check_name == "check-unassigned-uppercase" {
-            self.check_unassigned_uppercase = true;
+    fn enable(&mut self, check: &OptionalCheck) {
+        if matches!(
+            check.behavior,
+            OptionalCheckBehavior::ReportEnvironmentStyleNames
+        ) {
+            self.report_environment_style_names = true;
         }
     }
 }
@@ -677,7 +683,7 @@ fn resolve_options(
                 .or(config.extended_analysis)
                 .unwrap_or(true),
         ),
-        report_environment_style_names: selection.optional_state.check_unassigned_uppercase,
+        report_environment_style_names: selection.optional_state.report_environment_style_names,
         shellcheck_map,
     })
 }
@@ -687,10 +693,7 @@ fn resolve_rule_selection(
     cli: &ParsedCompatCli,
     config: &CompatConfig,
 ) -> Result<ResolvedCompatSelection, CompatCliError> {
-    let mut rules = shellcheck_map
-        .mappings()
-        .map(|(_, rule)| rule)
-        .collect::<RuleSet>();
+    let mut rules = compat_default_rules(shellcheck_map);
     let mut optional_state = CompatOptionalState::default();
 
     let mut requested_optional = config.enable_checks.clone();
@@ -698,10 +701,9 @@ fn resolve_rule_selection(
     if !requested_optional.is_empty() {
         for name in requested_optional {
             if name == "all" {
-                for check in OPTIONAL_CHECKS.iter().filter(|check| check.supported) {
-                    let optional_rules = check.rules.iter().copied().collect::<RuleSet>();
-                    rules = rules.union(&optional_rules);
-                    optional_state.enable(check.name);
+                for check in supported_optional_checks() {
+                    rules = rules.union(&check.enabled_rule_set());
+                    optional_state.enable(check);
                 }
                 continue;
             }
@@ -716,9 +718,8 @@ fn resolve_rule_selection(
                 continue;
             }
 
-            let optional_rules = check.rules.iter().copied().collect::<RuleSet>();
-            rules = rules.union(&optional_rules);
-            optional_state.enable(check.name);
+            rules = rules.union(&check.enabled_rule_set());
+            optional_state.enable(check);
         }
     }
 
@@ -736,6 +737,14 @@ fn resolve_rule_selection(
         rules,
         optional_state,
     })
+}
+
+fn compat_default_rules(shellcheck_map: &ShellCheckCodeMap) -> RuleSet {
+    shellcheck_map
+        .mappings()
+        .map(|(_, rule)| rule)
+        .collect::<RuleSet>()
+        .subtract(&compat_default_disabled_rules())
 }
 
 fn combined_codes(config_codes: &[String], cli_codes: &[String]) -> Vec<String> {
