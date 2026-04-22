@@ -37,7 +37,9 @@ pub fn errexit_trap_in_sh(checker: &mut Checker) {
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
+    use std::path::Path;
+
+    use crate::test::{test_snippet, test_snippet_at_path};
     use crate::{LinterSettings, Rule};
 
     #[test]
@@ -91,4 +93,21 @@ set -E -T -- +E +T
             vec!["-E", "-T"]
         );
     }
+
+    #[test]
+    fn shellcheck_shell_directive_can_suppress_x068_under_sh_extension() {
+        let source = "\
+# shellcheck shell=bash
+set -E
+set +T
+";
+        let diagnostics = test_snippet_at_path(
+            Path::new("/tmp/x068-helper.sh"),
+            source,
+            &LinterSettings::for_rule(Rule::ErrexitTrapInSh),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
 }
