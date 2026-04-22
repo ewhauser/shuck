@@ -3017,7 +3017,7 @@ fn treats_stderr_capture_before_stdout_redirect_as_captured_substitution_output(
                 .iter()
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
-            Vec::<&str>::new()
+            vec![">/dev/tty"]
         );
     });
 }

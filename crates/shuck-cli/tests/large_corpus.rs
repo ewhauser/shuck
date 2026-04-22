@@ -3737,13 +3737,15 @@ mod tests {
         }));
         assert!(
             metadata
-                .get("C057")
+                .get("C061")
                 .and_then(|rule_metadata| rule_metadata.reviewed_divergences.first())
                 .is_some_and(|entry| {
                     !entry.rule_wide
                         && entry.path_suffix.as_deref()
-                            == Some("bittorf__kalua__openwrt-addons__etc__kalua__watch")
-                        && entry.line == Some(1336)
+                            == Some(
+                                "termux__termux-packages__packages__openssl__add-trusted-certificate"
+                            )
+                        && entry.line == Some(12)
                 })
         );
     }
