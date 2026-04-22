@@ -467,6 +467,9 @@ impl<'a> SafeValueIndex<'a> {
         if bindings.is_empty() {
             return false;
         }
+        let case_cli_scope = matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
+            .then(|| self.case_cli_dispatch_scope_at(at.start.offset))
+            .flatten();
 
         bindings.into_iter().all(|binding_id| {
             let targets = self.semantic.indirect_targets_for_binding(binding_id);
@@ -474,7 +477,7 @@ impl<'a> SafeValueIndex<'a> {
                 && targets
                     .iter()
                     .copied()
-                    .all(|target| self.binding_is_safe(target, query, None))
+                    .all(|target| self.binding_is_safe(target, query, case_cli_scope))
         })
     }
 
@@ -2320,6 +2323,41 @@ exit $?
         assert!(command_arg.is_nested_word_command());
         assert!(safe_values.word_occurrence_is_safe(command_name, SafeValueQuery::Argv));
         assert!(safe_values.word_occurrence_is_safe(command_arg, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn case_cli_dispatch_indirect_status_targets_stay_unsafe() {
+        let source = "\
+#!/bin/bash
+start() {
+  status=$?
+  ref=status
+  printf '%s\n' ${!ref}
+}
+
+case \"$1\" in
+  start) $1 ;;
+esac
+exit $?
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let indirect_use = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "${!ref}"
+            })
+            .expect("expected indirect case-cli status use");
+
+        assert!(!safe_values.word_occurrence_is_safe(indirect_use, SafeValueQuery::Argv));
     }
 
     #[test]

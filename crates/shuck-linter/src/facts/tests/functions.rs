@@ -270,6 +270,38 @@ exit $?
 }
 
 #[test]
+fn function_cli_dispatch_facts_ignore_later_defined_functions() {
+    let source = "\
+#!/bin/sh
+case \"$1\" in
+  start) $1 ;;
+esac
+exit $?
+
+start() { echo hi; }
+";
+
+    with_facts(source, None, |_, facts| {
+        let header = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(candidate, _)| candidate == "start")
+            })
+            .expect("expected start header");
+        let scope = header.function_scope().expect("expected function scope");
+
+        assert!(
+            !facts
+                .function_cli_dispatch_facts(scope)
+                .exported_from_case_cli()
+        );
+    });
+}
+
+#[test]
 fn builds_function_style_spans() {
     let source = "\
 #!/bin/bash
