@@ -126,13 +126,15 @@ filegroup(
 alias(
     name = "shellcheck",
     actual = select({
-        "@bazel_tools//src/conditions:linux_x86_64": "@shuck//:file",
-        "@bazel_tools//src/conditions:linux_aarch64": "@shuck_linux_arm64//:file",
-        "@bazel_tools//src/conditions:darwin_arm64": "@shuck_osx//:file",
+        "@bazel_tools//src/conditions:linux_x86_64": "@shuck//:shellcheck_bin",
+        "@bazel_tools//src/conditions:linux_aarch64": "@shuck_linux_arm64//:shellcheck_bin",
+        "@bazel_tools//src/conditions:darwin_arm64": "@shuck_osx//:shellcheck_bin",
     }),
     visibility = ["//visibility:public"],
 )
 ```
+
+For `rules_lint`, that alias should resolve to the executable target rather than a forwarding `filegroup`.
 
 ```bzl
 # tools/lint.bzl
