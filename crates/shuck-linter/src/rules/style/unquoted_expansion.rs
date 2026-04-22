@@ -330,6 +330,44 @@ echo /tmp/$SAFE
     }
 
     #[test]
+    fn ignores_exit_like_helper_calls_in_uncalled_function_bodies() {
+        let source = "\
+#!/bin/sh
+SAFE=foo
+Exit() { exit 0; }
+wrapper() {
+  Exit
+}
+echo /tmp/$SAFE
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_unquoted_expansions_after_exit_like_calls_inside_same_function_body() {
+        let source = "\
+#!/bin/sh
+SAFE=foo
+Exit() { exit 0; }
+wrapper() {
+  Exit
+  echo /tmp/$SAFE
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$SAFE"]
+        );
+    }
+
+    #[test]
     fn ignores_expansions_inside_quoted_fragments_of_mixed_words() {
         let source = "\
 #!/bin/bash

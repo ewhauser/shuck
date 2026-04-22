@@ -363,7 +363,7 @@ impl<'a> SafeValueIndex<'a> {
                         !command.is_nested_word_command()
                             && command.body_args().is_empty()
                             && command.redirects().is_empty()
-                            && self.command_runs_in_unconditional_flow(command.id())
+                            && self.command_runs_in_unconditional_flow(command.id(), at)
                             && {
                                 let call_span = command.span_in_source(self.source);
                                 call_span.end.offset <= at.start.offset
@@ -382,7 +382,18 @@ impl<'a> SafeValueIndex<'a> {
         })
     }
 
-    fn command_runs_in_unconditional_flow(&self, command_id: crate::facts::CommandId) -> bool {
+    fn command_runs_in_unconditional_flow(
+        &self,
+        command_id: crate::facts::CommandId,
+        reference_at: Span,
+    ) -> bool {
+        let command = self.facts.command(command_id);
+        if self.enclosing_function_scope_at(command.span().start.offset)
+            != self.enclosing_function_scope_at(reference_at.start.offset)
+        {
+            return false;
+        }
+
         let mut parent_id = self.facts.command_parent_id(command_id);
         while let Some(id) = parent_id {
             if self.facts.command_is_dominance_barrier(id) {
@@ -391,6 +402,12 @@ impl<'a> SafeValueIndex<'a> {
             parent_id = self.facts.command_parent_id(id);
         }
         true
+    }
+
+    fn enclosing_function_scope_at(&self, offset: usize) -> Option<ScopeId> {
+        self.semantic
+            .ancestor_scopes(self.semantic.scope_at(offset))
+            .find(|scope| matches!(self.semantic.scope(*scope).kind, ScopeKind::Function(_)))
     }
 
     fn binding_is_quoted_static_literal(&self, binding_id: BindingId) -> bool {
