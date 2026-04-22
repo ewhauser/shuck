@@ -30,7 +30,9 @@ impl Violation for UnusedAssignment {
 
 pub fn unused_assignment(checker: &mut Checker) {
     let semantic = checker.semantic();
-    let unused_bindings = checker.semantic_analysis().unused_assignments();
+    let unused_bindings = checker
+        .semantic_analysis()
+        .unused_assignments_with_options(checker.rule_options().c001.semantic_options());
     let unused_binding_ids = unused_bindings.iter().copied().collect::<HashSet<_>>();
     let mut families_with_used_bindings = HashSet::new();
     let mut unused_bindings_by_family = HashMap::<BindingFamilyKey, Vec<_>>::new();

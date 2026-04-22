@@ -151,6 +151,7 @@ fn run_fixture(fixture: &Fixture) -> Result<()> {
         &rules,
         ShellDialect::Zsh,
         false,
+        shuck_linter::LinterRuleOptions::default(),
         &file_context,
         None,
     );

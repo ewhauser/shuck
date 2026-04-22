@@ -732,6 +732,7 @@ fn resolve_project_check_settings(
         parse_lint_config_layer(&config.lint)?,
         parse_cli_rule_selection_layer(cli_rule_selection),
     ];
+    let rule_options = linter_rule_options_for_lint_config(&config.lint);
 
     let mut enabled_rules = LinterSettings::default_rules();
     let mut fixable_rules = RuleSet::all();
@@ -767,11 +768,26 @@ fn resolve_project_check_settings(
         linter_settings: LinterSettings {
             rules: enabled_rules,
             per_file_ignores: Arc::new(compiled_per_file_ignores),
+            rule_options,
             ..LinterSettings::default()
         },
         fixable_rules,
         effective,
     })
+}
+
+fn linter_rule_options_for_lint_config(lint: &LintConfig) -> shuck_linter::LinterRuleOptions {
+    let mut rule_options = shuck_linter::LinterRuleOptions::default();
+    if let Some(value) = lint
+        .rule_options
+        .as_ref()
+        .and_then(|options| options.c001.as_ref())
+        .and_then(|c001| c001.treat_indirect_expansion_targets_as_used)
+    {
+        rule_options.c001.treat_indirect_expansion_targets_as_used = value;
+    }
+
+    rule_options
 }
 
 fn parse_lint_config_layer(lint: &LintConfig) -> Result<RuleSelectionLayer> {

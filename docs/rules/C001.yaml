@@ -10,8 +10,8 @@ shells:
   - bash
   - dash
   - ksh
-description: A variable is assigned but never read later, so the statement has no effect on the script's behavior.
-rationale: Remove dead assignments, or export the value if a child process needs it.
+description: A variable is assigned but never read later, so the statement has no effect on the script's behavior. By default, Shuck treats resolved indirect-expansion targets such as `${!name}` as live reads of the target variable.
+rationale: Remove dead assignments, or export the value if a child process needs it. ShellCheck warns on indirect-only target reads; set `[lint.rule-options.c001].treat-indirect-expansion-targets-as-used = false` to opt into that compatibility mode.
 safe_fix: false
 fix_description: "Rename the reported unused assignment target to `_`."
 source:

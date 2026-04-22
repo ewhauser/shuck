@@ -36,7 +36,11 @@ const CONFIG_OVERRIDE_LINT_KEYS: &[&str] = &[
     "fixable",
     "unfixable",
     "extend-fixable",
+    "rule-options",
 ];
+const CONFIG_OVERRIDE_LINT_RULE_OPTION_KEYS: &[&str] = &["c001"];
+const CONFIG_OVERRIDE_C001_RULE_OPTION_KEYS: &[&str] =
+    &["treat-indirect-expansion-targets-as-used"];
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(default)]
@@ -70,6 +74,36 @@ pub(crate) struct LintConfig {
     pub fixable: Option<Vec<String>>,
     pub unfixable: Option<Vec<String>>,
     pub extend_fixable: Option<Vec<String>>,
+    pub rule_options: Option<LintRuleOptionsConfig>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub(crate) struct LintRuleOptionsConfig {
+    pub c001: Option<C001RuleOptionsConfig>,
+}
+
+impl LintRuleOptionsConfig {
+    fn apply_overrides(&mut self, overrides: Self) {
+        if let Some(c001) = overrides.c001 {
+            self.c001.get_or_insert_default().apply_overrides(c001);
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub(crate) struct C001RuleOptionsConfig {
+    pub treat_indirect_expansion_targets_as_used: Option<bool>,
+}
+
+impl C001RuleOptionsConfig {
+    fn apply_overrides(&mut self, overrides: Self) {
+        if overrides.treat_indirect_expansion_targets_as_used.is_some() {
+            self.treat_indirect_expansion_targets_as_used =
+                overrides.treat_indirect_expansion_targets_as_used;
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -326,6 +360,11 @@ impl LintConfig {
         if overrides.extend_fixable.is_some() {
             self.extend_fixable = overrides.extend_fixable;
         }
+        if let Some(rule_options) = overrides.rule_options {
+            self.rule_options
+                .get_or_insert_default()
+                .apply_overrides(rule_options);
+        }
     }
 }
 
@@ -376,6 +415,45 @@ fn validate_override_table(table: &toml::Table) -> std::result::Result<(), Strin
                     CONFIG_OVERRIDE_LINT_KEYS.join(", ")
                 ));
             }
+        }
+        if let Some(rule_options_value) = lint.get("rule-options") {
+            validate_lint_rule_options_override(rule_options_value)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_lint_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
+    let rule_options = value
+        .as_table()
+        .ok_or_else(|| "`[lint.rule-options]` must be a TOML table".to_owned())?;
+    for key in rule_options.keys() {
+        if !CONFIG_OVERRIDE_LINT_RULE_OPTION_KEYS.contains(&key.as_str()) {
+            return Err(format!(
+                "unsupported `[lint.rule-options]` option `{key}`; expected one of: {}",
+                CONFIG_OVERRIDE_LINT_RULE_OPTION_KEYS.join(", ")
+            ));
+        }
+    }
+
+    if let Some(c001_value) = rule_options.get("c001") {
+        validate_c001_rule_options_override(c001_value)?;
+    }
+
+    Ok(())
+}
+
+fn validate_c001_rule_options_override(value: &toml::Value) -> std::result::Result<(), String> {
+    let c001 = value
+        .as_table()
+        .ok_or_else(|| "`[lint.rule-options.c001]` must be a TOML table".to_owned())?;
+    for key in c001.keys() {
+        if !CONFIG_OVERRIDE_C001_RULE_OPTION_KEYS.contains(&key.as_str()) {
+            return Err(format!(
+                "unsupported `[lint.rule-options.c001]` option `{key}`; expected one of: {}",
+                CONFIG_OVERRIDE_C001_RULE_OPTION_KEYS.join(", ")
+            ));
         }
     }
 
@@ -520,9 +598,38 @@ mod tests {
     }
 
     #[test]
+    fn inline_config_overrides_validate_supported_rule_option_keys() {
+        let config = parse_config_override(
+            "lint.rule-options.c001.treat-indirect-expansion-targets-as-used = false",
+        )
+        .unwrap();
+        assert_eq!(
+            config
+                .lint
+                .rule_options
+                .as_ref()
+                .and_then(|options| options.c001.as_ref())
+                .and_then(|c001| c001.treat_indirect_expansion_targets_as_used),
+            Some(false)
+        );
+    }
+
+    #[test]
     fn inline_config_overrides_reject_unknown_lint_keys() {
         let err = parse_config_override("lint.preview = true").unwrap_err();
         assert!(err.contains("unsupported `[lint]` option `preview`"));
+    }
+
+    #[test]
+    fn inline_config_overrides_reject_unknown_rule_option_keys() {
+        let err = parse_config_override("lint.rule-options.preview.enabled = true").unwrap_err();
+        assert!(err.contains("unsupported `[lint.rule-options]` option `preview`"));
+    }
+
+    #[test]
+    fn inline_config_overrides_reject_unknown_c001_rule_option_keys() {
+        let err = parse_config_override("lint.rule-options.c001.preview = true").unwrap_err();
+        assert!(err.contains("unsupported `[lint.rule-options.c001]` option `preview`"));
     }
 
     #[test]
@@ -566,6 +673,40 @@ mod tests {
     }
 
     #[test]
+    fn rule_option_config_arguments_allow_last_override_to_win() {
+        let tempdir = tempdir().unwrap();
+        let config = ConfigArguments::from_cli(
+            vec![
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override(
+                        "lint.rule-options.c001.treat-indirect-expansion-targets-as-used = true",
+                    )
+                    .unwrap(),
+                )),
+                SingleConfigArgument::SettingsOverride(Box::new(
+                    parse_config_override(
+                        "lint.rule-options.c001.treat-indirect-expansion-targets-as-used = false",
+                    )
+                    .unwrap(),
+                )),
+            ],
+            false,
+        )
+        .unwrap();
+
+        let loaded = load_project_config(tempdir.path(), &config).unwrap();
+        assert_eq!(
+            loaded
+                .lint
+                .rule_options
+                .as_ref()
+                .and_then(|options| options.c001.as_ref())
+                .and_then(|c001| c001.treat_indirect_expansion_targets_as_used),
+            Some(false)
+        );
+    }
+
+    #[test]
     fn isolated_rejects_explicit_config_files() {
         let tempdir = tempdir().unwrap();
         let config_path = tempdir.path().join("shuck.toml");
@@ -596,6 +737,22 @@ mod tests {
         let loaded = load_project_config(tempdir.path(), &config).unwrap();
 
         assert_eq!(loaded.format.function_next_line, Some(true));
+    }
+
+    #[test]
+    fn config_file_rejects_unknown_nested_rule_option_fields() {
+        let tempdir = tempdir().unwrap();
+        let config_path = tempdir.path().join("shuck.toml");
+        fs::write(&config_path, "[lint.rule-options.c001]\npreview = true\n").unwrap();
+
+        let err = load_project_config(
+            tempdir.path(),
+            &ConfigArguments::from_cli(vec![SingleConfigArgument::FilePath(config_path)], false)
+                .unwrap(),
+        )
+        .unwrap_err();
+
+        assert!(format!("{err:#}").contains("preview"));
     }
 
     #[test]

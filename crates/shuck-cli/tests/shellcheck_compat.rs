@@ -236,6 +236,27 @@ fn compat_include_sc2335_does_not_select_unquoted_path_in_mkdir() {
 }
 
 #[test]
+fn compat_flags_indirect_only_sc2034_targets() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("x.sh"),
+        "#!/bin/bash\ntarget=ok\nname=target\nprintf '%s\\n' \"${!name}\"\n",
+    )
+    .unwrap();
+
+    let output = run_compat(
+        ["--norc", "-s", "bash", "-f", "json1", "x.sh"].as_slice(),
+        tempdir.path(),
+    );
+    assert_eq!(output.status.code(), Some(1));
+
+    let comments = json1_comments(&output);
+    let comment = comment_by_code(&comments, 2034);
+    assert_eq!(comment["line"].as_u64(), Some(2));
+    assert_eq!(comment["endLine"].as_u64(), Some(2));
+}
+
+#[test]
 fn compat_accepts_busybox_shell_alias() {
     let tempdir = tempdir().unwrap();
     fs::write(tempdir.path().join("x.sh"), "echo hi\n").unwrap();

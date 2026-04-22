@@ -6,6 +6,7 @@ use anyhow::{Context, Result};
 use globset::{Glob, GlobMatcher};
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
+use shuck_semantic::UnusedAssignmentAnalysisOptions;
 
 use crate::{Category, Rule, RuleSelector, RuleSet, Severity, ShellDialect};
 
@@ -13,6 +14,35 @@ use crate::{Category, Rule, RuleSelector, RuleSet, Severity, ShellDialect};
 // toggles in this repository, not to standalone implemented non-style rules.
 const DEFAULT_DISABLED_NON_STYLE_RULES: &[Rule] = &[];
 
+/// Per-rule behavior overrides applied during lint analysis.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LinterRuleOptions {
+    /// Behavior overrides for `C001`.
+    pub c001: C001RuleOptions,
+}
+
+/// Behavior overrides for `C001` unused-assignment analysis.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct C001RuleOptions {
+    /// Whether resolved indirect-expansion targets like `${!name}` count as a use of the target.
+    pub treat_indirect_expansion_targets_as_used: bool,
+}
+
+impl Default for C001RuleOptions {
+    fn default() -> Self {
+        Self {
+            treat_indirect_expansion_targets_as_used: true,
+        }
+    }
+}
+
+impl C001RuleOptions {
+    pub(crate) fn semantic_options(&self) -> UnusedAssignmentAnalysisOptions {
+        UnusedAssignmentAnalysisOptions {
+            treat_indirect_expansion_targets_as_used: self.treat_indirect_expansion_targets_as_used,
+        }
+    }
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinterSettings {
     pub rules: RuleSet,
@@ -21,6 +51,7 @@ pub struct LinterSettings {
     pub analyzed_paths: Option<Arc<FxHashSet<PathBuf>>>,
     pub per_file_ignores: Arc<CompiledPerFileIgnoreList>,
     pub report_environment_style_names: bool,
+    pub rule_options: LinterRuleOptions,
 }
 
 impl Default for LinterSettings {
@@ -32,6 +63,7 @@ impl Default for LinterSettings {
             analyzed_paths: None,
             per_file_ignores: Arc::new(CompiledPerFileIgnoreList::default()),
             report_environment_style_names: false,
+            rule_options: LinterRuleOptions::default(),
         }
     }
 }
@@ -145,6 +177,13 @@ impl LinterSettings {
 
     pub fn with_per_file_ignores(mut self, per_file_ignores: CompiledPerFileIgnoreList) -> Self {
         self.per_file_ignores = Arc::new(per_file_ignores);
+        self
+    }
+
+    pub fn with_c001_treat_indirect_expansion_targets_as_used(mut self, value: bool) -> Self {
+        self.rule_options
+            .c001
+            .treat_indirect_expansion_targets_as_used = value;
         self
     }
 

@@ -3,7 +3,10 @@ use shuck_ast::{File, Span};
 use shuck_indexer::Indexer;
 use shuck_semantic::{SemanticAnalysis, SemanticModel};
 
-use crate::{Diagnostic, FileContext, LinterFacts, Rule, RuleSet, ShellDialect, Violation, rules};
+use crate::{
+    Diagnostic, FileContext, LinterFacts, LinterRuleOptions, Rule, RuleSet, ShellDialect,
+    Violation, rules,
+};
 
 pub struct Checker<'a> {
     semantic: &'a SemanticModel,
@@ -15,6 +18,7 @@ pub struct Checker<'a> {
     rules: &'a RuleSet,
     shell: ShellDialect,
     report_environment_style_names: bool,
+    rule_options: LinterRuleOptions,
     file_context: &'a FileContext,
     first_parse_error: Option<(usize, usize)>,
     diagnostics: Vec<Diagnostic>,
@@ -48,6 +52,7 @@ impl<'a> Checker<'a> {
         rules: &'a RuleSet,
         shell: ShellDialect,
         report_environment_style_names: bool,
+        rule_options: LinterRuleOptions,
         file_context: &'a FileContext,
         first_parse_error: Option<(usize, usize)>,
     ) -> Self {
@@ -61,6 +66,7 @@ impl<'a> Checker<'a> {
             rules,
             shell,
             report_environment_style_names,
+            rule_options,
             file_context,
             first_parse_error,
             diagnostics: Vec::new(),
@@ -102,6 +108,10 @@ impl<'a> Checker<'a> {
 
     pub fn report_environment_style_names(&self) -> bool {
         self.report_environment_style_names
+    }
+
+    pub fn rule_options(&self) -> &LinterRuleOptions {
+        &self.rule_options
     }
 
     pub fn file_context(&self) -> &'a FileContext {

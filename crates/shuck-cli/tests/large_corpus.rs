@@ -50,6 +50,7 @@ const LARGE_CORPUS_PROGRESS_BUCKET_COUNT: usize = 100 / LARGE_CORPUS_PROGRESS_PE
 const LARGE_CORPUS_TIMING_LIMIT: usize = 25;
 const RULE_CORPUS_METADATA_DIR: &str = "tests/testdata/corpus-metadata";
 const LARGE_CORPUS_ALLOWED_FAILING_RULE_REASON: &str = "known large-corpus rule allowlist";
+const LARGE_CORPUS_C001_COMPAT_NOTE: &str = "large corpus compatibility note: C001 is evaluated with ShellCheck-compatible indirect-expansion handling.";
 const LARGE_CORPUS_STATIC_IGNORE_SUFFIXES: &[&str] = &[
     "super-linter__super-linter__test__linters__bash__shell_bad_1.sh",
     "super-linter__super-linter__test__linters__bash_exec__shell_bad_1.sh",
@@ -1011,6 +1012,7 @@ fn large_corpus_conforms_with_shellcheck() {
         failure_collection.harness_warnings.len(),
         failure_collection.harness_failures.len(),
     );
+    emit_large_corpus_c001_compat_note(&linter_settings);
     emit_timeout_cap_note(
         "large corpus compatibility",
         failure_collection.timeout_cap_reached,
@@ -2687,17 +2689,44 @@ fn build_large_corpus_linter_settings(
     selected_rules: Option<shuck_linter::RuleSet>,
     mapped_only: bool,
 ) -> shuck_linter::LinterSettings {
-    if let Some(rules) = selected_rules {
-        return shuck_linter::LinterSettings::for_rules(rules.iter());
-    }
-    if mapped_only {
+    let settings = if let Some(rules) = selected_rules {
+        shuck_linter::LinterSettings::for_rules(rules.iter())
+    } else if mapped_only {
         let mapped_rules: HashSet<_> = shuck_linter::ShellCheckCodeMap::default()
             .mappings()
             .map(|(_, rule)| rule)
             .collect();
-        return shuck_linter::LinterSettings::for_rules(mapped_rules);
+        shuck_linter::LinterSettings::for_rules(mapped_rules)
+    } else {
+        shuck_linter::LinterSettings::default()
+    };
+
+    settings.with_c001_treat_indirect_expansion_targets_as_used(false)
+}
+
+fn large_corpus_uses_c001_shellcheck_compat(
+    linter_settings: &shuck_linter::LinterSettings,
+) -> bool {
+    linter_settings
+        .rules
+        .contains(shuck_linter::Rule::UnusedAssignment)
+        && !linter_settings
+            .rule_options
+            .c001
+            .treat_indirect_expansion_targets_as_used
+}
+
+fn large_corpus_c001_compat_note_line(
+    linter_settings: &shuck_linter::LinterSettings,
+) -> Option<&'static str> {
+    large_corpus_uses_c001_shellcheck_compat(linter_settings)
+        .then_some(LARGE_CORPUS_C001_COMPAT_NOTE)
+}
+
+fn emit_large_corpus_c001_compat_note(linter_settings: &shuck_linter::LinterSettings) {
+    if let Some(note) = large_corpus_c001_compat_note_line(linter_settings) {
+        eprintln!("{note}");
     }
-    shuck_linter::LinterSettings::default()
 }
 
 fn build_shellcheck_filter_codes(
@@ -3695,11 +3724,9 @@ mod tests {
     fn load_all_rule_corpus_metadata_keeps_scoped_review_entries() {
         let metadata = load_all_rule_corpus_metadata();
 
-        assert!(
-            metadata
-                .get("C001")
-                .is_some_and(|rule_metadata| rule_metadata.review_all_divergences)
-        );
+        assert!(metadata.get("C001").is_some_and(|rule_metadata| {
+            !rule_metadata.review_all_divergences && !rule_metadata.reviewed_divergences.is_empty()
+        }));
         assert!(
             metadata
                 .get("C057")
@@ -4749,6 +4776,31 @@ mod tests {
                 .as_deref()
                 .is_some_and(|error| error.contains("expected 'fi'"))
         );
+    }
+
+    #[test]
+    fn build_large_corpus_linter_settings_enables_c001_shellcheck_compat() {
+        let settings = build_large_corpus_linter_settings(None, false);
+
+        assert!(
+            large_corpus_uses_c001_shellcheck_compat(&settings),
+            "{settings:?}"
+        );
+        assert_eq!(
+            large_corpus_c001_compat_note_line(&settings),
+            Some(LARGE_CORPUS_C001_COMPAT_NOTE)
+        );
+    }
+
+    #[test]
+    fn large_corpus_c001_compat_note_only_applies_when_c001_is_enabled() {
+        let settings = build_large_corpus_linter_settings(None, false);
+        assert!(large_corpus_uses_c001_shellcheck_compat(&settings));
+
+        let without_c001 = shuck_linter::LinterSettings::for_rule(shuck_linter::Rule::EmptyTest)
+            .with_c001_treat_indirect_expansion_targets_as_used(false);
+        assert!(!large_corpus_uses_c001_shellcheck_compat(&without_c001));
+        assert_eq!(large_corpus_c001_compat_note_line(&without_c001), None);
     }
 
     fn probe(version_text: &str) -> ShellCheckProbe {
