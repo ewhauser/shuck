@@ -4,8 +4,8 @@ use shuck_indexer::Indexer;
 use shuck_semantic::{SemanticAnalysis, SemanticModel};
 
 use crate::{
-    AmbientShellOptions, Diagnostic, FileContext, LinterFacts, Rule, RuleSet, ShellDialect,
-    Violation, rules, LinterRuleOptions,
+    AmbientShellOptions, Diagnostic, FileContext, LinterFacts, LinterRuleOptions, Rule, RuleSet,
+    ShellDialect, Violation, rules,
 };
 
 pub struct Checker<'a> {
