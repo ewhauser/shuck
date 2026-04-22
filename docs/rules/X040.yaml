@@ -4,6 +4,7 @@ new_category: Portability
 new_code: X040
 runtime_kind: ast
 shellcheck_code: SC2202
+shellcheck_level: warning
 shells:
   - sh
   - bash

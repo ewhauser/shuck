@@ -4,6 +4,7 @@ new_category: Performance
 new_code: P001
 runtime_kind: ast
 shellcheck_code: SC2003
+shellcheck_level: style
 shells:
   - sh
   - bash

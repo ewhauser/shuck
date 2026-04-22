@@ -4,6 +4,7 @@ new_category: Style
 new_code: S030
 runtime_kind: ast
 shellcheck_code: SC1118
+shellcheck_level: error
 shells:
   - sh
   - bash

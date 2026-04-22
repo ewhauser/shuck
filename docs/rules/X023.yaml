@@ -4,6 +4,7 @@ new_category: Portability
 new_code: X023
 runtime_kind: ast
 shellcheck_code: SC3057
+shellcheck_level: warning
 shells:
   - sh
   - dash

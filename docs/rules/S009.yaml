@@ -4,6 +4,7 @@ new_category: Style
 new_code: S009
 runtime_kind: ast
 shellcheck_code: SC2005
+shellcheck_level: style
 shells:
   - sh
   - bash

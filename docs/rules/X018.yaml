@@ -4,6 +4,7 @@ new_category: Portability
 new_code: X018
 runtime_kind: ast
 shellcheck_code: SC3053
+shellcheck_level: warning
 shells:
   - sh
   - dash

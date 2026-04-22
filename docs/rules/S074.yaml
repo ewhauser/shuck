@@ -4,6 +4,7 @@ new_category: Style
 new_code: S074
 runtime_kind: ast
 shellcheck_code: SC1045
+shellcheck_level: error
 shells:
   - sh
   - bash

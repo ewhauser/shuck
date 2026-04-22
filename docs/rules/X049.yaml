@@ -3,6 +3,8 @@ legacy_name: zsh-prompt-bracket
 new_category: Portability
 new_code: X049
 runtime_kind: ast
+shellcheck_code: null
+shellcheck_level: null
 shells:
   - sh
   - bash

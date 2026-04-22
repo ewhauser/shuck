@@ -4,6 +4,7 @@ new_category: Style
 new_code: S036
 runtime_kind: ast
 shellcheck_code: SC3061
+shellcheck_level: warning
 shells:
   - sh
   - dash

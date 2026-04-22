@@ -4,6 +4,7 @@ new_category: Portability
 new_code: X054
 runtime_kind: ast
 shellcheck_code: SC3002
+shellcheck_level: warning
 shells:
   - sh
   - dash

@@ -4,6 +4,7 @@ new_category: Portability
 new_code: X047
 runtime_kind: ast
 shellcheck_code: SC1058
+shellcheck_level: error
 shells:
   - sh
   - bash

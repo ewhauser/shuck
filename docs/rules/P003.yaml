@@ -4,6 +4,7 @@ new_category: Performance
 new_code: P003
 runtime_kind: ast
 shellcheck_code: SC2233
+shellcheck_level: style
 shells:
   - sh
   - bash

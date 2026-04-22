@@ -4,6 +4,7 @@ new_category: Portability
 new_code: X067
 runtime_kind: ast
 shellcheck_code: SC3033
+shellcheck_level: warning
 shells:
   - sh
   - dash

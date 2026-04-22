@@ -4,6 +4,7 @@ new_category: Security
 new_code: K002
 runtime_kind: ast
 shellcheck_code: SC2029
+shellcheck_level: info
 shells:
   - sh
   - bash

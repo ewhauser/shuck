@@ -4,6 +4,7 @@ new_category: Correctness
 new_code: C140
 runtime_kind: ast
 shellcheck_code: SC2282
+shellcheck_level: error
 shells:
   - sh
   - bash

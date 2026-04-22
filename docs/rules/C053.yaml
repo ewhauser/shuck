@@ -3,6 +3,8 @@ legacy_name: spacey-assign
 new_category: Correctness
 new_code: C053
 runtime_kind: ast
+shellcheck_code: null
+shellcheck_level: null
 shells:
   - sh
   - bash

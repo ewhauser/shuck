@@ -4,6 +4,7 @@ new_category: Style
 new_code: S021
 runtime_kind: ast
 shellcheck_code: SC2145
+shellcheck_level: error
 shells:
   - sh
   - bash

@@ -4,6 +4,7 @@ new_category: Portability
 new_code: X027
 runtime_kind: ast
 shellcheck_code: SC3037
+shellcheck_level: warning
 shells:
   - sh
 description: Echo flags make output formatting depend on the shell's own implementation choices.

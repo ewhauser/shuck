@@ -4,6 +4,7 @@ new_category: Security
 new_code: K003
 runtime_kind: ast
 shellcheck_code: SC2294
+shellcheck_level: warning
 shells:
   - sh
   - bash

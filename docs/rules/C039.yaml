@@ -4,6 +4,7 @@ new_category: Correctness
 new_code: C039
 runtime_kind: ast
 shellcheck_code: SC1078
+shellcheck_level: warning
 shells:
   - sh
   - bash

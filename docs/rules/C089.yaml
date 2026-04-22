@@ -3,6 +3,8 @@ legacy_name: quoted-command-in-test
 new_category: Correctness
 new_code: C089
 runtime_kind: ast
+shellcheck_code: null
+shellcheck_level: null
 shells:
   - sh
   - bash

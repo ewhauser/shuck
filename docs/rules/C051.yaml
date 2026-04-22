@@ -4,6 +4,7 @@ new_category: Correctness
 new_code: C051
 runtime_kind: ast
 shellcheck_code: SC2261
+shellcheck_level: error
 shells:
   - sh
   - bash

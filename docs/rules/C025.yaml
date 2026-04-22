@@ -4,6 +4,7 @@ new_category: Correctness
 new_code: C025
 runtime_kind: ast
 shellcheck_code: SC1037
+shellcheck_level: error
 shells:
   - sh
   - bash

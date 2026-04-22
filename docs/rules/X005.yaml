@@ -4,6 +4,7 @@ new_category: Portability
 new_code: X005
 runtime_kind: ast
 shellcheck_code: SC2127
+shellcheck_level: error
 shells:
   - sh
   - dash

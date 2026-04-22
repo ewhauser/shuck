@@ -4,6 +4,7 @@ new_category: Correctness
 new_code: C033
 runtime_kind: ast
 shellcheck_code: SC1039
+shellcheck_level: error
 shells:
   - sh
   - bash

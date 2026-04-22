@@ -4,6 +4,7 @@ new_category: Correctness
 new_code: C014
 runtime_kind: ast
 shellcheck_code: SC2168
+shellcheck_level: error
 shells:
   - bash
   - dash

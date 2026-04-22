@@ -4,6 +4,7 @@ new_category: Portability
 new_code: X068
 runtime_kind: ast
 shellcheck_code: SC3041
+shellcheck_level: warning
 shells:
   - sh
 description: "The script uses `set -E` or `set -T` in POSIX sh."

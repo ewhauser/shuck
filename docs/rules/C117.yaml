@@ -4,6 +4,7 @@ new_category: Correctness
 new_code: C117
 runtime_kind: ast
 shellcheck_code: SC2276
+shellcheck_level: error
 shells:
   - sh
   - bash

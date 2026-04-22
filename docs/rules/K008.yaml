@@ -4,6 +4,7 @@ new_category: Security
 new_code: K008
 runtime_kind: ast
 shellcheck_code: null
+shellcheck_level: null
 shells:
   - sh
   - bash

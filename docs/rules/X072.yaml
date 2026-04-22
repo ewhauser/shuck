@@ -4,6 +4,7 @@ new_category: Portability
 new_code: X072
 runtime_kind: ast
 shellcheck_code: SC3079
+shellcheck_level: warning
 shells:
   - sh
   - dash

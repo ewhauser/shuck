@@ -4,6 +4,7 @@ new_category: Style
 new_code: S020
 runtime_kind: ast
 shellcheck_code: SC2043
+shellcheck_level: warning
 shells:
   - sh
   - bash

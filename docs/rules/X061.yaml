@@ -4,6 +4,7 @@ new_category: Portability
 new_code: X061
 runtime_kind: ast
 shellcheck_code: SC3017
+shellcheck_level: warning
 shells:
   - sh
   - dash

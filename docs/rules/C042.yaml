@@ -4,6 +4,7 @@ new_category: Correctness
 new_code: C042
 runtime_kind: ast
 shellcheck_code: SC1132
+shellcheck_level: warning
 shells:
   - sh
   - bash

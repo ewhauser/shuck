@@ -4,6 +4,7 @@ new_category: Performance
 new_code: P002
 runtime_kind: ast
 shellcheck_code: SC2126
+shellcheck_level: style
 shells:
   - sh
   - bash

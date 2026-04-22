@@ -4,6 +4,7 @@ new_category: Portability
 new_code: X074
 runtime_kind: ast
 shellcheck_code: SC3065
+shellcheck_level: warning
 shells:
   - sh
 description: "The `-k` sticky-bit test is used in POSIX sh."

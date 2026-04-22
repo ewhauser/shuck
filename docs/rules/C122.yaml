@@ -4,6 +4,7 @@ new_category: Correctness
 new_code: C122
 runtime_kind: ast
 shellcheck_code: SC2331
+shellcheck_level: style
 shells:
   - sh
   - bash

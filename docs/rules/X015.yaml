@@ -4,6 +4,7 @@ new_category: Portability
 new_code: X015
 runtime_kind: ast
 shellcheck_code: SC3042
+shellcheck_level: warning
 shells:
   - sh
   - dash

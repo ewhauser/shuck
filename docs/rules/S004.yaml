@@ -4,6 +4,7 @@ new_category: Style
 new_code: S004
 runtime_kind: ast
 shellcheck_code: SC2046
+shellcheck_level: warning
 shells:
   - sh
   - bash

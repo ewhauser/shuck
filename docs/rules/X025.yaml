@@ -4,6 +4,7 @@ new_category: Portability
 new_code: X025
 runtime_kind: ast
 shellcheck_code: SC3060
+shellcheck_level: warning
 shells:
   - sh
   - dash

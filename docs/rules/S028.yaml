@@ -4,6 +4,7 @@ new_category: Style
 new_code: S028
 runtime_kind: ast
 shellcheck_code: SC1079
+shellcheck_level: info
 shells:
   - sh
   - bash

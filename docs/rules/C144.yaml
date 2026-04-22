@@ -4,6 +4,7 @@ new_category: Correctness
 new_code: C144
 runtime_kind: ast
 shellcheck_code: SC1041
+shellcheck_level: error
 shells:
   - sh
   - bash

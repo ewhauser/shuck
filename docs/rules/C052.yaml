@@ -4,6 +4,7 @@ new_category: Correctness
 new_code: C052
 runtime_kind: ast
 shellcheck_code: SC2280
+shellcheck_level: error
 shells:
   - sh
 description: Assigning to the script-name parameter is rejected.

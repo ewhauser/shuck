@@ -4,6 +4,7 @@ new_category: Portability
 new_code: X045
 runtime_kind: ast
 shellcheck_code: SC3024
+shellcheck_level: warning
 shells:
   - sh
   - bash

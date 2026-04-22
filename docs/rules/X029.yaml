@@ -4,6 +4,7 @@ new_category: Portability
 new_code: X029
 runtime_kind: ast
 shellcheck_code: SC2019
+shellcheck_level: info
 shells:
   - sh
   - bash
