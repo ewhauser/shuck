@@ -229,13 +229,16 @@ impl<'a> SafeValueIndex<'a> {
         let case_cli_scope = matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
             .then(|| self.case_cli_dispatch_scope_at(at.start.offset))
             .flatten();
+        let binding_belongs_to_case_cli_scope = case_cli_scope.is_some_and(|scope| {
+            bindings
+                .iter()
+                .copied()
+                .any(|binding_id| self.binding_is_in_scope_or_descendant(binding_id, scope))
+        });
         if matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
             && case_cli_scope.is_some()
             && !self.case_cli_dispatch_outer_bindings_can_stay_safe(&bindings, at, query)
-            && !bindings
-                .iter()
-                .copied()
-                .any(|binding_id| Some(self.semantic.binding(binding_id).scope) == case_cli_scope)
+            && !binding_belongs_to_case_cli_scope
         {
             return safe_numeric_shell_variable(name);
         }
@@ -312,6 +315,16 @@ impl<'a> SafeValueIndex<'a> {
             .iter()
             .copied()
             .all(|binding_id| self.binding_is_quoted_static_literal(binding_id))
+    }
+
+    fn binding_is_in_scope_or_descendant(
+        &self,
+        binding_id: BindingId,
+        ancestor_scope: ScopeId,
+    ) -> bool {
+        self.semantic
+            .ancestor_scopes(self.semantic.binding(binding_id).scope)
+            .any(|scope| scope == ancestor_scope)
     }
 
     fn is_argument_of_dynamic_command(&self, at: Span) -> bool {
@@ -2259,6 +2272,54 @@ exit $?
 
         assert!(!safe_values.binding_is_safe(binding_id, SafeValueQuery::Argv, case_cli_scope));
         assert!(safe_values.binding_is_safe(binding_id, SafeValueQuery::Argv, None));
+    }
+
+    #[test]
+    fn case_cli_dispatch_entry_functions_keep_nested_scope_safe_bindings() {
+        let source = "\
+#!/bin/sh
+start() {
+  printf '%s\n' \"$(
+    cmd=/bin/echo
+    arg=hello
+    $cmd $arg
+  )\"
+}
+
+case \"$1\" in
+  start) $1 ;;
+esac
+exit $?
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let command_name = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandName)
+                    && fact.span().slice(source) == "$cmd"
+            })
+            .expect("expected nested command-substitution command name");
+        let command_arg = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "$arg"
+            })
+            .expect("expected nested command-substitution command argument");
+
+        assert!(command_name.is_nested_word_command());
+        assert!(command_arg.is_nested_word_command());
+        assert!(safe_values.word_occurrence_is_safe(command_name, SafeValueQuery::Argv));
+        assert!(safe_values.word_occurrence_is_safe(command_arg, SafeValueQuery::Argv));
     }
 
     #[test]
