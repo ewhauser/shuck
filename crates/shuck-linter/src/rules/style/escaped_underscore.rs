@@ -1,12 +1,13 @@
 use crate::facts::EscapeScanSourceKind;
 use crate::{Checker, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation};
+use rustc_hash::FxHashSet;
 
 pub struct EscapedUnderscore;
 
 const FIX_TITLE: &str = "remove the needless backslash before the reported character";
 
 impl Violation for EscapedUnderscore {
-    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Sometimes;
 
     fn rule() -> Rule {
         Rule::EscapedUnderscore
@@ -22,7 +23,7 @@ impl Violation for EscapedUnderscore {
 }
 
 pub fn escaped_underscore(checker: &mut Checker) {
-    let diagnostics = checker
+    let escapes = checker
         .facts()
         .escape_scan_matches()
         .iter()
@@ -48,13 +49,25 @@ pub fn escaped_underscore(checker: &mut Checker) {
             EscapeScanSourceKind::PatternCharClass => escape.escaped_byte() == b'-',
             _ => is_regular_plain_word_escape_target(escape.escaped_byte()),
         })
+        .collect::<Vec<_>>();
+    let non_fixable_spans = escapes
+        .iter()
+        .filter(|escape| escape.source_kind() == EscapeScanSourceKind::PatternCharClass)
+        .map(|escape| (escape.span().start.offset, escape.span().end.offset))
+        .collect::<FxHashSet<_>>();
+    let diagnostics = escapes
+        .into_iter()
         .map(|escape| {
             let backslash_span = shuck_ast::Span::from_positions(
                 escape.span().start,
                 escape.span().start.advanced_by("\\"),
             );
-            Diagnostic::new(EscapedUnderscore, escape.span())
-                .with_fix(Fix::unsafe_edit(Edit::deletion(backslash_span)))
+            let diagnostic = Diagnostic::new(EscapedUnderscore, escape.span());
+            if non_fixable_spans.contains(&(escape.span().start.offset, escape.span().end.offset)) {
+                diagnostic
+            } else {
+                diagnostic.with_fix(Fix::unsafe_edit(Edit::deletion(backslash_span)))
+            }
         })
         .collect::<Vec<_>>();
 
@@ -330,6 +343,28 @@ name=\"${name//[^a-zA-Z0-9_\\-]/}\"
         assert_eq!(result.fixes_applied, 0);
         assert_eq!(result.fixed_source, source);
         assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn leaves_pattern_char_class_hyphen_escapes_unfixed() {
+        let source = "\
+#!/bin/sh
+case \"$x\" in
+  [a\\-z]) echo ok ;;
+esac
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::EscapedUnderscore).with_shell(ShellDialect::Sh),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.diagnostics.len(), 1);
+        assert!(result.diagnostics[0].fix.is_none());
+        assert_eq!(result.fixes_applied, 0);
+        assert_eq!(result.fixed_source, source);
+        assert_eq!(result.fixed_diagnostics.len(), 1);
+        assert!(result.fixed_diagnostics[0].fix.is_none());
     }
 
     #[test]
