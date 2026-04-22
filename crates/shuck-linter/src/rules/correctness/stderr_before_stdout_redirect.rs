@@ -119,11 +119,12 @@ fn reordered_redirect_segment(
 
     for index in stderr_index + 1..=stdout_index {
         let span = redirects[index].redirect().span;
-        if index > stderr_index + 1 {
-            replacement.push_str(
-                &source[redirects[index - 1].redirect().span.end.offset..span.start.offset],
-            );
-        }
+        let gap = if index == stderr_index + 1 {
+            strip_leading_shell_trivia(&source[moved_span.end.offset..span.start.offset])
+        } else {
+            &source[redirects[index - 1].redirect().span.end.offset..span.start.offset]
+        };
+        replacement.push_str(gap);
         replacement.push_str(span.slice(source));
     }
 
@@ -132,6 +133,33 @@ fn reordered_redirect_segment(
     replacement.push(' ');
     replacement.push_str(moved_span.slice(source));
     replacement
+}
+
+fn strip_leading_shell_trivia(text: &str) -> &str {
+    let mut offset = 0;
+    let mut remaining = text;
+
+    loop {
+        if let Some(stripped) = remaining.strip_prefix("\\\r\n") {
+            offset += 3;
+            remaining = stripped;
+            continue;
+        }
+        if let Some(stripped) = remaining.strip_prefix("\\\n") {
+            offset += 2;
+            remaining = stripped;
+            continue;
+        }
+
+        let trimmed = remaining.trim_start_matches(char::is_whitespace);
+        if trimmed.len() == remaining.len() {
+            break;
+        }
+        offset += remaining.len() - trimmed.len();
+        remaining = trimmed;
+    }
+
+    &text[offset..]
 }
 
 fn last_later_stdout_file_redirect_index(redirects: &[RedirectFact<'_>]) -> Option<usize> {
@@ -269,6 +297,31 @@ echo ok 2>&1\\
             "\
 #!/bin/sh
 echo ok >/tmp/out 2>&1
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn preserves_interleaved_tokens_before_the_first_later_redirect() {
+        let source = "\
+#!/bin/sh
+echo ok 2>&1 arg >/tmp/out
+echo ok 2>&1 item 3>aux >out
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::StderrBeforeStdoutRedirect),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 2);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/sh
+echo ok arg >/tmp/out 2>&1
+echo ok item 3>aux >out 2>&1
 "
         );
         assert!(result.fixed_diagnostics.is_empty());
