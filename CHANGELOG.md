@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.0.18](https://github.com/ewhauser/shuck/compare/v0.0.17...v0.0.18) (2026-04-22)
+
+
+### Features
+
+* lint embedded GitHub Actions scripts ([#417](https://github.com/ewhauser/shuck/issues/417)) ([9182810](https://github.com/ewhauser/shuck/commit/9182810671ade2f001840bea907fb9a2c16b8072))
+
+
+### Bug Fixes
+
+* **c001:** eliminate shellcheck-only corpus divergences ([#429](https://github.com/ewhauser/shuck/issues/429)) ([476ae8f](https://github.com/ewhauser/shuck/commit/476ae8fabbc121306cc19cff68ade4c9fb4ff44a))
+* **c001:** preserve array-like indirect targets in shellcheck compat mode ([#426](https://github.com/ewhauser/shuck/issues/426)) ([b04795b](https://github.com/ewhauser/shuck/commit/b04795bd9ec2ed7d86b8b33ee7257caabe624118))
+* **linter:** add autofixes for X069, X055, and S023 ([#424](https://github.com/ewhauser/shuck/issues/424)) ([c1c6717](https://github.com/ewhauser/shuck/commit/c1c6717ff6d3c1e077b562c59898cdb9964a1e7c))
+* **linter:** align corpus conformance through C012 ([#431](https://github.com/ewhauser/shuck/issues/431)) ([4453834](https://github.com/ewhauser/shuck/commit/445383446b510daffd3a5e018fe31d36aebb6509))
+* **linter:** reduce S001 shellcheck divergences ([#430](https://github.com/ewhauser/shuck/issues/430)) ([b37259c](https://github.com/ewhauser/shuck/commit/b37259ccb25dc0c65023f973d613e2d36326cbe4))
+
 ## [0.0.17](https://github.com/ewhauser/shuck/compare/v0.0.16...v0.0.17) (2026-04-22)
 
 
