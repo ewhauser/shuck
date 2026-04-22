@@ -10,10 +10,10 @@ shells:
   - bash
   - dash
   - ksh
-description: A one-word test on a fixed literal does not ask a runtime question and is always decided the same way.
-rationale: Check a variable, path, or explicit comparison instead of a bare literal.
+description: A one-word bracket or conditional test on a fixed literal does not ask a runtime question and is always decided the same way.
+rationale: Check a variable, path, or explicit comparison instead of a bare constant inside `[ ... ]` or `[[ ... ]]`.
 safe_fix: false
-fix_description: "Replace the bare test term with `\"\"` or `x` so it keeps the same false or true result inside the surrounding test."
+fix_description: null
 source:
   shell_checks_rule: rules/SH-073.yaml
   shell_checks_example: examples/073.sh

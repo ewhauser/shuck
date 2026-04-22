@@ -540,8 +540,12 @@ impl<'a> SurfaceFragmentSink<'a> {
         {
             self.record_zsh_parameter_index_flag(span);
         }
-        if context.collect_open_double_quotes && context.assignment_target.is_none() {
-            self.collect_open_double_quote_fragments(word, context.command_name);
+        if context.collect_open_double_quotes {
+            self.collect_open_double_quote_fragments(
+                word,
+                context.command_name,
+                context.assignment_target,
+            );
         }
         self.collect_word_parts(&word.parts, context);
         self.facts.open_double_quotes.len() > open_double_quote_count
@@ -561,13 +565,20 @@ impl<'a> SurfaceFragmentSink<'a> {
         }
     }
 
-    fn collect_open_double_quote_fragments(&mut self, word: &Word, command_name: Option<&str>) {
-        let fragments = suspect_double_quote_spans(word, self.source, command_name);
+    fn collect_open_double_quote_fragments(
+        &mut self,
+        word: &Word,
+        command_name: Option<&str>,
+        assignment_target: Option<&str>,
+    ) {
+        let fragments =
+            suspect_double_quote_spans(word, self.source, command_name, assignment_target);
         if fragments.is_empty() {
             return;
         }
 
-        let replacement = rewrite_word_as_single_double_quoted_string(word, self.source);
+        let replacement =
+            rewrite_word_as_single_double_quoted_string(word, self.source, assignment_target);
         for (opening_span, closing_span) in fragments {
             self.facts
                 .open_double_quotes
@@ -2239,36 +2250,36 @@ fn is_shell_name(text: &str) -> bool {
 fn suspect_double_quote_spans(
     word: &Word,
     source: &str,
-    command_name: Option<&str>,
+    _command_name: Option<&str>,
+    assignment_target: Option<&str>,
 ) -> Vec<(Span, Span)> {
     word.parts
-        .windows(3)
+        .iter()
         .enumerate()
-        .filter_map(|(index, window)| {
-            let [current, middle, next] = window else {
-                return None;
-            };
-            if !suspicious_reopened_double_quote_window(
+        .filter_map(|(index, current)| {
+            if !suspicious_open_quote_fragment(
                 word,
                 source,
-                command_name,
                 index,
                 current,
-                middle,
-                next,
+                assignment_target.is_some(),
             ) {
                 return None;
             }
 
             Some((
-                opening_double_quote_span(current.span, source)?,
-                closing_double_quote_span(current.span, source)?,
+                opening_quote_span(current, source)?,
+                closing_quote_span(current, source)?,
             ))
         })
         .collect()
 }
 
-pub(super) fn rewrite_word_as_single_double_quoted_string(word: &Word, source: &str) -> Box<str> {
+pub(super) fn rewrite_word_as_single_double_quoted_string(
+    word: &Word,
+    source: &str,
+    _assignment_target: Option<&str>,
+) -> Box<str> {
     let mut rendered = String::from("\"");
     for part in &word.parts {
         render_word_part_inside_double_quotes(&mut rendered, part, source, false);
@@ -2397,103 +2408,144 @@ pub(super) fn word_has_reopened_double_quote_window(
     source: &str,
     command_name: Option<&str>,
 ) -> bool {
-    word.parts.windows(3).enumerate().any(|(index, window)| {
-        let [current, middle, next] = window else {
-            return false;
-        };
-        suspicious_reopened_double_quote_window(
-            word,
-            source,
-            command_name,
-            index,
-            current,
-            middle,
-            next,
-        )
-    })
+    !suspect_double_quote_spans(word, source, command_name, None).is_empty()
 }
 
-fn suspicious_reopened_double_quote_window(
+fn suspicious_open_quote_fragment(
     word: &Word,
     source: &str,
-    command_name: Option<&str>,
     index: usize,
     current: &WordPartNode,
-    middle: &WordPartNode,
-    next: &WordPartNode,
+    assignment_context: bool,
 ) -> bool {
-    let WordPart::DoubleQuoted { parts, .. } = &current.kind else {
-        return false;
-    };
-    if !matches!(next.kind, WordPart::DoubleQuoted { .. })
+    (!assignment_context && suspicious_multiline_double_quote_suffix(word, source, index, current))
+        || suspicious_reopened_single_quote_window(word, source, index, current)
+}
+
+fn suspicious_multiline_double_quote_suffix(
+    word: &Word,
+    source: &str,
+    index: usize,
+    current: &WordPartNode,
+) -> bool {
+    if !matches!(current.kind, WordPart::DoubleQuoted { .. })
         || !current.span.slice(source).contains('\n')
-        || double_quoted_parts_contain_live_scalar(parts)
+        || !quote_starts_nonempty_multiline_fragment(current, source)
     {
         return false;
     }
 
-    let has_scalar_gap = middle_part_is_live_scalar_gap(middle);
-    let has_word_literal_gap = index == 0
-        && matches!(command_name, Some("echo" | "printf"))
-        && !double_quoted_parts_contain_command_like_substitution(parts)
-        && middle_part_is_word_like_literal_gap(middle, source);
-    let has_triple_quote_literal_gap = index > 0
-        && double_quoted_part_is_empty(&word.parts[index - 1], source)
-        && middle_part_is_word_like_literal_gap(middle, source);
+    let Some(next) = word.parts.get(index + 1) else {
+        return false;
+    };
+    if immediate_double_quote_continuation_is_suspicious(next, source) {
+        return true;
+    }
 
-    has_scalar_gap || has_word_literal_gap || has_triple_quote_literal_gap
+    word_part_is_empty_literal(next, source)
+        && !word.parts[..index].iter().any(|part| {
+            matches!(part.kind, WordPart::DoubleQuoted { .. })
+                && part.span.slice(source).contains('\n')
+        })
+        && word
+            .parts
+            .get(index + 2)
+            .is_some_and(|part| matches!(part.kind, WordPart::DoubleQuoted { .. }))
 }
 
-fn double_quoted_parts_contain_live_scalar(parts: &[WordPartNode]) -> bool {
-    parts.iter().any(|part| match &part.kind {
-        WordPart::Literal(_)
-        | WordPart::SingleQuoted { .. }
-        | WordPart::CommandSubstitution { .. } => false,
-        WordPart::DoubleQuoted { parts, .. } => double_quoted_parts_contain_live_scalar(parts),
-        WordPart::Variable(_)
-        | WordPart::ArithmeticExpansion { .. }
-        | WordPart::Parameter(_)
-        | WordPart::ParameterExpansion { .. }
-        | WordPart::Length(_)
-        | WordPart::ArrayAccess(_)
-        | WordPart::ArrayLength(_)
-        | WordPart::ArrayIndices(_)
-        | WordPart::Substring { .. }
-        | WordPart::ArraySlice { .. }
-        | WordPart::IndirectExpansion { .. }
-        | WordPart::PrefixMatch { .. }
-        | WordPart::ProcessSubstitution { .. }
-        | WordPart::Transformation { .. }
-        | WordPart::ZshQualifiedGlob(_) => true,
-    })
+fn suspicious_reopened_single_quote_window(
+    word: &Word,
+    source: &str,
+    index: usize,
+    current: &WordPartNode,
+) -> bool {
+    let WordPart::SingleQuoted { dollar: false, .. } = current.kind else {
+        return false;
+    };
+    current.span.slice(source).contains('\n')
+        && single_quote_reopens_after_literal_run(&word.parts[index + 1..], source)
 }
 
-fn double_quoted_parts_contain_command_like_substitution(parts: &[WordPartNode]) -> bool {
-    parts.iter().any(|part| match &part.kind {
-        WordPart::Literal(_)
-        | WordPart::SingleQuoted { .. }
-        | WordPart::Variable(_)
-        | WordPart::ArithmeticExpansion { .. }
-        | WordPart::Parameter(_)
-        | WordPart::ParameterExpansion { .. }
-        | WordPart::Length(_)
-        | WordPart::ArrayAccess(_)
-        | WordPart::ArrayLength(_)
-        | WordPart::ArrayIndices(_)
-        | WordPart::Substring { .. }
-        | WordPart::ArraySlice { .. }
-        | WordPart::IndirectExpansion { .. }
-        | WordPart::PrefixMatch { .. }
-        | WordPart::Transformation { .. }
-        | WordPart::ZshQualifiedGlob(_) => false,
-        WordPart::DoubleQuoted { parts, .. } => {
-            double_quoted_parts_contain_command_like_substitution(parts)
+fn single_quote_reopens_after_literal_run(parts: &[WordPartNode], source: &str) -> bool {
+    let mut saw_literal = false;
+    let mut first_nonempty_literal: Option<&str> = None;
+
+    for part in parts {
+        match &part.kind {
+            WordPart::Literal(text) => {
+                let text = text.as_str(source, part.span);
+                if !text.is_empty() {
+                    saw_literal = true;
+                    if first_nonempty_literal.is_none() {
+                        first_nonempty_literal = Some(text);
+                    }
+                }
+            }
+            WordPart::SingleQuoted { dollar: false, .. } => {
+                return if let Some(first_literal) = first_nonempty_literal {
+                    !first_literal.starts_with('\\')
+                } else {
+                    saw_literal || !parts.is_empty()
+                };
+            }
+            WordPart::SingleQuoted { dollar: true, .. }
+            | WordPart::DoubleQuoted { .. }
+            | WordPart::Variable(_)
+            | WordPart::ArithmeticExpansion { .. }
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::Parameter(_)
+            | WordPart::ParameterExpansion { .. }
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::Substring { .. }
+            | WordPart::ArraySlice { .. }
+            | WordPart::IndirectExpansion { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::Transformation { .. }
+            | WordPart::ZshQualifiedGlob(_) => return false,
         }
-        WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => true,
-    })
+    }
+
+    false
 }
 
-fn middle_part_is_live_scalar_gap(part: &WordPartNode) -> bool {
+fn middle_part_is_word_like_literal_gap(part: &WordPartNode, source: &str) -> bool {
+    let WordPart::Literal(text) = &part.kind else {
+        return false;
+    };
+    let text = text.as_str(source, part.span);
+    split_quote_tail_is_suspicious(text) || backslash_prefixed_word_like_literal_gap(text)
+}
+
+fn word_part_is_empty_literal(part: &WordPartNode, source: &str) -> bool {
+    matches!(&part.kind, WordPart::Literal(text) if text.as_str(source, part.span).is_empty())
+}
+
+fn quote_starts_nonempty_multiline_fragment(part: &WordPartNode, source: &str) -> bool {
+    let quote = match part.kind {
+        WordPart::DoubleQuoted { .. } => '"',
+        WordPart::SingleQuoted { .. } => '\'',
+        _ => return false,
+    };
+    let text = part.span.slice(source);
+    let Some(quote_offset) = text.find(quote) else {
+        return false;
+    };
+    let after_quote = &text[quote_offset + quote.len_utf8()..];
+    !after_quote.starts_with('\n') && !after_quote.starts_with("\r\n")
+}
+
+fn immediate_double_quote_continuation_is_suspicious(part: &WordPartNode, source: &str) -> bool {
+    matches!(part.kind, WordPart::DoubleQuoted { .. })
+        || immediate_double_quote_scalar_gap(part)
+        || immediate_double_quote_substitution_gap(part)
+        || middle_part_is_word_like_literal_gap(part, source)
+}
+
+fn immediate_double_quote_scalar_gap(part: &WordPartNode) -> bool {
     matches!(
         part.kind,
         WordPart::Variable(_)
@@ -2512,12 +2564,11 @@ fn middle_part_is_live_scalar_gap(part: &WordPartNode) -> bool {
     )
 }
 
-fn middle_part_is_word_like_literal_gap(part: &WordPartNode, source: &str) -> bool {
-    let WordPart::Literal(text) = &part.kind else {
-        return false;
-    };
-    let text = text.as_str(source, part.span);
-    split_quote_tail_is_suspicious(text) || backslash_prefixed_word_like_literal_gap(text)
+fn immediate_double_quote_substitution_gap(part: &WordPartNode) -> bool {
+    matches!(
+        part.kind,
+        WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. }
+    )
 }
 
 fn double_quoted_part_is_empty(part: &WordPartNode, source: &str) -> bool {
@@ -2557,7 +2608,7 @@ fn split_suspect_closing_quote_spans(
                 return None;
             }
 
-            let span = closing_double_quote_span(current.span, source)?;
+            let span = closing_quote_span(current, source)?;
             if span.start.column == 1
                 || (index > 0
                     && double_quoted_part_is_empty(&word.parts[index - 1], source)
@@ -2579,16 +2630,28 @@ fn split_quote_tail_is_suspicious(text: &str) -> bool {
     (first == '_' || first.is_ascii_alphabetic()) && chars.all(|char| !char.is_whitespace())
 }
 
-fn opening_double_quote_span(span: Span, source: &str) -> Option<Span> {
+fn opening_quote_span(part: &WordPartNode, source: &str) -> Option<Span> {
+    let quote = match part.kind {
+        WordPart::DoubleQuoted { .. } => '"',
+        WordPart::SingleQuoted { .. } => '\'',
+        _ => return None,
+    };
+    let span = part.span;
     let text = span.slice(source);
-    let quote_offset = text.find('"')?;
+    let quote_offset = text.find(quote)?;
     let start = span.start.advanced_by(&text[..quote_offset]);
     Some(Span::from_positions(start, start))
 }
 
-fn closing_double_quote_span(span: Span, source: &str) -> Option<Span> {
+fn closing_quote_span(part: &WordPartNode, source: &str) -> Option<Span> {
+    let quote = match part.kind {
+        WordPart::DoubleQuoted { .. } => '"',
+        WordPart::SingleQuoted { .. } => '\'',
+        _ => return None,
+    };
+    let span = part.span;
     let text = span.slice(source);
-    let quote_offset = text.rfind('"')?;
+    let quote_offset = text.rfind(quote)?;
     let start = span.start.advanced_by(&text[..quote_offset]);
     Some(Span::from_positions(start, start))
 }

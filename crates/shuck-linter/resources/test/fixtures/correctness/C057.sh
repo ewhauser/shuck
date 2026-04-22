@@ -1,10 +1,10 @@
 #!/bin/sh
 
-# Invalid: the command substitution writes its stdout to a file instead.
+# Compatibility note: the pinned oracle currently stays quiet on this form.
 out=$(printf hi > out.txt)
 
-# Invalid: sending stdout to stderr also leaves nothing to capture.
+# Compatibility note: the pinned oracle also stays quiet on this reroute.
 out=$(printf hi >&2)
 
-# Valid: capture the command output directly.
+# Baseline direct capture.
 out=$(printf hi)

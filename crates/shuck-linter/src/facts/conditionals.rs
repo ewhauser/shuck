@@ -509,13 +509,1042 @@ fn collect_condition_status_capture_from_body(
         return;
     };
 
-    collect_status_parameter_spans_in_stmt(first_stmt, source, spans);
+    let mut stmt_spans = Vec::new();
+    collect_status_parameter_spans_in_stmt(first_stmt, source, &mut stmt_spans);
+    if stmt_spans.is_empty()
+        || branch_body_status_capture_is_exempt(first_stmt, body, source, &stmt_spans)
+    {
+        return;
+    }
+
+    spans.extend(stmt_spans);
+}
+
+fn collect_condition_status_capture_from_sequences(
+    commands: &StmtSeq,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    let mut segment_start = 0;
+    for (index, stmt) in commands.iter().enumerate() {
+        if !stmt_starts_sequence_barrier(stmt) {
+            continue;
+        }
+
+        collect_condition_status_capture_from_sequence_segment(
+            &commands.as_slice()[segment_start..index],
+            source,
+            spans,
+            sequence_tail_contains_nested_test_command(&commands.as_slice()[index..], source),
+            segment_start > 0,
+        );
+        segment_start = index + 1;
+    }
+    collect_condition_status_capture_from_sequence_segment(
+        &commands.as_slice()[segment_start..],
+        source,
+        spans,
+        false,
+        segment_start > 0,
+    );
+
+    for stmt in commands.iter() {
+        collect_condition_status_capture_from_nested_sequences(stmt, source, spans);
+    }
+
+    for (index, stmt) in commands.iter().enumerate() {
+        if !sequence_tail_contains_nested_test_command(&commands.as_slice()[index + 1..], source) {
+            continue;
+        }
+
+        let Command::Compound(CompoundCommand::Subshell(body) | CompoundCommand::BraceGroup(body)) =
+            &stmt.command
+        else {
+            continue;
+        };
+
+        collect_status_test_followup_chains_with_sibling_tail(body, source, spans);
+    }
+}
+
+fn collect_condition_status_capture_from_sequence_segment(
+    commands: &[Stmt],
+    source: &str,
+    spans: &mut Vec<Span>,
+    trailing_tail_has_test: bool,
+    has_prior_barrier: bool,
+) {
+    for (index, window) in commands.windows(2).enumerate() {
+        let [previous, current] = window else {
+            continue;
+        };
+        let recent = recent_sequence_region(&commands[..index], source);
+        let tail = &commands[index + 2..];
+        let effective_tail_has_test =
+            trailing_tail_has_test || sequence_tail_contains_test_command(tail, source);
+        let in_tbegin_region = commands[..index]
+            .iter()
+            .any(|stmt| stmt_is_named_simple_command(stmt, source, "tbegin"));
+
+        if stmt_is_assignment_only_unquoted_status_capture(current) {
+            if stmt_is_standalone_non_status_test_command(previous, source)
+                && in_tbegin_region
+                && recent_status_capture_stmt_count(recent, source) >= 2
+                && sequence_tail_contains_test_command(tail, source)
+            {
+                collect_status_parameter_spans_in_stmt(current, source, spans);
+            }
+            continue;
+        }
+
+        if !stmt_is_plain_command_with_standalone_status_argument(current) {
+            continue;
+        }
+
+        if stmt_is_status_based_test_command(previous, source) {
+            if (!has_prior_barrier && effective_tail_has_test)
+                || recent_contains_status_based_test(recent, source)
+            {
+                collect_status_parameter_spans_in_stmt(current, source, spans);
+            }
+            continue;
+        }
+
+        if !stmt_is_standalone_non_status_test_command(previous, source) {
+            continue;
+        }
+
+        if in_tbegin_region
+            && recent_has_prior_non_status_capture_pair(recent, source)
+        {
+            continue;
+        }
+
+        if effective_tail_has_test {
+            collect_status_parameter_spans_in_stmt(current, source, spans);
+        }
+    }
+}
+
+fn sequence_tail_contains_test_command(commands: &[Stmt], source: &str) -> bool {
+    commands
+        .iter()
+        .any(|stmt| stmt_terminals_are_test_commands(stmt, source))
+}
+
+fn sequence_tail_contains_nested_test_command(commands: &[Stmt], source: &str) -> bool {
+    commands
+        .iter()
+        .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source))
+}
+
+fn stmt_or_nested_sequence_contains_test_command(stmt: &Stmt, source: &str) -> bool {
+    if stmt_terminals_are_test_commands(stmt, source) {
+        return true;
+    }
+
+    match &stmt.command {
+        Command::Binary(command) => {
+            stmt_or_nested_sequence_contains_test_command(&command.left, source)
+                || stmt_or_nested_sequence_contains_test_command(&command.right, source)
+        }
+        Command::Compound(command) => match command {
+            CompoundCommand::If(command) => {
+                condition_terminals_are_test_commands(&command.condition, source)
+                    || command
+                        .then_branch
+                        .iter()
+                        .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source))
+                    || command.elif_branches.iter().any(|(condition, branch)| {
+                        condition_terminals_are_test_commands(condition, source)
+                            || branch.iter().any(|stmt| {
+                                stmt_or_nested_sequence_contains_test_command(stmt, source)
+                            })
+                    })
+                    || command.else_branch.as_ref().is_some_and(|branch| {
+                        branch
+                            .iter()
+                            .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source))
+                    })
+            }
+            CompoundCommand::While(command) => {
+                condition_terminals_are_test_commands(&command.condition, source)
+                    || command
+                        .body
+                        .iter()
+                        .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source))
+            }
+            CompoundCommand::Until(command) => {
+                condition_terminals_are_test_commands(&command.condition, source)
+                    || command
+                        .body
+                        .iter()
+                        .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source))
+            }
+            CompoundCommand::For(command) => command
+                .body
+                .iter()
+                .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source)),
+            CompoundCommand::Select(command) => command
+                .body
+                .iter()
+                .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source)),
+            CompoundCommand::BraceGroup(body) | CompoundCommand::Subshell(body) => body
+                .iter()
+                .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source)),
+            CompoundCommand::Time(command) => command
+                .command
+                .as_ref()
+                .is_some_and(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source)),
+            CompoundCommand::Always(command) => {
+                command
+                    .body
+                    .iter()
+                    .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source))
+                    || command
+                        .always_body
+                        .iter()
+                        .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source))
+            }
+            CompoundCommand::Case(command) => command.cases.iter().any(|case| {
+                case.body
+                    .iter()
+                    .any(|stmt| stmt_or_nested_sequence_contains_test_command(stmt, source))
+            }),
+            CompoundCommand::Conditional(_)
+            | CompoundCommand::Repeat(_)
+            | CompoundCommand::Foreach(_)
+            | CompoundCommand::ArithmeticFor(_)
+            | CompoundCommand::Arithmetic(_)
+            | CompoundCommand::Coproc(_) => false,
+        },
+        Command::Function(function) => {
+            stmt_or_nested_sequence_contains_test_command(&function.body, source)
+        }
+        Command::AnonymousFunction(function) => {
+            stmt_or_nested_sequence_contains_test_command(&function.body, source)
+        }
+        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => false,
+    }
+}
+
+fn collect_status_test_followup_chains_with_sibling_tail(
+    commands: &StmtSeq,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for window in commands.as_slice().windows(2) {
+        let [previous, current] = window else {
+            continue;
+        };
+        if stmt_is_standalone_non_status_test_command(previous, source)
+            && stmt_is_status_test_followup_chain(current, source)
+        {
+            collect_status_parameter_spans_in_stmt(current, source, spans);
+        }
+    }
+
+    for stmt in commands.iter() {
+        collect_status_test_followup_chains_in_nested_stmt(stmt, source, spans);
+    }
+}
+
+fn collect_status_test_followup_chains_in_nested_stmt(
+    stmt: &Stmt,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match &stmt.command {
+        Command::Binary(command) => {
+            collect_status_test_followup_chains_in_nested_stmt(&command.left, source, spans);
+            collect_status_test_followup_chains_in_nested_stmt(&command.right, source, spans);
+        }
+        Command::Compound(command) => match command {
+            CompoundCommand::If(command) => {
+                collect_status_test_followup_chains_with_sibling_tail(
+                    &command.then_branch,
+                    source,
+                    spans,
+                );
+                for (_, branch) in &command.elif_branches {
+                    collect_status_test_followup_chains_with_sibling_tail(branch, source, spans);
+                }
+                if let Some(branch) = &command.else_branch {
+                    collect_status_test_followup_chains_with_sibling_tail(branch, source, spans);
+                }
+            }
+            CompoundCommand::While(command) => {
+                collect_status_test_followup_chains_with_sibling_tail(&command.body, source, spans);
+            }
+            CompoundCommand::Until(command) => {
+                collect_status_test_followup_chains_with_sibling_tail(&command.body, source, spans);
+            }
+            CompoundCommand::For(command) => {
+                collect_status_test_followup_chains_with_sibling_tail(&command.body, source, spans);
+            }
+            CompoundCommand::Select(command) => {
+                collect_status_test_followup_chains_with_sibling_tail(&command.body, source, spans);
+            }
+            CompoundCommand::BraceGroup(body) | CompoundCommand::Subshell(body) => {
+                collect_status_test_followup_chains_with_sibling_tail(body, source, spans);
+            }
+            CompoundCommand::Time(command) => {
+                if let Some(inner) = &command.command {
+                    collect_status_test_followup_chains_in_nested_stmt(inner, source, spans);
+                }
+            }
+            CompoundCommand::Always(command) => {
+                collect_status_test_followup_chains_with_sibling_tail(&command.body, source, spans);
+                collect_status_test_followup_chains_with_sibling_tail(
+                    &command.always_body,
+                    source,
+                    spans,
+                );
+            }
+            CompoundCommand::Case(_)
+            | CompoundCommand::Conditional(_)
+            | CompoundCommand::Repeat(_)
+            | CompoundCommand::Foreach(_)
+            | CompoundCommand::ArithmeticFor(_)
+            | CompoundCommand::Arithmetic(_)
+            | CompoundCommand::Coproc(_) => {}
+        },
+        Command::Function(function) => {
+            collect_status_test_followup_chains_in_nested_stmt(&function.body, source, spans);
+        }
+        Command::AnonymousFunction(function) => {
+            collect_status_test_followup_chains_in_nested_stmt(&function.body, source, spans);
+        }
+        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => {}
+    }
+}
+
+fn branch_body_status_capture_is_exempt(
+    first_stmt: &Stmt,
+    body: &StmtSeq,
+    source: &str,
+    stmt_spans: &[Span],
+) -> bool {
+    if branch_body_preserves_status_in_plain_assignment(first_stmt, body, source, stmt_spans) {
+        return true;
+    }
+
+    if branch_body_logs_status_then_immediately_exits(first_stmt, body, source, stmt_spans) {
+        return true;
+    }
+
+    false
+}
+
+fn branch_body_preserves_status_in_plain_assignment(
+    first_stmt: &Stmt,
+    _body: &StmtSeq,
+    source: &str,
+    stmt_spans: &[Span],
+) -> bool {
+    let Some(_) = stmt_plain_assignment_only_name(first_stmt) else {
+        return false;
+    };
+    if stmt_contains_unquoted_standalone_status_capture(first_stmt, source) || stmt_spans.is_empty()
+    {
+        return false;
+    }
+    true
+}
+
+fn branch_body_logs_status_then_immediately_exits(
+    first_stmt: &Stmt,
+    body: &StmtSeq,
+    source: &str,
+    stmt_spans: &[Span],
+) -> bool {
+    if stmt_spans.is_empty()
+        || stmt_contains_unquoted_standalone_status_capture(first_stmt, source)
+    {
+        return false;
+    }
+
+    body.iter().nth(1).is_some_and(stmt_is_exit_or_return_builtin)
+}
+
+fn collect_condition_status_capture_from_nested_sequences(
+    stmt: &Stmt,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match &stmt.command {
+        Command::Binary(command) => {
+            collect_condition_status_capture_from_nested_sequences(&command.left, source, spans);
+            collect_condition_status_capture_from_nested_sequences(&command.right, source, spans);
+        }
+        Command::Compound(command) => match command {
+            CompoundCommand::If(command) => {
+                collect_condition_status_capture_from_sequences(&command.then_branch, source, spans);
+                for (_, branch) in &command.elif_branches {
+                    collect_condition_status_capture_from_sequences(branch, source, spans);
+                }
+                if let Some(branch) = &command.else_branch {
+                    collect_condition_status_capture_from_sequences(branch, source, spans);
+                }
+            }
+            CompoundCommand::While(command) => {
+                collect_condition_status_capture_from_sequences(&command.body, source, spans);
+            }
+            CompoundCommand::Until(command) => {
+                collect_condition_status_capture_from_sequences(&command.body, source, spans);
+            }
+            CompoundCommand::For(command) => {
+                collect_condition_status_capture_from_sequences(&command.body, source, spans);
+            }
+            CompoundCommand::Select(command) => {
+                collect_condition_status_capture_from_sequences(&command.body, source, spans);
+            }
+            CompoundCommand::BraceGroup(body) | CompoundCommand::Subshell(body) => {
+                collect_condition_status_capture_from_sequences(body, source, spans);
+            }
+            CompoundCommand::Case(command) => {
+                let _ = command;
+            }
+            CompoundCommand::Time(command) => {
+                if let Some(inner) = &command.command {
+                    collect_condition_status_capture_from_nested_sequences(inner, source, spans);
+                }
+            }
+            CompoundCommand::Always(command) => {
+                collect_condition_status_capture_from_sequences(&command.body, source, spans);
+                collect_condition_status_capture_from_sequences(
+                    &command.always_body,
+                    source,
+                    spans,
+                );
+            }
+            CompoundCommand::Conditional(_)
+            | CompoundCommand::Repeat(_)
+            | CompoundCommand::Foreach(_)
+            | CompoundCommand::ArithmeticFor(_)
+            | CompoundCommand::Arithmetic(_)
+            | CompoundCommand::Coproc(_) => {}
+        },
+        Command::Function(function) => {
+            collect_condition_status_capture_from_nested_sequences(&function.body, source, spans);
+        }
+        Command::AnonymousFunction(function) => {
+            collect_condition_status_capture_from_nested_sequences(&function.body, source, spans);
+        }
+        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => {}
+    }
+}
+
+fn collect_precise_function_return_guard_suppressions(
+    commands: &StmtSeq,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    collect_precise_function_return_guard_suppressions_in_seq(commands, source, spans, false);
+}
+
+fn collect_precise_function_return_guard_suppressions_in_seq(
+    commands: &StmtSeq,
+    source: &str,
+    spans: &mut Vec<Span>,
+    in_function_like_body: bool,
+) {
+    let stmts = commands.as_slice();
+    for (index, stmt) in stmts.iter().enumerate() {
+        if in_function_like_body && stmt_is_test_return_status_guard(stmt, source) {
+            let previous_non_test_guard =
+                index > 0 && stmt_is_non_test_return_status_guard(&stmts[index - 1], source);
+            let later_unary_guard = stmts[index + 1..]
+                .iter()
+                .any(|stmt| stmt_is_unary_test_return_status_guard(stmt, source));
+            let status_accumulator_guard =
+                stmt_starts_status_accumulator_return_guard(index, stmts, source);
+            if status_accumulator_guard
+                || (stmt_is_unary_test_return_status_guard(stmt, source)
+                    && (previous_non_test_guard || later_unary_guard))
+            {
+                collect_status_parameter_spans_in_return_guard_stmt(stmt, source, spans);
+            }
+        }
+
+        collect_precise_function_return_guard_suppressions_in_stmt(
+            stmt,
+            source,
+            spans,
+            in_function_like_body,
+        );
+    }
+}
+
+fn collect_precise_function_return_guard_suppressions_in_stmt(
+    stmt: &Stmt,
+    source: &str,
+    spans: &mut Vec<Span>,
+    in_function_like_body: bool,
+) {
+    match &stmt.command {
+        Command::Binary(command) => {
+            collect_precise_function_return_guard_suppressions_in_stmt(
+                &command.left,
+                source,
+                spans,
+                in_function_like_body,
+            );
+            collect_precise_function_return_guard_suppressions_in_stmt(
+                &command.right,
+                source,
+                spans,
+                in_function_like_body,
+            );
+        }
+        Command::Compound(command) => match command {
+            CompoundCommand::If(command) => {
+                collect_precise_function_return_guard_suppressions_in_seq(
+                    &command.then_branch,
+                    source,
+                    spans,
+                    in_function_like_body,
+                );
+                for (_, branch) in &command.elif_branches {
+                    collect_precise_function_return_guard_suppressions_in_seq(
+                        branch,
+                        source,
+                        spans,
+                        in_function_like_body,
+                    );
+                }
+                if let Some(branch) = &command.else_branch {
+                    collect_precise_function_return_guard_suppressions_in_seq(
+                        branch,
+                        source,
+                        spans,
+                        in_function_like_body,
+                    );
+                }
+            }
+            CompoundCommand::While(command) => {
+                collect_precise_function_return_guard_suppressions_in_seq(
+                    &command.body,
+                    source,
+                    spans,
+                    in_function_like_body,
+                );
+            }
+            CompoundCommand::Until(command) => {
+                collect_precise_function_return_guard_suppressions_in_seq(
+                    &command.body,
+                    source,
+                    spans,
+                    in_function_like_body,
+                );
+            }
+            CompoundCommand::For(command) => {
+                collect_precise_function_return_guard_suppressions_in_seq(
+                    &command.body,
+                    source,
+                    spans,
+                    in_function_like_body,
+                );
+            }
+            CompoundCommand::Select(command) => {
+                collect_precise_function_return_guard_suppressions_in_seq(
+                    &command.body,
+                    source,
+                    spans,
+                    in_function_like_body,
+                );
+            }
+            CompoundCommand::BraceGroup(body) | CompoundCommand::Subshell(body) => {
+                collect_precise_function_return_guard_suppressions_in_seq(
+                    body,
+                    source,
+                    spans,
+                    in_function_like_body,
+                );
+            }
+            CompoundCommand::Time(command) => {
+                if let Some(inner) = &command.command {
+                    collect_precise_function_return_guard_suppressions_in_stmt(
+                        inner,
+                        source,
+                        spans,
+                        in_function_like_body,
+                    );
+                }
+            }
+            CompoundCommand::Always(command) => {
+                collect_precise_function_return_guard_suppressions_in_seq(
+                    &command.body,
+                    source,
+                    spans,
+                    in_function_like_body,
+                );
+                collect_precise_function_return_guard_suppressions_in_seq(
+                    &command.always_body,
+                    source,
+                    spans,
+                    in_function_like_body,
+                );
+            }
+            CompoundCommand::Case(command) => {
+                for case in &command.cases {
+                    collect_precise_function_return_guard_suppressions_in_seq(
+                        &case.body,
+                        source,
+                        spans,
+                        in_function_like_body,
+                    );
+                }
+            }
+            CompoundCommand::Conditional(_)
+            | CompoundCommand::Repeat(_)
+            | CompoundCommand::Foreach(_)
+            | CompoundCommand::ArithmeticFor(_)
+            | CompoundCommand::Arithmetic(_)
+            | CompoundCommand::Coproc(_) => {}
+        },
+        Command::Function(function) => {
+            collect_precise_function_return_guard_suppressions_in_stmt(
+                &function.body,
+                source,
+                spans,
+                true,
+            );
+        }
+        Command::AnonymousFunction(function) => {
+            collect_precise_function_return_guard_suppressions_in_stmt(
+                &function.body,
+                source,
+                spans,
+                true,
+            );
+        }
+        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => {}
+    }
 }
 
 fn condition_terminals_are_test_commands(condition: &StmtSeq, source: &str) -> bool {
     condition
         .last()
         .is_some_and(|stmt| stmt_terminals_are_test_commands(stmt, source))
+}
+
+fn stmt_is_standalone_non_status_test_command(stmt: &Stmt, source: &str) -> bool {
+    stmt_terminals_are_test_commands(stmt, source) && !stmt_contains_status_capture(stmt, source)
+}
+
+fn stmt_is_status_based_test_command(stmt: &Stmt, source: &str) -> bool {
+    stmt_terminals_are_test_commands(stmt, source) && stmt_contains_status_capture(stmt, source)
+}
+
+fn stmt_is_status_test_followup_chain(stmt: &Stmt, source: &str) -> bool {
+    match &stmt.command {
+        Command::Binary(command) if matches!(command.op, BinaryOp::And | BinaryOp::Or) => {
+            (stmt_is_status_based_test_command(&command.left, source)
+                && !stmt_terminals_are_test_commands(&command.right, source))
+                || stmt_is_status_test_followup_chain(&command.left, source)
+                || stmt_is_status_test_followup_chain(&command.right, source)
+        }
+        Command::Simple(_)
+        | Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => false,
+    }
+}
+
+fn stmt_is_unary_test_return_status_guard(stmt: &Stmt, source: &str) -> bool {
+    let Command::Binary(command) = &stmt.command else {
+        return false;
+    };
+    matches!(command.op, BinaryOp::Or)
+        && stmt_is_simple_unary_test_command(&command.left, source)
+        && stmt_is_return_status_command(&command.right, source)
+}
+
+fn stmt_is_test_return_status_guard(stmt: &Stmt, source: &str) -> bool {
+    let Command::Binary(command) = &stmt.command else {
+        return false;
+    };
+    matches!(command.op, BinaryOp::Or)
+        && stmt_terminals_are_test_commands(&command.left, source)
+        && stmt_is_return_status_command(&command.right, source)
+}
+
+fn stmt_is_non_test_return_status_guard(stmt: &Stmt, source: &str) -> bool {
+    let Command::Binary(command) = &stmt.command else {
+        return false;
+    };
+    matches!(command.op, BinaryOp::Or)
+        && !stmt_terminals_are_test_commands(&command.left, source)
+        && stmt_is_return_status_command(&command.right, source)
+}
+
+fn stmt_is_return_status_command(stmt: &Stmt, source: &str) -> bool {
+    if stmt.negated || !stmt.redirects.is_empty() {
+        return false;
+    }
+
+    match &stmt.command {
+        Command::Builtin(BuiltinCommand::Return(command)) => command
+            .code
+            .as_ref()
+            .is_some_and(word_is_unquoted_standalone_status_capture),
+        Command::Simple(command) => {
+            static_word_text(&command.name, source).as_deref() == Some("return")
+                && command.args.len() == 1
+                && word_is_unquoted_standalone_status_capture(&command.args[0])
+        }
+        Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => false,
+    }
+}
+
+fn stmt_is_simple_unary_test_command(stmt: &Stmt, source: &str) -> bool {
+    if stmt.negated {
+        return false;
+    }
+
+    match &stmt.command {
+        Command::Compound(CompoundCommand::Conditional(command)) => {
+            matches!(command.expression, ConditionalExpr::Unary(_))
+        }
+        Command::Simple(command) => {
+            let Some(name) = static_word_text(&command.name, source) else {
+                return false;
+            };
+            if !matches!(name.as_ref(), "[" | "test") {
+                return false;
+            }
+            let Some((closing_bracket, operands)) = command.args.split_last() else {
+                return false;
+            };
+            let operand_count = if name.as_ref() == "[" {
+                if static_word_text(closing_bracket, source).as_deref() != Some("]") {
+                    return false;
+                }
+                operands.len()
+            } else {
+                command.args.len()
+            };
+            operand_count == 2
+        }
+        Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => false,
+    }
+}
+
+fn stmt_starts_status_accumulator_return_guard(
+    index: usize,
+    commands: &[Stmt],
+    source: &str,
+) -> bool {
+    let Some(next_stmt) = commands.get(index + 1) else {
+        return false;
+    };
+    let Some(name) = stmt_assignment_only_scalar_literal_name(next_stmt, source, "0") else {
+        return false;
+    };
+    let later = &commands[index + 2..];
+    later.iter()
+        .any(|stmt| stmt_contains_status_capture_assignment_to_name(stmt, name))
+        && later.iter().any(|stmt| stmt_returns_name(stmt, name))
+}
+
+fn stmt_assignment_only_scalar_literal_name<'a>(
+    stmt: &'a Stmt,
+    source: &str,
+    expected: &str,
+) -> Option<&'a Name> {
+    let name = stmt_plain_assignment_only_name(stmt)?;
+    let Command::Simple(command) = &stmt.command else {
+        return None;
+    };
+    let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+        return None;
+    };
+    (static_word_text(word, source).as_deref() == Some(expected)).then_some(name)
+}
+
+fn stmt_contains_status_capture_assignment_to_name(stmt: &Stmt, name: &Name) -> bool {
+    match &stmt.command {
+        Command::Simple(_) => stmt_plain_assignment_only_name(stmt).is_some_and(|target| {
+            target == name && stmt_is_assignment_only_unquoted_status_capture(stmt)
+        }),
+        Command::Binary(command) => {
+            stmt_contains_status_capture_assignment_to_name(&command.left, name)
+                || stmt_contains_status_capture_assignment_to_name(&command.right, name)
+        }
+        Command::Compound(command) => match command {
+            CompoundCommand::BraceGroup(body) | CompoundCommand::Subshell(body) => body
+                .iter()
+                .any(|stmt| stmt_contains_status_capture_assignment_to_name(stmt, name)),
+            CompoundCommand::Time(command) => command
+                .command
+                .as_ref()
+                .is_some_and(|stmt| stmt_contains_status_capture_assignment_to_name(stmt, name)),
+            CompoundCommand::If(_)
+            | CompoundCommand::While(_)
+            | CompoundCommand::Until(_)
+            | CompoundCommand::For(_)
+            | CompoundCommand::Select(_)
+            | CompoundCommand::Case(_)
+            | CompoundCommand::Conditional(_)
+            | CompoundCommand::Repeat(_)
+            | CompoundCommand::Foreach(_)
+            | CompoundCommand::ArithmeticFor(_)
+            | CompoundCommand::Arithmetic(_)
+            | CompoundCommand::Coproc(_)
+            | CompoundCommand::Always(_) => false,
+        },
+        Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => false,
+    }
+}
+
+fn stmt_returns_name(stmt: &Stmt, name: &Name) -> bool {
+    match &stmt.command {
+        Command::Builtin(BuiltinCommand::Return(command)) => command
+            .code
+            .as_ref()
+            .is_some_and(|word| word_is_name_reference(word, name)),
+        Command::Binary(command) => {
+            stmt_returns_name(&command.left, name) || stmt_returns_name(&command.right, name)
+        }
+        Command::Compound(command) => match command {
+            CompoundCommand::BraceGroup(body) | CompoundCommand::Subshell(body) => body
+                .iter()
+                .any(|stmt| stmt_returns_name(stmt, name)),
+            CompoundCommand::Time(command) => command
+                .command
+                .as_ref()
+                .is_some_and(|stmt| stmt_returns_name(stmt, name)),
+            CompoundCommand::If(_)
+            | CompoundCommand::While(_)
+            | CompoundCommand::Until(_)
+            | CompoundCommand::For(_)
+            | CompoundCommand::Select(_)
+            | CompoundCommand::Case(_)
+            | CompoundCommand::Conditional(_)
+            | CompoundCommand::Repeat(_)
+            | CompoundCommand::Foreach(_)
+            | CompoundCommand::ArithmeticFor(_)
+            | CompoundCommand::Arithmetic(_)
+            | CompoundCommand::Coproc(_)
+            | CompoundCommand::Always(_) => false,
+        },
+        Command::Simple(_)
+        | Command::Decl(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => false,
+        Command::Builtin(
+            BuiltinCommand::Break(_)
+            | BuiltinCommand::Continue(_)
+            | BuiltinCommand::Exit(_),
+        ) => false,
+    }
+}
+
+fn word_is_name_reference(word: &Word, name: &Name) -> bool {
+    matches!(
+        word.parts.as_slice(),
+        [WordPartNode {
+            kind: WordPart::Variable(var),
+            ..
+        }] if var == name
+    ) || matches!(
+        word.parts.as_slice(),
+        [WordPartNode {
+            kind: WordPart::Parameter(parameter),
+            ..
+        }] if matches!(
+            parameter.bourne(),
+            Some(BourneParameterExpansion::Access { reference })
+                if reference.name == *name && reference.subscript.is_none()
+        )
+    )
+}
+
+fn stmt_contains_status_capture(stmt: &Stmt, source: &str) -> bool {
+    let mut spans = Vec::new();
+    collect_status_parameter_spans_in_stmt(stmt, source, &mut spans);
+    !spans.is_empty()
+}
+
+fn stmt_contains_unquoted_standalone_status_capture(stmt: &Stmt, source: &str) -> bool {
+    let mut spans = Vec::new();
+    collect_unquoted_standalone_status_parameter_spans_in_stmt(stmt, source, &mut spans);
+    !spans.is_empty()
+}
+
+fn recent_sequence_region<'a>(commands: &'a [Stmt], source: &str) -> &'a [Stmt] {
+    let start = commands
+        .iter()
+        .rposition(|stmt| stmt_is_named_simple_command(stmt, source, "tbegin"))
+        .map_or(0, |index| index + 1);
+    &commands[start..]
+}
+
+fn recent_contains_status_based_test(commands: &[Stmt], source: &str) -> bool {
+    commands
+        .iter()
+        .any(|stmt| stmt_is_status_based_test_command(stmt, source))
+}
+
+fn stmt_starts_sequence_barrier(stmt: &Stmt) -> bool {
+    matches!(
+        &stmt.command,
+        Command::Compound(
+            CompoundCommand::If(_)
+                | CompoundCommand::Case(_)
+                | CompoundCommand::For(_)
+                | CompoundCommand::Select(_)
+                | CompoundCommand::While(_)
+                | CompoundCommand::Until(_)
+                | CompoundCommand::Always(_)
+        )
+    )
+}
+
+fn stmt_is_named_simple_command(stmt: &Stmt, source: &str, name: &str) -> bool {
+    matches!(
+        &stmt.command,
+        Command::Simple(command)
+            if static_word_text(&command.name, source).as_deref() == Some(name)
+    )
+}
+
+fn stmt_plain_assignment_only_name(stmt: &Stmt) -> Option<&Name> {
+    if stmt.negated || !stmt.redirects.is_empty() {
+        return None;
+    }
+
+    let Command::Simple(command) = &stmt.command else {
+        return None;
+    };
+    if !command.args.is_empty()
+        || command.name.span.start.offset != command.name.span.end.offset
+        || command.assignments.len() != 1
+    {
+        return None;
+    }
+
+    Some(&command.assignments[0].target.name)
+}
+
+fn stmt_is_assignment_only_unquoted_status_capture(stmt: &Stmt) -> bool {
+    if stmt.negated || !stmt.redirects.is_empty() {
+        return false;
+    }
+
+    let Command::Simple(command) = &stmt.command else {
+        return false;
+    };
+
+    command.args.is_empty()
+        && command.name.span.start.offset == command.name.span.end.offset
+        && !command.assignments.is_empty()
+        && command
+            .assignments
+            .iter()
+            .all(|assignment| assignment_value_is_unquoted_status_capture(&assignment.value))
+}
+
+fn assignment_value_is_unquoted_status_capture(value: &AssignmentValue) -> bool {
+    match value {
+        AssignmentValue::Scalar(word) => word_is_unquoted_standalone_status_capture(word),
+        AssignmentValue::Compound(_) => false,
+    }
+}
+
+fn recent_has_prior_non_status_capture_pair(commands: &[Stmt], source: &str) -> bool {
+    commands.windows(2).any(|window| {
+        let [previous, current] = window else {
+            return false;
+        };
+        stmt_is_standalone_non_status_test_command(previous, source)
+            && stmt_contains_status_capture(current, source)
+    })
+}
+
+fn recent_status_capture_stmt_count(commands: &[Stmt], source: &str) -> usize {
+    commands
+        .iter()
+        .filter(|stmt| stmt_contains_status_capture(stmt, source))
+        .count()
+}
+
+fn stmt_is_exit_or_return_builtin(stmt: &Stmt) -> bool {
+    matches!(
+        stmt.command,
+        Command::Builtin(BuiltinCommand::Exit(_) | BuiltinCommand::Return(_))
+    )
+}
+
+fn stmt_is_plain_command_with_standalone_status_argument(stmt: &Stmt) -> bool {
+    if stmt.negated || !stmt.redirects.is_empty() {
+        return false;
+    }
+
+    match &stmt.command {
+        Command::Simple(command) => {
+            command.name.span.start.offset != command.name.span.end.offset
+                && (word_is_unquoted_standalone_status_capture(&command.name)
+                    || command
+                        .args
+                        .iter()
+                        .any(word_is_unquoted_standalone_status_capture))
+        }
+        Command::Builtin(command) => match command {
+            BuiltinCommand::Return(command) => command
+                .code
+                .as_ref()
+                .is_some_and(word_is_unquoted_standalone_status_capture),
+            BuiltinCommand::Exit(command) => command
+                .code
+                .as_ref()
+                .is_some_and(word_is_unquoted_standalone_status_capture),
+            BuiltinCommand::Break(_)
+            | BuiltinCommand::Continue(_) => false,
+        },
+        Command::Decl(_)
+        | Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => false,
+    }
+}
+
+fn word_is_unquoted_standalone_status_capture(word: &Word) -> bool {
+    matches!(
+        word.parts.as_slice(),
+        [WordPartNode {
+            kind: WordPart::Variable(name),
+            ..
+        }] if name.as_str() == "?"
+    ) || matches!(
+        word.parts.as_slice(),
+        [WordPartNode {
+            kind: WordPart::Parameter(parameter),
+            ..
+        }] if matches!(
+            parameter.bourne(),
+            Some(BourneParameterExpansion::Access { reference })
+                if reference.name.as_str() == "?" && reference.subscript.is_none()
+        )
+    )
 }
 
 fn stmt_terminals_are_test_commands(stmt: &Stmt, source: &str) -> bool {
@@ -552,6 +1581,152 @@ fn collect_status_parameter_spans_in_stmt(stmt: &Stmt, source: &str, spans: &mut
         if let Some(word) = redirect.word_target() {
             collect_status_parameter_spans_in_word(word, source, spans);
         }
+    }
+}
+
+fn collect_status_parameter_spans_in_return_guard_stmt(
+    stmt: &Stmt,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    if let Command::Binary(command) = &stmt.command {
+        collect_status_parameter_spans_in_stmt(&command.right, source, spans);
+        return;
+    }
+
+    collect_status_parameter_spans_in_stmt(stmt, source, spans);
+}
+
+fn collect_unquoted_standalone_status_parameter_spans_in_stmt(
+    stmt: &Stmt,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    collect_unquoted_standalone_status_parameter_spans_in_command(&stmt.command, source, spans);
+    for redirect in &stmt.redirects {
+        if let Some(word) = redirect.word_target() {
+            collect_unquoted_standalone_status_parameter_spans_in_word(word, spans);
+        }
+    }
+}
+
+fn collect_unquoted_standalone_status_parameter_spans_in_command(
+    command: &Command,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match command {
+        Command::Simple(command) => {
+            for assignment in &command.assignments {
+                if let AssignmentValue::Scalar(word) = &assignment.value {
+                    collect_unquoted_standalone_status_parameter_spans_in_word(word, spans);
+                }
+            }
+            collect_unquoted_standalone_status_parameter_spans_in_word(&command.name, spans);
+            for word in &command.args {
+                collect_unquoted_standalone_status_parameter_spans_in_word(word, spans);
+            }
+        }
+        Command::Builtin(command) => match command {
+            BuiltinCommand::Return(command) => {
+                if let Some(word) = &command.code {
+                    collect_unquoted_standalone_status_parameter_spans_in_word(word, spans);
+                }
+            }
+            BuiltinCommand::Exit(command) => {
+                if let Some(word) = &command.code {
+                    collect_unquoted_standalone_status_parameter_spans_in_word(word, spans);
+                }
+            }
+            BuiltinCommand::Break(_)
+            | BuiltinCommand::Continue(_) => {}
+        },
+        Command::Decl(command) => {
+            collect_unquoted_standalone_status_parameter_spans_in_assignments(
+                &command.assignments,
+                spans,
+            );
+            for operand in &command.operands {
+                if let DeclOperand::Assignment(assignment) = operand {
+                    collect_unquoted_standalone_status_parameter_spans_in_assignment(
+                        assignment, spans,
+                    );
+                }
+            }
+        }
+        Command::Compound(command) => match command {
+            CompoundCommand::Case(command) => {
+                if let Some(first_stmt) = command
+                    .cases
+                    .iter()
+                    .find_map(|case| case.body.first())
+                {
+                    collect_unquoted_standalone_status_parameter_spans_in_stmt(
+                        first_stmt,
+                        source,
+                        spans,
+                    );
+                }
+            }
+            CompoundCommand::BraceGroup(body) | CompoundCommand::Subshell(body) => {
+                if let Some(first_stmt) = body.first() {
+                    collect_unquoted_standalone_status_parameter_spans_in_stmt(
+                        first_stmt,
+                        source,
+                        spans,
+                    );
+                }
+            }
+            CompoundCommand::Time(command) => {
+                if let Some(inner) = &command.command {
+                    collect_unquoted_standalone_status_parameter_spans_in_stmt(inner, source, spans);
+                }
+            }
+            CompoundCommand::If(_)
+            | CompoundCommand::While(_)
+            | CompoundCommand::Until(_)
+            | CompoundCommand::For(_)
+            | CompoundCommand::Select(_)
+            | CompoundCommand::Conditional(_)
+            | CompoundCommand::Repeat(_)
+            | CompoundCommand::Foreach(_)
+            | CompoundCommand::ArithmeticFor(_)
+            | CompoundCommand::Arithmetic(_)
+            | CompoundCommand::Coproc(_)
+            | CompoundCommand::Always(_) => {}
+        },
+        Command::Binary(command) => {
+            collect_unquoted_standalone_status_parameter_spans_in_stmt(&command.left, source, spans);
+        }
+        Command::Function(_)
+        | Command::AnonymousFunction(_) => {}
+    }
+}
+
+fn collect_unquoted_standalone_status_parameter_spans_in_assignments(
+    assignments: &[Assignment],
+    spans: &mut Vec<Span>,
+) {
+    for assignment in assignments {
+        collect_unquoted_standalone_status_parameter_spans_in_assignment(assignment, spans);
+    }
+}
+
+fn collect_unquoted_standalone_status_parameter_spans_in_assignment(
+    assignment: &Assignment,
+    spans: &mut Vec<Span>,
+) {
+    match &assignment.value {
+        AssignmentValue::Scalar(word) => {
+            collect_unquoted_standalone_status_parameter_spans_in_word(word, spans);
+        }
+        AssignmentValue::Compound(_) => {}
+    }
+}
+
+fn collect_unquoted_standalone_status_parameter_spans_in_word(word: &Word, spans: &mut Vec<Span>) {
+    if word_is_unquoted_standalone_status_capture(word) {
+        spans.push(word.span);
     }
 }
 

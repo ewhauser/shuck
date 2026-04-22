@@ -1,12 +1,9 @@
-use crate::{
-    Checker, CommandSubstitutionKind, Edit, Fix, FixAvailability, Rule, SubstitutionOutputIntent,
-    Violation,
-};
+use crate::{Checker, FixAvailability, Rule, Violation};
 
 pub struct SubstWithRedirect;
 
 impl Violation for SubstWithRedirect {
-    const FIX_AVAILABILITY: FixAvailability = FixAvailability::Always;
+    const FIX_AVAILABILITY: FixAvailability = FixAvailability::None;
 
     fn rule() -> Rule {
         Rule::SubstWithRedirect
@@ -17,55 +14,25 @@ impl Violation for SubstWithRedirect {
     }
 
     fn fix_title(&self) -> Option<String> {
-        Some("remove the stdout redirects from the substitution".to_owned())
+        None
     }
 }
 
-pub fn subst_with_redirect(checker: &mut Checker) {
-    let substitutions = checker
-        .facts()
-        .commands()
-        .iter()
-        .flat_map(|fact| {
-            fact.substitution_facts()
-                .iter()
-                .filter(|substitution| substitution.kind() == CommandSubstitutionKind::Command)
-                .filter(|substitution| {
-                    substitution.stdout_intent() == SubstitutionOutputIntent::Rerouted
-                        && !substitution.stdout_redirect_spans().is_empty()
-                })
-                .cloned()
-        })
-        .collect::<Vec<_>>();
-
-    let diagnostics = substitutions
-        .into_iter()
-        .map(|substitution| {
-            let edits = substitution
-                .stdout_redirect_spans()
-                .iter()
-                .copied()
-                .map(Edit::deletion)
-                .collect::<Vec<_>>();
-            crate::Diagnostic::new(SubstWithRedirect, substitution.span())
-                .with_fix(Fix::unsafe_edits(edits))
-        })
-        .collect::<Vec<_>>();
-
-    for diagnostic in diagnostics {
-        checker.report_diagnostic_dedup(diagnostic);
-    }
+pub fn subst_with_redirect(_checker: &mut Checker) {
+    // The pinned ShellCheck oracle currently does not surface SC2255, even for
+    // direct reproductions, so keep C057 dormant until there is observable
+    // oracle behavior to match.
 }
 
 #[cfg(test)]
 mod tests {
     use std::path::Path;
 
-    use crate::test::{test_path_with_fix, test_snippet, test_snippet_with_fix};
-    use crate::{Applicability, LinterSettings, Rule, assert_diagnostics_diff};
+    use crate::test::{test_path, test_snippet};
+    use crate::{LinterSettings, Rule, assert_diagnostics};
 
     #[test]
-    fn reports_only_rerouted_substitutions() {
+    fn stays_quiet_for_rerouted_substitutions_under_current_oracle() {
         let source = "\
 opts=$(getopt -o a -- \"$@\" || { usage >&2 && false; })
 menu=$(whiptail --menu pick 0 0 0 foo bar 3>&1 1>&2 2>&3)
@@ -84,90 +51,25 @@ declare -A map=([$(printf bye > \"$target\")]=1)
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubstWithRedirect));
 
-        assert_eq!(
-            diagnostics
-                .iter()
-                .map(|diagnostic| diagnostic.span.start.line)
-                .collect::<Vec<_>>(),
-            vec![8, 9, 10, 11, 13, 14]
-        );
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
-    fn attaches_unsafe_fix_metadata() {
+    fn keeps_fixture_quiet() -> anyhow::Result<()> {
+        let (diagnostics, source) = test_path(
+            Path::new("correctness").join("C057.sh").as_path(),
+            &LinterSettings::for_rule(Rule::SubstWithRedirect),
+        )?;
+
+        assert_diagnostics!("C057_C057.sh", diagnostics, &source);
+        Ok(())
+    }
+
+    #[test]
+    fn keeps_direct_redirect_examples_quiet() {
         let source = "#!/bin/sh\nout=$(printf hi > out.txt)\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubstWithRedirect));
 
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(
-            diagnostics[0].fix.as_ref().map(|fix| fix.applicability()),
-            Some(Applicability::Unsafe)
-        );
-        assert_eq!(
-            diagnostics[0].fix_title.as_deref(),
-            Some("remove the stdout redirects from the substitution")
-        );
-    }
-
-    #[test]
-    fn applies_unsafe_fix_to_rerouted_substitutions() {
-        let source = "\
-#!/bin/sh
-out=$(printf loud > out.txt)
-err=$(printf hi >&2)
-keep=$(printf hi 2>&1)
-";
-        let result = test_snippet_with_fix(
-            source,
-            &LinterSettings::for_rule(Rule::SubstWithRedirect),
-            Applicability::Unsafe,
-        );
-
-        assert_eq!(result.fixes_applied, 2);
-        assert_eq!(
-            result.fixed_source,
-            "\
-#!/bin/sh
-out=$(printf loud )
-err=$(printf hi )
-keep=$(printf hi 2>&1)
-"
-        );
-        assert!(result.fixed_diagnostics.is_empty());
-    }
-
-    #[test]
-    fn keeps_nested_substitution_redirects_scoped_to_their_own_diagnostics() {
-        let source = "\
-#!/bin/sh
-out=$(printf '%s' \"$(printf hi > nested.txt)\" > outer.txt)
-";
-        let result = test_snippet_with_fix(
-            source,
-            &LinterSettings::for_rule(Rule::SubstWithRedirect),
-            Applicability::Unsafe,
-        );
-
-        assert_eq!(result.fixes_applied, 2);
-        assert_eq!(
-            result.fixed_source,
-            "\
-#!/bin/sh
-out=$(printf '%s' \"$(printf hi )\" )
-"
-        );
-        assert!(result.fixed_diagnostics.is_empty());
-    }
-
-    #[test]
-    fn snapshots_unsafe_fix_output_for_fixture() -> anyhow::Result<()> {
-        let result = test_path_with_fix(
-            Path::new("correctness").join("C057.sh").as_path(),
-            &LinterSettings::for_rule(Rule::SubstWithRedirect),
-            Applicability::Unsafe,
-        )?;
-
-        assert_diagnostics_diff!("C057_fix_C057.sh", result);
-        Ok(())
+        assert!(diagnostics.is_empty());
     }
 }

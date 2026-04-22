@@ -211,13 +211,18 @@ impl<'a> LinterFactsBuilder<'a> {
                         );
 
                         let mut previous_condition = &command.condition;
-                        for (condition, branch) in &command.elif_branches {
-                            collect_condition_status_capture_from_body(
-                                previous_condition,
-                                condition,
-                                self.source,
-                                &mut condition_status_capture_spans,
-                            );
+                        for (index, (condition, branch)) in command.elif_branches.iter().enumerate()
+                        {
+                            if index > 0
+                                || !stmt_seq_contains_nested_control_flow(&command.then_branch)
+                            {
+                                collect_condition_status_capture_from_body(
+                                    previous_condition,
+                                    condition,
+                                    self.source,
+                                    &mut condition_status_capture_spans,
+                                );
+                            }
                             collect_condition_status_capture_from_body(
                                 condition,
                                 branch,
@@ -342,6 +347,23 @@ impl<'a> LinterFactsBuilder<'a> {
             self.file,
             self.source,
         );
+        collect_condition_status_capture_from_sequences(
+            &self.file.body,
+            self.source,
+            &mut condition_status_capture_spans,
+        );
+        let mut precise_function_guard_suppressions = Vec::new();
+        collect_precise_function_return_guard_suppressions(
+            &self.file.body,
+            self.source,
+            &mut precise_function_guard_suppressions,
+        );
+        if !precise_function_guard_suppressions.is_empty() {
+            condition_status_capture_spans
+                .retain(|span| !precise_function_guard_suppressions.contains(span));
+        }
+        condition_status_capture_spans
+            .retain(|span| matches!(span.slice(self.source), "$?" | "${?}"));
         sort_and_dedup_spans(&mut condition_status_capture_spans);
         sort_and_dedup_spans(&mut condition_command_substitution_spans);
         sort_and_dedup_case_pattern_expansions(&mut case_pattern_expansions);
@@ -659,6 +681,41 @@ impl<'a> LinterFactsBuilder<'a> {
             star_glob_removal_fragments: star_glob_removals,
             conditional_portability,
         }
+    }
+}
+
+fn stmt_seq_contains_nested_control_flow(body: &StmtSeq) -> bool {
+    body.iter().any(stmt_contains_nested_control_flow)
+}
+
+fn stmt_contains_nested_control_flow(stmt: &Stmt) -> bool {
+    match &stmt.command {
+        Command::Binary(command) => {
+            stmt_contains_nested_control_flow(&command.left)
+                || stmt_contains_nested_control_flow(&command.right)
+        }
+        Command::Compound(
+            CompoundCommand::If(_)
+            | CompoundCommand::While(_)
+            | CompoundCommand::Until(_)
+            | CompoundCommand::For(_)
+            | CompoundCommand::Select(_)
+            | CompoundCommand::Case(_)
+            | CompoundCommand::Always(_),
+        ) => true,
+        Command::Compound(
+            CompoundCommand::BraceGroup(body) | CompoundCommand::Subshell(body),
+        ) => body.iter().any(stmt_contains_nested_control_flow),
+        Command::Compound(CompoundCommand::Time(command)) => command
+            .command
+            .as_ref()
+            .is_some_and(|stmt| stmt_contains_nested_control_flow(stmt)),
+        Command::Simple(_)
+        | Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => false,
     }
 }
 

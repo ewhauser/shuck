@@ -127,7 +127,7 @@ echo \"GEM_PATH: \\$GEM_PATH\"
     }
 
     #[test]
-    fn ignores_split_closing_quote_shapes_outside_echo_and_printf() {
+    fn reports_split_closing_quote_shapes_outside_echo_and_printf() {
         let source = "\
 #!/bin/bash
 cat \"alpha
@@ -136,6 +136,9 @@ cat \"alpha
         let diagnostics =
             test_snippet(source, &LinterSettings::for_rule(Rule::SuspectClosingQuote));
 
-        assert!(diagnostics.is_empty());
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 3);
+        assert_eq!(diagnostics[0].span.start.column, 1);
+        assert_eq!(diagnostics[0].span.start, diagnostics[0].span.end);
     }
 }

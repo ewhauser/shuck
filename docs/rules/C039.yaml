@@ -10,10 +10,10 @@ shells:
   - bash
   - dash
   - ksh
-description: A double-quoted string is opened inside another quoted string and ShellCheck thinks it was never closed.
-rationale: "Avoid embedding raw shell code inside an `echo` string; use a here-doc or escape the nested quotes explicitly."
+description: A multiline quoted fragment keeps going with more shell word pieces, making the opening quote look unterminated.
+rationale: "When a multiline quoted fragment continues into more shell word syntax, rewrite it as one explicit quoted string or move the generated text into a here-doc."
 safe_fix: false
-fix_description: "Rewrite the whole reopened quoted word as one consistent double-quoted string, escaping literal inner quotes and bracing embedded scalar expansions as needed."
+fix_description: "Rewrite the whole split quoted word as one consistent double-quoted string, escaping literal inner quotes and bracing embedded scalar expansions as needed."
 source:
   shell_checks_rule: rules/SH-113.yaml
   shell_checks_example: examples/113.sh

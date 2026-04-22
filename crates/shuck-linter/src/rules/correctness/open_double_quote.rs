@@ -10,7 +10,7 @@ impl Violation for OpenDoubleQuote {
     }
 
     fn message(&self) -> String {
-        "double-quoted string looks unterminated".to_owned()
+        "quoted string looks unterminated".to_owned()
     }
 
     fn fix_title(&self) -> Option<String> {
@@ -76,6 +76,36 @@ WantedBy=multi-user.target\"
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::OpenDoubleQuote));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_multiline_quote_with_suffix_expansion() {
+        let source = "\
+#!/bin/bash
+echo \"line one
+line two\"$suffix
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::OpenDoubleQuote));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 6);
+        assert_eq!(diagnostics[0].span.start, diagnostics[0].span.end);
+    }
+
+    #[test]
+    fn reports_reopened_single_quoted_windows() {
+        let source = "\
+#!/bin/sh
+echo 'line one
+line two''tail'
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::OpenDoubleQuote));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 6);
+        assert_eq!(diagnostics[0].span.start, diagnostics[0].span.end);
     }
 
     #[test]
@@ -200,6 +230,31 @@ say configure now
     }
 
     #[test]
+    fn applies_unsafe_fix_to_assignment_values_without_duplicating_target() {
+        let source = "\
+#!/bin/bash
+value='alpha
+beta''tail'
+";
+        let result = test_snippet_with_fix(
+            source,
+            &LinterSettings::for_rule(Rule::OpenDoubleQuote),
+            Applicability::Unsafe,
+        );
+
+        assert_eq!(result.fixes_applied, 1);
+        assert_eq!(
+            result.fixed_source,
+            "\
+#!/bin/bash
+value=\"alpha
+betatail\"
+"
+        );
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
     fn snapshots_unsafe_fix_output_for_fixture() -> anyhow::Result<()> {
         let result = test_path_with_fix(
             Path::new("correctness").join("C039.sh").as_path(),
@@ -212,7 +267,7 @@ say configure now
     }
 
     #[test]
-    fn ignores_multiline_triple_quote_script_builders() {
+    fn reports_multiline_triple_quote_script_builders() {
         let source = "\
 #!/bin/bash
 echo \"\"\"#!/usr/bin/env bash
@@ -222,6 +277,9 @@ echo \"GEM_PATH: \\$GEM_PATH\"
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::OpenDoubleQuote));
 
-        assert!(diagnostics.is_empty());
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 8);
+        assert_eq!(diagnostics[0].span.start, diagnostics[0].span.end);
     }
 }
