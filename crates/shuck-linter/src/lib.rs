@@ -4307,4 +4307,36 @@ f() {
         );
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn source_inside_function_suppressed_by_current_shellcheck_source_code() {
+        let source = "\
+#!/bin/sh
+# shellcheck disable=SC3046
+f() {
+  source ./helpers.sh
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let directives = parse_directives(
+            source,
+            &output.file,
+            indexer.comment_index(),
+            &ShellCheckCodeMap::default(),
+        );
+        let suppressions = SuppressionIndex::new(
+            &directives,
+            &output.file,
+            first_statement_line(&output.file).unwrap_or(u32::MAX),
+        );
+        let diagnostics = lint_file(
+            &output.file,
+            source,
+            &indexer,
+            &LinterSettings::for_rule(Rule::SourceInsideFunctionInSh),
+            Some(&suppressions),
+        );
+        assert!(diagnostics.is_empty());
+    }
 }
