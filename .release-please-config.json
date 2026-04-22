@@ -34,7 +34,8 @@
         { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-indexer'].version" },
         { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-linter'].version" },
         { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-parser'].version" },
-        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-semantic'].version" }
+        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-semantic'].version" },
+        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.dependencies['shuck-extract'].version" }
       ]
     }
   }
