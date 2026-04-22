@@ -51,6 +51,12 @@ If you already have tools that invoke `shellcheck`, Shuck can expose a ShellChec
 
 See the dedicated [ShellCheck compatibility guide](/docs/shellcheck-compat) for activation, supported flags, `.shellcheckrc` handling, and current caveats.
 
+<h3 id="rules_lint">Use Shuck with rules_lint</h3>
+
+If you use `rules_lint` for shell scripts in Bazel, you can keep the existing ShellCheck-shaped lint hook and swap in Shuck underneath it.
+
+See the dedicated [`rules_lint` replacement example](/docs/shellcheck-compat#rules-lint) for the Bazel targets and compatibility setup.
+
 ## Embedded scripts
 
 Shuck also lints shell embedded in supported GitHub Actions workflows and composite actions. See the dedicated [Embedded Scripts guide](/docs/embedded-scripts) for supported files, shell resolution, diagnostic remapping, and suppression behavior inside `run:` blocks.
