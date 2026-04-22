@@ -1019,6 +1019,33 @@ esac
 }
 
 #[test]
+fn word_facts_track_only_literal_command_trailers() {
+    let source = "\
+#!/bin/bash
+\"$PID exists.\"
+\"$root/bin/{{\"
+\"${loader:?}\"
+\"/usr/bin/qemu-${machine}\"
+\"$(printf cmd)\"
+";
+
+    with_facts(source, None, |_, facts| {
+        let trailing_literal_char = |text: &str| {
+            facts
+                .word_facts()
+                .find(|fact| fact.span().slice(source) == text)
+                .and_then(|fact| fact.trailing_literal_char())
+        };
+
+        assert_eq!(trailing_literal_char("\"$PID exists.\""), Some('.'));
+        assert_eq!(trailing_literal_char("\"$root/bin/{{\""), Some('{'));
+        assert_eq!(trailing_literal_char("\"${loader:?}\""), None);
+        assert_eq!(trailing_literal_char("\"/usr/bin/qemu-${machine}\""), None);
+        assert_eq!(trailing_literal_char("\"$(printf cmd)\""), None);
+    });
+}
+
+#[test]
 fn builds_case_pattern_expansion_spans_for_simple_dynamic_patterns() {
     let source = "\
 #!/bin/sh

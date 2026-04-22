@@ -25,6 +25,7 @@ pub struct WordNode<'a> {
 #[derive(Debug)]
 pub(crate) struct WordNodeDerived {
     static_text: Option<Box<str>>,
+    trailing_literal_char: Option<char>,
     starts_with_extglob: bool,
     has_literal_affixes: bool,
     contains_shell_quoting_literals: bool,
@@ -157,6 +158,10 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
 
     pub fn static_text(self) -> Option<&'facts str> {
         self.derived().static_text.as_deref()
+    }
+
+    pub fn trailing_literal_char(self) -> Option<char> {
+        self.derived().trailing_literal_char
     }
 
     pub fn is_plain_scalar_reference(self) -> bool {
@@ -1621,6 +1626,7 @@ fn derive_word_fact_data(word: &Word, source: &str) -> WordNodeDerived {
     WordNodeDerived {
         static_text: static_word_text(word, source)
             .map(|text| text.into_owned().into_boxed_str()),
+        trailing_literal_char: word_trailing_literal_char(word, source),
         starts_with_extglob: span::word_starts_with_extglob(word, source),
         has_literal_affixes: word_has_literal_affixes(word),
         contains_shell_quoting_literals: word_contains_shell_quoting_literals(word, source),
@@ -1650,6 +1656,36 @@ fn derive_word_fact_data(word: &Word, source: &str) -> WordNodeDerived {
         unquoted_literal_between_double_quoted_segments_spans:
             build_unquoted_literal_between_double_quoted_segments_spans(word, source)
                 .into_boxed_slice(),
+    }
+}
+
+fn word_trailing_literal_char(word: &Word, source: &str) -> Option<char> {
+    trailing_literal_char_in_parts(&word.parts, source)
+}
+
+fn trailing_literal_char_in_parts(parts: &[WordPartNode], source: &str) -> Option<char> {
+    let part = parts.last()?;
+
+    match &part.kind {
+        WordPart::Literal(text) => text.as_str(source, part.span).chars().next_back(),
+        WordPart::SingleQuoted { value, .. } => value.slice(source).chars().next_back(),
+        WordPart::DoubleQuoted { parts, .. } => trailing_literal_char_in_parts(parts, source),
+        WordPart::Variable(_)
+        | WordPart::Parameter(_)
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ArithmeticExpansion { .. }
+        | WordPart::ParameterExpansion { .. }
+        | WordPart::Length(_)
+        | WordPart::ArrayAccess(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::Substring { .. }
+        | WordPart::ArraySlice { .. }
+        | WordPart::IndirectExpansion { .. }
+        | WordPart::PrefixMatch { .. }
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::Transformation { .. }
+        | WordPart::ZshQualifiedGlob(_) => None,
     }
 }
 
