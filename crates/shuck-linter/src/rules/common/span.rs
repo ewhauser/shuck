@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use shuck_ast::{
     ArithmeticExpr, Assignment, BinaryCommand, BourneParameterExpansion, CaseItem, ConditionalExpr,
     ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternGroupKind,
@@ -1448,9 +1450,12 @@ fn collapse_backtick_continuation_span(span: Span, source: &str) -> Option<Span>
 }
 
 fn containing_backtick_substitution_span(target: Span, source: &str) -> Option<Span> {
-    backtick_substitution_spans(source)
-        .into_iter()
-        .find(|span| span_contains(*span, target))
+    with_backtick_substitution_spans(source, |spans| {
+        spans
+            .iter()
+            .copied()
+            .find(|span| span_contains(*span, target))
+    })
 }
 
 #[derive(Clone, Copy, Default)]
@@ -1464,6 +1469,54 @@ struct BacktickQuoteContext {
 fn backtick_shell_comment_can_start(previous_char: Option<char>) -> bool {
     previous_char.is_none_or(|ch| {
         ch.is_ascii_whitespace() || matches!(ch, ';' | '|' | '&' | '(' | ')' | '<' | '>')
+    })
+}
+
+const BACKTICK_SPAN_CACHE_SAMPLE_LEN: usize = 8;
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+struct BacktickSpanCacheKey {
+    ptr: usize,
+    len: usize,
+    head: [u8; BACKTICK_SPAN_CACHE_SAMPLE_LEN],
+    tail: [u8; BACKTICK_SPAN_CACHE_SAMPLE_LEN],
+}
+
+#[derive(Default)]
+struct BacktickSpanCache {
+    key: BacktickSpanCacheKey,
+    spans: Vec<Span>,
+}
+
+thread_local! {
+    static BACKTICK_SPAN_CACHE: RefCell<BacktickSpanCache> = RefCell::new(BacktickSpanCache::default());
+}
+
+fn backtick_span_cache_key(source: &str) -> BacktickSpanCacheKey {
+    let bytes = source.as_bytes();
+    let mut key = BacktickSpanCacheKey {
+        ptr: bytes.as_ptr() as usize,
+        len: bytes.len(),
+        ..BacktickSpanCacheKey::default()
+    };
+
+    let head_len = bytes.len().min(BACKTICK_SPAN_CACHE_SAMPLE_LEN);
+    key.head[..head_len].copy_from_slice(&bytes[..head_len]);
+
+    let tail_len = bytes.len().min(BACKTICK_SPAN_CACHE_SAMPLE_LEN);
+    key.tail[..tail_len].copy_from_slice(&bytes[bytes.len() - tail_len..]);
+    key
+}
+
+fn with_backtick_substitution_spans<T>(source: &str, f: impl FnOnce(&[Span]) -> T) -> T {
+    BACKTICK_SPAN_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        let key = backtick_span_cache_key(source);
+        if cache.key != key {
+            cache.key = key;
+            cache.spans = backtick_substitution_spans(source);
+        }
+        f(&cache.spans)
     })
 }
 
@@ -1639,15 +1692,54 @@ fn continued_line_chain_start(target: Position, source: &str) -> Option<Position
 }
 
 fn line_has_escaped_newline_continuation(line: &str) -> bool {
-    let trailing_backslashes = line
-        .strip_suffix('\r')
-        .unwrap_or(line)
-        .as_bytes()
-        .iter()
-        .rev()
-        .take_while(|byte| **byte == b'\\')
-        .count();
-    trailing_backslashes % 2 == 1
+    let line = line.strip_suffix('\r').unwrap_or(line);
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut in_comment = false;
+    let mut previous_char = None;
+    let mut trailing_backslashes = 0usize;
+
+    for ch in line.chars() {
+        if in_comment {
+            trailing_backslashes = 0;
+            continue;
+        }
+
+        if in_single_quote {
+            if ch == '\'' {
+                in_single_quote = false;
+            }
+            previous_char = Some(ch);
+            trailing_backslashes = 0;
+            continue;
+        }
+
+        let backslash_escaped = trailing_backslashes % 2 == 1;
+        match ch {
+            '\'' if !in_double_quote && !backslash_escaped => {
+                in_single_quote = true;
+                trailing_backslashes = 0;
+            }
+            '"' if !backslash_escaped => {
+                in_double_quote = !in_double_quote;
+                trailing_backslashes = 0;
+            }
+            '#' if !in_double_quote && backtick_shell_comment_can_start(previous_char) => {
+                in_comment = true;
+                trailing_backslashes = 0;
+            }
+            '\\' => {
+                trailing_backslashes += 1;
+            }
+            _ => {
+                trailing_backslashes = 0;
+            }
+        }
+
+        previous_char = Some(ch);
+    }
+
+    !in_comment && !in_single_quote && trailing_backslashes % 2 == 1
 }
 
 fn shellcheck_collapsed_position(
@@ -4434,6 +4526,9 @@ eval command sudo \\\"\\${sudo_args[@]}\\\" \\\"\\$@\\\"
         assert!(!line_has_escaped_newline_continuation("echo foo \\\\   "));
         assert!(line_has_escaped_newline_continuation("echo foo \\\r"));
         assert!(!line_has_escaped_newline_continuation("echo foo \\\\\r"));
+        assert!(!line_has_escaped_newline_continuation(r"printf 'foo\"));
+        assert!(!line_has_escaped_newline_continuation(r"printf # foo\"));
+        assert!(line_has_escaped_newline_continuation(r#"printf "foo\"#));
     }
 
     #[test]
@@ -5110,6 +5205,22 @@ exec \"$@\" \"${@}\" \"${@:1}\" \"${@:-fallback}\" \"${@:${args_offset}}\" \"${@
         let source = "# `\nprintf '%s\\n' \\\n  \"$foo\"\n# `\n";
         let start_offset = source.find("$foo").expect("expected expansion");
         let end_offset = start_offset + "$foo".len();
+        let span = Span::from_positions(
+            position_at_offset(source, start_offset).expect("expected start position"),
+            position_at_offset(source, end_offset).expect("expected end position"),
+        );
+
+        assert_eq!(
+            shellcheck_collapsed_backtick_part_span_in_source(span, source),
+            span
+        );
+    }
+
+    #[test]
+    fn shellcheck_collapsed_backtick_part_span_in_source_ignores_single_quoted_backslashes() {
+        let source = "echo `printf '%s\\n' 'foo\\\n$bar'`\n";
+        let start_offset = source.find("$bar").expect("expected expansion");
+        let end_offset = start_offset + "$bar".len();
         let span = Span::from_positions(
             position_at_offset(source, start_offset).expect("expected start position"),
             position_at_offset(source, end_offset).expect("expected end position"),
