@@ -369,8 +369,20 @@ fn detect_shell_dialect(template: &str) -> ExtractedDialect {
 
     let first = shell_token_basename(&first);
     if first == "env" {
+        let mut skip_next = false;
         for token in tokens {
-            if token == "{0}" || token.starts_with('-') || looks_like_env_assignment(&token) {
+            if skip_next {
+                skip_next = false;
+                continue;
+            }
+            if token == "{0}" || looks_like_env_assignment(&token) {
+                continue;
+            }
+            if env_option_consumes_value(&token) {
+                skip_next = env_option_uses_separate_value(&token);
+                continue;
+            }
+            if token.starts_with('-') {
                 continue;
             }
             return shell_name_dialect(&shell_token_basename(&token));
@@ -379,6 +391,18 @@ fn detect_shell_dialect(template: &str) -> ExtractedDialect {
     }
 
     shell_name_dialect(&first)
+}
+
+fn env_option_consumes_value(token: &str) -> bool {
+    matches!(token, "-u" | "-C" | "--unset" | "--chdir")
+        || token.starts_with("-u")
+        || token.starts_with("-C")
+        || token.starts_with("--unset=")
+        || token.starts_with("--chdir=")
+}
+
+fn env_option_uses_separate_value(token: &str) -> bool {
+    matches!(token, "-u" | "-C" | "--unset" | "--chdir")
 }
 
 fn template_tokens(template: &str) -> Vec<String> {
@@ -544,15 +568,15 @@ fn runner_kind(runs_on: Option<&Node>) -> RunnerKind {
         return RunnerKind::Windows;
     }
 
+    if node_contains_unix_runner_label(runs_on) {
+        return RunnerKind::Unix;
+    }
+
     if node_contains_github_expression(runs_on) {
         return RunnerKind::Unknown;
     }
 
-    if node_contains_unix_runner_label(runs_on) {
-        RunnerKind::Unix
-    } else {
-        RunnerKind::Unknown
-    }
+    RunnerKind::Unknown
 }
 
 fn node_contains_runner_label(node: &Node, label: &str) -> bool {
@@ -1025,6 +1049,24 @@ jobs:
     }
 
     #[test]
+    fn infers_default_shell_when_fixed_runner_labels_mix_with_expressions() {
+        let source = r#"
+on: push
+jobs:
+  build:
+    runs-on:
+      - ubuntu-latest
+      - ${{ matrix.arch }}
+    steps:
+      - run: echo hi
+"#;
+
+        let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
+        assert_eq!(scripts.len(), 1);
+        assert_eq!(scripts[0].dialect, ExtractedDialect::Bash);
+    }
+
+    #[test]
     fn recognizes_path_and_env_shell_templates() {
         let source = r#"
 on: push
@@ -1038,6 +1080,8 @@ jobs:
         run: echo hi
       - shell: /usr/bin/env FOO=1 bash -e {0}
         run: echo hi
+      - shell: /usr/bin/env -u FOO bash -e {0}
+        run: echo hi
       - shell: /bin/sh -e {0}
         run: echo hi
       - shell: '"C:/Program Files/Git/bin/bash.exe" -e {0}'
@@ -1047,13 +1091,14 @@ jobs:
 "#;
 
         let scripts = extract_all(Path::new(".github/workflows/ci.yml"), source).unwrap();
-        assert_eq!(scripts.len(), 6);
+        assert_eq!(scripts.len(), 7);
         assert_eq!(scripts[0].dialect, ExtractedDialect::Bash);
         assert_eq!(scripts[1].dialect, ExtractedDialect::Bash);
         assert_eq!(scripts[2].dialect, ExtractedDialect::Bash);
-        assert_eq!(scripts[3].dialect, ExtractedDialect::Sh);
-        assert_eq!(scripts[4].dialect, ExtractedDialect::Bash);
+        assert_eq!(scripts[3].dialect, ExtractedDialect::Bash);
+        assert_eq!(scripts[4].dialect, ExtractedDialect::Sh);
         assert_eq!(scripts[5].dialect, ExtractedDialect::Bash);
+        assert_eq!(scripts[6].dialect, ExtractedDialect::Bash);
     }
 
     #[test]
