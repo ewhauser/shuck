@@ -2591,6 +2591,36 @@ nested=${items[i]%${name%$suffix}}
 }
 
 #[test]
+fn star_glob_removal_fragments_cover_positional_prefix_and_suffix_trims() {
+    let source = "\
+#!/bin/sh
+echo \"${*%%suffix}\" \"${*%suffix}\" \"${*##prefix}\" \"${*#prefix}\"
+echo \"${@%%suffix}\" \"${@%suffix}\" \"${@##prefix}\" \"${@#prefix}\"
+echo \"${name%%suffix}\" \"${*//old/new}\" \"${@//old/new}\"
+";
+
+    with_facts(source, None, |_, facts| {
+        assert_eq!(
+            facts
+                .star_glob_removal_fragments()
+                .iter()
+                .map(|fragment| fragment.span().slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "${*%%suffix}",
+                "${*%suffix}",
+                "${*##prefix}",
+                "${*#prefix}",
+                "${@%%suffix}",
+                "${@%suffix}",
+                "${@##prefix}",
+                "${@#prefix}",
+            ]
+        );
+    });
+}
+
+#[test]
 fn backtick_fragments_remember_when_the_substitution_body_is_empty() {
     let source = "\
 #!/bin/sh
