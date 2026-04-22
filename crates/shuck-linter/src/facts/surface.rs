@@ -1,11 +1,13 @@
 use super::*;
 use shuck_ast::{
     HeredocBody, HeredocBodyPart, HeredocBodyPartNode, PatternGroupKind, PatternPartNode,
+    Position,
 };
 
 #[derive(Debug)]
 pub struct SingleQuotedFragmentFact {
     span: Span,
+    diagnostic_span: Span,
     dollar_quoted: bool,
     command_name: Option<Box<str>>,
     assignment_target: Option<Box<str>>,
@@ -16,6 +18,10 @@ pub struct SingleQuotedFragmentFact {
 impl SingleQuotedFragmentFact {
     pub fn span(&self) -> Span {
         self.span
+    }
+
+    pub fn diagnostic_span(&self) -> Span {
+        self.diagnostic_span
     }
 
     pub fn dollar_quoted(&self) -> bool {
@@ -623,6 +629,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                 WordPart::SingleQuoted { dollar, .. } => {
                     self.facts.single_quoted.push(SingleQuotedFragmentFact {
                         span: part.span,
+                        diagnostic_span: self.single_quoted_fragment_diagnostic_span(part.span),
                         dollar_quoted: *dollar,
                         command_name: context
                             .command_name
@@ -1236,6 +1243,121 @@ impl<'a> SurfaceFragmentSink<'a> {
         }
         self.facts.subscript_spans.push(subscript.span());
     }
+
+    fn single_quoted_fragment_diagnostic_span(&self, part_span: Span) -> Span {
+        if !self
+            .facts
+            .backticks
+            .iter()
+            .any(|fragment| span_contains(fragment.span, part_span))
+        {
+            return part_span;
+        }
+
+        let escaped_dollar_count = backtick_display_escaped_dollar_count(part_span.slice(self.source));
+        let Some(chain_start) = continued_line_chain_start(part_span.start, self.source) else {
+            return adjust_end_column(part_span, escaped_dollar_count);
+        };
+
+        let start = shellcheck_collapsed_position(chain_start, part_span.start, self.source);
+        let end = adjust_end_column(
+            Span::from_positions(start, shellcheck_collapsed_position(chain_start, part_span.end, self.source)),
+            escaped_dollar_count,
+        )
+        .end;
+
+        Span::from_positions(start, end)
+    }
+}
+
+fn continued_line_chain_start(target: Position, source: &str) -> Option<Position> {
+    let mut line_start_offset = source[..target.offset]
+        .rfind('\n')
+        .map_or(0, |index| index + 1);
+    let mut line = target.line;
+    let original_start = line_start_offset;
+
+    while line_start_offset > 0 {
+        let previous_line_end = line_start_offset - 1;
+        let previous_line_start = source[..previous_line_end]
+            .rfind('\n')
+            .map_or(0, |index| index + 1);
+        let previous_line = &source[previous_line_start..previous_line_end];
+        if !previous_line.trim_end_matches([' ', '\t']).ends_with('\\') {
+            break;
+        }
+        line_start_offset = previous_line_start;
+        line -= 1;
+    }
+
+    (line_start_offset != original_start).then_some(Position {
+        line,
+        column: 1,
+        offset: line_start_offset,
+    })
+}
+
+fn shellcheck_collapsed_position(
+    chain_start: Position,
+    target: Position,
+    source: &str,
+) -> Position {
+    let mut line = chain_start.line;
+    let mut column = chain_start.column;
+    let prefix = &source[chain_start.offset..target.offset];
+    let mut index = 0usize;
+
+    while index < prefix.len() {
+        if prefix[index..].starts_with("\\\r\n") {
+            index += "\\\r\n".len();
+            continue;
+        }
+
+        if prefix[index..].starts_with("\\\n") {
+            index += "\\\n".len();
+            continue;
+        }
+
+        let ch = prefix[index..]
+            .chars()
+            .next()
+            .expect("prefix iteration should stay on UTF-8 boundaries");
+        if ch == '\n' {
+            line += 1;
+            column = 1;
+        } else {
+            column += 1;
+        }
+        index += ch.len_utf8();
+    }
+
+    Position {
+        line,
+        column,
+        offset: target.offset,
+    }
+}
+
+fn adjust_end_column(span: Span, display_escape_count: usize) -> Span {
+    if display_escape_count == 0 {
+        return span;
+    }
+
+    let mut end = span.end;
+    end.column = end.column.saturating_sub(display_escape_count);
+    Span::from_positions(span.start, end)
+}
+
+fn backtick_display_escaped_dollar_count(text: &str) -> usize {
+    let Some(inner) = text.strip_prefix('\'').and_then(|text| text.strip_suffix('\'')) else {
+        return 0;
+    };
+
+    inner
+        .as_bytes()
+        .windows(2)
+        .filter(|pair| pair[0] == b'\\' && pair[1] == b'$')
+        .count()
 }
 
 fn quoted_parameter_target_len(text: &str) -> Option<usize> {

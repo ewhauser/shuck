@@ -32,6 +32,10 @@ pub fn single_quoted_literal(checker: &mut Checker) {
         .single_quoted_fragments()
         .iter()
         .filter_map(|fragment| {
+            if fragment.dollar_quoted() {
+                return None;
+            }
+
             let context = ScanContext {
                 command_name: fragment.command_name(),
                 assignment_target: fragment.assignment_target(),
@@ -39,12 +43,9 @@ pub fn single_quoted_literal(checker: &mut Checker) {
             };
 
             should_report_single_quoted_literal(fragment.span().slice(source), context).then(|| {
-                let diagnostic = crate::Diagnostic::new(SingleQuotedLiteral, fragment.span());
-                match single_quoted_literal_fix(
-                    fragment.span(),
-                    fragment.span().slice(source),
-                    fragment.dollar_quoted(),
-                ) {
+                let diagnostic =
+                    crate::Diagnostic::new(SingleQuotedLiteral, fragment.diagnostic_span());
+                match single_quoted_literal_fix(fragment.span(), fragment.span().slice(source)) {
                     Some(fix) => diagnostic.with_fix(fix),
                     None => diagnostic,
                 }
@@ -57,15 +58,7 @@ pub fn single_quoted_literal(checker: &mut Checker) {
     }
 }
 
-fn single_quoted_literal_fix(
-    span: shuck_ast::Span,
-    text: &str,
-    dollar_quoted: bool,
-) -> Option<Fix> {
-    if dollar_quoted {
-        return None;
-    }
-
+fn single_quoted_literal_fix(span: shuck_ast::Span, text: &str) -> Option<Fix> {
     quoted_fragment_to_double_quotes(text)
         .map(|replacement| Fix::unsafe_edit(Edit::replacement(replacement, span)))
 }
@@ -404,6 +397,15 @@ echo \"\\\"$HOME\\\" and \\\\\\\\path\"
     }
 
     #[test]
+    fn ignores_ansi_c_single_quoted_fragments() {
+        assert_eq!(c005("echo $'$HOME'\n"), 0);
+        assert_eq!(
+            c005("cmd --payload $'proxy_set_header X-Forwarded-Proto $scheme;'\n"),
+            0
+        );
+    }
+
+    #[test]
     fn leaves_ansi_c_single_quoted_fragments_unchanged_when_fixing() {
         let source = "echo $'$HOME'\n";
         let result = test_snippet_with_fix(
@@ -412,11 +414,143 @@ echo \"\\\"$HOME\\\" and \\\\\\\\path\"
             Applicability::Unsafe,
         );
 
-        assert_eq!(result.diagnostics.len(), 1);
+        assert!(result.diagnostics.is_empty());
         assert_eq!(result.fixes_applied, 0);
         assert_eq!(result.fixed_source, source);
-        assert_eq!(result.fixed_diagnostics.len(), 1);
-        assert_eq!(result.fixed_diagnostics[0].span.slice(source), "$'$HOME'");
+        assert!(result.fixed_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn corpus_regression_tmux_compgen_wordlist_is_reported() {
+        let source = "if [[ $option_type ]]; then\n\
+             _comp_cmd_tmux__value \"$subcommand\" \"$option_type\"\n\
+             return\n\
+         elif ((positional_start < 0)) && [[ $cur == -* ]]; then\n\
+             _comp_compgen -- -W '\"${!options[@]}\"'\n\
+             return\n\
+         fi\n";
+        let diagnostics = c005_diagnostics(source);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 5);
+        assert_eq!(diagnostics[0].span.slice(source), "'\"${!options[@]}\"'");
+    }
+
+    #[test]
+    fn multiline_arithmetic_for_headers_do_not_drop_earlier_function_body_fragments() {
+        let source = "\
+subcommand()
+{
+    if [[ $option_type ]]; then
+        _value \"$subcommand\" \"$option_type\"
+        return
+    elif ((positional_start < 0)) && [[ $cur == -* ]]; then
+        _comp_compgen -- -W '\"${!options[@]}\"'
+        return
+    fi
+
+    local args_index=$positional_start
+    local usage_args_index
+    for ((\\
+    usage_args_index = 0;  \\
+    usage_args_index < ${#args[@]};  \\
+    args_index++, usage_args_index++)); do
+        :
+    done
+}
+";
+        let diagnostics = c005_diagnostics(source);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 7);
+        assert_eq!(diagnostics[0].span.slice(source), "'\"${!options[@]}\"'");
+    }
+
+    #[test]
+    fn multiline_sed_program_assignments_anchor_on_the_assignment_line() {
+        let source = "\
+lt_compile=`echo \"$ac_compile\" | $SED \\\n\
+-e 's:.*FLAGS}\\{0,1\\} :&$lt_compiler_flag :; t' \\\n\
+-e 's: [^ ]*conftest\\.: $lt_compiler_flag&:; t' \\\n\
+-e 's:$: $lt_compiler_flag:'`\n";
+        let diagnostics = c005_diagnostics(source);
+
+        assert_eq!(diagnostics.len(), 3);
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| {
+                    (
+                        diagnostic.span.start.line,
+                        diagnostic.span.start.column,
+                        diagnostic.span.end.line,
+                        diagnostic.span.end.column,
+                    )
+                })
+                .collect::<Vec<_>>(),
+            vec![(1, 42, 1, 86), (1, 90, 1, 134), (1, 138, 1, 163)]
+        );
+    }
+
+    #[test]
+    fn continued_command_arguments_stay_on_physical_lines() {
+        let source = "\
+sed -i -e 's/foo/$bar/' \\\n\
+  -e 's/baz/$qux/' file\n";
+        let diagnostics = c005_diagnostics(source);
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.start.line)
+                .collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["'s/foo/$bar/'", "'s/baz/$qux/'"]
+        );
+    }
+
+    #[test]
+    fn dollar_paren_command_substitutions_stay_on_physical_lines() {
+        let source = "\
+x=$(printf %s \\\n\
+'$HOME')\n";
+        let diagnostics = c005_diagnostics(source);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            (
+                diagnostics[0].span.start.line,
+                diagnostics[0].span.start.column,
+                diagnostics[0].span.end.line,
+                diagnostics[0].span.end.column,
+            ),
+            (2, 1, 2, 8)
+        );
+    }
+
+    #[test]
+    fn backtick_sed_replacements_match_shellcheck_single_line_span() {
+        let source = "\
+relink_command=`$ECHO \"$compile_var$compile_command$compile_rpath\" | $SED 's%@OUTPUT@%\\$progdir/\\$file%g'`\n";
+        let diagnostics = c005_diagnostics(source);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            (
+                diagnostics[0].span.start.line,
+                diagnostics[0].span.start.column,
+                diagnostics[0].span.end.line,
+                diagnostics[0].span.end.column,
+            ),
+            (1, 75, 1, 104)
+        );
     }
 
     #[test]
