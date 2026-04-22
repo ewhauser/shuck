@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.0.17](https://github.com/ewhauser/shuck/compare/v0.0.16...v0.0.17) (2026-04-22)
+
+
+### Bug Fixes
+
+* **c001:** compat-gate indirect expansion targets ([#422](https://github.com/ewhauser/shuck/issues/422)) ([2cdc137](https://github.com/ewhauser/shuck/commit/2cdc137f1734a2bb24757c121e2b8a026a7cd027))
+* **cli:** align default rule baseline with shellcheck compat ([#421](https://github.com/ewhauser/shuck/issues/421)) ([54b14dd](https://github.com/ewhauser/shuck/commit/54b14dd53a968a67c698239c46215c9f98eafd68))
+* **cli:** use shellcheck metadata levels in compat mode ([#423](https://github.com/ewhauser/shuck/issues/423)) ([cb4f8d8](https://github.com/ewhauser/shuck/commit/cb4f8d8d9689a2896c7101eef084ecfd1496e4d7))
+* **compat:** populate ShellCheck rule levels ([#420](https://github.com/ewhauser/shuck/issues/420)) ([be7810f](https://github.com/ewhauser/shuck/commit/be7810f1c1b398a5cd4e5ccda4c5451f5762bad9))
+* **linter:** add autofixes for completed backlog rules ([#419](https://github.com/ewhauser/shuck/issues/419)) ([906d74b](https://github.com/ewhauser/shuck/commit/906d74bb7f19405338c535fc274da8a7d231fb98))
+
 ## [0.0.16](https://github.com/ewhauser/shuck/compare/v0.0.15...v0.0.16) (2026-04-21)
 
 
