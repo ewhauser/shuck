@@ -1545,6 +1545,30 @@ echo ${foo:-$((10#1))}
 }
 
 #[test]
+fn collects_arithmetic_update_operator_spans_across_arithmetic_nodes() {
+    let source = "\
+#!/bin/bash
+for ((++i; j < 3; k--)); do :; done
+((count++)) || :
+printf '%s\\n' \"$((--remaining))\"
+";
+    let output = Parser::new(source).parse().unwrap();
+    let indexer = Indexer::new(source, &output);
+    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let file_context = classify_file_context(source, None, ShellDialect::Bash);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+    assert_eq!(
+        facts
+            .arithmetic_update_operator_spans()
+            .iter()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>(),
+        vec!["++", "--", "++", "--"]
+    );
+}
+
+#[test]
 fn ignores_base_prefix_like_parameter_trim_operands() {
     let source = "\
 #!/bin/bash

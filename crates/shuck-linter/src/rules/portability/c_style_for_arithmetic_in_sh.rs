@@ -8,7 +8,7 @@ impl Violation for CStyleForArithmeticInSh {
     }
 
     fn message(&self) -> String {
-        "C-style `for ((...))` arithmetic operators are not portable in `sh` scripts".to_owned()
+        "arithmetic `++` and `--` operators are not portable in `sh` scripts".to_owned()
     }
 }
 
@@ -17,10 +17,7 @@ pub fn c_style_for_arithmetic_in_sh(checker: &mut Checker) {
         return;
     }
 
-    let spans = checker
-        .facts()
-        .arithmetic_for_update_operator_spans()
-        .to_vec();
+    let spans = checker.facts().arithmetic_update_operator_spans().to_vec();
 
     checker.report_all(spans, || CStyleForArithmeticInSh);
 }
@@ -45,6 +42,51 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["++", "--"]
         );
+    }
+
+    #[test]
+    fn reports_update_operators_inside_standalone_arithmetic() {
+        let source = "#!/bin/sh\n((count++)) || :\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CStyleForArithmeticInSh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["++"]
+        );
+    }
+
+    #[test]
+    fn reports_update_operators_inside_arithmetic_expansions() {
+        let source = "#!/bin/sh\nvalue=$((--count))\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CStyleForArithmeticInSh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["--"]
+        );
+    }
+
+    #[test]
+    fn ignores_assoc_initializer_keys_that_only_look_like_update_ops() {
+        let source = "#!/bin/sh\nf() {\n  local -A tools=([c++]=CXX)\n}\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CStyleForArithmeticInSh),
+        );
+
+        assert!(diagnostics.is_empty());
     }
 
     #[test]

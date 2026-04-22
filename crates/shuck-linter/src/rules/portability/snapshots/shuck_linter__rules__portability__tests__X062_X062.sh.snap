@@ -1,9 +1,21 @@
 ---
 source: crates/shuck-linter/src/rules/portability/mod.rs
-assertion_line: 106
+assertion_line: 172
 ---
-X062 C-style `for ((...))` arithmetic operators are not portable in `sh` scripts
+X062 arithmetic `++` and `--` operators are not portable in `sh` scripts
  --> <source>:3:22
   |
 3 | for ((i = 0; i < 3; i++)); do echo "$i"; done
+  |
+
+X062 arithmetic `++` and `--` operators are not portable in `sh` scripts
+ --> <source>:4:8
+  |
+4 | ((count++)) || :
+  |
+
+X062 arithmetic `++` and `--` operators are not portable in `sh` scripts
+ --> <source>:5:19
+  |
+5 | printf '%s\n' "$((--remaining))"
   |
