@@ -2269,6 +2269,61 @@ fn test_brace_syntax_does_not_merge_dots_across_skipped_expansion_parts() {
 }
 
 #[test]
+fn test_brace_syntax_ignores_quoted_closers_when_balancing_cross_part_lists() {
+    let input = r#"{"}",a}"#;
+    let word = Parser::parse_word_string(input);
+
+    assert_eq!(brace_slices(&word, input), vec![input]);
+    assert_eq!(
+        word.brace_syntax()[0].kind,
+        BraceSyntaxKind::Expansion(BraceExpansionKind::CommaList)
+    );
+    assert!(word.has_active_brace_expansion());
+}
+
+#[test]
+fn test_parse_word_with_mid_word_brace_segment_ignores_quoted_closers() {
+    let input = "echo {\"}\",a}\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    assert_eq!(command.args.len(), 1);
+    assert_eq!(command.args[0].span.slice(input), r#"{"}",a}"#);
+    assert_eq!(brace_slices(&command.args[0], input), vec![r#"{"}",a}"#]);
+    assert!(command.args[0].has_active_brace_expansion());
+}
+
+#[test]
+fn test_brace_syntax_handles_deeply_nested_braces_without_recursion() {
+    let depth = 8192usize;
+    let mut input = String::with_capacity(depth * 3 + 2);
+    for _ in 0..depth {
+        input.push('{');
+        input.push('a');
+    }
+    input.push(',');
+    input.push('b');
+    for _ in 0..depth {
+        input.push('}');
+    }
+
+    let word = Parser::parse_word_string(&input);
+
+    assert_eq!(word.brace_syntax().len(), depth);
+    assert_eq!(
+        word.brace_syntax()
+            .iter()
+            .filter(|brace| brace.expands())
+            .count(),
+        1
+    );
+    assert_eq!(brace_slices(&word, &input).last().copied(), Some("{a,b}"));
+    assert!(word.has_active_brace_expansion());
+}
+
+#[test]
 fn test_dollar_quoted_words_preserve_quote_variants() {
     let input = "printf $'line\\n' $\"prefix $HOME\"\n";
     let script = Parser::new(input).parse().unwrap().file;

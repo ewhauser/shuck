@@ -1644,19 +1644,7 @@ impl<'a> Lexer<'a> {
                     // plain literals like foo{bar} and brace expansions stay intact.
                     Self::push_capture_char(&mut word, ch);
                     self.advance();
-                    let mut depth = 1;
-                    while let Some(c) = self.peek_char() {
-                        Self::push_capture_char(&mut word, c);
-                        self.advance();
-                        if c == '{' {
-                            depth += 1;
-                        } else if c == '}' {
-                            depth -= 1;
-                            if depth == 0 {
-                                break;
-                            }
-                        }
-                    }
+                    self.consume_mid_word_brace_segment(&mut word);
                 } else {
                     // Unmatched literal braces in regexes like ^{ should not swallow
                     // trailing delimiters such as ]] or then.
@@ -1708,21 +1696,7 @@ impl<'a> Lexer<'a> {
                             && self.current_word_surface_is_single_char(start, &word, '{')
                             && self.escaped_brace_sequence_looks_like_brace_expansion()
                         {
-                            let mut depth = 1;
-                            while let Some(c) = self.peek_char() {
-                                Self::push_capture_char(&mut word, c);
-                                self.advance();
-                                match c {
-                                    '{' => depth += 1,
-                                    '}' => {
-                                        depth -= 1;
-                                        if depth == 0 {
-                                            break;
-                                        }
-                                    }
-                                    _ => {}
-                                }
-                            }
+                            self.consume_mid_word_brace_segment(&mut word);
                         }
                     }
                 } else {
@@ -3456,8 +3430,13 @@ impl<'a> Lexer<'a> {
         }
 
         let mut depth = 1;
+        let mut paren_depth = 0usize;
         let mut has_comma = false;
         let mut has_dot_dot = false;
+        let mut escaped = false;
+        let mut in_single = false;
+        let mut in_double = false;
+        let mut in_backtick = false;
         let mut prev_char = None;
         let mut scanned = 0usize;
 
@@ -3466,25 +3445,136 @@ impl<'a> Lexer<'a> {
             if scanned > MAX_LOOKAHEAD {
                 return false;
             }
+
+            let brace_surface_active = !in_single && !in_double && !in_backtick;
+            let at_top_level = depth == 1 && paren_depth == 0 && brace_surface_active;
+
             match ch {
-                '{' => depth += 1,
-                '}' => {
+                _ if escaped => {
+                    escaped = false;
+                }
+                '\\' => escaped = true,
+                '\'' if !in_double && !in_backtick => in_single = !in_single,
+                '"' if !in_single && !in_backtick => in_double = !in_double,
+                '`' if !in_single && !in_double => in_backtick = !in_backtick,
+                '(' if brace_surface_active && (paren_depth > 0 || prev_char == Some('$')) => {
+                    paren_depth += 1
+                }
+                ')' if brace_surface_active && paren_depth > 0 => paren_depth -= 1,
+                '{' if !in_single && !in_double && !in_backtick => depth += 1,
+                '}' if !in_single && !in_double && !in_backtick => {
                     depth -= 1;
                     if depth == 0 {
                         // Found matching }, check if we have brace expansion markers
                         return has_comma || has_dot_dot;
                     }
                 }
-                ',' if depth == 1 => has_comma = true,
-                '.' if prev_char == Some('.') && depth == 1 => has_dot_dot = true,
+                ',' if at_top_level => has_comma = true,
+                '.' if at_top_level && prev_char == Some('.') => has_dot_dot = true,
                 // Brace groups have whitespace/newlines/semicolons at depth 1
-                ' ' | '\t' | '\n' | ';' if depth == 1 => return false,
+                ' ' | '\t' | '\n' | ';' if at_top_level => return false,
                 _ => {}
             }
             prev_char = Some(ch);
         }
 
         false
+    }
+
+    fn consume_mid_word_brace_segment(&mut self, word: &mut Option<String>) {
+        let mut brace_depth = 1usize;
+        let mut paren_depth = 0usize;
+        let mut escaped = false;
+        let mut in_single = false;
+        let mut in_double = false;
+        let mut in_backtick = false;
+        let mut prev_char = None;
+
+        while let Some(ch) = self.peek_char() {
+            Self::push_capture_char(word, ch);
+            self.advance();
+
+            if escaped {
+                escaped = false;
+                prev_char = Some(ch);
+                continue;
+            }
+
+            match ch {
+                '\\' => escaped = true,
+                '\'' if !in_double && !in_backtick => in_single = !in_single,
+                '"' if !in_single && !in_backtick => in_double = !in_double,
+                '`' if !in_single && !in_double => in_backtick = !in_backtick,
+                '(' if !in_single
+                    && !in_double
+                    && !in_backtick
+                    && (paren_depth > 0 || prev_char == Some('$')) =>
+                {
+                    paren_depth += 1
+                }
+                ')' if !in_single && !in_double && !in_backtick && paren_depth > 0 => {
+                    paren_depth -= 1
+                }
+                '{' if !in_single && !in_double && !in_backtick => brace_depth += 1,
+                '}' if !in_single && !in_double && !in_backtick => {
+                    brace_depth -= 1;
+                    if brace_depth == 0 {
+                        break;
+                    }
+                }
+                _ => {}
+            }
+
+            prev_char = Some(ch);
+        }
+    }
+
+    fn consume_brace_word_body(&mut self, word: &mut String) {
+        let mut brace_depth = 1usize;
+        let mut paren_depth = 0usize;
+        let mut escaped = false;
+        let mut in_single = false;
+        let mut in_double = false;
+        let mut in_backtick = false;
+        let mut prev_char = None;
+
+        while let Some(ch) = self.peek_char() {
+            word.push(ch);
+            self.advance();
+
+            if escaped {
+                escaped = false;
+                prev_char = Some(ch);
+                continue;
+            }
+
+            match ch {
+                '\\' => escaped = true,
+                '\'' if !in_double && !in_backtick => in_single = !in_single,
+                '"' if !in_single && !in_backtick => in_double = !in_double,
+                '`' if !in_single && !in_double => in_backtick = !in_backtick,
+                '(' if !in_single
+                    && !in_double
+                    && !in_backtick
+                    && (paren_depth > 0 || prev_char == Some('$')) =>
+                {
+                    paren_depth += 1
+                }
+                ')' if !in_single && !in_double && !in_backtick && paren_depth > 0 => {
+                    paren_depth -= 1
+                }
+                '{' if !in_single && !in_double && !in_backtick => brace_depth += 1,
+                '}' if !in_single && !in_double && !in_backtick => {
+                    brace_depth -= 1;
+                    if brace_depth == 0 {
+                        break;
+                    }
+                }
+                _ => {}
+            }
+
+            prev_char = Some(ch);
+        }
     }
 
     /// Check whether a mid-word `{...}` segment can stay attached to the current
@@ -3545,7 +3635,7 @@ impl<'a> Lexer<'a> {
                     paren_depth -= 1
                 }
                 '{' if !in_single && !in_double && !in_backtick => brace_depth += 1,
-                '}' => {
+                '}' if !in_single && !in_double && !in_backtick => {
                     brace_depth -= 1;
                     if brace_depth == 0 {
                         return true;
@@ -3626,21 +3716,7 @@ impl<'a> Lexer<'a> {
             return None;
         }
 
-        let mut depth = 1;
-        while let Some(ch) = self.peek_char() {
-            word.push(ch);
-            self.advance();
-            match ch {
-                '{' => depth += 1,
-                '}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
+        self.consume_brace_word_body(&mut word);
 
         while let Some(ch) = self.peek_char() {
             if Self::is_word_char(ch) {
@@ -3673,21 +3749,7 @@ impl<'a> Lexer<'a> {
         }
 
         // Read until matching }
-        let mut depth = 1;
-        while let Some(ch) = self.peek_char() {
-            word.push(ch);
-            self.advance();
-            match ch {
-                '{' => depth += 1,
-                '}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
+        self.consume_brace_word_body(&mut word);
 
         // Continue reading any suffix after the brace pattern
         while let Some(ch) = self.peek_char() {
@@ -3696,21 +3758,7 @@ impl<'a> Lexer<'a> {
                     // Another brace pattern - include it
                     word.push(ch);
                     self.advance();
-                    let mut inner_depth = 1;
-                    while let Some(c) = self.peek_char() {
-                        word.push(c);
-                        self.advance();
-                        match c {
-                            '{' => inner_depth += 1,
-                            '}' => {
-                                inner_depth -= 1;
-                                if inner_depth == 0 {
-                                    break;
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
+                    self.consume_brace_word_body(&mut word);
                 } else {
                     word.push(ch);
                     self.advance();
@@ -4835,6 +4883,16 @@ mod tests {
 
         assert_next_token(&mut lexer, TokenKind::Word, Some("echo"));
         assert_next_token(&mut lexer, TokenKind::QuotedWord, Some("hello world"));
+        assert!(lexer.next_lexed_token().is_none());
+    }
+
+    #[test]
+    fn test_brace_expansion_token_ignores_quoted_closers() {
+        let mut lexer = Lexer::new("echo {\"}\",a}\n");
+
+        assert_next_token(&mut lexer, TokenKind::Word, Some("echo"));
+        assert_next_token(&mut lexer, TokenKind::Word, Some(r#"{"}",a}"#));
+        assert_next_token(&mut lexer, TokenKind::Newline, None);
         assert!(lexer.next_lexed_token().is_none());
     }
 

@@ -94,6 +94,23 @@ mkdir -p \"$TERMUX_GODIR\"/{bin,src,doc,lib,\"pkg/tool/$TERMUX_GOLANG_DIRNAME\",
     }
 
     #[test]
+    fn reports_brace_expansions_even_when_quoted_members_contain_closing_braces() {
+        let source = "\
+#!/bin/sh
+echo {\"}\",a}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::BraceExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![r#"{"}",a}"#]
+        );
+    }
+
+    #[test]
     fn ignores_quoted_and_pattern_only_brace_syntax() {
         let source = "\
 #!/bin/sh

@@ -2464,6 +2464,25 @@ impl<'a> Parser<'a> {
             }
         }
 
+        fn quote_context_is_active(context: BraceQuoteContext, state: Option<QuoteState>) -> bool {
+            match context {
+                BraceQuoteContext::Unquoted => state.is_none(),
+                BraceQuoteContext::SingleQuoted => {
+                    matches!(state, Some(QuoteState::Single | QuoteState::AnsiSingle))
+                }
+                BraceQuoteContext::DoubleQuoted => matches!(state, Some(QuoteState::Double)),
+            }
+        }
+
+        fn last_active_candidate_index(
+            stack: &[Candidate],
+            state: Option<QuoteState>,
+        ) -> Option<usize> {
+            stack
+                .iter()
+                .rposition(|candidate| quote_context_is_active(candidate.quote_context, state))
+        }
+
         fn template_placeholder_end(
             chars: &[(char, Position)],
             start: usize,
@@ -2528,8 +2547,8 @@ impl<'a> Parser<'a> {
                 None | Some(QuoteState::AnsiSingle) | Some(QuoteState::Double)
             ) && ch == '\\'
             {
-                if let Some(candidate) = stack.last_mut() {
-                    candidate.prev_char = None;
+                if let Some(candidate_index) = last_active_candidate_index(&stack, quote_state) {
+                    stack[candidate_index].prev_char = None;
                 }
                 index += 1;
                 if index < chars.len() {
@@ -2548,8 +2567,8 @@ impl<'a> Parser<'a> {
                     span: brace_span(chars[index].1, chars[end_index - 1]),
                     quote_context: current_quote_context,
                 });
-                if let Some(candidate) = stack.last_mut() {
-                    candidate.prev_char = None;
+                if let Some(candidate_index) = last_active_candidate_index(&stack, quote_state) {
+                    stack[candidate_index].prev_char = None;
                 }
                 index = end_index;
                 continue;
@@ -2626,7 +2645,9 @@ impl<'a> Parser<'a> {
                     continue;
                 }
                 '}' => {
-                    if let Some(candidate) = stack.pop() {
+                    if let Some(candidate_index) = last_active_candidate_index(&stack, quote_state)
+                    {
+                        let candidate = stack.remove(candidate_index);
                         let kind = if matches!(candidate.quote_context, BraceQuoteContext::Unquoted)
                             && candidate.saw_unquoted_whitespace
                         {
@@ -2650,13 +2671,11 @@ impl<'a> Parser<'a> {
                     }
                 }
                 _ => {
-                    if let Some(candidate) = stack.last_mut() {
-                        let counts_as_top_level = match candidate.quote_context {
-                            BraceQuoteContext::Unquoted => quote_state.is_none(),
-                            BraceQuoteContext::SingleQuoted | BraceQuoteContext::DoubleQuoted => {
-                                true
-                            }
-                        };
+                    if let Some(candidate_index) = last_active_candidate_index(&stack, quote_state)
+                    {
+                        let candidate = &mut stack[candidate_index];
+                        let counts_as_top_level =
+                            quote_context_is_active(candidate.quote_context, quote_state);
 
                         if counts_as_top_level {
                             match ch {
@@ -2679,8 +2698,8 @@ impl<'a> Parser<'a> {
                 }
             }
 
-            if let Some(candidate) = stack.last_mut() {
-                candidate.prev_char = Some(ch);
+            if let Some(candidate_index) = last_active_candidate_index(&stack, quote_state) {
+                stack[candidate_index].prev_char = Some(ch);
             }
 
             index += 1;
@@ -2739,76 +2758,106 @@ impl<'a> Parser<'a> {
         quote_context: BraceQuoteContext,
         out: &mut Vec<BraceSyntax>,
     ) {
-        let bytes = text.as_bytes();
-        let mut index = 0;
-        let mut position = base;
+        #[derive(Clone, Copy)]
+        struct ScanFrame<'a> {
+            text: &'a str,
+            index: usize,
+            position: Position,
+        }
 
-        while index < bytes.len() {
-            let next_special = if matches!(quote_context, BraceQuoteContext::Unquoted) {
-                memchr2(b'{', b'\\', &bytes[index..]).map(|relative| index + relative)
-            } else {
-                memchr(b'{', &bytes[index..]).map(|relative| index + relative)
-            };
+        let mut work = vec![ScanFrame {
+            text,
+            index: 0,
+            position: base,
+        }];
 
-            let Some(next_index) = next_special else {
-                return;
-            };
+        while let Some(mut frame) = work.pop() {
+            let bytes = frame.text.as_bytes();
 
-            if next_index > index {
-                position = position.advanced_by(&text[index..next_index]);
-                index = next_index;
-            }
+            while frame.index < bytes.len() {
+                let next_special = if matches!(quote_context, BraceQuoteContext::Unquoted) {
+                    memchr2(b'{', b'\\', &bytes[frame.index..])
+                        .map(|relative| frame.index + relative)
+                } else {
+                    memchr(b'{', &bytes[frame.index..]).map(|relative| frame.index + relative)
+                };
 
-            if matches!(quote_context, BraceQuoteContext::Unquoted) && bytes[index] == b'\\' {
-                let escaped_start = index;
-                index += 1;
-                if let Some(next) = text[index..].chars().next() {
-                    index += next.len_utf8();
+                let Some(next_index) = next_special else {
+                    break;
+                };
+
+                if next_index > frame.index {
+                    frame.position = frame
+                        .position
+                        .advanced_by(&frame.text[frame.index..next_index]);
+                    frame.index = next_index;
                 }
-                position = position.advanced_by(&text[escaped_start..index]);
-                continue;
-            }
 
-            let brace_start = position;
-            if let Some(len) = Self::template_placeholder_len(text, index, quote_context) {
-                let brace_end = brace_start.advanced_by(&text[index..index + len]);
-                out.push(BraceSyntax {
-                    kind: BraceSyntaxKind::TemplatePlaceholder,
-                    span: Span::from_positions(brace_start, brace_end),
-                    quote_context,
-                });
-                position = brace_end;
-                index += len;
-                continue;
-            }
-
-            if let Some((len, kind)) = Self::brace_construct_len(text, index, quote_context) {
-                let brace_end = brace_start.advanced_by(&text[index..index + len]);
-                out.push(BraceSyntax {
-                    kind,
-                    span: Span::from_positions(brace_start, brace_end),
-                    quote_context,
-                });
-                if len > 2 {
-                    let inner_start = index + '{'.len_utf8();
-                    let inner_end = index + len - '}'.len_utf8();
-                    if inner_start < inner_end {
-                        let inner_base = brace_start.advanced_by("{");
-                        Self::scan_brace_syntax_text(
-                            &text[inner_start..inner_end],
-                            inner_base,
-                            quote_context,
-                            out,
-                        );
+                if matches!(quote_context, BraceQuoteContext::Unquoted)
+                    && bytes[frame.index] == b'\\'
+                {
+                    let escaped_start = frame.index;
+                    frame.index += 1;
+                    if let Some(next) = frame.text[frame.index..].chars().next() {
+                        frame.index += next.len_utf8();
                     }
+                    frame.position = frame
+                        .position
+                        .advanced_by(&frame.text[escaped_start..frame.index]);
+                    continue;
                 }
-                position = brace_end;
-                index += len;
-                continue;
-            }
 
-            position.advance('{');
-            index += '{'.len_utf8();
+                let brace_start = frame.position;
+                if let Some(len) =
+                    Self::template_placeholder_len(frame.text, frame.index, quote_context)
+                {
+                    let brace_end =
+                        brace_start.advanced_by(&frame.text[frame.index..frame.index + len]);
+                    out.push(BraceSyntax {
+                        kind: BraceSyntaxKind::TemplatePlaceholder,
+                        span: Span::from_positions(brace_start, brace_end),
+                        quote_context,
+                    });
+                    frame.position = brace_end;
+                    frame.index += len;
+                    continue;
+                }
+
+                if let Some((len, kind)) =
+                    Self::brace_construct_len(frame.text, frame.index, quote_context)
+                {
+                    let brace_end =
+                        brace_start.advanced_by(&frame.text[frame.index..frame.index + len]);
+                    out.push(BraceSyntax {
+                        kind,
+                        span: Span::from_positions(brace_start, brace_end),
+                        quote_context,
+                    });
+
+                    frame.position = brace_end;
+                    frame.index += len;
+
+                    if len > 2 {
+                        let inner_start = frame.index - len + '{'.len_utf8();
+                        let inner_end = frame.index - '}'.len_utf8();
+                        if inner_start < inner_end {
+                            let inner_base = brace_start.advanced_by("{");
+                            work.push(frame);
+                            work.push(ScanFrame {
+                                text: &frame.text[inner_start..inner_end],
+                                index: 0,
+                                position: inner_base,
+                            });
+                            break;
+                        }
+                    }
+
+                    continue;
+                }
+
+                frame.position.advance('{');
+                frame.index += '{'.len_utf8();
+            }
         }
     }
 
