@@ -36,16 +36,12 @@ use self::{
 use crate::context::ContextRegionKind;
 use crate::rules::common::expansion::{
     ExpansionAnalysis, ExpansionContext, RedirectTargetAnalysis, RuntimeLiteralAnalysis,
-    SubstitutionOutputIntent, WordExpansionKind, WordLiteralness, WordSubstitutionShape,
+    SubstitutionOutputIntent, WordExpansionKind, WordLiteralness, WordQuote, WordSubstitutionShape,
     analyze_literal_runtime, analyze_redirect_target, analyze_word,
 };
 use crate::rules::common::{
     command::{self, DeclarationKind, NormalizedCommand, NormalizedDeclaration, WrapperKind},
     query::{self, CommandSubstitutionKind, CommandVisit, CommandWalkOptions},
-    word::{
-        TestOperandClass, WordClassification, WordQuote, classify_conditional_operand,
-        classify_contextual_operand, classify_word,
-    },
 };
 use crate::suppression::shellcheck_directive_can_apply_to_following_command;
 use crate::{AmbientShellOptions, FileContext};

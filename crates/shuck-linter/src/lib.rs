@@ -67,8 +67,9 @@ pub use facts::{
     RedirectFact, RmCommandFacts, SelectHeaderFact, SimpleTestFact, SimpleTestOperatorFamily,
     SimpleTestShape, SimpleTestSyntax, SingleQuotedFragmentFact, SshCommandFacts, StatementFact,
     SubstitutionFact, SubstitutionHostKind, SudoFamilyCommandFacts, SudoFamilyInvoker,
-    UnsetCommandFacts, WaitCommandFacts, WordFactContext, WordFactHostKind, WordOccurrence,
-    WordOccurrenceIter, WordOccurrenceRef, XargsCommandFacts, leading_literal_word_prefix,
+    TestOperandClass, UnsetCommandFacts, WaitCommandFacts, WordClassification, WordFactContext,
+    WordFactHostKind, WordOccurrence, WordOccurrenceIter, WordOccurrenceRef, XargsCommandFacts,
+    leading_literal_word_prefix,
 };
 /// Fact collection types and stable identifiers into those collections.
 pub use facts::{CommandId, FactSpan, LinterFacts};
@@ -100,8 +101,6 @@ pub use rules::common::query::CommandSubstitutionKind;
 pub(crate) use rules::common::safe_value::{SafeValueIndex, SafeValueQuery};
 #[allow(unused_imports)]
 pub(crate) use rules::common::word::conditional_binary_op_is_string_match;
-/// Word and test-classification types exposed by fact APIs.
-pub use rules::common::word::{TestOperandClass, WordClassification};
 /// Linter configuration and per-file ignore types.
 pub use settings::{
     AmbientShellOptions, C001RuleOptions, CompiledPerFileIgnoreList, LinterRuleOptions,
