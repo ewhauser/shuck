@@ -51,6 +51,13 @@ fn processed_ls_pipeline_spans(checker: &Checker) -> Vec<Span> {
             .commands()
             .iter()
             .flat_map(|fact| fact.substitution_facts().iter())
+            .filter(|substitution| {
+                !checker
+                    .facts()
+                    .pipelines()
+                    .iter()
+                    .any(|pipeline| span_contains(substitution.span(), pipeline.span()))
+            })
             .flat_map(|substitution| substitution.body_processed_ls_pipeline_spans())
             .copied(),
     );
@@ -81,6 +88,10 @@ fn pipeline_ls_command_span(
     };
 
     trim_trailing_whitespace(span, checker.source())
+}
+
+fn span_contains(outer: Span, inner: Span) -> bool {
+    outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
 }
 
 fn trim_trailing_whitespace(span: Span, source: &str) -> Span {
@@ -126,6 +137,18 @@ bucket[$(ls | wc -l)]=x
                 .collect::<Vec<_>>(),
             vec!["ls *.html", "ls /tmp", "ls", "ls"]
         );
+    }
+
+    #[test]
+    fn does_not_duplicate_substitution_pipelines_already_covered_by_pipeline_facts() {
+        let source = "\
+#!/bin/sh
+count=$(LC_ALL=C ls | wc -l)
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LsInSubstitution));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "LC_ALL=C ls");
     }
 
     #[test]
