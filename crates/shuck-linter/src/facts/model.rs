@@ -307,6 +307,15 @@ impl<'a> LinterFacts<'a> {
                 })
     }
 
+    pub fn assignment_value_target_name_for_span(&self, span: Span) -> Option<&Name> {
+        self.commands
+            .iter()
+            .filter(|command| contains_span(command.span(), span))
+            .filter_map(|command| assignment_value_target_for_span(command, span))
+            .min_by_key(|(_, value_span)| value_span.end.offset - value_span.start.offset)
+            .map(|(name, _)| name)
+    }
+
     pub fn is_subscript_index_reference(&self, span: Span) -> bool {
         self.subscript_index_reference_spans
             .contains(&FactSpan::new(span))
@@ -800,4 +809,33 @@ impl<'a> LinterFacts<'a> {
     pub fn conditional_portability(&self) -> &ConditionalPortabilityFacts {
         &self.conditional_portability
     }
+}
+
+fn assignment_value_span(value: &AssignmentValue) -> Option<Span> {
+    match value {
+        AssignmentValue::Scalar(word) => Some(word.span),
+        AssignmentValue::Compound(_) => None,
+    }
+}
+
+fn assignment_value_target_for_span<'a>(
+    command: &'a CommandFact<'a>,
+    span: Span,
+) -> Option<(&'a Name, Span)> {
+    query::command_assignments(command.command())
+        .into_iter()
+        .chain(
+            query::declaration_operands(command.command())
+                .iter()
+                .filter_map(|operand| match operand {
+                    DeclOperand::Assignment(assignment) => Some(assignment),
+                    DeclOperand::Name(_) | DeclOperand::Flag(_) | DeclOperand::Dynamic(_) => None,
+                }),
+        )
+        .filter_map(|assignment| {
+            assignment_value_span(&assignment.value)
+                .filter(|value_span| contains_span(*value_span, span))
+                .map(|value_span| (&assignment.target.name, value_span))
+        })
+        .min_by_key(|(_, value_span)| value_span.end.offset - value_span.start.offset)
 }
