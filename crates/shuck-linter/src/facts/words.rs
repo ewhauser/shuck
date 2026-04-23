@@ -2156,8 +2156,8 @@ fn sc2001_like_backtick_sed_script_end(args: &[&Word], source: &str) -> Option<P
         _ => return None,
     };
 
-    let trim_len = sc2001_like_backtick_sed_script_trim_len(script_words, source)?;
-    let end_offset = raw_script_end.checked_sub(trim_len)?;
+    let trim_chars = sc2001_like_backtick_sed_script_trim_chars(script_words, source)?;
+    let end_offset = rewind_offset_by_chars(source, raw_script_end, trim_chars)?;
     position_at_offset(source, end_offset)
 }
 
@@ -2174,7 +2174,10 @@ fn backtick_sed_script_content_end_offset(text: &str, end_offset: usize) -> Opti
     }
 }
 
-fn sc2001_like_backtick_sed_script_trim_len(script_words: &[&Word], source: &str) -> Option<usize> {
+fn sc2001_like_backtick_sed_script_trim_chars(
+    script_words: &[&Word],
+    source: &str,
+) -> Option<usize> {
     let uses_backtick_escaped_double_quotes =
         backtick_sed_script_uses_escaped_double_quotes(script_words, source);
     let text = sed_script_text(
@@ -2196,26 +2199,26 @@ fn sc2001_like_backtick_sed_script_trim_len(script_words: &[&Word], source: &str
     let replacement = &text[replacement_start..replacement_end];
     let flags = &text[replacement_end + delimiter_len..];
 
-    let mut trim_len = if flags.is_empty() {
+    let mut trim_chars = if flags.is_empty() {
         if uses_backtick_escaped_double_quotes && replacement_start == replacement_end {
-            delimiter_len * 2
+            2
         } else {
-            delimiter_len
+            1
         }
     } else {
-        flags.len()
+        flags.chars().count()
     };
 
-    // ShellCheck trims one additional byte for these legacy backtick sed sites
+    // ShellCheck trims one additional character for these legacy backtick sed sites
     // when the match pattern itself ends with an escaped dollar.
     if pattern.ends_with(r"\$") {
-        trim_len += 1;
+        trim_chars += 1;
         if replacement.starts_with(r"\\") {
-            trim_len += 1;
+            trim_chars += 1;
         }
     }
 
-    Some(trim_len)
+    Some(trim_chars)
 }
 
 fn backtick_sed_script_uses_escaped_double_quotes(script_words: &[&Word], source: &str) -> bool {
@@ -2229,6 +2232,20 @@ fn backtick_sed_script_uses_escaped_double_quotes(script_words: &[&Word], source
         }
         _ => false,
     }
+}
+
+fn rewind_offset_by_chars(source: &str, mut offset: usize, count: usize) -> Option<usize> {
+    if offset > source.len() || !source.is_char_boundary(offset) {
+        return None;
+    }
+
+    for _ in 0..count {
+        let prefix = source.get(..offset)?;
+        let (_, ch) = prefix.char_indices().next_back()?;
+        offset = offset.checked_sub(ch.len_utf8())?;
+    }
+
+    Some(offset)
 }
 
 fn command_has_sc2001_like_sed_script(

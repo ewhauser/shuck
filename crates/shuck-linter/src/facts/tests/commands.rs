@@ -928,6 +928,25 @@ EC2_REGION=\"`echo \\\"$EC2_AVAIL_ZONE\\\" | sed -e 's:\\([0-9][0-9]*\\)[a-z]*\\
 }
 
 #[test]
+fn backtick_echo_to_sed_substitution_keeps_utf8_trim_offsets_on_char_boundaries() {
+    let source = "\
+#!/bin/bash
+A=\"`echo \\\"$A\\\" | sed 's/foo\\\\$/é/'`\"
+";
+
+    with_facts(source, None, |_, facts| {
+        let spans = facts.echo_to_sed_substitution_spans();
+        assert_eq!(spans.len(), 1);
+        let span = spans[0];
+        assert_eq!(span.start.line, 2);
+        assert_eq!(span.start.column, 5);
+        assert_eq!(span.end.line, 2);
+        assert_eq!(span.end.column, 33);
+        assert_eq!(span.slice(source), "echo \\\"$A\\\" | sed 's/foo\\\\$/");
+    });
+}
+
+#[test]
 fn preserves_dynamic_unset_operands_after_option_parsing_stops() {
     let source = "\
 #!/bin/bash
