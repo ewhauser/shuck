@@ -545,4 +545,18 @@ EOF
             vec!["SGINGRESS1", "\"SGINGRESS1\""]
         );
     }
+
+    #[test]
+    fn ignores_quoted_input_redirect_names_for_read_targets() {
+        let source = "\
+#!/bin/bash
+read -r KALUA_REPO_URL <'KALUA_REPO_URL'
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::RedirectClobbersInput),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
 }

@@ -189,6 +189,13 @@ pub(crate) fn comparable_name_uses(word: &Word, source: &str) -> Box<[Comparable
     uses.into_boxed_slice()
 }
 
+pub(crate) fn comparable_read_target_name_uses(
+    word: &Word,
+    source: &str,
+) -> Box<[ComparableNameUse]> {
+    comparable_name_uses_with_quoted_literals(word, source)
+}
+
 pub(crate) fn comparable_heredoc_name_uses(
     heredoc: &shuck_ast::HeredocBody,
     source: &str,
@@ -345,6 +352,7 @@ fn collect_command_substitution_comparable_name_uses(
 fn standalone_comparable_name_use(word: &Word, source: &str) -> Option<ComparableNameUse> {
     if let Some(text) = static_word_text(word, source)
         && comparable_name_text(text.as_ref())
+        && analyze_word(word, source, None).quote == WordQuote::Unquoted
     {
         return Some(literal_comparable_name_use(word.span, text.as_ref()));
     }
@@ -362,6 +370,20 @@ fn literal_comparable_name_use(span: Span, text: &str) -> ComparableNameUse {
         key: ComparableNameKey(text.into()),
         kind: ComparableNameUseKind::Literal,
     }
+}
+
+fn comparable_name_uses_with_quoted_literals(
+    word: &Word,
+    source: &str,
+) -> Box<[ComparableNameUse]> {
+    let mut uses = comparable_name_uses(word, source).into_vec();
+    if let Some(text) = static_word_text(word, source)
+        && comparable_name_text(text.as_ref())
+    {
+        uses.push(literal_comparable_name_use(word.span, text.as_ref()));
+    }
+    dedup_comparable_name_uses(&mut uses);
+    uses.into_boxed_slice()
 }
 
 fn standalone_comparable_parameter_name(parts: &[WordPartNode]) -> Option<&str> {
@@ -661,7 +683,21 @@ fn build_redirect_facts<'a>(
             }),
             comparable_name_uses: redirect
                 .word_target()
-                .map_or_else(Vec::new, |word| comparable_name_uses(word, source).into_vec())
+                .map_or_else(Vec::new, |word| match redirect.kind {
+                    RedirectKind::Output
+                    | RedirectKind::Clobber
+                    | RedirectKind::Append
+                    | RedirectKind::OutputBoth => {
+                        comparable_name_uses_with_quoted_literals(word, source).into_vec()
+                    }
+                    RedirectKind::Input
+                    | RedirectKind::ReadWrite
+                    | RedirectKind::HereDoc
+                    | RedirectKind::HereDocStrip
+                    | RedirectKind::HereString
+                    | RedirectKind::DupOutput
+                    | RedirectKind::DupInput => comparable_name_uses(word, source).into_vec(),
+                })
                 .into_boxed_slice(),
         })
         .collect::<Vec<_>>()
