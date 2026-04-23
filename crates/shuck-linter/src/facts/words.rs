@@ -1480,6 +1480,7 @@ fn mixed_quote_shell_fragment_balance_delta(
     let mut in_double_quotes = false;
     let mut in_comment = false;
     let mut command_frames = Vec::new();
+    let mut parameter_frames = Vec::new();
     let mut previous_char = None;
 
     while let Some(ch) = chars.next() {
@@ -1548,6 +1549,7 @@ fn mixed_quote_shell_fragment_balance_delta(
                 }
                 Some('{') => {
                     parameter_delta += 1;
+                    parameter_frames.push(in_double_quotes);
                     chars.next();
                     previous_char = Some('{');
                     continue;
@@ -1573,12 +1575,22 @@ fn mixed_quote_shell_fragment_balance_delta(
                 None if !in_double_quotes => command_delta -= 1,
                 _ => {}
             },
-            '}' if !in_double_quotes => parameter_delta -= 1,
+            '}' => match parameter_frames.last().copied() {
+                Some(opened_in_double_quotes) if !in_double_quotes || opened_in_double_quotes => {
+                    parameter_frames.pop();
+                    parameter_delta -= 1;
+                }
+                None if !in_double_quotes => parameter_delta -= 1,
+                _ => {}
+            },
             _ => {}
         }
 
         if command_delta <= 0 {
             command_frames.clear();
+        }
+        if parameter_delta <= 0 {
+            parameter_frames.clear();
         }
 
         previous_char = Some(ch);
@@ -1750,6 +1762,7 @@ fn mixed_quote_closing_double_quote_offset(text: &str) -> Option<usize> {
     let mut command_depth = 0i32;
     let mut parameter_depth = 0i32;
     let mut command_frames = Vec::new();
+    let mut parameter_frames = Vec::new();
     let mut in_backtick_command = false;
     let mut in_single_quotes = false;
     let mut in_double_quotes = false;
@@ -1830,6 +1843,7 @@ fn mixed_quote_closing_double_quote_offset(text: &str) -> Option<usize> {
                 }
                 Some((_, '{')) => {
                     parameter_depth += 1;
+                    parameter_frames.push(in_double_quotes);
                     chars.next();
                     previous_char = Some('{');
                     continue;
@@ -1856,13 +1870,25 @@ fn mixed_quote_closing_double_quote_offset(text: &str) -> Option<usize> {
                     None if !in_double_quotes => command_depth -= 1,
                     _ => {}
                 },
-                '}' if !in_double_quotes => parameter_depth -= 1,
+                '}' => match parameter_frames.last().copied() {
+                    Some(opened_in_double_quotes)
+                        if !in_double_quotes || opened_in_double_quotes =>
+                    {
+                        parameter_frames.pop();
+                        parameter_depth -= 1;
+                    }
+                    None if !in_double_quotes => parameter_depth -= 1,
+                    _ => {}
+                },
                 _ => {}
             }
             command_depth = command_depth.max(0);
             parameter_depth = parameter_depth.max(0);
             if command_depth == 0 {
                 command_frames.clear();
+            }
+            if parameter_depth == 0 {
+                parameter_frames.clear();
             }
         }
 

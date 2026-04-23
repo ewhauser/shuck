@@ -2108,7 +2108,7 @@ printf '%s\\n' $@ ${@:2} ${items[@]} ${items[@]:1} ${!items[@]} ${items[@]/#/#} 
 fn builds_word_facts_for_unquoted_literals_between_reopened_double_quotes() {
     let source = "\
 #!/bin/bash
-printf '%s\\n' \"foo\"bar\"baz\" \"foo\"-\"bar\" \"foo\"$(printf '%s' x)\"bar\" \"$left\"-\"$right\" x=\"$(cmd \"a\".\"b\")\" '$('\"foo\"parenmid\"baz\" '${'\"foo\"bracemid\"baz\" $(printf \"(\")\"foo\"quotedparen\"baz\"
+printf '%s\\n' \"foo\"bar\"baz\" \"foo\"-\"bar\" \"foo\"$(printf '%s' x)\"bar\" \"$left\"-\"$right\" x=\"$(cmd \"a\".\"b\")\" '$('\"foo\"parenmid\"baz\" '${'\"foo\"bracemid\"baz\" $(printf \"(\")\"foo\"quotedparen\"baz\" $(printf \"%s\" \"${x}\")\"foo\"quotedparam\"baz\"
 ";
 
     with_facts(source, None, |_, facts| {
@@ -2125,7 +2125,15 @@ printf '%s\\n' \"foo\"bar\"baz\" \"foo\"-\"bar\" \"foo\"$(printf '%s' x)\"bar\" 
 
         assert_eq!(
             spans,
-            vec!["bar", "-", "parenmid", "bracemid", "quotedparen", "."]
+            vec![
+                "bar",
+                "-",
+                "parenmid",
+                "bracemid",
+                "quotedparen",
+                "quotedparam",
+                "."
+            ]
         );
     });
 }
