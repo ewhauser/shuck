@@ -1144,10 +1144,7 @@ fn ls_command_span_before_pipe<'a>(
 ) -> Span {
     let start = command_fact_for_stmt(stmt, commands, command_ids_by_span)
         .and_then(|fact| fact.shellcheck_command_span(source))
-        .map_or_else(
-            || command::normalize_command(&stmt.command, source).body_span,
-            |span| span,
-        )
+        .unwrap_or_else(|| command::normalize_command(&stmt.command, source).body_span)
         .start;
     let span = Span {
         start,
