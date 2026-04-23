@@ -1,6 +1,6 @@
 use crate::{Checker, Rule, Violation};
 
-use super::source_common::{SourceScopeFilter, source_command_spans_in_sh};
+use super::source_common::source_command_spans_in_sh;
 
 pub struct SourceBuiltinInSh;
 
@@ -15,6 +15,6 @@ impl Violation for SourceBuiltinInSh {
 }
 
 pub fn source_builtin_in_sh(checker: &mut Checker) {
-    let spans = source_command_spans_in_sh(checker, SourceScopeFilter::Any);
+    let spans = source_command_spans_in_sh(checker);
     checker.report_all(spans, || SourceBuiltinInSh);
 }

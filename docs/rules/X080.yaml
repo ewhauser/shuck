@@ -8,8 +8,8 @@ shellcheck_level: warning
 shells:
   - sh
   - dash
-description: "The bash-only `source` command is used inside a function in POSIX sh."
-rationale: "Use the portable `.` (dot) command instead of `source`."
+description: "A directive-pinned `source` command is used inside a function in POSIX sh."
+rationale: "Use the portable `.` (dot) command instead of `source`. Plain `source` usage in POSIX shells is covered by X031/SC3046; X080 follows the narrower SC3051 behavior for source commands with explicit source directives."
 safe_fix: false
 fix_description: Replace the leading `source` command word with `.`, leaving the remaining operands unchanged.
 source:
