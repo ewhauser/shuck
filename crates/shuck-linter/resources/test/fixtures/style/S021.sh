@@ -13,6 +13,7 @@ printf '%s\n' "items: ${args[@]}"
 printf '%s\n' "items: ${!args[@]}"
 printf '%s\n' "items: ${args[@]:1}"
 printf '%s\n' "items: ${args[@]/a/b}"
+printf '%s\n' "items: ${args[@]+foo}"
 printf '%s\n' "items: ${args[@]+ ${args[*]}}"
 
 # Valid: positional args passed with original boundaries.

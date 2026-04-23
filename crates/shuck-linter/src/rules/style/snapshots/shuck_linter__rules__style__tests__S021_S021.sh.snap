@@ -65,5 +65,11 @@ S021 all-elements splats inside larger strings collapse argument boundaries
 S021 all-elements splats inside larger strings collapse argument boundaries
   --> <source>:16:23
    |
-16 | printf '%s\n' "items: ${args[@]+ ${args[*]}}"
+16 | printf '%s\n' "items: ${args[@]+foo}"
+   |
+
+S021 all-elements splats inside larger strings collapse argument boundaries
+  --> <source>:17:23
+   |
+17 | printf '%s\n' "items: ${args[@]+ ${args[*]}}"
    |

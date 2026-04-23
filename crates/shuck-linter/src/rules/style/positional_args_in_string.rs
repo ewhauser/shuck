@@ -66,6 +66,7 @@ printf '%s\\n' \"items: ${args[@]}\"
 printf '%s\\n' \"items: ${!args[@]}\"
 printf '%s\\n' \"items: ${args[@]:1}\"
 printf '%s\\n' \"items: ${args[@]/a/b}\"
+printf '%s\\n' \"items: ${args[@]+foo}\"
 printf '%s\\n' \"items: ${args[@]+ ${args[*]}}\"
 ";
         let diagnostics = test_snippet(
@@ -83,6 +84,7 @@ printf '%s\\n' \"items: ${args[@]+ ${args[*]}}\"
                 "${!args[@]}",
                 "${args[@]:1}",
                 "${args[@]/a/b}",
+                "${args[@]+foo}",
                 "${args[@]+ ${args[*]}}"
             ]
         );
