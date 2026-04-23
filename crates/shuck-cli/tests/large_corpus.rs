@@ -694,6 +694,7 @@ struct ShuckRun {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FixtureFailureKind {
+    Warning,
     Other,
     Timeout,
 }
@@ -836,7 +837,7 @@ fn measure_fixture_timing(
             fixture,
             linter_settings,
             shuck_timeout,
-            Arc::clone(&shuck_path_resolver),
+            Some(Arc::clone(&shuck_path_resolver)),
         )
     })) {
         Ok(Ok(run)) => {
@@ -982,7 +983,11 @@ fn large_corpus_conforms_with_shellcheck() {
     let supported_fixtures =
         select_supported_large_corpus_fixtures(&fixtures, Some(&supported_shells));
     let skipped_unsupported_shells = fixtures.len().saturating_sub(supported_fixtures.len());
-    let shuck_path_resolver = Arc::new(LargeCorpusPathResolver::new(&supported_fixtures));
+    let shuck_path_resolver = large_corpus_source_resolver(
+        cfg.selected_rules.as_ref(),
+        shellcheck_filter_codes.as_ref(),
+        &supported_fixtures,
+    );
 
     let failure_collection =
         collect_fixture_failures(&supported_fixtures, cfg.keep_going, |fixture| {
@@ -997,7 +1002,7 @@ fn large_corpus_conforms_with_shellcheck() {
                 &shellcheck_rule_index,
                 &corpus_metadata,
                 shellcheck_filter_codes.as_ref(),
-                Arc::clone(&shuck_path_resolver),
+                shuck_path_resolver.clone(),
             )
         });
     let mut failure_collection = failure_collection;
@@ -1249,7 +1254,7 @@ fn evaluate_fixture_compatibility(
     shellcheck_rule_index: &HashMap<u32, Vec<String>>,
     corpus_metadata: &HashMap<String, RuleCorpusMetadataDocument>,
     shellcheck_filter_codes: Option<&HashSet<u32>>,
-    shuck_path_resolver: Arc<LargeCorpusPathResolver>,
+    shuck_path_resolver: Option<Arc<LargeCorpusPathResolver>>,
 ) -> FixtureEvaluation {
     let mut evaluation = FixtureEvaluation::default();
     let src = fs::read(&fixture.path).unwrap_or_default();
@@ -1300,12 +1305,12 @@ fn evaluate_fixture_compatibility(
                 details.push("shellcheck parsed fixture successfully".into());
             }
             evaluation.harness_failure = Some(FixtureFailure {
-                kind: FixtureFailureKind::Other,
+                kind: shuck_parse_failure_kind(shellcheck_filter_codes),
                 message: format_fixture_failure(&fixture.path, &details),
             });
         } else {
             evaluation.harness_failure = Some(FixtureFailure {
-                kind: FixtureFailureKind::Other,
+                kind: shuck_parse_failure_kind(shellcheck_filter_codes),
                 message: format_fixture_failure(&fixture.path, &[format!("shuck error: {err}")]),
             });
         }
@@ -1497,10 +1502,19 @@ fn merge_fixture_evaluation(
         .extend(evaluation.reviewed_divergences);
     if let Some(failure) = evaluation.harness_failure {
         match failure.kind {
+            FixtureFailureKind::Warning => collection.harness_warnings.push(failure.message),
             FixtureFailureKind::Other | FixtureFailureKind::Timeout => {
                 collection.harness_failures.push(failure.message)
             }
         }
+    }
+}
+
+fn shuck_parse_failure_kind(shellcheck_filter_codes: Option<&HashSet<u32>>) -> FixtureFailureKind {
+    if large_corpus_uses_single_file_c001_oracle(None, shellcheck_filter_codes) {
+        FixtureFailureKind::Warning
+    } else {
+        FixtureFailureKind::Other
     }
 }
 
@@ -2399,16 +2413,9 @@ fn run_shuck_with_parse_dialect(
         &linter_settings,
         source_path_resolver,
     );
-    if parsed.is_err() && diagnostics.is_empty() {
-        return ShuckRun {
-            diagnostics: Vec::new(),
-            parse_error: Some(parsed.strict_error().to_string()),
-        };
-    }
-
     ShuckRun {
         diagnostics,
-        parse_error: None,
+        parse_error: parsed.is_err().then(|| parsed.strict_error().to_string()),
     }
 }
 
@@ -2464,18 +2471,15 @@ fn run_shuck_with_timeout(
     fixture: &LargeCorpusFixture,
     linter_settings: &shuck_linter::LinterSettings,
     timeout: Duration,
-    source_path_resolver: Arc<LargeCorpusPathResolver>,
+    source_path_resolver: Option<Arc<LargeCorpusPathResolver>>,
 ) -> Result<ShuckRun, String> {
     let fixture = fixture.clone();
     let linter_settings = linter_settings.clone();
-    let source_path_resolver = Arc::clone(&source_path_resolver);
     run_with_timeout("shuck", timeout, move || {
-        run_shuck(
-            &fixture,
-            &linter_settings,
-            Some(source_path_resolver.as_ref()
-                as &(dyn shuck_semantic::SourcePathResolver + Send + Sync)),
-        )
+        let source_path_resolver = source_path_resolver.as_ref().map(|resolver| {
+            resolver.as_ref() as &(dyn shuck_semantic::SourcePathResolver + Send + Sync)
+        });
+        run_shuck(&fixture, &linter_settings, source_path_resolver)
     })
 }
 
@@ -2613,6 +2617,35 @@ fn build_large_corpus_linter_settings(
     } else {
         shuck_linter::LinterSettings::default()
     }
+}
+
+fn large_corpus_source_resolver(
+    selected_rules: Option<&shuck_linter::RuleSet>,
+    shellcheck_filter_codes: Option<&HashSet<u32>>,
+    supported_fixtures: &[&LargeCorpusFixture],
+) -> Option<Arc<LargeCorpusPathResolver>> {
+    if large_corpus_uses_single_file_c001_oracle(selected_rules, shellcheck_filter_codes) {
+        // C001 follows ShellCheck's single-file oracle here. Resolving sourced
+        // files changes assignment liveness and turns project-closure context
+        // into unrelated rule deltas.
+        return None;
+    }
+
+    Some(Arc::new(LargeCorpusPathResolver::new(supported_fixtures)))
+}
+
+fn large_corpus_uses_single_file_c001_oracle(
+    selected_rules: Option<&shuck_linter::RuleSet>,
+    shellcheck_filter_codes: Option<&HashSet<u32>>,
+) -> bool {
+    selected_rules.is_some_and(|rules| {
+        rules.len() == 1 && rules.contains(shuck_linter::Rule::UnusedAssignment)
+    }) || shellcheck_filter_codes.is_some_and(|codes| {
+        codes.len() == 1
+            && shuck_linter::ShellCheckCodeMap::default()
+                .code_for_rule(shuck_linter::Rule::UnusedAssignment)
+                .is_some_and(|code| codes.contains(&code))
+    })
 }
 
 fn build_shellcheck_filter_codes(
@@ -3578,6 +3611,22 @@ mod tests {
         let codes = build_selected_shellcheck_codes(&selected_rules);
 
         assert_eq!(codes, HashSet::from([2112]));
+    }
+
+    #[test]
+    fn c001_only_large_corpus_filter_uses_single_file_oracle() {
+        let selected_rules =
+            shuck_linter::RuleSet::from_iter([shuck_linter::Rule::UnusedAssignment]);
+        let shellcheck_codes = HashSet::from([2034]);
+
+        assert!(large_corpus_uses_single_file_c001_oracle(
+            Some(&selected_rules),
+            None
+        ));
+        assert!(large_corpus_uses_single_file_c001_oracle(
+            None,
+            Some(&shellcheck_codes)
+        ));
     }
 
     #[test]

@@ -271,7 +271,6 @@ fn test_parse_mixed_quoted_and_cooked_plain_continuation_keeps_variable_live() {
         panic!("expected simple command");
     };
     let word = &command.args[0];
-    dbg!(&word.parts);
 
     assert!(matches!(
         word.parts.as_slice(),
@@ -2420,6 +2419,88 @@ fn test_arithmetic_expansion_inside_double_quotes_preserves_legacy_and_modern_sy
     assert_eq!(*op, ArithmeticBinaryOp::Add);
     expect_number(left, input, "3");
     expect_number(right, input, "4");
+}
+
+#[test]
+fn test_arithmetic_expansion_after_escaped_quote_inside_double_quotes_stays_live() {
+    let input = "echo \"prefix \\\" $((++attempt))\"\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let word = &command.args[0];
+
+    let WordPart::DoubleQuoted { parts, .. } = &word.parts[0].kind else {
+        panic!("expected double-quoted word");
+    };
+    let WordPart::ArithmeticExpansion {
+        expression,
+        expression_ast,
+        syntax,
+        ..
+    } = &parts[1].kind
+    else {
+        panic!("expected arithmetic expansion after escaped quote");
+    };
+    assert_eq!(*syntax, ArithmeticExpansionSyntax::DollarParenParen);
+    assert!(expression.is_source_backed());
+    assert_eq!(expression.slice(input), "++attempt");
+    let ArithmeticExpr::Unary { op, expr } = &expression_ast
+        .as_ref()
+        .expect("expected typed arithmetic AST")
+        .kind
+    else {
+        panic!("expected prefix update expression");
+    };
+    assert_eq!(*op, ArithmeticUnaryOp::PreIncrement);
+    expect_variable(expr, "attempt");
+}
+
+#[test]
+fn test_arithmetic_expansion_keeps_parameter_in_numeric_literal_shell_word() {
+    let input = "echo $((10#$HOUR)) $((0x$byte6 + summand))\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    let base_literal = &command.args[0];
+    let WordPart::ArithmeticExpansion {
+        expression_ast,
+        syntax,
+        ..
+    } = &base_literal.parts[0].kind
+    else {
+        panic!("expected base-literal arithmetic expansion");
+    };
+    assert_eq!(*syntax, ArithmeticExpansionSyntax::DollarParenParen);
+    let ArithmeticExpr::ShellWord(word) = &expression_ast
+        .as_ref()
+        .expect("expected typed arithmetic AST")
+        .kind
+    else {
+        panic!("expected shell-word numeric literal");
+    };
+    assert!(word_part_tree_contains_variable(&word.parts, "HOUR"));
+
+    let mixed = &command.args[1];
+    let WordPart::ArithmeticExpansion { expression_ast, .. } = &mixed.parts[0].kind else {
+        panic!("expected mixed arithmetic expansion");
+    };
+    let ArithmeticExpr::Binary { left, op, right } = &expression_ast
+        .as_ref()
+        .expect("expected typed arithmetic AST")
+        .kind
+    else {
+        panic!("expected arithmetic addition");
+    };
+    assert_eq!(*op, ArithmeticBinaryOp::Add);
+    let ArithmeticExpr::ShellWord(word) = &left.kind else {
+        panic!("expected shell-word numeric literal on left");
+    };
+    assert!(word_part_tree_contains_variable(&word.parts, "byte6"));
+    expect_variable(right, "summand");
 }
 
 #[test]

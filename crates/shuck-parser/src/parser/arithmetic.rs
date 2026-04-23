@@ -523,7 +523,7 @@ impl<'a> ArithmeticParser<'a> {
         let token = if is_ident_start(ch) {
             self.lex_identifier_or_word(start)?
         } else if ch.is_ascii_digit() {
-            self.lex_number(start)
+            self.lex_number(start)?
         } else if ch == '#'
             && self.dialect == ShellDialect::Zsh
             && self
@@ -691,7 +691,7 @@ impl<'a> ArithmeticParser<'a> {
         })
     }
 
-    fn lex_number(&mut self, start: usize) -> Token {
+    fn lex_number(&mut self, start: usize) -> Result<Token> {
         let mut end = start;
         while let Some(ch) = self.char_at(end) {
             if ch.is_ascii_alphanumeric() || matches!(ch, '#' | '_') {
@@ -700,11 +700,17 @@ impl<'a> ArithmeticParser<'a> {
                 break;
             }
         }
+        if matches!(self.char_at(end), Some('$' | '"' | '\'' | '`' | '\\'))
+            || matches!(self.char_at(end), Some(ch) if !self.is_arithmetic_boundary(ch) && !ch.is_whitespace())
+        {
+            self.index = start;
+            return self.lex_shell_word(start);
+        }
         self.index = end;
-        Token {
+        Ok(Token {
             kind: TokenKind::Number(SourceText::source(self.span_for(start, end))),
             span: self.span_for(start, end),
-        }
+        })
     }
 
     fn lex_zsh_char_literal(&mut self, start: usize) -> Token {

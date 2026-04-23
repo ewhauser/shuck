@@ -3088,7 +3088,7 @@ impl<'a> Parser<'a> {
                     segment.kind(),
                     LexedWordSegmentKind::DoubleQuoted | LexedWordSegmentKind::DollarDoubleQuoted
                 )
-                && !text.contains("$(")
+                && (!text.contains("$(") || text.contains("$(("))
             {
                 content_span.slice(self.input)
             } else {

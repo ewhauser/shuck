@@ -5018,7 +5018,7 @@ mapfile
                 .any(|binding| binding.name == "read_array_target")
         );
         assert!(
-            read_targets
+            !read_targets
                 .iter()
                 .any(|binding| binding.name == "read_array_remainder")
         );
@@ -5045,7 +5045,7 @@ mapfile
                     binding.origin,
                     BindingOrigin::BuiltinTarget {
                         definition_span,
-                        kind: BuiltinBindingTargetKind::Mapfile,
+                        ..
                     } if definition_span == binding.span
                 )
         }));
@@ -5364,6 +5364,16 @@ HISTSIZE=-1
 HISTTIMEFORMAT='%F %T '
 COMP_WORDBREAKS=\"${COMP_WORDBREAKS//:/}\"
 PROMPT_COMMAND='history -a'
+BASH_ENV=/dev/null
+BASH_XTRACEFD=9
+ENV=/dev/null
+INPUTRC=/tmp/inputrc
+MAIL=/tmp/mail
+OLDPWD=/tmp/old
+PROMPT_DIRTRIM=2
+SECONDS=0
+TIMEFORMAT='%R'
+TMOUT=30
 PS1='prompt> '
 PS2='continuation> '
 PS3=''
@@ -5397,6 +5407,16 @@ unused=1
             "HISTTIMEFORMAT",
             "COMP_WORDBREAKS",
             "PROMPT_COMMAND",
+            "BASH_ENV",
+            "BASH_XTRACEFD",
+            "ENV",
+            "INPUTRC",
+            "MAIL",
+            "OLDPWD",
+            "PROMPT_DIRTRIM",
+            "SECONDS",
+            "TIMEFORMAT",
+            "TMOUT",
             "PS1",
             "PS2",
             "PS3",

@@ -266,6 +266,7 @@ fn analyze_file_at_path_with_resolver_and_shell(
         settings.report_environment_style_names,
         settings.rule_options.clone(),
         &file_context,
+        suppression_index,
         first_parse_error,
     );
     let mut diagnostics = observer.into_diagnostics();
@@ -431,7 +432,7 @@ pub fn lint_file_at_path_with_resolver_and_parse_result(
         source,
         indexer,
         settings,
-        None,
+        suppression_index,
         source_path,
         source_path_resolver,
         shell,
@@ -1720,6 +1721,16 @@ printf '%s\\n' \"${!args_var}\"
     }
 
     #[test]
+    fn unused_assignment_ignores_leading_underscore_bindings() {
+        let diagnostics = lint_for_rule(
+            "#!/bin/bash\n_unused=1\n__unused=2\nrest=3\nREST=4\n",
+            Rule::UnusedAssignment,
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn unused_assignment_ignores_underscore_read_targets() {
         let diagnostics = lint(
             "\
@@ -2044,6 +2055,16 @@ HISTSIZE=-1
 HISTTIMEFORMAT='%F %T '
 COMP_WORDBREAKS=\"${COMP_WORDBREAKS//:/}\"
 PROMPT_COMMAND='history -a'
+BASH_ENV=/dev/null
+BASH_XTRACEFD=9
+ENV=/dev/null
+INPUTRC=/tmp/inputrc
+MAIL=/tmp/mail
+OLDPWD=/tmp/old
+PROMPT_DIRTRIM=2
+SECONDS=0
+TIMEFORMAT='%R'
+TMOUT=30
 PS1='prompt> '
 PS2='continuation> '
 PS3=''
@@ -4054,6 +4075,68 @@ run && exit 0 || sleep 15
 #!/bin/sh
 # shellcheck disable=SC2034
 foo=1
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let directives = parse_directives(
+            source,
+            &output.file,
+            indexer.comment_index(),
+            &ShellCheckCodeMap::default(),
+        );
+        let suppressions = SuppressionIndex::new(
+            &directives,
+            &output.file,
+            first_statement_line(&output.file).unwrap_or(u32::MAX),
+        );
+        let diagnostics = lint_file(
+            &output.file,
+            source,
+            &indexer,
+            &LinterSettings::default(),
+            Some(&suppressions),
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn parsed_result_linting_respects_shellcheck_directive() {
+        let source = "\
+#!/bin/sh
+# shellcheck disable=SC2034
+foo=1
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let directives = parse_directives(
+            source,
+            &output.file,
+            indexer.comment_index(),
+            &ShellCheckCodeMap::default(),
+        );
+        let suppressions = SuppressionIndex::new(
+            &directives,
+            &output.file,
+            first_statement_line(&output.file).unwrap_or(u32::MAX),
+        );
+        let diagnostics = lint_file_at_path_with_parse_result(
+            &output,
+            source,
+            &indexer,
+            &LinterSettings::default(),
+            Some(&suppressions),
+            None,
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn unused_assignment_family_suppressed_by_shellcheck_directive_on_later_binding() {
+        let source = "\
+#!/bin/bash
+flaghash[x]=1
+# shellcheck disable=SC2034
+declare -A flaghash
 ";
         let output = Parser::new(source).parse().unwrap();
         let indexer = Indexer::new(source, &output);
