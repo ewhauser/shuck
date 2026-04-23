@@ -3,7 +3,7 @@ legacy_name: unreachable-after-exit
 new_category: Correctness
 new_code: C124
 runtime_kind: ast
-shellcheck_code: SC2317
+shellcheck_code: SC2365
 shellcheck_level: info
 shells:
   - sh
