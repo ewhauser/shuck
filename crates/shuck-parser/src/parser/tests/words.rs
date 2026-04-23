@@ -2241,6 +2241,20 @@ fn test_brace_syntax_ignores_escaped_unquoted_braces() {
 }
 
 #[test]
+fn test_brace_syntax_keeps_ansi_c_escaped_quotes_inside_single_quoted_regions() {
+    let input = r#"$'foo\'{a,b}'"#;
+    let word = Parser::parse_word_string(input);
+
+    assert_eq!(brace_slices(&word, input), vec!["{a,b}"]);
+    assert!(
+        word.brace_syntax()
+            .iter()
+            .all(|brace| brace.treated_literally())
+    );
+    assert!(!word.has_active_brace_expansion());
+}
+
+#[test]
 fn test_dollar_quoted_words_preserve_quote_variants() {
     let input = "printf $'line\\n' $\"prefix $HOME\"\n";
     let script = Parser::new(input).parse().unwrap().file;

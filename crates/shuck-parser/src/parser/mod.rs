@@ -2215,19 +2215,29 @@ impl<'a> Parser<'a> {
         quote_context: BraceQuoteContext,
         out: &mut Vec<BraceSyntax>,
     ) {
-        let mut chars = Vec::new();
-        self.collect_brace_scan_chars_from_parts(parts, &mut chars);
-        Self::scan_brace_syntax_chars(&chars, quote_context, out);
-
         for part in parts {
             match &part.kind {
+                WordPart::Literal(text) => Self::scan_brace_syntax_text(
+                    text.syntax_str(self.input, part.span),
+                    part.span.start,
+                    quote_context,
+                    out,
+                ),
+                WordPart::SingleQuoted { .. } => Self::scan_brace_syntax_text(
+                    part.span.slice(self.input),
+                    part.span.start,
+                    BraceQuoteContext::SingleQuoted,
+                    out,
+                ),
+                WordPart::DoubleQuoted { parts, .. } => self.collect_brace_syntax_from_parts(
+                    parts,
+                    BraceQuoteContext::DoubleQuoted,
+                    out,
+                ),
                 WordPart::ZshQualifiedGlob(glob) => {
                     self.collect_brace_syntax_from_zsh_qualified_glob(glob, quote_context, out)
                 }
-                WordPart::Literal(_)
-                | WordPart::SingleQuoted { .. }
-                | WordPart::DoubleQuoted { .. }
-                | WordPart::Variable(_)
+                WordPart::Variable(_)
                 | WordPart::CommandSubstitution { .. }
                 | WordPart::ArithmeticExpansion { .. }
                 | WordPart::Parameter(_)
@@ -2244,6 +2254,56 @@ impl<'a> Parser<'a> {
                 | WordPart::Transformation { .. } => {}
             }
         }
+
+        if self.needs_cross_part_brace_scan(parts) {
+            let mut chars = Vec::new();
+            self.collect_brace_scan_chars_from_parts(parts, &mut chars);
+            Self::scan_brace_syntax_chars(&chars, quote_context, out);
+        }
+    }
+
+    fn needs_cross_part_brace_scan(&self, parts: &[WordPartNode]) -> bool {
+        if parts.len() < 2 {
+            return false;
+        }
+
+        let mut cursor = parts[0].span.start.offset;
+        for part in parts {
+            if part.span.start.offset > cursor
+                && self.input[cursor..part.span.start.offset].contains(['{', '}'])
+            {
+                return true;
+            }
+
+            let has_brace_text = match &part.kind {
+                WordPart::Literal(text) => text.syntax_str(self.input, part.span).contains(['{', '}']),
+                WordPart::SingleQuoted { .. }
+                | WordPart::DoubleQuoted { .. }
+                | WordPart::ZshQualifiedGlob(_) => part.span.slice(self.input).contains(['{', '}']),
+                WordPart::Variable(_)
+                | WordPart::CommandSubstitution { .. }
+                | WordPart::ArithmeticExpansion { .. }
+                | WordPart::Parameter(_)
+                | WordPart::ParameterExpansion { .. }
+                | WordPart::Length(_)
+                | WordPart::ArrayAccess(_)
+                | WordPart::ArrayLength(_)
+                | WordPart::ArrayIndices(_)
+                | WordPart::Substring { .. }
+                | WordPart::ArraySlice { .. }
+                | WordPart::IndirectExpansion { .. }
+                | WordPart::PrefixMatch { .. }
+                | WordPart::ProcessSubstitution { .. }
+                | WordPart::Transformation { .. } => false,
+            };
+            if has_brace_text {
+                return true;
+            }
+
+            cursor = part.span.end.offset;
+        }
+
+        false
     }
 
     fn collect_brace_scan_chars_from_parts(
@@ -2361,6 +2421,7 @@ impl<'a> Parser<'a> {
         #[derive(Clone, Copy, PartialEq, Eq)]
         enum QuoteState {
             Single,
+            AnsiSingle,
             Double,
         }
 
@@ -2386,7 +2447,7 @@ impl<'a> Parser<'a> {
         fn quote_context(state: Option<QuoteState>) -> BraceQuoteContext {
             match state {
                 None => BraceQuoteContext::Unquoted,
-                Some(QuoteState::Single) => BraceQuoteContext::SingleQuoted,
+                Some(QuoteState::Single | QuoteState::AnsiSingle) => BraceQuoteContext::SingleQuoted,
                 Some(QuoteState::Double) => BraceQuoteContext::DoubleQuoted,
             }
         }
@@ -2450,7 +2511,11 @@ impl<'a> Parser<'a> {
         while index < chars.len() {
             let ch = chars[index].0;
 
-            if matches!(quote_state, None | Some(QuoteState::Double)) && ch == '\\' {
+            if matches!(
+                quote_state,
+                None | Some(QuoteState::AnsiSingle) | Some(QuoteState::Double)
+            ) && ch == '\\'
+            {
                 if let Some(candidate) = stack.last_mut() {
                     candidate.prev_char = None;
                 }
@@ -2481,7 +2546,11 @@ impl<'a> Parser<'a> {
             match quote_state {
                 None => match ch {
                     '\'' => {
-                        quote_state = Some(QuoteState::Single);
+                        quote_state = if index > 0 && chars[index - 1].0 == '$' {
+                            Some(QuoteState::AnsiSingle)
+                        } else {
+                            Some(QuoteState::Single)
+                        };
                         for candidate in &mut stack {
                             if matches!(candidate.quote_context, BraceQuoteContext::Unquoted) {
                                 candidate.saw_quote_boundary = true;
@@ -2499,6 +2568,16 @@ impl<'a> Parser<'a> {
                     _ => {}
                 },
                 Some(QuoteState::Single) => {
+                    if ch == '\'' {
+                        quote_state = None;
+                        for candidate in &mut stack {
+                            if matches!(candidate.quote_context, BraceQuoteContext::Unquoted) {
+                                candidate.saw_quote_boundary = true;
+                            }
+                        }
+                    }
+                }
+                Some(QuoteState::AnsiSingle) => {
                     if ch == '\'' {
                         quote_state = None;
                         for candidate in &mut stack {
@@ -2678,11 +2757,11 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            let brace_start = position;
-            if let Some(len) = Self::template_placeholder_len(text, index, quote_context) {
-                let brace_end = brace_start.advanced_by(&text[index..index + len]);
-                out.push(BraceSyntax {
-                    kind: BraceSyntaxKind::TemplatePlaceholder,
+                let brace_start = position;
+                if let Some(len) = Self::template_placeholder_len(text, index, quote_context) {
+                    let brace_end = brace_start.advanced_by(&text[index..index + len]);
+                    out.push(BraceSyntax {
+                        kind: BraceSyntaxKind::TemplatePlaceholder,
                     span: Span::from_positions(brace_start, brace_end),
                     quote_context,
                 });
@@ -2691,16 +2770,29 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            if let Some((len, kind)) = Self::brace_construct_len(text, index, quote_context) {
-                let brace_end = brace_start.advanced_by(&text[index..index + len]);
-                out.push(BraceSyntax {
-                    kind,
-                    span: Span::from_positions(brace_start, brace_end),
-                    quote_context,
-                });
-                position = brace_end;
-                index += len;
-                continue;
+                if let Some((len, kind)) = Self::brace_construct_len(text, index, quote_context) {
+                    let brace_end = brace_start.advanced_by(&text[index..index + len]);
+                    out.push(BraceSyntax {
+                        kind,
+                        span: Span::from_positions(brace_start, brace_end),
+                        quote_context,
+                    });
+                    if len > 2 {
+                        let inner_start = index + '{'.len_utf8();
+                        let inner_end = index + len - '}'.len_utf8();
+                        if inner_start < inner_end {
+                            let inner_base = brace_start.advanced_by("{");
+                            Self::scan_brace_syntax_text(
+                                &text[inner_start..inner_end],
+                                inner_base,
+                                quote_context,
+                                out,
+                            );
+                        }
+                    }
+                    position = brace_end;
+                    index += len;
+                    continue;
             }
 
             position.advance('{');
