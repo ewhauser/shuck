@@ -1657,6 +1657,32 @@ fn test_case_patterns_consume_segmented_tokens_directly() {
 }
 
 #[test]
+fn test_case_patterns_accept_literal_brace_and_escaped_parens() {
+    let input = concat!(
+        "case \"$word\" in\n",
+        "  \\(\\)) : ;;\n",
+        "  {) : ;;\n",
+        "  \\'*) : ;;\n",
+        "esac\n",
+    );
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let (compound, _) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Case(command) = compound else {
+        panic!("expected case command");
+    };
+
+    assert_eq!(
+        command
+            .cases
+            .iter()
+            .map(|case| case.patterns[0].render_syntax(input))
+            .collect::<Vec<_>>(),
+        vec![r"\(\)", "{", r"\'*"]
+    );
+}
+
+#[test]
 fn test_zsh_case_accepts_suffix_bare_group_pattern() {
     let input = concat!(
         "case \"$mode\" in\n",

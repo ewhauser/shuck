@@ -22,7 +22,6 @@ pub fn zsh_flag_expansion(checker: &mut Checker) {
         .facts()
         .word_facts()
         .iter()
-        .filter(|fact| !fact.is_in_positive_zsh_guard())
         .flat_map(|fact| fact.zsh_flag_modifier_spans())
         .collect::<Vec<_>>();
 
@@ -35,11 +34,12 @@ mod tests {
     use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
-    fn ignores_nested_target_forms_reserved_for_other_rules() {
-        let source = "#!/bin/sh\nx=${${(M)path:#/*}:-$PWD/$path}\n";
+    fn reports_modifier_forms_inside_nested_targets() {
+        let source =
+            "#!/bin/bash\nunset ${(M)${(k)parameters[@]}:#__gitcomp_builtin_*} 2>/dev/null\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ZshFlagExpansion));
 
-        assert!(diagnostics.is_empty());
+        assert_eq!(diagnostics.len(), 2);
     }
 
     #[test]
@@ -62,16 +62,23 @@ mod tests {
     }
 
     #[test]
-    fn ignores_positive_zsh_compatibility_guards() {
+    fn ignores_bare_split_modifier_forms() {
+        let source = "#!/bin/bash\n${=compiler} \"$@\"\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ZshFlagExpansion));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_modifier_forms_inside_positive_zsh_compatibility_guards() {
         let source = "\
 #!/bin/bash
-if [[ -n \"${ZSH_VERSION:-}\" ]]
-then parts=(${=rvm_ruby_string//-/ })
-else parts=(${rvm_ruby_string//-/ })
+if [[ -n ${ZSH_VERSION-} ]]; then
+  unset ${(M)${(k)parameters[@]}:#__gitcomp_builtin_*} 2>/dev/null
 fi
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ZshFlagExpansion));
 
-        assert!(diagnostics.is_empty());
+        assert_eq!(diagnostics.len(), 2);
     }
 }
