@@ -1696,7 +1696,21 @@ impl<'a> Lexer<'a> {
                             && self.current_word_surface_is_single_char(start, &word, '{')
                             && self.escaped_brace_sequence_looks_like_brace_expansion()
                         {
-                            self.consume_mid_word_brace_segment(&mut word);
+                            let mut depth = 1;
+                            while let Some(c) = self.peek_char() {
+                                Self::push_capture_char(&mut word, c);
+                                self.advance();
+                                match c {
+                                    '{' => depth += 1,
+                                    '}' => {
+                                        depth -= 1;
+                                        if depth == 0 {
+                                            break;
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
                         }
                     }
                 } else {
