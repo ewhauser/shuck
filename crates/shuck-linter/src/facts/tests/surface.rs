@@ -973,6 +973,7 @@ case literal in
   @($pat|$(printf '%s' case))) : ;;
 esac
 trap \"echo $x $(date)\" EXIT
+trap - ${signals[@]}
 declare declared[$(printf decl-name-subscript)]
 declare arr[$(printf decl-subscript)]=\"${name%$suffix}\"
 target[$(printf assign-subscript)]=1
@@ -1000,6 +1001,19 @@ printf '%s\\n' prefix${name}suffix ${items[@]}
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$x", "$(date)"]
+        );
+
+        let trap_signal = facts
+            .expansion_word_facts(ExpansionContext::CommandArgument)
+            .find(|fact| fact.span().slice(source) == "${signals[@]}")
+            .expect("expected trap signal argument fact");
+        assert_eq!(
+            trap_signal
+                .unquoted_all_elements_array_expansion_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${signals[@]}"]
         );
 
         let declaration_name_subscript = facts
