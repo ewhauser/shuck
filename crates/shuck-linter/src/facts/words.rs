@@ -105,7 +105,7 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
     }
 
     pub fn single_double_quoted_replacement(self, source: &str) -> Box<str> {
-        rewrite_word_as_single_double_quoted_string(self.word(), source)
+        rewrite_word_as_single_double_quoted_string(self.word(), source, None)
     }
 
     pub fn command_id(self) -> CommandId {
@@ -2462,7 +2462,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 .extend(expanded_words.into_iter().map(|word| {
                     CasePatternExpansionFact::new(
                         word.span,
-                        rewrite_word_as_single_double_quoted_string(word, self.source),
+                        rewrite_word_as_single_double_quoted_string(word, self.source, None),
                     )
                 }));
         }

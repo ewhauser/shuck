@@ -3,7 +3,7 @@ legacy_name: subst-with-redirect-err
 new_category: Correctness
 new_code: C058
 runtime_kind: ast
-shellcheck_code: SC2256
+shellcheck_code: SC2327
 shellcheck_level: warning
 shells:
   - sh

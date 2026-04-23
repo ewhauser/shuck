@@ -1,8 +1,9 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/open_double_quote.rs
+assertion_line: 240
 ---
 Diagnostics:
-C039 double-quoted string looks unterminated
+C039 quoted string looks unterminated
  --> <source>:2:6
   |
 2 | echo "#!/bin/bash

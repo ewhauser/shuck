@@ -1,0 +1,4 @@
+---
+source: crates/shuck-linter/src/rules/correctness/subst_with_redirect.rs
+assertion_line: 64
+---

@@ -1,10 +1,11 @@
 #!/bin/bash
 
-# Invalid: a bare literal in a test is predetermined
+# Invalid: bracket and conditional tests on fixed literals are predetermined
 [ 1 ]
-test foo
-[[ bar ]]
+[ "" ]
+[[ x ]]
 
-# Valid: runtime values belong in these tests
+# Valid: runtime values belong in these tests, and `test` stays out of scope
+test foo
 [ "$value" ]
 [[ $value ]]

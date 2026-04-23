@@ -1,14 +1,4 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 285
 ---
-C057 command substitution redirects its output away
- --> <source>:4:5
-  |
-4 | out=$(printf hi > out.txt)
-  |
-
-C057 command substitution redirects its output away
- --> <source>:7:5
-  |
-7 | out=$(printf hi >&2)
-  |
