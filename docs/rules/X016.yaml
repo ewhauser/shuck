@@ -8,8 +8,8 @@ shellcheck_level: warning
 shells:
   - sh
   - dash
-description: The script uses `declare`, which is not available in portable `sh`.
-rationale: Use plain assignments or shell features that your target shell actually supports.
+description: The script uses a shell builtin that portable `sh` does not define.
+rationale: Replace the builtin with a portable construct, or require a shell that provides it intentionally.
 safe_fix: false
 fix_description: null
 source:
@@ -21,3 +21,19 @@ examples:
     code: |
       #!/bin/sh
       declare
+  - kind: invalid
+    code: |
+      #!/bin/sh
+      typeset value=1
+  - kind: invalid
+    code: |
+      #!/bin/sh
+      shopt -s nullglob
+  - kind: invalid
+    code: |
+      #!/bin/sh
+      mapfile entries
+  - kind: invalid
+    code: |
+      #!/bin/sh
+      pushd /tmp

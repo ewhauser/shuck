@@ -7,14 +7,98 @@ X016 `declare` is not portable in `sh` scripts
 4 | declare portable=value
   |
 
-X016 `declare` is not portable in `sh` scripts
+X016 `typeset` is not portable in `sh` scripts
  --> <source>:8:1
   |
-8 | command declare wrapped=value
+8 | typeset -i capacity=42
   |
 
-X016 `declare` is not portable in `sh` scripts
-  --> <source>:12:10
+X016 `shopt` is not portable in `sh` scripts
+  --> <source>:12:1
    |
-12 | nested=$(declare inner=value)
+12 | shopt -s nullglob
+   |
+
+X016 `complete` is not portable in `sh` scripts
+  --> <source>:13:1
+   |
+13 | complete -F _portable portable
+   |
+
+X016 `compgen` is not portable in `sh` scripts
+  --> <source>:14:1
+   |
+14 | compgen -A file
+   |
+
+X016 `caller` is not portable in `sh` scripts
+  --> <source>:15:1
+   |
+15 | caller
+   |
+
+X016 `dirs` is not portable in `sh` scripts
+  --> <source>:16:1
+   |
+16 | dirs
+   |
+
+X016 `disown` is not portable in `sh` scripts
+  --> <source>:17:1
+   |
+17 | disown
+   |
+
+X016 `suspend` is not portable in `sh` scripts
+  --> <source>:18:1
+   |
+18 | suspend
+   |
+
+X016 `mapfile` is not portable in `sh` scripts
+  --> <source>:19:1
+   |
+19 | mapfile entries
+   |
+
+X016 `readarray` is not portable in `sh` scripts
+  --> <source>:20:1
+   |
+20 | readarray lines
+   |
+
+X016 `pushd` is not portable in `sh` scripts
+  --> <source>:21:1
+   |
+21 | pushd /tmp
+   |
+
+X016 `popd` is not portable in `sh` scripts
+  --> <source>:22:1
+   |
+22 | popd
+   |
+
+X016 `declare` is not portable in `sh` scripts
+  --> <source>:25:1
+   |
+25 | command declare wrapped=value
+   |
+
+X016 `typeset` is not portable in `sh` scripts
+  --> <source>:29:1
+   |
+29 | command typeset wrapped_typed=value
+   |
+
+X016 `complete` is not portable in `sh` scripts
+  --> <source>:33:1
+   |
+33 | command complete -F _wrapped wrapped
+   |
+
+X016 `declare` is not portable in `sh` scripts
+  --> <source>:36:10
+   |
+36 | nested=$(declare inner=value)
    |
