@@ -1663,33 +1663,14 @@ echo $bar
     }
 
     #[test]
-    fn unused_assignment_keeps_indirect_only_target_live_by_default() {
-        let diagnostics = lint_for_rule(
-            "\
-#!/bin/bash
-target=ok
-name=target
-printf '%s\\n' \"${!name}\"
-",
-            Rule::UnusedAssignment,
-        );
-
-        assert!(diagnostics.is_empty());
-    }
-
-    #[test]
-    fn unused_assignment_shellcheck_compat_flags_indirect_only_target() {
+    fn unused_assignment_flags_indirect_only_target_by_default() {
         let source = "\
 #!/bin/bash
 target=ok
 name=target
 printf '%s\\n' \"${!name}\"
 ";
-        let diagnostics = lint(
-            source,
-            &LinterSettings::for_rule(Rule::UnusedAssignment)
-                .with_c001_treat_indirect_expansion_targets_as_used(false),
-        );
+        let diagnostics = lint_for_rule(source, Rule::UnusedAssignment);
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::UnusedAssignment);
@@ -1697,7 +1678,23 @@ printf '%s\\n' \"${!name}\"
     }
 
     #[test]
-    fn unused_assignment_shellcheck_compat_keeps_dynamic_target_arrays_live() {
+    fn unused_assignment_can_keep_indirect_only_target_live_with_rule_option() {
+        let diagnostics = lint(
+            "\
+#!/bin/bash
+target=ok
+name=target
+printf '%s\\n' \"${!name}\"
+",
+            &LinterSettings::for_rule(Rule::UnusedAssignment)
+                .with_c001_treat_indirect_expansion_targets_as_used(true),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn unused_assignment_keeps_dynamic_target_arrays_live() {
         let diagnostics = lint(
             "\
 #!/bin/bash
@@ -1709,8 +1706,7 @@ web_server=apache
 args_var=\"${web_server}_args[@]\"
 printf '%s\\n' \"${!args_var}\"
 ",
-            &LinterSettings::for_rule(Rule::UnusedAssignment)
-                .with_c001_treat_indirect_expansion_targets_as_used(false),
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
         );
 
         assert!(diagnostics.is_empty());

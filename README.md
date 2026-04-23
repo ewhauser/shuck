@@ -127,7 +127,6 @@ That said, shuck is not a port of ShellCheck. It is a clean-room reimplementatio
 
 - Shuck's parser and analysis logic were written from scratch. Edge cases may be handled differently, and some diagnostics may fire in slightly different locations or contexts.
 - In cases where ShellCheck's behavior appears incorrect or inconsistent with shell semantics, shuck intentionally chooses correctness over compatibility.
-- `C001`/`SC2034` differs by default for resolved indirect expansions such as `${!name}`. Shuck treats the resolved target as live, while ShellCheck warns when that target is only referenced indirectly. Set `[lint.rule-options.c001].treat-indirect-expansion-targets-as-used = false` to opt into ShellCheck-compatible `C001` behavior.
 
 Compatibility is continuously validated against a large corpus of shell scripts from popular open-source projects including [acme.sh](https://github.com/acmesh-official/acme.sh), [oh-my-zsh](https://github.com/ohmyzsh/ohmyzsh), [nvm](https://github.com/nvm-sh/nvm), [pyenv](https://github.com/pyenv/pyenv), [pi-hole](https://github.com/pi-hole/pi-hole), [bats-core](https://github.com/bats-core/bats-core), [powerlevel10k](https://github.com/romkatv/powerlevel10k), [dokku](https://github.com/dokku/dokku), [gentoo](https://github.com/gentoo/gentoo), and [many others](scripts/corpus-download.sh). The latest conformance report is published at [ewhauser.github.io/shuck/reports/corpus](https://ewhauser.github.io/shuck/reports/corpus/).
 

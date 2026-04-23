@@ -1,8 +1,5 @@
 reviewed_divergences:
   - side: shuck-only
-    rule_wide: true
-    reason: "The remaining C001 shuck-only large-corpus sites are already reviewed helper-library, sourced-framework, generated-config, and shell-collapse patterns. Keep them tracked as reviewed implementation differences without restoring a blanket review-all flag."
-  - side: shuck-only
     path_contains: "termux__termux-packages__"
     reason: "These Termux package recipes and build helpers publish `TERMUX_PKG_*`, toolchain flags, checksum tables, and related setup state for the Termux packaging harness to consume after the file returns. The remaining single-file C001 hits in this repo family are framework contract state, not dead assignments."
   - side: shellcheck-only

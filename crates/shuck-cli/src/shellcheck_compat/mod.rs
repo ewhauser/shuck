@@ -964,8 +964,7 @@ fn lint_with_context(
         per_file_ignores: Default::default(),
         report_environment_style_names: options.report_environment_style_names,
         rule_options: Default::default(),
-    }
-    .with_c001_treat_indirect_expansion_targets_as_used(false);
+    };
 
     let diagnostics = shuck_linter::lint_file_at_path_with_resolver_and_parse_result(
         &parse_result,

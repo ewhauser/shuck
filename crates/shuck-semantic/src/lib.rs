@@ -122,15 +122,15 @@ pub struct SyntheticRead {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UnusedAssignmentAnalysisOptions {
     /// Whether a resolved scalar indirect-expansion target like `${!name}` counts as a use
-    /// of the target. Array-like targets such as `name=arr[@]; ${!name}` stay live in
-    /// both modes.
+    /// of the target. ShellCheck-compatible analysis leaves this disabled. Array-like
+    /// targets such as `name=arr[@]; ${!name}` stay live in both modes.
     pub treat_indirect_expansion_targets_as_used: bool,
 }
 
 impl Default for UnusedAssignmentAnalysisOptions {
     fn default() -> Self {
         Self {
-            treat_indirect_expansion_targets_as_used: true,
+            treat_indirect_expansion_targets_as_used: false,
         }
     }
 }
@@ -5502,7 +5502,7 @@ printf '%s\\n' \"${!name}\"
     }
 
     #[test]
-    fn unused_assignment_options_only_change_indirect_target_liveness() {
+    fn unused_assignment_flags_indirect_only_targets_by_default() {
         let source = "\
 #!/bin/bash
 target=ok
@@ -5512,17 +5512,17 @@ printf '%s\\n' \"${!name}\"
 ";
         let model = model(source);
         let default_unused = binding_names(&model, model.analysis().unused_assignments());
-        let compat_unused = binding_names(
+        let live_indirect_target_unused = binding_names(
             &model,
             model
                 .analysis()
                 .unused_assignments_with_options(UnusedAssignmentAnalysisOptions {
-                    treat_indirect_expansion_targets_as_used: false,
+                    treat_indirect_expansion_targets_as_used: true,
                 }),
         );
 
-        assert_eq!(default_unused, vec!["other"]);
-        assert_eq!(compat_unused, vec!["target", "other"]);
+        assert_eq!(default_unused, vec!["target", "other"]);
+        assert_eq!(live_indirect_target_unused, vec!["other"]);
     }
 
     #[test]

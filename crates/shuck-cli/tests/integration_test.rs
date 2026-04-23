@@ -494,16 +494,13 @@ fn check_cli_select_replaces_config_selection() {
 }
 
 #[test]
-fn check_config_rule_option_can_enable_shellcheck_compatible_c001_behavior() {
+fn check_c001_flags_indirect_only_targets_by_default() {
     let tempdir = tempdir().unwrap();
     fs::write(
         tempdir.path().join("shuck.toml"),
         "\
 [lint]
 select = ['C001']
-
-[lint.rule-options.c001]
-treat-indirect-expansion-targets-as-used = false
 ",
     )
     .unwrap();
@@ -521,6 +518,35 @@ treat-indirect-expansion-targets-as-used = false
         .code(1)
         .stdout(predicate::str::contains("warning[C001]"))
         .stdout(predicate::str::contains("target"));
+}
+
+#[test]
+fn check_config_rule_option_can_keep_indirect_c001_targets_live() {
+    let tempdir = tempdir().unwrap();
+    fs::write(
+        tempdir.path().join("shuck.toml"),
+        "\
+[lint]
+select = ['C001']
+
+[lint.rule-options.c001]
+treat-indirect-expansion-targets-as-used = true
+",
+    )
+    .unwrap();
+    fs::write(
+        tempdir.path().join("script.sh"),
+        "#!/bin/bash\ntarget=ok\nname=target\nprintf '%s\\n' \"${!name}\"\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("shuck").unwrap();
+    configure_env_cache(&mut cmd, tempdir.path());
+    cmd.current_dir(tempdir.path())
+        .args(["check", "--output-format", "concise", "script.sh"]);
+    cmd.assert()
+        .code(0)
+        .stdout(predicate::str::contains("warning[C001]").not());
 }
 
 #[test]
