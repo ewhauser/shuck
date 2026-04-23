@@ -245,11 +245,18 @@ fn command_is_shadowed_function(
     let Some(command_name) = command.effective_or_literal_name() else {
         return false;
     };
+    let command_name = Name::from(command_name);
+    let semantic = checker.semantic();
 
-    checker
-        .semantic()
-        .visible_binding(&command_name.into(), name_span)
-        .is_some_and(binding_is_function_like)
+    semantic
+        .bindings_for(&command_name)
+        .iter()
+        .rev()
+        .copied()
+        .any(|binding_id| {
+            let binding = semantic.binding(binding_id);
+            binding_is_function_like(binding) && semantic.binding_visible_at(binding_id, name_span)
+        })
 }
 
 fn command_forces_builtin_resolution(command: &crate::facts::commands::CommandFact<'_>) -> bool {
@@ -709,6 +716,31 @@ entries=value
             source,
             &LinterSettings::for_rule(Rule::ArrayToStringConversion)
                 .with_analyzed_paths([main.clone(), helper.clone()]),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_targets_when_function_shadowing_is_followed_by_variable_rebindings() {
+        let source = "\
+#!/bin/bash
+read() {
+  :
+}
+mapfile() {
+  :
+}
+read=value
+mapfile=value
+read -a entries
+mapfile lines
+entries=value
+lines=value
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
         );
 
         assert!(diagnostics.is_empty(), "{diagnostics:#?}");
