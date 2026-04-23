@@ -137,6 +137,10 @@ nested=\"$AWK '\"\\
 \"     {value=$(printf \"%s\" x);};\"\\
 \"     /^COFF SYMBOL TABLE/{next};\"\\
 \"     ' prfx=^$ac_symprfx\"
+legacy=\"$AWK '\"\\
+\"     {value=`printf \"%s\" x`;};\"\\
+\"     /^COFF SYMBOL TABLE/{next};\"\\
+\"     ' prfx=^$ac_symprfx\"
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::MixedQuoteWord));
 
@@ -145,7 +149,9 @@ nested=\"$AWK '\"\\
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n"]
+            vec![
+                "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n"
+            ]
         );
     }
 

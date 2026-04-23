@@ -1710,13 +1710,14 @@ fn mixed_quote_closing_double_quote_offset(text: &str) -> Option<usize> {
     let mut escaped = false;
     let mut command_depth = 0i32;
     let mut parameter_depth = 0i32;
+    let mut in_backtick_command = false;
     let mut in_single_quotes = false;
     let mut in_double_quotes = false;
     let mut in_comment = false;
     let mut previous_char = Some('"');
 
     while let Some((offset, ch)) = chars.next() {
-        let nested_depth = command_depth > 0 || parameter_depth > 0;
+        let nested_depth = command_depth > 0 || parameter_depth > 0 || in_backtick_command;
 
         if in_comment {
             if ch == '\n' {
@@ -1742,6 +1743,12 @@ fn mixed_quote_closing_double_quote_offset(text: &str) -> Option<usize> {
 
         if ch == '\\' {
             escaped = true;
+            previous_char = Some(ch);
+            continue;
+        }
+
+        if ch == '`' && !in_single_quotes {
+            in_backtick_command = !in_backtick_command;
             previous_char = Some(ch);
             continue;
         }

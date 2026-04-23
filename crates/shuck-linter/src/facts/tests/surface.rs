@@ -2166,6 +2166,10 @@ nested=\"$AWK '\"\\
 \"     {value=$(printf \"%s\" x);};\"\\
 \"     /^COFF SYMBOL TABLE/{next};\"\\
 \"     ' prfx=^$ac_symprfx\"
+legacy=\"$AWK '\"\\
+\"     {value=`printf \"%s\" x`;};\"\\
+\"     /^COFF SYMBOL TABLE/{next};\"\\
+\"     ' prfx=^$ac_symprfx\"
 ";
 
     with_facts(source, None, |_, facts| {
@@ -2180,7 +2184,12 @@ nested=\"$AWK '\"\\
             })
             .collect::<Vec<_>>();
 
-        assert_eq!(spans, vec!["\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n"]);
+        assert_eq!(
+            spans,
+            vec![
+                "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n"
+            ]
+        );
     });
 }
 
