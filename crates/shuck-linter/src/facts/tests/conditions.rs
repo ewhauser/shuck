@@ -35,6 +35,33 @@ conditional=$( [[ -n $value ]] && printf '%s\\n' ok )
 }
 
 #[test]
+fn loop_header_words_track_all_elements_array_expansions_inside_wrapped_command_substitutions() {
+    let source = "\
+#!/bin/bash
+COMMITS=(abc def)
+WORKFLOW_COMMITS_QUERY=\"
+query {
+  repository(owner: \\\"termux\\\", name: \\\"termux-packages\\\") {
+  $(
+    for commit in \"${COMMITS[@]}\"; do
+      echo \"_${commit::7}: object(oid: \\\"${commit}\\\") { ...workflowRun }\"
+    done
+  )
+  }
+}
+\"
+";
+
+    with_facts(source, None, |_, facts| {
+        let header = facts
+            .for_headers()
+            .first()
+            .expect("expected nested for header");
+        assert!(header.words()[0].has_all_elements_array_expansion());
+    });
+}
+
+#[test]
 fn identifies_command_substitutions_that_echo_plain_text_or_expansions() {
     let source = "\
 #!/bin/sh

@@ -1,0 +1,5 @@
+reviewed_divergences:
+  - side: shellcheck-only
+    path_suffix: "v1s1t0r1sh3r3__airgeddon__airgeddon.sh"
+    line: 15648
+    reason: "This helper pins a repo-local database file through a source directive while still building the actual path from runtime script-folder state. ShellCheck keeps a file-input warning for this exact corpus site, and we keep that residual reviewed narrowly instead of broadening C003 around project-local source hints."

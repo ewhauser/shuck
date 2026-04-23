@@ -2,6 +2,7 @@
 pub struct LoopHeaderWordFact<'a> {
     word: &'a Word,
     classification: WordClassification,
+    has_all_elements_array_expansion: bool,
     has_unquoted_command_substitution: bool,
     contains_line_oriented_substitution: bool,
     contains_ls_substitution: bool,
@@ -23,6 +24,10 @@ impl<'a> LoopHeaderWordFact<'a> {
 
     pub fn has_command_substitution(&self) -> bool {
         self.classification.has_command_substitution()
+    }
+
+    pub fn has_all_elements_array_expansion(&self) -> bool {
+        self.has_all_elements_array_expansion
     }
 
     pub fn has_unquoted_command_substitution(&self) -> bool {
@@ -194,6 +199,10 @@ fn build_loop_header_word_facts<'a>(
             LoopHeaderWordFact {
                 word,
                 classification,
+                has_all_elements_array_expansion:
+                    word_spans::word_has_all_elements_array_expansion_syntax(word)
+                        || !word_spans::all_elements_array_expansion_part_spans(word, source)
+                            .is_empty(),
                 has_unquoted_command_substitution: classification.has_command_substitution()
                     && !word_spans::unquoted_command_substitution_part_spans(word).is_empty(),
                 contains_line_oriented_substitution: word_contains_line_oriented_substitution(
