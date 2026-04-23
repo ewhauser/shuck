@@ -189,8 +189,9 @@ impl<'a> LinterFactsBuilder<'a> {
                 substitution_facts: Vec::new().into_boxed_slice(),
                 options,
                 scope_read_source_words: Vec::new().into_boxed_slice(),
-                scope_read_source_names: Vec::new().into_boxed_slice(),
-                scope_write_target_names: Vec::new().into_boxed_slice(),
+                scope_name_read_uses: Vec::new().into_boxed_slice(),
+                scope_heredoc_name_read_uses: Vec::new().into_boxed_slice(),
+                scope_name_write_uses: Vec::new().into_boxed_slice(),
                 declaration_assignment_probes,
                 glued_closing_bracket_operand_span,
                 glued_closing_bracket_insert_offset,
@@ -388,26 +389,21 @@ impl<'a> LinterFactsBuilder<'a> {
         let case_pattern_impossible_spans =
             build_case_pattern_impossible_spans(&commands, self.source);
         let pipelines = build_pipeline_facts(&commands, &command_ids_by_span);
-        let scope_read_source_words = build_scope_read_source_words(
-            &commands,
-            &pipelines,
-            &if_condition_command_ids,
-            source,
-        );
-        for (fact, words) in commands.iter_mut().zip(scope_read_source_words) {
-            fact.scope_read_source_words = words;
-        }
-        let scope_read_source_names =
-            build_scope_read_source_names(&commands, &pipelines, self.semantic, self.source);
-        let scope_write_target_names =
-            build_scope_write_target_names(&commands, self.semantic, self.source);
-        for ((fact, read_names), write_names) in commands
+        let scope_read_source_words =
+            build_scope_read_source_words(&commands, &pipelines, &if_condition_command_ids, source);
+        let (scope_name_read_uses, scope_heredoc_name_read_uses, scope_name_write_uses) =
+            build_scope_name_uses(&commands, &pipelines, source);
+        for ((((fact, words), name_reads), heredoc_name_reads), name_writes) in commands
             .iter_mut()
-            .zip(scope_read_source_names)
-            .zip(scope_write_target_names)
+            .zip(scope_read_source_words)
+            .zip(scope_name_read_uses)
+            .zip(scope_heredoc_name_read_uses)
+            .zip(scope_name_write_uses)
         {
-            fact.scope_read_source_names = read_names;
-            fact.scope_write_target_names = write_names;
+            fact.scope_read_source_words = words;
+            fact.scope_name_read_uses = name_reads;
+            fact.scope_heredoc_name_read_uses = heredoc_name_reads;
+            fact.scope_name_write_uses = name_writes;
         }
         let lists = build_list_facts(&commands, &command_ids_by_span, self.source);
         let completion_registered_function_command_flags =

@@ -56,7 +56,6 @@ pub use context::{
 pub use diagnostic::{Diagnostic, Severity};
 /// Command-substitution classification exposed by fact APIs.
 pub use facts::CommandSubstitutionKind;
-pub(crate) use facts::ComparablePathKey;
 /// Extracted structural facts available to rules and callers.
 pub use facts::{
     BacktickFragmentFact, CommandFact, CommandOptionFacts, ConditionalBareWordFact,
@@ -66,10 +65,10 @@ pub use facts::{
     ExpansionContext, ExpansionHazards, ExpansionValueShape, FindCommandFacts,
     FindExecCommandFacts, FindExecShellCommandFacts, ForHeaderFact, FunctionCallArityFacts,
     FunctionHeaderFact, GrepPatternSourceKind, LegacyArithmeticFragmentFact, ListFact,
-    ListOperatorFact, LoopHeaderWordFact, PathNameFact, PathNameKind, PathWordFact, PipelineFact,
-    PipelineOperatorFact, PipelineSegmentFact, PositionalParameterFragmentFact, PrintfCommandFacts,
-    ReadCommandFacts, RedirectDevNullStatus, RedirectFact, RedirectTargetAnalysis,
-    RedirectTargetKind, RmCommandFacts, RuntimeLiteralAnalysis, SelectHeaderFact, SimpleTestFact,
+    ListOperatorFact, LoopHeaderWordFact, PathWordFact, PipelineFact, PipelineOperatorFact,
+    PipelineSegmentFact, PositionalParameterFragmentFact, PrintfCommandFacts, ReadCommandFacts,
+    RedirectDevNullStatus, RedirectFact, RedirectTargetAnalysis, RedirectTargetKind,
+    RmCommandFacts, RuntimeLiteralAnalysis, SelectHeaderFact, SimpleTestFact,
     SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax, SingleQuotedFragmentFact,
     SshCommandFacts, StatementFact, SubstitutionFact, SubstitutionHostKind,
     SubstitutionOutputIntent, SudoFamilyCommandFacts, SudoFamilyInvoker, TestOperandClass,
@@ -81,6 +80,9 @@ pub use facts::{
 pub use facts::{
     CommandId, DeclarationKind, FactSpan, LinterFacts, NormalizedCommand, NormalizedDeclaration,
     WrapperKind,
+};
+pub(crate) use facts::{
+    ComparableNameKey, ComparableNameUseKind, ComparablePathKey, ComparablePathMatchKey,
 };
 /// Autofix types and fix application helpers.
 pub use fix::{Applicability, AppliedFixes, Edit, Fix, FixAvailability, apply_fixes};

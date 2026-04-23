@@ -2170,6 +2170,128 @@ fn summarizes_builtin_wrapped_reads() {
 }
 
 #[test]
+fn summarizes_read_array_targets_without_trailing_names() {
+    let source = "\
+#!/bin/bash
+read first second
+read -a arr name
+read -aarr name
+read -ar name
+read -- -a name
+";
+    let output = Parser::new(source).parse().unwrap();
+    let indexer = Indexer::new(source, &output);
+    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let file_context = classify_file_context(source, None, ShellDialect::Bash);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+    let reads = facts
+        .commands()
+        .iter()
+        .filter(|fact| fact.effective_name_is("read"))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        reads[0]
+            .options()
+            .read()
+            .expect("expected plain read facts")
+            .target_name_uses()
+            .iter()
+            .map(|name_use| name_use.span().slice(source))
+            .collect::<Vec<_>>(),
+        vec!["first", "second"]
+    );
+    assert_eq!(
+        reads[1]
+            .options()
+            .read()
+            .expect("expected read -a facts")
+            .target_name_uses()
+            .iter()
+            .map(|name_use| name_use.span().slice(source))
+            .collect::<Vec<_>>(),
+        vec!["arr"]
+    );
+    assert_eq!(
+        reads[2]
+            .options()
+            .read()
+            .expect("expected read -aNAME facts")
+            .target_name_uses()
+            .iter()
+            .map(|name_use| name_use.span().slice(source))
+            .collect::<Vec<_>>(),
+        vec!["arr"]
+    );
+    assert_eq!(
+        reads[3]
+            .options()
+            .read()
+            .expect("expected read -ar facts")
+            .target_name_uses()
+            .iter()
+            .map(|name_use| name_use.span().slice(source))
+            .collect::<Vec<_>>(),
+        vec!["r"]
+    );
+    assert_eq!(
+        reads[4]
+            .options()
+            .read()
+            .expect("expected read -- facts")
+            .target_name_uses()
+            .iter()
+            .map(|name_use| name_use.span().slice(source))
+            .collect::<Vec<_>>(),
+        vec!["name"]
+    );
+}
+
+#[test]
+fn summarizes_quoted_read_target_names() {
+    let source = "\
+#!/bin/bash
+read \"path\" 'name'
+read -a \"items\" trailing
+";
+    let output = Parser::new(source).parse().unwrap();
+    let indexer = Indexer::new(source, &output);
+    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let file_context = classify_file_context(source, None, ShellDialect::Bash);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+    let reads = facts
+        .commands()
+        .iter()
+        .filter(|fact| fact.effective_name_is("read"))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        reads[0]
+            .options()
+            .read()
+            .expect("expected quoted read facts")
+            .target_name_uses()
+            .iter()
+            .map(|name_use| name_use.span().slice(source))
+            .collect::<Vec<_>>(),
+        vec!["\"path\"", "'name'"]
+    );
+    assert_eq!(
+        reads[1]
+            .options()
+            .read()
+            .expect("expected quoted read -a facts")
+            .target_name_uses()
+            .iter()
+            .map(|name_use| name_use.span().slice(source))
+            .collect::<Vec<_>>(),
+        vec!["\"items\""]
+    );
+}
+
+#[test]
 fn summarizes_su_login_and_command_forms() {
     let source = "\
 #!/bin/bash

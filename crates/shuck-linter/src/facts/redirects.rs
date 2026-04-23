@@ -66,6 +66,12 @@ pub(crate) enum ComparablePathKey {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct ComparablePathMatchKey {
+    key: ComparablePathKey,
+    quote: WordQuote,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum ComparablePathPart {
     Literal(Box<str>),
     Parameter(Box<str>),
@@ -75,6 +81,7 @@ pub(crate) enum ComparablePathPart {
 pub(crate) struct ComparablePath {
     span: Span,
     key: ComparablePathKey,
+    quote: WordQuote,
 }
 
 impl ComparablePath {
@@ -84,6 +91,48 @@ impl ComparablePath {
 
     pub(crate) fn key(&self) -> &ComparablePathKey {
         &self.key
+    }
+
+    pub(crate) fn match_key(&self) -> ComparablePathMatchKey {
+        ComparablePathMatchKey {
+            key: self.key.clone(),
+            quote: self.quote,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct ComparableNameKey(Box<str>);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum ComparableNameUseKind {
+    Literal,
+    Parameter,
+    Derived,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ComparableNameUse {
+    span: Span,
+    key: ComparableNameKey,
+    kind: ComparableNameUseKind,
+}
+
+impl ComparableNameUse {
+    pub(crate) fn span(&self) -> Span {
+        self.span
+    }
+
+    pub(crate) fn key(&self) -> &ComparableNameKey {
+        &self.key
+    }
+
+    pub(crate) fn kind(&self) -> ComparableNameUseKind {
+        self.kind
+    }
+
+    fn mark_derived(&mut self) {
+        self.kind = ComparableNameUseKind::Derived;
     }
 }
 
@@ -119,7 +168,272 @@ pub(crate) fn comparable_path(
     Some(ComparablePath {
         span: word.span,
         key,
+        quote: analysis.quote,
     })
+}
+
+pub(crate) fn comparable_name_uses(word: &Word, source: &str) -> Box<[ComparableNameUse]> {
+    let mut uses = Vec::new();
+    if let Some(name_use) = standalone_comparable_name_use(word, source) {
+        uses.push(name_use);
+    }
+    let allow_quoted_derived_words =
+        analyze_word(word, source, None).quote == WordQuote::FullyQuoted;
+    collect_command_substitution_comparable_name_uses_in_parts(
+        &word.parts,
+        source,
+        allow_quoted_derived_words,
+        &mut uses,
+    );
+    dedup_comparable_name_uses(&mut uses);
+    uses.into_boxed_slice()
+}
+
+pub(crate) fn comparable_read_target_name_uses(
+    word: &Word,
+    source: &str,
+) -> Box<[ComparableNameUse]> {
+    comparable_name_uses_with_quoted_literals(word, source)
+}
+
+pub(crate) fn comparable_heredoc_name_uses(
+    heredoc: &shuck_ast::HeredocBody,
+    source: &str,
+) -> Box<[ComparableNameUse]> {
+    let mut uses = Vec::new();
+    for part in &heredoc.parts {
+        match &part.kind {
+            shuck_ast::HeredocBodyPart::Variable(name) => {
+                if comparable_name_text(name.as_str()) {
+                    uses.push(ComparableNameUse {
+                        span: heredoc_variable_name_span(part.span, source),
+                        key: ComparableNameKey(name.as_str().into()),
+                        kind: ComparableNameUseKind::Parameter,
+                    });
+                }
+            }
+            shuck_ast::HeredocBodyPart::Parameter(parameter) => {
+                if let Some(name) = comparable_name_from_parameter(parameter) {
+                    uses.push(ComparableNameUse {
+                        span: part.span,
+                        key: ComparableNameKey(name.into()),
+                        kind: ComparableNameUseKind::Parameter,
+                    });
+                }
+            }
+            shuck_ast::HeredocBodyPart::CommandSubstitution { body, .. } => {
+                collect_command_substitution_comparable_name_uses(body, source, true, &mut uses);
+            }
+            shuck_ast::HeredocBodyPart::ArithmeticExpansion {
+                expression_word_ast,
+                ..
+            } => {
+                if let Some(name_use) = standalone_comparable_name_use(expression_word_ast, source)
+                {
+                    uses.push(name_use);
+                }
+            }
+            shuck_ast::HeredocBodyPart::Literal(_) => {}
+        }
+    }
+    dedup_comparable_name_uses(&mut uses);
+    uses.into_boxed_slice()
+}
+
+fn collect_command_substitution_comparable_name_uses_in_parts(
+    parts: &[WordPartNode],
+    source: &str,
+    allow_quoted_derived_words: bool,
+    uses: &mut Vec<ComparableNameUse>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_command_substitution_comparable_name_uses_in_parts(
+                    parts,
+                    source,
+                    allow_quoted_derived_words,
+                    uses,
+                );
+            }
+            WordPart::CommandSubstitution { body, .. } => {
+                collect_command_substitution_comparable_name_uses(
+                    body,
+                    source,
+                    allow_quoted_derived_words,
+                    uses,
+                );
+            }
+            WordPart::ArithmeticExpansion {
+                expression_word_ast,
+                ..
+            } => {
+                if let Some(name_use) = standalone_comparable_name_use(expression_word_ast, source)
+                {
+                    uses.push(name_use);
+                }
+            }
+            WordPart::ParameterExpansion {
+                operand_word_ast, ..
+            }
+            | WordPart::IndirectExpansion {
+                operand_word_ast, ..
+            } => {
+                if let Some(word) = operand_word_ast {
+                    collect_command_substitution_comparable_name_uses_in_parts(
+                        &word.parts,
+                        source,
+                        allow_quoted_derived_words,
+                        uses,
+                    );
+                }
+            }
+            WordPart::Substring {
+                offset_word_ast,
+                length_word_ast,
+                ..
+            }
+            | WordPart::ArraySlice {
+                offset_word_ast,
+                length_word_ast,
+                ..
+            } => {
+                if let Some(name_use) = standalone_comparable_name_use(offset_word_ast, source) {
+                    uses.push(name_use);
+                }
+                if let Some(word) = length_word_ast
+                    && let Some(name_use) = standalone_comparable_name_use(word, source)
+                {
+                    uses.push(name_use);
+                }
+            }
+            WordPart::Literal(_)
+            | WordPart::ZshQualifiedGlob(_)
+            | WordPart::SingleQuoted { .. }
+            | WordPart::Variable(_)
+            | WordPart::Parameter(_)
+            | WordPart::Length(_)
+            | WordPart::ArrayAccess(_)
+            | WordPart::ArrayLength(_)
+            | WordPart::ArrayIndices(_)
+            | WordPart::PrefixMatch { .. }
+            | WordPart::ProcessSubstitution { .. }
+            | WordPart::Transformation { .. } => {}
+        }
+    }
+}
+
+fn collect_command_substitution_comparable_name_uses(
+    body: &StmtSeq,
+    source: &str,
+    allow_quoted_derived_words: bool,
+    uses: &mut Vec<ComparableNameUse>,
+) {
+    for visit in iter_commands(
+        body,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+    ) {
+        visit_command_argument_words_for_substitutions(visit.command, source, &mut |word| {
+            if !allow_quoted_derived_words
+                && analyze_word(word, source, None).quote == WordQuote::FullyQuoted
+            {
+                return;
+            }
+            if let Some(mut name_use) = standalone_comparable_name_use(word, source) {
+                name_use.mark_derived();
+                uses.push(name_use);
+            }
+        });
+    }
+}
+
+fn standalone_comparable_name_use(word: &Word, source: &str) -> Option<ComparableNameUse> {
+    if let Some(text) = static_word_text(word, source)
+        && comparable_name_text(text.as_ref())
+        && analyze_word(word, source, None).quote == WordQuote::Unquoted
+    {
+        return Some(literal_comparable_name_use(word.span, text.as_ref()));
+    }
+
+    standalone_comparable_parameter_name(&word.parts).map(|name| ComparableNameUse {
+        span: word.span,
+        key: ComparableNameKey(name.into()),
+        kind: ComparableNameUseKind::Parameter,
+    })
+}
+
+fn literal_comparable_name_use(span: Span, text: &str) -> ComparableNameUse {
+    ComparableNameUse {
+        span,
+        key: ComparableNameKey(text.into()),
+        kind: ComparableNameUseKind::Literal,
+    }
+}
+
+fn comparable_name_uses_with_quoted_literals(
+    word: &Word,
+    source: &str,
+) -> Box<[ComparableNameUse]> {
+    let mut uses = comparable_name_uses(word, source).into_vec();
+    if let Some(text) = static_word_text(word, source)
+        && comparable_name_text(text.as_ref())
+    {
+        uses.push(literal_comparable_name_use(word.span, text.as_ref()));
+    }
+    dedup_comparable_name_uses(&mut uses);
+    uses.into_boxed_slice()
+}
+
+fn standalone_comparable_parameter_name(parts: &[WordPartNode]) -> Option<&str> {
+    match parts {
+        [part] => comparable_name_from_word_part(part),
+        _ => None,
+    }
+}
+
+fn comparable_name_from_word_part(part: &WordPartNode) -> Option<&str> {
+    match &part.kind {
+        WordPart::Variable(name) if comparable_name_text(name.as_str()) => Some(name.as_str()),
+        WordPart::Parameter(parameter) => comparable_name_from_parameter(parameter),
+        WordPart::DoubleQuoted { parts, .. } => standalone_comparable_parameter_name(parts),
+        _ => None,
+    }
+}
+
+fn comparable_name_from_parameter(parameter: &ParameterExpansion) -> Option<&str> {
+    match parameter.bourne()? {
+        BourneParameterExpansion::Access { reference }
+            if reference.subscript.is_none() && comparable_name_text(reference.name.as_str()) =>
+        {
+            Some(reference.name.as_str())
+        }
+        _ => None,
+    }
+}
+
+fn comparable_name_text(text: &str) -> bool {
+    is_shell_variable_name(text)
+}
+
+fn dedup_comparable_name_uses(uses: &mut Vec<ComparableNameUse>) {
+    let mut seen = FxHashSet::<(ComparableNameKey, FactSpan)>::default();
+    uses.retain(|name_use| seen.insert((name_use.key.clone(), FactSpan::new(name_use.span))));
+}
+
+fn heredoc_variable_name_span(span: Span, source: &str) -> Span {
+    let Some(text) = source.get(span.start.offset..span.end.offset) else {
+        return span;
+    };
+    let Some(relative_start) = text.find('$') else {
+        return span;
+    };
+    let start_offset = span.start.offset + relative_start + '$'.len_utf8();
+    let Some(start) = position_at_offset(source, start_offset) else {
+        return span;
+    };
+    Span::from_positions(start, span.end)
 }
 
 fn comparable_path_key_is_special_device(key: &ComparablePathKey) -> bool {
@@ -242,6 +556,7 @@ pub struct RedirectFact<'a> {
     arithmetic_update_operator_spans: Box<[Span]>,
     analysis: Option<RedirectTargetAnalysis>,
     comparable_path: Option<ComparablePath>,
+    comparable_name_uses: Box<[ComparableNameUse]>,
 }
 
 impl<'a> RedirectFact<'a> {
@@ -271,6 +586,10 @@ impl<'a> RedirectFact<'a> {
 
     pub(crate) fn comparable_path(&self) -> Option<&ComparablePath> {
         self.comparable_path.as_ref()
+    }
+
+    pub(crate) fn comparable_name_uses(&self) -> &[ComparableNameUse] {
+        &self.comparable_name_uses
     }
 }
 
@@ -358,6 +677,24 @@ fn build_redirect_facts<'a>(
                 ExpansionContext::from_redirect_kind(redirect.kind)
                     .and_then(|context| comparable_path(word, source, context, zsh_options))
             }),
+            comparable_name_uses: redirect
+                .word_target()
+                .map_or_else(Vec::new, |word| match redirect.kind {
+                    RedirectKind::Output
+                    | RedirectKind::Clobber
+                    | RedirectKind::Append
+                    | RedirectKind::OutputBoth => {
+                        comparable_name_uses_with_quoted_literals(word, source).into_vec()
+                    }
+                    RedirectKind::Input
+                    | RedirectKind::ReadWrite
+                    | RedirectKind::HereDoc
+                    | RedirectKind::HereDocStrip
+                    | RedirectKind::HereString
+                    | RedirectKind::DupOutput
+                    | RedirectKind::DupInput => comparable_name_uses(word, source).into_vec(),
+                })
+                .into_boxed_slice(),
         })
         .collect::<Vec<_>>()
         .into_boxed_slice()

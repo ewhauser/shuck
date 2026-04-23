@@ -2,7 +2,8 @@ use rustc_hash::FxHashMap;
 use shuck_ast::{RedirectKind, Span};
 
 use crate::{
-    Checker, ComparablePathKey, ExpansionContext, PathNameFact, PathNameKind, Rule, Violation,
+    Checker, ComparableNameKey, ComparableNameUseKind, ComparablePathKey, ComparablePathMatchKey,
+    ExpansionContext, Rule, Violation,
 };
 
 pub struct RedirectClobbersInput;
@@ -32,11 +33,21 @@ fn clobber_spans_for_command(fact: &crate::CommandFact<'_>) -> Vec<Span> {
         return Vec::new();
     }
 
-    let mut read_paths: FxHashMap<ComparablePathKey, Vec<Span>> = FxHashMap::default();
-    let mut write_paths: FxHashMap<ComparablePathKey, Vec<Span>> = FxHashMap::default();
-    let mut readwrite_paths: FxHashMap<ComparablePathKey, Vec<Span>> = FxHashMap::default();
-    let mut read_names: FxHashMap<Box<str>, Vec<PathNameFact>> = FxHashMap::default();
-    let mut write_names: FxHashMap<Box<str>, Vec<PathNameFact>> = FxHashMap::default();
+    let mut read_paths: FxHashMap<RedirectPathMatchKey, Vec<Span>> = FxHashMap::default();
+    let mut write_paths: FxHashMap<RedirectPathMatchKey, Vec<Span>> = FxHashMap::default();
+    let mut readwrite_paths: FxHashMap<RedirectPathMatchKey, Vec<Span>> = FxHashMap::default();
+    let mut input_read_names: FxHashMap<ComparableNameKey, Vec<Span>> = FxHashMap::default();
+    let mut literal_input_read_names: FxHashMap<ComparableNameKey, Vec<Span>> =
+        FxHashMap::default();
+    let mut parameter_input_read_names: FxHashMap<ComparableNameKey, Vec<Span>> =
+        FxHashMap::default();
+    let mut heredoc_read_names: FxHashMap<ComparableNameKey, Vec<Span>> = FxHashMap::default();
+    let mut literal_write_names: FxHashMap<ComparableNameKey, Vec<Span>> = FxHashMap::default();
+    let mut derived_write_names: FxHashMap<ComparableNameKey, Vec<Span>> = FxHashMap::default();
+    let mut literal_read_target_write_names: FxHashMap<ComparableNameKey, Vec<Span>> =
+        FxHashMap::default();
+    let mut parameter_read_target_write_names: FxHashMap<ComparableNameKey, Vec<Span>> =
+        FxHashMap::default();
     let own_readwrite_spans = fact
         .redirect_facts()
         .iter()
@@ -45,11 +56,37 @@ fn clobber_spans_for_command(fact: &crate::CommandFact<'_>) -> Vec<Span> {
         .collect::<Vec<_>>();
 
     for redirect in fact.redirect_facts() {
+        if matches!(
+            redirect.redirect().kind,
+            RedirectKind::Output
+                | RedirectKind::Clobber
+                | RedirectKind::Append
+                | RedirectKind::OutputBoth
+        ) {
+            for name_use in redirect.comparable_name_uses() {
+                match name_use.kind() {
+                    ComparableNameUseKind::Literal => {
+                        literal_write_names
+                            .entry(name_use.key().clone())
+                            .or_default()
+                            .push(name_use.span());
+                    }
+                    ComparableNameUseKind::Derived => {
+                        derived_write_names
+                            .entry(name_use.key().clone())
+                            .or_default()
+                            .push(name_use.span());
+                    }
+                    ComparableNameUseKind::Parameter => {}
+                }
+            }
+        }
+
         let Some(comparable) = redirect.comparable_path() else {
             continue;
         };
 
-        let key = comparable.key().clone();
+        let key = redirect_path_match_key(comparable.key(), comparable.match_key());
         match redirect.redirect().kind {
             RedirectKind::Input => {
                 read_paths.entry(key).or_default().push(comparable.span());
@@ -86,23 +123,59 @@ fn clobber_spans_for_command(fact: &crate::CommandFact<'_>) -> Vec<Span> {
         };
 
         read_paths
-            .entry(comparable.key().clone())
+            .entry(redirect_path_match_key(
+                comparable.key(),
+                comparable.match_key(),
+            ))
             .or_default()
             .push(comparable.span());
     }
 
-    for source_name in fact.scope_read_source_names() {
-        read_names
-            .entry(source_name.name().into())
+    for name_use in fact.scope_name_read_uses() {
+        input_read_names
+            .entry(name_use.key().clone())
             .or_default()
-            .push(source_name.clone());
+            .push(name_use.span());
+        match name_use.kind() {
+            ComparableNameUseKind::Literal => {
+                literal_input_read_names
+                    .entry(name_use.key().clone())
+                    .or_default()
+                    .push(name_use.span());
+            }
+            ComparableNameUseKind::Parameter => {
+                parameter_input_read_names
+                    .entry(name_use.key().clone())
+                    .or_default()
+                    .push(name_use.span());
+            }
+            ComparableNameUseKind::Derived => {}
+        }
     }
 
-    for target_name in fact.scope_write_target_names() {
-        write_names
-            .entry(target_name.name().into())
+    for name_use in fact.scope_heredoc_name_read_uses() {
+        heredoc_read_names
+            .entry(name_use.key().clone())
             .or_default()
-            .push(target_name.clone());
+            .push(name_use.span());
+    }
+
+    for name_use in fact.scope_name_write_uses() {
+        match name_use.kind() {
+            ComparableNameUseKind::Literal => {
+                literal_read_target_write_names
+                    .entry(name_use.key().clone())
+                    .or_default()
+                    .push(name_use.span());
+            }
+            ComparableNameUseKind::Parameter => {
+                parameter_read_target_write_names
+                    .entry(name_use.key().clone())
+                    .or_default()
+                    .push(name_use.span());
+            }
+            ComparableNameUseKind::Derived => {}
+        }
     }
 
     let mut spans = Vec::new();
@@ -121,103 +194,105 @@ fn clobber_spans_for_command(fact: &crate::CommandFact<'_>) -> Vec<Span> {
         }
     }
 
-    for (name, read_spans) in &read_names {
-        let Some(write_spans) = write_names.get(name) else {
+    for (key, read_spans) in &input_read_names {
+        let Some(write_spans) = derived_write_names.get(key) else {
             continue;
         };
-        let name_spans = matching_name_spans_shellcheck_style(read_spans, write_spans);
-        if name_spans.is_empty() {
+
+        spans.extend(read_spans.iter().copied());
+        spans.extend(write_spans.iter().copied());
+    }
+
+    extend_matching_name_spans(
+        &literal_input_read_names,
+        &literal_read_target_write_names,
+        &mut spans,
+    );
+    extend_matching_name_spans(
+        &literal_input_read_names,
+        &parameter_read_target_write_names,
+        &mut spans,
+    );
+    extend_matching_name_spans(
+        &parameter_input_read_names,
+        &parameter_read_target_write_names,
+        &mut spans,
+    );
+
+    for (key, read_spans) in &heredoc_read_names {
+        let Some(write_spans) = literal_write_names.get(key) else {
+            continue;
+        };
+
+        spans.extend(read_spans.iter().copied());
+        spans.extend(write_spans.iter().copied());
+    }
+
+    for (key, read_spans) in &heredoc_read_names {
+        if !has_name_write_signal(
+            key,
+            &literal_write_names,
+            &derived_write_names,
+            &literal_read_target_write_names,
+            &parameter_read_target_write_names,
+        ) {
             continue;
         }
 
-        spans.extend(name_spans);
+        let Some(input_spans) = input_read_names.get(key) else {
+            continue;
+        };
+
+        spans.extend(read_spans.iter().copied());
+        spans.extend(input_spans.iter().copied());
     }
 
     spans
 }
 
-fn matching_name_spans_shellcheck_style(
-    read_spans: &[PathNameFact],
-    write_spans: &[PathNameFact],
-) -> Vec<Span> {
-    let mut spans = Vec::new();
-    for read in read_spans {
-        for write in write_spans {
-            if path_name_facts_match(read, write) {
-                spans.push(read.span());
-                spans.push(write.span());
-            }
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum RedirectPathMatchKey {
+    Literal(ComparablePathKey),
+    Exact(ComparablePathMatchKey),
+}
+
+fn redirect_path_match_key(
+    key: &ComparablePathKey,
+    exact: ComparablePathMatchKey,
+) -> RedirectPathMatchKey {
+    match key {
+        ComparablePathKey::Literal(_) => RedirectPathMatchKey::Literal(key.clone()),
+        ComparablePathKey::Parameter(_) | ComparablePathKey::Template(_) => {
+            RedirectPathMatchKey::Exact(exact)
         }
     }
-    spans
 }
 
-fn path_name_facts_match(read: &PathNameFact, write: &PathNameFact) -> bool {
-    read.span() != write.span()
-        && path_name_kinds_match(read.kind(), write.kind())
-        && parameter_name_bindings_match(read, write)
+fn has_name_write_signal(
+    key: &ComparableNameKey,
+    literal_write_names: &FxHashMap<ComparableNameKey, Vec<Span>>,
+    derived_write_names: &FxHashMap<ComparableNameKey, Vec<Span>>,
+    literal_read_target_write_names: &FxHashMap<ComparableNameKey, Vec<Span>>,
+    parameter_read_target_write_names: &FxHashMap<ComparableNameKey, Vec<Span>>,
+) -> bool {
+    literal_write_names.contains_key(key)
+        || derived_write_names.contains_key(key)
+        || literal_read_target_write_names.contains_key(key)
+        || parameter_read_target_write_names.contains_key(key)
 }
 
-fn parameter_name_bindings_match(read: &PathNameFact, write: &PathNameFact) -> bool {
-    if !path_name_kind_is_parameter(read.kind()) || !path_name_kind_is_parameter(write.kind()) {
-        return true;
-    }
+fn extend_matching_name_spans(
+    left: &FxHashMap<ComparableNameKey, Vec<Span>>,
+    right: &FxHashMap<ComparableNameKey, Vec<Span>>,
+    spans: &mut Vec<Span>,
+) {
+    for (key, left_spans) in left {
+        let Some(right_spans) = right.get(key) else {
+            continue;
+        };
 
-    match (read.binding_id(), write.binding_id()) {
-        (Some(read), Some(write)) if read == write => true,
-        _ => initialized_local_scopes_match(read, write),
-    }
-}
-
-fn initialized_local_scopes_match(read: &PathNameFact, write: &PathNameFact) -> bool {
-    match (
-        read.initialized_local_scope(),
-        write.initialized_local_scope(),
-    ) {
-        (Some(read), Some(write)) => read == write,
-        (None, None) => true,
-        (Some(_), None) | (None, Some(_)) => false,
-    }
-}
-
-fn path_name_kind_is_parameter(kind: PathNameKind) -> bool {
-    matches!(
-        kind,
-        PathNameKind::Parameter
-            | PathNameKind::RedirectParameter
-            | PathNameKind::HeredocParameter
-            | PathNameKind::GeneratedParameter
-    )
-}
-
-fn path_name_kinds_match(read_kind: PathNameKind, write_kind: PathNameKind) -> bool {
-    match write_kind {
-        PathNameKind::Literal => matches!(
-            read_kind,
-            PathNameKind::Literal
-                | PathNameKind::Parameter
-                | PathNameKind::RedirectLiteral
-                | PathNameKind::RedirectParameter
-                | PathNameKind::HeredocParameter
-        ),
-        PathNameKind::Parameter => {
-            matches!(
-                read_kind,
-                PathNameKind::Parameter | PathNameKind::RedirectParameter
-            )
-        }
-        PathNameKind::RedirectLiteral
-        | PathNameKind::QuotedRedirectLiteral
-        | PathNameKind::RedirectParameter
-        | PathNameKind::HeredocParameter => false,
-        PathNameKind::GeneratedLiteral => matches!(read_kind, PathNameKind::RedirectLiteral),
-        PathNameKind::GeneratedParameter => {
-            matches!(
-                read_kind,
-                PathNameKind::RedirectLiteral | PathNameKind::RedirectParameter
-            )
-        }
-        PathNameKind::BindingTarget => matches!(read_kind, PathNameKind::RedirectLiteral),
+        spans.extend(left_spans.iter().copied());
+        spans.extend(right_spans.iter().copied());
     }
 }
 
@@ -267,6 +342,27 @@ printf '%s\\0' **/* | bsdtar --null --files-from - --exclude .MTREE | gzip -c -f
     }
 
     #[test]
+    fn reports_literal_redirect_paths_across_quote_forms() {
+        let source = "\
+#!/bin/bash
+cat < \"foo\" > foo
+cat < bar > 'bar'
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::RedirectClobbersInput),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["\"foo\"", "foo", "bar", "'bar'"]
+        );
+    }
+
+    #[test]
     fn ignores_commands_without_matching_read_and_write_paths() {
         let source = "\
 #!/bin/bash
@@ -284,23 +380,9 @@ jq --args '$ARGS.positional[0]' \"$cfg\" >\"$cfg\"
 jq --jsonargs '$ARGS.positional[0]' \"$cfg\" >\"$cfg\"
 jq --indent 2 --args '$ARGS.positional[0]' \"$cfg\" >\"$cfg\"
 jq -nc '.x=1' \"$cfg\" >\"$cfg\"
-cat < \"$suffix\" > \"$(basename \"$name\" \"$suffix\")\"
-cat < \"$suffix\" > \"$(basename -s \"$suffix\" \"$name\")\"
-cat < \"$suffix\" > \"$(basename --suffix=\"$suffix\" \"$name\")\"
-read quoted_input_path < \"quoted_input_path\"
-while read quoted_loop_path; do
-  :
-done < \"quoted_loop_path\"
-{
-  f() {
-    local OUT=
-    if [ \"$OUT\" = 0 ]; then
-      OUT=x
-    fi
-    printf '%s\\n' \"$OUT\"
-  }
-  f
-} | sort >> \"$OUT\"
+cat < $src > \"$src\"
+cat < \"$src\" > $src
+{ [ \"$OUT\" = \"0\" ]; } >>$OUT
 ";
         let diagnostics = test_snippet(
             source,
@@ -311,43 +393,38 @@ done < \"quoted_loop_path\"
     }
 
     #[test]
-    fn reports_shellcheck_compatible_name_collisions() {
+    fn ignores_heredoc_and_input_name_reuse_without_a_write_signal() {
         let source = "\
 #!/bin/bash
-gzip -9c < \"$src\" > \"$pkg/usr/man/man1/$(basename \"$src\").gz\"
-sort <<< \"$OUT\" > \"$OUT\"
-read input_path < input_path
-while read loop_path; do
-  :
-done < loop_path
-while read heredoc_path; do
-  cat <<EOF
-$heredoc_path
+cat <<EOF < foo
+$foo
 EOF
-done < heredoc_path
-while read iplist; do
-  cat <<EOF >> json2
-\"$iplist/32\"
-EOF
-done < iplist
-(
-  cat <<EOF
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::RedirectClobbersInput),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_shellcheck_compatible_name_reuse_patterns() {
+        let source = "\
+#!/bin/bash
+while read iplist; do :; done < iplist
+read -r iplist < iplist
+{ cat <<EOT
 $SGINGRESS1
-EOF
-) > SGINGRESS1
-{ [ \"$OUT\" -lt \"$crit_border\" ] && :; } | sort >> \"$OUT\"
-{ case \"$MODE\" in on) :;; esac; } | sort > \"$MODE\"
-{
-  g() {
-    local OUT
-    [ \"$OUT\" = 0 ] && :
-  }
-  g
-} | sort >> \"$OUT\"
-f() {
-  local out=/tmp/f
-  sort \"$out\" > \"$out\"
-}
+EOT
+} > SGINGRESS1
+gzip -9c < \"$file\" > \"$(basename \"$file\").gz\"
+while read name; do cat <<EOT2
+$name
+EOT2
+done < name
+{ [ $OUT -lt 1 ]; } >>$OUT
+{ [ \"$OUT\" = \"0\" ]; } >>\"$OUT\"
 ";
         let diagnostics = test_snippet(
             source,
@@ -360,31 +437,146 @@ f() {
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec![
-                "\"$src\"",
-                "\"$src\"",
-                "\"$OUT\"",
-                "\"$OUT\"",
-                "input_path",
-                "input_path",
-                "loop_path",
-                "loop_path",
-                "heredoc_path",
-                "heredoc_path",
-                "heredoc_path",
+                "iplist",
                 "iplist",
                 "iplist",
                 "iplist",
                 "SGINGRESS1",
                 "SGINGRESS1",
+                "\"$file\"",
+                "\"$file\"",
+                "name",
+                "name",
+                "name",
+                "$OUT",
+                "$OUT",
                 "\"$OUT\"",
                 "\"$OUT\"",
-                "\"$MODE\"",
-                "\"$MODE\"",
-                "\"$OUT\"",
-                "\"$OUT\"",
-                "\"$out\"",
-                "\"$out\"",
             ]
+        );
+    }
+
+    #[test]
+    fn ignores_name_reuse_when_oracle_keeps_derived_paths_quiet() {
+        let source = "\
+#!/bin/bash
+cat < \"$file\" > \"$file.bak\"
+cat < \"$file\" > \"out/$file\"
+cat < \"$dir/in\" > \"$dir/out\"
+cat \"$file\" > \"$(basename \"$file\").gz\"
+while read line; do :; done < iplist
+while read -r x; do :; done < <(for x in \"$root\"; do find \"$x\"; done)
+read linkdest < \"$linkdest\"
+cat > \"$PRGNAM\" <<EOF2
+$PRGNAM
+EOF2
+for i in man/*.1; do gzip -9c < $i > $PKGMAN1/$(basename \"$i\").gz; done
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::RedirectClobbersInput),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_trailing_read_names_after_array_targets() {
+        let source = "\
+#!/bin/bash
+read -a arr name < name
+read -aarr name < name
+read -ar name < name
+read -a arr < arr
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::RedirectClobbersInput),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["arr", "arr"]
+        );
+    }
+
+    #[test]
+    fn reports_quoted_read_targets_that_match_input_paths() {
+        let source = "\
+#!/bin/bash
+read \"path\" < path
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::RedirectClobbersInput),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["\"path\"", "path"]
+        );
+    }
+
+    #[test]
+    fn reports_quoted_literal_redirect_targets_that_match_heredoc_names() {
+        let source = "\
+#!/bin/bash
+{ cat <<EOF
+$SGINGRESS1
+EOF
+} > \"SGINGRESS1\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::RedirectClobbersInput),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["SGINGRESS1", "\"SGINGRESS1\""]
+        );
+    }
+
+    #[test]
+    fn ignores_quoted_input_redirect_names_for_read_targets() {
+        let source = "\
+#!/bin/bash
+read -r KALUA_REPO_URL <'KALUA_REPO_URL'
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::RedirectClobbersInput),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_plain_names_that_look_like_special_devices() {
+        let source = "\
+#!/bin/bash
+read -r stdin < stdin
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::RedirectClobbersInput),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["stdin", "stdin"]
         );
     }
 }
