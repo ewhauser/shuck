@@ -5670,6 +5670,27 @@ main() {
     }
 
     #[test]
+    fn later_function_definitions_do_not_make_earlier_calls_terminating() {
+        let source = "\
+main() {
+  exit_script
+  printf '%s\\n' still_reachable
+}
+main
+exit_script() {
+  exit 0
+}
+";
+        let model = model(source);
+
+        assert!(
+            model.analysis().dead_code().is_empty(),
+            "dead code: {:?}",
+            model.analysis().dead_code()
+        );
+    }
+
+    #[test]
     fn conditional_exit_keeps_or_fallback_reachable() {
         let source = "run && exit 0 || echo fallback\n";
         let model = model(source);

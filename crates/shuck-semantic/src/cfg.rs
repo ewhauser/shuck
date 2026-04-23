@@ -5,9 +5,7 @@ use smallvec::SmallVec;
 use std::marker::PhantomData;
 
 use crate::source_closure::SourcePathTemplate;
-use crate::{
-    Binding, BindingId, BindingKind, CallSite, ReferenceId, Scope, ScopeId, SpanKey,
-};
+use crate::{Binding, BindingId, BindingKind, CallSite, ReferenceId, Scope, ScopeId, SpanKey};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BlockId(pub(crate) u32);
@@ -755,10 +753,9 @@ fn visible_function_binding(
 
         if scope_id != scope {
             if let Some(binding) = candidates.iter().rev().copied().find(|binding| {
-                matches!(
-                    bindings[binding.index()].kind,
-                    BindingKind::FunctionDefinition
-                )
+                let candidate = &bindings[binding.index()];
+                matches!(candidate.kind, BindingKind::FunctionDefinition)
+                    && candidate.span.start.offset <= offset
             }) {
                 return Some(binding);
             }

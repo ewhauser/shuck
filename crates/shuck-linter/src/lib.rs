@@ -3760,7 +3760,10 @@ f
         );
         assert_eq!(diagnostics[0].span.slice(source), "echo unreachable");
         assert_eq!(diagnostics[1].span.slice(source), "printf '%s\\n' never");
-        assert_eq!(diagnostics[2].span.slice(source), "f() {\n  return 0\n  echo also_unreachable\n}");
+        assert_eq!(
+            diagnostics[2].span.slice(source),
+            "f() {\n  return 0\n  echo also_unreachable\n}"
+        );
         assert_eq!(diagnostics[3].span.slice(source), "f");
     }
 
@@ -3777,7 +3780,10 @@ printf '%s\\n' two
         let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
 
         assert_eq!(diagnostics.len(), 2);
-        assert_eq!(diagnostics[0].span.slice(source), "if true; then\n  echo one\nfi");
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "if true; then\n  echo one\nfi"
+        );
         assert_eq!(diagnostics[0].span.end.line, 5);
         assert_eq!(diagnostics[0].span.end.column, 3);
         assert_eq!(diagnostics[1].span.slice(source), "printf '%s\\n' two");
@@ -3801,6 +3807,24 @@ main() {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "printf '%s\\n' never");
+    }
+
+    #[test]
+    fn unreachable_after_exit_ignores_later_function_definitions_for_earlier_calls() {
+        let source = "\
+#!/bin/bash
+main() {
+  exit_script
+  printf '%s\\n' still_reachable
+}
+main
+exit_script() {
+  exit 0
+}
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert!(diagnostics.is_empty());
     }
 
     #[test]

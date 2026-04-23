@@ -375,7 +375,10 @@ fn outermost_unreachable_spans(mut spans: Vec<Span>) -> Vec<Span> {
 
     let mut outermost = Vec::new();
     for span in spans {
-        if outermost.iter().any(|outer| span_contained_by(span, *outer)) {
+        if outermost
+            .iter()
+            .any(|outer| span_contained_by(span, *outer))
+        {
             continue;
         }
         if outermost.contains(&span) {
