@@ -921,6 +921,15 @@ fn select_supported_large_corpus_fixtures<'a>(
         .collect()
 }
 
+fn select_large_corpus_timing_fixtures(
+    fixtures: &[LargeCorpusFixture],
+) -> Vec<&LargeCorpusFixture> {
+    fixtures
+        .iter()
+        .filter(|fixture| fixture_supported_for_large_corpus_timing(fixture))
+        .collect()
+}
+
 // ---------------------------------------------------------------------------
 // Main test
 // ---------------------------------------------------------------------------
@@ -945,7 +954,7 @@ fn large_corpus_conforms_with_shellcheck() {
     }
 
     if cfg.timing_mode {
-        let supported_fixtures = select_supported_large_corpus_fixtures(&fixtures, None);
+        let supported_fixtures = select_large_corpus_timing_fixtures(&fixtures);
         let linter_settings =
             build_large_corpus_linter_settings(cfg.selected_rules, cfg.mapped_only);
         let shuck_path_resolver = Arc::new(LargeCorpusPathResolver::new(&supported_fixtures));
@@ -1850,8 +1859,19 @@ fn fixture_supported_for_large_corpus(
     fixture: &LargeCorpusFixture,
     shellcheck_supported_shells: Option<&HashMap<&'static str, ()>>,
 ) -> bool {
+    fixture_supported_for_large_corpus_with_options(fixture, shellcheck_supported_shells, true)
+}
+
+fn fixture_supported_for_large_corpus_timing(fixture: &LargeCorpusFixture) -> bool {
+    fixture_supported_for_large_corpus_with_options(fixture, None, false)
+}
+
+fn fixture_supported_for_large_corpus_with_options(
+    fixture: &LargeCorpusFixture,
+    shellcheck_supported_shells: Option<&HashMap<&'static str, ()>>,
+    exclude_shellcheck_parse_ignored: bool,
+) -> bool {
     if path_is_statically_ignored_large_corpus_fixture(&fixture.path)
-        || path_is_ignored_large_corpus_shellcheck_parse_fixture(&fixture.path)
         || path_is_shellcheck_unsupported_large_corpus_fixture(&fixture.path)
         || path_is_sample_file(&fixture.path)
         || path_is_fish_file(&fixture.path)
@@ -1859,6 +1879,12 @@ fn fixture_supported_for_large_corpus(
         || path_is_guess_file(&fixture.path)
         || path_is_config_sub_file(&fixture.path)
         || fixture_is_repo_git_entry(fixture)
+    {
+        return false;
+    }
+
+    if exclude_shellcheck_parse_ignored
+        && path_is_ignored_large_corpus_shellcheck_parse_fixture(&fixture.path)
     {
         return false;
     }
@@ -3423,6 +3449,21 @@ mod tests {
         ));
         assert!(!fixture_supported_for_large_corpus(&fixture, None));
         assert!(!fixture_selected_for_large_corpus_zsh_parse(&fixture));
+    }
+
+    #[test]
+    fn shellcheck_parse_ignore_paths_are_kept_for_timing() {
+        let fixture = LargeCorpusFixture {
+            path: PathBuf::from("pyenv__pyenv__plugins__python-build__bin__python-build"),
+            cache_rel_path: PathBuf::from("pyenv__pyenv__plugins__python-build__bin__python-build"),
+            shell: "sh".into(),
+            source_hash: String::new(),
+        };
+
+        assert!(path_is_ignored_large_corpus_shellcheck_parse_fixture(
+            &fixture.path
+        ));
+        assert!(fixture_supported_for_large_corpus_timing(&fixture));
     }
 
     #[test]
