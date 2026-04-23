@@ -2973,7 +2973,7 @@ pub(crate) fn benchmark_collect_word_facts(
     let mut arithmetic_summary = ArithmeticFactSummary::default();
     let mut surface_fragments = SurfaceFragmentSink::new(source);
 
-    for (next_command_id, traversed) in query::iter_commands_with_context(
+    for (next_command_id, traversed) in iter_commands_with_context(
         &file.body,
         CommandWalkOptions {
             descend_nested_word_commands: true,
@@ -3559,14 +3559,14 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
     }
 
     fn collect_expansion_assignment_value_words(&mut self, command: &'a Command) {
-        for assignment in query::command_assignments(command) {
+        for assignment in command_assignments(command) {
             self.collect_expansion_assignment_words(
                 assignment,
                 WordFactContext::Expansion(ExpansionContext::AssignmentValue),
             );
         }
 
-        for operand in query::declaration_operands(command) {
+        for operand in declaration_operands(command) {
             match operand {
                 DeclOperand::Name(reference) => {
                     self.surface.record_var_ref_subscript(reference);
@@ -3575,7 +3575,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                         Some(reference.name_span),
                         reference.subscript.as_ref(),
                     );
-                    query::visit_var_ref_subscript_words_with_source(
+                    visit_var_ref_subscript_words_with_source(
                         reference,
                         self.source,
                         &mut |word| {
@@ -3625,7 +3625,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             Some(assignment.target.name_span),
             assignment.target.subscript.as_ref(),
         );
-        query::visit_var_ref_subscript_words_with_source(
+        visit_var_ref_subscript_words_with_source(
             &assignment.target,
             self.source,
             &mut |word| {
@@ -3678,7 +3678,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                                 Some(assignment.target.name_span),
                                 Some(key),
                             );
-                            query::visit_subscript_words(Some(key), self.source, &mut |word| {
+                            visit_subscript_words(Some(key), self.source, &mut |word| {
                                 collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
                                     &word.parts,
                                     self.source,
@@ -3872,7 +3872,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             }
             ConditionalExpr::VarRef(reference) => {
                 self.surface.record_var_ref_subscript(reference);
-                query::visit_var_ref_subscript_words_with_source(
+                visit_var_ref_subscript_words_with_source(
                     reference,
                     self.source,
                     &mut |word| {
@@ -4107,7 +4107,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                     ..
                 } => {
                     if let Some(expression) = expression_ast.as_ref() {
-                        query::visit_arithmetic_words(expression, &mut |word| {
+                        visit_arithmetic_words(expression, &mut |word| {
                             self.push_pending_arithmetic_word_occurrence(
                                 word,
                                 enclosing_expansion_context,
@@ -4685,7 +4685,7 @@ fn collect_arithmetic_command_spans(
     dollar_spans: &mut Vec<Span>,
     command_substitution_spans: &mut Vec<Span>,
 ) {
-    query::visit_arithmetic_words(expression, &mut |word| {
+    visit_arithmetic_words(expression, &mut |word| {
         collect_arithmetic_context_spans_in_word(
             word,
             source,
@@ -4702,7 +4702,7 @@ fn collect_slice_arithmetic_expression_spans(
     dollar_spans: &mut Vec<Span>,
     command_substitution_spans: &mut Vec<Span>,
 ) {
-    query::visit_arithmetic_words(expression, &mut |word| {
+    visit_arithmetic_words(expression, &mut |word| {
         collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
             &word.parts,
             source,
@@ -5323,7 +5323,7 @@ fn collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
             } => {
                 let mut ignored_command_substitution_spans = Vec::new();
                 if let Some(expression) = expression_ast {
-                    query::visit_arithmetic_words(expression, &mut |word| {
+                    visit_arithmetic_words(expression, &mut |word| {
                         collect_arithmetic_context_spans_in_word(
                             word,
                             source,
@@ -5448,7 +5448,7 @@ fn collect_arithmetic_expansion_spans_from_parts(
                 ..
             } => {
                 if let Some(expression) = expression_ast {
-                    query::visit_arithmetic_words(expression, &mut |word| {
+                    visit_arithmetic_words(expression, &mut |word| {
                         collect_arithmetic_context_spans_in_word(
                             word,
                             source,
@@ -5760,7 +5760,7 @@ fn collect_arithmetic_update_operator_spans_in_var_ref_impl(
             spans,
         );
     }
-    query::visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
+    visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
         collect_arithmetic_update_operator_spans_from_parts_impl(
             &word.parts,
             semantic,
@@ -5982,7 +5982,7 @@ fn collect_arithmetic_spans_in_var_ref(
     dollar_spans: &mut Vec<Span>,
     command_substitution_spans: &mut Vec<Span>,
 ) {
-    query::visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
+    visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
         collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
             &word.parts,
             source,

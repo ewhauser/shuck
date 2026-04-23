@@ -54,6 +54,8 @@ pub use context::{
 };
 /// Rule diagnostics and severity levels.
 pub use diagnostic::{Diagnostic, Severity};
+/// Command-substitution classification exposed by fact APIs.
+pub use facts::CommandSubstitutionKind;
 pub(crate) use facts::ComparablePathKey;
 /// Extracted structural facts available to rules and callers.
 pub use facts::{
@@ -91,8 +93,6 @@ pub use rule_metadata::{RuleMetadata, ShellCheckLevel, rule_metadata, rule_metad
 pub use rule_selector::{RuleSelector, SelectorParseError};
 /// Sets of enabled or disabled rules.
 pub use rule_set::RuleSet;
-/// Command-substitution classification exposed by fact APIs.
-pub use rules::common::query::CommandSubstitutionKind;
 #[allow(unused_imports)]
 pub(crate) use rules::common::safe_value::{SafeValueIndex, SafeValueQuery};
 #[allow(unused_imports)]
@@ -160,24 +160,7 @@ pub fn analyze_file(
 #[doc(hidden)]
 #[must_use]
 pub fn benchmark_normalize_commands(file: &File, source: &str) -> usize {
-    use crate::facts::normalize_command;
-    use crate::rules::common::query::{self, CommandWalkOptions};
-
-    query::iter_commands_with_context(
-        &file.body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-    )
-    .map(|traversed| {
-        let normalized = normalize_command(traversed.visit.command, source);
-        normalized.wrappers.len()
-            + normalized.body_words.len()
-            + usize::from(normalized.literal_name.is_some())
-            + usize::from(normalized.effective_name.is_some())
-            + usize::from(normalized.declaration.is_some())
-    })
-    .sum()
+    facts::benchmark_normalize_commands(file, source)
 }
 
 #[cfg(feature = "benchmarking")]

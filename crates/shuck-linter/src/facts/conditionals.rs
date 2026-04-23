@@ -1893,7 +1893,7 @@ fn collect_status_parameter_spans_in_assignment(
                         collect_status_parameter_spans_in_word(word, source, spans);
                     }
                     ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
-                        query::visit_subscript_words(Some(key), source, &mut |word| {
+                        visit_subscript_words(Some(key), source, &mut |word| {
                             collect_status_parameter_spans_in_word(word, source, spans);
                         });
                         collect_status_parameter_spans_in_word(value, source, spans);
@@ -1913,7 +1913,7 @@ fn collect_status_parameter_spans_in_var_ref(
         spans.push(reference.span);
     }
 
-    query::visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
+    visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
         collect_status_parameter_spans_in_word(word, source, spans);
     });
 }
@@ -1952,7 +1952,7 @@ fn collect_status_parameter_spans_in_word_part(
             ..
         } => {
             if let Some(expression) = expression_ast {
-                query::visit_arithmetic_words(expression, &mut |word| {
+                visit_arithmetic_words(expression, &mut |word| {
                     collect_status_parameter_spans_in_word(word, source, spans);
                 });
             } else {
@@ -2016,7 +2016,7 @@ fn collect_status_parameter_spans_in_word_part(
             }
             collect_status_parameter_spans_in_var_ref(reference, source, spans);
             if let Some(offset_ast) = offset_ast {
-                query::visit_arithmetic_words(offset_ast, &mut |word| {
+                visit_arithmetic_words(offset_ast, &mut |word| {
                     collect_status_parameter_spans_in_word(word, source, spans);
                 });
             } else {
@@ -2024,7 +2024,7 @@ fn collect_status_parameter_spans_in_word_part(
             }
             match (length_ast.as_ref(), length_word_ast.as_ref()) {
                 (Some(length_ast), _) => {
-                    query::visit_arithmetic_words(length_ast, &mut |word| {
+                    visit_arithmetic_words(length_ast, &mut |word| {
                         collect_status_parameter_spans_in_word(word, source, spans);
                     });
                 }
@@ -2081,7 +2081,7 @@ fn collect_status_parameter_spans_in_parameter_expansion(
             } => {
                 collect_status_parameter_spans_in_var_ref(reference, source, spans);
                 if let Some(offset_ast) = offset_ast {
-                    query::visit_arithmetic_words(offset_ast, &mut |word| {
+                    visit_arithmetic_words(offset_ast, &mut |word| {
                         collect_status_parameter_spans_in_word(word, source, spans);
                     });
                 } else {
@@ -2090,7 +2090,7 @@ fn collect_status_parameter_spans_in_parameter_expansion(
 
                 match (length_ast.as_ref(), length_word_ast.as_ref()) {
                     (Some(length_ast), _) => {
-                        query::visit_arithmetic_words(length_ast, &mut |word| {
+                        visit_arithmetic_words(length_ast, &mut |word| {
                             collect_status_parameter_spans_in_word(word, source, spans);
                         });
                     }

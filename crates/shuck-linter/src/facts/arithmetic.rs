@@ -1,7 +1,7 @@
 fn build_base_prefix_arithmetic_spans(body: &StmtSeq, source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
 
-    for visit in query::iter_commands(
+    for visit in iter_commands(
         body,
         CommandWalkOptions {
             descend_nested_word_commands: true,
@@ -748,7 +748,7 @@ fn build_arithmetic_update_operator_spans(
 ) -> Vec<Span> {
     let mut spans = Vec::new();
 
-    for visit in query::iter_commands(
+    for visit in iter_commands(
         body,
         CommandWalkOptions {
             descend_nested_word_commands: true,
@@ -1039,7 +1039,7 @@ fn collect_arithmetic_update_operator_spans_in_assignment_target(
             spans,
         );
     }
-    query::visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
+    visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
         collect_arithmetic_update_operator_spans_from_parts(&word.parts, semantic, source, spans);
     });
 }
@@ -1271,7 +1271,7 @@ fn collect_arithmetic_update_operator_spans_in_nested_command_body(
     source: &str,
     spans: &mut Vec<Span>,
 ) {
-    for visit in query::iter_commands(
+    for visit in iter_commands(
         body,
         CommandWalkOptions {
             descend_nested_word_commands: true,
@@ -1320,7 +1320,7 @@ fn collect_arithmetic_update_operator_spans_in_subscript_words(
     source: &str,
     spans: &mut Vec<Span>,
 ) {
-    query::visit_subscript_words(Some(subscript), source, &mut |word| {
+    visit_subscript_words(Some(subscript), source, &mut |word| {
         collect_arithmetic_update_operator_spans_from_parts_impl(
             &word.parts,
             semantic,

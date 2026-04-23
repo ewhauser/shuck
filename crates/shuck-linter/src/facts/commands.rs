@@ -187,7 +187,7 @@ impl<'a> CommandFact<'a> {
             return false;
         };
         let raw = span.slice(source);
-        raw != "[" || !query::command_assignments(self.command()).is_empty()
+        raw != "[" || !command_assignments(self.command()).is_empty()
     }
 
     pub fn body_args(&self) -> &[&'a Word] {

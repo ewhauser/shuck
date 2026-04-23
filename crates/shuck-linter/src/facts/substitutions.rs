@@ -1,4 +1,11 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandSubstitutionKind {
+    Command,
+    ProcessInput,
+    ProcessOutput,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubstitutionOutputIntent {
     Captured,
     Discarded,
@@ -503,7 +510,7 @@ fn classify_substitution_body<'a>(
     command_ids_by_span: &CommandLookupIndex,
     source: &str,
 ) -> SubstitutionBodyFacts {
-    let visits = query::iter_commands(
+    let visits = iter_commands(
         body,
         CommandWalkOptions {
             descend_nested_word_commands: false,
@@ -1352,8 +1359,8 @@ fn visit_command_subscript_words_for_substitutions(
     source: &str,
     visitor: &mut impl FnMut(SubstitutionHostKind, &Word),
 ) {
-    for assignment in query::command_assignments(command) {
-        query::visit_var_ref_subscript_words_with_source(&assignment.target, source, &mut |word| {
+    for assignment in command_assignments(command) {
+        visit_var_ref_subscript_words_with_source(&assignment.target, source, &mut |word| {
             visitor(SubstitutionHostKind::AssignmentTargetSubscript, word);
         });
 
@@ -1362,7 +1369,7 @@ fn visit_command_subscript_words_for_substitutions(
                 if let shuck_ast::ArrayElem::Keyed { key, .. }
                 | shuck_ast::ArrayElem::KeyedAppend { key, .. } = element
                 {
-                    query::visit_subscript_words(Some(key), source, &mut |word| {
+                    visit_subscript_words(Some(key), source, &mut |word| {
                         visitor(SubstitutionHostKind::ArrayKeySubscript, word);
                     });
                 }
@@ -1370,15 +1377,15 @@ fn visit_command_subscript_words_for_substitutions(
         }
     }
 
-    for operand in query::declaration_operands(command) {
+    for operand in declaration_operands(command) {
         match operand {
             DeclOperand::Name(reference) => {
-                query::visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
+                visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
                     visitor(SubstitutionHostKind::DeclarationNameSubscript, word);
                 });
             }
             DeclOperand::Assignment(assignment) => {
-                query::visit_var_ref_subscript_words_with_source(
+                visit_var_ref_subscript_words_with_source(
                     &assignment.target,
                     source,
                     &mut |word| {
@@ -1391,7 +1398,7 @@ fn visit_command_subscript_words_for_substitutions(
                         if let shuck_ast::ArrayElem::Keyed { key, .. }
                         | shuck_ast::ArrayElem::KeyedAppend { key, .. } = element
                         {
-                            query::visit_subscript_words(Some(key), source, &mut |word| {
+                            visit_subscript_words(Some(key), source, &mut |word| {
                                 visitor(SubstitutionHostKind::ArrayKeySubscript, word);
                             });
                         }
@@ -1409,7 +1416,7 @@ fn visit_assignments_for_substitutions(
     visitor: &mut impl FnMut(&Word),
 ) {
     for assignment in assignments {
-        query::visit_var_ref_subscript_words_with_source(&assignment.target, source, visitor);
+        visit_var_ref_subscript_words_with_source(&assignment.target, source, visitor);
 
         match &assignment.value {
             AssignmentValue::Scalar(word) => visitor(word),
@@ -1419,7 +1426,7 @@ fn visit_assignments_for_substitutions(
                         shuck_ast::ArrayElem::Sequential(word) => visitor(word),
                         shuck_ast::ArrayElem::Keyed { key, value }
                         | shuck_ast::ArrayElem::KeyedAppend { key, value } => {
-                            query::visit_subscript_words(Some(key), source, visitor);
+                            visit_subscript_words(Some(key), source, visitor);
                             visitor(value);
                         }
                     }
@@ -1474,7 +1481,7 @@ fn visit_decl_operand_words_for_substitutions(
     match operand {
         DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => visitor(word),
         DeclOperand::Name(reference) => {
-            query::visit_var_ref_subscript_words_with_source(reference, source, visitor);
+            visit_var_ref_subscript_words_with_source(reference, source, visitor);
         }
         DeclOperand::Assignment(assignment) => {
             visit_assignments_for_substitutions(std::slice::from_ref(assignment), source, visitor);
@@ -1528,7 +1535,7 @@ fn visit_conditional_words_for_substitutions(
         ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => visitor(word),
         ConditionalExpr::Pattern(pattern) => visit_pattern_for_substitutions(pattern, visitor),
         ConditionalExpr::VarRef(reference) => {
-            query::visit_var_ref_subscript_words_with_source(reference, source, visitor);
+            visit_var_ref_subscript_words_with_source(reference, source, visitor);
         }
     }
 }

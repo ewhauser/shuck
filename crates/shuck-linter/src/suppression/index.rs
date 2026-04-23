@@ -1,12 +1,12 @@
 use rustc_hash::FxHashMap;
 use shuck_ast::{
-    ArrayElem, Assignment, AssignmentValue, BuiltinCommand, Command, CompoundCommand,
-    ConditionalExpr, DeclOperand, File, FunctionDef, HeredocBodyPartNode, Pattern, PatternPart,
-    Redirect, Span, Stmt, StmtSeq, TextSize, Word, WordPart, WordPartNode,
+    ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArrayElem, Assignment, AssignmentValue,
+    BuiltinCommand, Command, CompoundCommand, ConditionalExpr, DeclOperand, File, FunctionDef,
+    HeredocBodyPartNode, Pattern, PatternPart, Redirect, Span, Stmt, StmtSeq, TextSize, VarRef,
+    Word, WordPart, WordPartNode,
 };
 
 use crate::Rule;
-use crate::rules::common::query;
 
 use super::{SuppressionAction, SuppressionDirective};
 
@@ -403,7 +403,7 @@ where
             WordPart::DoubleQuoted { parts, .. } => walk_word_parts(parts, visit),
             WordPart::ArithmeticExpansion { expression_ast, .. } => {
                 if let Some(expression_ast) = expression_ast.as_ref() {
-                    query::visit_arithmetic_words(expression_ast, &mut |word| {
+                    visit_arithmetic_words(expression_ast, &mut |word| {
                         walk_word(word, visit);
                     });
                 }
@@ -438,7 +438,7 @@ where
         match &part.kind {
             shuck_ast::HeredocBodyPart::ArithmeticExpansion { expression_ast, .. } => {
                 if let Some(expression_ast) = expression_ast.as_ref() {
-                    query::visit_arithmetic_words(expression_ast, &mut |word| {
+                    visit_arithmetic_words(expression_ast, &mut |word| {
                         walk_word(word, visit);
                     });
                 }
@@ -467,10 +467,64 @@ where
         ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => walk_word(word, visit),
         ConditionalExpr::Pattern(pattern) => walk_pattern(pattern, visit),
         ConditionalExpr::VarRef(reference) => {
-            query::visit_var_ref_subscript_words(reference, &mut |word| {
+            visit_var_ref_subscript_words(reference, &mut |word| {
                 walk_word(word, visit);
             });
         }
+    }
+}
+
+fn visit_var_ref_subscript_words<'a>(reference: &'a VarRef, visitor: &mut impl FnMut(&'a Word)) {
+    if let Some(expression) = reference
+        .subscript
+        .as_ref()
+        .and_then(|subscript| subscript.arithmetic_ast.as_ref())
+    {
+        visit_arithmetic_words(expression, visitor);
+    }
+}
+
+fn visit_arithmetic_words<'a>(
+    expression: &'a ArithmeticExprNode,
+    visitor: &mut impl FnMut(&'a Word),
+) {
+    match &expression.kind {
+        ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_) => {}
+        ArithmeticExpr::Indexed { index, .. } => visit_arithmetic_words(index, visitor),
+        ArithmeticExpr::ShellWord(word) => visitor(word),
+        ArithmeticExpr::Parenthesized { expression } => {
+            visit_arithmetic_words(expression, visitor);
+        }
+        ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
+            visit_arithmetic_words(expr, visitor);
+        }
+        ArithmeticExpr::Binary { left, right, .. } => {
+            visit_arithmetic_words(left, visitor);
+            visit_arithmetic_words(right, visitor);
+        }
+        ArithmeticExpr::Conditional {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
+            visit_arithmetic_words(condition, visitor);
+            visit_arithmetic_words(then_expr, visitor);
+            visit_arithmetic_words(else_expr, visitor);
+        }
+        ArithmeticExpr::Assignment { target, value, .. } => {
+            visit_arithmetic_lvalue_words(target, visitor);
+            visit_arithmetic_words(value, visitor);
+        }
+    }
+}
+
+fn visit_arithmetic_lvalue_words<'a>(
+    target: &'a ArithmeticLvalue,
+    visitor: &mut impl FnMut(&'a Word),
+) {
+    match target {
+        ArithmeticLvalue::Variable(_) => {}
+        ArithmeticLvalue::Indexed { index, .. } => visit_arithmetic_words(index, visitor),
     }
 }
 

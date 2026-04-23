@@ -1,17 +1,11 @@
-use shuck_ast::{
-    ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue, ArrayElem, Assignment, AssignmentValue,
-    BinaryCommand, BinaryOp, BourneParameterExpansion, BuiltinCommand, Command, CompoundCommand,
-    ConditionalExpr, DeclOperand, FunctionDef, HeredocBodyPartNode, ParameterExpansion,
-    ParameterExpansionSyntax, Pattern, PatternPart, Redirect, Stmt, StmtSeq, Subscript, VarRef,
-    Word, WordPart, WordPartNode, ZshExpansionTarget, ZshGlobSegment,
-};
+// Private AST traversal used only while building linter facts.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) struct WalkContext {
-    pub(crate) loop_depth: usize,
+struct WalkContext {
+    loop_depth: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ConditionKind {
+enum ConditionKind {
     If,
     Elif,
     While,
@@ -19,44 +13,33 @@ pub(crate) enum ConditionKind {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) struct CommandTraversalContext {
-    pub(crate) walk: WalkContext,
-    pub(crate) nested_word_command: bool,
-    pub(crate) condition_kind: Option<ConditionKind>,
-    pub(crate) in_if_condition: bool,
-    pub(crate) in_elif_condition: bool,
+struct CommandTraversalContext {
+    walk: WalkContext,
+    nested_word_command: bool,
+    condition_kind: Option<ConditionKind>,
+    in_if_condition: bool,
+    in_elif_condition: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) struct CommandWalkOptions {
-    pub(crate) descend_nested_word_commands: bool,
+struct CommandWalkOptions {
+    descend_nested_word_commands: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct CommandVisit<'a> {
-    pub(crate) stmt: &'a Stmt,
-    pub(crate) command: &'a Command,
-    pub(crate) redirects: &'a [Redirect],
+struct CommandVisit<'a> {
+    stmt: &'a Stmt,
+    command: &'a Command,
+    redirects: &'a [Redirect],
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct TraversedCommandVisit<'a> {
-    pub(crate) visit: CommandVisit<'a>,
-    pub(crate) context: CommandTraversalContext,
+struct TraversedCommandVisit<'a> {
+    visit: CommandVisit<'a>,
+    context: CommandTraversalContext,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CommandSubstitutionKind {
-    Command,
-    ProcessInput,
-    ProcessOutput,
-}
-
-// Structural traversal helpers stay crate-visible so `facts.rs` owns repeated
-// AST walks. Rule implementations should consume `Checker::facts()` instead of
-// calling these walkers directly, while `facts.rs` can opt into the streaming
-// walker when it needs traversal context without a second whole-file pass.
-pub(crate) fn walk_commands<'a, F>(
+fn walk_commands<'a, F>(
     commands: &'a StmtSeq,
     options: CommandWalkOptions,
     visitor: &mut F,
@@ -71,7 +54,7 @@ pub(crate) fn walk_commands<'a, F>(
     );
 }
 
-pub(crate) fn iter_commands_with_context<'a>(
+fn iter_commands_with_context<'a>(
     commands: &'a StmtSeq,
     options: CommandWalkOptions,
 ) -> impl Iterator<Item = TraversedCommandVisit<'a>> {
@@ -82,24 +65,11 @@ pub(crate) fn iter_commands_with_context<'a>(
     visits.into_iter()
 }
 
-pub(crate) fn iter_commands<'a>(
+fn iter_commands<'a>(
     commands: &'a StmtSeq,
     options: CommandWalkOptions,
 ) -> impl Iterator<Item = CommandVisit<'a>> {
     iter_commands_with_context(commands, options).map(|visit| visit.visit)
-}
-
-pub(crate) fn pipeline_segments(command: &Command) -> Option<Vec<&Stmt>> {
-    let Command::Binary(command) = command else {
-        return None;
-    };
-    if !matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll) {
-        return None;
-    }
-
-    let mut segments = Vec::new();
-    collect_pipeline_segments(command, &mut segments);
-    Some(segments)
 }
 
 fn zsh_glob_patterns(glob: &shuck_ast::ZshQualifiedGlob) -> impl Iterator<Item = &Pattern> + '_ {
@@ -109,7 +79,7 @@ fn zsh_glob_patterns(glob: &shuck_ast::ZshQualifiedGlob) -> impl Iterator<Item =
     })
 }
 
-pub(crate) fn command_assignments(command: &Command) -> &[Assignment] {
+fn command_assignments(command: &Command) -> &[Assignment] {
     match command {
         Command::Simple(command) => &command.assignments,
         Command::Builtin(command) => builtin_assignments(command),
@@ -121,7 +91,7 @@ pub(crate) fn command_assignments(command: &Command) -> &[Assignment] {
     }
 }
 
-pub(crate) fn declaration_operands(command: &Command) -> &[DeclOperand] {
+fn declaration_operands(command: &Command) -> &[DeclOperand] {
     match command {
         Command::Decl(command) => &command.operands,
         Command::Simple(_)
@@ -133,27 +103,14 @@ pub(crate) fn declaration_operands(command: &Command) -> &[DeclOperand] {
     }
 }
 
-pub(crate) fn visit_arithmetic_words<'a>(
+fn visit_arithmetic_words<'a>(
     expression: &'a ArithmeticExprNode,
     visitor: &mut impl FnMut(&'a Word),
 ) {
     visit_arithmetic_words_in_expr(expression, visitor);
 }
 
-pub(crate) fn visit_var_ref_subscript_words<'a>(
-    reference: &'a VarRef,
-    visitor: &mut impl FnMut(&'a Word),
-) {
-    visit_optional_arithmetic_words(
-        reference
-            .subscript
-            .as_ref()
-            .and_then(|subscript| subscript.arithmetic_ast.as_ref()),
-        visitor,
-    );
-}
-
-pub(crate) fn visit_var_ref_subscript_words_with_source<'a>(
+fn visit_var_ref_subscript_words_with_source<'a>(
     reference: &'a VarRef,
     _source: &'a str,
     visitor: &mut impl FnMut(&'a Word),
@@ -161,7 +118,7 @@ pub(crate) fn visit_var_ref_subscript_words_with_source<'a>(
     visit_subscript_words(reference.subscript.as_ref(), _source, visitor);
 }
 
-pub(crate) fn visit_subscript_words<'a>(
+fn visit_subscript_words<'a>(
     subscript: Option<&'a Subscript>,
     _source: &'a str,
     visitor: &mut impl FnMut(&'a Word),
@@ -219,15 +176,6 @@ fn visit_arithmetic_words_in_expr<'a>(
             visit_arithmetic_lvalue_words(target, visitor);
             visit_arithmetic_words_in_expr(value, visitor);
         }
-    }
-}
-
-fn visit_optional_arithmetic_words<'a>(
-    expression: Option<&'a ArithmeticExprNode>,
-    visitor: &mut impl FnMut(&'a Word),
-) {
-    if let Some(expression) = expression {
-        visit_arithmetic_words_in_expr(expression, visitor);
     }
 }
 
@@ -402,22 +350,6 @@ fn nested_word_context(context: CommandTraversalContext) -> CommandTraversalCont
     CommandTraversalContext {
         nested_word_command: true,
         ..context
-    }
-}
-
-fn collect_pipeline_segments<'a>(command: &'a BinaryCommand, segments: &mut Vec<&'a Stmt>) {
-    match &command.left.command {
-        Command::Binary(left) if matches!(left.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
-            collect_pipeline_segments(left, segments);
-        }
-        _ => segments.push(&command.left),
-    }
-
-    match &command.right.command {
-        Command::Binary(right) if matches!(right.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
-            collect_pipeline_segments(right, segments);
-        }
-        _ => segments.push(&command.right),
     }
 }
 
@@ -1007,7 +939,7 @@ fn collect_heredoc_body_part_visits<'a, F>(
 }
 
 #[cfg(test)]
-mod tests {
+mod traversal_tests {
     use shuck_ast::{
         BourneParameterExpansion, Command, ParameterExpansionSyntax, StmtSeq, VarRef, Word,
         WordPart,
@@ -1015,8 +947,8 @@ mod tests {
     use shuck_parser::parser::Parser;
 
     use super::{
-        CommandWalkOptions, ConditionKind, iter_commands, pipeline_segments,
-        visit_var_ref_subscript_words_with_source, walk_commands,
+        CommandWalkOptions, ConditionKind, iter_commands, visit_var_ref_subscript_words_with_source,
+        walk_commands,
     };
 
     fn parse_commands(source: &str) -> StmtSeq {
@@ -1259,26 +1191,6 @@ printf '%s\\n' \"${value/old/$(expr $(nproc) + 1)}\"\n\
                 ("nproc".to_owned(), true),
             ]
         );
-    }
-
-    #[test]
-    fn pipeline_segments_flattens_pipe_chains() {
-        let source = "printf '%s\\n' a | command kill 0 | tee out.txt\n";
-        let commands = parse_commands(source);
-        let Command::Binary(command) = &commands[0].command else {
-            panic!("expected binary command");
-        };
-
-        let segments = pipeline_segments(&Command::Binary(command.clone()))
-            .expect("expected pipeline segments")
-            .into_iter()
-            .map(|stmt| match &stmt.command {
-                Command::Simple(command) => static_word_owned_text(&command.name, source).unwrap(),
-                _ => "<non-simple>".to_owned(),
-            })
-            .collect::<Vec<_>>();
-
-        assert_eq!(segments, vec!["printf", "command", "tee"]);
     }
 
     #[test]
