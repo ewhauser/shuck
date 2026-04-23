@@ -1430,6 +1430,10 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         word_spans::word_folded_positional_at_splat_span_in_source(self.word(), source)
     }
 
+    pub fn folded_all_elements_array_span_in_source(self, source: &str) -> Option<Span> {
+        word_spans::word_folded_all_elements_array_span_in_source(self.word(), source)
+    }
+
     pub fn zsh_flag_modifier_spans(self) -> Vec<Span> {
         word_spans::word_zsh_flag_modifier_spans(self.word())
     }

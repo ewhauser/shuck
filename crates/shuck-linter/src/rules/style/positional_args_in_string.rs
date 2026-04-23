@@ -8,7 +8,7 @@ impl Violation for PositionalArgsInString {
     }
 
     fn message(&self) -> String {
-        "positional-parameter splats inside strings collapse argument boundaries".to_owned()
+        "all-elements splats inside larger strings collapse argument boundaries".to_owned()
     }
 }
 
@@ -19,7 +19,7 @@ pub fn positional_args_in_string(checker: &mut Checker) {
     ]
     .into_iter()
     .flat_map(|context| checker.facts().expansion_word_facts(context))
-    .filter_map(|fact| fact.folded_positional_at_splat_span_in_source(checker.source()))
+    .filter_map(|fact| fact.folded_all_elements_array_span_in_source(checker.source()))
     .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || PositionalArgsInString);
@@ -57,12 +57,47 @@ if [ \"_$@\" = \"_--version\" ]; then :; fi
     }
 
     #[test]
-    fn ignores_pure_and_non_command_string_contexts() {
+    fn reports_array_splats_folded_into_strings() {
         let source = "\
 #!/bin/bash
 set -- a b
+args=(a b)
+printf '%s\\n' \"items: ${args[@]}\"
+printf '%s\\n' \"items: ${!args[@]}\"
+printf '%s\\n' \"items: ${args[@]:1}\"
+printf '%s\\n' \"items: ${args[@]/a/b}\"
+printf '%s\\n' \"items: ${args[@]+ ${args[*]}}\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PositionalArgsInString),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "${args[@]}",
+                "${!args[@]}",
+                "${args[@]:1}",
+                "${args[@]/a/b}",
+                "${args[@]+ ${args[*]}}"
+            ]
+        );
+    }
+
+    #[test]
+    fn ignores_pure_star_splats_and_non_command_string_contexts() {
+        let source = "\
+#!/bin/bash
+set -- a b
+args=(a b)
 printf '%s\\n' \"$@\" \"${@}\" \"${@:2}\" ${@} ${@:2}
-printf '%s\\n' \"$*\" \"${@:-fallback}\" \"${array[@]}\"
+printf '%s\\n' \"${args[@]}\" ${args[@]} \"${args[@]:1}\" \"${!args[@]}\"
+printf '%s\\n' \"${args[@]+ ${args[*]}}\"
+printf '%s\\n' \"$*\" \"${@:-fallback}\" \"${args[*]}\" \"items: ${args[*]}\"
 foo=\"items: $@\"
 ";
         let diagnostics = test_snippet(
@@ -74,7 +109,7 @@ foo=\"items: $@\"
     }
 
     #[test]
-    fn ignores_general_array_mixes_that_are_out_of_scope() {
+    fn reports_general_array_mixes_like_the_oracle() {
         let source = "\
 #!/bin/bash
 args=(--foo bar)
@@ -87,7 +122,13 @@ printf '%s\\n' \"Errors:\\n${errors[@]}\"
             &LinterSettings::for_rule(Rule::PositionalArgsInString),
         );
 
-        assert!(diagnostics.is_empty());
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${args[@]}", "${errors[@]}"]
+        );
     }
 
     #[test]
