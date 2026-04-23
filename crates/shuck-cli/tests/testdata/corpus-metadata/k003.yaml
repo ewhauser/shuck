@@ -1,13 +1,1 @@
-reviewed_divergences:
-  - side: shellcheck-only
-    path_suffix: "megastep__makeself__test__appendtest"
-    reason: "ShellCheck 0.11.0 reports SC2294 for the unrelated K003 eval-on-array family on this shared code path, so the S047-targeted corpus run keeps this collision case reviewed under K003."
-  - side: shellcheck-only
-    path_suffix: "pyenv__pyenv__pyenv.d__rehash__conda.bash"
-    reason: "ShellCheck 0.11.0 reports SC2294 for the unrelated K003 eval-on-array family on this shared code path, so the S047-targeted corpus run keeps this collision case reviewed under K003."
-  - side: shellcheck-only
-    path_suffix: "pyenv__pyenv__pyenv.d__rehash__source.bash"
-    reason: "ShellCheck 0.11.0 reports SC2294 for the unrelated K003 eval-on-array family on this shared code path, so the S047-targeted corpus run keeps this collision case reviewed under K003."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__extras__rails"
-    reason: "ShellCheck 0.11.0 reports SC2294 for the unrelated K003 eval-on-array family on this shared code path, so the S047-targeted corpus run keeps this collision case reviewed under K003."
+reviewed_divergences: []

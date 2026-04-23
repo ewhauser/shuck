@@ -1,4 +1,1 @@
-reviewed_divergences:
-  - side: shuck-only
-    path_suffix: "megastep__makeself__makeself-header.sh"
-    reason: "the header is a shell fragment that is evaluated from the companion script; shuck reports its arithmetic expr usage directly, while ShellCheck does not emit SC2003 for the fragment file on its own"
+reviewed_divergences: []

@@ -1,5 +1,1 @@
-reviewed_divergences:
-  - side: shuck-only
-    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
-    line: 314
-    reason: "This helper-library fixture falls into a project-closure path where the oracle does not emit SC2048 for this forwarding form, while shuck still reports the star-splat expansion."
+reviewed_divergences: []

@@ -1,17 +1,13 @@
 reviewed_divergences:
-  - side: shuck-only
-    path_suffix: "CISOfy__lynis__extras__build-lynis.sh"
-    line: 298
-    reason: "This packaging helper only descends into the `debian/` tree inside the satisfied `if` branch, but the unconditional `cd ..` afterward makes C125's current scope-local pairing heuristic over-approximate a manual restore that is not guaranteed on every path."
-  - side: shuck-only
-    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
-    line: 84
-    reason: "This subshell loop is walking a candidate path component-by-component. The inner `cd ..` is part of that resolver state machine rather than a one-off manual restore after entering a work directory, so the current C125 heuristic intentionally leaves this helper-library case as a reviewed divergence."
-  - side: shellcheck-only
-    path_suffix: "moovweb__gvm__examples__native__configure"
-    line: 8237
-    reason: "This generated configure probe repeats the same `cd out` / teardown / `cd ..` cleanup shape in multiple libtool checks. C125 intentionally keeps one manual-restore note per probe scope, while the current ShellCheck oracle still surfaces this duplicate generated cleanup site."
-  - side: shellcheck-only
-    path_suffix: "moovweb__gvm__examples__native__configure"
-    line: 8292
-    reason: "This generated configure probe repeats the same `cd out` / teardown / `cd ..` cleanup shape in multiple libtool checks. C125 intentionally keeps one manual-restore note per probe scope, while the current ShellCheck oracle still surfaces this duplicate generated cleanup site."
+- side: shuck-only
+  path_suffix: CISOfy__lynis__extras__build-lynis.sh
+  line: 298
+  reason: This packaging helper only descends into the `debian/` tree inside the satisfied `if` branch, but the unconditional `cd ..` afterward makes C125's current scope-local pairing heuristic over-approximate a manual restore that is not guaranteed on every path.
+- side: shellcheck-only
+  path_suffix: moovweb__gvm__examples__native__configure
+  line: 8237
+  reason: This generated configure probe repeats the same `cd out` / teardown / `cd ..` cleanup shape in multiple libtool checks. C125 intentionally keeps one manual-restore note per probe scope, while the current ShellCheck oracle still surfaces this duplicate generated cleanup site.
+- side: shellcheck-only
+  path_suffix: moovweb__gvm__examples__native__configure
+  line: 8292
+  reason: This generated configure probe repeats the same `cd out` / teardown / `cd ..` cleanup shape in multiple libtool checks. C125 intentionally keeps one manual-restore note per probe scope, while the current ShellCheck oracle still surfaces this duplicate generated cleanup site.

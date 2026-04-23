@@ -1,9 +1,1 @@
-reviewed_divergences:
-  - side: shuck-only
-    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
-    line: 1326
-    reason: "This helper intentionally sets `IFS=:` on the same assignment to split a PATH-like list from command output into array entries, and the oracle does not classify that normalization pattern as SC2207."
-  - side: shuck-only
-    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
-    line: 1984
-    reason: "This helper reshapes options with a deliberate newline-splitting pipeline before the array assignment, and the oracle does not classify that normalized parsing flow as SC2207."
+reviewed_divergences: []
