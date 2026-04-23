@@ -20,12 +20,6 @@ C124 code is unreachable
    |
 
 C124 code is unreachable
-  --> <source>:15:3
-   |
-15 |   echo also_unreachable
-   |
-
-C124 code is unreachable
   --> <source>:17:1
    |
 17 | f

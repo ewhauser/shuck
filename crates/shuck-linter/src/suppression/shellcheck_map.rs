@@ -15,6 +15,7 @@ const SUPPRESSION_ALIAS_CODES: &[(u32, Rule)] = &[
     (2234, Rule::SingleTestSubshell),
     (2351, Rule::XPrefixInTest),
     (3084, Rule::SourceInsideFunctionInSh),
+    (2365, Rule::UnreachableAfterExit),
 ];
 
 /// Maps ShellCheck SC codes to Shuck rules.
@@ -131,7 +132,7 @@ mod tests {
             map.resolve("SC1087"),
             Some(Rule::BraceVariableBeforeBracket)
         );
-        assert_eq!(map.resolve("SC2317"), None);
+        assert_eq!(map.resolve("SC2317"), Some(Rule::UnreachableAfterExit));
         assert_eq!(map.resolve("SC7777"), None);
     }
 
@@ -164,6 +165,7 @@ mod tests {
             vec![Rule::SourceInsideFunctionInSh]
         );
         assert_eq!(map.resolve_all("SC2260"), vec![Rule::RedirectBeforePipe]);
+        assert_eq!(map.resolve_all("SC2365"), vec![Rule::UnreachableAfterExit]);
     }
 
     #[test]
@@ -194,6 +196,7 @@ mod tests {
         assert_eq!(map.code_for_rule(Rule::RedirectToCommandName), Some(2238));
         assert_eq!(map.code_for_rule(Rule::DuplicateShebangFlag), Some(2096));
         assert_eq!(map.code_for_rule(Rule::BashFileSlurp), Some(3034));
+        assert_eq!(map.code_for_rule(Rule::UnreachableAfterExit), Some(2317));
         assert_eq!(map.code_for_rule(Rule::LiteralControlEscape), Some(1012));
         assert_eq!(
             map.code_for_rule(Rule::BraceVariableBeforeBracket),

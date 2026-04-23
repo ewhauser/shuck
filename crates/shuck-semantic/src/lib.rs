@@ -1215,6 +1215,9 @@ impl<'model> SemanticAnalysis<'model> {
                 &self.model.recorded_program,
                 &self.model.command_bindings,
                 &self.model.command_references,
+                &self.model.scopes,
+                &self.model.bindings,
+                &self.model.call_sites,
             )
         })
     }
@@ -5790,6 +5793,293 @@ DESCRIPTION=\"${DESCRIPTION:-Deployment metadata updated}\"
     }
 
     #[test]
+    fn compound_dead_code_reports_outermost_spans() {
+        let source = "\
+return
+if true; then
+  echo one
+fi
+printf '%s\\n' two
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let dead_code = analysis.dead_code();
+        let unreachable = dead_code
+            .iter()
+            .flat_map(|entry| entry.unreachable.iter())
+            .map(|span| span.slice(source).trim_end().to_owned())
+            .collect::<Vec<_>>();
+
+        assert!(unreachable.contains(&"if true; then\n  echo one\nfi".to_owned()));
+        assert!(unreachable.contains(&"printf '%s\\n' two".to_owned()));
+        assert!(!unreachable.contains(&"echo one".to_owned()));
+    }
+
+    #[test]
+    fn dead_code_after_script_terminating_function_calls_is_detected() {
+        let source = "\
+exit_script() {
+  exit 0
+}
+main() {
+  exit_script
+  printf '%s\\n' never
+}
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let unreachable = analysis
+            .dead_code()
+            .iter()
+            .flat_map(|entry| entry.unreachable.iter())
+            .map(|span| span.slice(source).trim_end().to_owned())
+            .collect::<Vec<_>>();
+
+        assert!(unreachable.contains(&"printf '%s\\n' never".to_owned()));
+    }
+
+    #[test]
+    fn script_terminating_calls_use_rewritten_statement_spans() {
+        let sources = [
+            "\
+exit_script() {
+  exit 0
+}
+main() {
+  exit_script >/dev/null
+  printf '%s\\n' never
+}
+",
+            "\
+exit_script() {
+  exit 0
+}
+main() {
+  ! exit_script
+  printf '%s\\n' never
+}
+",
+        ];
+
+        for source in sources {
+            let model = model(source);
+            let analysis = model.analysis();
+            let unreachable = analysis
+                .dead_code()
+                .iter()
+                .flat_map(|entry| entry.unreachable.iter())
+                .map(|span| span.slice(source).trim_end().to_owned())
+                .collect::<Vec<_>>();
+
+            assert!(
+                unreachable.contains(&"printf '%s\\n' never".to_owned()),
+                "unreachable spans: {unreachable:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn brace_group_function_definitions_can_make_later_calls_terminating() {
+        let source = "\
+{
+  exit_script() {
+    exit 0
+  }
+}
+main() {
+  exit_script
+  printf '%s\\n' never
+}
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let unreachable = analysis
+            .dead_code()
+            .iter()
+            .flat_map(|entry| entry.unreachable.iter())
+            .map(|span| span.slice(source).trim_end().to_owned())
+            .collect::<Vec<_>>();
+
+        assert!(unreachable.contains(&"printf '%s\\n' never".to_owned()));
+    }
+
+    #[test]
+    fn later_parent_scope_function_definitions_can_terminate_later_runtime_calls() {
+        let source = "\
+main() {
+  exit_script
+  printf '%s\\n' never
+}
+exit_script() {
+  exit 0
+}
+main
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let unreachable = analysis
+            .dead_code()
+            .iter()
+            .flat_map(|entry| entry.unreachable.iter())
+            .map(|span| span.slice(source).trim_end().to_owned())
+            .collect::<Vec<_>>();
+
+        assert!(unreachable.contains(&"printf '%s\\n' never".to_owned()));
+    }
+
+    #[test]
+    fn later_function_definitions_do_not_make_earlier_calls_terminating() {
+        let source = "\
+main() {
+  exit_script
+  printf '%s\\n' still_reachable
+}
+main
+exit_script() {
+  exit 0
+}
+";
+        let model = model(source);
+
+        assert!(
+            model.analysis().dead_code().is_empty(),
+            "dead code: {:?}",
+            model.analysis().dead_code()
+        );
+    }
+
+    #[test]
+    fn transitive_calls_before_parent_definitions_keep_later_code_reachable() {
+        let source = "\
+main() {
+  helper
+}
+helper() {
+  inner
+}
+inner() {
+  exit_script
+  printf '%s\\n' maybe
+}
+if should_run; then
+  main
+fi
+exit_script() {
+  exit 0
+}
+main
+";
+        let model = model(source);
+
+        assert!(
+            model.analysis().dead_code().is_empty(),
+            "dead code: {:?}",
+            model.analysis().dead_code()
+        );
+    }
+
+    #[test]
+    fn top_level_parent_call_before_nested_definition_keeps_later_code_reachable() {
+        let source = "\
+outer() {
+  inner() {
+    helper
+    printf '%s\\n' maybe
+  }
+  inner
+  helper() {
+    exit 0
+  }
+}
+outer
+";
+        let model = model(source);
+
+        assert!(
+            model.analysis().dead_code().is_empty(),
+            "dead code: {:?}",
+            model.analysis().dead_code()
+        );
+    }
+
+    #[test]
+    fn nested_calls_after_parent_definition_can_use_script_terminating_helpers() {
+        let source = "\
+outer() {
+  inner() {
+    helper
+    printf '%s\\n' never
+  }
+  helper() {
+    exit 0
+  }
+  inner
+}
+outer
+";
+        let model = model(source);
+        let unreachable = model
+            .analysis()
+            .dead_code()
+            .iter()
+            .flat_map(|entry| entry.unreachable.iter())
+            .map(|span| span.slice(source).trim_end().to_owned())
+            .collect::<Vec<_>>();
+
+        assert!(
+            unreachable.contains(&"printf '%s\\n' never".to_owned()),
+            "unreachable spans: {unreachable:?}"
+        );
+    }
+
+    #[test]
+    fn later_redefinitions_do_not_fall_back_to_stale_terminating_helpers() {
+        let source = "\
+exit_script() {
+  exit 0
+}
+main() {
+  exit_script
+  printf '%s\\n' maybe
+}
+if should_run; then
+  main
+fi
+exit_script() {
+  :
+}
+main
+";
+        let model = model(source);
+
+        assert!(
+            model.analysis().dead_code().is_empty(),
+            "dead code: {:?}",
+            model.analysis().dead_code()
+        );
+    }
+
+    #[test]
+    fn conditional_function_definitions_do_not_make_calls_terminating() {
+        let source = "\
+if false; then
+  exit_script() {
+    exit 0
+  }
+fi
+exit_script
+printf '%s\\n' still_reachable
+";
+        let model = model(source);
+
+        assert!(
+            model.analysis().dead_code().is_empty(),
+            "dead code: {:?}",
+            model.analysis().dead_code()
+        );
+    }
+
+    #[test]
     fn conditional_exit_keeps_or_fallback_reachable() {
         let source = "run && exit 0 || echo fallback\n";
         let model = model(source);
@@ -7719,6 +8009,9 @@ echo done
             &model.recorded_program,
             &model.command_bindings,
             &model.command_references,
+            &model.scopes,
+            &model.bindings,
+            &model.call_sites,
         );
 
         assert!(!cfg.block_ids_for_span(conditional.span).is_empty());
@@ -7761,6 +8054,9 @@ echo done
             &model.recorded_program,
             &model.command_bindings,
             &model.command_references,
+            &model.scopes,
+            &model.bindings,
+            &model.call_sites,
         );
 
         assert!(!cfg.block_ids_for_span(conditional.span).is_empty());
