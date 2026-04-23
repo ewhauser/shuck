@@ -2196,24 +2196,23 @@ fn builtin_wrapper_target_index<'a>(
     static_text_at: &mut impl FnMut(usize) -> Option<Cow<'a, str>>,
 ) -> Option<usize> {
     let index = current_index + 1;
-
-    while index < word_count {
-        let Some(arg) = static_text_at(index) else {
-            return Some(index);
-        };
-
-        if arg == "--" {
-            return next_word_index(word_count, index);
-        }
-
-        if arg.starts_with('-') && arg != "-" {
-            return None;
-        }
-
-        return Some(index);
+    if index >= word_count {
+        return None;
     }
 
-    None
+    let Some(arg) = static_text_at(index) else {
+        return Some(index);
+    };
+
+    if arg == "--" {
+        return next_word_index(word_count, index);
+    }
+
+    if arg.starts_with('-') && arg != "-" {
+        return None;
+    }
+
+    Some(index)
 }
 
 fn exec_wrapper_target_index<'a>(
