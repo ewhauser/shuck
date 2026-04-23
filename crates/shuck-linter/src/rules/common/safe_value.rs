@@ -1420,7 +1420,7 @@ fn alternative_terminal_flow_kind(
     if saw_exit && !saw_stop {
         return TerminalFlowKind::Exit;
     }
-    if saw_exit {
+    if saw_exit || saw_stop {
         return TerminalFlowKind::Stop;
     }
 
@@ -3263,6 +3263,37 @@ helper() {
 helper() {
   return 0
   exit 1
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let helper_header = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(name, _)| name.as_str() == "helper")
+            })
+            .expect("expected helper function header");
+
+        assert!(!function_has_terminal_exit(helper_header.function()));
+    }
+
+    #[test]
+    fn all_if_branches_returning_do_not_make_function_terminal() {
+        let source = "\
+#!/bin/sh
+helper() {
+  if [ \"$SKIP\" ]; then
+    return 0
+  else
+    return 1
+  fi
+  exit 0
 }
 ";
         let output = Parser::new(source).parse().unwrap();

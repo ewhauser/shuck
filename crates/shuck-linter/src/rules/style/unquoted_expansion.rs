@@ -316,6 +316,27 @@ echo /tmp/$SAFE
     }
 
     #[test]
+    fn ignores_safe_bindings_after_all_branch_returning_helpers() {
+        let source = "\
+#!/bin/sh
+SAFE=foo
+Exit() {
+  if [ \"$SKIP\" ]; then
+    return 0
+  else
+    return 1
+  fi
+  exit 0
+}
+Exit
+echo /tmp/$SAFE
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn reports_literal_bindings_after_conditionally_exiting_exit_like_helpers() {
         let source = "\
 #!/bin/sh
