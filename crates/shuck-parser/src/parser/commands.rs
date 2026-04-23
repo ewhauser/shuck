@@ -2154,8 +2154,13 @@ impl<'a> Parser<'a> {
         }
 
         let mut patterns = Vec::new();
-        while self.at_word_like() {
-            if let Some(word) = self.take_current_word_and_advance() {
+        while self.at_word_like() || self.at(TokenKind::LeftBrace) {
+            if self.at(TokenKind::LeftBrace) {
+                let span = self.current_span;
+                let word = self.parse_word_with_context("{", span, span.start, true);
+                patterns.push(self.pattern_from_word(&word));
+                self.advance();
+            } else if let Some(word) = self.take_current_word_and_advance() {
                 patterns.push(self.pattern_from_word(&word));
             }
 

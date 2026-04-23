@@ -662,27 +662,9 @@ pub fn word_folded_positional_at_splat_span_in_source(word: &Word, source: &str)
 }
 
 pub fn word_zsh_flag_modifier_spans(word: &Word) -> Vec<Span> {
-    word.parts
-        .iter()
-        .filter_map(|part| {
-            let WordPart::Parameter(parameter) = &part.kind else {
-                return None;
-            };
-            let ParameterExpansionSyntax::Zsh(syntax) = &parameter.syntax else {
-                return None;
-            };
-            if syntax.modifiers.is_empty() {
-                return None;
-            }
-
-            match syntax.target {
-                ZshExpansionTarget::Reference(_) | ZshExpansionTarget::Word(_) => {}
-                ZshExpansionTarget::Nested(_) | ZshExpansionTarget::Empty => return None,
-            }
-
-            syntax.modifiers.first().map(|modifier| modifier.span)
-        })
-        .collect()
+    let mut spans = Vec::new();
+    collect_zsh_flag_modifier_spans_in_parts(&word.parts, &mut spans);
+    spans
 }
 
 pub fn word_zsh_nested_expansion_spans(word: &Word) -> Vec<Span> {
@@ -721,6 +703,212 @@ pub fn word_nested_zsh_substitution_spans(word: &Word) -> Vec<Span> {
                 .map(|_| parameter.span)
         })
         .collect()
+}
+
+fn collect_zsh_flag_modifier_spans_in_parts(parts: &[WordPartNode], spans: &mut Vec<Span>) {
+    for part in parts {
+        match &part.kind {
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_zsh_flag_modifier_spans_in_parts(parts, spans);
+            }
+            WordPart::ArithmeticExpansion {
+                expression_word_ast,
+                ..
+            } => {
+                collect_zsh_flag_modifier_spans_in_word(expression_word_ast, spans);
+            }
+            WordPart::Parameter(parameter) => {
+                collect_zsh_flag_modifier_spans_in_parameter(parameter, spans);
+            }
+            WordPart::ParameterExpansion {
+                reference,
+                operand_word_ast,
+                ..
+            } => {
+                collect_zsh_flag_modifier_spans_in_var_ref(reference, spans);
+                if let Some(word) = operand_word_ast.as_ref() {
+                    collect_zsh_flag_modifier_spans_in_word(word, spans);
+                }
+            }
+            WordPart::Length(reference)
+            | WordPart::ArrayAccess(reference)
+            | WordPart::ArrayLength(reference)
+            | WordPart::ArrayIndices(reference)
+            | WordPart::Transformation { reference, .. } => {
+                collect_zsh_flag_modifier_spans_in_var_ref(reference, spans);
+            }
+            WordPart::Substring {
+                reference,
+                offset_word_ast,
+                length_word_ast,
+                ..
+            }
+            | WordPart::ArraySlice {
+                reference,
+                offset_word_ast,
+                length_word_ast,
+                ..
+            } => {
+                collect_zsh_flag_modifier_spans_in_var_ref(reference, spans);
+                collect_zsh_flag_modifier_spans_in_word(offset_word_ast, spans);
+                if let Some(word) = length_word_ast.as_ref() {
+                    collect_zsh_flag_modifier_spans_in_word(word, spans);
+                }
+            }
+            WordPart::IndirectExpansion {
+                reference,
+                operand_word_ast,
+                ..
+            } => {
+                collect_zsh_flag_modifier_spans_in_var_ref(reference, spans);
+                if let Some(word) = operand_word_ast.as_ref() {
+                    collect_zsh_flag_modifier_spans_in_word(word, spans);
+                }
+            }
+            WordPart::Literal(_)
+            | WordPart::ZshQualifiedGlob(_)
+            | WordPart::SingleQuoted { .. }
+            | WordPart::Variable(_)
+            | WordPart::CommandSubstitution { .. }
+            | WordPart::PrefixMatch { .. }
+            | WordPart::ProcessSubstitution { .. } => {}
+        }
+    }
+}
+
+fn collect_zsh_flag_modifier_spans_in_word(word: &Word, spans: &mut Vec<Span>) {
+    collect_zsh_flag_modifier_spans_in_parts(&word.parts, spans);
+}
+
+fn collect_zsh_flag_modifier_spans_in_var_ref(reference: &VarRef, spans: &mut Vec<Span>) {
+    let Some(subscript) = reference.subscript.as_ref() else {
+        return;
+    };
+    if let Some(word) = subscript.word_ast() {
+        collect_zsh_flag_modifier_spans_in_word(word, spans);
+    }
+}
+
+fn collect_zsh_flag_modifier_spans_in_parameter(
+    parameter: &ParameterExpansion,
+    spans: &mut Vec<Span>,
+) {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(syntax) => {
+            collect_zsh_flag_modifier_spans_in_bourne_parameter(syntax, spans);
+        }
+        ParameterExpansionSyntax::Zsh(syntax) => {
+            let has_portability_relevant_modifier =
+                syntax.modifiers.iter().any(|modifier| modifier.name != '=');
+            if has_portability_relevant_modifier
+                && let Some(span) = zsh_flag_modifier_span(parameter, syntax)
+            {
+                spans.push(span);
+            }
+
+            collect_zsh_flag_modifier_spans_in_zsh_target(&syntax.target, spans);
+
+            for modifier in &syntax.modifiers {
+                if let Some(word) = modifier.argument_word_ast() {
+                    collect_zsh_flag_modifier_spans_in_word(word, spans);
+                }
+            }
+
+            if let Some(operation) = &syntax.operation {
+                if let Some(word) = operation.operand_word_ast() {
+                    collect_zsh_flag_modifier_spans_in_word(word, spans);
+                }
+                if let Some(word) = operation.pattern_word_ast() {
+                    collect_zsh_flag_modifier_spans_in_word(word, spans);
+                }
+                if let Some(word) = operation.replacement_word_ast() {
+                    collect_zsh_flag_modifier_spans_in_word(word, spans);
+                }
+                if let Some(word) = operation.offset_word_ast() {
+                    collect_zsh_flag_modifier_spans_in_word(word, spans);
+                }
+                if let Some(word) = operation.length_word_ast() {
+                    collect_zsh_flag_modifier_spans_in_word(word, spans);
+                }
+            }
+        }
+    }
+}
+
+fn collect_zsh_flag_modifier_spans_in_bourne_parameter(
+    syntax: &BourneParameterExpansion,
+    spans: &mut Vec<Span>,
+) {
+    match syntax {
+        BourneParameterExpansion::Access { reference }
+        | BourneParameterExpansion::Length { reference }
+        | BourneParameterExpansion::Indices { reference }
+        | BourneParameterExpansion::Transformation { reference, .. } => {
+            collect_zsh_flag_modifier_spans_in_var_ref(reference, spans);
+        }
+        BourneParameterExpansion::Indirect {
+            reference,
+            operand_word_ast,
+            ..
+        }
+        | BourneParameterExpansion::Operation {
+            reference,
+            operand_word_ast,
+            ..
+        } => {
+            collect_zsh_flag_modifier_spans_in_var_ref(reference, spans);
+            if let Some(word) = operand_word_ast.as_ref() {
+                collect_zsh_flag_modifier_spans_in_word(word, spans);
+            }
+        }
+        BourneParameterExpansion::Slice {
+            reference,
+            offset_word_ast,
+            length_word_ast,
+            ..
+        } => {
+            collect_zsh_flag_modifier_spans_in_var_ref(reference, spans);
+            collect_zsh_flag_modifier_spans_in_word(offset_word_ast, spans);
+            if let Some(word) = length_word_ast.as_ref() {
+                collect_zsh_flag_modifier_spans_in_word(word, spans);
+            }
+        }
+        BourneParameterExpansion::PrefixMatch { .. } => {}
+    }
+}
+
+fn collect_zsh_flag_modifier_spans_in_zsh_target(
+    target: &ZshExpansionTarget,
+    spans: &mut Vec<Span>,
+) {
+    match target {
+        ZshExpansionTarget::Reference(reference) => {
+            collect_zsh_flag_modifier_spans_in_var_ref(reference, spans);
+        }
+        ZshExpansionTarget::Nested(parameter) => {
+            collect_zsh_flag_modifier_spans_in_parameter(parameter, spans);
+        }
+        ZshExpansionTarget::Word(word) => {
+            collect_zsh_flag_modifier_spans_in_word(word, spans);
+        }
+        ZshExpansionTarget::Empty => {}
+    }
+}
+
+fn zsh_flag_modifier_span(
+    parameter: &ParameterExpansion,
+    syntax: &shuck_ast::ZshParameterExpansion,
+) -> Option<Span> {
+    let modifier = syntax.modifiers.first()?;
+    match &syntax.target {
+        ZshExpansionTarget::Reference(_) => Some(Span::from_positions(
+            modifier.span.start,
+            parameter.raw_body.span().end,
+        )),
+        ZshExpansionTarget::Word(_) => Some(modifier.span),
+        ZshExpansionTarget::Nested(_) => Some(modifier.span),
+        ZshExpansionTarget::Empty => None,
+    }
 }
 
 pub fn conditional_extglob_span(expression: &ConditionalExpr, source: &str) -> Option<Span> {

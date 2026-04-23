@@ -1211,8 +1211,8 @@ impl<'a> Lexer<'a> {
                 }
             }
             '{' => {
+                let start = self.current_position();
                 if self.ignore_braces_enabled() {
-                    let start = self.current_position();
                     self.consume_ascii_chars(1);
                     match self.peek_char() {
                         Some(' ') | Some('\t') | Some('\n') | None => {
@@ -3606,11 +3606,13 @@ impl<'a> Lexer<'a> {
         false
     }
 
-    /// Read a {literal} pattern without comma/dot-dot as a word
+    /// Read a {literal} pattern without comma/dot-dot as a word.
+    ///
+    /// When there is no matching `}`, stop at the next token boundary instead
+    /// of swallowing the rest of the case arm or command.
     fn read_brace_literal_word(&mut self) -> Option<LexedToken<'a>> {
         let mut word = String::with_capacity(16);
 
-        // Read the opening {
         if let Some('{') = self.peek_char() {
             word.push('{');
             self.advance();
@@ -3618,7 +3620,10 @@ impl<'a> Lexer<'a> {
             return None;
         }
 
-        // Read until matching }
+        if self.peek_char() == Some(')') {
+            return Some(LexedToken::owned_word(TokenKind::Word, word));
+        }
+
         let mut depth = 1;
         while let Some(ch) = self.peek_char() {
             word.push(ch);
@@ -3635,7 +3640,6 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        // Continue reading any suffix
         while let Some(ch) = self.peek_char() {
             if Self::is_word_char(ch) {
                 if self.reinject_buf.is_empty() {
