@@ -2092,9 +2092,7 @@ fn collect_static_command_name_parts_text(
     for part in parts {
         match &part.kind {
             WordPart::Literal(text) => {
-                let decoded =
-                    decode_static_command_literal(text.as_str(source, part.span), context);
-                out.push_str(decoded.as_ref());
+                append_static_command_literal(text.as_str(source, part.span), context, out);
             }
             WordPart::SingleQuoted { value, .. } => out.push_str(value.slice(source)),
             WordPart::DoubleQuoted { parts, .. } => {
@@ -2115,42 +2113,70 @@ fn collect_static_command_name_parts_text(
 }
 
 fn decode_static_command_literal(text: &str, context: StaticCommandNameContext) -> Cow<'_, str> {
-    if !text.contains('\\') {
+    let Some(first_escape) = first_static_command_literal_escape(text.as_bytes()) else {
         return Cow::Borrowed(text);
-    }
+    };
 
     let mut result = String::with_capacity(text.len());
-    let mut chars = text.chars();
+    append_decoded_static_command_literal(text, first_escape, context, &mut result);
+    Cow::Owned(result)
+}
 
-    while let Some(ch) = chars.next() {
-        if ch != '\\' {
-            result.push(ch);
+fn append_static_command_literal(text: &str, context: StaticCommandNameContext, out: &mut String) {
+    let Some(first_escape) = first_static_command_literal_escape(text.as_bytes()) else {
+        out.push_str(text);
+        return;
+    };
+
+    append_decoded_static_command_literal(text, first_escape, context, out);
+}
+
+fn append_decoded_static_command_literal(
+    text: &str,
+    first_escape: usize,
+    context: StaticCommandNameContext,
+    out: &mut String,
+) {
+    let bytes = text.as_bytes();
+    let mut copy_start = 0usize;
+    let mut index = first_escape;
+
+    while index < bytes.len() {
+        if bytes[index] != b'\\' {
+            index += 1;
             continue;
         }
 
-        let Some(next) = chars.next() else {
-            result.push('\\');
-            break;
+        out.push_str(&text[copy_start..index]);
+        index += 1;
+
+        let Some(&next) = bytes.get(index) else {
+            out.push('\\');
+            return;
         };
 
         match context {
             StaticCommandNameContext::Unquoted => {
-                if next != '\n' {
-                    result.push(next);
-                }
+                copy_start = if next == b'\n' { index + 1 } else { index };
             }
             StaticCommandNameContext::DoubleQuoted => match next {
-                '$' | '`' | '"' | '\\' => result.push(next),
-                '\n' => {}
+                b'$' | b'`' | b'"' | b'\\' => copy_start = index,
+                b'\n' => copy_start = index + 1,
                 _ => {
-                    result.push('\\');
-                    result.push(next);
+                    out.push('\\');
+                    copy_start = index;
                 }
             },
         }
+
+        index += 1;
     }
 
-    Cow::Owned(result)
+    out.push_str(&text[copy_start..]);
+}
+
+fn first_static_command_literal_escape(bytes: &[u8]) -> Option<usize> {
+    bytes.iter().position(|&byte| byte == b'\\')
 }
 
 fn next_word_index(word_count: usize, current_index: usize) -> Option<usize> {
@@ -3997,6 +4023,51 @@ mod tests {
     fn word_try_static_text_rejects_runtime_expansions() {
         let variable = word(vec![WordPart::Variable("name".into())]);
         assert!(variable.try_static_text("").is_none());
+    }
+
+    #[test]
+    fn command_name_text_decodes_unquoted_backslashes() {
+        assert_eq!(
+            decode_static_command_literal("\\foo\\ bar\\\nqux", StaticCommandNameContext::Unquoted)
+                .as_ref(),
+            "foo barqux"
+        );
+    }
+
+    #[test]
+    fn command_name_text_decodes_double_quoted_backslashes_selectively() {
+        assert_eq!(
+            decode_static_command_literal("\\$foo\\q\\\\", StaticCommandNameContext::DoubleQuoted)
+                .as_ref(),
+            "$foo\\q\\"
+        );
+    }
+
+    #[test]
+    fn command_name_text_concatenates_nested_static_parts() {
+        let span = Span::new();
+        let word = Word {
+            parts: vec![
+                WordPartNode::new(WordPart::Literal(LiteralText::owned("\\foo")), span),
+                WordPartNode::new(
+                    WordPart::DoubleQuoted {
+                        parts: vec![WordPartNode::new(
+                            WordPart::Literal(LiteralText::owned("\\$bar")),
+                            span,
+                        )],
+                        dollar: false,
+                    },
+                    span,
+                ),
+            ],
+            span,
+            brace_syntax: Vec::new(),
+        };
+
+        assert_eq!(
+            static_command_name_text(&word, "").as_deref(),
+            Some("foo$bar")
+        );
     }
 
     #[test]
