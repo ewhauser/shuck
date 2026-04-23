@@ -13,3 +13,9 @@ X031 `source` is not portable in `sh` scripts
   |
 7 | command source ./wrapped.sh
   |
+
+X031 `source` is not portable in `sh` scripts
+  --> <source>:11:3
+   |
+11 |   source ./inside.sh
+   |

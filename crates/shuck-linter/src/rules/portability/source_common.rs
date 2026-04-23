@@ -5,15 +5,15 @@ use crate::{Checker, ShellDialect};
 
 #[derive(Clone, Copy)]
 pub(super) enum SourceScopeFilter {
+    Any,
     InsideFunction,
-    OutsideFunction,
 }
 
 impl SourceScopeFilter {
     fn matches(self, inside_function: bool) -> bool {
         match self {
+            Self::Any => true,
             Self::InsideFunction => inside_function,
-            Self::OutsideFunction => !inside_function,
         }
     }
 }
