@@ -1281,6 +1281,7 @@ fn evaluate_fixture_compatibility(
 
     let mut evaluation = FixtureEvaluation::default();
     let src = fs::read(&fixture.path).unwrap_or_default();
+    let source = String::from_utf8_lossy(&src);
     let shuck_timeout = effective_shuck_timeout(&src, shuck_timeout);
 
     let shuck_run = match run_shuck_with_timeout(
@@ -1321,6 +1322,9 @@ fn evaluate_fixture_compatibility(
             let Some(sc_run) = shellcheck_run.as_ref() else {
                 unreachable!("parse-aborted shuck runs should probe shellcheck")
             };
+            if should_ignore_parse_abort_for_targeted_rule_run(shellcheck_filter_codes, sc_run) {
+                return evaluation;
+            }
             let mut details = vec![format!("shuck parse error: {err}")];
             if sc_run.parse_aborted {
                 details.push("shellcheck parse aborted".into());
@@ -1369,8 +1373,11 @@ fn evaluate_fixture_compatibility(
                 return evaluation;
             }
 
-            let shellcheck_records =
-                shellcheck_compatibility_records(&sc_run.diagnostics, shellcheck_rule_index);
+            let shellcheck_records = shellcheck_compatibility_records(
+                &sc_run.diagnostics,
+                source.as_ref(),
+                shellcheck_rule_index,
+            );
             let shuck_records =
                 shuck_compatibility_records(&shuck_run.diagnostics, shellcheck_index);
             let (shellcheck_only, shuck_only) =
@@ -1524,6 +1531,15 @@ fn filter_shellcheck_run(
         .retain(|diag| shellcheck_filter_codes.contains(&diag.code));
     run.parse_aborted |= shellcheck_parse_aborted(&run.diagnostics);
     run
+}
+
+fn should_ignore_parse_abort_for_targeted_rule_run(
+    shellcheck_filter_codes: Option<&HashSet<u32>>,
+    shellcheck_run: &ShellCheckRun,
+) -> bool {
+    shellcheck_filter_codes.is_some()
+        && !shellcheck_run.parse_aborted
+        && shellcheck_run.diagnostics.is_empty()
 }
 
 fn large_corpus_has_active_shellcheck_comparison(
@@ -1683,12 +1699,19 @@ fn classify_compatibility_record(
 
     (CompatibilityClassification::Implementation, None)
 }
+
+fn source_line_at(source: &str, line_number: usize) -> Option<&str> {
+    source.lines().nth(line_number.saturating_sub(1))
+}
+
 fn shellcheck_compatibility_records(
     diagnostics: &[ShellCheckDiagnostic],
+    source: &str,
     shellcheck_rule_index: &HashMap<u32, Vec<String>>,
 ) -> Vec<CompatibilityRecord> {
     diagnostics
         .iter()
+        .filter(|diag| shellcheck_diagnostic_counts_for_compatibility(diag, source))
         .map(|diag| {
             let rule_codes = shellcheck_rule_index
                 .get(&diag.code)
@@ -1709,6 +1732,35 @@ fn shellcheck_compatibility_records(
             }
         })
         .collect()
+}
+
+fn shellcheck_diagnostic_counts_for_compatibility(
+    diagnostic: &ShellCheckDiagnostic,
+    source: &str,
+) -> bool {
+    !(diagnostic.code == 1065
+        && source_line_at(source, diagnostic.line).is_some_and(is_named_coproc_subshell_line))
+}
+
+fn is_named_coproc_subshell_line(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    let Some(after_coproc) = trimmed.strip_prefix("coproc") else {
+        return false;
+    };
+    if !after_coproc.chars().next().is_some_and(char::is_whitespace) {
+        return false;
+    }
+
+    let after_coproc = after_coproc.trim_start();
+    let Some(name_end) = after_coproc.find(char::is_whitespace) else {
+        return false;
+    };
+    let name = &after_coproc[..name_end];
+    if name.is_empty() {
+        return false;
+    }
+
+    after_coproc[name_end..].trim_start().starts_with('(')
 }
 
 fn shuck_compatibility_records(
@@ -3741,6 +3793,99 @@ mod tests {
     }
 
     #[test]
+    fn shellcheck_compatibility_records_ignore_named_coproc_sc1065() {
+        let diagnostics = vec![ShellCheckDiagnostic {
+            file: String::new(),
+            code: 1065,
+            line: 1,
+            end_line: 1,
+            column: 17,
+            end_column: 17,
+            level: "error".into(),
+            message: "diagnostic 1065".into(),
+            fix: None,
+        }];
+        let shellcheck_rule_index = HashMap::from([(1065, vec!["X035".to_string()])]);
+
+        let records = shellcheck_compatibility_records(
+            &diagnostics,
+            "coproc pycoproc (python3 ${pywrapper})\n",
+            &shellcheck_rule_index,
+        );
+
+        assert!(records.is_empty());
+    }
+
+    #[test]
+    fn shellcheck_compatibility_records_keep_function_parameter_sc1065() {
+        let diagnostics = vec![ShellCheckDiagnostic {
+            file: String::new(),
+            code: 1065,
+            line: 1,
+            end_line: 1,
+            column: 11,
+            end_column: 11,
+            level: "error".into(),
+            message: "diagnostic 1065".into(),
+            fix: None,
+        }];
+        let shellcheck_rule_index = HashMap::from([(1065, vec!["X035".to_string()])]);
+
+        let records = shellcheck_compatibility_records(
+            &diagnostics,
+            "function g(y) { :; }\n",
+            &shellcheck_rule_index,
+        );
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].shellcheck_code, "SC1065");
+        assert_eq!(records[0].rule_code.as_deref(), Some("X035"));
+    }
+
+    #[test]
+    fn targeted_rule_runs_ignore_parse_aborts_without_matching_shellcheck_hits() {
+        let shellcheck_run = ShellCheckRun {
+            diagnostics: Vec::new(),
+            parse_aborted: false,
+        };
+
+        assert!(should_ignore_parse_abort_for_targeted_rule_run(
+            Some(&HashSet::from([1065])),
+            &shellcheck_run
+        ));
+    }
+
+    #[test]
+    fn targeted_rule_runs_keep_parse_aborts_with_matching_shellcheck_hits() {
+        let shellcheck_run = ShellCheckRun {
+            diagnostics: vec![shellcheck_diagnostic(1065)],
+            parse_aborted: false,
+        };
+
+        assert!(!should_ignore_parse_abort_for_targeted_rule_run(
+            Some(&HashSet::from([1065])),
+            &shellcheck_run
+        ));
+    }
+
+    #[test]
+    fn targeted_rule_runs_keep_parse_aborts_when_shellcheck_also_aborts() {
+        let shellcheck_run = ShellCheckRun {
+            diagnostics: Vec::new(),
+            parse_aborted: true,
+        };
+
+        assert!(!should_ignore_parse_abort_for_targeted_rule_run(
+            Some(&HashSet::from([1065])),
+            &shellcheck_run
+        ));
+        assert!(!should_ignore_parse_abort_for_targeted_rule_run(
+            None,
+            &shellcheck_run
+        ));
+    }
+
+    #[test]
     fn rule_corpus_metadata_path_uses_rule_code_convention() {
         assert_eq!(
             rule_corpus_metadata_path("X123"),
@@ -4189,6 +4334,29 @@ mod tests {
 
         let (classification, reason) =
             classify_compatibility_record(&record, "fixtures/unrelated.sh", &metadata);
+
+        assert_eq!(classification, CompatibilityClassification::Implementation);
+        assert!(reason.is_none());
+    }
+
+    #[test]
+    fn sc1065_function_parameter_syntax_stays_blocking_without_metadata() {
+        let record = CompatibilityRecord {
+            side: CompatibilitySide::ShellcheckOnly,
+            rule_code: Some("X035".into()),
+            rule_codes: vec!["X035".into()],
+            shellcheck_code: "SC1065".into(),
+            range: DiagnosticRange {
+                line: 1,
+                end_line: 1,
+                column: 11,
+                end_column: 11,
+            },
+            message: "error function params".into(),
+        };
+
+        let (classification, reason) =
+            classify_compatibility_record(&record, "repo__script.sh", &HashMap::new());
 
         assert_eq!(classification, CompatibilityClassification::Implementation);
         assert!(reason.is_none());
