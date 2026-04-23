@@ -1,13 +1,1 @@
-reviewed_divergences:
-- side: shellcheck-only
-  path_suffix: google__oss-fuzz__projects__sudoers__build.sh
-  reason: These legacy-backtick SC2001 sites match in warning shape, but the pinned oracle anchors the span inside the escaped sed script while shuck reports the full inner pipeline. The remaining difference is reviewed as legacy-backtick location drift.
-- side: shuck-only
-  path_suffix: google__oss-fuzz__projects__sudoers__build.sh
-  reason: These legacy-backtick SC2001 sites match in warning shape, but the pinned oracle anchors the span inside the escaped sed script while shuck reports the full inner pipeline. The remaining difference is reviewed as legacy-backtick location drift.
-- side: shellcheck-only
-  path_suffix: swoodford__aws__ec2-associate-elastic-ip.sh
-  reason: This legacy-backtick SC2001 match lands on the same inner `echo | sed -e` rewrite, but the pinned oracle truncates the anchor inside the escaped sed script while shuck reports the full pipeline. The remaining difference is reviewed as legacy-backtick location drift.
-- side: shuck-only
-  path_suffix: swoodford__aws__ec2-associate-elastic-ip.sh
-  reason: This legacy-backtick SC2001 match lands on the same inner `echo | sed -e` rewrite, but the pinned oracle truncates the anchor inside the escaped sed script while shuck reports the full pipeline. The remaining difference is reviewed as legacy-backtick location drift.
+reviewed_divergences: []

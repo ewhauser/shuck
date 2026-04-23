@@ -839,8 +839,9 @@ value=$(sed 's/[\\.|$(){}?+*^]/\\\\&/g' <<<\"$value\")
 echo \"$value\" | sed 's/a/b/' <<<\"$shadow\"
 CFLAGS=\"`echo \\\"$CFLAGS\\\" | sed \\\"s/ $COVERAGE_FLAGS//\\\"`\"
 OPTFLAG=\"`echo \\\"$CFLAGS\\\" | sed 's/^.*\\(-O[^ ]\\).*$/\\1/'`\"
-EC2_REGION=\"`echo \\\"$EC2_AVAIL_ZONE\\\" | sed -e 's:\\([0-9][0-9]*\\)[a-z]*\\$:\\1:'`\"
+EC2_REGION=\"`echo \\\"$EC2_AVAIL_ZONE\\\" | sed -e 's:\\([0-9][0-9]*\\)[a-z]*\\$:\\\\1:'`\"
 ESCAPED_REGION=\"`echo \\\"$EC2_AVAIL_ZONE\\\" | sed -e \\\"s/foo/bar/\\\"`\"
+FLAGGED_REGION=\"`echo \\\"$EC2_REGION\\\" | sed 's/foo/bar/g'`\"
 echo \"$caps_add\" | sed 's/^/  /' \t
 trimmed=$(sed 's/[[:space:]]*$//' <<<\"$value\")
 literal=$(sed 's/[[:space:]]*$//' <<<literal)
@@ -864,10 +865,11 @@ literal=$(sed 's/[[:space:]]*$//' <<<literal)
                 "echo \"$hostname\" | sed 's/[]\\[\\.^$*+?{}()|]/\\\\&/g'",
                 "sed 's/[\\.|$(){}?+*^]/\\\\&/g' <<<\"$value\"",
                 "echo \"$value\" | sed 's/a/b/' <<<\"$shadow\"",
-                "echo \\\"$CFLAGS\\\" | sed \\\"s/ $COVERAGE_FLAGS//\\\"",
-                "echo \\\"$CFLAGS\\\" | sed 's/^.*\\(-O[^ ]\\).*$/\\1/'",
-                "echo \\\"$EC2_AVAIL_ZONE\\\" | sed -e 's:\\([0-9][0-9]*\\)[a-z]*\\$:\\1:'",
-                "echo \\\"$EC2_AVAIL_ZONE\\\" | sed -e \\\"s/foo/bar/\\\"",
+                "echo \\\"$CFLAGS\\\" | sed \\\"s/ $COVERAGE_FLAGS",
+                "echo \\\"$CFLAGS\\\" | sed 's/^.*\\(-O[^ ]\\).*$/\\1",
+                "echo \\\"$EC2_AVAIL_ZONE\\\" | sed -e 's:\\([0-9][0-9]*\\)[a-z]*\\$:\\",
+                "echo \\\"$EC2_AVAIL_ZONE\\\" | sed -e \\\"s/foo/bar",
+                "echo \\\"$EC2_REGION\\\" | sed 's/foo/bar/",
                 "echo \"$caps_add\" | sed 's/^/  /' \t",
                 "sed 's/[[:space:]]*$//' <<<\"$value\"",
                 "sed 's/[[:space:]]*$//' <<<literal",
@@ -904,6 +906,24 @@ echo \"prefix$(printf %s foo)\" | sed 's/foo/bar/'
 
     with_facts(source, None, |_, facts| {
         assert!(facts.echo_to_sed_substitution_spans().is_empty());
+    });
+}
+
+#[test]
+fn backtick_echo_to_sed_substitution_matches_shellcheck_columns_for_escaped_dollar_patterns() {
+    let source = "\
+#!/bin/bash
+EC2_REGION=\"`echo \\\"$EC2_AVAIL_ZONE\\\" | sed -e 's:\\([0-9][0-9]*\\)[a-z]*\\$:\\\\1:'`\"
+";
+
+    with_facts(source, None, |_, facts| {
+        let spans = facts.echo_to_sed_substitution_spans();
+        assert_eq!(spans.len(), 1);
+        let span = spans[0];
+        assert_eq!(span.start.line, 2);
+        assert_eq!(span.start.column, 14);
+        assert_eq!(span.end.line, 2);
+        assert_eq!(span.end.column, 76);
     });
 }
 
