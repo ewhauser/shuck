@@ -39,12 +39,11 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
         .collect::<FxHashSet<_>>();
 
     let mut findings = checker
-        .semantic()
-        .unresolved_references()
+        .semantic_analysis()
+        .uninitialized_references()
         .iter()
-        .copied()
-        .filter_map(|reference_id| {
-            let reference = checker.semantic().reference(reference_id);
+        .filter_map(|uninitialized| {
+            let reference = checker.semantic().reference(uninitialized.reference);
             if !is_reportable_variable_reference(
                 checker,
                 reference,
@@ -85,6 +84,14 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
             }
 
             let candidate = preferred_candidate_name(checker, reference.name.as_str())?;
+            if is_parallel_c_and_cxx_flag_use(
+                checker,
+                reference.name.as_str(),
+                reference.span,
+                candidate.as_str(),
+            ) {
+                return None;
+            }
             if reference_is_source_prefix_of_candidate(
                 checker,
                 reference.name.as_str(),
@@ -228,6 +235,28 @@ fn is_build_flag_alias_assignment_value(
         })
 }
 
+fn is_parallel_c_and_cxx_flag_use(
+    checker: &Checker<'_>,
+    reference_name: &str,
+    reference_span: shuck_ast::Span,
+    candidate_name: &str,
+) -> bool {
+    if reference_name != "CPPFLAGS" || canonical_uppercase_name(candidate_name) != "CXXFLAGS" {
+        return false;
+    }
+
+    let source = checker.source();
+    let current_line = source_line_at(source, reference_span.start.offset);
+    if text_mentions_shell_name(current_line, "CFLAGS") {
+        return true;
+    }
+
+    let nearby_lines = source_line_window(source, reference_span.start.offset, 1);
+    text_mentions_shell_name(nearby_lines, "CPPFLAGS")
+        && text_mentions_shell_name(nearby_lines, "CFLAGS")
+        && text_mentions_shell_name(nearby_lines, "CXXFLAGS")
+}
+
 fn reference_is_source_prefix_of_candidate(
     checker: &Checker<'_>,
     reference_name: &str,
@@ -250,7 +279,12 @@ fn reference_is_source_prefix_of_candidate(
 }
 
 fn is_compiler_flag_family_pair(target_name: &str, candidate_upper: &str) -> bool {
-    target_name == "CFLAGS" && matches!(candidate_upper, "CPPFLAGS" | "CXXFLAGS" | "CLDFLAGS")
+    matches!(
+        (target_name, candidate_upper),
+        ("CFLAGS", "CPPFLAGS" | "CXXFLAGS" | "CLDFLAGS" | "CC9FLAGS")
+            | ("CXXFLAGS", "CPPFLAGS" | "CC9FLAGS")
+            | ("CPPFLAGS", "CXXFLAGS")
+    )
 }
 
 fn common_prefix_len(left: &[u8], right: &[u8]) -> usize {
@@ -341,6 +375,58 @@ fn is_known_runtime_name(name: &str) -> bool {
 fn is_internal_placeholder_name(name: &str) -> bool {
     name.strip_prefix("_SHUCK_GHA_")
         .is_some_and(|suffix| suffix.chars().all(|char| char.is_ascii_digit()))
+}
+
+fn source_line_at(source: &str, offset: usize) -> &str {
+    let start = line_start_offset(source, offset);
+    let end = source[offset..]
+        .find('\n')
+        .map_or(source.len(), |index| offset + index);
+    &source[start..end]
+}
+
+fn line_start_offset(source: &str, offset: usize) -> usize {
+    source[..offset].rfind('\n').map_or(0, |index| index + 1)
+}
+
+fn source_line_window(source: &str, offset: usize, radius: usize) -> &str {
+    let mut start = offset;
+    for _ in 0..=radius {
+        start = source[..start].rfind('\n').map_or(0, |index| index);
+        if start == 0 {
+            break;
+        }
+    }
+
+    let mut end = offset;
+    for _ in 0..=radius {
+        end = source[end..]
+            .find('\n')
+            .map_or(source.len(), |index| end + index + 1);
+        if end == source.len() {
+            break;
+        }
+    }
+
+    &source[start..end]
+}
+
+fn text_mentions_shell_name(text: &str, name: &str) -> bool {
+    text.match_indices(name).any(|(start, _)| {
+        let end = start + name.len();
+        let before = start
+            .checked_sub(1)
+            .and_then(|index| text.as_bytes().get(index))
+            .copied();
+        let after = text.as_bytes().get(end).copied();
+
+        before.is_none_or(|byte| !is_shell_name_byte(byte))
+            && after.is_none_or(|byte| !is_shell_name_byte(byte))
+    })
+}
+
+fn is_shell_name_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
 #[cfg(test)]
