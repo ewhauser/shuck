@@ -96,6 +96,23 @@ mod tests {
     }
 
     #[test]
+    fn anchors_on_update_operators_inside_heredoc_parameter_command_substitutions() {
+        let source = "#!/bin/sh\ncat <<EOF\n${value:-$(printf '%s' \"$((i++))\")}\nEOF\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CStyleForArithmeticInSh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["++"]
+        );
+    }
+
+    #[test]
     fn anchors_on_update_operators_inside_assignment_target_subscripts() {
         let source = "#!/bin/sh\narr[i++]=x\narr[--j]=y\n";
         let diagnostics = test_snippet(
@@ -132,6 +149,17 @@ mod tests {
     #[test]
     fn ignores_associative_array_keys_that_look_like_updates() {
         let source = "#!/bin/sh\nlocal -A tools=([c++]=CXX)\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CStyleForArithmeticInSh),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_associative_assignment_target_subscripts_that_look_like_updates() {
+        let source = "#!/bin/sh\nlocal -A tools[c++]=CXX\n";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::CStyleForArithmeticInSh),

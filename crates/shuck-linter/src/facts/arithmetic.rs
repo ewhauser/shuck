@@ -785,37 +785,44 @@ fn collect_arithmetic_update_operator_spans_in_heredoc_body(
                 }
             }
             shuck_ast::HeredocBodyPart::CommandSubstitution { body, .. } => {
-                for stmt in &body.stmts {
-                    collect_arithmetic_update_operator_spans_in_command(
-                        &stmt.command,
-                        source,
-                        spans,
-                    );
-                    for redirect in &stmt.redirects {
-                        if let Some(word) = redirect.word_target() {
-                            collect_arithmetic_update_operator_spans_in_word(
-                                word,
-                                source,
-                                spans,
-                            );
-                        } else if let Some(heredoc) = redirect.heredoc()
-                            && heredoc.delimiter.expands_body
-                        {
-                            collect_arithmetic_update_operator_spans_in_heredoc_body(
-                                &heredoc.body.parts,
-                                source,
-                                spans,
-                            );
-                        }
-                    }
-                }
+                collect_arithmetic_update_operator_spans_in_nested_command_body(
+                    body, source, spans,
+                );
             }
             shuck_ast::HeredocBodyPart::Parameter(parameter) => {
-                collect_arithmetic_update_operator_spans_in_parameter_expansion(
+                collect_arithmetic_update_operator_spans_in_parameter_expansion_with_nested_commands(
                     parameter, source, spans,
                 );
             }
             shuck_ast::HeredocBodyPart::Literal(_) | shuck_ast::HeredocBodyPart::Variable(_) => {}
+        }
+    }
+}
+
+fn collect_arithmetic_update_operator_spans_in_nested_command_body(
+    body: &StmtSeq,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for visit in query::iter_commands(
+        body,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+    ) {
+        collect_arithmetic_update_operator_spans_in_command(visit.command, source, spans);
+        for redirect in visit.redirects {
+            if let Some(word) = redirect.word_target() {
+                collect_arithmetic_update_operator_spans_in_word(word, source, spans);
+            } else if let Some(heredoc) = redirect.heredoc()
+                && heredoc.delimiter.expands_body
+            {
+                collect_arithmetic_update_operator_spans_in_heredoc_body(
+                    &heredoc.body.parts,
+                    source,
+                    spans,
+                );
+            }
         }
     }
 }
@@ -825,7 +832,16 @@ fn collect_arithmetic_update_operator_spans_in_subscript(
     source: &str,
     spans: &mut Vec<Span>,
 ) {
-    if let Some(expression) = subscript.and_then(|subscript| subscript.arithmetic_ast.as_ref()) {
+    let Some(subscript) = subscript else {
+        return;
+    };
+    if matches!(
+        subscript.interpretation,
+        shuck_ast::SubscriptInterpretation::Associative
+    ) {
+        return;
+    }
+    if let Some(expression) = subscript.arithmetic_ast.as_ref() {
         collect_arithmetic_update_operator_spans(Some(expression), source, spans);
     }
 }
