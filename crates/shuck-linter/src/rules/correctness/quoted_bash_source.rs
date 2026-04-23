@@ -1,8 +1,8 @@
 use rustc_hash::FxHashSet;
 use shuck_ast::{Command, Span};
 use shuck_semantic::{
-    Binding, BindingAttributes, BindingKind, DeclarationBuiltin, DeclarationOperand, Reference,
-    ReferenceId,
+    Binding, BindingAttributes, BindingId, BindingKind, DeclarationBuiltin, DeclarationOperand,
+    Reference,
 };
 
 use crate::{Checker, LinterFacts, Rule, Violation, WordQuote};
@@ -22,12 +22,21 @@ impl Violation for QuotedBashSource {
 pub fn quoted_bash_source(checker: &mut Checker) {
     let semantic = checker.semantic();
     let analysis = semantic.analysis();
-    let spans = checker
+    let candidate_spans = checker
         .facts()
         .plain_unindexed_reference_spans()
         .iter()
         .copied()
-        .filter(|span| plain_reference_is_array_like(checker.facts(), semantic, &analysis, *span))
+        .map(span_key)
+        .collect::<FxHashSet<_>>();
+    let spans = semantic
+        .references()
+        .iter()
+        .filter(|reference| candidate_spans.contains(&span_key(reference.span)))
+        .filter(|reference| {
+            reference_is_array_like(checker.facts(), semantic, &analysis, reference)
+        })
+        .map(|reference| reference.span)
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || QuotedBashSource);
@@ -37,15 +46,8 @@ fn span_is_within(outer: Span, inner: Span) -> bool {
     outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
 }
 
-fn plain_reference_is_array_like(
-    facts: &LinterFacts<'_>,
-    semantic: &shuck_semantic::SemanticModel,
-    analysis: &shuck_semantic::SemanticAnalysis<'_>,
-    span: Span,
-) -> bool {
-    semantic.references().iter().any(|reference| {
-        reference.span == span && reference_is_array_like(facts, semantic, analysis, reference)
-    })
+fn span_key(span: Span) -> (usize, usize) {
+    (span.start.offset, span.end.offset)
 }
 
 fn reference_is_array_like(
@@ -55,35 +57,45 @@ fn reference_is_array_like(
     reference: &Reference,
 ) -> bool {
     if semantic.is_guarded_parameter_reference(reference.id)
-        || reference_has_prior_dominating_presence_test(facts, analysis, reference)
+        || reference_has_prior_presence_test(facts, semantic, reference)
         || reference_reads_into_same_name_array_writer(facts, semantic, reference)
     {
         return false;
     }
+    if let Some(binding) = semantic.resolved_binding(reference.id)
+        && semantic.binding_visible_at(binding.id, reference.span)
+        && !binding_is_array_like(binding)
+        && !binding_inherits_indexed_array_type(semantic, analysis, binding)
+        && (binding_resets_indexed_array_type(binding)
+            || binding_has_prior_local_barrier(semantic, binding))
+    {
+        return false;
+    }
 
-    semantic.reference_is_predefined_runtime_array(reference.id)
-        || reference_is_unbound_bash_runtime_array(semantic, reference)
-        || semantic
-            .resolved_binding(reference.id)
-            .is_some_and(|binding| {
-                semantic.binding_visible_at(binding.id, reference.span)
-                    && !semantic.binding_cleared_before(binding.id, reference.span)
-                    && !binding_reset_by_name_only_declaration_before(
-                        semantic,
-                        binding,
-                        reference.span,
-                    )
-                    && (binding_is_array_like(binding)
-                        || binding_inherits_indexed_array_type(semantic, binding))
-            })
-}
+    if is_bash_runtime_array_name(reference.name.as_str()) {
+        return true;
+    }
 
-fn reference_is_unbound_bash_runtime_array(
-    semantic: &shuck_semantic::SemanticModel,
-    reference: &Reference,
-) -> bool {
-    semantic.resolved_binding(reference.id).is_none()
-        && is_bash_runtime_array_name(reference.name.as_str())
+    let mut binding_ids = Vec::new();
+    let mut seen = FxHashSet::default();
+    if let Some(binding) = semantic.resolved_binding(reference.id)
+        && !binding_is_array_like(binding)
+        && seen.insert(binding.id)
+    {
+        binding_ids.push(binding.id);
+    }
+    for binding_id in candidate_binding_ids_for_reference(semantic, analysis, reference) {
+        if seen.insert(binding_id) {
+            binding_ids.push(binding_id);
+        }
+    }
+
+    binding_ids.into_iter().any(|binding_id| {
+        let binding = semantic.binding(binding_id);
+        !binding_reset_by_name_only_declaration_before(semantic, binding, reference.span)
+            && (binding_is_array_like(binding)
+                || binding_inherits_indexed_array_type(semantic, analysis, binding))
+    })
 }
 
 fn binding_is_array_like(binding: &Binding) -> bool {
@@ -99,20 +111,46 @@ fn binding_is_array_like(binding: &Binding) -> bool {
 
 fn binding_inherits_indexed_array_type(
     semantic: &shuck_semantic::SemanticModel,
+    analysis: &shuck_semantic::SemanticAnalysis<'_>,
     binding: &Binding,
 ) -> bool {
     if binding_resets_indexed_array_type(binding) {
         return false;
     }
 
+    let initialized_scalar_declaration = matches!(binding.kind, BindingKind::Declaration(_))
+        && binding
+            .attributes
+            .contains(BindingAttributes::DECLARATION_INITIALIZED)
+        && !binding
+            .attributes
+            .intersects(BindingAttributes::ARRAY | BindingAttributes::ASSOC);
+    let append_declaration = binding_is_append_declaration(semantic, binding);
+    let prior_local_barrier = binding_has_prior_local_barrier(semantic, binding);
+    let reaching_bindings = analysis
+        .reaching_bindings_for_name(&binding.name, binding.span)
+        .into_iter()
+        .collect::<FxHashSet<_>>();
+    let informative_same_scope_reaching = reaching_bindings
+        .iter()
+        .any(|candidate_id| *candidate_id != binding.id);
     let prior_bindings = semantic
         .bindings_for(&binding.name)
         .iter()
         .copied()
         .filter(|candidate_id| {
             let candidate = semantic.binding(*candidate_id);
+            let same_scope_candidate_allowed =
+                if initialized_scalar_declaration && !append_declaration {
+                    false
+                } else {
+                    append_declaration
+                        || !informative_same_scope_reaching
+                        || reaching_bindings.contains(candidate_id)
+                };
             candidate.span.start.offset < binding.span.start.offset
-                && !semantic.binding_cleared_before(*candidate_id, binding.span)
+                && ((candidate.scope != binding.scope && !prior_local_barrier)
+                    || same_scope_candidate_allowed)
                 && !binding_reset_by_name_only_declaration_before(semantic, candidate, binding.span)
         })
         .map(|candidate_id| semantic.binding(candidate_id));
@@ -142,7 +180,10 @@ fn binding_resets_indexed_array_type(binding: &Binding) -> bool {
         || (matches!(binding.kind, BindingKind::Declaration(_))
             && !binding
                 .attributes
-                .contains(BindingAttributes::DECLARATION_INITIALIZED))
+                .contains(BindingAttributes::DECLARATION_INITIALIZED)
+            && !binding
+                .attributes
+                .intersects(BindingAttributes::ARRAY | BindingAttributes::ASSOC))
 }
 
 fn binding_is_sticky_indexed_array(binding: &Binding) -> bool {
@@ -178,23 +219,16 @@ fn reference_reads_into_same_name_array_writer(
         .any(|binding_id| {
             let binding = semantic.binding(binding_id);
             binding.span.start.offset <= reference.span.start.offset
-                && binding_is_same_name_array_writer(binding)
-                && facts
-                    .commands()
-                    .iter()
-                    .filter(|command| matches!(command.command(), Command::Simple(_)))
-                    .filter(|command| {
-                        let span = command.span();
-                        span_is_within(span, binding.span) && span_is_within(span, reference.span)
+                && same_simple_command_is_assignment_only(facts, binding.span, reference.span)
+                    .is_some_and(|assignment_only| {
+                        binding_suppresses_same_command_array_read(binding, assignment_only)
                     })
-                    .min_by_key(|command| command.span().end.offset - command.span().start.offset)
-                    .is_some()
         })
 }
 
-fn reference_has_prior_dominating_presence_test(
+fn reference_has_prior_presence_test(
     facts: &LinterFacts<'_>,
-    analysis: &shuck_semantic::SemanticAnalysis<'_>,
+    semantic: &shuck_semantic::SemanticModel,
     reference: &Reference,
 ) -> bool {
     if loop_header_word_quote(facts, reference.span)
@@ -203,13 +237,28 @@ fn reference_has_prior_dominating_presence_test(
         return false;
     }
 
+    let reference_binding = semantic
+        .resolved_binding(reference.id)
+        .map(|binding| binding.id);
+
     facts
         .presence_test_references(&reference.name)
         .iter()
         .any(|test| {
             test.command_span().end.offset < reference.span.start.offset
-                && reference_id_dominates_reference(analysis, reference, test.reference_id())
+                && semantic
+                    .resolved_binding(test.reference_id())
+                    .map(|binding| binding.id)
+                    == reference_binding
         })
+        || facts
+            .presence_test_names(&reference.name)
+            .iter()
+            .any(|test| {
+                test.command_span().end.offset < reference.span.start.offset
+                    && presence_test_name_binding(semantic, &reference.name, test.tested_span())
+                        == reference_binding
+            })
 }
 
 fn loop_header_word_quote(facts: &LinterFacts<'_>, span: Span) -> Option<WordQuote> {
@@ -227,62 +276,84 @@ fn loop_header_word_quote(facts: &LinterFacts<'_>, span: Span) -> Option<WordQuo
         .map(|word| word.classification().quote)
 }
 
-fn reference_id_dominates_reference(
-    analysis: &shuck_semantic::SemanticAnalysis<'_>,
-    reference: &Reference,
-    test_id: ReferenceId,
-) -> bool {
-    let cfg = analysis.cfg();
-    let reference_blocks = cfg
-        .blocks()
-        .iter()
-        .filter(|block| block.references.contains(&reference.id))
-        .map(|block| block.id)
-        .collect::<FxHashSet<_>>();
-    let test_blocks = cfg
-        .blocks()
-        .iter()
-        .filter(|block| block.references.contains(&test_id))
-        .map(|block| block.id)
-        .collect::<FxHashSet<_>>();
-    if reference_blocks.is_empty() || test_blocks.is_empty() {
-        return false;
-    }
-
-    if !reference_blocks.is_disjoint(&test_blocks) {
-        return false;
-    }
-
-    let scope_entry = cfg
-        .scope_entry(reference.scope)
-        .unwrap_or_else(|| cfg.entry());
-    let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
-    let mut stack = vec![scope_entry];
-    let mut seen = FxHashSet::default();
-    while let Some(block_id) = stack.pop() {
-        if test_blocks.contains(&block_id)
-            || unreachable.contains(&block_id)
-            || !seen.insert(block_id)
-        {
-            continue;
-        }
-        if reference_blocks.contains(&block_id) {
-            return false;
-        }
-        for (successor, _) in cfg.successors(block_id) {
-            stack.push(*successor);
-        }
-    }
-
-    true
+fn binding_suppresses_same_command_array_read(binding: &Binding, assignment_only: bool) -> bool {
+    matches!(binding.kind, BindingKind::MapfileTarget)
+        || (matches!(binding.kind, BindingKind::ReadTarget)
+            && binding.attributes.contains(BindingAttributes::ARRAY))
+        || (matches!(binding.kind, BindingKind::ArrayAssignment) && assignment_only)
 }
 
-fn binding_is_same_name_array_writer(binding: &Binding) -> bool {
-    matches!(
-        binding.kind,
-        BindingKind::ArrayAssignment | BindingKind::MapfileTarget
-    ) || (matches!(binding.kind, BindingKind::ReadTarget)
-        && binding.attributes.contains(BindingAttributes::ARRAY))
+fn presence_test_name_binding(
+    semantic: &shuck_semantic::SemanticModel,
+    name: &shuck_ast::Name,
+    tested_span: Span,
+) -> Option<BindingId> {
+    semantic
+        .bindings_for(name)
+        .iter()
+        .copied()
+        .rev()
+        .find(|binding_id| semantic.binding_visible_at(*binding_id, tested_span))
+}
+
+fn same_simple_command_is_assignment_only(
+    facts: &LinterFacts<'_>,
+    binding_span: Span,
+    reference_span: Span,
+) -> Option<bool> {
+    facts
+        .commands()
+        .iter()
+        .filter(|command| matches!(command.command(), Command::Simple(_)))
+        .filter(|command| {
+            let span = command.span();
+            span_is_within(span, binding_span) && span_is_within(span, reference_span)
+        })
+        .min_by_key(|command| command.span().end.offset - command.span().start.offset)
+        .map(|command| command.literal_name() == Some(""))
+}
+
+fn candidate_binding_ids_for_reference(
+    semantic: &shuck_semantic::SemanticModel,
+    analysis: &shuck_semantic::SemanticAnalysis<'_>,
+    reference: &Reference,
+) -> Vec<BindingId> {
+    let all_bindings = semantic.bindings_for(&reference.name);
+    let binding_ids = semantic
+        .ancestor_scopes(reference.scope)
+        .filter_map(|scope| {
+            all_bindings.iter().copied().rev().find(|binding_id| {
+                let binding = semantic.binding(*binding_id);
+                binding.scope == scope && semantic.binding_visible_at(*binding_id, reference.span)
+            })
+        })
+        .collect::<Vec<_>>();
+    if !binding_ids.is_empty() {
+        return binding_ids;
+    }
+
+    let binding_ids = analysis.reaching_bindings_for_name(&reference.name, reference.span);
+    if !binding_ids.is_empty() {
+        return binding_ids;
+    }
+
+    semantic
+        .ancestor_scopes(reference.scope)
+        .skip(1)
+        .filter_map(|scope| {
+            all_bindings.iter().copied().rev().find(|binding_id| {
+                let binding = semantic.binding(*binding_id);
+                binding.scope == scope && semantic.binding_visible_at(*binding_id, reference.span)
+            })
+        })
+        .chain(all_bindings.iter().copied().filter(|binding_id| {
+            let binding = semantic.binding(*binding_id);
+            binding.scope != reference.scope
+                && binding.span.start.offset < reference.span.start.offset
+        }))
+        .collect::<FxHashSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>()
 }
 
 fn binding_reset_by_name_only_declaration_before(
@@ -291,13 +362,53 @@ fn binding_reset_by_name_only_declaration_before(
     at: Span,
 ) -> bool {
     semantic.declarations().iter().any(|declaration| {
-        declaration.span.start.offset > binding.span.start.offset
-            && declaration.span.start.offset < at.start.offset
+        matches!(declaration.builtin, DeclarationBuiltin::Local)
+            && declaration.span.start.offset > binding.span.start.offset
+            && declaration.span.end.offset < at.start.offset
             && semantic.scope_at(declaration.span.start.offset) == binding.scope
             && declaration.operands.iter().any(|operand| {
                 matches!(
                     operand,
                     DeclarationOperand::Name { name, .. } if name == &binding.name
+                )
+            })
+    })
+}
+
+fn binding_has_prior_local_barrier(
+    semantic: &shuck_semantic::SemanticModel,
+    binding: &Binding,
+) -> bool {
+    semantic.declarations().iter().any(|declaration| {
+        matches!(declaration.builtin, DeclarationBuiltin::Local)
+            && declaration.span.end.offset < binding.span.start.offset
+            && semantic.scope_at(declaration.span.start.offset) == binding.scope
+            && declaration.operands.iter().any(|operand| {
+                matches!(
+                    operand,
+                    DeclarationOperand::Name { name, .. }
+                        | DeclarationOperand::Assignment { name, .. }
+                        if name == &binding.name
+                )
+            })
+    })
+}
+
+fn binding_is_append_declaration(
+    semantic: &shuck_semantic::SemanticModel,
+    binding: &Binding,
+) -> bool {
+    semantic.declarations().iter().any(|declaration| {
+        semantic.scope_at(declaration.span.start.offset) == binding.scope
+            && declaration.operands.iter().any(|operand| {
+                matches!(
+                    operand,
+                    DeclarationOperand::Assignment {
+                        name,
+                        name_span,
+                        append: true,
+                        ..
+                    } if name == &binding.name && name_span == &binding.span
                 )
             })
     })
@@ -414,7 +525,7 @@ printf '%s\\n' \"$MAPFILE\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$BASH_SOURCE", "${BASH_SOURCE}"]
+            vec!["$BASH_SOURCE", "${BASH_SOURCE}", "$MAPFILE"]
         );
     }
 
@@ -430,6 +541,24 @@ fi
 for item in $filelist; do
   :
 done
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashSource));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_nested_follow_up_loop_headers_after_presence_guard() {
+        let source = "\
+#!/bin/bash
+filelist=()
+filelist+=(\"$1\")
+if [ -z \"${filelist[*]}\" ]; then
+  exit
+fi
+tests=\"$(for item in $filelist; do
+  :
+done)\"
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashSource));
 
@@ -463,7 +592,7 @@ done
     }
 
     #[test]
-    fn stops_following_array_bindings_after_unset() {
+    fn unset_does_not_reset_array_type() {
         let source = "\
 #!/bin/bash
 cleared_array=(one two)
@@ -473,7 +602,13 @@ printf '%s\\n' \"$cleared_array\"
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashSource));
 
-        assert!(diagnostics.is_empty());
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$cleared_array"]
+        );
     }
 
     #[test]
@@ -515,6 +650,318 @@ printf '%s\\n' \"$BASH_SOURCE\"
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$BASH_SOURCE"]
+        );
+    }
+
+    #[test]
+    fn reports_runtime_array_names_even_after_scalar_rebinding() {
+        let source = "\
+#!/bin/bash
+MAPFILE=scalar
+printf '%s\\n' \"$MAPFILE\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashSource));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$MAPFILE"]
+        );
+    }
+
+    #[test]
+    fn array_declarations_stay_sticky_through_plain_assignments() {
+        let source = "\
+#!/bin/bash
+declare -a additional_packages
+additional_packages=$1
+split_string ${additional_packages}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashSource));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${additional_packages}"]
+        );
+    }
+
+    #[test]
+    fn later_presence_guards_only_suppress_the_same_binding() {
+        let source = "\
+#!/bin/bash
+foo=scalar
+[ -n \"$foo\" ]
+foo=(one two)
+printf '%s\\n' \"$foo\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashSource));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$foo"]
+        );
+    }
+
+    #[test]
+    fn variable_set_presence_guards_suppress_follow_up_refs() {
+        let source = "\
+#!/bin/bash
+arr=(one two)
+[[ -v arr ]]
+printf '%s\\n' \"$arr\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashSource));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn variable_set_presence_guards_do_not_cross_rebindings() {
+        let source = "\
+#!/bin/bash
+arr=scalar
+[[ -v arr ]]
+arr=(one two)
+printf '%s\\n' \"$arr\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashSource));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$arr"]
+        );
+    }
+
+    #[test]
+    fn prior_presence_guards_in_sibling_case_arms_suppress_follow_up_refs() {
+        let source = "\
+#!/bin/bash
+f() {
+  local dir
+  case \"$1\" in
+    up) dir=(\"Up\");;
+  esac
+  case \"$2\" in
+    hat)
+      [[ -n \"$dir\" ]]
+      ;;
+    *)
+      [[ \"$dir\" == \"Up\" || \"$dir\" == \"Left\" ]]
+      ;;
+  esac
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashSource));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$dir"]
+        );
+    }
+
+    #[test]
+    fn attribute_only_declarations_keep_array_type() {
+        let source = "\
+#!/bin/bash
+arr=(one two)
+readonly arr
+printf '%s\\n' \"$arr\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashSource));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$arr"]
+        );
+    }
+
+    #[test]
+    fn function_local_declare_arrays_still_warn() {
+        let source = "\
+#!/bin/bash
+f() {
+  declare -a items
+  printf '%s\\n' \"$items\"
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashSource));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$items"]
+        );
+    }
+
+    #[test]
+    fn nested_command_substitution_presence_tests_do_not_suppress_follow_up_refs() {
+        let source = "\
+#!/bin/bash
+arr=(one two)
+[ -n \"$(printf '%s' \"$arr\")\" ]
+printf '%s\\n' \"$arr\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashSource));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$arr", "$arr"]
+        );
+    }
+
+    #[test]
+    fn presence_tests_inside_command_substitutions_suppress_later_refs() {
+        let source = "\
+#!/bin/bash
+arr=(one two)
+out=$( [ -n \"$arr\" ]; printf x )
+printf '%s\\n' \"$arr\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashSource));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$arr"]
+        );
+    }
+
+    #[test]
+    fn same_command_prefix_array_assignments_still_warn() {
+        let source = "\
+#!/bin/bash
+arr=(old1 old2)
+arr=(new1 new2) printf '%s\\n' \"$arr\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashSource));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$arr"]
+        );
+    }
+
+    #[test]
+    fn read_option_values_do_not_become_array_targets() {
+        let source = "\
+#!/bin/bash
+delimiter=:
+read -d delimiter -a arr <<<\":\"
+printf '%s\\n' \"$delimiter\"
+printf '%s\\n' \"$arr\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashSource));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$arr"]
+        );
+    }
+
+    #[test]
+    fn mapfile_option_values_do_not_become_array_targets() {
+        let source = "\
+#!/bin/bash
+callback=scalar
+mapfile -C callback -c 1 lines < <(printf '%s\\n' value)
+printf '%s\\n' \"$callback\"
+printf '%s\\n' \"$lines\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashSource));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$lines"]
+        );
+    }
+
+    #[test]
+    fn local_scalar_assignments_do_not_inherit_outer_array_bindings() {
+        let source = "\
+#!/bin/bash
+declare -a ids
+ids=()
+set_to_liked() {
+  local ids
+  { local IFS=','; ids=\"$*\"; }
+  if [ -z \"$ids\" ]; then
+    return
+  fi
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashSource));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn printf_targets_after_local_declarations_do_not_inherit_outer_arrays() {
+        let source = "\
+#!/bin/bash
+args=(\"$@\")
+f() {
+  local args
+  printf -v args '%q ' \"$@\"
+  printf '%s\\n' \"$args\"
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashSource));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn local_append_declarations_keep_array_type() {
+        let source = "\
+#!/bin/bash
+f() {
+  local DOKKU_LOGS_CMD=()
+  DOKKU_LOGS_CMD+=\"(cmd)\"
+  local DOKKU_LOGS_CMD+=\"; \"
+  bash -c \"($DOKKU_LOGS_CMD)\"
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedBashSource));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$DOKKU_LOGS_CMD"]
         );
     }
 

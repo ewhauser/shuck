@@ -91,3 +91,32 @@ pub fn undefined_variable(checker: &mut Checker) {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::test::test_snippet;
+    use crate::{LinterSettings, Rule};
+
+    #[test]
+    fn ignores_defaulting_parameter_operands_until_later_plain_uses() {
+        let source = "\
+#!/bin/sh
+printf '%s\\n' \"${missing_assign:=$seed_name}\" \"${missing_error:?$hint_name}\"
+printf '%s\\n' \"$seed_name\" \"$hint_name\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$seed_name", "$hint_name"]
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.span.start.line == 3)
+        );
+    }
+}

@@ -22,7 +22,7 @@ use self::{
     conditional_portability::{ConditionalPortabilityInputs, build_conditional_portability_facts},
     escape_scan::{EscapeScanContext, EscapeScanInputs, build_escape_scan_matches},
     normalized_commands as command,
-    presence::{PresenceTestReferenceFact, build_presence_tested_names},
+    presence::{PresenceTestNameFact, PresenceTestReferenceFact, build_presence_tested_names},
     surface::{
         CaseModificationFragmentFact, CasePatternExpansionFact, DollarDoubleQuotedFragmentFact,
         IndexedArrayReferenceFragmentFact, IndirectExpansionFragmentFact,

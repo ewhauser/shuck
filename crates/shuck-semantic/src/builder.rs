@@ -48,6 +48,7 @@ pub(crate) struct BuildOutput {
     pub(crate) reference_index: FxHashMap<Name, SmallVec<[ReferenceId; 2]>>,
     pub(crate) predefined_runtime_refs: FxHashSet<ReferenceId>,
     pub(crate) guarded_parameter_refs: FxHashSet<ReferenceId>,
+    pub(crate) defaulting_parameter_operand_refs: FxHashSet<ReferenceId>,
     pub(crate) binding_index: FxHashMap<Name, SmallVec<[BindingId; 2]>>,
     pub(crate) resolved: FxHashMap<ReferenceId, BindingId>,
     pub(crate) unresolved: Vec<ReferenceId>,
@@ -76,6 +77,7 @@ pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     reference_index: FxHashMap<Name, SmallVec<[ReferenceId; 2]>>,
     predefined_runtime_refs: FxHashSet<ReferenceId>,
     guarded_parameter_refs: FxHashSet<ReferenceId>,
+    defaulting_parameter_operand_refs: FxHashSet<ReferenceId>,
     binding_index: FxHashMap<Name, SmallVec<[BindingId; 2]>>,
     resolved: FxHashMap<ReferenceId, BindingId>,
     unresolved: Vec<ReferenceId>,
@@ -97,6 +99,7 @@ pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     scope_stack: Vec<ScopeId>,
     command_stack: Vec<Span>,
     guarded_parameter_operand_depth: u32,
+    defaulting_parameter_operand_depth: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -157,6 +160,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             reference_index: FxHashMap::default(),
             predefined_runtime_refs: FxHashSet::default(),
             guarded_parameter_refs: FxHashSet::default(),
+            defaulting_parameter_operand_refs: FxHashSet::default(),
             binding_index: FxHashMap::default(),
             resolved: FxHashMap::default(),
             unresolved: Vec::new(),
@@ -178,6 +182,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             scope_stack: vec![ScopeId(0)],
             command_stack: Vec::new(),
             guarded_parameter_operand_depth: 0,
+            defaulting_parameter_operand_depth: 0,
         };
         let file_commands = builder.visit_stmt_seq(&file.body, FlowState::default());
         builder.recorded_program.set_file_commands(file_commands);
@@ -195,6 +200,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             reference_index: builder.reference_index,
             predefined_runtime_refs: builder.predefined_runtime_refs,
             guarded_parameter_refs: builder.guarded_parameter_refs,
+            defaulting_parameter_operand_refs: builder.defaulting_parameter_operand_refs,
             binding_index: builder.binding_index,
             resolved: builder.resolved,
             unresolved: builder.unresolved,
@@ -1852,6 +1858,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                             ),
                         ZshExpansionOperation::Defaulting { operand, .. } => {
                             self.guarded_parameter_operand_depth += 1;
+                            self.defaulting_parameter_operand_depth += 1;
                             self.visit_fragment_word(
                                 operation.operand_word_ast(),
                                 Some(operand),
@@ -1860,6 +1867,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                                 nested_regions,
                             );
                             self.guarded_parameter_operand_depth -= 1;
+                            self.defaulting_parameter_operand_depth -= 1;
                         }
                         ZshExpansionOperation::ReplacementOperation {
                             pattern,
@@ -1965,11 +1973,15 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             }
             ParameterOp::UseDefault | ParameterOp::UseReplacement => {
                 self.guarded_parameter_operand_depth += 1;
+                self.defaulting_parameter_operand_depth += 1;
                 self.visit_fragment_word(operand_word_ast, operand, kind, flow, nested_regions);
                 self.guarded_parameter_operand_depth -= 1;
+                self.defaulting_parameter_operand_depth -= 1;
             }
             ParameterOp::AssignDefault | ParameterOp::Error => {
+                self.defaulting_parameter_operand_depth += 1;
                 self.visit_fragment_word(operand_word_ast, operand, kind, flow, nested_regions);
+                self.defaulting_parameter_operand_depth -= 1;
             }
             ParameterOp::UpperFirst
             | ParameterOp::UpperAll
@@ -2389,9 +2401,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     );
                 }
             }
-            "mapfile" | "readarray" => {
-                if let Some((argument, span)) = explicit_mapfile_target(&command.args, self.source)
-                {
+            "mapfile" | "readarray" => match mapfile_target(&command.args, self.source) {
+                Some(MapfileTarget::Explicit(argument, span)) => {
                     self.add_binding(
                         &argument,
                         BindingKind::MapfileTarget,
@@ -2404,7 +2415,21 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         BindingAttributes::ARRAY,
                     );
                 }
-            }
+                Some(MapfileTarget::Implicit) => {
+                    self.add_binding(
+                        &Name::from("MAPFILE"),
+                        BindingKind::MapfileTarget,
+                        self.current_scope(),
+                        command.name.span,
+                        BindingOrigin::BuiltinTarget {
+                            definition_span: command.name.span,
+                            kind: BuiltinBindingTargetKind::Mapfile,
+                        },
+                        BindingAttributes::ARRAY,
+                    );
+                }
+                None => {}
+            },
             "printf" => {
                 if let Some((argument, span)) = printf_v_target(&command.args, self.source) {
                     self.add_binding(
@@ -2786,6 +2811,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             .push(id);
         if self.guarded_parameter_operand_depth > 0 {
             self.guarded_parameter_refs.insert(id);
+        }
+        if self.defaulting_parameter_operand_depth > 0 {
+            self.defaulting_parameter_operand_refs.insert(id);
         }
         if let Some(command) = self.command_stack.last().copied() {
             self.command_references
@@ -3376,30 +3404,43 @@ fn iter_read_targets<'a>(
     args: &'a [Word],
     source: &'a str,
 ) -> impl Iterator<Item = (Name, Span)> + 'a {
-    args.iter()
+    let options = parse_read_options(args, source);
+    args[options.target_start_index..]
+        .iter()
         .filter_map(move |word| named_target_word(word, source))
-        .filter(|(name, _)| !name.as_str().starts_with('-'))
 }
 
 fn read_assigns_array(args: &[Word], source: &str) -> bool {
+    parse_read_options(args, source).assigns_array
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ParsedReadOptions {
+    assigns_array: bool,
+    target_start_index: usize,
+}
+
+fn parse_read_options(args: &[Word], source: &str) -> ParsedReadOptions {
+    let mut assigns_array = false;
     let mut index = 0;
     while let Some(word) = args.get(index) {
         let Some(text) = static_word_text(word, source) else {
-            return false;
+            break;
         };
         if text == "--" {
-            return false;
+            index += 1;
+            break;
         }
         let Some(flags) = text.strip_prefix('-') else {
-            return false;
+            break;
         };
         if flags.is_empty() || flags.starts_with('-') {
-            return false;
+            break;
         }
 
         for (offset, flag) in flags.char_indices() {
             if flag == 'a' {
-                return true;
+                assigns_array = true;
             }
             if read_flag_takes_value(flag) {
                 if offset + flag.len_utf8() == flags.len() {
@@ -3411,18 +3452,61 @@ fn read_assigns_array(args: &[Word], source: &str) -> bool {
         index += 1;
     }
 
-    false
+    ParsedReadOptions {
+        assigns_array,
+        target_start_index: index.min(args.len()),
+    }
 }
 
 fn read_flag_takes_value(flag: char) -> bool {
     matches!(flag, 'd' | 'i' | 'n' | 'N' | 'p' | 't' | 'u')
 }
 
-fn explicit_mapfile_target(args: &[Word], source: &str) -> Option<(Name, Span)> {
-    args.iter().find_map(|word| {
-        let target = named_target_word(word, source)?;
-        (!target.0.as_str().starts_with('-')).then_some(target)
-    })
+#[derive(Debug, Clone)]
+enum MapfileTarget {
+    Explicit(Name, Span),
+    Implicit,
+}
+
+fn mapfile_target(args: &[Word], source: &str) -> Option<MapfileTarget> {
+    let mut index = 0;
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            break;
+        };
+        if text == "--" {
+            index += 1;
+            break;
+        }
+        let Some(flags) = text.strip_prefix('-') else {
+            break;
+        };
+        if flags.is_empty() || flags.starts_with('-') {
+            break;
+        }
+        for (offset, flag) in flags.char_indices() {
+            if mapfile_flag_takes_value(flag) {
+                if offset + flag.len_utf8() == flags.len() {
+                    index += 1;
+                }
+                break;
+            }
+        }
+        index += 1;
+    }
+
+    if let Some((name, span)) = args[index..]
+        .iter()
+        .find_map(|word| named_target_word(word, source))
+    {
+        return Some(MapfileTarget::Explicit(name, span));
+    }
+
+    args.get(index).is_none().then_some(MapfileTarget::Implicit)
+}
+
+fn mapfile_flag_takes_value(flag: char) -> bool {
+    matches!(flag, 'C' | 'c' | 'd' | 'n' | 'O' | 's' | 'u')
 }
 
 fn printf_v_target(args: &[Word], source: &str) -> Option<(Name, Span)> {

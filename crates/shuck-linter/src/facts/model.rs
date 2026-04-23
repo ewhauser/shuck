@@ -19,6 +19,7 @@ pub struct LinterFacts<'a> {
     presence_tested_names: FxHashSet<Name>,
     nested_presence_test_spans: FxHashMap<Name, Vec<Span>>,
     presence_test_references_by_name: FxHashMap<Name, Vec<PresenceTestReferenceFact>>,
+    presence_test_names_by_name: FxHashMap<Name, Vec<PresenceTestNameFact>>,
     subscript_index_reference_spans: FxHashSet<FactSpan>,
     compound_assignment_value_word_spans: FxHashSet<FactSpan>,
     word_nodes: Vec<WordNode<'a>>,
@@ -344,6 +345,13 @@ impl<'a> LinterFacts<'a> {
         name: &Name,
     ) -> &[PresenceTestReferenceFact] {
         self.presence_test_references_by_name
+            .get(name)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    pub(crate) fn presence_test_names(&self, name: &Name) -> &[PresenceTestNameFact] {
+        self.presence_test_names_by_name
             .get(name)
             .map(Vec::as_slice)
             .unwrap_or(&[])
