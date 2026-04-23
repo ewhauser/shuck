@@ -559,4 +559,24 @@ read -r KALUA_REPO_URL <'KALUA_REPO_URL'
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn reports_plain_names_that_look_like_special_devices() {
+        let source = "\
+#!/bin/bash
+read -r stdin < stdin
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::RedirectClobbersInput),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["stdin", "stdin"]
+        );
+    }
 }

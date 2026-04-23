@@ -415,10 +415,6 @@ fn comparable_name_from_parameter(parameter: &ParameterExpansion) -> Option<&str
 
 fn comparable_name_text(text: &str) -> bool {
     is_shell_variable_name(text)
-        && !matches!(
-            text,
-            "dev" | "proc" | "stdin" | "stdout" | "stderr" | "tty" | "null"
-        )
 }
 
 fn dedup_comparable_name_uses(uses: &mut Vec<ComparableNameUse>) {
