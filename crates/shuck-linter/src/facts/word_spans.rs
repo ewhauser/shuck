@@ -519,6 +519,68 @@ pub fn word_folded_positional_at_splat_span_in_source(word: &Word, source: &str)
     Some(first)
 }
 
+pub fn word_folded_all_elements_array_span_in_source(word: &Word, source: &str) -> Option<Span> {
+    let spans = folded_all_elements_array_candidate_spans(word, source)
+        .into_iter()
+        .filter(|span| !span_is_escaped(*span, source))
+        .collect::<Vec<_>>();
+    let first = spans.first().copied()?;
+
+    if spans.len() == 1
+        && (word_has_single_folded_all_elements_array_part(word)
+            || all_elements_array_expansion_is_standalone(word, source))
+    {
+        return None;
+    }
+
+    Some(first)
+}
+
+fn folded_all_elements_array_candidate_spans(word: &Word, source: &str) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_folded_all_elements_array_candidate_spans(&word.parts, source, &mut spans);
+    spans
+}
+
+fn collect_folded_all_elements_array_candidate_spans(
+    parts: &[WordPartNode],
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::SingleQuoted { .. } => {}
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_folded_all_elements_array_candidate_spans(parts, source, spans)
+            }
+            WordPart::Parameter(parameter)
+                if parameter_uses_replacement_all_elements_array_expansion(parameter) =>
+            {
+                spans.push(part.span);
+            }
+            _ if part_uses_direct_all_elements_array_expansion(&part.kind) => {
+                if let Some(span) =
+                    normalize_direct_all_elements_array_expansion_span(part.span, source)
+                {
+                    spans.push(span);
+                }
+            }
+            WordPart::Parameter(parameter)
+                if parameter_might_use_all_elements_array_expansion(
+                    parameter, part.span, source,
+                ) =>
+            {
+                if let Some(span) =
+                    normalize_nested_direct_all_elements_array_expansion_span(part.span, source)
+                {
+                    spans.push(span);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 pub fn word_zsh_flag_modifier_spans(word: &Word) -> Vec<Span> {
     word.parts
         .iter()
@@ -1915,12 +1977,16 @@ fn candidate_is_all_elements_array_expansion(candidate: &str) -> bool {
 }
 
 fn candidate_is_direct_all_elements_array_expansion(candidate: &str) -> bool {
-    let Some(inner) = candidate
+    let Some(mut inner) = candidate
         .strip_prefix("${")
         .and_then(|text| text.strip_suffix('}'))
     else {
         return false;
     };
+
+    if let Some(stripped) = inner.strip_prefix('!') {
+        inner = stripped;
+    }
 
     let suffix = if let Some(stripped) = inner.strip_prefix('@') {
         stripped
@@ -3613,6 +3679,21 @@ fn parameter_uses_direct_all_elements_array_expansion(parameter: &ParameterExpan
     }
 }
 
+fn parameter_uses_replacement_all_elements_array_expansion(parameter: &ParameterExpansion) -> bool {
+    let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax else {
+        return false;
+    };
+
+    matches!(
+        syntax,
+        BourneParameterExpansion::Operation {
+            reference,
+            operator: ParameterOp::UseReplacement,
+            ..
+        } if var_ref_uses_all_elements_at_splat(reference)
+    )
+}
+
 fn parameter_is_unindexed_bash_source(parameter: &ParameterExpansion) -> bool {
     let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax else {
         return false;
@@ -3907,6 +3988,28 @@ fn parts_have_single_positional_at_splat(parts: &[WordPartNode]) -> bool {
     }
 }
 
+fn word_has_single_folded_all_elements_array_part(word: &Word) -> bool {
+    parts_have_single_folded_all_elements_array_part(&word.parts)
+}
+
+fn parts_have_single_folded_all_elements_array_part(parts: &[WordPartNode]) -> bool {
+    let [part] = parts else {
+        return false;
+    };
+
+    match &part.kind {
+        WordPart::DoubleQuoted { parts, .. } => {
+            parts_have_single_folded_all_elements_array_part(parts)
+        }
+        WordPart::SingleQuoted { .. } => false,
+        WordPart::Parameter(parameter) => {
+            part_uses_direct_all_elements_array_expansion(&part.kind)
+                || parameter_uses_replacement_all_elements_array_expansion(parameter)
+        }
+        _ => part_uses_direct_all_elements_array_expansion(&part.kind),
+    }
+}
+
 fn positional_at_splat_is_standalone_expansion(word: &Word, source: &str) -> bool {
     let text = word.span.slice(source);
     let body = if word.is_fully_double_quoted() {
@@ -3929,6 +4032,29 @@ fn positional_at_splat_is_standalone_expansion(word: &Word, source: &str) -> boo
         return false;
     }
     true
+}
+
+fn all_elements_array_expansion_is_standalone(word: &Word, source: &str) -> bool {
+    if word.parts.len() != 1 {
+        return false;
+    }
+
+    let text = word.span.slice(source);
+    let body = if word.is_fully_double_quoted() {
+        let Some(unquoted) = text
+            .strip_prefix('"')
+            .and_then(|value| value.strip_suffix('"'))
+        else {
+            return false;
+        };
+        unquoted
+    } else {
+        text
+    };
+
+    folded_all_elements_array_candidate_spans(word, source)
+        .first()
+        .is_some_and(|span| span.slice(source) == body)
 }
 
 fn span_is_backslash_escaped(span: Span, source: &str) -> bool {
@@ -3969,8 +4095,8 @@ mod tests {
         unquoted_command_substitution_part_spans_in_source, unquoted_scalar_expansion_part_spans,
         word_all_elements_array_slice_span_in_source, word_all_elements_array_slice_spans,
         word_caret_negated_bracket_spans, word_double_quoted_scalar_only_expansion_spans,
-        word_exactly_one_extglob_span, word_folded_positional_at_splat_span,
-        word_folded_positional_at_splat_span_in_source,
+        word_exactly_one_extglob_span, word_folded_all_elements_array_span_in_source,
+        word_folded_positional_at_splat_span, word_folded_positional_at_splat_span_in_source,
         word_has_direct_all_elements_array_expansion_in_source,
         word_has_folded_positional_at_splat, word_has_quoted_all_elements_array_slice,
         word_has_unquoted_brace_expansion, word_is_pure_positional_at_splat,
@@ -5137,6 +5263,36 @@ exec \"$@\" \"${@}\" \"${@:1}\" \"${@:-fallback}\" \"${@:${args_offset}}\" \"${@
                 .expect("expected folded positional span")
                 .slice(source),
             "$@"
+        );
+    }
+
+    #[test]
+    fn word_folded_all_elements_array_span_in_source_tracks_array_splats_in_larger_words() {
+        let source = "\
+printf '%s\\n' \"${arr[@]}\" \"x${arr[@]}\" \"x${!arr[@]}\" \"x${arr[@]:1}\" \"x${arr[@]/a/b}\" \"x${arr[*]}\" \"\\${arr[@]}\" \"$@\" \"x$@\" \"${arr[@]+ ${arr[*]}}\" \"x${arr[@]+ ${arr[*]}}\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let folded = command
+            .args
+            .iter()
+            .filter_map(|word| word_folded_all_elements_array_span_in_source(word, source))
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            folded,
+            vec![
+                "${arr[@]}",
+                "${!arr[@]}",
+                "${arr[@]:1}",
+                "${arr[@]/a/b}",
+                "$@",
+                "${arr[@]+ ${arr[*]}}"
+            ]
         );
     }
 
