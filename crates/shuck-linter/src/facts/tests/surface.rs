@@ -2122,7 +2122,7 @@ printf '%s\\n' $@ ${@:2} ${items[@]} ${items[@]:1} ${!items[@]} ${items[@]/#/#} 
 fn builds_word_facts_for_unquoted_literals_between_reopened_double_quotes() {
     let source = "\
 #!/bin/bash
-printf '%s\\n' \"foo\"bar\"baz\" \"foo\"-\"bar\" \"foo\"$(printf '%s' x)\"bar\" \"$left\"-\"$right\" x=\"$(cmd \"a\".\"b\")\" '$('\"foo\"parenmid\"baz\" '${'\"foo\"bracemid\"baz\"
+printf '%s\\n' \"foo\"bar\"baz\" \"foo\"-\"bar\" \"foo\"$(printf '%s' x)\"bar\" \"$left\"-\"$right\" x=\"$(cmd \"a\".\"b\")\" '$('\"foo\"parenmid\"baz\" '${'\"foo\"bracemid\"baz\" $(printf \"(\")\"foo\"quotedparen\"baz\" $(printf \"%s\" \"${x}\")\"foo\"quotedparam\"baz\"
 ";
 
     with_facts(source, None, |_, facts| {
@@ -2137,7 +2137,93 @@ printf '%s\\n' \"foo\"bar\"baz\" \"foo\"-\"bar\" \"foo\"$(printf '%s' x)\"bar\" 
             })
             .collect::<Vec<_>>();
 
-        assert_eq!(spans, vec!["bar", "-", "parenmid", "bracemid", "."]);
+        assert_eq!(
+            spans,
+            vec![
+                "bar",
+                "-",
+                "parenmid",
+                "bracemid",
+                "quotedparen",
+                "quotedparam",
+                "."
+            ]
+        );
+    });
+}
+
+#[test]
+fn builds_word_facts_skip_shellcheck_skipped_mixed_quote_literals() {
+    let source = "\
+#!/bin/bash
+printf '%s\\n' \"foo\"*bar\"baz\" \"foo\"?bar\"baz\" \"foo\"a[b]\"baz\" \"foo\"a{b}\"baz\" \"foo\"a+b\"baz\" \"foo\"a@b\"baz\" \"foo\"user@host\"bar\"
+export CARGO_TARGET_\"${env_host}\"_RUSTFLAGS+=\" -C\"
+print \"\\
+export EASYRSA_REQ_SERIAL=\\\"$EASYRSA_REQ_SERIAL\\\"\\
+\" | sed -e s/a/b/
+";
+
+    with_facts(source, None, |_, facts| {
+        let spans = facts
+            .expansion_word_facts(ExpansionContext::CommandArgument)
+            .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
+            .flat_map(|fact| {
+                fact.unquoted_literal_between_double_quoted_segments_spans()
+                    .iter()
+                    .map(|span| span.slice(source).to_owned())
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+
+        assert!(spans.is_empty(), "{spans:?}");
+    });
+}
+
+#[test]
+fn builds_word_facts_for_each_reopened_quote_line_join() {
+    let source = "\
+#!/bin/bash
+lt_cv_sys_global_symbol_pipe=\"$AWK '\"\\
+\"     {last_section=section};\"\\
+\"     /^COFF SYMBOL TABLE/{next};\"\\
+\"     ' prfx=^$ac_symprfx\"
+nested=\"$AWK '\"\\
+\"     {value=$(printf \"%s\" x);};\"\\
+\"     /^COFF SYMBOL TABLE/{next};\"\\
+\"     ' prfx=^$ac_symprfx\"
+legacy=\"$AWK '\"\\
+\"     {value=`printf \"%s\" x`;};\"\\
+\"     /^COFF SYMBOL TABLE/{next};\"\\
+\"     ' prfx=^$ac_symprfx\"
+grouped=\"$AWK '\"\\
+\"     {value=$( (printf x); printf \"%s\" y );};\"\\
+\"     /^COFF SYMBOL TABLE/{next};\"\\
+\"     ' prfx=^$ac_symprfx\"
+param_hash=\"$AWK '\"\\
+\"     {value=${value:- # fallback};\"\\
+\"     /^COFF SYMBOL TABLE/{next};\"\\
+\"     ' prfx=^$ac_symprfx\"
+";
+
+    with_facts(source, None, |_, facts| {
+        let spans = facts
+            .expansion_word_facts(ExpansionContext::AssignmentValue)
+            .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
+            .flat_map(|fact| {
+                fact.unquoted_literal_between_double_quoted_segments_spans()
+                    .iter()
+                    .map(|span| span.slice(source).to_owned())
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            spans,
+            vec![
+                "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n",
+                "\\\n", "\\\n", "\\\n", "\\\n", "\\\n"
+            ]
+        );
     });
 }
 

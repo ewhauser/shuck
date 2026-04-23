@@ -79,6 +79,32 @@ if [[ x =~ \"foo\"bar\"baz\" ]]; then :; fi
     }
 
     #[test]
+    fn ignores_shellcheck_skipped_glob_query_and_append_assignment_fragments() {
+        let source = "\
+#!/bin/bash
+echo_and_run \"find $PREFIX/lib -name \"librustc_*\" -xtype l\"
+export CARGO_TARGET_\"${env_host}\"_RUSTFLAGS+=\" -C link-arg=$($CC -print-libgcc-file-name)\"
+mkdir -p \"$TERMUX_GODIR\"/{bin,src,doc,lib,\"pkg/tool/$TERMUX_GOLANG_DIRNAME\",pkg/include}
+curl \"${gotifywebhook}/message\"?token=\"${gotifytoken}\"
+java_home=\"$(find \"$java_library_base/\"*1.\"$version\"* -type d -name 'Home*')\"
+printf '%s\\n' \"foo\"user@host\"bar\" \"foo\"a+b\"bar\"
+print \"\\
+export EASYRSA_REQ_SERIAL=\\\"$EASYRSA_REQ_SERIAL\\\"\\
+\" | sed -e s/a/b/
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::MixedQuoteWord));
+
+        assert!(
+            diagnostics.is_empty(),
+            "{:?}",
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn reports_shellcheck_style_escaped_quote_separator_and_line_join_patterns() {
         let source = "\
 #!/bin/bash
@@ -96,6 +122,45 @@ x=\"$AWK '\"\\
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["\\\"", "\\\"", "\\\"", "\\\"", "/,/", "\\\n"]
+        );
+    }
+
+    #[test]
+    fn reports_each_reopened_quote_line_join_in_one_word() {
+        let source = "\
+#!/bin/bash
+lt_cv_sys_global_symbol_pipe=\"$AWK '\"\\
+\"     {last_section=section};\"\\
+\"     /^COFF SYMBOL TABLE/{next};\"\\
+\"     ' prfx=^$ac_symprfx\"
+nested=\"$AWK '\"\\
+\"     {value=$(printf \"%s\" x);};\"\\
+\"     /^COFF SYMBOL TABLE/{next};\"\\
+\"     ' prfx=^$ac_symprfx\"
+legacy=\"$AWK '\"\\
+\"     {value=`printf \"%s\" x`;};\"\\
+\"     /^COFF SYMBOL TABLE/{next};\"\\
+\"     ' prfx=^$ac_symprfx\"
+grouped=\"$AWK '\"\\
+\"     {value=$( (printf x); printf \"%s\" y );};\"\\
+\"     /^COFF SYMBOL TABLE/{next};\"\\
+\"     ' prfx=^$ac_symprfx\"
+param_hash=\"$AWK '\"\\
+\"     {value=${value:- # fallback};\"\\
+\"     /^COFF SYMBOL TABLE/{next};\"\\
+\"     ' prfx=^$ac_symprfx\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::MixedQuoteWord));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n",
+                "\\\n", "\\\n", "\\\n", "\\\n", "\\\n"
+            ]
         );
     }
 
@@ -143,6 +208,8 @@ x=\"$(cmd \"a\".\"b\")\"
         let source = "\
 #!/bin/bash
 echo \"$(cmd)\"x\"y\"
+echo $(printf \"(\")\"foo\"quotedparen\"baz\"
+echo $(printf \"%s\" \"${x}\")\"foo\"quotedparam\"baz\"
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::MixedQuoteWord));
 
@@ -151,7 +218,7 @@ echo \"$(cmd)\"x\"y\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["x"]
+            vec!["x", "quotedparen", "quotedparam"]
         );
     }
 
