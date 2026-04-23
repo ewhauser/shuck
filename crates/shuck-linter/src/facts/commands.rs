@@ -197,6 +197,11 @@ impl<'a> CommandFact<'a> {
     pub fn file_operand_words(&self) -> &[&'a Word] {
         self.options.file_operand_words()
     }
+
+    pub fn shellcheck_command_span(&self, source: &str) -> Option<Span> {
+        command_span_with_redirects_and_shellcheck_tail(self, source)
+            .map(|span| trim_trailing_whitespace_span(span, source))
+    }
 }
 
 fn pipeline_span_with_shellcheck_tail(

@@ -2382,9 +2382,97 @@ f
     }
 
     #[test]
+    fn typeset_command_in_sh_is_flagged() {
+        let diagnostics = lint(
+            "#!/bin/sh\ntypeset foo=bar\n",
+            &LinterSettings::for_rule(Rule::DeclareCommand),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::DeclareCommand);
+        assert_eq!(
+            diagnostics[0].message,
+            "`typeset` is not portable in `sh` scripts"
+        );
+    }
+
+    #[test]
+    fn typeset_command_in_dash_is_flagged() {
+        let diagnostics = lint(
+            "#!/bin/dash\ntypeset foo=bar\n",
+            &LinterSettings::for_rule(Rule::DeclareCommand),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::DeclareCommand);
+        assert_eq!(
+            diagnostics[0].message,
+            "`typeset` is not portable in `sh` scripts"
+        );
+    }
+
+    #[test]
+    fn shopt_command_in_sh_is_flagged() {
+        let diagnostics = lint(
+            "#!/bin/sh\nshopt -s nullglob\n",
+            &LinterSettings::for_rule(Rule::DeclareCommand),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::DeclareCommand);
+        assert_eq!(
+            diagnostics[0].message,
+            "`shopt` is not portable in `sh` scripts"
+        );
+    }
+
+    #[test]
+    fn pushd_command_in_sh_is_flagged() {
+        let diagnostics = lint(
+            "#!/bin/sh\npushd /tmp\n",
+            &LinterSettings::for_rule(Rule::DeclareCommand),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::DeclareCommand);
+        assert_eq!(
+            diagnostics[0].message,
+            "`pushd` is not portable in `sh` scripts"
+        );
+    }
+
+    #[test]
+    fn mapfile_command_in_sh_is_flagged() {
+        let diagnostics = lint(
+            "#!/bin/sh\nmapfile entries\n",
+            &LinterSettings::for_rule(Rule::DeclareCommand),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::DeclareCommand);
+        assert_eq!(
+            diagnostics[0].message,
+            "`mapfile` is not portable in `sh` scripts"
+        );
+    }
+
+    #[test]
     fn declare_command_in_bash_is_not_flagged_for_portability_rule() {
         let diagnostics = lint(
             "#!/bin/bash\ndeclare foo=bar\n",
+            &LinterSettings::for_rule(Rule::DeclareCommand),
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn typeset_command_in_bash_is_not_flagged_for_portability_rule() {
+        let diagnostics = lint(
+            "#!/bin/bash\ntypeset foo=bar\n",
+            &LinterSettings::for_rule(Rule::DeclareCommand),
+        );
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn shopt_command_in_bash_is_not_flagged_for_portability_rule() {
+        let diagnostics = lint(
+            "#!/bin/bash\nshopt -s nullglob\n",
             &LinterSettings::for_rule(Rule::DeclareCommand),
         );
         assert!(diagnostics.is_empty());
