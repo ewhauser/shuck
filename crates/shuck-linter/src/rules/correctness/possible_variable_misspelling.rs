@@ -29,6 +29,25 @@ impl Violation for PossibleVariableMisspelling {
 }
 
 pub fn possible_variable_misspelling(checker: &mut Checker) {
+    let suppressed_reference_spans = checker
+        .semantic()
+        .references()
+        .iter()
+        .filter(|reference| {
+            checker
+                .semantic()
+                .is_guarded_parameter_reference(reference.id)
+                || checker
+                    .semantic()
+                    .is_defaulting_parameter_operand_reference(reference.id)
+        })
+        .fold(FxHashMap::default(), |mut spans, reference| {
+            spans
+                .entry(reference.name.to_string())
+                .or_insert_with(Vec::new)
+                .push(reference.span);
+            spans
+        });
     let guarded_name_offsets = checker
         .semantic()
         .references()
@@ -131,7 +150,11 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
             Some((reference.span, reference.name.to_string(), candidate))
         })
         .collect::<Vec<_>>();
-    findings.extend(heredoc_findings(checker, &guarded_name_offsets));
+    findings.extend(heredoc_findings(
+        checker,
+        &guarded_name_offsets,
+        &suppressed_reference_spans,
+    ));
 
     findings.sort_by_key(|(span, _, _)| (span.start.offset, span.end.offset));
     let mut reported_names = FxHashSet::default();
@@ -153,6 +176,7 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
 fn heredoc_findings(
     checker: &Checker<'_>,
     guarded_name_offsets: &FxHashMap<String, Vec<usize>>,
+    suppressed_reference_spans: &FxHashMap<String, Vec<Span>>,
 ) -> Vec<(Span, String, String)> {
     let mut findings = Vec::new();
     let mut seen = FxHashSet::default();
@@ -174,6 +198,13 @@ fn heredoc_findings(
                 continue;
             }
             if has_prior_guarded_reference(guarded_name_offsets, reference_name, name_use.span()) {
+                continue;
+            }
+            if has_suppressed_reference_span(
+                suppressed_reference_spans,
+                reference_name,
+                name_use.span(),
+            ) {
                 continue;
             }
             if has_same_name_defining_bindings(checker, &Name::from(reference_name)) {
@@ -236,6 +267,23 @@ fn has_prior_guarded_reference(
     guarded_name_offsets
         .get(name)
         .is_some_and(|offsets| offsets.iter().any(|offset| *offset < span.start.offset))
+}
+
+fn has_suppressed_reference_span(
+    suppressed_reference_spans: &FxHashMap<String, Vec<Span>>,
+    name: &str,
+    span: Span,
+) -> bool {
+    suppressed_reference_spans.get(name).is_some_and(|spans| {
+        spans
+            .iter()
+            .copied()
+            .any(|other| spans_overlap(other, span))
+    })
+}
+
+fn spans_overlap(left: Span, right: Span) -> bool {
+    left.start.offset < right.end.offset && right.start.offset < left.end.offset
 }
 
 fn parameter_reference_span(source: &str, span: Span) -> Span {
@@ -355,7 +403,6 @@ fn has_strong_two_edit_shape(target_name: &str, candidate_upper: &str) -> bool {
         || common_prefix >= 5
         || common_suffix >= 5
         || (common_prefix >= 4 && common_suffix >= 4)
-        || (common_prefix >= 2 && common_suffix >= 5)
 }
 
 fn common_prefix_len(left: &[u8], right: &[u8]) -> usize {
@@ -867,6 +914,23 @@ EOF
                 .collect::<Vec<_>>(),
             vec!["$PACKAGE_NAME"]
         );
+    }
+
+    #[test]
+    fn ignores_guarded_references_inside_expanding_heredocs() {
+        let source = "\
+#!/bin/sh
+package_name=demo
+cat << EOF
+${PACKAGE_NAME:-demo}
+EOF
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
     #[test]
