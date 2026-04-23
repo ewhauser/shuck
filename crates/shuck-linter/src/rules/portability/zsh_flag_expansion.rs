@@ -59,4 +59,20 @@ mod tests {
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn ignores_split_modifier_forms() {
+        let source = "#!/bin/sh\nx=${=foo}\ny=${=~foo}\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ZshFlagExpansion));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn still_reports_non_split_leading_modifier_forms() {
+        let source = "#!/bin/sh\nx=${~foo}\ny=${~=foo}\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ZshFlagExpansion));
+
+        assert_eq!(diagnostics.len(), 2);
+    }
 }
