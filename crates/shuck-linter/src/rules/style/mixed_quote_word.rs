@@ -204,6 +204,7 @@ x=\"$(cmd \"a\".\"b\")\"
         let source = "\
 #!/bin/bash
 echo \"$(cmd)\"x\"y\"
+echo $(printf \"(\")\"foo\"quotedparen\"baz\"
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::MixedQuoteWord));
 
@@ -212,7 +213,7 @@ echo \"$(cmd)\"x\"y\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["x"]
+            vec!["x", "quotedparen"]
         );
     }
 

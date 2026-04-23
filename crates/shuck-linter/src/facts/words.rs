@@ -1448,8 +1448,24 @@ fn mixed_quote_shell_fragment_balance_delta_for_part(
         WordPart::ProcessSubstitution { .. } => {
             mixed_quote_shell_fragment_balance_delta(part.span.slice(source), true)
         }
+        WordPart::DoubleQuoted { .. } => {
+            let text = part.span.slice(source);
+            let body = text
+                .strip_prefix('"')
+                .and_then(|text| text.strip_suffix('"'))
+                .unwrap_or(text);
+            mixed_quote_shell_fragment_balance_delta(body, false)
+        }
         _ => mixed_quote_shell_fragment_balance_delta(part.span.slice(source), false),
     }
+}
+
+#[derive(Clone, Copy)]
+enum MixedQuoteShellParenFrame {
+    Command {
+        opened_in_double_quotes: bool,
+    },
+    Group,
 }
 
 fn mixed_quote_shell_fragment_balance_delta(
@@ -1463,7 +1479,7 @@ fn mixed_quote_shell_fragment_balance_delta(
     let mut in_single_quotes = false;
     let mut in_double_quotes = false;
     let mut in_comment = false;
-    let mut shell_parenthesis_depth = 0i32;
+    let mut command_frames = Vec::new();
     let mut previous_char = None;
 
     while let Some(ch) = chars.next() {
@@ -1523,6 +1539,9 @@ fn mixed_quote_shell_fragment_balance_delta(
             match chars.peek().copied() {
                 Some('(') => {
                     command_delta += 1;
+                    command_frames.push(MixedQuoteShellParenFrame::Command {
+                        opened_in_double_quotes: in_double_quotes,
+                    });
                     chars.next();
                     previous_char = Some('(');
                     continue;
@@ -1538,11 +1557,28 @@ fn mixed_quote_shell_fragment_balance_delta(
         }
 
         match ch {
-            '(' if command_delta > 0 => shell_parenthesis_depth += 1,
-            ')' if shell_parenthesis_depth > 0 => shell_parenthesis_depth -= 1,
-            ')' => command_delta -= 1,
-            '}' => parameter_delta -= 1,
+            '(' if !in_double_quotes && command_delta > 0 => {
+                command_frames.push(MixedQuoteShellParenFrame::Group);
+            }
+            ')' => match command_frames.last().copied() {
+                Some(MixedQuoteShellParenFrame::Group) if !in_double_quotes => {
+                    command_frames.pop();
+                }
+                Some(MixedQuoteShellParenFrame::Command {
+                    opened_in_double_quotes,
+                }) if !in_double_quotes || opened_in_double_quotes => {
+                    command_frames.pop();
+                    command_delta -= 1;
+                }
+                None if !in_double_quotes => command_delta -= 1,
+                _ => {}
+            },
+            '}' if !in_double_quotes => parameter_delta -= 1,
             _ => {}
+        }
+
+        if command_delta <= 0 {
+            command_frames.clear();
         }
 
         previous_char = Some(ch);
@@ -1713,7 +1749,7 @@ fn mixed_quote_closing_double_quote_offset(text: &str) -> Option<usize> {
     let mut escaped = false;
     let mut command_depth = 0i32;
     let mut parameter_depth = 0i32;
-    let mut shell_parenthesis_depth = 0i32;
+    let mut command_frames = Vec::new();
     let mut in_backtick_command = false;
     let mut in_single_quotes = false;
     let mut in_double_quotes = false;
@@ -1785,6 +1821,9 @@ fn mixed_quote_closing_double_quote_offset(text: &str) -> Option<usize> {
             match chars.peek().copied() {
                 Some((_, '(')) => {
                     command_depth += 1;
+                    command_frames.push(MixedQuoteShellParenFrame::Command {
+                        opened_in_double_quotes: in_double_quotes,
+                    });
                     chars.next();
                     previous_char = Some('(');
                     continue;
@@ -1799,16 +1838,32 @@ fn mixed_quote_closing_double_quote_offset(text: &str) -> Option<usize> {
             }
         }
 
-        if nested_depth && !in_double_quotes {
+        if nested_depth {
             match ch {
-                '(' if command_depth > 0 => shell_parenthesis_depth += 1,
-                ')' if shell_parenthesis_depth > 0 => shell_parenthesis_depth -= 1,
-                ')' => command_depth -= 1,
-                '}' => parameter_depth -= 1,
+                '(' if !in_double_quotes && command_depth > 0 => {
+                    command_frames.push(MixedQuoteShellParenFrame::Group);
+                }
+                ')' => match command_frames.last().copied() {
+                    Some(MixedQuoteShellParenFrame::Group) if !in_double_quotes => {
+                        command_frames.pop();
+                    }
+                    Some(MixedQuoteShellParenFrame::Command {
+                        opened_in_double_quotes,
+                    }) if !in_double_quotes || opened_in_double_quotes => {
+                        command_frames.pop();
+                        command_depth -= 1;
+                    }
+                    None if !in_double_quotes => command_depth -= 1,
+                    _ => {}
+                },
+                '}' if !in_double_quotes => parameter_depth -= 1,
                 _ => {}
             }
             command_depth = command_depth.max(0);
             parameter_depth = parameter_depth.max(0);
+            if command_depth == 0 {
+                command_frames.clear();
+            }
         }
 
         previous_char = Some(ch);
