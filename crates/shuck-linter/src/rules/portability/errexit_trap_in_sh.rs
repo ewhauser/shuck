@@ -109,5 +109,4 @@ set +T
 
         assert!(diagnostics.is_empty());
     }
-
 }

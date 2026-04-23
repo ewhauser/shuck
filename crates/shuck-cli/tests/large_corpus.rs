@@ -3815,8 +3815,16 @@ mod tests {
         let rule_index = build_rule_to_shellcheck_index(Some(&selected_rules));
         let shellcheck_index = build_shellcheck_to_rule_index(Some(&selected_rules));
 
-        assert!(settings.rules.contains(shuck_linter::Rule::SourceBuiltinInSh));
-        assert!(settings.rules.contains(shuck_linter::Rule::SourceInsideFunctionInSh));
+        assert!(
+            settings
+                .rules
+                .contains(shuck_linter::Rule::SourceBuiltinInSh)
+        );
+        assert!(
+            settings
+                .rules
+                .contains(shuck_linter::Rule::SourceInsideFunctionInSh)
+        );
         assert_eq!(rule_index.get("X031"), Some(&"SC3046".to_string()));
         assert_eq!(rule_index.get("X080"), Some(&"SC3046".to_string()));
         assert_eq!(
