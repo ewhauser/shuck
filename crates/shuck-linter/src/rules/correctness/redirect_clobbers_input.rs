@@ -269,6 +269,10 @@ EOF
 ) > SGINGRESS1
 { [ \"$OUT\" -lt \"$crit_border\" ] && :; } | sort >> \"$OUT\"
 { case \"$MODE\" in on) :;; esac; } | sort > \"$MODE\"
+f() {
+  local out=/tmp/f
+  sort \"$out\" > \"$out\"
+}
 ";
         let diagnostics = test_snippet(
             source,
@@ -294,6 +298,8 @@ EOF
                 "\"$OUT\"",
                 "\"$MODE\"",
                 "\"$MODE\"",
+                "\"$out\"",
+                "\"$out\"",
             ]
         );
     }

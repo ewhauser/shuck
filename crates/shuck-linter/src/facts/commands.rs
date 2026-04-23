@@ -503,20 +503,17 @@ fn build_scope_read_source_words<'a>(
     commands: &[CommandFact<'a>],
     pipelines: &[PipelineFact<'a>],
     if_condition_command_ids: &FxHashSet<CommandId>,
-    semantic: &SemanticModel,
     source: &str,
 ) -> Vec<Box<[PathWordFact<'a>]>> {
     let mut words_by_command = vec![Vec::new(); commands.len()];
 
     for command in commands {
-        let mut scope_words =
-            own_scope_read_source_words_filtered(command, if_condition_command_ids, semantic, source);
+        let mut scope_words = own_scope_read_source_words(command, if_condition_command_ids, source);
         if command_has_file_output_redirect(command) {
             scope_words.extend(nested_scope_read_source_words(
                 commands,
                 command,
                 if_condition_command_ids,
-                semantic,
                 source,
             ));
         }
@@ -542,14 +539,7 @@ fn build_scope_read_source_words<'a>(
         let mut pipeline_words = commands
             .iter()
             .filter(|command| contains_span(pipeline.span(), command.span()))
-            .flat_map(|command| {
-                own_scope_read_source_words_filtered(
-                    command,
-                    if_condition_command_ids,
-                    semantic,
-                    source,
-                )
-            })
+            .flat_map(|command| own_scope_read_source_words(command, if_condition_command_ids, source))
             .collect::<Vec<_>>();
         dedup_path_words(&mut pipeline_words);
 
@@ -669,12 +659,7 @@ fn own_read_source_name_facts(
     semantic: &SemanticModel,
     source: &str,
 ) -> Vec<PathNameFact> {
-    let mut names = own_scope_read_source_words_filtered(
-        command,
-        &FxHashSet::default(),
-        semantic,
-        source,
-    )
+    let mut names = own_scope_read_source_words(command, &FxHashSet::default(), source)
         .into_iter()
         .filter_map(|path_word| {
             let (literal_kind, parameter_kind) = path_word_name_kinds(path_word.context());
@@ -695,7 +680,6 @@ fn own_read_source_name_facts(
         PathNameKind::HeredocParameter,
     ));
     remove_names_inside_spans(&mut names, &command_file_output_redirect_target_spans(command));
-    names.retain(|name| !path_name_hidden_by_initialized_local(name, semantic));
     dedup_path_names(&mut names);
     names
 }
@@ -926,7 +910,6 @@ fn nested_scope_read_source_words<'a>(
     commands: &[CommandFact<'a>],
     command: &CommandFact<'a>,
     if_condition_command_ids: &FxHashSet<CommandId>,
-    semantic: &SemanticModel,
     source: &str,
 ) -> Vec<PathWordFact<'a>> {
     commands
@@ -934,26 +917,8 @@ fn nested_scope_read_source_words<'a>(
         .filter(|other| {
             other.id() != command.id() && contains_span(command.span(), other.span())
         })
-        .flat_map(|other| {
-            own_scope_read_source_words_filtered(
-                other,
-                if_condition_command_ids,
-                semantic,
-                source,
-            )
-        })
+        .flat_map(|other| own_scope_read_source_words(other, if_condition_command_ids, source))
         .collect()
-}
-
-fn own_scope_read_source_words_filtered<'a>(
-    command: &CommandFact<'a>,
-    if_condition_command_ids: &FxHashSet<CommandId>,
-    semantic: &SemanticModel,
-    source: &str,
-) -> Vec<PathWordFact<'a>> {
-    let mut words = own_scope_read_source_words(command, if_condition_command_ids, source);
-    words.retain(|word| !path_word_hidden_by_initialized_local(word, semantic));
-    words
 }
 
 fn dedup_path_words(words: &mut Vec<PathWordFact<'_>>) {
@@ -1001,34 +966,6 @@ fn is_shell_identifier_like(value: &str) -> bool {
         && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
 }
 
-fn path_word_hidden_by_initialized_local(
-    path_word: &PathWordFact<'_>,
-    semantic: &SemanticModel,
-) -> bool {
-    let Some(comparable) = path_word.comparable_path() else {
-        return false;
-    };
-    let ComparablePathKey::Parameter(name) = comparable.key() else {
-        return false;
-    };
-
-    parameter_hidden_by_initialized_local(semantic, name.as_ref(), comparable.span().start.offset)
-}
-
-fn path_name_hidden_by_initialized_local(name: &PathNameFact, semantic: &SemanticModel) -> bool {
-    if !matches!(
-        name.kind(),
-        PathNameKind::Parameter
-            | PathNameKind::RedirectParameter
-            | PathNameKind::HeredocParameter
-            | PathNameKind::GeneratedParameter
-    ) {
-        return false;
-    }
-
-    parameter_hidden_by_initialized_local(semantic, name.name(), name.span().start.offset)
-}
-
 fn path_name_write_hidden_by_prior_assignment(
     name: &PathNameFact,
     semantic: &SemanticModel,
@@ -1052,35 +989,6 @@ fn path_name_write_hidden_by_prior_assignment(
                 &binding.origin,
                 shuck_semantic::BindingOrigin::Assignment { .. }
             )
-    })
-}
-
-fn parameter_hidden_by_initialized_local(
-    semantic: &SemanticModel,
-    name: &str,
-    offset: usize,
-) -> bool {
-    let Some(function_scope) = enclosing_function_scope(semantic, offset) else {
-        return false;
-    };
-
-    semantic.bindings().iter().any(|binding| {
-        let local_initialized_declaration = binding
-            .attributes
-            .contains(BindingAttributes::LOCAL | BindingAttributes::DECLARATION_INITIALIZED);
-        let local_parameter_default_assignment = binding.attributes.contains(BindingAttributes::LOCAL)
-            && matches!(
-                &binding.origin,
-                shuck_semantic::BindingOrigin::Assignment {
-                    value: shuck_semantic::AssignmentValueOrigin::ParameterOperator,
-                    ..
-                }
-            );
-
-        binding.name.as_str() == name
-            && binding.scope == function_scope
-            && binding.span.start.offset <= offset
-            && (local_initialized_declaration || local_parameter_default_assignment)
     })
 }
 

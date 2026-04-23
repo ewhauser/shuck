@@ -392,7 +392,6 @@ impl<'a> LinterFactsBuilder<'a> {
             &commands,
             &pipelines,
             &if_condition_command_ids,
-            self.semantic,
             source,
         );
         for (fact, words) in commands.iter_mut().zip(scope_read_source_words) {
