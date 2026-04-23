@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
+use shuck_ast::Name;
 use shuck_semantic::{Binding, BindingAttributes, BindingKind, DeclarationBuiltin};
 
-use crate::{Checker, Rule, ShellDialect, Violation};
+use crate::{Checker, Rule, ShellDialect, Violation, WrapperKind};
 
 pub struct ArrayToStringConversion;
 
@@ -19,12 +20,22 @@ impl Violation for ArrayToStringConversion {
 pub fn array_to_string_conversion(checker: &mut Checker) {
     let semantic = checker.semantic();
     let mut array_history = HashMap::new();
+    let builtin_array_history = builtin_array_history_events(checker);
+    let mut next_builtin_array_history = 0usize;
     let mut bindings = semantic.bindings().iter().collect::<Vec<_>>();
     bindings.sort_by_key(|binding| (binding.span.start.offset, binding.span.end.offset));
 
     let spans = bindings
         .into_iter()
         .filter_map(|binding| {
+            while let Some((offset, name)) = builtin_array_history.get(next_builtin_array_history) {
+                if *offset > binding.span.start.offset {
+                    break;
+                }
+                array_history.insert(name.clone(), true);
+                next_builtin_array_history += 1;
+            }
+
             let name = binding.name.clone();
             let saw_array_history = array_history
                 .get(&name)
@@ -59,6 +70,66 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || ArrayToStringConversion);
+}
+
+fn builtin_array_history_events(checker: &Checker<'_>) -> Vec<(usize, Name)> {
+    let mut events = checker
+        .facts()
+        .commands()
+        .iter()
+        .filter(|command| command_forces_builtin_resolution(command))
+        .flat_map(|command| command_array_history_events(checker, command))
+        .collect::<Vec<_>>();
+    events.sort_by_key(|(offset, _)| *offset);
+    events
+}
+
+fn command_array_history_events(
+    checker: &Checker<'_>,
+    command: &crate::facts::commands::CommandFact<'_>,
+) -> Vec<(usize, Name)> {
+    if matches!(checker.shell(), ShellDialect::Bash) && command.effective_name_is("read") {
+        return command
+            .options()
+            .read()
+            .filter(|_| !command_is_shadowed_function(checker, command))
+            .map(|read| {
+                read.array_target_name_uses()
+                    .iter()
+                    .map(|target| {
+                        (
+                            target.span().start.offset,
+                            Name::from(target.span().slice(checker.source())),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+    }
+
+    if matches!(checker.shell(), ShellDialect::Bash)
+        && (command.effective_name_is("mapfile") || command.effective_name_is("readarray"))
+    {
+        return command
+            .options()
+            .mapfile()
+            .filter(|_| !command_is_shadowed_function(checker, command))
+            .map(|mapfile| {
+                mapfile
+                    .target_name_uses()
+                    .iter()
+                    .map(|target| {
+                        (
+                            target.span().start.offset,
+                            Name::from(target.span().slice(checker.source())),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+    }
+
+    Vec::new()
 }
 
 fn binding_can_trigger_array_to_string_conversion(binding: &Binding) -> bool {
@@ -163,6 +234,10 @@ fn command_is_shadowed_function(
     checker: &Checker<'_>,
     command: &crate::facts::commands::CommandFact<'_>,
 ) -> bool {
+    if command_forces_builtin_resolution(command) {
+        return false;
+    }
+
     let Some(name_span) = command.body_word_span() else {
         return false;
     };
@@ -174,6 +249,10 @@ fn command_is_shadowed_function(
         .semantic()
         .visible_binding(&command_name.into(), name_span)
         .is_some_and(binding_is_function_like)
+}
+
+fn command_forces_builtin_resolution(command: &crate::facts::commands::CommandFact<'_>) -> bool {
+    command.has_wrapper(WrapperKind::Command) || command.has_wrapper(WrapperKind::Builtin)
 }
 
 fn contains_span(outer: shuck_ast::Span, inner: shuck_ast::Span) -> bool {
@@ -453,6 +532,56 @@ cb=value
         );
 
         assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_read_array_history_through_command_wrapper() {
+        let source = "\
+#!/bin/bash
+read() {
+  :
+}
+command read -a entries
+entries=value
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["entries"],
+            "{diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn reports_mapfile_history_through_builtin_wrapper() {
+        let source = "\
+#!/bin/bash
+mapfile() {
+  :
+}
+builtin mapfile lines
+lines=value
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["lines"],
+            "{diagnostics:#?}"
+        );
     }
 
     #[test]
