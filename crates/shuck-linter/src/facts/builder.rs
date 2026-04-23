@@ -630,9 +630,7 @@ impl<'a> LinterFactsBuilder<'a> {
             trailing_directive_comment_spans,
             condition_status_capture_spans,
             condition_command_substitution_spans,
-            backtick_substitution_spans: crate::rules::common::span::backtick_substitution_spans(
-                source,
-            ),
+            backtick_substitution_spans: word_spans::backtick_substitution_spans(source),
             backtick_command_name_spans,
             dollar_question_after_command_spans,
             assignment_like_command_name_spans,

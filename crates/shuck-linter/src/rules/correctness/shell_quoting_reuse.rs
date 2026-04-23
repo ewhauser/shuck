@@ -4,10 +4,9 @@ use shuck_semantic::{
     Binding, BindingAttributes, BindingId, BindingKind, Reference, ReferenceKind,
 };
 
-use crate::facts::CommandId;
+use crate::facts::{CommandId, word_spans};
 use crate::{
-    Checker, ExpansionContext, SimpleTestShape, SimpleTestSyntax, WordFactContext,
-    static_word_text, word_shell_quoting_literal_run_span_in_source,
+    Checker, ExpansionContext, SimpleTestShape, SimpleTestSyntax, WordFactContext, static_word_text,
 };
 
 pub(crate) struct ShellQuotingReuseAnalysis {
@@ -506,7 +505,7 @@ fn repeated_export_assignment_targets(checker: &Checker<'_>) -> FxHashSet<String
 }
 
 fn assignment_value_report_span(binding: ScalarBinding<'_>, checker: &Checker<'_>) -> Span {
-    word_shell_quoting_literal_run_span_in_source(binding.word, checker.source())
+    word_spans::word_shell_quoting_literal_run_span_in_source(binding.word, checker.source())
         .unwrap_or(binding.word.span)
 }
 

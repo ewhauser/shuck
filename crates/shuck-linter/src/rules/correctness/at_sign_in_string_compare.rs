@@ -1,6 +1,7 @@
 use shuck_ast::Span;
 
-use crate::{Checker, Rule, Violation, word_positional_at_splat_span_in_source};
+use crate::facts::word_spans;
+use crate::{Checker, Rule, Violation};
 
 pub struct AtSignInStringCompare;
 
@@ -30,7 +31,9 @@ pub fn at_sign_in_string_compare(checker: &mut Checker) {
 fn simple_test_spans(fact: &crate::SimpleTestFact<'_>, source: &str) -> Vec<Span> {
     fact.operator_expression_operand_words(source)
         .into_iter()
-        .filter_map(|word| word_positional_at_splat_span_in_source(word, source).map(|_| word.span))
+        .filter_map(|word| {
+            word_spans::word_positional_at_splat_span_in_source(word, source).map(|_| word.span)
+        })
         .collect()
 }
 

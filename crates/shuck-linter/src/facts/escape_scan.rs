@@ -2,15 +2,12 @@ use shuck_ast::Span;
 
 use super::{
     BacktickFragmentFact, CommandFact, SingleQuotedFragmentFact, WordNode, WordOccurrence,
+    word_spans,
 };
 use crate::FileContext;
 use crate::context::FileContextTag;
 use crate::facts::{occurrence_span, occurrence_word};
 use crate::rules::common::expansion::ExpansionContext;
-use crate::rules::common::span::{
-    word_has_single_literal_part, word_literal_part_spans_excluding_parameter_operator_tails,
-    word_literal_scan_segments_excluding_expansions,
-};
 
 pub(super) struct EscapeScanContext<'a> {
     pub(super) source: &'a str,
@@ -123,8 +120,10 @@ pub(super) fn build_escape_scan_matches(
             inputs.single_quoted_fragments,
         );
 
-        for span in word_literal_part_spans_excluding_parameter_operator_tails(word, context.source)
-        {
+        for span in word_spans::word_literal_part_spans_excluding_parameter_operator_tails(
+            word,
+            context.source,
+        ) {
             append_escape_scan_matches(
                 &mut matches,
                 span,
@@ -146,7 +145,7 @@ pub(super) fn build_escape_scan_matches(
             super::WordFactContext::CaseSubject | super::WordFactContext::ArithmeticCommand => None,
         })
     }) {
-        if !word_has_single_literal_part(occurrence_word(nodes, fact)) {
+        if !word_spans::word_has_single_literal_part(occurrence_word(nodes, fact)) {
             continue;
         }
 
@@ -187,7 +186,7 @@ pub(super) fn build_escape_scan_matches(
             inputs.single_quoted_fragments,
         );
 
-        for span in word_literal_scan_segments_excluding_expansions(
+        for span in word_spans::word_literal_scan_segments_excluding_expansions(
             occurrence_word(nodes, fact),
             context.source,
         ) {

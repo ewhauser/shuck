@@ -1,9 +1,9 @@
 use shuck_ast::{ConditionalUnaryOp, Word};
 
+use crate::facts::word_spans;
 use crate::{
     Checker, ConditionalNodeFact, ConditionalOperatorFamily, Edit, Fix, FixAvailability, Rule,
-    Violation, double_quoted_scalar_affix_span, quoted_word_content_span_in_source,
-    static_word_text,
+    Violation, static_word_text,
 };
 
 pub struct LiteralUnaryStringTest;
@@ -76,7 +76,9 @@ fn simple_test_diagnostic(
         .effective_operand_class(index)
         .is_some_and(|class| class.is_fixed_literal())
     {
-        let span = quoted_word_content_span_in_source(operand, source).unwrap_or(operand.span);
+        let span = operand
+            .quoted_content_span_in_source(source)
+            .unwrap_or(operand.span);
         let replacement = explicit_literal_replacement_for_word(operand, source);
         return Some(
             crate::Diagnostic::new(LiteralUnaryStringTest, span).with_fix(Fix::unsafe_edit(
@@ -85,7 +87,7 @@ fn simple_test_diagnostic(
         );
     }
 
-    let span = double_quoted_scalar_affix_span(operand)?;
+    let span = word_spans::double_quoted_scalar_affix_span(operand)?;
     Some(
         crate::Diagnostic::new(LiteralUnaryStringTest, span)
             .with_fix(Fix::unsafe_edit(Edit::replacement("x", operand.span))),
@@ -128,7 +130,10 @@ fn conditional_diagnostic(
 
         let span = operand
             .word()
-            .map(|word| quoted_word_content_span_in_source(word, source).unwrap_or(word.span))
+            .map(|word| {
+                word.quoted_content_span_in_source(source)
+                    .unwrap_or(word.span)
+            })
             .unwrap_or_else(|| operand.expression().span());
         let fix_span = operand
             .word()
@@ -141,7 +146,7 @@ fn conditional_diagnostic(
     }
 
     let word = operand.word()?;
-    let span = double_quoted_scalar_affix_span(word)?;
+    let span = word_spans::double_quoted_scalar_affix_span(word)?;
     Some(
         crate::Diagnostic::new(LiteralUnaryStringTest, span)
             .with_fix(Fix::unsafe_edit(Edit::replacement("x", word.span))),

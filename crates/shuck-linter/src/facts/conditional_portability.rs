@@ -3,17 +3,10 @@ use shuck_ast::{ConditionalBinaryOp, ConditionalUnaryOp, Span};
 
 use super::{
     CommandFact, CommandId, ConditionalFact, ConditionalNodeFact, FactSpan, SimpleTestFact,
-    SimpleTestSyntax, WordNode, WordOccurrence,
+    SimpleTestSyntax, WordNode, WordOccurrence, word_spans,
 };
 use crate::rules::common::expansion::ExpansionContext;
-use crate::rules::common::span::{
-    text_looks_like_caret_negated_bracket, word_caret_negated_bracket_spans,
-    word_exactly_one_extglob_span,
-};
-use crate::{
-    conditional_array_subscript_span, conditional_extglob_span, facts::occurrence_word,
-    static_word_text, word_array_subscript_span, word_extglob_span,
-};
+use crate::{facts::occurrence_word, static_word_text};
 
 #[derive(Debug, Clone, Default)]
 pub struct ConditionalPortabilityFacts {
@@ -121,11 +114,15 @@ pub(super) fn build_conditional_portability_facts<'a>(
                 facts.if_elif_bash_test.push(command.span());
             }
 
-            if let Some(span) = conditional_extglob_span(conditional.expression(), source) {
+            if let Some(span) =
+                word_spans::conditional_extglob_span(conditional.expression(), source)
+            {
                 facts.extglob_in_test.push(span);
             }
 
-            if let Some(span) = conditional_array_subscript_span(conditional.expression(), source) {
+            if let Some(span) =
+                word_spans::conditional_array_subscript_span(conditional.expression(), source)
+            {
                 facts.array_subscript_condition.push(span);
             }
 
@@ -137,13 +134,13 @@ pub(super) fn build_conditional_portability_facts<'a>(
                 simple_test
                     .operands()
                     .iter()
-                    .filter_map(|word| word_array_subscript_span(word, source)),
+                    .filter_map(|word| word_spans::word_array_subscript_span(word, source)),
             );
             facts.extglob_in_test.extend(
                 simple_test
                     .operands()
                     .iter()
-                    .filter_map(|word| word_extglob_span(word, source)),
+                    .filter_map(|word| word_spans::word_extglob_span(word, source)),
             );
             collect_simple_test_portability_spans(command, simple_test, source, &mut facts);
         }
@@ -163,7 +160,7 @@ pub(super) fn build_conditional_portability_facts<'a>(
                     .nested_pattern_charclass_spans
                     .contains(&FactSpan::new(**span))
             })
-            .filter(|span| text_looks_like_caret_negated_bracket(span.slice(source)))
+            .filter(|span| word_spans::text_looks_like_caret_negated_bracket(span.slice(source)))
             .copied(),
     );
 
@@ -174,7 +171,7 @@ pub(super) fn build_conditional_portability_facts<'a>(
         };
         let word = occurrence_word(inputs.word_nodes, fact);
         if supports_extglob_portability_context(expansion_context)
-            && let Some(span) = word_exactly_one_extglob_span(word, source)
+            && let Some(span) = word_spans::word_exactly_one_extglob_span(word, source)
         {
             facts.extglob_in_sh.push(span);
         }
@@ -182,7 +179,7 @@ pub(super) fn build_conditional_portability_facts<'a>(
         if supports_bracket_glob_portability_context(expansion_context) {
             facts
                 .caret_negation_in_bracket
-                .extend(word_caret_negated_bracket_spans(word, source));
+                .extend(word_spans::word_caret_negated_bracket_spans(word, source));
         }
     }
 

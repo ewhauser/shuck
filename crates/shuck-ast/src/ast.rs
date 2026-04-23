@@ -1850,6 +1850,28 @@ impl Word {
         matches!(self.parts.as_slice(), [part] if part.kind.is_quoted())
     }
 
+    /// Returns the inner content span for a fully quoted word in the original source.
+    pub fn quoted_content_span_in_source(&self, source: &str) -> Option<Span> {
+        if !self.is_fully_quoted() {
+            return None;
+        }
+
+        let raw = self.span.slice(source);
+        let quote = raw.chars().next()?;
+        if !matches!(quote, '"' | '\'') {
+            return None;
+        }
+
+        let body = raw.strip_prefix(quote)?.strip_suffix(quote)?;
+        if body.is_empty() {
+            return None;
+        }
+
+        let start = self.span.start.advanced_by(&raw[..quote.len_utf8()]);
+        let end = start.advanced_by(body);
+        Some(Span::from_positions(start, end))
+    }
+
     pub fn is_fully_double_quoted(&self) -> bool {
         matches!(
             self.parts.as_slice(),

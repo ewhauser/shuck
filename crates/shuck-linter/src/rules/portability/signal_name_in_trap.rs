@@ -1,10 +1,8 @@
 use shuck_ast::{Span, Word};
 
 use super::trap_common::parse_trap_args;
-use crate::{
-    Checker, Fix, FixAvailability, Rule, ShellDialect, Violation,
-    leading_static_word_prefix_fix_in_source, quoted_word_content_span_in_source, static_word_text,
-};
+use crate::rules::common::word::leading_static_word_prefix_fix_in_source;
+use crate::{Checker, Fix, FixAvailability, Rule, ShellDialect, Violation, static_word_text};
 
 const SIG_PREFIX_LEN: usize = 3;
 const FIX_TITLE: &str = "remove the leading `SIG` prefix from the trap signal name";
@@ -76,7 +74,9 @@ fn trap_signal_name_occurrences(args: &[&Word], source: &str) -> Vec<SignalNameI
                     .chars()
                     .all(|character| character.is_ascii_alphanumeric()))
             .then(|| {
-                let span = quoted_word_content_span_in_source(word, source).unwrap_or(word.span);
+                let span = word
+                    .quoted_content_span_in_source(source)
+                    .unwrap_or(word.span);
                 SignalNameInTrapOccurrence {
                     report_span: span,
                     fix: signal_name_in_trap_fix(word, source),

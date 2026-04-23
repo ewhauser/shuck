@@ -195,7 +195,7 @@ fn build_loop_header_word_facts<'a>(
                 word,
                 classification,
                 has_unquoted_command_substitution: classification.has_command_substitution()
-                    && !span::unquoted_command_substitution_part_spans(word).is_empty(),
+                    && !word_spans::unquoted_command_substitution_part_spans(word).is_empty(),
                 contains_line_oriented_substitution: word_contains_line_oriented_substitution(
                     word,
                     commands,
@@ -217,4 +217,3 @@ fn build_loop_header_word_facts<'a>(
         .collect::<Vec<_>>()
         .into_boxed_slice()
 }
-
