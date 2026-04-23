@@ -213,6 +213,27 @@ declare -A map=([$(printf key)]=1)
     }
 
     #[test]
+    fn ignores_declaration_assignment_target_subscripts_in_sh_mode() {
+        let source = "\
+#!/bin/sh
+declare arr[$(printf decl-subscript)]=$(printf value)
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedCommandSubstitution)
+                .with_shell(ShellDialect::Sh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$(printf value)"]
+        );
+    }
+
+    #[test]
     fn ignores_declaration_assignment_value_substitutions() {
         let source = "\
 local name=$(printf local)
