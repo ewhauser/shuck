@@ -8,10 +8,10 @@ shellcheck_level: warning
 shells:
   - sh
   - dash
-description: A C-style for loop with arithmetic uses bashism syntax in POSIX sh.
-rationale: Use a while loop for portable iteration.
+description: Bash-style arithmetic increment and decrement operators are used in POSIX sh.
+rationale: Use explicit arithmetic assignments for `++` and `--`, and rewrite `for ((...))` loops when you need a portable iteration construct.
 safe_fix: false
-fix_description: Rewrite the C-style loop as a `while` loop and spell each reported `++` or `--` as an explicit arithmetic assignment.
+fix_description: Replace each reported `++` or `--` with an explicit arithmetic assignment, and rewrite `for ((...))` loops into a portable `while` form when needed.
 source:
   shell_checks_rule: rules/SH-269.yaml
   shell_checks_example: examples/269.sh
