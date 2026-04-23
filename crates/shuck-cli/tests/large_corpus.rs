@@ -2693,52 +2693,35 @@ fn build_rule_to_shellcheck_index(
     selected_rules: Option<&shuck_linter::RuleSet>,
 ) -> HashMap<String, String> {
     let shellcheck_map = shuck_linter::ShellCheckCodeMap::default();
+    let rules = selected_rules
+        .map(expand_selected_rules_for_large_corpus)
+        .unwrap_or_else(shuck_linter::RuleSet::all);
 
-    if let Some(selected_rules) = selected_rules {
-        return selected_rules
-            .iter()
-            .filter_map(|rule| {
-                shellcheck_map
-                    .code_for_rule(rule)
-                    .map(|sc_code| (rule.code().to_owned(), format!("SC{sc_code}")))
-            })
-            .collect();
-    }
-
-    shellcheck_map
-        .mappings()
-        .map(|(sc_code, rule)| (rule.code().to_owned(), format!("SC{sc_code}")))
-        .collect::<HashMap<_, _>>()
+    rules
+        .iter()
+        .filter_map(|rule| {
+            large_corpus_shellcheck_code_for_rule(&shellcheck_map, rule)
+                .map(|sc_code| (rule.code().to_owned(), format!("SC{sc_code}")))
+        })
+        .collect()
 }
 
 fn build_shellcheck_to_rule_index(
     selected_rules: Option<&shuck_linter::RuleSet>,
 ) -> HashMap<u32, Vec<String>> {
     let shellcheck_map = shuck_linter::ShellCheckCodeMap::default();
-
-    if let Some(selected_rules) = selected_rules {
-        let mut index = HashMap::<u32, Vec<String>>::new();
-        for rule in selected_rules.iter() {
-            if let Some(sc_code) = shellcheck_map.code_for_rule(rule) {
-                index
-                    .entry(sc_code)
-                    .or_default()
-                    .push(rule.code().to_owned());
-            }
-        }
-        for rule_codes in index.values_mut() {
-            rule_codes.sort();
-            rule_codes.dedup();
-        }
-        return index;
-    }
+    let rules = selected_rules
+        .map(expand_selected_rules_for_large_corpus)
+        .unwrap_or_else(shuck_linter::RuleSet::all);
 
     let mut index = HashMap::<u32, Vec<String>>::new();
-    for (sc_code, rule) in shellcheck_map.mappings() {
-        index
-            .entry(sc_code)
-            .or_default()
-            .push(rule.code().to_owned());
+    for rule in rules.iter() {
+        if let Some(sc_code) = large_corpus_shellcheck_code_for_rule(&shellcheck_map, rule) {
+            index
+                .entry(sc_code)
+                .or_default()
+                .push(rule.code().to_owned());
+        }
     }
     for rule_codes in index.values_mut() {
         rule_codes.sort();
@@ -2747,11 +2730,33 @@ fn build_shellcheck_to_rule_index(
     index
 }
 
+fn expand_selected_rules_for_large_corpus(
+    selected_rules: &shuck_linter::RuleSet,
+) -> shuck_linter::RuleSet {
+    let mut expanded = *selected_rules;
+    if selected_rules.contains(shuck_linter::Rule::SourceBuiltinInSh) {
+        expanded.insert(shuck_linter::Rule::SourceInsideFunctionInSh);
+    }
+    expanded
+}
+
+fn large_corpus_shellcheck_code_for_rule(
+    shellcheck_map: &shuck_linter::ShellCheckCodeMap,
+    rule: shuck_linter::Rule,
+) -> Option<u32> {
+    shellcheck_map.code_for_rule(rule).or_else(|| {
+        // X080 is the function-local split of SC3046/X031, so large-corpus
+        // compatibility needs to compare it against the generic source warning.
+        (rule == shuck_linter::Rule::SourceInsideFunctionInSh).then_some(3046)
+    })
+}
+
 fn build_large_corpus_linter_settings(
     selected_rules: Option<shuck_linter::RuleSet>,
     mapped_only: bool,
 ) -> shuck_linter::LinterSettings {
     let settings = if let Some(rules) = selected_rules {
+        let rules = expand_selected_rules_for_large_corpus(&rules);
         shuck_linter::LinterSettings::for_rules(rules.iter())
     } else if mapped_only {
         let mapped_rules: HashSet<_> = shuck_linter::ShellCheckCodeMap::default()
@@ -3761,6 +3766,32 @@ mod tests {
         assert_eq!(index.get(&3034), Some(&vec!["X026".to_string()]));
         assert_eq!(index.get(&2096), Some(&vec!["S053".to_string()]));
         assert_eq!(index.get(&2086), Some(&vec!["S001".to_string()]));
+    }
+
+    #[test]
+    fn large_corpus_maps_x080_to_sc3046_for_compatibility() {
+        let index = build_rule_to_shellcheck_index(None);
+
+        assert_eq!(index.get("X080"), Some(&"SC3046".to_string()));
+    }
+
+    #[test]
+    fn selecting_x031_also_enables_x080_large_corpus_compatibility() {
+        let selected_rules =
+            shuck_linter::RuleSet::from_iter([shuck_linter::Rule::SourceBuiltinInSh]);
+
+        let settings = build_large_corpus_linter_settings(Some(selected_rules), false);
+        let rule_index = build_rule_to_shellcheck_index(Some(&selected_rules));
+        let shellcheck_index = build_shellcheck_to_rule_index(Some(&selected_rules));
+
+        assert!(settings.rules.contains(shuck_linter::Rule::SourceBuiltinInSh));
+        assert!(settings.rules.contains(shuck_linter::Rule::SourceInsideFunctionInSh));
+        assert_eq!(rule_index.get("X031"), Some(&"SC3046".to_string()));
+        assert_eq!(rule_index.get("X080"), Some(&"SC3046".to_string()));
+        assert_eq!(
+            shellcheck_index.get(&3046),
+            Some(&vec!["X031".to_string(), "X080".to_string()])
+        );
     }
 
     #[test]
