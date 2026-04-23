@@ -70,10 +70,11 @@ pub struct SafeValueIndex<'a> {
     analysis: &'a SemanticAnalysis<'a>,
     facts: &'a LinterFacts<'a>,
     source: &'a str,
+    case_cli_reachable_function_scopes: FxHashSet<ScopeId>,
     definite_uninitialized_refs: FxHashSet<FactSpan>,
     maybe_uninitialized_refs: FxHashSet<FactSpan>,
-    memo: FxHashMap<(FactSpan, SafeValueQuery, Option<ScopeId>), bool>,
-    visiting: FxHashSet<(FactSpan, SafeValueQuery, Option<ScopeId>)>,
+    memo: FxHashMap<(FactSpan, FactSpan, SafeValueQuery, Option<ScopeId>), bool>,
+    visiting: FxHashSet<(FactSpan, FactSpan, SafeValueQuery, Option<ScopeId>)>,
     helper_binding_memo: FxHashMap<(Name, ScopeId, FactSpan), Box<[BindingId]>>,
     helper_binding_visiting: FxHashSet<(Name, ScopeId, FactSpan)>,
 }
@@ -97,12 +98,15 @@ impl<'a> SafeValueIndex<'a> {
             .filter(|uninitialized| uninitialized.certainty == UninitializedCertainty::Possible)
             .map(|uninitialized| FactSpan::new(semantic.reference(uninitialized.reference).span))
             .collect();
+        let case_cli_reachable_function_scopes =
+            build_case_cli_reachable_function_scopes(semantic, facts);
 
         Self {
             semantic,
             analysis,
             facts,
             source,
+            case_cli_reachable_function_scopes,
             definite_uninitialized_refs,
             maybe_uninitialized_refs,
             memo: FxHashMap::default(),
@@ -113,6 +117,9 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     pub fn part_is_safe(&mut self, part: &WordPart, span: Span, query: SafeValueQuery) -> bool {
+        if self.span_is_after_unconditional_inline_terminator(span) {
+            return false;
+        }
         match part {
             WordPart::ZshQualifiedGlob(_) => query == SafeValueQuery::Quoted,
             WordPart::Parameter(parameter) => self.parameter_part_is_safe(parameter, span, query),
@@ -168,6 +175,9 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     pub fn word_is_safe(&mut self, word: &Word, query: SafeValueQuery) -> bool {
+        if self.span_is_after_unconditional_inline_terminator(word.span) {
+            return false;
+        }
         let Some(analysis) = self
             .facts
             .any_word_fact(word.span)
@@ -190,6 +200,9 @@ impl<'a> SafeValueIndex<'a> {
         fact: crate::WordOccurrenceRef<'_, 'a>,
         query: SafeValueQuery,
     ) -> bool {
+        if self.span_is_after_unconditional_inline_terminator(fact.span()) {
+            return false;
+        }
         let analysis = fact.analysis();
         if query != SafeValueQuery::Quoted
             && (analysis.array_valued || analysis.hazards.command_or_process_substitution)
@@ -219,6 +232,9 @@ impl<'a> SafeValueIndex<'a> {
     fn name_is_safe(&mut self, name: &Name, at: Span, query: SafeValueQuery) -> bool {
         if safe_special_parameter(name) {
             return true;
+        }
+        if self.case_cli_reachable_call_path_keeps_argument_bindings_unsafe(at, query) {
+            return safe_numeric_shell_variable(name);
         }
 
         let mut bindings = self.safe_bindings_for_name(name, at);
@@ -264,6 +280,11 @@ impl<'a> SafeValueIndex<'a> {
         {
             return false;
         }
+        if matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
+            && !self.helper_outer_bindings_cover_all_caller_paths(name, at, &bindings)
+        {
+            return false;
+        }
         if self
             .definite_uninitialized_refs
             .contains(&FactSpan::new(at))
@@ -292,7 +313,7 @@ impl<'a> SafeValueIndex<'a> {
 
         bindings
             .into_iter()
-            .all(|binding_id| self.binding_is_safe(binding_id, query, case_cli_scope))
+            .all(|binding_id| self.binding_is_safe(binding_id, at, query, case_cli_scope))
     }
 
     fn case_cli_dispatch_scope_at(&self, offset: usize) -> Option<ScopeId> {
@@ -307,6 +328,25 @@ impl<'a> SafeValueIndex<'a> {
 
     pub fn in_case_cli_dispatch_entrypoint(&self, offset: usize) -> bool {
         self.case_cli_dispatch_scope_at(offset).is_some()
+    }
+
+    fn case_cli_reachable_function_scope_at(&self, offset: usize) -> Option<ScopeId> {
+        let scope = self.enclosing_function_scope_at(offset)?;
+        self.case_cli_reachable_function_scopes
+            .contains(&scope)
+            .then_some(scope)
+    }
+
+    fn case_cli_reachable_call_path_keeps_argument_bindings_unsafe(
+        &self,
+        at: Span,
+        query: SafeValueQuery,
+    ) -> bool {
+        matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
+            && !self.span_is_within_command_name(at)
+            && self
+                .case_cli_reachable_function_scope_at(at.start.offset)
+                .is_some()
     }
 
     fn case_cli_dispatch_outer_bindings_can_stay_safe(
@@ -344,6 +384,14 @@ impl<'a> SafeValueIndex<'a> {
         })
     }
 
+    fn span_is_within_command_name(&self, at: Span) -> bool {
+        self.facts.commands().iter().any(|command| {
+            command
+                .body_name_word()
+                .is_some_and(|word| span_contains(word.span, at))
+        })
+    }
+
     fn binding_is_blocked_by_exit_like_function_call(
         &self,
         binding_id: BindingId,
@@ -376,6 +424,17 @@ impl<'a> SafeValueIndex<'a> {
                                         || call_span.end.offset <= binding.span.start.offset)
                             }
                     })
+        })
+    }
+
+    fn span_is_after_unconditional_inline_terminator(&self, at: Span) -> bool {
+        self.facts.commands().iter().any(|command| {
+            command.span().end.offset <= at.start.offset
+                && self.command_runs_in_unconditional_flow(command.id(), at)
+                && matches!(
+                    command.command(),
+                    Command::Builtin(BuiltinCommand::Exit(_) | BuiltinCommand::Return(_))
+                )
         })
     }
 
@@ -524,6 +583,7 @@ impl<'a> SafeValueIndex<'a> {
     fn binding_is_safe(
         &mut self,
         binding_id: BindingId,
+        at: Span,
         query: SafeValueQuery,
         case_cli_scope: Option<ScopeId>,
     ) -> bool {
@@ -535,7 +595,7 @@ impl<'a> SafeValueIndex<'a> {
             return true;
         }
 
-        let key = (binding_key, query, case_cli_scope);
+        let key = (binding_key, FactSpan::new(at), query, case_cli_scope);
         if let Some(result) = self.memo.get(&key) {
             return *result;
         }
@@ -564,8 +624,8 @@ impl<'a> SafeValueIndex<'a> {
                 }
             }
             BindingOrigin::LoopVariable {
+                definition_span,
                 items: LoopValueOrigin::StaticWords,
-                ..
             } => {
                 let words = self
                     .facts
@@ -574,6 +634,7 @@ impl<'a> SafeValueIndex<'a> {
                     .map(|words| words.to_vec());
                 words.is_some_and(|words| {
                     !words.is_empty()
+                        && self.loop_variable_reference_stays_within_body(*definition_span, at)
                         && words.into_iter().all(|word| {
                             !word_contains_special_parameter_slice(word)
                                 && self.word_is_safe(word, query)
@@ -603,6 +664,20 @@ impl<'a> SafeValueIndex<'a> {
         self.name_is_safe(&reference.name, at, query)
     }
 
+    fn loop_variable_reference_stays_within_body(&self, definition_span: Span, at: Span) -> bool {
+        self.facts.for_headers().iter().any(|header| {
+            header
+                .command()
+                .targets
+                .iter()
+                .any(|target| target.span == definition_span)
+                && span_contains(header.command().body.span, at)
+        }) || self.facts.select_headers().iter().any(|header| {
+            header.command().variable_span == definition_span
+                && span_contains(header.command().body.span, at)
+        })
+    }
+
     fn indirect_name_is_safe(
         &mut self,
         reference: &VarRef,
@@ -630,11 +705,29 @@ impl<'a> SafeValueIndex<'a> {
                 && targets
                     .iter()
                     .copied()
-                    .all(|target| self.binding_is_safe(target, query, case_cli_scope))
+                    .all(|target| self.binding_is_safe(target, at, query, case_cli_scope))
         })
     }
 
     fn safe_bindings_for_name(&mut self, name: &Name, at: Span) -> Vec<BindingId> {
+        let mut bindings = self.visible_bindings_for_name_without_helpers(name, at);
+        let mut helper_bindings = self.called_helper_bindings_for_name(name, at);
+        helper_bindings.extend(self.top_level_transitive_helper_bindings_before(name, at));
+        helper_bindings
+            .sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+        helper_bindings.dedup();
+        if bindings.is_empty() {
+            bindings = helper_bindings;
+        } else if !helper_bindings.is_empty() {
+            bindings.extend(helper_bindings);
+            bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+            bindings.dedup();
+        }
+
+        bindings
+    }
+
+    fn visible_bindings_for_name_without_helpers(&self, name: &Name, at: Span) -> Vec<BindingId> {
         let mut bindings = self.analysis.reaching_bindings_for_name(name, at);
         if bindings.len() == 1 {
             let mut expanded = self
@@ -648,14 +741,6 @@ impl<'a> SafeValueIndex<'a> {
                 bindings = expanded;
             }
         }
-        let helper_bindings = self.called_helper_bindings_for_name(name, at);
-        if bindings.is_empty() {
-            bindings = helper_bindings;
-        } else if !helper_bindings.is_empty() {
-            bindings.extend(helper_bindings);
-            bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
-            bindings.dedup();
-        }
 
         bindings
     }
@@ -666,6 +751,25 @@ impl<'a> SafeValueIndex<'a> {
             .ancestor_scopes(self.semantic.scope_at(at.start.offset))
             .flat_map(|scope| self.called_helper_bindings_before(name, scope, at))
             .collect::<Vec<_>>();
+        bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+        bindings.dedup();
+        bindings
+    }
+
+    fn top_level_transitive_helper_bindings_before(&self, name: &Name, at: Span) -> Vec<BindingId> {
+        if self.enclosing_function_scope_at(at.start.offset).is_some() {
+            return Vec::new();
+        }
+
+        let mut bindings = Vec::new();
+        let mut seen_scopes = FxHashSet::default();
+        self.collect_transitive_helper_bindings_before(
+            name,
+            self.semantic.scope_at(at.start.offset),
+            at.start.offset,
+            &mut seen_scopes,
+            &mut bindings,
+        );
         bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
         bindings.dedup();
         bindings
@@ -728,7 +832,7 @@ impl<'a> SafeValueIndex<'a> {
         for site in caller_sites {
             saw_caller = true;
             let branch = self
-                .called_helper_bindings_before(name, site.scope, site.span)
+                .caller_branch_bindings_before(name, site.scope, site.span)
                 .into_iter()
                 .collect::<FxHashSet<_>>();
             if branch.is_empty() {
@@ -738,6 +842,113 @@ impl<'a> SafeValueIndex<'a> {
         }
 
         saw_caller.then_some(union)
+    }
+
+    fn helper_outer_bindings_cover_all_caller_paths(
+        &mut self,
+        name: &Name,
+        at: Span,
+        bindings: &[BindingId],
+    ) -> bool {
+        let Some(helper_scope) = self.enclosing_function_scope_at(at.start.offset) else {
+            return true;
+        };
+        if !bindings
+            .iter()
+            .copied()
+            .any(|binding_id| self.semantic.binding(binding_id).scope != helper_scope)
+        {
+            return true;
+        }
+
+        let caller_sites = self.named_function_call_sites(helper_scope);
+        if caller_sites.is_empty() {
+            return true;
+        }
+
+        caller_sites.into_iter().all(|(scope, span)| {
+            let branch = self.caller_branch_bindings_before(name, scope, span);
+            if branch.is_empty() {
+                return false;
+            }
+
+            let helper_branch = self
+                .called_helper_bindings_before(name, scope, span)
+                .into_iter()
+                .collect::<FxHashSet<_>>();
+            let direct_branch = branch
+                .into_iter()
+                .filter(|binding_id| !helper_branch.contains(binding_id))
+                .collect::<Vec<_>>();
+
+            direct_branch.is_empty()
+                || self.bindings_cover_all_paths_to_callsite(
+                    &direct_branch,
+                    self.command_for_name_word_span(span)
+                        .map_or(span, |command| command.span()),
+                )
+        })
+    }
+
+    fn named_function_call_sites(&self, scope: ScopeId) -> Vec<(ScopeId, Span)> {
+        let Some(function_kind) = self.named_function_kind(scope) else {
+            return Vec::new();
+        };
+
+        let mut caller_sites = Vec::new();
+        let mut seen_sites = FxHashSet::default();
+        for function_name in function_kind.static_names() {
+            for site in self.semantic.call_sites_for(function_name) {
+                if site.scope == scope {
+                    continue;
+                }
+                if seen_sites.insert((site.scope, site.span.start.offset, site.span.end.offset)) {
+                    caller_sites.push((site.scope, site.span));
+                }
+            }
+        }
+
+        caller_sites
+    }
+
+    fn caller_branch_bindings_before(
+        &mut self,
+        name: &Name,
+        scope: ScopeId,
+        at: Span,
+    ) -> Vec<BindingId> {
+        let mut branch = self.visible_bindings_for_name_without_helpers(name, at);
+        branch.extend(self.caller_visible_bindings_before(name, scope, at));
+        branch.extend(self.called_helper_bindings_before(name, scope, at));
+        branch.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+        branch.dedup();
+        branch
+    }
+
+    fn caller_visible_bindings_before(
+        &self,
+        name: &Name,
+        scope: ScopeId,
+        at: Span,
+    ) -> Vec<BindingId> {
+        let visible_scopes = self
+            .semantic
+            .ancestor_scopes(scope)
+            .collect::<FxHashSet<_>>();
+        let mut bindings = self
+            .semantic
+            .bindings_for(name)
+            .iter()
+            .copied()
+            .filter(|binding_id| {
+                let binding = self.semantic.binding(*binding_id);
+                visible_scopes.contains(&binding.scope)
+                    && binding.span.end.offset <= at.start.offset
+            })
+            .collect::<Vec<_>>();
+        bindings.sort_by_key(|binding_id| self.semantic.binding(*binding_id).span.start.offset);
+        bindings.dedup();
+        bindings
     }
 
     fn helper_bindings_called_in_scope_before(
@@ -777,11 +988,97 @@ impl<'a> SafeValueIndex<'a> {
         bindings
     }
 
+    fn collect_transitive_helper_bindings_before(
+        &self,
+        name: &Name,
+        scope: ScopeId,
+        limit_offset: usize,
+        seen_scopes: &mut FxHashSet<ScopeId>,
+        bindings: &mut Vec<BindingId>,
+    ) {
+        for callee_scope in self.direct_called_function_scopes_before(scope, limit_offset) {
+            if !seen_scopes.insert(callee_scope) {
+                continue;
+            }
+
+            bindings.extend(self.semantic.bindings_for(name).iter().copied().filter(
+                |binding_id| {
+                    let binding = self.semantic.binding(*binding_id);
+                    binding.scope == callee_scope
+                        && !binding.attributes.contains(BindingAttributes::LOCAL)
+                },
+            ));
+
+            if let Some(limit_offset) = self.function_scope_end_offset(callee_scope) {
+                self.collect_transitive_helper_bindings_before(
+                    name,
+                    callee_scope,
+                    limit_offset,
+                    seen_scopes,
+                    bindings,
+                );
+            }
+        }
+    }
+
+    fn direct_called_function_scopes_before(
+        &self,
+        scope: ScopeId,
+        limit_offset: usize,
+    ) -> Vec<ScopeId> {
+        let mut scopes = Vec::new();
+        let mut seen_scopes = FxHashSet::default();
+
+        for header in self.facts.function_headers() {
+            let Some(callee_scope) = header.function_scope() else {
+                continue;
+            };
+            let Some(function_kind) = self.named_function_kind(callee_scope) else {
+                continue;
+            };
+            let Some(definition_command) = self.function_definition_command(header.function())
+            else {
+                continue;
+            };
+
+            let called_before = function_kind.static_names().iter().any(|function_name| {
+                self.semantic
+                    .call_sites_for(function_name)
+                    .iter()
+                    .any(|site| {
+                        site.scope == scope
+                            && self.call_site_dominates_offset(site.span, limit_offset)
+                            && self.definition_command_resolves_at_call(
+                                definition_command.id(),
+                                site.span,
+                            )
+                    })
+            });
+            if called_before && seen_scopes.insert(callee_scope) {
+                scopes.push(callee_scope);
+            }
+        }
+
+        scopes
+    }
+
+    fn function_scope_end_offset(&self, scope: ScopeId) -> Option<usize> {
+        self.facts
+            .function_headers()
+            .iter()
+            .find(|header| header.function_scope() == Some(scope))
+            .map(|header| header.function().span.end.offset)
+    }
+
     fn call_site_dominates_use(&self, call_span: Span, name: &Name, at: Span) -> bool {
-        if call_span.start.offset >= at.start.offset {
+        let _ = name;
+        self.call_site_dominates_offset(call_span, at.start.offset)
+    }
+
+    fn call_site_dominates_offset(&self, call_span: Span, limit_offset: usize) -> bool {
+        if call_span.start.offset >= limit_offset {
             return false;
         }
-        let _ = name;
 
         let Some(mut command_id) = self.facts.innermost_command_id_at(call_span.start.offset)
         else {
@@ -797,7 +1094,7 @@ impl<'a> SafeValueIndex<'a> {
         let mut current = self.facts.command_parent_id(command_id);
         while let Some(command_id) = current {
             let command = self.facts.command(command_id);
-            if command.span().end.offset > at.start.offset {
+            if command.span().end.offset > limit_offset {
                 break;
             }
             if command.span().start.offset < call_span.start.offset
@@ -954,6 +1251,67 @@ impl<'a> SafeValueIndex<'a> {
                 continue;
             }
             if block_id == reference_block {
+                return false;
+            }
+            for (successor, _) in cfg.successors(block_id) {
+                stack.push(*successor);
+            }
+        }
+
+        true
+    }
+
+    fn bindings_cover_all_paths_to_callsite(
+        &self,
+        bindings: &[BindingId],
+        call_span: Span,
+    ) -> bool {
+        let cfg = self.analysis.cfg();
+        let call_blocks = cfg
+            .blocks()
+            .iter()
+            .filter(|block| block.commands.contains(&call_span))
+            .map(|block| block.id)
+            .collect::<FxHashSet<_>>();
+        if call_blocks.is_empty() {
+            return true;
+        }
+
+        let cover_blocks = bindings
+            .iter()
+            .copied()
+            .filter_map(|binding_id| {
+                let binding_block = self.block_for_binding(binding_id)?;
+                if call_blocks.contains(&binding_block)
+                    && self.binding_is_guarded_before_reference(binding_id, call_span)
+                {
+                    None
+                } else {
+                    Some(binding_block)
+                }
+            })
+            .collect::<FxHashSet<_>>();
+        if !cover_blocks.is_disjoint(&call_blocks) {
+            return true;
+        }
+
+        let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
+        let binding_scopes = bindings
+            .iter()
+            .copied()
+            .map(|binding_id| self.semantic.binding(binding_id).scope)
+            .collect::<Vec<_>>();
+        let mut stack =
+            vec![self.flow_entry_block_for_binding_scopes(&binding_scopes, call_span.start.offset)];
+        let mut seen = FxHashSet::default();
+        while let Some(block_id) = stack.pop() {
+            if cover_blocks.contains(&block_id)
+                || unreachable.contains(&block_id)
+                || !seen.insert(block_id)
+            {
+                continue;
+            }
+            if call_blocks.contains(&block_id) {
                 return false;
             }
             for (successor, _) in cfg.successors(block_id) {
@@ -1200,6 +1558,10 @@ fn literal_is_regex_safe(text: &str) -> bool {
     !escaped
 }
 
+fn span_contains(container: Span, inner: Span) -> bool {
+    container.start.offset <= inner.start.offset && inner.end.offset <= container.end.offset
+}
+
 fn source_text_needs_parse(text: &str) -> bool {
     text.chars()
         .any(|character| matches!(character, '$' | '`' | '\\' | '\'' | '"'))
@@ -1229,6 +1591,69 @@ fn source_text_literal_value(text: &str) -> Option<SourceTextLiteral<'_>> {
     }
 
     None
+}
+
+fn build_case_cli_reachable_function_scopes(
+    semantic: &SemanticModel,
+    facts: &LinterFacts<'_>,
+) -> FxHashSet<ScopeId> {
+    let dispatcher_offset = facts
+        .function_headers()
+        .iter()
+        .filter_map(|header| {
+            let scope = header.function_scope()?;
+            facts
+                .function_cli_dispatch_facts(scope)
+                .dispatcher_span()
+                .map(|span| span.start.offset)
+        })
+        .min();
+    let top_level_exit_offset = facts
+        .commands()
+        .iter()
+        .filter(|command| {
+            facts.command_parent_id(command.id()).is_none()
+                && semantic
+                    .ancestor_scopes(semantic.scope_at(command.span().start.offset))
+                    .all(|scope| !matches!(semantic.scope(scope).kind, ScopeKind::Function(_)))
+                && command_fact_is_standalone_exit(command)
+        })
+        .map(|command| command.span().start.offset)
+        .min();
+
+    facts
+        .function_headers()
+        .iter()
+        .filter_map(|header| {
+            let scope = header.function_scope()?;
+            let nested = semantic
+                .ancestor_scopes(scope)
+                .skip(1)
+                .any(|ancestor| matches!(semantic.scope(ancestor).kind, ScopeKind::Function(_)));
+            (nested
+                || dispatcher_offset
+                    .is_some_and(|offset| header.function().span.start.offset < offset)
+                || top_level_exit_offset
+                    .is_some_and(|offset| header.function().span.start.offset < offset))
+            .then_some(scope)
+        })
+        .collect()
+}
+
+fn command_fact_is_standalone_exit(command: &crate::facts::CommandFact<'_>) -> bool {
+    if command.stmt().negated
+        || matches!(
+            command.stmt().terminator,
+            Some(StmtTerminator::Background(_))
+        )
+    {
+        return false;
+    }
+
+    let Command::Builtin(BuiltinCommand::Exit(exit)) = command.command() else {
+        return false;
+    };
+    exit.extra_args.is_empty() && exit.assignments.is_empty() && command.stmt().redirects.is_empty()
 }
 
 fn safe_special_parameter(name: &Name) -> bool {
@@ -1437,7 +1862,7 @@ mod tests {
     use shuck_indexer::Indexer;
     use shuck_parser::parser::Parser;
     use shuck_semantic::{
-        ContractCertainty, FileContract, ProvidedBinding, ProvidedBindingKind,
+        BindingOrigin, ContractCertainty, FileContract, ProvidedBinding, ProvidedBindingKind,
         SemanticBuildOptions, SemanticModel,
     };
 
@@ -2168,6 +2593,56 @@ value=\"$(free ${humanreadable} | awk '{print $2}')\"
     }
 
     #[test]
+    fn static_loop_variables_after_multiline_loops_stay_unsafe() {
+        let source = "\
+#!/bin/sh
+for i in castool chdman; do
+  [ -e $i ] && install -s -m0755 -oroot -groot $i $PKG/usr/games/
+done
+[ -e split ] && install -s -m0755 -oroot -groot $i $PKG/usr/games/$PRGNAM-split
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let after_loop_use = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "$i"
+                    && fact.span().start.line == 5
+            })
+            .expect("expected post-loop $i word fact");
+        let binding_id = safe_values
+            .safe_bindings_for_name(&Name::new("i"), after_loop_use.span())
+            .into_iter()
+            .next()
+            .expect("expected reaching loop binding");
+        let definition_span = match semantic.binding(binding_id).origin {
+            BindingOrigin::LoopVariable {
+                definition_span, ..
+            } => definition_span,
+            ref other => panic!("expected loop-variable binding, got {other:?}"),
+        };
+
+        assert!(
+            !safe_values
+                .loop_variable_reference_stays_within_body(definition_span, after_loop_use.span())
+        );
+        let (part, part_span) = after_loop_use
+            .parts_with_spans()
+            .next()
+            .expect("expected single-part loop variable word");
+        assert!(!safe_values.part_is_safe(part, part_span, SafeValueQuery::Argv));
+        assert!(!safe_values.word_occurrence_is_safe(after_loop_use, SafeValueQuery::Argv));
+    }
+
+    #[test]
     fn nested_command_substitution_arguments_with_dynamic_values_stay_unsafe() {
         let source = "\
 #!/bin/sh
@@ -2587,12 +3062,164 @@ exit $?
             "expected the status binding to belong to the case-cli scope"
         );
 
-        assert!(!safe_values.binding_is_safe(binding_id, SafeValueQuery::Argv, case_cli_scope));
-        assert!(safe_values.binding_is_safe(binding_id, SafeValueQuery::Argv, None));
+        assert!(!safe_values.binding_is_safe(
+            binding_id,
+            dispatched_use.span(),
+            SafeValueQuery::Argv,
+            case_cli_scope
+        ));
+        assert!(safe_values.binding_is_safe(
+            binding_id,
+            dispatched_use.span(),
+            SafeValueQuery::Argv,
+            None
+        ));
     }
 
     #[test]
-    fn case_cli_dispatch_entry_functions_keep_nested_scope_safe_bindings() {
+    fn case_cli_dispatch_entry_functions_keep_local_command_names_but_not_arguments_safe() {
+        let source = "\
+#!/bin/sh
+start() {
+  local n=0
+  echo $n
+}
+
+case \"$1\" in
+  start) $1 ;;
+esac
+exit $?
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let command_arg = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "$n"
+            })
+            .expect("expected case-cli local command argument");
+
+        assert!(!safe_values.word_occurrence_is_safe(command_arg, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn case_cli_dispatch_entry_functions_with_literal_exit_keep_local_arguments_unsafe() {
+        let source = "\
+#!/bin/sh
+start() {
+  local n=0
+  echo $n
+}
+
+case \"$1\" in
+  start) $1 ;;
+esac
+exit 0
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let command_arg = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "$n"
+            })
+            .expect("expected case-cli local command argument");
+
+        assert!(!safe_values.word_occurrence_is_safe(command_arg, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn case_cli_dispatch_reachable_helpers_keep_local_arguments_unsafe() {
+        let source = "\
+#!/bin/sh
+foo() {
+  local n=0
+  echo $n
+}
+
+bound() { foo; }
+renew() { foo; }
+deconfig() { :; }
+
+case \"$1\" in
+  deconfig|renew|bound) $1 ;;
+esac
+exit $?
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let command_arg = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "$n"
+            })
+            .expect("expected case-cli helper command argument");
+
+        assert!(!safe_values.word_occurrence_is_safe(command_arg, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn case_cli_dispatch_broadens_into_pre_dispatch_functions_even_when_patterns_skip_them() {
+        let source = "\
+#!/bin/sh
+foo() {
+  local n=0
+  echo $n
+}
+
+bar() { :; }
+
+case \"$1\" in
+  bar) $1 ;;
+esac
+exit $?
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let command_arg = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "$n"
+            })
+            .expect("expected pre-dispatch function command argument");
+
+        assert!(!safe_values.word_occurrence_is_safe(command_arg, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn case_cli_dispatch_entry_functions_keep_nested_command_names_but_not_arguments_safe() {
         let source = "\
 #!/bin/sh
 start() {
@@ -2635,8 +3262,107 @@ exit $?
 
         assert!(command_name.is_nested_word_command());
         assert!(command_arg.is_nested_word_command());
-        assert!(safe_values.word_occurrence_is_safe(command_name, SafeValueQuery::Argv));
-        assert!(safe_values.word_occurrence_is_safe(command_arg, SafeValueQuery::Argv));
+        assert!(!safe_values.word_occurrence_is_safe(command_arg, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn top_level_exit_broadens_function_arguments_without_dispatch() {
+        let source = "\
+#!/bin/sh
+start() {
+  local n=0
+  echo $n
+}
+exit 0
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let command_arg = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "$n"
+            })
+            .expect("expected function-local argument before top-level exit");
+
+        assert!(!safe_values.word_occurrence_is_safe(command_arg, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn nested_function_arguments_stay_unsafe_without_top_level_exit() {
+        let source = "\
+#!/bin/bash
+outer() {
+  inner() {
+    local good=0
+    return $good
+  }
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let command_arg = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "$good"
+            })
+            .expect("expected nested-function return argument");
+
+        assert!(!safe_values.word_occurrence_is_safe(command_arg, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn transitive_helper_calls_make_top_level_unsafe_bindings_visible() {
+        let source = "\
+#!/bin/bash
+DISK_SIZE=\"32G\"
+
+advanced_settings() {
+  DISK_SIZE=\"$(get_size)\"
+}
+
+start_script() {
+  advanced_settings
+}
+
+start_script
+if [ -n \"$DISK_SIZE\" ]; then
+  qm resize 100 scsi0 ${DISK_SIZE} >/dev/null
+fi
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let command_arg = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "${DISK_SIZE}"
+            })
+            .expect("expected top-level helper-derived argument");
+
+        assert!(!safe_values.word_occurrence_is_safe(command_arg, SafeValueQuery::Argv));
     }
 
     #[test]
@@ -2714,6 +3440,130 @@ unsafe_path
                     && fact.span().slice(source) == "${flag}"
             })
             .expect("expected shared helper-derived command argument fact");
+
+        assert!(!safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn helper_globals_inherit_caller_visible_bindings() {
+        let source = "\
+#!/bin/sh
+SERVERNUM=99
+find_free_servernum() {
+  i=$SERVERNUM
+  while [ -f /tmp/.X$i-lock ]; do
+    i=$(($i + 1))
+  done
+  echo $i
+}
+set -- -n '1 2' -a --
+while :; do
+  case \"$1\" in
+    -a|--auto-servernum) SERVERNUM=$(find_free_servernum) ;;
+    -n|--server-num) SERVERNUM=\"$2\"; shift ;;
+    --) shift; break ;;
+    *) break ;;
+  esac
+  shift
+done
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let unsafe_words = facts
+            .word_facts()
+            .iter()
+            .filter(|fact| {
+                fact.span().slice(source).contains("$i") && matches!(fact.span().start.line, 5 | 8)
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(unsafe_words.len(), 2, "expected both helper-body $i uses");
+        assert!(
+            unsafe_words
+                .iter()
+                .all(|fact| !safe_values.word_occurrence_is_safe(*fact, SafeValueQuery::Argv))
+        );
+    }
+
+    #[test]
+    fn helper_globals_with_mixed_safe_and_unsafe_caller_branches_stay_unsafe() {
+        let source = "\
+#!/bin/sh
+if [ -n \"$2\" ]; then
+  UIPORT=\"$2\"
+else
+  UIPORT=\"8080\"
+fi
+do_start() {
+  grep $UIPORT /dev/null
+}
+do_start
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "$UIPORT"
+            })
+            .expect("expected helper command argument fact");
+        let (part, part_span) = word_fact
+            .parts_with_spans()
+            .find(|(_, span)| span.slice(source) == "$UIPORT")
+            .expect("expected UIPORT expansion part");
+        let name = Name::from("UIPORT");
+        let bindings = safe_values.safe_bindings_for_name(&name, part_span);
+
+        assert_eq!(
+            bindings.len(),
+            2,
+            "expected both caller-visible UIPORT bindings"
+        );
+        assert!(safe_values.bindings_cover_all_paths_to_reference(&bindings, &name, part_span));
+        assert!(!safe_values.part_is_safe(part, part_span, SafeValueQuery::Argv));
+        assert!(!safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn helper_globals_with_conditionally_initialized_caller_bindings_stay_unsafe() {
+        let source = "\
+#!/bin/bash
+[ \"$1\" = 64 ] && extra=ENABLE_LIB64=1
+run_make() {
+  make $extra
+}
+run_make
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Bash);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "$extra"
+            })
+            .expect("expected helper command argument fact");
 
         assert!(!safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
     }
@@ -3033,6 +3883,36 @@ echo x >> ${OPENBSD_CONTENTS}
         assert!(
             !safe_values.word_occurrence_is_safe(redirect_target, SafeValueQuery::RedirectTarget)
         );
+    }
+
+    #[test]
+    fn inline_returns_make_later_safe_bindings_unsafe() {
+        let source = "\
+#!/bin/sh
+helper() {
+  safe=foo
+  return 0
+  echo /tmp/$safe
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "/tmp/$safe"
+            })
+            .expect("expected mixed path command argument");
+
+        assert!(!safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
     }
 
     #[test]

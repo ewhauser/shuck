@@ -60,6 +60,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut word_nodes = Vec::new();
         let mut word_node_ids_by_span = FxHashMap::default();
         let mut word_occurrences = Vec::new();
+        let mut pending_arithmetic_word_occurrences = Vec::new();
         let mut compound_assignment_value_word_spans = FxHashSet::default();
         let mut array_assignment_split_word_ids = Vec::new();
         let mut assoc_binding_visibility_memo = FxHashMap::default();
@@ -144,6 +145,7 @@ impl<'a> LinterFactsBuilder<'a> {
                     word_nodes: &mut word_nodes,
                     word_node_ids_by_span: &mut word_node_ids_by_span,
                     word_occurrences: &mut word_occurrences,
+                    pending_arithmetic_word_occurrences: &mut pending_arithmetic_word_occurrences,
                     compound_assignment_value_word_spans: &mut compound_assignment_value_word_spans,
                     array_assignment_split_word_ids: &mut array_assignment_split_word_ids,
                     assoc_binding_visibility_memo: &mut assoc_binding_visibility_memo,
@@ -559,6 +561,21 @@ impl<'a> LinterFactsBuilder<'a> {
         );
         let command_parent_ids = build_command_parent_ids(&commands);
         let command_dominance_barrier_flags = build_command_dominance_barrier_flags(&commands);
+        word_occurrences.extend(
+            pending_arithmetic_word_occurrences
+                .into_iter()
+                .map(|pending| WordOccurrence {
+                    node_id: pending.node_id,
+                    command_id: pending.command_id,
+                    nested_word_command: pending.nested_word_command,
+                    context: WordFactContext::ArithmeticCommand,
+                    host_kind: pending.host_kind,
+                    runtime_literal: RuntimeLiteralAnalysis::default(),
+                    operand_class: None,
+                    enclosing_expansion_context: Some(pending.enclosing_expansion_context),
+                    array_assignment_split_scalar_expansion_spans: OnceCell::new(),
+                }),
+        );
 
         LinterFacts {
             source,

@@ -322,6 +322,19 @@ impl<'a> LinterFacts<'a> {
                 self.word_occurrences
                     .iter()
                     .enumerate()
+                    .filter(|(_, occurrence)| occurrence.context != WordFactContext::ArithmeticCommand)
+                    .map(|(index, _)| self.word_occurrence_ref(WordOccurrenceId::new(index))),
+            ),
+        }
+    }
+
+    pub fn arithmetic_command_word_facts(&self) -> WordOccurrenceIter<'_, 'a> {
+        WordOccurrenceIter {
+            inner: Box::new(
+                self.word_occurrences
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, occurrence)| occurrence.context == WordFactContext::ArithmeticCommand)
                     .map(|(index, _)| self.word_occurrence_ref(WordOccurrenceId::new(index))),
             ),
         }
