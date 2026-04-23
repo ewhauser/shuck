@@ -1016,14 +1016,7 @@ mod tests {
     }
 
     fn static_word_text(word: &Word, source: &str) -> Option<String> {
-        let mut result = String::new();
-        for (part, span) in word.parts_with_spans() {
-            match part {
-                WordPart::Literal(text) => result.push_str(text.as_str(source, span)),
-                _ => return None,
-            }
-        }
-        Some(result)
+        word.try_static_text(source).map(|text| text.into_owned())
     }
 
     fn parameter_access_reference(word: &Word) -> &VarRef {

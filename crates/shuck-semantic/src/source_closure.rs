@@ -1245,25 +1245,7 @@ fn scope_members_excluding_functions(scopes: &[crate::Scope], root: ScopeId) -> 
 }
 
 fn static_word_text(word: &Word, source: &str) -> Option<String> {
-    let mut result = String::new();
-    collect_static_word_text(&word.parts, source, &mut result).then_some(result)
-}
-
-fn collect_static_word_text(parts: &[WordPartNode], source: &str, out: &mut String) -> bool {
-    for part in parts {
-        match &part.kind {
-            WordPart::Literal(text) => out.push_str(text.as_str(source, part.span)),
-            WordPart::SingleQuoted { value, .. } => out.push_str(value.slice(source)),
-            WordPart::DoubleQuoted { parts, .. } => {
-                if !collect_static_word_text(parts, source, out) {
-                    return false;
-                }
-            }
-            _ => return false,
-        }
-    }
-
-    true
+    word.try_static_text(source).map(|text| text.into_owned())
 }
 
 #[cfg(test)]

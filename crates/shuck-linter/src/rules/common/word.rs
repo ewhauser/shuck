@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use shuck_ast::{
     ArithmeticExpr, BourneParameterExpansion, Command, CompoundCommand, ConditionalBinaryOp,
-    ConditionalExpr, Pattern, PatternPart, Word, WordPart, WordPartNode,
+    ConditionalExpr, Pattern, PatternPart, Word, WordPart,
 };
 use shuck_parser::parser::Parser;
 
@@ -63,7 +63,7 @@ impl TestOperandClass {
 }
 
 pub fn static_word_text<'a>(word: &'a Word, source: &'a str) -> Option<Cow<'a, str>> {
-    static_word_parts_text(&word.parts, source)
+    word.try_static_text(source)
 }
 
 pub fn is_shell_variable_name(name: &str) -> bool {
@@ -234,41 +234,6 @@ pub(crate) fn classify_contextual_operand(
     } else {
         TestOperandClass::FixedLiteral
     }
-}
-
-fn static_word_parts_text<'a>(parts: &'a [WordPartNode], source: &'a str) -> Option<Cow<'a, str>> {
-    if let [part] = parts {
-        return static_word_part_text(part, source);
-    }
-
-    let mut result = String::new();
-    collect_static_word_text(parts, source, &mut result).then_some(Cow::Owned(result))
-}
-
-fn static_word_part_text<'a>(part: &'a WordPartNode, source: &'a str) -> Option<Cow<'a, str>> {
-    match &part.kind {
-        WordPart::Literal(text) => Some(Cow::Borrowed(text.as_str(source, part.span))),
-        WordPart::SingleQuoted { value, .. } => Some(Cow::Borrowed(value.slice(source))),
-        WordPart::DoubleQuoted { parts, .. } => static_word_parts_text(parts, source),
-        _ => None,
-    }
-}
-
-fn collect_static_word_text(parts: &[WordPartNode], source: &str, out: &mut String) -> bool {
-    for part in parts {
-        match &part.kind {
-            WordPart::Literal(text) => out.push_str(text.as_str(source, part.span)),
-            WordPart::SingleQuoted { value, .. } => out.push_str(value.slice(source)),
-            WordPart::DoubleQuoted { parts, .. } => {
-                if !collect_static_word_text(parts, source, out) {
-                    return false;
-                }
-            }
-            _ => return false,
-        }
-    }
-
-    true
 }
 
 pub(crate) fn classify_conditional_operand(
