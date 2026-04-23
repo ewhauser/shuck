@@ -1,10 +1,7 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{RedirectKind, Span};
 
-use crate::{
-    Checker, ComparablePathKey, ExpansionContext, FactSpan, Rule, StatementFact, Violation,
-    comparable_path,
-};
+use crate::{Checker, ComparablePathKey, FactSpan, Rule, StatementFact, Violation};
 
 pub struct CombineAppends;
 
@@ -19,7 +16,6 @@ impl Violation for CombineAppends {
 }
 
 pub fn combine_appends(checker: &mut Checker) {
-    let source = checker.source();
     let mut bodies: FxHashMap<FactSpan, Vec<StatementFact>> = FxHashMap::default();
     let case_item_body_spans = checker
         .facts()
@@ -41,17 +37,13 @@ pub fn combine_appends(checker: &mut Checker) {
 
     let spans = bodies
         .into_values()
-        .flat_map(|mut statements| append_run_spans_in_body(checker, &mut statements, source))
+        .flat_map(|mut statements| append_run_spans_in_body(checker, &mut statements))
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || CombineAppends);
 }
 
-fn append_run_spans_in_body(
-    checker: &Checker<'_>,
-    statements: &mut [StatementFact],
-    source: &str,
-) -> Vec<Span> {
+fn append_run_spans_in_body(checker: &Checker<'_>, statements: &mut [StatementFact]) -> Vec<Span> {
     statements.sort_by_key(|fact| fact.stmt_span().start.offset);
 
     let mut spans = Vec::new();
@@ -60,7 +52,7 @@ fn append_run_spans_in_body(
     let mut current_first_span = None;
 
     for statement in statements.iter() {
-        let Some((key, span)) = append_target_for_statement(checker, statement, source) else {
+        let Some((key, span)) = append_target_for_statement(checker, statement) else {
             if current_run_len >= 3
                 && let Some(first_span) = current_first_span.take()
             {
@@ -100,7 +92,6 @@ fn append_run_spans_in_body(
 fn append_target_for_statement(
     checker: &Checker<'_>,
     statement: &StatementFact,
-    source: &str,
 ) -> Option<(ComparablePathKey, Span)> {
     let statement_commands = commands_for_statement(checker, statement);
     let mut target: Option<ComparablePathKey> = None;
@@ -118,13 +109,7 @@ fn append_target_for_statement(
                 continue;
             }
 
-            let target_word = redirect.redirect().word_target()?;
-            let comparable = comparable_path(
-                target_word,
-                source,
-                ExpansionContext::RedirectTarget(RedirectKind::Append),
-                command.zsh_options(),
-            )?;
+            let comparable = redirect.comparable_path()?;
             let key = comparable.key().clone();
             if anchor_start.is_none() {
                 let command_end = command

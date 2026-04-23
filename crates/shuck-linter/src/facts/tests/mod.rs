@@ -8,15 +8,15 @@ use std::path::Path;
 
 #[allow(unused_imports)]
 use super::{
-    CommandId, ConditionalNodeFact, ConditionalOperatorFamily, ExprStringHelperKind,
-    GrepPatternSourceKind, ListFact, ListSegmentKind, MixedShortCircuitKind,
+    CommandId, ConditionalNodeFact, ConditionalOperatorFamily, ExpansionContext,
+    ExprStringHelperKind, GrepPatternSourceKind, ListFact, ListSegmentKind, MixedShortCircuitKind,
     SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax, SubstitutionHostKind,
-    SudoFamilyInvoker, WordFactHostKind, build_innermost_command_ids_by_offset,
-    parse_assignment_word, precomputed_command_id_for_offset,
+    SubstitutionOutputIntent, SudoFamilyInvoker, WordFactHostKind,
+    build_innermost_command_ids_by_offset, parse_assignment_word,
+    precomputed_command_id_for_offset,
 };
 use crate::facts::surface::PositionalParameterFragmentKind;
 use crate::rules::common::command::WrapperKind;
-use crate::rules::common::expansion::{ExpansionContext, SubstitutionOutputIntent};
 use crate::{LinterFacts, ShellDialect, classify_file_context};
 
 mod assignments;

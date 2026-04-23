@@ -54,22 +54,26 @@ pub use context::{
 };
 /// Rule diagnostics and severity levels.
 pub use diagnostic::{Diagnostic, Severity};
+pub(crate) use facts::ComparablePathKey;
 /// Extracted structural facts available to rules and callers.
 pub use facts::{
     BacktickFragmentFact, CommandFact, CommandOptionFacts, ConditionalBareWordFact,
     ConditionalBinaryFact, ConditionalFact, ConditionalMixedLogicalOperatorFact,
     ConditionalNodeFact, ConditionalOperandFact, ConditionalOperatorFamily,
-    ConditionalPortabilityFacts, ConditionalUnaryFact, ExitCommandFacts, FindCommandFacts,
+    ConditionalPortabilityFacts, ConditionalUnaryFact, ExitCommandFacts, ExpansionAnalysis,
+    ExpansionContext, ExpansionHazards, ExpansionValueShape, FindCommandFacts,
     FindExecCommandFacts, FindExecShellCommandFacts, ForHeaderFact, FunctionCallArityFacts,
     FunctionHeaderFact, GrepPatternSourceKind, LegacyArithmeticFragmentFact, ListFact,
     ListOperatorFact, LoopHeaderWordFact, PathWordFact, PipelineFact, PipelineOperatorFact,
     PipelineSegmentFact, PositionalParameterFragmentFact, PrintfCommandFacts, ReadCommandFacts,
-    RedirectFact, RmCommandFacts, SelectHeaderFact, SimpleTestFact, SimpleTestOperatorFamily,
-    SimpleTestShape, SimpleTestSyntax, SingleQuotedFragmentFact, SshCommandFacts, StatementFact,
-    SubstitutionFact, SubstitutionHostKind, SudoFamilyCommandFacts, SudoFamilyInvoker,
-    TestOperandClass, UnsetCommandFacts, WaitCommandFacts, WordClassification, WordFactContext,
-    WordFactHostKind, WordOccurrence, WordOccurrenceIter, WordOccurrenceRef, XargsCommandFacts,
-    leading_literal_word_prefix,
+    RedirectDevNullStatus, RedirectFact, RedirectTargetAnalysis, RedirectTargetKind,
+    RmCommandFacts, RuntimeLiteralAnalysis, SelectHeaderFact, SimpleTestFact,
+    SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax, SingleQuotedFragmentFact,
+    SshCommandFacts, StatementFact, SubstitutionFact, SubstitutionHostKind,
+    SubstitutionOutputIntent, SudoFamilyCommandFacts, SudoFamilyInvoker, TestOperandClass,
+    UnsetCommandFacts, WaitCommandFacts, WordClassification, WordExpansionKind, WordFactContext,
+    WordFactHostKind, WordLiteralness, WordOccurrence, WordOccurrenceIter, WordOccurrenceRef,
+    WordQuote, WordSubstitutionShape, XargsCommandFacts, leading_literal_word_prefix,
 };
 /// Fact collection types and stable identifiers into those collections.
 pub use facts::{CommandId, FactSpan, LinterFacts};
@@ -87,13 +91,6 @@ pub use rule_set::RuleSet;
 /// Command normalization helper types exposed by fact APIs.
 pub use rules::common::command::{
     DeclarationKind, NormalizedCommand, NormalizedDeclaration, WrapperKind,
-};
-pub(crate) use rules::common::expansion::{ComparablePathKey, comparable_path};
-/// Expansion-analysis helper types exposed by fact APIs.
-pub use rules::common::expansion::{
-    ExpansionAnalysis, ExpansionContext, ExpansionHazards, ExpansionValueShape,
-    RedirectDevNullStatus, RedirectTargetAnalysis, RedirectTargetKind, RuntimeLiteralAnalysis,
-    SubstitutionOutputIntent, WordExpansionKind, WordLiteralness, WordQuote, WordSubstitutionShape,
 };
 /// Command-substitution classification exposed by fact APIs.
 pub use rules::common::query::CommandSubstitutionKind;
