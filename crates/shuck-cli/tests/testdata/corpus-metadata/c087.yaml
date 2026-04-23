@@ -2,4 +2,4 @@ reviewed_divergences:
   - side: shuck-only
     path_suffix: "community-scripts__ProxmoxVE__ct__immich.sh"
     line: 114
-    reason: "This Proxmox update helper reads a saved version string through `$(cat ~/.immich)` and then compares it lexically against `2.5.1`. Shuck intentionally keeps the version-comparison warning for that file-backed value, while the current oracle stays silent on this project-closure fixture."
+    reason: "This Proxmox update helper compares a saved semver-style string from `$(cat ~/.immich)` against `2.5.1` with lexical `[[ ... > ... ]]`. C087 intentionally keeps this warning because multi-segment dotted versions are still ordered as plain strings here, while the pinned SC2072 oracle only flags decimal-style comparisons and stays silent on `2.5.1`-style operands, so this semver-policy divergence is reviewed."

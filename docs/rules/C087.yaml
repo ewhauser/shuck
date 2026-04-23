@@ -9,8 +9,8 @@ shells:
   - sh
   - bash
   - dash
-description: "A `<` or `>` operator inside `[[ ]]` compares lexicographically, not numerically."
-rationale: "Use `-lt` for numeric comparison or a version-aware tool."
+description: "A `<` or `>` operator inside `[[ ]]` compares dotted numeric values lexicographically, so version-like strings such as `2.5.1` are not ordered by version semantics."
+rationale: "Use `-lt` or `-gt` for integer comparisons, or a version-aware tool for dotted version strings."
 safe_fix: false
 fix_description: null
 source:
@@ -28,4 +28,11 @@ examples:
       #!/bin/bash
       if [[ "$actual" > "0.8" ]]; then
         echo new
+      fi
+  - kind: invalid
+    code: |
+      #!/bin/bash
+      current=$(cat ~/.immich)
+      if [[ $current > 2.5.1 ]]; then
+        echo upgrade
       fi
