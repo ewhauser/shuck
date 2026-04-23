@@ -2842,6 +2842,7 @@ rm -rf $PKG/opt/$PRGNAM/bin
                 "$PKG/usr/share/$PRGNAM",
                 "\"$DESTDIR\"/usr",
                 "$PKG/usr/{bin,include,libexec,man,share}",
+                "$PKG/usr/{bin,include,libexec,man,share}",
                 "\"$PKG/$PYDIR/usr\"",
                 "$PKG/$PYDIR/*",
                 "\"$DESTDIR\"/${PRGNAM}*",
@@ -2849,6 +2850,47 @@ rm -rf $PKG/opt/$PRGNAM/bin
                 "\"$DESTDIR\"/usr${SUFFIX}/$PRGNAM",
                 "\"$DESTDIR\"/usr/${PRGNAM}*",
                 "\"$DESTDIR\"/lib/${PRGNAM}*",
+            ]
+        );
+    });
+}
+
+#[test]
+fn rm_command_facts_match_shellcheck_only_k001_shapes() {
+    let source = "\
+#!/bin/bash
+PKG=/pkg
+PRGNAM=demo
+ITEM='*.exe'
+DESTDIR=/dest
+SYSROOT=/target
+PACKAGE=/archive
+rm -rf /usr/share/$PRGNAM
+rm -rf $PKG/usr/share/$PRGNAM/$ITEM
+rm -rf $PACKAGE/
+rm -rf $PKG/usr/{bin,include,share}
+rm -rf ${DESTDIR}/${SYSROOT}/{sbin,etc,var,libexec}
+";
+
+    with_facts(source, None, |_, facts| {
+        let rm_spans = facts
+            .commands()
+            .iter()
+            .filter_map(|fact| fact.options().rm())
+            .flat_map(|rm| rm.dangerous_path_spans().iter().copied())
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            rm_spans,
+            vec![
+                "/usr/share/$PRGNAM",
+                "$PKG/usr/share/$PRGNAM/$ITEM",
+                "$PACKAGE/",
+                "$PKG/usr/{bin,include,share}",
+                "$PKG/usr/{bin,include,share}",
+                "${DESTDIR}/${SYSROOT}/{sbin,etc,var,libexec}",
+                "${DESTDIR}/${SYSROOT}/{sbin,etc,var,libexec}",
             ]
         );
     });
