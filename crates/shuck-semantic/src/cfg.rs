@@ -528,17 +528,21 @@ fn resolve_function_calls_by_span(
     unconditional_function_bindings: &FxHashSet<BindingId>,
 ) -> FxHashMap<SpanKey, ScopeId> {
     let mut resolved = FxHashMap::default();
+    let scope_function_bindings = function_bindings_by_scope(program);
+    let resolver = FunctionCallResolver {
+        program,
+        scopes,
+        bindings,
+        call_sites,
+        unconditional_function_bindings,
+        function_bindings_by_scope: &scope_function_bindings,
+    };
 
     for (name, sites) in call_sites {
         for site in sites {
-            let Some(binding) = visible_function_binding(
-                scopes,
-                bindings,
-                name,
-                site.scope,
-                site.span.start.offset,
-                unconditional_function_bindings,
-            ) else {
+            let Some(binding) =
+                resolver.visible_function_binding(name, site.scope, site.span.start.offset)
+            else {
                 continue;
             };
             let Some(scope) = program.function_body_scopes.get(&binding).copied() else {
@@ -550,6 +554,25 @@ fn resolve_function_calls_by_span(
     }
 
     resolved
+}
+
+fn function_bindings_by_scope(
+    program: &RecordedProgram,
+) -> FxHashMap<ScopeId, SmallVec<[BindingId; 2]>> {
+    let mut bindings_by_scope: FxHashMap<ScopeId, SmallVec<[BindingId; 2]>> = FxHashMap::default();
+    for (&binding, &scope) in &program.function_body_scopes {
+        bindings_by_scope.entry(scope).or_default().push(binding);
+    }
+    bindings_by_scope
+}
+
+struct FunctionCallResolver<'a> {
+    program: &'a RecordedProgram,
+    scopes: &'a [Scope],
+    bindings: &'a [Binding],
+    call_sites: &'a FxHashMap<Name, SmallVec<[CallSite; 2]>>,
+    unconditional_function_bindings: &'a FxHashSet<BindingId>,
+    function_bindings_by_scope: &'a FxHashMap<ScopeId, SmallVec<[BindingId; 2]>>,
 }
 
 fn recorded_command_span_for_call_site(program: &RecordedProgram, site: &CallSite) -> Span {
@@ -888,31 +911,97 @@ fn elif_chain_exit_effect(
     false_path
 }
 
-fn visible_function_binding(
-    scopes: &[Scope],
-    bindings: &[Binding],
-    name: &Name,
-    scope: ScopeId,
-    offset: usize,
-    unconditional_function_bindings: &FxHashSet<BindingId>,
-) -> Option<BindingId> {
-    for scope_id in ancestor_scopes(scopes, scope) {
-        let Some(candidates) = scopes[scope_id.index()].bindings.get(name) else {
-            continue;
-        };
+impl FunctionCallResolver<'_> {
+    fn visible_function_binding(
+        &self,
+        name: &Name,
+        scope: ScopeId,
+        offset: usize,
+    ) -> Option<BindingId> {
+        for scope_id in ancestor_scopes(self.scopes, scope) {
+            let Some(candidates) = self.scopes[scope_id.index()].bindings.get(name) else {
+                continue;
+            };
 
-        for binding in candidates.iter().rev().copied() {
-            let candidate = &bindings[binding.index()];
-            if matches!(candidate.kind, BindingKind::FunctionDefinition)
-                && candidate.span.start.offset <= offset
-                && unconditional_function_bindings.contains(&binding)
-            {
-                return Some(binding);
+            for binding in candidates.iter().rev().copied() {
+                let candidate = &self.bindings[binding.index()];
+                if matches!(candidate.kind, BindingKind::FunctionDefinition)
+                    && self.unconditional_function_bindings.contains(&binding)
+                    && (scope_id == scope && candidate.span.start.offset <= offset
+                        || scope_id != scope
+                            && self
+                                .parent_scope_binding_available_before_scope_runs(candidate, scope))
+                {
+                    return Some(binding);
+                }
             }
         }
+
+        None
     }
 
-    None
+    fn parent_scope_binding_available_before_scope_runs(
+        &self,
+        candidate: &Binding,
+        scope: ScopeId,
+    ) -> bool {
+        candidate.span.start.offset <= self.scopes[scope.index()].span.start.offset
+            || !self.scope_has_known_call_before_offset(
+                scope,
+                candidate.scope,
+                candidate.span.start.offset,
+            )
+    }
+
+    fn scope_has_known_call_before_offset(
+        &self,
+        scope: ScopeId,
+        call_scope: ScopeId,
+        offset: usize,
+    ) -> bool {
+        let Some(function_bindings) = self.function_bindings_by_scope.get(&scope) else {
+            return false;
+        };
+
+        function_bindings.iter().copied().any(|binding| {
+            let function = &self.bindings[binding.index()];
+            let Some(sites) = self.call_sites.get(&function.name) else {
+                return false;
+            };
+            sites.iter().any(|site| {
+                site.scope == call_scope
+                    && site.span.start.offset < offset
+                    && self.lexically_visible_function_binding_in_scope(
+                        &function.name,
+                        call_scope,
+                        site.span.start.offset,
+                    ) == Some(binding)
+                    && recorded_command_span_for_call_site(self.program, site)
+                        .start
+                        .offset
+                        < offset
+            })
+        })
+    }
+
+    fn lexically_visible_function_binding_in_scope(
+        &self,
+        name: &Name,
+        scope: ScopeId,
+        offset: usize,
+    ) -> Option<BindingId> {
+        self.scopes[scope.index()]
+            .bindings
+            .get(name)?
+            .iter()
+            .rev()
+            .copied()
+            .find(|binding| {
+                let candidate = &self.bindings[binding.index()];
+                matches!(candidate.kind, BindingKind::FunctionDefinition)
+                    && candidate.span.start.offset <= offset
+            })
+    }
 }
 
 fn ancestor_scopes(scopes: &[Scope], start: ScopeId) -> impl Iterator<Item = ScopeId> + '_ {

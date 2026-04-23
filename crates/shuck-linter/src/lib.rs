@@ -3848,6 +3848,25 @@ main() {
     }
 
     #[test]
+    fn unreachable_after_exit_reports_after_later_parent_scope_exit_helpers() {
+        let source = "\
+#!/bin/bash
+main() {
+  exit_script
+  printf '%s\\n' never
+}
+exit_script() {
+  exit 0
+}
+main
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "printf '%s\\n' never");
+    }
+
+    #[test]
     fn unreachable_after_exit_ignores_later_function_definitions_for_earlier_calls() {
         let source = "\
 #!/bin/bash

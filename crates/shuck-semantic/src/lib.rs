@@ -5735,6 +5735,30 @@ main() {
     }
 
     #[test]
+    fn later_parent_scope_function_definitions_can_terminate_later_runtime_calls() {
+        let source = "\
+main() {
+  exit_script
+  printf '%s\\n' never
+}
+exit_script() {
+  exit 0
+}
+main
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let unreachable = analysis
+            .dead_code()
+            .iter()
+            .flat_map(|entry| entry.unreachable.iter())
+            .map(|span| span.slice(source).trim_end().to_owned())
+            .collect::<Vec<_>>();
+
+        assert!(unreachable.contains(&"printf '%s\\n' never".to_owned()));
+    }
+
+    #[test]
     fn later_function_definitions_do_not_make_earlier_calls_terminating() {
         let source = "\
 main() {
