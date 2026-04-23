@@ -5547,11 +5547,11 @@ printf '%s\\n' \
     }
 
     #[test]
-    fn guarded_parameter_operands_are_not_marked_uninitialized() {
+    fn assign_default_and_error_operands_are_marked_uninitialized() {
         let source = "\
 printf '%s\\n' \
   \"${missing_default:-$fallback_name}\" \
-  \"${missing_assign:=${seed_name:-value}}\" \
+  \"${missing_assign:=$seed_name}\" \
   \"${missing_replace:+$replacement_name}\" \
   \"${missing_error:?$hint_name}\"
 ";
@@ -5568,15 +5568,8 @@ printf '%s\\n' \
             ],
             &unresolved,
         );
-        assert_names_absent(
-            &[
-                "fallback_name",
-                "seed_name",
-                "replacement_name",
-                "hint_name",
-            ],
-            &uninitialized,
-        );
+        assert_names_absent(&["fallback_name", "replacement_name"], &uninitialized);
+        assert_names_present(&["seed_name", "hint_name"], &uninitialized);
     }
 
     #[test]

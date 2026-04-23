@@ -1963,13 +1963,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     nested_regions,
                 );
             }
-            ParameterOp::UseDefault
-            | ParameterOp::AssignDefault
-            | ParameterOp::UseReplacement
-            | ParameterOp::Error => {
+            ParameterOp::UseDefault | ParameterOp::UseReplacement => {
                 self.guarded_parameter_operand_depth += 1;
                 self.visit_fragment_word(operand_word_ast, operand, kind, flow, nested_regions);
                 self.guarded_parameter_operand_depth -= 1;
+            }
+            ParameterOp::AssignDefault | ParameterOp::Error => {
+                self.visit_fragment_word(operand_word_ast, operand, kind, flow, nested_regions);
             }
             ParameterOp::UpperFirst
             | ParameterOp::UpperAll
