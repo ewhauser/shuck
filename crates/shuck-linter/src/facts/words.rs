@@ -25,6 +25,7 @@ pub struct WordNode<'a> {
 #[derive(Debug)]
 pub(crate) struct WordNodeDerived {
     static_text: Option<Box<str>>,
+    trailing_literal_char: Option<char>,
     starts_with_extglob: bool,
     has_literal_affixes: bool,
     contains_shell_quoting_literals: bool,
@@ -159,6 +160,23 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         self.derived().static_text.as_deref()
     }
 
+    pub fn trailing_literal_char(self) -> Option<char> {
+        self.derived().trailing_literal_char
+    }
+
+    pub fn contains_template_placeholder(self, source: &str) -> bool {
+        contains_template_placeholder_text_in_word(self.span().slice(source))
+    }
+
+    pub fn has_suspicious_quoted_command_trailer(self, source: &str) -> bool {
+        quoted_command_name_has_suspicious_ending(self.span().slice(source), self.trailing_literal_char())
+    }
+
+    pub fn has_hash_suffix(self, source: &str) -> bool {
+        let text = self.span().slice(source);
+        text != "#" && text.ends_with('#')
+    }
+
     pub fn is_plain_scalar_reference(self) -> bool {
         word_is_plain_scalar_reference(self.word())
     }
@@ -194,7 +212,10 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
     pub fn array_assignment_split_scalar_expansion_spans(self) -> &'facts [Span] {
         self.occurrence()
             .array_assignment_split_scalar_expansion_spans
-            .get_or_init(|| self.facts.compute_array_assignment_split_scalar_expansion_spans(self.id))
+            .get_or_init(|| {
+                self.facts
+                    .compute_array_assignment_split_scalar_expansion_spans(self.id)
+            })
             .as_ref()
     }
 
@@ -230,10 +251,7 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         &self.derived().double_quoted_expansion_spans
     }
 
-    pub fn single_quoted_equivalent_if_plain_double_quoted(
-        self,
-        source: &str,
-    ) -> Option<String> {
+    pub fn single_quoted_equivalent_if_plain_double_quoted(self, source: &str) -> Option<String> {
         single_quoted_equivalent_if_plain_double_quoted_word(self.word(), source)
     }
 
@@ -332,7 +350,10 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
     }
 
     pub fn unquoted_star_parameter_spans(self) -> Vec<Span> {
-        crate::word_unquoted_star_parameter_spans(self.word(), self.unquoted_array_expansion_spans())
+        crate::word_unquoted_star_parameter_spans(
+            self.word(),
+            self.unquoted_array_expansion_spans(),
+        )
     }
 
     pub fn unquoted_star_splat_spans(self) -> Vec<Span> {
@@ -384,7 +405,6 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
     }
 }
 
-
 fn build_brace_variable_before_bracket_spans<'a>(
     nodes: &[WordNode<'a>],
     occurrences: &[WordOccurrence],
@@ -402,10 +422,14 @@ fn build_brace_variable_before_bracket_spans<'a>(
     spans
 }
 
-pub(crate) fn occurrence_word<'a>(
-    nodes: &[WordNode<'a>],
-    occurrence: &WordOccurrence,
-) -> &'a Word {
+fn contains_template_placeholder_text_in_word(text: &str) -> bool {
+    let Some(start) = text.find("{{") else {
+        return false;
+    };
+    text[start + 2..].contains("}}")
+}
+
+pub(crate) fn occurrence_word<'a>(nodes: &[WordNode<'a>], occurrence: &WordOccurrence) -> &'a Word {
     nodes[occurrence.node_id.index()].word
 }
 
@@ -921,17 +945,15 @@ fn build_echo_to_sed_substitution_spans<'a>(
     let mut pipeline_sed_command_ids = FxHashSet::default();
 
     for pipeline in pipelines {
-        if let Some(span) =
-            sc2001_like_pipeline_span(
-                commands,
-                pipeline,
-                backticks,
-                nodes,
-                occurrences,
-                word_index,
-                source,
-            )
-        {
+        if let Some(span) = sc2001_like_pipeline_span(
+            commands,
+            pipeline,
+            backticks,
+            nodes,
+            occurrences,
+            word_index,
+            source,
+        ) {
             spans.push(span);
             if let Some(last_segment) = pipeline.last_segment() {
                 pipeline_sed_command_ids.insert(last_segment.command_id());
@@ -1403,7 +1425,6 @@ fn mixed_quote_trailing_line_join_between_double_quotes_span(
     Some(Span::from_positions(start, start.advanced_by(suffix)))
 }
 
-
 pub(crate) fn word_occurrence_is_double_quoted_command_substitution_only(
     nodes: &[WordNode<'_>],
     fact: &WordOccurrence,
@@ -1456,7 +1477,9 @@ fn build_unquoted_command_argument_use_offsets(
 ) -> FxHashMap<Name, Vec<usize>> {
     let unquoted_command_argument_word_spans = occurrences
         .iter()
-        .filter(|fact| fact.context == WordFactContext::Expansion(ExpansionContext::CommandArgument))
+        .filter(|fact| {
+            fact.context == WordFactContext::Expansion(ExpansionContext::CommandArgument)
+        })
         .filter(|fact| occurrence_analysis(nodes, fact).quote == WordQuote::Unquoted)
         .map(|fact| occurrence_span(nodes, fact))
         .collect::<Vec<_>>();
@@ -1595,7 +1618,9 @@ pub(crate) fn benchmark_collect_word_facts(
         + arithmetic_summary.array_index_arithmetic_spans.len()
         + arithmetic_summary.arithmetic_score_line_spans.len()
         + arithmetic_summary.dollar_in_arithmetic_spans.len()
-        + arithmetic_summary.arithmetic_command_substitution_spans.len()
+        + arithmetic_summary
+            .arithmetic_command_substitution_spans
+            .len()
         + surface_fragments.single_quoted.len()
         + surface_fragments.backticks.len()
         + surface_fragments.pattern_charclass_spans.len()
@@ -1616,8 +1641,7 @@ struct WordFactOutputs<'out, 'a> {
     word_occurrences: &'out mut Vec<WordOccurrence>,
     compound_assignment_value_word_spans: &'out mut FxHashSet<FactSpan>,
     array_assignment_split_word_ids: &'out mut Vec<WordOccurrenceId>,
-    assoc_binding_visibility_memo:
-        &'out mut FxHashMap<(Name, ScopeId, Option<FactSpan>), bool>,
+    assoc_binding_visibility_memo: &'out mut FxHashMap<(Name, ScopeId, Option<FactSpan>), bool>,
     case_pattern_expansions: &'out mut Vec<CasePatternExpansionFact>,
     pattern_literal_spans: &'out mut Vec<Span>,
     arithmetic: &'out mut ArithmeticFactSummary,
@@ -1626,8 +1650,8 @@ struct WordFactOutputs<'out, 'a> {
 
 fn derive_word_fact_data(word: &Word, source: &str) -> WordNodeDerived {
     WordNodeDerived {
-        static_text: static_word_text(word, source)
-            .map(|text| text.into_owned().into_boxed_str()),
+        static_text: static_word_text(word, source).map(|text| text.into_owned().into_boxed_str()),
+        trailing_literal_char: word_trailing_literal_char(word, source),
         starts_with_extglob: span::word_starts_with_extglob(word, source),
         has_literal_affixes: word_has_literal_affixes(word),
         contains_shell_quoting_literals: word_contains_shell_quoting_literals(word, source),
@@ -1644,8 +1668,7 @@ fn derive_word_fact_data(word: &Word, source: &str) -> WordNodeDerived {
         direct_all_elements_array_expansion_spans:
             span::direct_all_elements_array_expansion_part_spans(word, source).into_boxed_slice(),
         unquoted_all_elements_array_expansion_spans:
-            span::unquoted_all_elements_array_expansion_part_spans(word, source)
-                .into_boxed_slice(),
+            span::unquoted_all_elements_array_expansion_part_spans(word, source).into_boxed_slice(),
         unquoted_array_expansion_spans: span::unquoted_array_expansion_part_spans(word, source)
             .into_boxed_slice(),
         command_substitution_spans: span::command_substitution_part_spans_in_source(word, source)
@@ -1660,6 +1683,36 @@ fn derive_word_fact_data(word: &Word, source: &str) -> WordNodeDerived {
     }
 }
 
+fn word_trailing_literal_char(word: &Word, source: &str) -> Option<char> {
+    trailing_literal_char_in_parts(&word.parts, source)
+}
+
+fn trailing_literal_char_in_parts(parts: &[WordPartNode], source: &str) -> Option<char> {
+    let part = parts.last()?;
+
+    match &part.kind {
+        WordPart::Literal(text) => text.as_str(source, part.span).chars().next_back(),
+        WordPart::SingleQuoted { value, .. } => value.slice(source).chars().next_back(),
+        WordPart::DoubleQuoted { parts, .. } => trailing_literal_char_in_parts(parts, source),
+        WordPart::Variable(_)
+        | WordPart::Parameter(_)
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ArithmeticExpansion { .. }
+        | WordPart::ParameterExpansion { .. }
+        | WordPart::Length(_)
+        | WordPart::ArrayAccess(_)
+        | WordPart::ArrayLength(_)
+        | WordPart::ArrayIndices(_)
+        | WordPart::Substring { .. }
+        | WordPart::ArraySlice { .. }
+        | WordPart::IndirectExpansion { .. }
+        | WordPart::PrefixMatch { .. }
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::Transformation { .. }
+        | WordPart::ZshQualifiedGlob(_) => None,
+    }
+}
+
 struct WordFactCollector<'out, 'a, 'norm> {
     source: &'a str,
     semantic: &'a SemanticModel,
@@ -1671,8 +1724,7 @@ struct WordFactCollector<'out, 'a, 'norm> {
     word_node_ids_by_span: &'out mut FxHashMap<FactSpan, WordNodeId>,
     word_occurrences: &'out mut Vec<WordOccurrence>,
     array_assignment_split_word_ids: &'out mut Vec<WordOccurrenceId>,
-    assoc_binding_visibility_memo:
-        &'out mut FxHashMap<(Name, ScopeId, Option<FactSpan>), bool>,
+    assoc_binding_visibility_memo: &'out mut FxHashMap<(Name, ScopeId, Option<FactSpan>), bool>,
     seen: FxHashSet<(FactSpan, WordFactContext, WordFactHostKind)>,
     compound_assignment_value_word_spans: &'out mut FxHashSet<FactSpan>,
     case_pattern_expansions: &'out mut Vec<CasePatternExpansionFact>,
@@ -1782,7 +1834,8 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                     for case in &command.cases {
                         for pattern in &case.patterns {
                             let pattern_context = surface_context.with_pattern_charclass_scan();
-                            self.surface.collect_pattern_structure(pattern, pattern_context);
+                            self.surface
+                                .collect_pattern_structure(pattern, pattern_context);
                             self.collect_case_pattern_expansions(pattern);
                             self.collect_pattern_context_words(
                                 pattern,
@@ -2161,7 +2214,12 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
 
         match &assignment.value {
             AssignmentValue::Scalar(word) => {
-                self.push_word_with_surface(word, context, WordFactHostKind::Direct, surface_context);
+                self.push_word_with_surface(
+                    word,
+                    context,
+                    WordFactHostKind::Direct,
+                    surface_context,
+                );
             }
             AssignmentValue::Compound(array) => {
                 for element in &array.elements {
@@ -2174,8 +2232,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                                 context,
                                 WordFactHostKind::Direct,
                                 surface_context,
-                            )
-                            {
+                            ) {
                                 self.array_assignment_split_word_ids.push(index);
                             }
                         }
@@ -2301,10 +2358,11 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         }
 
         if pattern.parts.len() > 1 {
-            self.case_pattern_expansions.push(CasePatternExpansionFact::new(
-                pattern.span,
-                rewrite_pattern_as_single_double_quoted_string(pattern, self.source),
-            ));
+            self.case_pattern_expansions
+                .push(CasePatternExpansionFact::new(
+                    pattern.span,
+                    rewrite_pattern_as_single_double_quoted_string(pattern, self.source),
+                ));
         } else {
             self.case_pattern_expansions
                 .extend(expanded_words.into_iter().map(|word| {
@@ -2368,7 +2426,8 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             }
             ConditionalExpr::Pattern(pattern) => {
                 let pattern_context = surface_context.with_pattern_charclass_scan();
-                self.surface.collect_pattern_structure(pattern, pattern_context);
+                self.surface
+                    .collect_pattern_structure(pattern, pattern_context);
                 self.collect_pattern_context_words(
                     pattern,
                     WordFactContext::Expansion(ExpansionContext::ConditionalPattern),
@@ -2532,9 +2591,12 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         let node_id = self.intern_word_node(word);
         let analysis = self.word_nodes[node_id.index()].analysis;
         let runtime_literal = match context {
-            WordFactContext::Expansion(context) => {
-                analyze_literal_runtime(word, self.source, context, self.command_zsh_options.as_ref())
-            }
+            WordFactContext::Expansion(context) => analyze_literal_runtime(
+                word,
+                self.source,
+                context,
+                self.command_zsh_options.as_ref(),
+            ),
             WordFactContext::CaseSubject | WordFactContext::ArithmeticCommand => {
                 RuntimeLiteralAnalysis::default()
             }
@@ -2626,8 +2688,9 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             return false;
         }
 
-        !owner_name
-            .is_some_and(|name| self.assoc_binding_visible_for_subscript(name, owner_name_span, subscript))
+        !owner_name.is_some_and(|name| {
+            self.assoc_binding_visible_for_subscript(name, owner_name_span, subscript)
+        })
     }
 
     fn assoc_binding_visible_for_subscript(
@@ -2693,7 +2756,8 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                     continue;
                 }
 
-                if let Some(caller_names) = self.named_function_scope_names(call_site.name_span.start.offset)
+                if let Some(caller_names) =
+                    self.named_function_scope_names(call_site.name_span.start.offset)
                 {
                     worklist.extend(caller_names.iter().cloned());
                 }
@@ -2715,14 +2779,14 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
 
     fn named_function_scope_names(&self, offset: usize) -> Option<&[Name]> {
         let scope = self.semantic.scope_at(offset);
-        self.semantic
-            .ancestor_scopes(scope)
-            .find_map(|scope_id| match &self.semantic.scope(scope_id).kind {
-                shuck_semantic::ScopeKind::Function(
-                    shuck_semantic::FunctionScopeKind::Named(names),
-                ) => Some(names.as_slice()),
+        self.semantic.ancestor_scopes(scope).find_map(|scope_id| {
+            match &self.semantic.scope(scope_id).kind {
+                shuck_semantic::ScopeKind::Function(shuck_semantic::FunctionScopeKind::Named(
+                    names,
+                )) => Some(names.as_slice()),
                 _ => None,
-            })
+            }
+        })
     }
 
     fn collect_array_index_arithmetic_spans(&mut self, word: &Word) {
@@ -2793,7 +2857,6 @@ fn word_part_is_arithmetic_only(part: &WordPartNode) -> bool {
         | WordPart::ZshQualifiedGlob(_) => false,
     }
 }
-
 
 fn standalone_variable_name_from_word_parts(parts: &[WordPartNode]) -> Option<&str> {
     let [part] = parts else {
@@ -4402,7 +4465,6 @@ fn collect_double_quoted_expansion_spans(
         }
     }
 }
-
 
 pub fn leading_literal_word_prefix(word: &Word, source: &str) -> String {
     let mut prefix = String::new();
