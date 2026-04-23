@@ -1525,7 +1525,7 @@ fn builds_conditional_facts_with_root_normalization_and_nested_inventory() {
             regex
                 .right()
                 .quote()
-                .is_some_and(|quote| quote != crate::rules::common::word::WordQuote::Unquoted)
+                .is_some_and(|quote| quote != crate::WordQuote::Unquoted)
         );
     });
 }
