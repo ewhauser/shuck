@@ -2501,6 +2501,16 @@ f
     }
 
     #[test]
+    fn source_builtin_inside_function_is_flagged_by_x031() {
+        let diagnostics = lint(
+            "#!/bin/sh\nload() {\n  source ./helpers.sh\n}\n",
+            &LinterSettings::for_rule(Rule::SourceBuiltinInSh),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::SourceBuiltinInSh);
+    }
+
+    #[test]
     fn exported_variable_not_flagged() {
         let diagnostics = lint_for_rule("#!/bin/sh\nexport FOO=1\n", Rule::UnusedAssignment);
         assert!(diagnostics.is_empty());

@@ -15,6 +15,6 @@ impl Violation for SourceBuiltinInSh {
 }
 
 pub fn source_builtin_in_sh(checker: &mut Checker) {
-    let spans = source_command_spans_in_sh(checker, SourceScopeFilter::OutsideFunction);
+    let spans = source_command_spans_in_sh(checker, SourceScopeFilter::Any);
     checker.report_all(spans, || SourceBuiltinInSh);
 }
