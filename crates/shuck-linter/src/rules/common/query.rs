@@ -1244,7 +1244,7 @@ printf '%s\\n' \"${value/old/$(expr $(nproc) + 1)}\"\n\
                 let Command::Simple(command) = visit.command else {
                     return;
                 };
-                let Some(name) = static_word_text(&command.name, source) else {
+                let Some(name) = static_word_owned_text(&command.name, source) else {
                     return;
                 };
                 visits.push((name, context.nested_word_command));
