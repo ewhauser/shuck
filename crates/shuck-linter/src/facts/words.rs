@@ -2100,9 +2100,13 @@ fn sc2001_like_pipeline_span<'a>(
         return None;
     }
 
-    Some(pipeline_span_with_shellcheck_tail(
-        commands, pipeline, source,
-    ))
+    if command_is_inside_backtick_fragment(right, backticks)
+        && word_occurrence_is_backtick_escaped_double_quoted_dynamic(nodes, word_fact, source)
+    {
+        return sc2001_like_backtick_pipeline_span(commands, pipeline, right, source);
+    }
+
+    Some(pipeline_span_with_shellcheck_tail(commands, pipeline, source))
 }
 
 fn sc2001_like_here_string_span(
@@ -2127,11 +2131,143 @@ fn sc2001_like_here_string_span(
         return None;
     }
 
+    if command_is_inside_backtick_fragment(command, backticks) {
+        return sc2001_like_backtick_command_span(command, source);
+    }
+
     command_span_with_redirects_and_shellcheck_tail(command, source)
 }
 
 fn command_is_plain_named(command: &CommandFact<'_>, name: &str) -> bool {
     command.effective_name_is(name) && command.wrappers().is_empty()
+}
+
+fn sc2001_like_backtick_pipeline_span(
+    commands: &[CommandFact<'_>],
+    pipeline: &PipelineFact<'_>,
+    sed_command: &CommandFact<'_>,
+    source: &str,
+) -> Option<Span> {
+    let first_segment = pipeline.first_segment()?;
+    let first = command_fact(commands, first_segment.command_id());
+    let start = first.body_name_word()?.span.start;
+    let end = sc2001_like_backtick_sed_script_end(sed_command.body_args(), source)?;
+    Some(Span::from_positions(start, end))
+}
+
+fn sc2001_like_backtick_command_span(command: &CommandFact<'_>, source: &str) -> Option<Span> {
+    let start = command.body_name_word()?.span.start;
+    let end = sc2001_like_backtick_sed_script_end(command.body_args(), source)?;
+    Some(Span::from_positions(start, end))
+}
+
+fn sc2001_like_backtick_sed_script_end(args: &[&Word], source: &str) -> Option<Position> {
+    let script_words = match args {
+        [flag, words @ ..] if static_word_text(flag, source).as_deref() == Some("-e") => words,
+        _ => args,
+    };
+
+    let raw_script_end = match script_words {
+        [script] => backtick_sed_script_content_end_offset(script.span.slice(source), script.span.end.offset)?,
+        [first, .., last]
+            if first.span.slice(source).starts_with("\\\"")
+                && last.span.slice(source).ends_with("\\\"") =>
+        {
+            last.span.end.offset.checked_sub(2)?
+        }
+        _ => return None,
+    };
+
+    let trim_chars = sc2001_like_backtick_sed_script_trim_chars(script_words, source)?;
+    let end_offset = rewind_offset_by_chars(source, raw_script_end, trim_chars)?;
+    position_at_offset(source, end_offset)
+}
+
+fn backtick_sed_script_content_end_offset(text: &str, end_offset: usize) -> Option<usize> {
+    if text.len() >= 4 && text.starts_with("\\\"") && text.ends_with("\\\"") {
+        end_offset.checked_sub(2)
+    } else if text.len() >= 2
+        && ((text.starts_with('"') && text.ends_with('"'))
+            || (text.starts_with('\'') && text.ends_with('\'')))
+    {
+        end_offset.checked_sub(1)
+    } else {
+        Some(end_offset)
+    }
+}
+
+fn sc2001_like_backtick_sed_script_trim_chars(
+    script_words: &[&Word],
+    source: &str,
+) -> Option<usize> {
+    let uses_backtick_escaped_double_quotes =
+        backtick_sed_script_uses_escaped_double_quotes(script_words, source);
+    let text = sed_script_text(
+        script_words,
+        source,
+        SedScriptQuoteMode::AllowBacktickEscapedDoubleQuotes,
+    )?;
+    let text = text.as_ref();
+
+    let remainder = text.strip_prefix('s')?;
+    let delimiter = remainder.chars().next()?;
+    let delimiter_len = delimiter.len_utf8();
+
+    let pattern_start = 1 + delimiter_len;
+    let (pattern_end, _) = find_sed_substitution_section(text, pattern_start, delimiter)?;
+    let replacement_start = pattern_end + delimiter_len;
+    let (replacement_end, _) = find_sed_substitution_section(text, replacement_start, delimiter)?;
+    let pattern = &text[pattern_start..pattern_end];
+    let replacement = &text[replacement_start..replacement_end];
+    let flags = &text[replacement_end + delimiter_len..];
+
+    let mut trim_chars = if flags.is_empty() {
+        if uses_backtick_escaped_double_quotes && replacement_start == replacement_end {
+            2
+        } else {
+            1
+        }
+    } else {
+        flags.chars().count()
+    };
+
+    // ShellCheck trims one additional character for these legacy backtick sed sites
+    // when the match pattern itself ends with an escaped dollar.
+    if pattern.ends_with(r"\$") {
+        trim_chars += 1;
+        if replacement.starts_with(r"\\") {
+            trim_chars += 1;
+        }
+    }
+
+    Some(trim_chars)
+}
+
+fn backtick_sed_script_uses_escaped_double_quotes(script_words: &[&Word], source: &str) -> bool {
+    match script_words {
+        [script] => {
+            let text = script.span.slice(source);
+            text.len() >= 4 && text.starts_with("\\\"") && text.ends_with("\\\"")
+        }
+        [first, .., last] => {
+            first.span.slice(source).starts_with("\\\"") && last.span.slice(source).ends_with("\\\"")
+        }
+        _ => false,
+    }
+}
+
+fn rewind_offset_by_chars(source: &str, mut offset: usize, count: usize) -> Option<usize> {
+    if offset > source.len() || !source.is_char_boundary(offset) {
+        return None;
+    }
+
+    for _ in 0..count {
+        let prefix = source.get(..offset)?;
+        let (_, ch) = prefix.char_indices().next_back()?;
+        offset = offset.checked_sub(ch.len_utf8())?;
+    }
+
+    Some(offset)
 }
 
 fn command_has_sc2001_like_sed_script(

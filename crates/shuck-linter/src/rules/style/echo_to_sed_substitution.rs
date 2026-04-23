@@ -22,3 +22,28 @@ pub fn echo_to_sed_substitution(checker: &mut Checker) {
         || EchoToSedSubstitution,
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::LinterSettings;
+    use crate::test::test_snippet;
+
+    #[test]
+    fn reports_shellcheck_columns_for_escaped_dollar_backtick_patterns() {
+        let source = "\
+#!/bin/bash
+EC2_REGION=\"`echo \\\"$EC2_AVAIL_ZONE\\\" | sed -e 's:\\([0-9][0-9]*\\)[a-z]*\\$:\\\\1:'`\"
+";
+
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::EchoToSedSubstitution),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.start.line, 2);
+        assert_eq!(diagnostics[0].span.start.column, 14);
+        assert_eq!(diagnostics[0].span.end.line, 2);
+        assert_eq!(diagnostics[0].span.end.column, 76);
+    }
+}
