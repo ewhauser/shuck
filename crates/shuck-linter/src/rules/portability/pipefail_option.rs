@@ -8,7 +8,7 @@ impl Violation for PipefailOption {
     }
 
     fn message(&self) -> String {
-        "the `pipefail` option is not portable in `sh` scripts".to_owned()
+        "`set -o` uses an option that is not portable in `sh` scripts".to_owned()
     }
 }
 
@@ -25,13 +25,13 @@ pub fn pipefail_option(checker: &mut Checker) {
         .filter(|fact| {
             fact.options()
                 .set()
-                .is_some_and(|set| set.pipefail_change.is_some())
+                .is_some_and(|set| !set.non_posix_option_spans().is_empty())
         })
         .flat_map(|fact| {
             fact.options()
                 .set()
                 .into_iter()
-                .flat_map(|set| set.pipefail_option_spans().iter().copied())
+                .flat_map(|set| set.non_posix_option_spans().iter().copied())
         })
         .collect::<Vec<_>>();
 
@@ -44,22 +44,24 @@ mod tests {
     use crate::{LinterSettings, Rule};
 
     #[test]
-    fn reports_pipefail_option_in_sh() {
+    fn reports_non_posix_set_o_options_in_sh() {
         let source = "\
 #!/bin/sh
 set -o pipefail
-set -eo pipefail
-set +o pipefail
+set -eo emacs
+set +o posix
+set -o bogus
+set -o \"privileged\"
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::PipefailOption));
 
-        assert_eq!(diagnostics.len(), 3);
+        assert_eq!(diagnostics.len(), 5);
         assert_eq!(
             diagnostics
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["pipefail", "pipefail", "pipefail"]
+            vec!["pipefail", "emacs", "posix", "bogus", "\"privileged\""]
         );
     }
 
@@ -86,10 +88,22 @@ set -o pipefail
     }
 
     #[test]
-    fn ignores_other_set_o_names_in_sh() {
+    fn ignores_posix_set_o_names_in_sh() {
         let source = "\
 #!/bin/sh
-set -o posix
+set -o allexport
+set -o errexit
+set -o ignoreeof
+set -o monitor
+set -o noclobber
+set -o noexec
+set -o noglob
+set -o nolog
+set -o notify
+set -o nounset
+set -o verbose
+set -o vi
+set -o xtrace
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::PipefailOption));
 

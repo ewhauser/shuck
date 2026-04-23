@@ -321,6 +321,13 @@ fn summarizes_command_options_and_invokers() {
             .collect::<Vec<_>>(),
         vec!["pipefail"]
     );
+    assert_eq!(
+        set.non_posix_option_spans()
+            .iter()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>(),
+        vec!["pipefail"]
+    );
     let set_without_prefix_spans = facts
         .commands()
         .iter()
@@ -434,6 +441,39 @@ amoeba=\"\" [ \"${AMOEBA:-yes}\" = \"yes\" ]
     assert!(line2.bracket_command_name_needs_separator(source));
     assert!(!line3.bracket_command_name_needs_separator(source));
     assert!(!line4.bracket_command_name_needs_separator(source));
+}
+
+#[test]
+fn set_command_facts_track_non_posix_set_o_options() {
+    let source = "\
+#!/bin/sh
+set -o pipefail
+set +o posix
+set -eo emacs
+set -o bogus -- bogus
+set -o vi
+set -o allexport
+set -o \"$mode\"
+set -- -o posix
+";
+
+    with_facts(source, None, |_, facts| {
+        let spans = facts
+            .commands()
+            .iter()
+            .filter(|fact| fact.effective_name_is("set"))
+            .filter_map(|fact| fact.options().set())
+            .flat_map(|set| set.non_posix_option_spans().iter().copied())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            spans
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["pipefail", "posix", "emacs", "bogus"]
+        );
+    });
 }
 
 #[test]

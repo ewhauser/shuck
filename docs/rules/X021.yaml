@@ -7,8 +7,8 @@ shellcheck_code: SC3040
 shellcheck_level: warning
 shells:
   - sh
-description: The script enables pipeline failure handling with a shell option that portable sh does not define.
-rationale: Check command statuses explicitly in sh, or switch to a shell that supports this option.
+description: The script uses a `set -o` option name that portable sh does not define.
+rationale: Use only POSIX-defined `set -o` option names in sh, or switch to a shell that supports the requested mode.
 safe_fix: false
 fix_description: null
 source:
