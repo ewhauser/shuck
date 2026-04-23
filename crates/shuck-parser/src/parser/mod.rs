@@ -2296,10 +2296,10 @@ impl<'a> Parser<'a> {
         let mut cursor_position = span.start;
 
         for part in parts {
-            if part.span.start.offset > cursor_offset {
-                if let Some(raw) = self.input.get(cursor_offset..part.span.start.offset) {
-                    Self::push_brace_scan_text(raw, cursor_position, out);
-                }
+            if part.span.start.offset > cursor_offset
+                && let Some(raw) = self.input.get(cursor_offset..part.span.start.offset)
+            {
+                Self::push_brace_scan_text(raw, cursor_position, out);
             }
 
             match &part.kind {
@@ -2338,10 +2338,10 @@ impl<'a> Parser<'a> {
             cursor_position = part.span.end;
         }
 
-        if cursor_offset < span.end.offset {
-            if let Some(raw) = self.input.get(cursor_offset..span.end.offset) {
-                Self::push_brace_scan_text(raw, cursor_position, out);
-            }
+        if cursor_offset < span.end.offset
+            && let Some(raw) = self.input.get(cursor_offset..span.end.offset)
+        {
+            Self::push_brace_scan_text(raw, cursor_position, out);
         }
     }
 
