@@ -823,7 +823,7 @@ fn assignment_value_target_for_span<'a>(
     span: Span,
 ) -> Option<(&'a Name, Span)> {
     query::command_assignments(command.command())
-        .into_iter()
+        .iter()
         .chain(
             query::declaration_operands(command.command())
                 .iter()

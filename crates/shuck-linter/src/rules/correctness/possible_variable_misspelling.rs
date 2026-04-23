@@ -60,6 +60,9 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
             if is_known_runtime_name(reference.name.as_str()) {
                 return None;
             }
+            if is_internal_placeholder_name(reference.name.as_str()) {
+                return None;
+            }
             if guarded_names.contains(&reference.name) {
                 return None;
             }
@@ -333,6 +336,11 @@ fn is_known_runtime_name(name: &str) -> bool {
             | "GEM_HOME"
             | "GEM_PATH"
     ) || name.starts_with("LC_")
+}
+
+fn is_internal_placeholder_name(name: &str) -> bool {
+    name.strip_prefix("_SHUCK_GHA_")
+        .is_some_and(|suffix| suffix.chars().all(|char| char.is_ascii_digit()))
 }
 
 #[cfg(test)]
@@ -649,6 +657,21 @@ echo \"$SECONDS\"
 echo \"$PIPESTATUS\"
 echo \"$START_DELAY\"
 echo \"$WITH_CYRUS\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_synthetic_github_actions_placeholders() {
+        let source = "\
+#!/bin/sh
+_SHUCK_GHA_1=1
+echo \"$_SHUCK_GHA_2\"
 ";
         let diagnostics = test_snippet(
             source,
