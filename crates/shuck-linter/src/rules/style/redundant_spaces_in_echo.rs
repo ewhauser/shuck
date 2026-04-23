@@ -45,7 +45,10 @@ fn repeated_space_gap(left: shuck_ast::Span, right: shuck_ast::Span, source: &st
 
     // Some spans can collapse a backslash-newline continuation onto one logical
     // line. S037 only cares about repeated spaces on the same physical line.
-    let context_start = left.end.offset.saturating_sub(1);
+    let context_start = source[..left.end.offset]
+        .char_indices()
+        .next_back()
+        .map_or(left.end.offset, |(idx, _)| idx);
     let Some(context) = source.get(context_start..right.start.offset) else {
         return false;
     };
@@ -165,5 +168,25 @@ unset tested_for_other_write_errors
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_repeated_spaces_after_utf8_argument() {
+        let source = "\
+#!/bin/bash
+echo café    bar
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::RedundantSpacesInEcho),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["echo café    bar"]
+        );
     }
 }
