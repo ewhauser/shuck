@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use shuck_semantic::{Binding, BindingAttributes, BindingKind, DeclarationBuiltin};
 
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, Rule, ShellDialect, Violation};
 
 pub struct ArrayToStringConversion;
 
@@ -29,7 +29,7 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
             let saw_array_history = array_history
                 .get(&name)
                 .copied()
-                .unwrap_or_else(|| binding_uses_builtin_array_history(binding));
+                .unwrap_or_else(|| binding_uses_builtin_array_history(checker, binding));
 
             if declaration_resets_array_history(binding) {
                 array_history.insert(name, false);
@@ -101,8 +101,8 @@ fn declaration_resets_array_history(binding: &Binding) -> bool {
     }
 }
 
-fn binding_uses_builtin_array_history(binding: &Binding) -> bool {
-    matches!(binding.name.as_str(), "MAPFILE")
+fn binding_uses_builtin_array_history(checker: &Checker<'_>, binding: &Binding) -> bool {
+    matches!(checker.shell(), ShellDialect::Bash) && matches!(binding.name.as_str(), "MAPFILE")
 }
 
 fn read_target_is_array_like(checker: &Checker<'_>, binding: &Binding) -> bool {
@@ -289,6 +289,32 @@ f() {
     }
 
     #[test]
+    fn reports_scalar_reassignments_after_attached_read_array_targets() {
+        let source = "\
+#!/bin/bash
+f() {
+  read -aresolution <<< \"1 2 3\"
+  resolution=\"${resolution[0]} x ${resolution[1]} @ ${resolution[2]} fps\"
+  read -ar <<< \"4 5 6\"
+  r=\"${r[0]} x ${r[1]} @ ${r[2]} fps\"
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["resolution", "r"],
+            "{diagnostics:#?}"
+        );
+    }
+
+    #[test]
     fn reports_global_scalar_reassignments_after_function_local_array_use() {
         let source = "\
 #!/bin/bash
@@ -316,6 +342,20 @@ fuzzer=$1
             vec!["fuzzer", "fuzzer"],
             "{diagnostics:#?}"
         );
+    }
+
+    #[test]
+    fn ignores_mapfile_scalar_assignments_outside_bash() {
+        let source = "\
+#!/bin/sh
+MAPFILE=value
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
 
     #[test]

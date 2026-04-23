@@ -4900,6 +4900,8 @@ main() {
         let source = "\
 read -r read_target
 read -ra read_array_target read_array_remainder
+read -aattached_target
+read -ar
 mapfile mapfile_target
 readarray readarray_target
 printf -v printf_target '%s' value
@@ -4931,24 +4933,26 @@ getopts 'ab' getopts_target
                 .attributes
                 .contains(BindingAttributes::ARRAY)
         );
+        assert!(!model.bindings().iter().any(|binding| {
+            binding.name == "read_array_remainder"
+                && matches!(binding.kind, BindingKind::ReadTarget)
+        }));
 
-        let read_array_remainder = model
+        let attached_read_target = model
             .bindings()
             .iter()
             .find(|binding| {
-                binding.name == "read_array_remainder"
-                    && matches!(binding.kind, BindingKind::ReadTarget)
+                binding.name == "attached_target" && matches!(binding.kind, BindingKind::ReadTarget)
             })
             .unwrap();
-        assert_eq!(
-            read_array_remainder.span.slice(source),
-            "read_array_remainder"
-        );
-        assert!(
-            !read_array_remainder
-                .attributes
-                .contains(BindingAttributes::ARRAY)
-        );
+        assert_eq!(attached_read_target.span.slice(source), "attached_target");
+
+        let short_attached_read_target = model
+            .bindings()
+            .iter()
+            .find(|binding| binding.name == "r" && matches!(binding.kind, BindingKind::ReadTarget))
+            .unwrap();
+        assert_eq!(short_attached_read_target.span.slice(source), "r");
 
         let mapfile_target = model
             .bindings()
@@ -5018,7 +5022,7 @@ mapfile
                 .any(|binding| binding.name == "read_array_target")
         );
         assert!(
-            read_targets
+            !read_targets
                 .iter()
                 .any(|binding| binding.name == "read_array_remainder")
         );
