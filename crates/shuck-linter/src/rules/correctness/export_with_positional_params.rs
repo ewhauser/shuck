@@ -10,7 +10,7 @@ impl Violation for ExportWithPositionalParams {
     }
 
     fn message(&self) -> String {
-        "export variable names directly instead of positional-parameter splats".to_owned()
+        "pass variable names directly to export instead of parameter expansions".to_owned()
     }
 }
 
@@ -26,7 +26,7 @@ pub fn export_with_positional_params(checker: &mut Checker) {
         .facts()
         .expansion_word_facts(ExpansionContext::CommandArgument)
         .filter(|fact| export_ids.contains(&fact.command_id()))
-        .filter(|fact| fact.is_pure_positional_at_splat())
+        .filter(|fact| fact.is_plain_parameter_reference())
         .map(|fact| fact.span())
         .collect::<Vec<_>>();
 
@@ -39,11 +39,15 @@ mod tests {
     use crate::{LinterSettings, Rule};
 
     #[test]
-    fn reports_export_dynamic_operands_with_positional_at_splats() {
+    fn reports_single_direct_parameter_expansions_passed_to_export() {
         let source = "\
 #!/bin/bash
-export \"$@\" ${@} \"${@:2}\"
-export -- \"$@\"
+export \"$@\" ${@}
+export \"$name\" ${name} \"${name}\" $name
+export \"$1\" ${1}
+export \"$*\" ${*}
+export \"$#\"
+export -- \"$name\"
 ";
         let diagnostics = test_snippet(
             source,
@@ -55,17 +59,30 @@ export -- \"$@\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["\"$@\"", "${@}", "\"${@:2}\"", "\"$@\""]
+            vec![
+                "\"$@\"",
+                "${@}",
+                "\"$name\"",
+                "${name}",
+                "\"${name}\"",
+                "$name",
+                "\"$1\"",
+                "${1}",
+                "\"$*\"",
+                "${*}",
+                "\"$#\"",
+                "\"$name\"",
+            ]
         );
     }
 
     #[test]
-    fn ignores_non_export_or_non_splat_operands() {
+    fn ignores_non_export_and_non_plain_parameter_words() {
         let source = "\
 #!/bin/bash
 arr=(a b)
 name=HOME
-export \"$name\" ${name} \"prefix$@suffix\" \"$*\" \"${arr[@]}\" \"$1\" foo
+export \"${@:2}\" \"$@$@\" \"prefix$name\" \"${name:-fallback}\" \"${!name}\" \"${arr[@]}\" \"${arr[0]}\" foo
 export target=\"$@\"
 local \"$@\"
 ";
