@@ -10,8 +10,8 @@ shells:
   - bash
   - dash
   - ksh
-description: "The `export` command is called with `$@` which may not work as intended."
-rationale: Export specific variable names rather than positional parameters.
+description: "The `export` command receives a parameter expansion instead of a direct variable name."
+rationale: Pass variable names to `export` directly instead of expanding another parameter first.
 safe_fix: false
 fix_description: null
 source:
@@ -22,4 +22,6 @@ examples:
     source: shell-checks/examples/239.sh
     code: |
       #!/bin/bash
+      name=DISPLAY
+      export "$name"
       export "$@"

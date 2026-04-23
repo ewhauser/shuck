@@ -1225,6 +1225,10 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         word_is_plain_scalar_reference(self.word())
     }
 
+    pub fn is_plain_parameter_reference(self) -> bool {
+        word_is_plain_parameter_reference(self.word())
+    }
+
     pub fn is_direct_numeric_expansion(self) -> bool {
         word_is_direct_numeric_expansion(self.word())
     }
@@ -1498,30 +1502,47 @@ pub(crate) fn word_node_derived<'a>(node: &'a WordNode<'_>, source: &str) -> &'a
 }
 
 fn word_is_plain_scalar_reference(word: &Word) -> bool {
+    word_is_plain_reference(word, false)
+}
+
+fn word_is_plain_parameter_reference(word: &Word) -> bool {
+    word_is_plain_reference(word, true)
+}
+
+fn word_is_plain_reference(word: &Word, allow_all_elements_parameters: bool) -> bool {
     let [part] = word.parts.as_slice() else {
         return false;
     };
-    word_part_is_plain_scalar_reference(&part.kind)
+    word_part_is_plain_reference(&part.kind, allow_all_elements_parameters)
 }
 
-fn word_part_is_plain_scalar_reference(part: &WordPart) -> bool {
+fn word_part_is_plain_reference(part: &WordPart, allow_all_elements_parameters: bool) -> bool {
     match part {
-        WordPart::Variable(name) => !matches!(name.as_str(), "@" | "*"),
+        WordPart::Variable(name) => {
+            allow_all_elements_parameters || !matches!(name.as_str(), "@" | "*")
+        }
         WordPart::DoubleQuoted { parts, .. } => {
             let [part] = parts.as_slice() else {
                 return false;
             };
-            word_part_is_plain_scalar_reference(&part.kind)
+            word_part_is_plain_reference(&part.kind, allow_all_elements_parameters)
         }
-        WordPart::Parameter(parameter) => parameter_is_plain_scalar_reference(parameter),
+        WordPart::Parameter(parameter) => {
+            parameter_is_plain_reference(parameter, allow_all_elements_parameters)
+        }
         _ => false,
     }
 }
 
-fn parameter_is_plain_scalar_reference(parameter: &ParameterExpansion) -> bool {
+fn parameter_is_plain_reference(
+    parameter: &ParameterExpansion,
+    allow_all_elements_parameters: bool,
+) -> bool {
     match &parameter.syntax {
         ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference })
-            if reference.subscript.is_none() && !matches!(reference.name.as_str(), "@" | "*") =>
+            if reference.subscript.is_none()
+                && (allow_all_elements_parameters
+                    || !matches!(reference.name.as_str(), "@" | "*")) =>
         {
             true
         }
@@ -1533,7 +1554,8 @@ fn parameter_is_plain_scalar_reference(parameter: &ParameterExpansion) -> bool {
                     &syntax.target,
                     ZshExpansionTarget::Reference(reference)
                         if reference.subscript.is_none()
-                            && !matches!(reference.name.as_str(), "@" | "*")
+                            && (allow_all_elements_parameters
+                                || !matches!(reference.name.as_str(), "@" | "*"))
                 ) =>
         {
             true
@@ -6780,6 +6802,33 @@ mod word_classification_tests {
         assert_eq!(
             classify_word(&command.args[3], source).expansion_kind,
             WordExpansionKind::Array
+        );
+    }
+
+    #[test]
+    fn plain_parameter_reference_accepts_single_direct_expansions_only() {
+        let source = "\
+printf '%s\\n' \
+$name \"$name\" ${name} \"${name}\" $1 \"$#\" \"$@\" ${*} \
+${@:2} ${arr[0]} ${arr[@]} ${!name} ${name:-fallback} \"$@$@\" \"prefix$name\"\n";
+        let commands = parse_commands(source);
+        let Command::Simple(command) = &commands[0].command else {
+            panic!("expected simple command");
+        };
+
+        let plain = command
+            .args
+            .iter()
+            .skip(1)
+            .map(word_is_plain_parameter_reference)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            plain,
+            vec![
+                true, true, true, true, true, true, true, true, false, false, false, false,
+                false, false, false
+            ]
         );
     }
 

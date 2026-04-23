@@ -1,26 +1,74 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
 ---
-C105 export variable names directly instead of positional-parameter splats
+C105 pass variable names directly to export instead of parameter expansions
  --> <source>:4:8
   |
 4 | export "$@"
   |
 
-C105 export variable names directly instead of positional-parameter splats
+C105 pass variable names directly to export instead of parameter expansions
  --> <source>:5:8
   |
 5 | export ${@}
   |
 
-C105 export variable names directly instead of positional-parameter splats
+C105 pass variable names directly to export instead of parameter expansions
  --> <source>:6:8
   |
-6 | export "${@:2}"
+6 | export "$name"
   |
 
-C105 export variable names directly instead of positional-parameter splats
- --> <source>:7:11
+C105 pass variable names directly to export instead of parameter expansions
+ --> <source>:7:8
   |
-7 | export -- "$@"
+7 | export ${name}
   |
+
+C105 pass variable names directly to export instead of parameter expansions
+ --> <source>:8:8
+  |
+8 | export "${name}"
+  |
+
+C105 pass variable names directly to export instead of parameter expansions
+ --> <source>:9:8
+  |
+9 | export $name
+  |
+
+C105 pass variable names directly to export instead of parameter expansions
+  --> <source>:10:8
+   |
+10 | export "$1"
+   |
+
+C105 pass variable names directly to export instead of parameter expansions
+  --> <source>:11:8
+   |
+11 | export ${1}
+   |
+
+C105 pass variable names directly to export instead of parameter expansions
+  --> <source>:12:8
+   |
+12 | export "$*"
+   |
+
+C105 pass variable names directly to export instead of parameter expansions
+  --> <source>:13:8
+   |
+13 | export ${*}
+   |
+
+C105 pass variable names directly to export instead of parameter expansions
+  --> <source>:14:8
+   |
+14 | export "$#"
+   |
+
+C105 pass variable names directly to export instead of parameter expansions
+  --> <source>:15:11
+   |
+15 | export -- "$name"
+   |
