@@ -50,6 +50,8 @@ pub struct PathNameFact {
     name: Box<str>,
     kind: PathNameKind,
     span: Span,
+    binding_id: Option<BindingId>,
+    initialized_local_scope: Option<ScopeId>,
 }
 
 impl PathNameFact {
@@ -58,6 +60,24 @@ impl PathNameFact {
             name: name.into(),
             kind,
             span,
+            binding_id: None,
+            initialized_local_scope: None,
+        }
+    }
+
+    pub(crate) fn with_semantics(
+        name: impl Into<Box<str>>,
+        kind: PathNameKind,
+        span: Span,
+        binding_id: Option<BindingId>,
+        initialized_local_scope: Option<ScopeId>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            kind,
+            span,
+            binding_id,
+            initialized_local_scope,
         }
     }
 
@@ -71,6 +91,14 @@ impl PathNameFact {
 
     pub fn span(&self) -> Span {
         self.span
+    }
+
+    pub(crate) fn binding_id(&self) -> Option<BindingId> {
+        self.binding_id
+    }
+
+    pub(crate) fn initialized_local_scope(&self) -> Option<ScopeId> {
+        self.initialized_local_scope
     }
 }
 

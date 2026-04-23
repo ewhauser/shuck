@@ -1,7 +1,9 @@
 use rustc_hash::FxHashMap;
 use shuck_ast::{RedirectKind, Span};
 
-use crate::{Checker, ComparablePathKey, ExpansionContext, PathNameKind, Rule, Violation};
+use crate::{
+    Checker, ComparablePathKey, ExpansionContext, PathNameFact, PathNameKind, Rule, Violation,
+};
 
 pub struct RedirectClobbersInput;
 
@@ -33,8 +35,8 @@ fn clobber_spans_for_command(fact: &crate::CommandFact<'_>) -> Vec<Span> {
     let mut read_paths: FxHashMap<ComparablePathKey, Vec<Span>> = FxHashMap::default();
     let mut write_paths: FxHashMap<ComparablePathKey, Vec<Span>> = FxHashMap::default();
     let mut readwrite_paths: FxHashMap<ComparablePathKey, Vec<Span>> = FxHashMap::default();
-    let mut read_names: FxHashMap<Box<str>, Vec<(PathNameKind, Span)>> = FxHashMap::default();
-    let mut write_names: FxHashMap<Box<str>, Vec<(PathNameKind, Span)>> = FxHashMap::default();
+    let mut read_names: FxHashMap<Box<str>, Vec<PathNameFact>> = FxHashMap::default();
+    let mut write_names: FxHashMap<Box<str>, Vec<PathNameFact>> = FxHashMap::default();
     let own_readwrite_spans = fact
         .redirect_facts()
         .iter()
@@ -93,14 +95,14 @@ fn clobber_spans_for_command(fact: &crate::CommandFact<'_>) -> Vec<Span> {
         read_names
             .entry(source_name.name().into())
             .or_default()
-            .push((source_name.kind(), source_name.span()));
+            .push(source_name.clone());
     }
 
     for target_name in fact.scope_write_target_names() {
         write_names
             .entry(target_name.name().into())
             .or_default()
-            .push((target_name.kind(), target_name.span()));
+            .push(target_name.clone());
     }
 
     let mut spans = Vec::new();
@@ -123,26 +125,69 @@ fn clobber_spans_for_command(fact: &crate::CommandFact<'_>) -> Vec<Span> {
         let Some(write_spans) = write_names.get(name) else {
             continue;
         };
-        if !name_spans_overlap_shellcheck_style(read_spans, write_spans) {
+        let name_spans = matching_name_spans_shellcheck_style(read_spans, write_spans);
+        if name_spans.is_empty() {
             continue;
         }
 
-        spans.extend(read_spans.iter().map(|(_, span)| *span));
-        spans.extend(write_spans.iter().map(|(_, span)| *span));
+        spans.extend(name_spans);
     }
 
     spans
 }
 
-fn name_spans_overlap_shellcheck_style(
-    read_spans: &[(PathNameKind, Span)],
-    write_spans: &[(PathNameKind, Span)],
-) -> bool {
-    read_spans.iter().any(|(read_kind, read_span)| {
-        write_spans.iter().any(|(write_kind, write_span)| {
-            read_span != write_span && path_name_kinds_match(*read_kind, *write_kind)
-        })
-    })
+fn matching_name_spans_shellcheck_style(
+    read_spans: &[PathNameFact],
+    write_spans: &[PathNameFact],
+) -> Vec<Span> {
+    let mut spans = Vec::new();
+    for read in read_spans {
+        for write in write_spans {
+            if path_name_facts_match(read, write) {
+                spans.push(read.span());
+                spans.push(write.span());
+            }
+        }
+    }
+    spans
+}
+
+fn path_name_facts_match(read: &PathNameFact, write: &PathNameFact) -> bool {
+    read.span() != write.span()
+        && path_name_kinds_match(read.kind(), write.kind())
+        && parameter_name_bindings_match(read, write)
+}
+
+fn parameter_name_bindings_match(read: &PathNameFact, write: &PathNameFact) -> bool {
+    if !path_name_kind_is_parameter(read.kind()) || !path_name_kind_is_parameter(write.kind()) {
+        return true;
+    }
+
+    match (read.binding_id(), write.binding_id()) {
+        (Some(read), Some(write)) if read == write => true,
+        _ => initialized_local_scopes_match(read, write),
+    }
+}
+
+fn initialized_local_scopes_match(read: &PathNameFact, write: &PathNameFact) -> bool {
+    match (
+        read.initialized_local_scope(),
+        write.initialized_local_scope(),
+    ) {
+        (Some(read), Some(write)) => read == write,
+        (None, None) => true,
+        (Some(_), None) | (None, Some(_)) => false,
+    }
+}
+
+fn path_name_kind_is_parameter(kind: PathNameKind) -> bool {
+    matches!(
+        kind,
+        PathNameKind::Parameter
+            | PathNameKind::RedirectParameter
+            | PathNameKind::HeredocParameter
+            | PathNameKind::GeneratedParameter
+    )
 }
 
 fn path_name_kinds_match(read_kind: PathNameKind, write_kind: PathNameKind) -> bool {
@@ -242,6 +287,16 @@ jq -nc '.x=1' \"$cfg\" >\"$cfg\"
 cat < \"$suffix\" > \"$(basename \"$name\" \"$suffix\")\"
 cat < \"$suffix\" > \"$(basename -s \"$suffix\" \"$name\")\"
 cat < \"$suffix\" > \"$(basename --suffix=\"$suffix\" \"$name\")\"
+{
+  f() {
+    local OUT=
+    if [ \"$OUT\" = 0 ]; then
+      OUT=x
+    fi
+    printf '%s\\n' \"$OUT\"
+  }
+  f
+} | sort >> \"$OUT\"
 ";
         let diagnostics = test_snippet(
             source,
@@ -269,6 +324,13 @@ EOF
 ) > SGINGRESS1
 { [ \"$OUT\" -lt \"$crit_border\" ] && :; } | sort >> \"$OUT\"
 { case \"$MODE\" in on) :;; esac; } | sort > \"$MODE\"
+{
+  g() {
+    local OUT
+    [ \"$OUT\" = 0 ] && :
+  }
+  g
+} | sort >> \"$OUT\"
 f() {
   local out=/tmp/f
   sort \"$out\" > \"$out\"
@@ -298,6 +360,8 @@ f() {
                 "\"$OUT\"",
                 "\"$MODE\"",
                 "\"$MODE\"",
+                "\"$OUT\"",
+                "\"$OUT\"",
                 "\"$out\"",
                 "\"$out\"",
             ]

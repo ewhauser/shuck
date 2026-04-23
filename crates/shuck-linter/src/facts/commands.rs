@@ -616,8 +616,10 @@ fn build_scope_write_target_names(
     commands
         .iter()
         .map(|command| {
-            let mut names = direct_output_target_name_facts(command, source);
-            names.extend(generated_output_target_name_facts(command, commands, source));
+            let mut names = direct_output_target_name_facts(command, semantic, source);
+            names.extend(generated_output_target_name_facts(
+                command, commands, semantic, source,
+            ));
             names.extend(binding_target_name_facts(command, semantic));
             if command_has_file_input_redirect(command) {
                 names.extend(scope_heredoc_reference_name_facts(
@@ -666,6 +668,7 @@ fn own_read_source_name_facts(
             path_name_fact_from_word(
                 path_word.word(),
                 source,
+                semantic,
                 path_word.context(),
                 command.zsh_options(),
                 literal_kind,
@@ -684,7 +687,11 @@ fn own_read_source_name_facts(
     names
 }
 
-fn direct_output_target_name_facts(command: &CommandFact<'_>, source: &str) -> Vec<PathNameFact> {
+fn direct_output_target_name_facts(
+    command: &CommandFact<'_>,
+    semantic: &SemanticModel,
+    source: &str,
+) -> Vec<PathNameFact> {
     command
         .redirect_facts()
         .iter()
@@ -695,6 +702,7 @@ fn direct_output_target_name_facts(command: &CommandFact<'_>, source: &str) -> V
             path_name_fact_from_word(
                 target,
                 source,
+                semantic,
                 context,
                 command.zsh_options(),
                 PathNameKind::Literal,
@@ -707,6 +715,7 @@ fn direct_output_target_name_facts(command: &CommandFact<'_>, source: &str) -> V
 fn generated_output_target_name_facts(
     command: &CommandFact<'_>,
     commands: &[CommandFact<'_>],
+    semantic: &SemanticModel,
     source: &str,
 ) -> Vec<PathNameFact> {
     let target_spans = command_file_output_redirect_target_spans(command);
@@ -733,6 +742,7 @@ fn generated_output_target_name_facts(
                 path_name_fact_from_word(
                     word,
                     source,
+                    semantic,
                     ExpansionContext::CommandArgument,
                     other.zsh_options(),
                     PathNameKind::GeneratedLiteral,
@@ -818,6 +828,7 @@ fn heredoc_reference_name_facts(
 fn path_name_fact_from_word(
     word: &Word,
     source: &str,
+    semantic: &SemanticModel,
     context: ExpansionContext,
     options: Option<&ZshOptionState>,
     literal_kind: PathNameKind,
@@ -832,6 +843,7 @@ fn path_name_fact_from_word(
         };
     path_name_fact_from_key(
         comparable.key(),
+        semantic,
         literal_kind,
         parameter_kind,
         comparable.span(),
@@ -840,6 +852,7 @@ fn path_name_fact_from_word(
 
 fn path_name_fact_from_key(
     key: &ComparablePathKey,
+    semantic: &SemanticModel,
     literal_kind: PathNameKind,
     parameter_kind: PathNameKind,
     span: Span,
@@ -848,11 +861,37 @@ fn path_name_fact_from_key(
         ComparablePathKey::Literal(name) if is_shell_identifier_like(name) => {
             Some(PathNameFact::new(name.as_ref(), literal_kind, span))
         }
-        ComparablePathKey::Parameter(name) => {
-            Some(PathNameFact::new(name.as_ref(), parameter_kind, span))
-        }
+        ComparablePathKey::Parameter(name) => Some(PathNameFact::with_semantics(
+            name.as_ref(),
+            parameter_kind,
+            span,
+            semantic
+                .visible_binding(&Name::from(name.as_ref()), span)
+                .map(|binding| binding.id),
+            initialized_local_scope_for_name(semantic, name.as_ref(), span),
+        )),
         ComparablePathKey::Literal(_) | ComparablePathKey::Template(_) => None,
     }
+}
+
+fn initialized_local_scope_for_name(
+    semantic: &SemanticModel,
+    name: &str,
+    span: Span,
+) -> Option<ScopeId> {
+    let function_scope = enclosing_function_scope(semantic, span.start.offset)?;
+    semantic
+        .bindings()
+        .iter()
+        .any(|binding| {
+            binding.name.as_str() == name
+                && binding.scope == function_scope
+                && binding.span.start.offset <= span.start.offset
+                && binding
+                    .attributes
+                    .contains(BindingAttributes::LOCAL | BindingAttributes::DECLARATION_INITIALIZED)
+        })
+        .then_some(function_scope)
 }
 
 fn command_file_output_redirect_target_spans(command: &CommandFact<'_>) -> Vec<Span> {
