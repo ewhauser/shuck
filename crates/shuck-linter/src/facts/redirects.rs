@@ -177,13 +177,28 @@ pub(crate) fn comparable_name_uses(word: &Word, source: &str) -> Box<[Comparable
     if let Some(name_use) = standalone_comparable_name_use(word, source) {
         uses.push(name_use);
     }
-    let allow_quoted_derived_words = analyze_word(word, source, None).quote == WordQuote::FullyQuoted;
+    let allow_quoted_derived_words =
+        analyze_word(word, source, None).quote == WordQuote::FullyQuoted;
     collect_command_substitution_comparable_name_uses_in_parts(
         &word.parts,
         source,
         allow_quoted_derived_words,
         &mut uses,
     );
+    dedup_comparable_name_uses(&mut uses);
+    uses.into_boxed_slice()
+}
+
+pub(crate) fn comparable_read_target_name_uses(
+    word: &Word,
+    source: &str,
+) -> Box<[ComparableNameUse]> {
+    let mut uses = comparable_name_uses(word, source).into_vec();
+    if let Some(text) = static_word_text(word, source)
+        && comparable_name_text(text.as_ref())
+    {
+        uses.push(literal_comparable_name_use(word.span, text.as_ref()));
+    }
     dedup_comparable_name_uses(&mut uses);
     uses.into_boxed_slice()
 }
@@ -346,11 +361,7 @@ fn standalone_comparable_name_use(word: &Word, source: &str) -> Option<Comparabl
         && comparable_name_text(text.as_ref())
         && analyze_word(word, source, None).quote == WordQuote::Unquoted
     {
-        return Some(ComparableNameUse {
-            span: word.span,
-            key: ComparableNameKey(text.into_owned().into_boxed_str()),
-            kind: ComparableNameUseKind::Literal,
-        });
+        return Some(literal_comparable_name_use(word.span, text.as_ref()));
     }
 
     standalone_comparable_parameter_name(&word.parts).map(|name| ComparableNameUse {
@@ -358,6 +369,14 @@ fn standalone_comparable_name_use(word: &Word, source: &str) -> Option<Comparabl
         key: ComparableNameKey(name.into()),
         kind: ComparableNameUseKind::Parameter,
     })
+}
+
+fn literal_comparable_name_use(span: Span, text: &str) -> ComparableNameUse {
+    ComparableNameUse {
+        span,
+        key: ComparableNameKey(text.into()),
+        kind: ComparableNameUseKind::Literal,
+    }
 }
 
 fn standalone_comparable_parameter_name(parts: &[WordPartNode]) -> Option<&str> {

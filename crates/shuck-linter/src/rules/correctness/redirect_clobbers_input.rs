@@ -502,4 +502,24 @@ read -a arr < arr
             vec!["arr", "arr"]
         );
     }
+
+    #[test]
+    fn reports_quoted_read_targets_that_match_input_paths() {
+        let source = "\
+#!/bin/bash
+read \"path\" < path
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::RedirectClobbersInput),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["\"path\"", "path"]
+        );
+    }
 }
