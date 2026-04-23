@@ -1,8 +1,51 @@
 ---
 source: crates/shuck-linter/src/rules/portability/mod.rs
+assertion_line: 172
 ---
-X081 `${*%%pattern}` is not portable in `sh`
+X081 pattern trimming on `$*` or `$@` is not portable in `sh`
  --> <source>:4:7
   |
 4 | echo "${*%%dBm*}"
   |
+
+X081 pattern trimming on `$*` or `$@` is not portable in `sh`
+ --> <source>:5:7
+  |
+5 | echo "${*%dBm*}"
+  |
+
+X081 pattern trimming on `$*` or `$@` is not portable in `sh`
+ --> <source>:6:7
+  |
+6 | echo "${*##dBm*}"
+  |
+
+X081 pattern trimming on `$*` or `$@` is not portable in `sh`
+ --> <source>:7:7
+  |
+7 | echo "${*#dBm*}"
+  |
+
+X081 pattern trimming on `$*` or `$@` is not portable in `sh`
+  --> <source>:10:7
+   |
+10 | echo "${@%%dBm*}"
+   |
+
+X081 pattern trimming on `$*` or `$@` is not portable in `sh`
+  --> <source>:11:7
+   |
+11 | echo "${@%dBm*}"
+   |
+
+X081 pattern trimming on `$*` or `$@` is not portable in `sh`
+  --> <source>:12:7
+   |
+12 | echo "${@##*.}"
+   |
+
+X081 pattern trimming on `$*` or `$@` is not portable in `sh`
+  --> <source>:13:7
+   |
+13 | echo "${@#*.}"
+   |

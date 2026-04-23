@@ -8,7 +8,7 @@ impl Violation for StarGlobRemovalInSh {
     }
 
     fn message(&self) -> String {
-        "`${*%%pattern}` is not portable in `sh`".to_owned()
+        "pattern trimming on `$*` or `$@` is not portable in `sh`".to_owned()
     }
 }
 
@@ -19,7 +19,7 @@ pub fn star_glob_removal_in_sh(checker: &mut Checker) {
 
     let spans = checker
         .facts()
-        .star_glob_removal_fragments()
+        .positional_parameter_trim_fragments()
         .iter()
         .map(|fragment| fragment.span())
         .collect::<Vec<_>>();
@@ -33,10 +33,12 @@ mod tests {
     use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
-    fn anchors_only_on_star_longest_suffix_removal() {
+    fn anchors_on_positional_parameter_trims_for_star_and_at() {
         let source = "\
 #!/bin/sh
-printf '%s\n' \"${*%%dBm*}\" \"${*%dBm*}\" \"${@%%dBm*}\" \"${@##*.}\" \"${name%%dBm*}\"
+printf '%s\n' \"${*%%dBm*}\" \"${*%dBm*}\" \"${*##dBm*}\" \"${*#dBm*}\"
+printf '%s\n' \"${@%%dBm*}\" \"${@%dBm*}\" \"${@##dBm*}\" \"${@#dBm*}\"
+printf '%s\n' \"${name%%dBm*}\"
 ";
         let diagnostics =
             test_snippet(source, &LinterSettings::for_rule(Rule::StarGlobRemovalInSh));
@@ -46,7 +48,16 @@ printf '%s\n' \"${*%%dBm*}\" \"${*%dBm*}\" \"${@%%dBm*}\" \"${@##*.}\" \"${name%
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["${*%%dBm*}"]
+            vec![
+                "${*%%dBm*}",
+                "${*%dBm*}",
+                "${*##dBm*}",
+                "${*#dBm*}",
+                "${@%%dBm*}",
+                "${@%dBm*}",
+                "${@##dBm*}",
+                "${@#dBm*}",
+            ]
         );
     }
 

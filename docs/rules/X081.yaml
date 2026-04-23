@@ -8,10 +8,10 @@ shellcheck_level: warning
 shells:
   - sh
   - dash
-description: "The `${*%%pattern}` longest-suffix removal is applied to `$*` in POSIX sh."
-rationale: "Assign `$*` to a variable first, then apply parameter expansion."
+description: "Pattern trimming on `$*` or `$@` is not portable in POSIX `sh`."
+rationale: "Assign `$*` or `$@` to a variable first, then apply any `#`, `##`, `%`, or `%%` trimming to that variable."
 safe_fix: false
-fix_description: Assign `$*` to a temporary variable first, then apply the reported `%%pattern` suffix removal to that variable.
+fix_description: Assign `$*` or `$@` to a temporary variable first, then apply the reported pattern-trimming operator to that variable.
 source:
   shell_checks_rule: rules/SH-305.yaml
   shell_checks_example: examples/305.sh
@@ -22,3 +22,4 @@ examples:
       #!/bin/sh
       # shellcheck disable=2154
       echo "${*%%dBm*}" > /tmp/signal.txt
+      echo "${@##*.}"
