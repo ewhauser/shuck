@@ -35,20 +35,23 @@ pub fn unquoted_expansion(checker: &mut Checker) {
 
     let mut spans = Vec::new();
     for fact in checker.facts().word_facts() {
-        let Some(context) = fact.expansion_context() else {
-            continue;
-        };
-        if !should_check_context(context, checker.shell()) {
-            continue;
-        }
-
-        report_word_expansions(
-            &mut spans,
+        collect_word_fact_reports(
+            checker,
+            &colon_command_ids,
             &mut safe_values,
+            &mut spans,
             source,
             fact,
-            context,
-            colon_command_ids.contains(&fact.command_id()),
+        );
+    }
+    for fact in checker.facts().arithmetic_command_word_facts() {
+        collect_word_fact_reports(
+            checker,
+            &colon_command_ids,
+            &mut safe_values,
+            &mut spans,
+            source,
+            fact,
         );
     }
 
@@ -57,6 +60,31 @@ pub fn unquoted_expansion(checker: &mut Checker) {
     for span in spans {
         checker.report_dedup(UnquotedExpansion, span);
     }
+}
+
+fn collect_word_fact_reports(
+    checker: &Checker,
+    colon_command_ids: &FxHashSet<crate::facts::core::CommandId>,
+    safe_values: &mut SafeValueIndex<'_>,
+    spans: &mut Vec<shuck_ast::Span>,
+    source: &str,
+    fact: WordOccurrenceRef<'_, '_>,
+) {
+    let Some(context) = fact.host_expansion_context() else {
+        return;
+    };
+    if !should_check_context(context, checker.shell()) {
+        return;
+    }
+
+    report_word_expansions(
+        spans,
+        safe_values,
+        source,
+        fact,
+        context,
+        colon_command_ids.contains(&fact.command_id()),
+    );
 }
 
 fn should_check_context(context: ExpansionContext, shell: ShellDialect) -> bool {
@@ -621,6 +649,27 @@ wrapper() {
     }
 
     #[test]
+    fn reports_unquoted_expansions_after_inline_returns_in_same_function_body() {
+        let source = "\
+#!/bin/sh
+wrapper() {
+  SAFE=foo
+  return 0
+  echo /tmp/$SAFE
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$SAFE"]
+        );
+    }
+
+    #[test]
     fn reports_unquoted_expansions_after_deferred_exit_like_calls_resolved_by_later_helpers() {
         let source = "\
 #!/bin/sh
@@ -853,6 +902,112 @@ exit $?
     }
 
     #[test]
+    fn reports_case_cli_dispatch_entry_function_local_arguments() {
+        let source = "\
+#!/bin/sh
+start() {
+  local n=0
+  echo $n
+}
+
+case \"$1\" in
+  start) $1 ;;
+esac
+exit $?
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$n"]
+        );
+    }
+
+    #[test]
+    fn reports_case_cli_dispatch_entry_function_local_arguments_with_literal_exit() {
+        let source = "\
+#!/bin/sh
+start() {
+  local n=0
+  echo $n
+}
+
+case \"$1\" in
+  start) $1 ;;
+esac
+exit 0
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$n"]
+        );
+    }
+
+    #[test]
+    fn reports_case_cli_reachable_helper_local_arguments() {
+        let source = "\
+#!/bin/sh
+foo() {
+  local n=0
+  echo $n
+}
+
+bound() { foo; }
+renew() { foo; }
+deconfig() { :; }
+
+case \"$1\" in
+  deconfig|renew|bound) $1 ;;
+esac
+exit $?
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$n"]
+        );
+    }
+
+    #[test]
+    fn reports_case_cli_pre_dispatch_function_local_arguments() {
+        let source = "\
+#!/bin/sh
+foo() {
+  local n=0
+  echo $n
+}
+
+bar() { :; }
+
+case \"$1\" in
+  bar) $1 ;;
+esac
+exit $?
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$n"]
+        );
+    }
+
+    #[test]
     fn does_not_broaden_dynamic_case_dispatch_without_top_level_exit_status() {
         let source = "\
 #!/bin/sh
@@ -871,6 +1026,49 @@ esac
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_function_local_arguments_before_plain_top_level_exit() {
+        let source = "\
+#!/bin/sh
+start() {
+  local n=0
+  echo $n
+}
+exit 0
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$n"]
+        );
+    }
+
+    #[test]
+    fn reports_nested_function_return_arguments_without_top_level_exit() {
+        let source = "\
+#!/bin/bash
+outer() {
+  inner() {
+    local good=0
+    return $good
+  }
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$good"]
+        );
     }
 
     #[test]
@@ -1142,6 +1340,78 @@ echo \"MD5SUM=\\\"$( md5sum $PRGNAM-$VERSION.tar.xz | cut -d' ' -f1 )\\\"\"
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$VERSION"]
+        );
+    }
+
+    #[test]
+    fn reports_dynamic_values_inside_parameter_replacement_command_substitutions() {
+        let source = "\
+#!/bin/bash
+image_file='foo bar'
+template='IMG_EXTRACT_SIZE IMG_SHA256 IMG_DOWNLOAD_SIZE'
+template=\"${template/IMG_EXTRACT_SIZE/$(stat -c %s $image_file)}\"
+template=\"${template/IMG_SHA256/$(sha256sum $image_file | cut -d' ' -f1)}\"
+template=\"${template/IMG_DOWNLOAD_SIZE/$(stat -c %s ${image_file}.xz)}\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$image_file", "$image_file", "${image_file}"]
+        );
+    }
+
+    #[test]
+    fn reports_dynamic_values_inside_parameter_replacement_arithmetic_expansions() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' \"${template/IMG_OFFSET/$(( $(cat file) $1 step ))}\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$1"]
+        );
+    }
+
+    #[test]
+    fn reports_dynamic_values_inside_parameter_default_arithmetic_expansions() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' \"${value:-$(( $(cat file) $1 step ))}\" \"${value:=$(( $2 + 1 ))}\" \"${value:+$(( $3 + 1 ))}\" \"${value:?$(( $4 + 1 ))}\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$1", "$2", "$3", "$4"]
+        );
+    }
+
+    #[test]
+    fn reports_dynamic_values_inside_arithmetic_shell_words() {
+        let source = "\
+#!/bin/sh
+printf '%s' \"$(( $(cat file) $1 step ))\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$1"]
         );
     }
 
@@ -1434,6 +1704,26 @@ done
     }
 
     #[test]
+    fn reports_static_loop_variables_after_the_loop_body() {
+        let source = "\
+#!/bin/bash
+for i in castool chdman; do
+  :
+done
+install $i /tmp
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$i"]
+        );
+    }
+
+    #[test]
     fn reports_loop_variables_derived_from_expanded_values() {
         let source = "\
 #!/bin/bash
@@ -1673,6 +1963,36 @@ fn_backup_compression
     }
 
     #[test]
+    fn reports_top_level_arguments_after_transitively_unsafe_helper_calls() {
+        let source = "\
+#!/bin/bash
+DISK_SIZE=\"32G\"
+
+advanced_settings() {
+  DISK_SIZE=\"$(get_size)\"
+}
+
+start_script() {
+  advanced_settings
+}
+
+start_script
+if [ -n \"$DISK_SIZE\" ]; then
+  qm resize 100 scsi0 ${DISK_SIZE} >/dev/null
+fi
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${DISK_SIZE}"]
+        );
+    }
+
+    #[test]
     fn reports_helper_initialized_bindings_when_other_callers_skip_the_helper() {
         let source = "\
 #!/bin/bash
@@ -1704,6 +2024,86 @@ unsafe_path
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["${flag}"]
+        );
+    }
+
+    #[test]
+    fn reports_helper_globals_with_unsafe_caller_visible_bindings() {
+        let source = "\
+#!/bin/sh
+SERVERNUM=99
+find_free_servernum() {
+  i=$SERVERNUM
+  while [ -f /tmp/.X$i-lock ]; do
+    i=$(($i + 1))
+  done
+  echo $i
+}
+set -- -n '1 2' -a --
+while :; do
+  case \"$1\" in
+    -a|--auto-servernum) SERVERNUM=$(find_free_servernum) ;;
+    -n|--server-num) SERVERNUM=\"$2\"; shift ;;
+    --) shift; break ;;
+    *) break ;;
+  esac
+  shift
+done
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$i", "$i"]
+        );
+    }
+
+    #[test]
+    fn reports_helper_globals_with_mixed_safe_and_unsafe_caller_branches() {
+        let source = "\
+#!/bin/sh
+if [ -n \"$2\" ]; then
+  UIPORT=\"$2\"
+else
+  UIPORT=\"8080\"
+fi
+do_start() {
+  grep $UIPORT /dev/null
+}
+do_start
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$UIPORT"]
+        );
+    }
+
+    #[test]
+    fn reports_helper_globals_with_conditionally_initialized_caller_bindings() {
+        let source = "\
+#!/bin/bash
+[ \"$1\" = 64 ] && extra=ENABLE_LIB64=1
+run_make() {
+  make $extra
+}
+run_make
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$extra"]
         );
     }
 

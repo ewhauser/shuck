@@ -167,7 +167,7 @@ value=\"`greet`\"
 }
 
 #[test]
-fn function_cli_dispatch_facts_track_case_positional_entrypoints_with_top_level_exit_status() {
+fn function_cli_dispatch_facts_track_case_positional_entrypoints_with_top_level_exit() {
     let source = "\
 #!/bin/sh
 start() { echo hi; }
@@ -209,7 +209,38 @@ exit $?
 }
 
 #[test]
-fn function_cli_dispatch_facts_ignore_case_positional_entrypoints_without_top_level_exit_status() {
+fn function_cli_dispatch_facts_track_case_positional_entrypoints_with_literal_top_level_exit() {
+    let source = "\
+#!/bin/sh
+start() { echo hi; }
+case \"$1\" in
+  start) $1 ;;
+esac
+exit 0
+";
+
+    with_facts(source, None, |_, facts| {
+        let header = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(candidate, _)| candidate == "start")
+            })
+            .expect("expected start header");
+        let scope = header.function_scope().expect("expected function scope");
+
+        assert!(
+            facts
+                .function_cli_dispatch_facts(scope)
+                .exported_from_case_cli()
+        );
+    });
+}
+
+#[test]
+fn function_cli_dispatch_facts_ignore_case_positional_entrypoints_without_top_level_exit() {
     let source = "\
 #!/bin/sh
 start() { echo hi; }

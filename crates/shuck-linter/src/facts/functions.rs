@@ -169,7 +169,7 @@ fn build_function_cli_dispatch_facts(
         if case_subject_variable_name(&case_command.word) != Some("1") {
             continue;
         }
-        if !stmt_is_top_level_status_exit(trailing_exit_stmt) {
+        if !stmt_is_top_level_exit(trailing_exit_stmt) {
             continue;
         }
 
@@ -209,7 +209,7 @@ fn build_function_cli_dispatch_facts(
     facts
 }
 
-fn stmt_is_top_level_status_exit(stmt: &Stmt) -> bool {
+fn stmt_is_top_level_exit(stmt: &Stmt) -> bool {
     if stmt.negated || matches!(stmt.terminator, Some(StmtTerminator::Background(_))) {
         return false;
     }
@@ -224,10 +224,7 @@ fn stmt_is_top_level_status_exit(stmt: &Stmt) -> bool {
         return false;
     }
 
-    command
-        .code
-        .as_ref()
-        .is_some_and(word_is_standalone_status_capture)
+    true
 }
 
 fn build_function_parameter_fallback_spans(

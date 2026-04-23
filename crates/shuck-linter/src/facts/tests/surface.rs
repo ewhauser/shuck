@@ -1750,6 +1750,77 @@ fn ignores_quoted_dollar_words_in_arithmetic_command_contexts() {
 }
 
 #[test]
+fn indexes_pending_arithmetic_word_facts_by_span() {
+    let source = "#!/bin/bash\nprintf '%s\\n' $(( $name + 1 ))\n";
+
+    with_facts(source, None, |_, facts| {
+        let arithmetic = facts
+            .arithmetic_command_word_facts()
+            .find(|fact| fact.span().slice(source) == "$name")
+            .expect("expected arithmetic word fact");
+
+        assert!(arithmetic.is_arithmetic_command());
+        assert_eq!(
+            facts
+                .word_fact(arithmetic.span(), arithmetic.context())
+                .map(|fact| fact.span().slice(source)),
+            Some("$name")
+        );
+        assert_eq!(
+            facts
+                .any_word_fact(arithmetic.span())
+                .map(|fact| fact.span().slice(source)),
+            Some("$name")
+        );
+    });
+}
+
+#[test]
+fn indexes_arithmetic_word_facts_inside_parameter_replacement_operands() {
+    let source = "#!/bin/bash\nprintf '%s\\n' \"${value/foo/$(( $name + 1 ))}\"\n";
+
+    with_facts(source, None, |_, facts| {
+        let arithmetic = facts
+            .arithmetic_command_word_facts()
+            .find(|fact| fact.span().slice(source) == "$name")
+            .expect("expected arithmetic word fact");
+
+        assert!(arithmetic.is_arithmetic_command());
+        assert_eq!(
+            arithmetic.host_expansion_context(),
+            Some(ExpansionContext::CommandArgument)
+        );
+        assert_eq!(
+            facts
+                .word_fact(arithmetic.span(), arithmetic.context())
+                .map(|fact| fact.span().slice(source)),
+            Some("$name")
+        );
+    });
+}
+
+#[test]
+fn indexes_arithmetic_word_facts_inside_parameter_default_operands() {
+    let source = "\
+#!/bin/bash
+printf '%s\\n' \"${value:-$(( $default + 1 ))}\" \"${value:=$(( $assign + 1 ))}\" \"${value:+$(( $replace + 1 ))}\" \"${value:?$(( $error + 1 ))}\"
+";
+
+    with_facts(source, None, |_, facts| {
+        let spans = facts
+            .arithmetic_command_word_facts()
+            .map(|fact| fact.span().slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(spans, vec!["$default", "$assign", "$replace", "$error"]);
+        assert!(facts.arithmetic_command_word_facts().all(|fact| {
+            fact.host_expansion_context() == Some(ExpansionContext::CommandArgument)
+                && facts.word_fact(fact.span(), fact.context()).is_some()
+        }));
+    });
+}
+
+#[test]
 fn ignores_dynamic_and_compound_subscript_parameter_accesses_in_arithmetic() {
     let source = "\
 #!/bin/bash

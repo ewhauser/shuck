@@ -775,14 +775,23 @@ fn collect_parameter_expansion_visits<'a, F>(
                 reference,
                 operand_word_ast,
                 ..
+            } => {
+                collect_var_ref_word_visits(reference, options, context, visitor);
+                if let Some(word) = operand_word_ast.as_ref() {
+                    collect_word_visits(word, options, context, visitor);
+                }
             }
-            | BourneParameterExpansion::Operation {
+            BourneParameterExpansion::Operation {
                 reference,
+                operator,
                 operand_word_ast,
                 ..
             } => {
                 collect_var_ref_word_visits(reference, options, context, visitor);
                 if let Some(word) = operand_word_ast.as_ref() {
+                    collect_word_visits(word, options, context, visitor);
+                }
+                if let Some(word) = operator.replacement_word_ast() {
                     collect_word_visits(word, options, context, visitor);
                 }
             }
@@ -1188,6 +1197,40 @@ done
     fn walk_commands_descends_into_parameter_expansion_operands() {
         let source = "\
 printf '%s\\n' ${value:-$(expr $(nproc) + 1)}
+";
+        let commands = parse_commands(source);
+        let mut visits = Vec::new();
+
+        walk_commands(
+            &commands,
+            CommandWalkOptions {
+                descend_nested_word_commands: true,
+            },
+            &mut |visit, context| {
+                let Command::Simple(command) = visit.command else {
+                    return;
+                };
+                let Some(name) = static_word_owned_text(&command.name, source) else {
+                    return;
+                };
+                visits.push((name, context.nested_word_command));
+            },
+        );
+
+        assert_eq!(
+            visits,
+            vec![
+                ("printf".to_owned(), false),
+                ("expr".to_owned(), true),
+                ("nproc".to_owned(), true),
+            ]
+        );
+    }
+
+    #[test]
+    fn walk_commands_descends_into_parameter_replacement_words() {
+        let source = "\
+printf '%s\\n' \"${value/old/$(expr $(nproc) + 1)}\"\n\
 ";
         let commands = parse_commands(source);
         let mut visits = Vec::new();
