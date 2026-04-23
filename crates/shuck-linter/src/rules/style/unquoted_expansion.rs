@@ -164,6 +164,485 @@ printf '%s\\n' \"$(echo $name)\"
     }
 
     #[test]
+    fn reports_literal_bindings_after_exit_like_function_calls() {
+        let source = "\
+#!/bin/sh
+OPTION_BINARY_FILE=\"../lynis\"
+Exit() { exit 0; }
+Exit
+OPENBSD_CONTENTS=\"openbsd/+CONTENTS\"
+FIND=$(sh -n ${OPTION_BINARY_FILE} ; echo $?)
+echo x >> ${OPENBSD_CONTENTS}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${OPTION_BINARY_FILE}", "${OPENBSD_CONTENTS}"]
+        );
+    }
+
+    #[test]
+    fn reports_literal_bindings_after_early_exit_like_function_calls() {
+        let source = "\
+#!/bin/sh
+OPTION_BINARY_FILE=\"../lynis\"
+Exit() { exit 0; :; }
+Exit
+OPENBSD_CONTENTS=\"openbsd/+CONTENTS\"
+FIND=$(sh -n ${OPTION_BINARY_FILE} ; echo $?)
+echo x >> ${OPENBSD_CONTENTS}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${OPTION_BINARY_FILE}", "${OPENBSD_CONTENTS}"]
+        );
+    }
+
+    #[test]
+    fn reports_literal_bindings_after_assigned_exit_like_function_calls() {
+        let source = "\
+#!/bin/sh
+OPTION_BINARY_FILE=\"../lynis\"
+Exit() { FOO=1 exit 0; }
+Exit
+OPENBSD_CONTENTS=\"openbsd/+CONTENTS\"
+FIND=$(sh -n ${OPTION_BINARY_FILE} ; echo $?)
+echo x >> ${OPENBSD_CONTENTS}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${OPTION_BINARY_FILE}", "${OPENBSD_CONTENTS}"]
+        );
+    }
+
+    #[test]
+    fn reports_literal_bindings_after_negated_exit_like_function_calls() {
+        let source = "\
+#!/bin/sh
+OPTION_BINARY_FILE=\"../lynis\"
+Exit() { ! exit 0; }
+Exit
+OPENBSD_CONTENTS=\"openbsd/+CONTENTS\"
+FIND=$(sh -n ${OPTION_BINARY_FILE} ; echo $?)
+echo x >> ${OPENBSD_CONTENTS}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${OPTION_BINARY_FILE}", "${OPENBSD_CONTENTS}"]
+        );
+    }
+
+    #[test]
+    fn reports_literal_bindings_after_extra_arg_exit_like_function_calls() {
+        let source = "\
+#!/bin/sh
+OPTION_BINARY_FILE=\"../lynis\"
+Exit() { exit 0 1; }
+Exit
+OPENBSD_CONTENTS=\"openbsd/+CONTENTS\"
+FIND=$(sh -n ${OPTION_BINARY_FILE} ; echo $?)
+echo x >> ${OPENBSD_CONTENTS}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${OPTION_BINARY_FILE}", "${OPENBSD_CONTENTS}"]
+        );
+    }
+
+    #[test]
+    fn ignores_pre_definition_exit_like_calls_before_function_definitions() {
+        let source = "\
+#!/bin/sh
+SAFE=foo
+Exit
+Exit() { exit 0; }
+echo /tmp/$SAFE
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_returning_helpers_with_unreachable_trailing_exit() {
+        let source = "\
+#!/bin/sh
+SAFE=foo
+Exit() { return 0; exit 1; }
+Exit
+echo /tmp/$SAFE
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_safe_bindings_after_conditionally_returning_exit_like_helpers() {
+        let source = "\
+#!/bin/sh
+SAFE=foo
+Exit() { if [ \"$SKIP\" ]; then return 0; fi; exit 1; }
+Exit
+echo /tmp/$SAFE
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_safe_bindings_after_all_branch_returning_helpers() {
+        let source = "\
+#!/bin/sh
+SAFE=foo
+Exit() {
+  if [ \"$SKIP\" ]; then
+    return 0
+  else
+    return 1
+  fi
+  exit 0
+}
+Exit
+echo /tmp/$SAFE
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_literal_bindings_after_conditionally_exiting_exit_like_helpers() {
+        let source = "\
+#!/bin/sh
+OPTION_BINARY_FILE=\"../lynis\"
+Exit() { if [ \"$SKIP\" ]; then exit 1; fi; exit 0; }
+Exit
+OPENBSD_CONTENTS=\"openbsd/+CONTENTS\"
+FIND=$(sh -n ${OPTION_BINARY_FILE} ; echo $?)
+echo x >> ${OPENBSD_CONTENTS}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${OPTION_BINARY_FILE}", "${OPENBSD_CONTENTS}"]
+        );
+    }
+
+    #[test]
+    fn ignores_safe_bindings_after_conditional_exit_like_helper_calls() {
+        let source = "\
+#!/bin/sh
+LIBDIRSUFFIX=64
+warn_accounts() { exit 1; }
+if false; then
+  warn_accounts
+fi
+echo /usr/lib${LIBDIRSUFFIX}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_literal_bindings_after_redirected_exit_like_function_calls() {
+        let source = "\
+#!/bin/sh
+OPTION_BINARY_FILE=\"../lynis\"
+Exit() { exit 0; }
+Exit >/dev/null
+OPENBSD_CONTENTS=\"openbsd/+CONTENTS\"
+FIND=$(sh -n ${OPTION_BINARY_FILE} ; echo $?)
+echo x >> ${OPENBSD_CONTENTS}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${OPTION_BINARY_FILE}", "${OPENBSD_CONTENTS}"]
+        );
+    }
+
+    #[test]
+    fn ignores_safe_bindings_after_background_exit_like_helper_calls() {
+        let source = "\
+#!/bin/sh
+SAFE=foo
+Exit() { exit 0; }
+Exit &
+echo /tmp/$SAFE
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_safe_bindings_after_backgrounded_brace_group_exit_like_calls() {
+        let source = "\
+#!/bin/sh
+SAFE=foo
+Exit() { exit 0; }
+{ Exit; } &
+echo /tmp/$SAFE
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_safe_bindings_after_shadowed_exit_like_helper_names() {
+        let source = "\
+#!/bin/sh
+Exit() { exit 0; }
+Exit() { :; }
+SAFE=foo
+Exit
+echo /tmp/$SAFE
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_safe_bindings_after_conditionally_defined_exit_like_helpers() {
+        let source = "\
+#!/bin/sh
+SAFE=foo
+if false; then
+  Exit() { exit 0; }
+fi
+Exit
+echo /tmp/$SAFE
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_safe_bindings_after_backgrounded_exit_like_helper_definitions() {
+        let source = "\
+#!/bin/sh
+SAFE=foo
+Exit() { exit 0; } &
+Exit
+echo /tmp/$SAFE
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn collapses_multiline_backtick_spans_to_shellcheck_columns() {
+        let source = "\
+#!/bin/sh
+mkdir_umask=`expr $umask + 22 \\
+  - $umask % 100 % 40 + $umask % 20 \\
+  - $umask % 10 % 4 + $umask % 2
+`
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| {
+                    (
+                        diagnostic.span.start.line,
+                        diagnostic.span.start.column,
+                        diagnostic.span.end.line,
+                        diagnostic.span.end.column,
+                    )
+                })
+                .collect::<Vec<_>>(),
+            vec![
+                (2, 19, 2, 25),
+                (2, 35, 2, 41),
+                (2, 55, 2, 61),
+                (2, 71, 2, 77),
+                (2, 89, 2, 95),
+            ]
+        );
+    }
+
+    #[test]
+    fn collapses_tab_indented_multiline_backtick_spans_to_shellcheck_columns() {
+        let source = "\
+#!/bin/sh
+\t    mkdir_umask=`expr $umask + 22 \\
+\t      - $umask % 100 % 40 + $umask % 20 \\
+\t      - $umask % 10 % 4 + $umask % 2
+\t    `
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| {
+                    (
+                        diagnostic.span.start.line,
+                        diagnostic.span.start.column,
+                        diagnostic.span.end.line,
+                        diagnostic.span.end.column,
+                    )
+                })
+                .collect::<Vec<_>>(),
+            vec![
+                (2, 24, 2, 30),
+                (2, 50, 2, 56),
+                (2, 70, 2, 76),
+                (2, 98, 2, 104),
+                (2, 116, 2, 122),
+            ]
+        );
+    }
+
+    #[test]
+    fn collapses_crlf_multiline_backtick_spans_to_shellcheck_columns() {
+        let source = "#!/bin/sh\r\nmkdir_umask=`expr $umask + 22 \\\r\n  - $umask % 100 % 40 + $umask % 20 \\\r\n  - $umask % 10 % 4 + $umask % 2\r\n`\r\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| {
+                    (
+                        diagnostic.span.start.line,
+                        diagnostic.span.start.column,
+                        diagnostic.span.end.line,
+                        diagnostic.span.end.column,
+                    )
+                })
+                .collect::<Vec<_>>(),
+            vec![
+                (2, 19, 2, 25),
+                (2, 35, 2, 41),
+                (2, 55, 2, 61),
+                (2, 71, 2, 77),
+                (2, 89, 2, 95),
+            ]
+        );
+    }
+
+    #[test]
+    fn reports_unquoted_expansions_after_brace_group_wrapped_exit_like_calls() {
+        let source = "\
+#!/bin/sh
+SAFE=foo
+Exit() { exit 0; }
+{ Exit; }
+echo /tmp/$SAFE
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$SAFE"]
+        );
+    }
+
+    #[test]
+    fn ignores_exit_like_helper_calls_in_uncalled_function_bodies() {
+        let source = "\
+#!/bin/sh
+SAFE=foo
+Exit() { exit 0; }
+wrapper() {
+  Exit
+}
+echo /tmp/$SAFE
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_unquoted_expansions_after_exit_like_calls_inside_same_function_body() {
+        let source = "\
+#!/bin/sh
+SAFE=foo
+Exit() { exit 0; }
+wrapper() {
+  Exit
+  echo /tmp/$SAFE
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$SAFE"]
+        );
+    }
+
+    #[test]
+    fn reports_unquoted_expansions_after_deferred_exit_like_calls_resolved_by_later_helpers() {
+        let source = "\
+#!/bin/sh
+SAFE=foo
+wrapper() {
+  Exit
+  echo /tmp/$SAFE
+}
+Exit() { exit 0; }
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$SAFE"]
+        );
+    }
+
+    #[test]
     fn ignores_expansions_inside_quoted_fragments_of_mixed_words() {
         let source = "\
 #!/bin/bash

@@ -256,28 +256,35 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
     }
 
     pub fn diagnostic_part_span(self, part: &WordPart, part_span: Span, source: &str) -> Span {
-        let WordPart::Variable(name) = part else {
-            return part_span;
+        let adjusted = match part {
+            WordPart::Variable(name) => {
+                let expected = format!("${}", name.as_str());
+                if part_span.slice(source) == expected {
+                    part_span
+                } else {
+                    let search_start = part_span.start.offset.saturating_sub(1);
+                    let search_end = (part_span.end.offset + 1).min(source.len());
+                    source
+                        .get(search_start..search_end)
+                        .and_then(|window| window.find(&expected))
+                        .map_or(part_span, |relative_start| {
+                            let start_offset = search_start + relative_start;
+                            let end_offset = start_offset + expected.len();
+                            let start = Position::new().advanced_by(&source[..start_offset]);
+                            let end = Position::new().advanced_by(&source[..end_offset]);
+                            Span::from_positions(start, end)
+                        })
+                }
+            }
+            WordPart::Parameter(_) | WordPart::ParameterExpansion { .. } => part_span,
+            _ => return part_span,
         };
 
-        let expected = format!("${}", name.as_str());
-        if part_span.slice(source) == expected {
-            return part_span;
-        }
-
-        let search_start = part_span.start.offset.saturating_sub(1);
-        let search_end = (part_span.end.offset + 1).min(source.len());
-        let Some(window) = source.get(search_start..search_end) else {
-            return part_span;
-        };
-        let Some(relative_start) = window.find(&expected) else {
-            return part_span;
-        };
-        let start_offset = search_start + relative_start;
-        let end_offset = start_offset + expected.len();
-        let start = Position::new().advanced_by(&source[..start_offset]);
-        let end = Position::new().advanced_by(&source[..end_offset]);
-        Span::from_positions(start, end)
+        span::shellcheck_collapsed_backtick_part_span(
+            adjusted,
+            source,
+            self.facts.backtick_substitution_spans(),
+        )
     }
 
     pub fn has_direct_all_elements_array_expansion_in_source(self, source: &str) -> bool {

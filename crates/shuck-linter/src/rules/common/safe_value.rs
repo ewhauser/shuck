@@ -1,7 +1,8 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
-    BourneParameterExpansion, Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp,
-    RedirectKind, SourceText, Span, VarRef, Word, WordPart, WordPartNode,
+    BourneParameterExpansion, BuiltinCommand, Command, CompoundCommand, FunctionDef, Name,
+    ParameterExpansion, ParameterExpansionSyntax, ParameterOp, RedirectKind, SourceText, Span,
+    Stmt, StmtSeq, StmtTerminator, VarRef, Word, WordPart, WordPartNode,
 };
 use shuck_semantic::{
     AssignmentValueOrigin, BindingAttributes, BindingKind, BindingOrigin, LoopValueOrigin, ScopeId,
@@ -222,7 +223,12 @@ impl<'a> SafeValueIndex<'a> {
             return true;
         }
 
-        let bindings = self.safe_bindings_for_name(name, at);
+        let mut bindings = self.safe_bindings_for_name(name, at);
+        if matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget) {
+            bindings.retain(|binding_id| {
+                !self.binding_is_blocked_by_exit_like_function_call(*binding_id, at)
+            });
+        }
         if bindings.is_empty() {
             return safe_numeric_shell_variable(name);
         }
@@ -338,6 +344,151 @@ impl<'a> SafeValueIndex<'a> {
                     .body_name_word()
                     .is_some_and(crate::word_is_standalone_variable_like)
         })
+    }
+
+    fn binding_is_blocked_by_exit_like_function_call(
+        &self,
+        binding_id: BindingId,
+        at: Span,
+    ) -> bool {
+        let binding = self.semantic.binding(binding_id);
+        self.facts.function_headers().iter().any(|header| {
+            let Some(function_definition_command) =
+                self.function_definition_command(header.function())
+            else {
+                return false;
+            };
+            function_has_terminal_exit(header.function())
+                && header
+                    .call_arity()
+                    .zero_arg_call_spans()
+                    .iter()
+                    .filter_map(|call_span| self.command_for_name_word_span(*call_span))
+                    .any(|command| {
+                        !command.is_nested_word_command()
+                            && command.body_args().is_empty()
+                            && self.command_runs_in_unconditional_flow(command.id(), at)
+                            && {
+                                let call_span = command.span_in_source(self.source);
+                                self.definition_command_resolves_at_call(
+                                    function_definition_command.id(),
+                                    call_span,
+                                ) && call_span.end.offset <= at.start.offset
+                                    && (call_span.start.offset >= binding.span.end.offset
+                                        || call_span.end.offset <= binding.span.start.offset)
+                            }
+                    })
+        })
+    }
+
+    fn function_definition_command(
+        &self,
+        function: &FunctionDef,
+    ) -> Option<&crate::facts::CommandFact<'a>> {
+        self.facts.commands().iter().find(|command| {
+            matches!(
+                command.command(),
+                Command::Function(candidate) if candidate.span == function.span
+            )
+        })
+    }
+
+    fn definition_command_is_visible_at_call(
+        &self,
+        command_id: crate::facts::CommandId,
+        call_span: Span,
+    ) -> bool {
+        let command = self.facts.command(command_id);
+        let command_scope = self.enclosing_function_scope_at(command.span().start.offset);
+        let call_scope = self.enclosing_function_scope_at(call_span.start.offset);
+        if command_scope.is_some() && command_scope != call_scope {
+            return false;
+        }
+        if self.command_is_in_background_context(command_id) {
+            return false;
+        }
+
+        let mut parent_id = self.facts.command_parent_id(command_id);
+        while let Some(id) = parent_id {
+            if self.facts.command_is_dominance_barrier(id) {
+                return false;
+            }
+            parent_id = self.facts.command_parent_id(id);
+        }
+        true
+    }
+
+    fn definition_command_resolves_at_call(
+        &self,
+        command_id: crate::facts::CommandId,
+        call_span: Span,
+    ) -> bool {
+        if !self.definition_command_is_visible_at_call(command_id, call_span) {
+            return false;
+        }
+
+        let command = self.facts.command(command_id);
+        let definition_scope = self.enclosing_function_scope_at(command.span().start.offset);
+        let call_scope = self.enclosing_function_scope_at(call_span.start.offset);
+
+        if definition_scope.is_none() && call_scope.is_some() {
+            return true;
+        }
+
+        command.span_in_source(self.source).end.offset <= call_span.start.offset
+    }
+
+    fn command_for_name_word_span(&self, span: Span) -> Option<&crate::facts::CommandFact<'a>> {
+        self.facts.commands().iter().find(|command| {
+            command
+                .body_name_word()
+                .is_some_and(|name_word| name_word.span == span)
+        })
+    }
+
+    fn command_runs_in_unconditional_flow(
+        &self,
+        command_id: crate::facts::CommandId,
+        reference_at: Span,
+    ) -> bool {
+        let command = self.facts.command(command_id);
+        if self.enclosing_function_scope_at(command.span().start.offset)
+            != self.enclosing_function_scope_at(reference_at.start.offset)
+        {
+            return false;
+        }
+        if self.command_is_in_background_context(command_id) {
+            return false;
+        }
+
+        let mut parent_id = self.facts.command_parent_id(command_id);
+        while let Some(id) = parent_id {
+            if self.facts.command_is_dominance_barrier(id) {
+                return false;
+            }
+            parent_id = self.facts.command_parent_id(id);
+        }
+        true
+    }
+
+    fn command_is_in_background_context(&self, command_id: crate::facts::CommandId) -> bool {
+        let mut current = Some(command_id);
+        while let Some(id) = current {
+            if matches!(
+                self.facts.command(id).stmt().terminator,
+                Some(StmtTerminator::Background(_))
+            ) {
+                return true;
+            }
+            current = self.facts.command_parent_id(id);
+        }
+        false
+    }
+
+    fn enclosing_function_scope_at(&self, offset: usize) -> Option<ScopeId> {
+        self.semantic
+            .ancestor_scopes(self.semantic.scope_at(offset))
+            .find(|scope| matches!(self.semantic.scope(*scope).kind, ScopeKind::Function(_)))
     }
 
     fn binding_is_quoted_static_literal(&self, binding_id: BindingId) -> bool {
@@ -1121,9 +1272,170 @@ fn special_parameter_slice_reference(reference: &VarRef) -> bool {
     matches!(reference.name.as_str(), "@" | "*")
 }
 
+fn function_has_terminal_exit(function: &FunctionDef) -> bool {
+    matches!(
+        stmt_terminal_flow_kind(&function.body),
+        TerminalFlowKind::Exit
+    )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TerminalFlowKind {
+    None,
+    MaybeExit,
+    MaybeStop,
+    Exit,
+    Stop,
+}
+
+fn stmt_seq_terminal_flow_kind(commands: &StmtSeq) -> TerminalFlowKind {
+    let mut saw_maybe_exit = false;
+    let mut saw_maybe_stop = false;
+
+    for stmt in commands.as_slice() {
+        match stmt_terminal_flow_kind(stmt) {
+            TerminalFlowKind::None => {}
+            TerminalFlowKind::MaybeExit => saw_maybe_exit = true,
+            TerminalFlowKind::MaybeStop => saw_maybe_stop = true,
+            TerminalFlowKind::Exit => {
+                return if saw_maybe_stop {
+                    TerminalFlowKind::Stop
+                } else {
+                    TerminalFlowKind::Exit
+                };
+            }
+            TerminalFlowKind::Stop => return TerminalFlowKind::Stop,
+        }
+    }
+
+    if saw_maybe_stop {
+        TerminalFlowKind::MaybeStop
+    } else if saw_maybe_exit {
+        TerminalFlowKind::MaybeExit
+    } else {
+        TerminalFlowKind::None
+    }
+}
+
+fn stmt_terminal_flow_kind(stmt: &Stmt) -> TerminalFlowKind {
+    if matches!(stmt.terminator, Some(StmtTerminator::Background(_))) {
+        return TerminalFlowKind::None;
+    }
+
+    command_terminal_flow_kind(&stmt.command)
+}
+
+fn command_terminal_flow_kind(command: &Command) -> TerminalFlowKind {
+    match command {
+        Command::Builtin(BuiltinCommand::Exit(_)) => TerminalFlowKind::Exit,
+        Command::Builtin(BuiltinCommand::Return(_)) => TerminalFlowKind::Stop,
+        Command::Compound(CompoundCommand::If(command)) => alternative_terminal_flow_kind(
+            std::iter::once(stmt_seq_terminal_flow_kind(&command.then_branch))
+                .chain(
+                    command
+                        .elif_branches
+                        .iter()
+                        .map(|(_, body)| stmt_seq_terminal_flow_kind(body)),
+                )
+                .chain(command.else_branch.iter().map(stmt_seq_terminal_flow_kind)),
+            command.else_branch.is_none(),
+        ),
+        Command::Compound(CompoundCommand::For(command)) => {
+            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
+        }
+        Command::Compound(CompoundCommand::Repeat(command)) => {
+            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
+        }
+        Command::Compound(CompoundCommand::Foreach(command)) => {
+            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
+        }
+        Command::Compound(CompoundCommand::ArithmeticFor(command)) => {
+            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
+        }
+        Command::Compound(CompoundCommand::While(command)) => {
+            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
+        }
+        Command::Compound(CompoundCommand::Until(command)) => {
+            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
+        }
+        Command::Compound(CompoundCommand::Select(command)) => {
+            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
+        }
+        Command::Compound(CompoundCommand::Case(command)) => alternative_terminal_flow_kind(
+            command
+                .cases
+                .iter()
+                .map(|case| stmt_seq_terminal_flow_kind(&case.body)),
+            true,
+        ),
+        Command::Compound(CompoundCommand::BraceGroup(body)) => stmt_seq_terminal_flow_kind(body),
+        Command::Compound(CompoundCommand::Time(command)) => command
+            .command
+            .as_deref()
+            .map_or(TerminalFlowKind::None, stmt_terminal_flow_kind),
+        Command::Simple(_)
+        | Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Binary(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => TerminalFlowKind::None,
+    }
+}
+
+fn maybe_stop_terminal_flow_kind(flow: TerminalFlowKind) -> TerminalFlowKind {
+    match flow {
+        TerminalFlowKind::None => TerminalFlowKind::None,
+        TerminalFlowKind::MaybeExit | TerminalFlowKind::Exit => TerminalFlowKind::MaybeExit,
+        TerminalFlowKind::MaybeStop | TerminalFlowKind::Stop => TerminalFlowKind::MaybeStop,
+    }
+}
+
+fn alternative_terminal_flow_kind(
+    branches: impl IntoIterator<Item = TerminalFlowKind>,
+    can_skip_all: bool,
+) -> TerminalFlowKind {
+    let mut saw_none = can_skip_all;
+    let mut saw_maybe_exit = false;
+    let mut saw_maybe_stop = false;
+    let mut saw_exit = false;
+    let mut saw_stop = false;
+
+    for flow in branches {
+        match flow {
+            TerminalFlowKind::None => saw_none = true,
+            TerminalFlowKind::MaybeExit => saw_maybe_exit = true,
+            TerminalFlowKind::MaybeStop => saw_maybe_stop = true,
+            TerminalFlowKind::Exit => saw_exit = true,
+            TerminalFlowKind::Stop => saw_stop = true,
+        }
+    }
+
+    if saw_maybe_stop || ((saw_none || saw_maybe_exit) && saw_stop) {
+        return TerminalFlowKind::MaybeStop;
+    }
+    if saw_maybe_exit || (saw_none && saw_exit) {
+        return TerminalFlowKind::MaybeExit;
+    }
+    if saw_exit && !saw_stop {
+        return TerminalFlowKind::Exit;
+    }
+    if saw_exit || saw_stop {
+        return TerminalFlowKind::Stop;
+    }
+
+    TerminalFlowKind::None
+}
+
+fn span_strictly_contains(outer: Span, inner: Span) -> bool {
+    outer.start.offset <= inner.start.offset
+        && outer.end.offset >= inner.end.offset
+        && outer != inner
+}
+
 #[cfg(test)]
 mod tests {
-    use shuck_ast::{Command, Name};
+    use shuck_ast::{Command, Name, RedirectKind};
     use shuck_indexer::Indexer;
     use shuck_parser::parser::Parser;
     use shuck_semantic::{
@@ -1131,7 +1443,7 @@ mod tests {
         SemanticBuildOptions, SemanticModel,
     };
 
-    use super::{SafeValueIndex, SafeValueQuery};
+    use super::{SafeValueIndex, SafeValueQuery, function_has_terminal_exit};
     use crate::LinterFacts;
     use crate::rules::common::expansion::ExpansionContext;
     use crate::{ShellDialect, classify_file_context};
@@ -2587,6 +2899,35 @@ printf '%s\\n' ${debug:+\"a b\"}
     }
 
     #[test]
+    fn backgrounded_exit_like_definitions_do_not_block_safe_bindings() {
+        let source = "\
+#!/bin/sh
+SAFE=foo
+Exit() { exit 0; } &
+Exit
+echo /tmp/$SAFE
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "/tmp/$SAFE"
+            })
+            .expect("expected mixed path command argument");
+
+        assert!(safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
+    }
+
+    #[test]
     fn exhaustive_safe_bindings_override_conservative_maybe_uninitialized_refs() {
         let source = "\
 #!/bin/bash
@@ -2638,5 +2979,370 @@ fi
             .insert(crate::FactSpan::new(part_span));
 
         assert!(safe_values.part_is_safe(part, part_span, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn exit_like_function_calls_invalidate_prior_and_later_safe_bindings() {
+        let source = "\
+#!/bin/sh
+OPTION_BINARY_FILE=\"../lynis\"
+Exit() { exit 0; }
+Exit
+OPENBSD_CONTENTS=\"openbsd/+CONTENTS\"
+FIND=$(sh -n ${OPTION_BINARY_FILE} ; echo $?)
+echo x >> ${OPENBSD_CONTENTS}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+        let exit_header = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(name, _)| name.as_str() == "Exit")
+            })
+            .expect("expected Exit function header");
+
+        let nested_argument = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.is_nested_word_command()
+                    && fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "${OPTION_BINARY_FILE}"
+            })
+            .expect("expected nested command argument fact");
+        let redirect_target = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context()
+                    == Some(ExpansionContext::RedirectTarget(RedirectKind::Append))
+                    && fact.span().slice(source) == "${OPENBSD_CONTENTS}"
+            })
+            .expect("expected redirect target fact");
+
+        assert!(function_has_terminal_exit(exit_header.function()));
+        assert_eq!(exit_header.call_arity().zero_arg_call_spans().len(), 1);
+
+        assert!(!safe_values.word_occurrence_is_safe(nested_argument, SafeValueQuery::Argv));
+        assert!(
+            !safe_values.word_occurrence_is_safe(redirect_target, SafeValueQuery::RedirectTarget)
+        );
+    }
+
+    #[test]
+    fn subshell_exit_does_not_make_function_terminal() {
+        let source = "\
+#!/bin/sh
+helper() (
+  exit 1
+)
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let helper_header = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(name, _)| name.as_str() == "helper")
+            })
+            .expect("expected helper function header");
+
+        assert!(!function_has_terminal_exit(helper_header.function()));
+    }
+
+    #[test]
+    fn early_unconditional_exit_makes_function_terminal() {
+        let source = "\
+#!/bin/sh
+helper() {
+  exit 1
+  :
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let helper_header = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(name, _)| name.as_str() == "helper")
+            })
+            .expect("expected helper function header");
+
+        assert!(function_has_terminal_exit(helper_header.function()));
+    }
+
+    #[test]
+    fn assigned_exit_makes_function_terminal() {
+        let source = "\
+#!/bin/sh
+helper() {
+  FOO=1 exit 1
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let helper_header = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(name, _)| name.as_str() == "helper")
+            })
+            .expect("expected helper function header");
+
+        assert!(function_has_terminal_exit(helper_header.function()));
+    }
+
+    #[test]
+    fn negated_exit_makes_function_terminal() {
+        let source = "\
+#!/bin/sh
+helper() {
+  ! exit 1
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let helper_header = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(name, _)| name.as_str() == "helper")
+            })
+            .expect("expected helper function header");
+
+        assert!(function_has_terminal_exit(helper_header.function()));
+    }
+
+    #[test]
+    fn extra_arg_exit_makes_function_terminal() {
+        let source = "\
+#!/bin/sh
+helper() {
+  exit 1 2
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let helper_header = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(name, _)| name.as_str() == "helper")
+            })
+            .expect("expected helper function header");
+
+        assert!(function_has_terminal_exit(helper_header.function()));
+    }
+
+    #[test]
+    fn all_if_branches_exiting_make_function_terminal() {
+        let source = "\
+#!/bin/sh
+helper() {
+  if [ \"$SKIP\" ]; then
+    exit 0
+  else
+    exit 1
+  fi
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let helper_header = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(name, _)| name.as_str() == "helper")
+            })
+            .expect("expected helper function header");
+
+        assert!(function_has_terminal_exit(helper_header.function()));
+    }
+
+    #[test]
+    fn conditional_return_before_exit_does_not_make_function_terminal() {
+        let source = "\
+#!/bin/sh
+helper() {
+  if [ \"$SKIP\" ]; then
+    return 0
+  fi
+  exit 1
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let helper_header = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(name, _)| name.as_str() == "helper")
+            })
+            .expect("expected helper function header");
+
+        assert!(!function_has_terminal_exit(helper_header.function()));
+    }
+
+    #[test]
+    fn conditional_exit_before_exit_makes_function_terminal() {
+        let source = "\
+#!/bin/sh
+helper() {
+  if [ \"$SKIP\" ]; then
+    exit 1
+  fi
+  exit 0
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let helper_header = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(name, _)| name.as_str() == "helper")
+            })
+            .expect("expected helper function header");
+
+        assert!(function_has_terminal_exit(helper_header.function()));
+    }
+
+    #[test]
+    fn return_before_exit_does_not_make_function_terminal() {
+        let source = "\
+#!/bin/sh
+helper() {
+  return 0
+  exit 1
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let helper_header = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(name, _)| name.as_str() == "helper")
+            })
+            .expect("expected helper function header");
+
+        assert!(!function_has_terminal_exit(helper_header.function()));
+    }
+
+    #[test]
+    fn all_if_branches_returning_do_not_make_function_terminal() {
+        let source = "\
+#!/bin/sh
+helper() {
+  if [ \"$SKIP\" ]; then
+    return 0
+  else
+    return 1
+  fi
+  exit 0
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let helper_header = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(name, _)| name.as_str() == "helper")
+            })
+            .expect("expected helper function header");
+
+        assert!(!function_has_terminal_exit(helper_header.function()));
+    }
+
+    #[test]
+    fn later_top_level_exit_helpers_block_same_function_bindings() {
+        let source = "\
+#!/bin/sh
+SAFE=foo
+wrapper() {
+  Exit
+  echo /tmp/$SAFE
+}
+Exit() { exit 0; }
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+        let target = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact
+                        .parts_with_spans()
+                        .any(|(_, span)| span.slice(source) == "$SAFE")
+            })
+            .expect("expected same-function argument fact");
+
+        assert!(!safe_values.word_occurrence_is_safe(target, SafeValueQuery::Argv));
     }
 }
