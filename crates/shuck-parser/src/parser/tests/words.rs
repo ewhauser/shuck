@@ -2255,6 +2255,20 @@ fn test_brace_syntax_keeps_ansi_c_escaped_quotes_inside_single_quoted_regions() 
 }
 
 #[test]
+fn test_brace_syntax_does_not_merge_dots_across_skipped_expansion_parts() {
+    let input = "{1.$x.3}";
+    let word = Parser::parse_word_string(input);
+
+    assert_eq!(brace_slices(&word, input), vec!["{1.$x.3}"]);
+    assert!(
+        word.brace_syntax()
+            .iter()
+            .all(|brace| brace.treated_literally())
+    );
+    assert!(!word.has_active_brace_expansion());
+}
+
+#[test]
 fn test_dollar_quoted_words_preserve_quote_variants() {
     let input = "printf $'line\\n' $\"prefix $HOME\"\n";
     let script = Parser::new(input).parse().unwrap().file;

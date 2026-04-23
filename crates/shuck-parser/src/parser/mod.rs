@@ -2343,7 +2343,9 @@ impl<'a> Parser<'a> {
                 | WordPart::IndirectExpansion { .. }
                 | WordPart::PrefixMatch { .. }
                 | WordPart::ProcessSubstitution { .. }
-                | WordPart::Transformation { .. } => {}
+                | WordPart::Transformation { .. } => {
+                    Self::push_brace_scan_boundary(part.span.start, out);
+                }
             }
         }
     }
@@ -2393,7 +2395,9 @@ impl<'a> Parser<'a> {
                 | WordPart::IndirectExpansion { .. }
                 | WordPart::PrefixMatch { .. }
                 | WordPart::ProcessSubstitution { .. }
-                | WordPart::Transformation { .. } => {}
+                | WordPart::Transformation { .. } => {
+                    Self::push_brace_scan_boundary(part.span.start, out);
+                }
             }
 
             cursor_offset = part.span.end.offset;
@@ -2413,6 +2417,10 @@ impl<'a> Parser<'a> {
             out.push((ch, position));
             position.advance(ch);
         }
+    }
+
+    fn push_brace_scan_boundary(position: Position, out: &mut Vec<(char, Position)>) {
+        out.push(('\0', position));
     }
 
     fn scan_brace_syntax_chars(
