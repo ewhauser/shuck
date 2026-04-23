@@ -2,18 +2,6 @@
 source: crates/shuck-linter/src/rules/portability/mod.rs
 ---
 X065 caret negation in bracket expressions is not portable to POSIX sh
- --> <source>:3:17
-  |
-3 | trimmed=${value#[^a]*}
-  |
-
-X065 caret negation in bracket expressions is not portable to POSIX sh
- --> <source>:4:30
-  |
-4 | pkgopts="${XBPS_CURRENT_PKG//[^A-Za-z0-9_]/_}"
-  |
-
-X065 caret negation in bracket expressions is not portable to POSIX sh
  --> <source>:5:6
   |
 5 | echo [^a]*

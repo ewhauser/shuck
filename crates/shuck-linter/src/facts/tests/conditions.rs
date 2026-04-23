@@ -1800,6 +1800,7 @@ case \"$x\" in @(zip|tar)) : ;; esac
 trimmed=${name%@($suffix|zz)}
 echo [^a]*
 trimmed=${value#[^b]*}
+pkgopts=${value//[^d]/_}
 for item in [^c]*; do :; done
 ";
 
@@ -1821,7 +1822,8 @@ for item in [^c]*; do :; done
             .map(|span| span.slice(source))
             .collect::<Vec<_>>();
         assert!(caret_negations.contains(&"[^a]"));
-        assert!(caret_negations.contains(&"[^b]"));
         assert!(caret_negations.contains(&"[^c]"));
+        assert!(!caret_negations.contains(&"[^b]"));
+        assert!(!caret_negations.contains(&"[^d]"));
     });
 }
