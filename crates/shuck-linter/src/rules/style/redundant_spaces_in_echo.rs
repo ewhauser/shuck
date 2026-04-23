@@ -43,6 +43,19 @@ fn repeated_space_gap(left: shuck_ast::Span, right: shuck_ast::Span, source: &st
         return false;
     }
 
+    // Some spans can collapse a backslash-newline continuation onto one logical
+    // line. S037 only cares about repeated spaces on the same physical line.
+    let context_start = source[..left.end.offset]
+        .char_indices()
+        .next_back()
+        .map_or(left.end.offset, |(idx, _)| idx);
+    let Some(context) = source.get(context_start..right.start.offset) else {
+        return false;
+    };
+    if context.chars().any(|ch| matches!(ch, '\n' | '\r')) {
+        return false;
+    }
+
     let Some(gap) = source.get(left.end.offset..right.start.offset) else {
         return false;
     };
@@ -109,5 +122,71 @@ builtin echo foo    bar
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_backslash_continued_echo_arguments() {
+        let source = "\
+#!/bin/bash
+echo \"pyenv: cannot rehash: couldn't acquire lock\"\\
+  \"$PROTOTYPE_SHIM_PATH for $PYENV_REHASH_TIMEOUT seconds. Last error message:\" >&2
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::RedundantSpacesInEcho),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_backslash_continued_echo_arguments_in_nested_control_flow() {
+        let source = "\
+#!/usr/bin/env bash
+    if [[ -z $tested_for_other_write_errors ]]; then
+      ( t=\"$(TMPDIR=\"$SHIM_PATH\" mktemp)\" && rm \"$t\" ) && tested_for_other_write_errors=1 ||
+        { echo \"pyenv: cannot rehash: $SHIM_PATH isn't writable\" >&2; break; }
+    fi
+    # POSIX sleep(1) doesn't provide subsecond precision, but many others do
+    sleep 0.1 2>/dev/null || sleep 1
+  fi
+done
+
+if [ -z \"${acquired}\" ]; then
+  if [[ -n $tested_for_other_write_errors ]]; then
+      echo \"pyenv: cannot rehash: couldn't acquire lock\"\\
+        \"$PROTOTYPE_SHIM_PATH for $PYENV_REHASH_TIMEOUT seconds. Last error message:\" >&2
+      echo \"$last_acquire_error\" >&2
+  fi
+  exit 1
+fi
+unset tested_for_other_write_errors
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::RedundantSpacesInEcho),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_repeated_spaces_after_utf8_argument() {
+        let source = "\
+#!/bin/bash
+echo café    bar
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::RedundantSpacesInEcho),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["echo café    bar"]
+        );
     }
 }
