@@ -501,6 +501,9 @@ if [[ -n $mode ]]; then
     foo) tend $? ;;
   esac
 fi
+$(printf top)
+! $(printf negated)
+$(printf short-circuit) && echo ok
 if $(printf one); then
   :
 fi
@@ -518,11 +521,17 @@ done
     with_facts(source, None, |_, facts| {
         assert_eq!(
             facts
-                .condition_command_substitution_spans()
+                .command_substitution_command_spans()
                 .iter()
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$(printf one)", "$(printf two)"]
+            vec![
+                "$(printf top)",
+                "$(printf negated)",
+                "$(printf short-circuit)",
+                "$(printf one)",
+                "$(printf two)"
+            ]
         );
         assert_eq!(
             facts

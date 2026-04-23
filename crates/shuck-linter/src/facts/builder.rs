@@ -78,7 +78,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let redundant_return_status_spans = Vec::new();
         let mut getopts_cases = Vec::new();
         let mut condition_status_capture_spans = Vec::new();
-        let mut condition_command_substitution_spans = Vec::new();
+        let mut command_substitution_command_spans = Vec::new();
 
         for traversed in iter_commands_with_context(
             &self.file.body,
@@ -114,6 +114,11 @@ impl<'a> LinterFactsBuilder<'a> {
                 &mut binding_target_spans,
             );
             collect_broken_assoc_key_spans(visit.command, self.source, &mut broken_assoc_key_spans);
+            collect_command_substitution_command_span(
+                visit.command,
+                self.source,
+                &mut command_substitution_command_spans,
+            );
             collect_comma_array_assignment_spans(
                 visit.command,
                 self.source,
@@ -290,44 +295,6 @@ impl<'a> LinterFactsBuilder<'a> {
                 }
             }
 
-            match visit.command {
-                Command::Compound(CompoundCommand::If(command)) => {
-                    collect_condition_command_substitution_from_body(
-                        &command.condition,
-                        self.source,
-                        &mut condition_command_substitution_spans,
-                    );
-
-                    for (condition, _) in &command.elif_branches {
-                        collect_condition_command_substitution_from_body(
-                            condition,
-                            self.source,
-                            &mut condition_command_substitution_spans,
-                        );
-                    }
-                }
-                Command::Compound(CompoundCommand::While(command)) => {
-                    collect_condition_command_substitution_from_body(
-                        &command.condition,
-                        self.source,
-                        &mut condition_command_substitution_spans,
-                    );
-                }
-                Command::Compound(CompoundCommand::Until(command)) => {
-                    collect_condition_command_substitution_from_body(
-                        &command.condition,
-                        self.source,
-                        &mut condition_command_substitution_spans,
-                    );
-                }
-                Command::Simple(_)
-                | Command::Builtin(_)
-                | Command::Decl(_)
-                | Command::Binary(_)
-                | Command::Compound(_)
-                | Command::Function(_)
-                | Command::AnonymousFunction(_) => {}
-            }
         }
 
         for binding in self.semantic.bindings() {
@@ -374,7 +341,7 @@ impl<'a> LinterFactsBuilder<'a> {
         condition_status_capture_spans
             .retain(|span| matches!(span.slice(self.source), "$?" | "${?}"));
         sort_and_dedup_spans(&mut condition_status_capture_spans);
-        sort_and_dedup_spans(&mut condition_command_substitution_spans);
+        sort_and_dedup_spans(&mut command_substitution_command_spans);
         sort_and_dedup_case_pattern_expansions(&mut case_pattern_expansions);
         let function_in_alias_spans = build_function_in_alias_spans(&commands, self.source);
         let function_parameter_fallback_spans = build_function_parameter_fallback_spans(
@@ -674,7 +641,7 @@ impl<'a> LinterFactsBuilder<'a> {
             commented_continuation_comment_spans,
             trailing_directive_comment_spans,
             condition_status_capture_spans,
-            condition_command_substitution_spans,
+            command_substitution_command_spans,
             backtick_substitution_spans: word_spans::backtick_substitution_spans(source),
             backtick_command_name_spans,
             dollar_question_after_command_spans,

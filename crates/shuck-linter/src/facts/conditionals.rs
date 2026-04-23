@@ -197,57 +197,16 @@ impl<'a> ConditionalFact<'a> {
     }
 }
 
-fn collect_condition_command_substitution_from_body(
-    condition: &StmtSeq,
-    source: &str,
-    spans: &mut Vec<Span>,
-) {
-    for stmt in condition.iter() {
-        collect_terminal_command_substitution_spans_in_stmt(stmt, source, spans);
-    }
-}
-
-fn collect_terminal_command_substitution_spans_in_stmt(
-    stmt: &Stmt,
-    source: &str,
-    spans: &mut Vec<Span>,
-) {
-    collect_terminal_command_substitution_spans_in_command(&stmt.command, source, spans);
-}
-
-fn collect_terminal_command_substitution_spans_in_command(
+fn collect_command_substitution_command_span(
     command: &Command,
     source: &str,
     spans: &mut Vec<Span>,
 ) {
-    match command {
-        Command::Simple(command) => {
-            if command.args.is_empty()
-                && command_name_is_plain_command_substitution(&command.name, source)
-            {
-                spans.push(command.name.span);
-            }
-        }
-        Command::Binary(command) => {
-            collect_terminal_command_substitution_spans_in_stmt(&command.left, source, spans);
-            collect_terminal_command_substitution_spans_in_stmt(&command.right, source, spans);
-        }
-        Command::Compound(CompoundCommand::Subshell(body))
-        | Command::Compound(CompoundCommand::BraceGroup(body)) => {
-            for stmt in body.iter() {
-                collect_terminal_command_substitution_spans_in_stmt(stmt, source, spans);
-            }
-        }
-        Command::Compound(CompoundCommand::Time(command)) => {
-            if let Some(inner) = &command.command {
-                collect_terminal_command_substitution_spans_in_stmt(inner, source, spans);
-            }
-        }
-        Command::Builtin(_)
-        | Command::Decl(_)
-        | Command::Compound(_)
-        | Command::Function(_)
-        | Command::AnonymousFunction(_) => {}
+    if let Command::Simple(command) = command
+        && command.args.is_empty()
+        && command_name_is_plain_command_substitution(&command.name, source)
+    {
+        spans.push(command.name.span);
     }
 }
 
