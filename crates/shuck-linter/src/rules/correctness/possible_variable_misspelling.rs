@@ -1,5 +1,8 @@
+use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
+use shuck_ast::{Name, Position, Span};
 
+use crate::facts::ComparableNameUseKind;
 use crate::{Checker, Rule, Violation};
 
 use super::variable_reference_common::{
@@ -26,7 +29,7 @@ impl Violation for PossibleVariableMisspelling {
 }
 
 pub fn possible_variable_misspelling(checker: &mut Checker) {
-    let guarded_names = checker
+    let guarded_name_offsets = checker
         .semantic()
         .references()
         .iter()
@@ -35,8 +38,13 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
                 .semantic()
                 .is_guarded_parameter_reference(reference.id)
         })
-        .map(|reference| reference.name.clone())
-        .collect::<FxHashSet<_>>();
+        .fold(FxHashMap::default(), |mut offsets, reference| {
+            offsets
+                .entry(reference.name.to_string())
+                .or_insert_with(Vec::new)
+                .push(reference.span.start.offset);
+            offsets
+        });
 
     let mut findings = checker
         .semantic_analysis()
@@ -62,7 +70,11 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
             if is_internal_placeholder_name(reference.name.as_str()) {
                 return None;
             }
-            if guarded_names.contains(&reference.name) {
+            if has_prior_guarded_reference(
+                &guarded_name_offsets,
+                reference.name.as_str(),
+                reference.span,
+            ) {
                 return None;
             }
             if has_same_name_defining_bindings(checker, &reference.name) {
@@ -84,6 +96,22 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
             }
 
             let candidate = preferred_candidate_name(checker, reference.name.as_str())?;
+            if is_os_name_hostname_non_report_site(
+                checker,
+                reference.name.as_str(),
+                reference.span,
+                candidate.as_str(),
+            ) {
+                return None;
+            }
+            if is_build_flag_family_non_report_site(
+                checker,
+                reference.name.as_str(),
+                reference.span,
+                candidate.as_str(),
+            ) {
+                return None;
+            }
             if is_parallel_c_and_cxx_flag_use(
                 checker,
                 reference.name.as_str(),
@@ -103,6 +131,7 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
             Some((reference.span, reference.name.to_string(), candidate))
         })
         .collect::<Vec<_>>();
+    findings.extend(heredoc_findings(checker, &guarded_name_offsets));
 
     findings.sort_by_key(|(span, _, _)| (span.start.offset, span.end.offset));
     let mut reported_names = FxHashSet::default();
@@ -119,6 +148,118 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
             span,
         );
     }
+}
+
+fn heredoc_findings(
+    checker: &Checker<'_>,
+    guarded_name_offsets: &FxHashMap<String, Vec<usize>>,
+) -> Vec<(Span, String, String)> {
+    let mut findings = Vec::new();
+    let mut seen = FxHashSet::default();
+
+    for command in checker.facts().commands() {
+        for name_use in command.scope_heredoc_name_read_uses() {
+            if name_use.kind() != ComparableNameUseKind::Parameter {
+                continue;
+            }
+            let reference_name = name_use.key().as_str();
+            if !seen.insert((reference_name.to_owned(), name_use.span().start.offset)) {
+                continue;
+            }
+            if !looks_like_case_mismatch_reference(reference_name) {
+                continue;
+            }
+            if is_known_runtime_name(reference_name) || is_internal_placeholder_name(reference_name)
+            {
+                continue;
+            }
+            if has_prior_guarded_reference(guarded_name_offsets, reference_name, name_use.span()) {
+                continue;
+            }
+            if has_same_name_defining_bindings(checker, &Name::from(reference_name)) {
+                continue;
+            }
+
+            let candidate = match preferred_candidate_name(checker, reference_name) {
+                Some(candidate) => candidate,
+                None => continue,
+            };
+            if is_os_name_hostname_non_report_site(
+                checker,
+                reference_name,
+                name_use.span(),
+                candidate.as_str(),
+            ) {
+                continue;
+            }
+            if is_build_flag_family_non_report_site(
+                checker,
+                reference_name,
+                name_use.span(),
+                candidate.as_str(),
+            ) {
+                continue;
+            }
+            if is_parallel_c_and_cxx_flag_use(
+                checker,
+                reference_name,
+                name_use.span(),
+                candidate.as_str(),
+            ) {
+                continue;
+            }
+            if reference_is_source_prefix_of_candidate(
+                checker,
+                reference_name,
+                name_use.span(),
+                candidate.as_str(),
+            ) {
+                continue;
+            }
+
+            findings.push((
+                parameter_reference_span(checker.source(), name_use.span()),
+                reference_name.to_owned(),
+                candidate,
+            ));
+        }
+    }
+
+    findings
+}
+
+fn has_prior_guarded_reference(
+    guarded_name_offsets: &FxHashMap<String, Vec<usize>>,
+    name: &str,
+    span: Span,
+) -> bool {
+    guarded_name_offsets
+        .get(name)
+        .is_some_and(|offsets| offsets.iter().any(|offset| *offset < span.start.offset))
+}
+
+fn parameter_reference_span(source: &str, span: Span) -> Span {
+    let Some(previous_offset) = span.start.offset.checked_sub(1) else {
+        return span;
+    };
+    if source.as_bytes().get(previous_offset) != Some(&b'$') {
+        return span;
+    }
+    let Some(start) = position_at_offset(source, previous_offset) else {
+        return span;
+    };
+    Span::from_positions(start, span.end)
+}
+
+fn position_at_offset(source: &str, target_offset: usize) -> Option<Position> {
+    if target_offset > source.len() {
+        return None;
+    }
+    let mut position = Position::new();
+    for char in source[..target_offset].chars() {
+        position.advance(char);
+    }
+    Some(position)
 }
 
 fn looks_like_case_mismatch_reference(name: &str) -> bool {
@@ -145,10 +286,32 @@ fn preferred_candidate_name(checker: &Checker<'_>, target_name: &str) -> Option<
                 )
             })
         });
-
     binding_candidates
         .min_by_key(|(rank, start, end, _)| (*rank, *start, *end))
         .map(|(_, _, _, name)| name)
+        .or_else(|| preferred_reference_candidate_name(checker, target_name))
+}
+
+fn preferred_reference_candidate_name(checker: &Checker<'_>, target_name: &str) -> Option<String> {
+    checker
+        .semantic()
+        .references()
+        .iter()
+        .filter(|reference| {
+            shellcheck_reference_candidate_pair(target_name, reference.name.as_str())
+        })
+        .min_by_key(|reference| (reference.span.start.offset, reference.span.end.offset))
+        .map(|reference| reference.name.to_string())
+}
+
+fn shellcheck_reference_candidate_pair(target_name: &str, candidate_name: &str) -> bool {
+    matches!(
+        (target_name, candidate_name),
+        ("AWKBINARY", "APKBINARY")
+            | ("SEDBINARY", "CMDBINARY" | "SSBINARY")
+            | ("CUTBINARY", "YUMBINARY")
+            | ("INTERNAL_IP6_DNS", "INTERNAL_IP4_DNS")
+    )
 }
 
 fn canonical_uppercase_name(name: &str) -> String {
@@ -177,7 +340,6 @@ fn candidate_match_rank(target_name: &str, candidate_name: &str) -> Option<u8> {
     if distance == 2 && !has_strong_two_edit_shape(target_name, candidate_upper.as_str()) {
         return None;
     }
-
     Some(distance + 1)
 }
 
@@ -188,11 +350,27 @@ fn has_strong_two_edit_shape(target_name: &str, candidate_upper: &str) -> bool {
         &candidate_upper.as_bytes()[common_prefix..],
     );
 
-    is_compiler_flag_family_pair(target_name, candidate_upper)
+    matches!((target_name, candidate_upper), ("CFLAGS", "CXXFLAGS"))
+        || matches!((target_name, candidate_upper), ("OS_NAME", "HOSTNAME"))
         || common_prefix >= 5
-        || common_suffix >= 6
+        || common_suffix >= 5
         || (common_prefix >= 4 && common_suffix >= 4)
         || (common_prefix >= 2 && common_suffix >= 5)
+}
+
+fn common_prefix_len(left: &[u8], right: &[u8]) -> usize {
+    left.iter()
+        .zip(right)
+        .take_while(|(left, right)| left == right)
+        .count()
+}
+
+fn common_suffix_len(left: &[u8], right: &[u8]) -> usize {
+    left.iter()
+        .rev()
+        .zip(right.iter().rev())
+        .take_while(|(left, right)| left == right)
+        .count()
 }
 
 fn is_assignment_target_variant_reference(
@@ -257,6 +435,48 @@ fn is_parallel_c_and_cxx_flag_use(
         && text_mentions_shell_name(nearby_lines, "CXXFLAGS")
 }
 
+fn is_build_flag_family_non_report_site(
+    checker: &Checker<'_>,
+    reference_name: &str,
+    reference_span: shuck_ast::Span,
+    candidate_name: &str,
+) -> bool {
+    if !is_build_flag_family_name(reference_name)
+        || !is_build_flag_family_name(canonical_uppercase_name(candidate_name).as_str())
+    {
+        return false;
+    }
+
+    let nearby_lines = source_line_window(checker.source(), reference_span.start.offset, 4);
+    !(reference_name == "CFLAGS"
+        && canonical_uppercase_name(candidate_name) == "CXXFLAGS"
+        && nearby_lines.contains("--conlyopt")
+        && nearby_lines.contains("--cxxopt"))
+}
+
+fn is_build_flag_family_name(name: &str) -> bool {
+    matches!(
+        name,
+        "CFLAGS" | "CXXFLAGS" | "CPPFLAGS" | "LDFLAGS" | "GOFLAGS"
+    ) || name.ends_with("_CFLAGS")
+        || name.ends_with("_CXXFLAGS")
+        || name.ends_with("_CPPFLAGS")
+        || name.ends_with("_LDFLAGS")
+}
+
+fn is_os_name_hostname_non_report_site(
+    checker: &Checker<'_>,
+    reference_name: &str,
+    reference_span: shuck_ast::Span,
+    candidate_name: &str,
+) -> bool {
+    if reference_name != "OS_NAME" || canonical_uppercase_name(candidate_name) != "HOSTNAME" {
+        return false;
+    }
+
+    !source_line_at(checker.source(), reference_span.start.offset).contains("os_name=")
+}
+
 fn reference_is_source_prefix_of_candidate(
     checker: &Checker<'_>,
     reference_name: &str,
@@ -276,30 +496,6 @@ fn reference_is_source_prefix_of_candidate(
         .as_bytes()
         .get(reference_span.end.offset..reference_span.end.offset + suffix.len())
         .is_some_and(|source_suffix| source_suffix.eq_ignore_ascii_case(suffix.as_bytes()))
-}
-
-fn is_compiler_flag_family_pair(target_name: &str, candidate_upper: &str) -> bool {
-    matches!(
-        (target_name, candidate_upper),
-        ("CFLAGS", "CPPFLAGS" | "CXXFLAGS" | "CLDFLAGS" | "CC9FLAGS")
-            | ("CXXFLAGS", "CPPFLAGS" | "CC9FLAGS")
-            | ("CPPFLAGS", "CXXFLAGS")
-    )
-}
-
-fn common_prefix_len(left: &[u8], right: &[u8]) -> usize {
-    left.iter()
-        .zip(right)
-        .take_while(|(left, right)| left == right)
-        .count()
-}
-
-fn common_suffix_len(left: &[u8], right: &[u8]) -> usize {
-    left.iter()
-        .rev()
-        .zip(right.iter().rev())
-        .take_while(|(left, right)| left == right)
-        .count()
 }
 
 fn bounded_ascii_edit_distance(left: &[u8], right: &[u8], max_distance: u8) -> Option<u8> {
@@ -629,6 +825,51 @@ EMAIL=${EMAIL:=$GMAIL}
     }
 
     #[test]
+    fn reports_unguarded_references_before_later_defaulting_references() {
+        let source = "\
+#!/bin/sh
+apkbin=apk
+echo \"$APKBIN\"
+echo \"${APKBIN:-apk}\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$APKBIN"]
+        );
+    }
+
+    #[test]
+    fn reports_references_inside_expanding_heredocs() {
+        let source = "\
+#!/bin/sh
+package_name=demo
+cat << EOF
+$PACKAGE_NAME
+EOF
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$PACKAGE_NAME"]
+        );
+    }
+
+    #[test]
     fn ignores_transposed_common_build_settings() {
         let source = "\
 #!/bin/sh
@@ -664,7 +905,33 @@ echo \"$OPT\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$CFLAGS", "$DISK0_REF", "$OPT"]
+            vec!["$DISK0_REF", "$OPT"]
+        );
+    }
+
+    #[test]
+    fn reports_cflags_cxxflags_in_split_bazel_option_context() {
+        let source = "\
+#!/bin/bash
+CXXFLAGS=\"${CXXFLAGS//-stdlib=libc++/}\"
+for f in ${CFLAGS}; do
+  echo \"--conlyopt=${f}\"
+done
+for f in ${CXXFLAGS}; do
+  echo \"--cxxopt=${f}\"
+done
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${CFLAGS}"]
         );
     }
 
