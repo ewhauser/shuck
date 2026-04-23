@@ -1,7 +1,7 @@
-use shuck_ast::{Span, Word};
+use shuck_ast::{Span, Word, static_word_text};
 
 use crate::rules::portability::trap_common::parse_trap_args;
-use crate::{Checker, Rule, ShellDialect, Violation, static_word_text};
+use crate::{Checker, Rule, ShellDialect, Violation};
 
 pub struct TrapSignalNumbers;
 

@@ -5,7 +5,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     ArithmeticExpr, ArithmeticExprNode, BourneParameterExpansion, Command, File, Name,
     ParameterExpansion, ParameterExpansionSyntax, Span, StmtSeq, VarRef, Word, WordPart,
-    WordPartNode,
+    WordPartNode, static_word_text,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -1242,10 +1242,6 @@ fn scope_members_excluding_functions(scopes: &[crate::Scope], root: ScopeId) -> 
         }
     }
     members
-}
-
-fn static_word_text(word: &Word, source: &str) -> Option<String> {
-    word.try_static_text(source).map(|text| text.into_owned())
 }
 
 #[cfg(test)]

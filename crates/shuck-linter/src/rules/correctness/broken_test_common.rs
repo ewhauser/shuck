@@ -1,6 +1,6 @@
-use shuck_ast::Span;
+use shuck_ast::{Span, static_word_text};
 
-use crate::{Checker, static_word_text};
+use crate::Checker;
 
 pub(super) fn malformed_bracket_test_spans(checker: &Checker<'_>) -> Vec<Span> {
     checker

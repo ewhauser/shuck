@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use shuck_ast::{
     Assignment, BuiltinCommand, Command, DeclClause, DeclOperand, Redirect, SimpleCommand, Span,
-    Word,
+    Word, static_word_text,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -552,10 +552,6 @@ fn static_command_name_text<'a>(word: &'a Word, source: &'a str) -> Option<Cow<'
 
 fn command_basename(name: &str) -> &str {
     name.rsplit('/').next().unwrap_or(name)
-}
-
-fn static_word_text<'a>(word: &'a Word, source: &'a str) -> Option<Cow<'a, str>> {
-    super::word::static_word_text(word, source)
 }
 
 #[cfg(test)]

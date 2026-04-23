@@ -88,7 +88,7 @@ fn command_has_separator_before(
         .body_args()
         .iter()
         .take_while(|word| word.span != target_span)
-        .filter_map(|word| crate::rules::common::word::static_word_text(word, source))
+        .filter_map(|word| shuck_ast::static_word_text(word, source))
         .any(|arg| arg == "--")
 }
 

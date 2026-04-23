@@ -536,6 +536,30 @@ fn parser_backed_parameter_fragments_keep_word_asts() {
     );
 }
 
+#[test]
+fn arithmetic_text_helper_requires_nontrivial_expressions() {
+    assert!(text_looks_like_nontrivial_arithmetic_expression("1 + 2"));
+    assert!(text_looks_like_nontrivial_arithmetic_expression("arr[1]"));
+    assert!(text_looks_like_nontrivial_arithmetic_expression("++count"));
+    assert!(!text_looks_like_nontrivial_arithmetic_expression("123"));
+    assert!(!text_looks_like_nontrivial_arithmetic_expression("name"));
+    assert!(!text_looks_like_nontrivial_arithmetic_expression(
+        "latest value"
+    ));
+}
+
+#[test]
+fn arithmetic_text_helper_distinguishes_self_contained_expressions() {
+    assert!(text_is_self_contained_arithmetic_expression("1 + 2"));
+    assert!(text_is_self_contained_arithmetic_expression("(1 + 2)"));
+    assert!(!text_is_self_contained_arithmetic_expression("name"));
+    assert!(!text_is_self_contained_arithmetic_expression("arr[1]"));
+    assert!(!text_is_self_contained_arithmetic_expression("foo + 1"));
+    assert!(!text_is_self_contained_arithmetic_expression(
+        "latest value"
+    ));
+}
+
 mod commands;
 mod heredocs;
 mod redirects;

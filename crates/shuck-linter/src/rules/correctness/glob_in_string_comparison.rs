@@ -1,6 +1,8 @@
+use shuck_ast::word_is_standalone_variable_like;
+
 use crate::{
     Checker, ConditionalNodeFact, Diagnostic, Edit, Fix, FixAvailability, Rule, Violation,
-    WordQuote, conditional_binary_op_is_string_match, word_is_standalone_variable_like,
+    WordQuote, conditional_binary_op_is_string_match,
 };
 
 pub struct GlobInStringComparison;

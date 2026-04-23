@@ -1,4 +1,6 @@
-use crate::{Checker, Rule, Violation, static_word_text};
+use shuck_ast::static_word_text;
+
+use crate::{Checker, Rule, Violation};
 
 pub struct UnquotedTrRange;
 

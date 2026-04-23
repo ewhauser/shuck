@@ -44,7 +44,7 @@ use crate::rules::common::{
     query::{self, CommandSubstitutionKind, CommandVisit, CommandWalkOptions},
     word::{
         TestOperandClass, WordClassification, WordQuote, classify_conditional_operand,
-        classify_contextual_operand, classify_word, static_word_text,
+        classify_contextual_operand, classify_word,
     },
 };
 use crate::suppression::shellcheck_directive_can_apply_to_following_command;
@@ -60,7 +60,8 @@ use shuck_ast::{
     ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Position,
     Redirect, RedirectKind, SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq,
     StmtTerminator, Subscript, TextRange, VarRef, WhileCommand, Word, WordPart, WordPartNode,
-    ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob,
+    ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob, is_shell_variable_name, static_word_text,
+    word_is_standalone_status_capture,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;

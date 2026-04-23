@@ -9,7 +9,7 @@ use shuck_ast::{
     HeredocBodyPartNode, Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern,
     PatternGroupKind, PatternPart, PatternPartNode, Span, Stmt, StmtSeq, Subscript, VarRef, Word,
     WordPart, WordPartNode, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment,
-    try_static_word_parts_text,
+    static_word_text, try_static_word_parts_text,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::{ShellProfile, ZshEmulationMode};
@@ -2508,7 +2508,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             }
 
             if nameref_mode {
-                let name = Name::from(text.as_str());
+                let name = Name::from(text.as_ref());
                 let Some(binding_id) =
                     self.resolve_reference(&name, self.current_scope(), argument.span.start.offset)
                 else {
@@ -2523,7 +2523,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             }
 
             self.cleared_variables.insert(
-                (self.current_scope(), Name::from(text.as_str())),
+                (self.current_scope(), Name::from(text.as_ref())),
                 argument.span.start.offset,
             );
         }
@@ -2535,7 +2535,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         }
 
         if let Some(text) = static_word_text(word, self.source) {
-            return SourceRefKind::Literal(text);
+            return SourceRefKind::Literal(text.into_owned());
         }
 
         classify_dynamic_source_word(word, self.source)
@@ -3391,7 +3391,7 @@ fn simple_command_has_name(command: &shuck_ast::SimpleCommand, source: &str) -> 
 
 fn named_target_word(word: &Word, source: &str) -> Option<(Name, Span)> {
     let text = static_word_text(word, source)?;
-    is_name(&text).then_some((Name::from(text), word.span))
+    is_name(&text).then_some((Name::from(text.as_ref()), word.span))
 }
 
 fn static_command_name_text(word: &Word, source: &str) -> Option<String> {
@@ -3403,10 +3403,6 @@ fn static_command_name_text(word: &Word, source: &str) -> Option<String> {
         &mut result,
     )
     .then_some(result)
-}
-
-fn static_word_text(word: &Word, source: &str) -> Option<String> {
-    word.try_static_text(source).map(|text| text.into_owned())
 }
 
 #[derive(Clone, Copy)]
@@ -3506,7 +3502,7 @@ fn recorded_simple_command_info(
     let static_args = command
         .args
         .iter()
-        .map(|word| static_word_text(word, source))
+        .map(|word| static_word_text(word, source).map(|text| text.into_owned()))
         .collect::<Vec<_>>()
         .into_boxed_slice();
     let source_path_template = static_callee
@@ -3571,7 +3567,7 @@ fn normalize_recorded_zsh_effect_command(words: &[&Word], source: &str) -> Optio
             continue;
         }
 
-        match text.as_str() {
+        match text.as_ref() {
             "noglob" => {
                 index += 1;
                 continue;
@@ -3588,7 +3584,7 @@ fn normalize_recorded_zsh_effect_command(words: &[&Word], source: &str) -> Optio
                 index = skip_recorded_exec_wrapper_options(words, source, index + 1);
                 continue;
             }
-            _ => return Some((text, index)),
+            _ => return Some((text.into_owned(), index)),
         }
     }
 
@@ -3686,7 +3682,7 @@ fn parse_emulate_effects(args: &[&Word], source: &str) -> Vec<RecordedZshCommand
             continue;
         };
 
-        match text.as_str() {
+        match text.as_ref() {
             "--" => {
                 break;
             }
@@ -3770,7 +3766,7 @@ fn parse_set_builtin_option_updates(args: &[&Word], source: &str) -> Vec<Recorde
             continue;
         };
 
-        match text.as_str() {
+        match text.as_ref() {
             "-o" | "+o" => {
                 let enable = text.starts_with('-');
                 if let Some(name) = args

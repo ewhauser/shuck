@@ -1,6 +1,5 @@
-use shuck_ast::Span;
+use shuck_ast::{Span, static_word_text};
 
-use crate::rules::style::syntax::static_word_text;
 use crate::{Checker, CommandFact, PipelineFact, Rule, Violation};
 
 pub struct GrepCountPipeline;

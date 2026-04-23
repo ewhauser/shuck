@@ -1,7 +1,6 @@
-use crate::{
-    Checker, Edit, Fix, FixAvailability, Rule, TestOperandClass, Violation, WordQuote,
-    static_word_text,
-};
+use shuck_ast::static_word_text;
+
+use crate::{Checker, Edit, Fix, FixAvailability, Rule, TestOperandClass, Violation, WordQuote};
 
 pub struct QuotedBashRegex;
 

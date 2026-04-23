@@ -1,10 +1,9 @@
-use shuck_ast::{ConditionalBinaryOp, RedirectKind, Span};
+use shuck_ast::{ConditionalBinaryOp, RedirectKind, Span, static_word_text};
 use shuck_semantic::{BindingAttributes, BindingId};
 
 use crate::{
     Checker, CommandFact, ConditionalBinaryFact, ConditionalNodeFact, ConditionalOperandFact, Edit,
     Fix, FixAvailability, RedirectFact, Rule, SimpleTestSyntax, Violation, WordOccurrenceRef,
-    static_word_text,
 };
 
 pub struct GreaterThanInTest;

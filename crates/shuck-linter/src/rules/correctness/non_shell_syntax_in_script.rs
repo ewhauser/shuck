@@ -1,7 +1,7 @@
-use shuck_ast::{Command, StmtTerminator};
+use shuck_ast::{Command, StmtTerminator, static_word_text};
 
 use crate::context::FileContextTag;
-use crate::{Checker, Rule, Violation, static_word_text};
+use crate::{Checker, Rule, Violation};
 
 pub struct NonShellSyntaxInScript;
 

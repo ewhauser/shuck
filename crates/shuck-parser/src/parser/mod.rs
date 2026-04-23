@@ -184,6 +184,91 @@ impl ParseResult {
     }
 }
 
+/// Returns whether `text` parses as a nontrivial arithmetic expression.
+pub fn text_looks_like_nontrivial_arithmetic_expression(text: &str) -> bool {
+    let text = text.trim();
+    if text.is_empty() {
+        return false;
+    }
+
+    let source = format!("(( {text} ))");
+    let file = Parser::new(&source).parse();
+    if file.is_err() {
+        return false;
+    }
+
+    let Some(statement) = file.file.body.first() else {
+        return false;
+    };
+
+    let AstCommand::Compound(CompoundCommand::Arithmetic(command)) = &statement.command else {
+        return false;
+    };
+
+    command.expr_ast.as_ref().is_some_and(|expr| {
+        !matches!(
+            expr.kind,
+            ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_)
+        )
+    })
+}
+
+/// Returns whether `text` parses as an arithmetic expression without variable
+/// references or assignments.
+pub fn text_is_self_contained_arithmetic_expression(text: &str) -> bool {
+    let text = text.trim();
+    if text.is_empty() {
+        return false;
+    }
+
+    let source = format!("(( {text} ))");
+    let file = Parser::new(&source).parse();
+    if file.is_err() {
+        return false;
+    }
+
+    let Some(statement) = file.file.body.first() else {
+        return false;
+    };
+
+    let AstCommand::Compound(CompoundCommand::Arithmetic(command)) = &statement.command else {
+        return false;
+    };
+
+    command
+        .expr_ast
+        .as_ref()
+        .is_some_and(arithmetic_expr_is_self_contained)
+}
+
+fn arithmetic_expr_is_self_contained(expr: &ArithmeticExprNode) -> bool {
+    match &expr.kind {
+        ArithmeticExpr::Number(_) => true,
+        ArithmeticExpr::Variable(_)
+        | ArithmeticExpr::Indexed { .. }
+        | ArithmeticExpr::ShellWord(_)
+        | ArithmeticExpr::Assignment { .. } => false,
+        ArithmeticExpr::Parenthesized { expression } => {
+            arithmetic_expr_is_self_contained(expression)
+        }
+        ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
+            arithmetic_expr_is_self_contained(expr)
+        }
+        ArithmeticExpr::Binary { left, right, .. } => {
+            arithmetic_expr_is_self_contained(left) && arithmetic_expr_is_self_contained(right)
+        }
+        ArithmeticExpr::Conditional {
+            condition,
+            then_expr,
+            else_expr,
+        } => {
+            arithmetic_expr_is_self_contained(condition)
+                && arithmetic_expr_is_self_contained(then_expr)
+                && arithmetic_expr_is_self_contained(else_expr)
+        }
+    }
+}
+
 #[cfg(feature = "benchmarking")]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[doc(hidden)]

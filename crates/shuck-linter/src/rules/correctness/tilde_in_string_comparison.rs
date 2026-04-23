@@ -1,4 +1,4 @@
-use shuck_ast::{Position, Span};
+use shuck_ast::{Position, Span, static_word_text};
 
 use crate::{
     Checker, ConditionalNodeFact, ConditionalOperatorFamily, ExpansionContext, Rule,
@@ -102,7 +102,7 @@ fn conditional_operand_tilde_span(
             return None;
         }
 
-        return crate::static_word_text(word, source)
+        return static_word_text(word, source)
             .filter(|text| text.starts_with("~/"))
             .and_then(|_| quoted_tilde_span(word.span, source));
     }

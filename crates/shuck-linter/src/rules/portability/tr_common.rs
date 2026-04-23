@@ -1,6 +1,6 @@
-use shuck_ast::Span;
+use shuck_ast::{Span, static_word_text};
 
-use crate::{Checker, ShellDialect, static_word_text};
+use crate::{Checker, ShellDialect};
 
 pub(super) fn tr_exact_operand_spans(checker: &Checker<'_>, exact_text: &str) -> Vec<Span> {
     if !matches!(

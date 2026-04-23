@@ -1,8 +1,9 @@
+use shuck_ast::{ConditionalBinaryOp, static_word_text};
+
 use crate::{
     Checker, ConditionalNodeFact, ConditionalOperatorFamily, Edit, Fix, FixAvailability, Rule,
-    SimpleTestOperatorFamily, SimpleTestShape, Violation, static_word_text,
+    SimpleTestOperatorFamily, SimpleTestShape, Violation,
 };
-use shuck_ast::ConditionalBinaryOp;
 
 pub struct ConstantComparisonTest;
 

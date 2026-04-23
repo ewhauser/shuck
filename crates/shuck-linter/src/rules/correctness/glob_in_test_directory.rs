@@ -1,9 +1,8 @@
-use shuck_ast::{ConditionalUnaryOp, Span, Word};
+use shuck_ast::{ConditionalUnaryOp, Span, Word, static_word_text};
 
 use crate::facts::word_spans;
 use crate::{
-    Checker, ConditionalFact, ConditionalNodeFact, Rule, SimpleTestFact, SimpleTestShape,
-    Violation, static_word_text,
+    Checker, ConditionalFact, ConditionalNodeFact, Rule, SimpleTestFact, SimpleTestShape, Violation,
 };
 
 pub struct GlobInTestDirectory;

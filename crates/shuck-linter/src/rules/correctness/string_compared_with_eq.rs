@@ -1,10 +1,8 @@
-use shuck_ast::{ConditionalBinaryOp, Name, Span};
+use shuck_ast::{ConditionalBinaryOp, Name, Span, is_shell_variable_name, static_word_text};
+use shuck_parser::text_is_self_contained_arithmetic_expression;
 use shuck_semantic::{BindingAttributes, BindingKind};
 
-use crate::{
-    Checker, ConditionalNodeFact, ConditionalOperandFact, Rule, Violation, WordQuote,
-    is_shell_variable_name, static_word_text, text_is_self_contained_arithmetic_expression,
-};
+use crate::{Checker, ConditionalNodeFact, ConditionalOperandFact, Rule, Violation, WordQuote};
 
 pub struct StringComparedWithEq;
 

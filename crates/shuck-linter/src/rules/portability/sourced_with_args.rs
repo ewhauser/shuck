@@ -1,5 +1,7 @@
+use shuck_ast::static_word_text;
+
 use crate::context::FileContextTag;
-use crate::{Checker, Rule, ShellDialect, Violation, static_word_text};
+use crate::{Checker, Rule, ShellDialect, Violation};
 
 pub struct SourcedWithArgs;
 

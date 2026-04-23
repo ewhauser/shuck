@@ -1,7 +1,7 @@
-use shuck_ast::Span;
+use shuck_ast::{Span, static_word_text};
 
 use super::targets_non_zsh_shell;
-use crate::{Checker, Rule, Violation, static_word_text};
+use crate::{Checker, Rule, Violation};
 
 pub struct CshSyntaxInSh;
 

@@ -1,9 +1,9 @@
-use shuck_ast::{Span, Word};
+use shuck_ast::{Span, Word, static_word_text};
 
 use super::trap_common::parse_trap_args;
 use crate::{
     Checker, Fix, FixAvailability, Rule, ShellDialect, Violation,
-    leading_static_word_prefix_fix_in_source, static_word_text,
+    leading_static_word_prefix_fix_in_source,
 };
 
 const SIG_PREFIX_LEN: usize = 3;

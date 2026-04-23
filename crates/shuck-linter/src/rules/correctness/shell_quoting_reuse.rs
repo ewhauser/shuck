@@ -1,13 +1,11 @@
 use rustc_hash::{FxHashMap, FxHashSet};
-use shuck_ast::{Command, DeclOperand, Name, Span, Word};
+use shuck_ast::{Command, DeclOperand, Name, Span, Word, static_word_text};
 use shuck_semantic::{
     Binding, BindingAttributes, BindingId, BindingKind, Reference, ReferenceKind,
 };
 
 use crate::facts::{CommandId, word_spans};
-use crate::{
-    Checker, ExpansionContext, SimpleTestShape, SimpleTestSyntax, WordFactContext, static_word_text,
-};
+use crate::{Checker, ExpansionContext, SimpleTestShape, SimpleTestSyntax, WordFactContext};
 
 pub(crate) struct ShellQuotingReuseAnalysis {
     pub assignment_spans: Vec<Span>,
