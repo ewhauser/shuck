@@ -312,6 +312,10 @@ cat < \"$suffix\" > \"$(basename --suffix=\"$suffix\" \"$name\")\"
 #!/bin/bash
 gzip -9c < \"$src\" > \"$pkg/usr/man/man1/$(basename \"$src\").gz\"
 sort <<< \"$OUT\" > \"$OUT\"
+read input_path < input_path
+while read loop_path; do
+  :
+done < loop_path
 while read iplist; do
   cat <<EOF >> json2
 \"$iplist/32\"
@@ -351,6 +355,10 @@ f() {
                 "\"$src\"",
                 "\"$OUT\"",
                 "\"$OUT\"",
+                "input_path",
+                "input_path",
+                "loop_path",
+                "loop_path",
                 "iplist",
                 "iplist",
                 "iplist",
