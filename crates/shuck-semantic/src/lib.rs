@@ -604,6 +604,14 @@ impl SemanticModel {
             .map(|binding| &self.bindings[binding.index()])
     }
 
+    pub fn reference_is_predefined_runtime_array(&self, id: ReferenceId) -> bool {
+        self.predefined_runtime_refs.contains(&id)
+            && self
+                .references
+                .get(id.index())
+                .is_some_and(|reference| self.runtime.is_preinitialized_array(&reference.name))
+    }
+
     pub fn is_guarded_parameter_reference(&self, id: ReferenceId) -> bool {
         self.guarded_parameter_refs.contains(&id)
     }
@@ -640,6 +648,21 @@ impl SemanticModel {
             && self
                 .ancestor_scopes(self.scope_at(at.start.offset))
                 .any(|scope| scope == binding.scope)
+    }
+
+    #[doc(hidden)]
+    pub fn binding_and_reference_share_command(
+        &self,
+        binding_id: BindingId,
+        reference_id: ReferenceId,
+    ) -> bool {
+        self.command_bindings.iter().any(|(command, bindings)| {
+            bindings.contains(&binding_id)
+                && self
+                    .command_references
+                    .get(command)
+                    .is_some_and(|references| references.contains(&reference_id))
+        })
     }
 
     #[doc(hidden)]
@@ -4856,6 +4879,7 @@ main() {
     fn special_command_targets_store_name_only_spans() {
         let source = "\
 read -r read_target
+read -ra read_array_target
 mapfile mapfile_target
 readarray readarray_target
 printf -v printf_target '%s' value
@@ -4871,6 +4895,22 @@ getopts 'ab' getopts_target
             })
             .unwrap();
         assert_eq!(read_target.span.slice(source), "read_target");
+        assert!(!read_target.attributes.contains(BindingAttributes::ARRAY));
+
+        let read_array_target = model
+            .bindings()
+            .iter()
+            .find(|binding| {
+                binding.name == "read_array_target"
+                    && matches!(binding.kind, BindingKind::ReadTarget)
+            })
+            .unwrap();
+        assert_eq!(read_array_target.span.slice(source), "read_array_target");
+        assert!(
+            read_array_target
+                .attributes
+                .contains(BindingAttributes::ARRAY)
+        );
 
         let mapfile_target = model
             .bindings()
@@ -4881,6 +4921,7 @@ getopts 'ab' getopts_target
             })
             .unwrap();
         assert_eq!(mapfile_target.span.slice(source), "mapfile_target");
+        assert!(mapfile_target.attributes.contains(BindingAttributes::ARRAY));
 
         let readarray_target = model
             .bindings()
@@ -4891,6 +4932,11 @@ getopts 'ab' getopts_target
             })
             .unwrap();
         assert_eq!(readarray_target.span.slice(source), "readarray_target");
+        assert!(
+            readarray_target
+                .attributes
+                .contains(BindingAttributes::ARRAY)
+        );
 
         let printf_target = model
             .bindings()
@@ -5963,6 +6009,28 @@ printf '%s\\n' still_reachable
 
         assert_names_absent(&names, &unresolved);
         assert_names_absent(&names, &uninitialized);
+    }
+
+    #[test]
+    fn bash_runtime_array_references_are_classified() {
+        let source = "#!/bin/bash\nprintf '%s\\n' \"$BASH_SOURCE\" \"$FUNCNAME\" \"$RANDOM\"\n";
+        let model = model(source);
+
+        for name in ["BASH_SOURCE", "FUNCNAME"] {
+            let reference = model
+                .references()
+                .iter()
+                .find(|reference| reference.name == name)
+                .unwrap();
+            assert!(model.reference_is_predefined_runtime_array(reference.id));
+        }
+
+        let random = model
+            .references()
+            .iter()
+            .find(|reference| reference.name == "RANDOM")
+            .unwrap();
+        assert!(!model.reference_is_predefined_runtime_array(random.id));
     }
 
     #[test]

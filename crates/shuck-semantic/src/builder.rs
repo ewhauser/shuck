@@ -2354,6 +2354,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     ) {
         match name.as_str() {
             "read" => {
+                let target_attributes = read_target_attributes(&command.args, self.source);
                 for (argument, span) in iter_read_targets(&command.args, self.source) {
                     self.add_binding(
                         &argument,
@@ -2364,7 +2365,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                             definition_span: span,
                             kind: BuiltinBindingTargetKind::Read,
                         },
-                        BindingAttributes::empty(),
+                        target_attributes,
                     );
                 }
                 for implicit_read in
@@ -2391,7 +2392,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                             definition_span: span,
                             kind: BuiltinBindingTargetKind::Mapfile,
                         },
-                        BindingAttributes::empty(),
+                        BindingAttributes::ARRAY,
                     );
                 }
             }
@@ -3365,6 +3366,51 @@ fn iter_read_targets<'a>(
     args.iter()
         .filter_map(move |word| named_target_word(word, source))
         .filter(|(name, _)| !name.as_str().starts_with('-'))
+}
+
+fn read_target_attributes(args: &[Word], source: &str) -> BindingAttributes {
+    if read_assigns_array(args, source) {
+        BindingAttributes::ARRAY
+    } else {
+        BindingAttributes::empty()
+    }
+}
+
+fn read_assigns_array(args: &[Word], source: &str) -> bool {
+    let mut index = 0;
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            return false;
+        };
+        if text == "--" {
+            return false;
+        }
+        let Some(flags) = text.strip_prefix('-') else {
+            return false;
+        };
+        if flags.is_empty() || flags.starts_with('-') {
+            return false;
+        }
+
+        for (offset, flag) in flags.char_indices() {
+            if flag == 'a' {
+                return true;
+            }
+            if read_flag_takes_value(flag) {
+                if offset + flag.len_utf8() == flags.len() {
+                    index += 1;
+                }
+                break;
+            }
+        }
+        index += 1;
+    }
+
+    false
+}
+
+fn read_flag_takes_value(flag: char) -> bool {
+    matches!(flag, 'd' | 'i' | 'n' | 'N' | 'p' | 't' | 'u')
 }
 
 fn explicit_mapfile_target(args: &[Word], source: &str) -> Option<(Name, Span)> {

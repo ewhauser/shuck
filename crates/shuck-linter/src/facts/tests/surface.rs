@@ -1967,6 +1967,30 @@ docker inspect -f '{{ if ne \"true\" (index .Config.Labels \"com.dokku.devcontai
 }
 
 #[test]
+fn collects_plain_unindexed_reference_spans() {
+    let source = "\
+#!/bin/bash
+printf '%s\\n' $arr \"${arr}\" pre${arr}post \"${arr[0]}\" \"${arr[@]}\" \"${arr%one}\"
+cat <<EOF
+$arr
+${arr}
+${arr[0]}
+EOF
+";
+
+    with_facts(source, None, |_, facts| {
+        assert_eq!(
+            facts
+                .plain_unindexed_reference_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$arr", "${arr}", "${arr}", "$arr", "${arr}"]
+        );
+    });
+}
+
+#[test]
 fn builds_word_facts_for_quoted_all_elements_array_expansions() {
     let source = "\
 #!/bin/bash

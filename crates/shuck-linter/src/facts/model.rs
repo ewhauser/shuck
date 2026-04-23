@@ -106,6 +106,7 @@ pub struct LinterFacts<'a> {
     nested_parameter_expansion_fragments: Vec<NestedParameterExpansionFragmentFact>,
     indirect_expansion_fragments: Vec<IndirectExpansionFragmentFact>,
     indexed_array_reference_fragments: Vec<IndexedArrayReferenceFragmentFact>,
+    plain_unindexed_reference_spans: Vec<Span>,
     parameter_pattern_special_target_fragments: Vec<ParameterPatternSpecialTargetFragmentFact>,
     zsh_parameter_index_flag_fragments: Vec<ZshParameterIndexFlagFragmentFact>,
     substring_expansion_fragments: Vec<SubstringExpansionFragmentFact>,
@@ -799,6 +800,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn indexed_array_reference_fragments(&self) -> &[IndexedArrayReferenceFragmentFact] {
         &self.indexed_array_reference_fragments
+    }
+
+    pub fn plain_unindexed_reference_spans(&self) -> &[Span] {
+        &self.plain_unindexed_reference_spans
     }
 
     pub fn parameter_pattern_special_target_fragments(
