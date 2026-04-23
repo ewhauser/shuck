@@ -6,8 +6,3 @@ reviewed_divergences:
     column: 49
     end_column: 51
     reason: "This fixture's SC2252 record is the unrelated `||`/`&&` warning surfaced in the corpus, not nested zsh substitution syntax."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__gitfast__git-completion.bash"
-    line: 326
-    end_line: 326
-    reason: "This completion helper only evaluates the nested zsh substitution after an explicit `ZSH_VERSION` guard, so the construct is intentional for that fixture."

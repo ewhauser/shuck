@@ -48,9 +48,6 @@ reviewed_divergences:
     path_contains: "nextcloud__docker__"
     reason: "The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern."
   - side: shellcheck-only
-    path_contains: "ohmyzsh__ohmyzsh__"
-    reason: "The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern."
-  - side: shellcheck-only
     path_contains: "pyenv__pyenv__"
     reason: "The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern."
   - side: shellcheck-only

@@ -1,4 +1,1 @@
-reviewed_divergences:
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__oh-my-zsh.sh"
-    reason: "the script exits before its zsh-only body when it is sourced outside zsh, so later `[[ ... ]]` forms are intentionally guarded"
+reviewed_divergences: []

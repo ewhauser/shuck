@@ -1,4 +1,1 @@
-reviewed_divergences:
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__oh-my-zsh.sh"
-    reason: "This bootstrap script returns before the `(( ))` commands when `ZSH_VERSION` is unset, so the arithmetic form is intentionally confined to the zsh-only execution path for this fixture."
+reviewed_divergences: []

@@ -27,9 +27,6 @@ reviewed_divergences:
     path_contains: "nextcloud__docker__"
     reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings stay out of scope for this rule."
   - side: shellcheck-only
-    path_contains: "ohmyzsh__ohmyzsh__"
-    reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings stay out of scope for this rule."
-  - side: shellcheck-only
     path_contains: "pyenv__pyenv__"
     reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings stay out of scope for this rule."
   - side: shellcheck-only

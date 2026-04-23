@@ -54,9 +54,6 @@ reviewed_divergences:
     path_contains: "sstephenson__bats__"
     reason: "These legacy Bats harness helpers exchange state through sourced callbacks and outer harness control flow. The remaining C001 hits in this repo family are reviewed harness-state handoffs rather than dead assignments."
   - side: shuck-only
-    path_contains: "ohmyzsh__ohmyzsh__"
-    reason: "These oh-my-zsh completion and prompt helpers are compared through helper-library and shell-collapse paths while exchanging state with the surrounding zsh completion runtime. The surviving C001 hits are reviewed helper-runtime divergences rather than dead assignments."
-  - side: shuck-only
     path_contains: "pyenv__pyenv__"
     reason: "These pyenv rehash and python-build helpers exchange state through sourced helper libraries, plugin hooks, and later tool entrypoints. The remaining C001 hits in this repo family are reviewed library-state handoffs rather than dead assignments."
   - side: shuck-only

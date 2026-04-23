@@ -1,7 +1,4 @@
 reviewed_divergences:
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__oh-my-zsh.sh"
-    reason: "This startup script is intentionally zsh-specific and already depends on zsh path modifiers, associative arrays, and glob qualifiers, so the remaining X023 hits are zsh substring forms exposed only after the corpus path collapses the file to POSIX sh."
   - side: shellcheck-only
     path_suffix: "termux__termux-packages__packages__luajit__build.sh"
     line: 45
