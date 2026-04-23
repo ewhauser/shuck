@@ -88,13 +88,9 @@ fn should_report_unquoted_command_substitution(
         (ExpansionContext::HereString, WordFactHostKind::Direct)
         | (ExpansionContext::RedirectTarget(_), WordFactHostKind::Direct)
         | (ExpansionContext::DescriptorDupTarget(_), WordFactHostKind::Direct)
-        | (ExpansionContext::AssignmentValue, WordFactHostKind::AssignmentTargetSubscript)
-        | (ExpansionContext::AssignmentValue, WordFactHostKind::ArrayKeySubscript)
         | (
             ExpansionContext::DeclarationAssignmentValue,
-            WordFactHostKind::AssignmentTargetSubscript
-            | WordFactHostKind::DeclarationNameSubscript
-            | WordFactHostKind::ArrayKeySubscript,
+            WordFactHostKind::DeclarationNameSubscript,
         ) => true,
         (ExpansionContext::DeclarationAssignmentValue, WordFactHostKind::Direct) => {
             checker.shell() == ShellDialect::Sh
@@ -157,9 +153,10 @@ printf '%s\\n' $(printf arg)
     }
 
     #[test]
-    fn reports_subscript_command_substitutions_without_flagging_assignment_rhs() {
+    fn ignores_assignment_target_subscript_command_substitutions() {
         let source = "\
 declare arr[$(printf hi)]=1
+arr[$(printf '1 + 1')]=2
 stamp=$(printf ok)
 ";
         let diagnostics = test_snippet(
@@ -167,17 +164,11 @@ stamp=$(printf ok)
             &LinterSettings::for_rule(Rule::UnquotedCommandSubstitution),
         );
 
-        assert_eq!(
-            diagnostics
-                .iter()
-                .map(|diagnostic| diagnostic.span.slice(source))
-                .collect::<Vec<_>>(),
-            vec!["$(printf hi)"]
-        );
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
-    fn reports_declaration_name_and_array_key_subscript_substitutions() {
+    fn reports_declaration_name_subscript_but_ignores_array_keys() {
         let source = "\
 declare arr[$(printf decl-name)]
 declare -A map=([$(printf key)]=1)
@@ -192,7 +183,7 @@ declare -A map=([$(printf key)]=1)
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$(printf decl-name)", "$(printf key)"]
+            vec!["$(printf decl-name)"]
         );
     }
 
