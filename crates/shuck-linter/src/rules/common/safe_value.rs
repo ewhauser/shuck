@@ -1268,20 +1268,39 @@ fn function_has_terminal_exit(function: &FunctionDef) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TerminalFlowKind {
     None,
+    MaybeExit,
     MaybeStop,
     Exit,
     Stop,
 }
 
 fn stmt_seq_terminal_flow_kind(commands: &StmtSeq) -> TerminalFlowKind {
+    let mut saw_maybe_exit = false;
+    let mut saw_maybe_stop = false;
+
     for stmt in commands.as_slice() {
         match stmt_terminal_flow_kind(stmt) {
             TerminalFlowKind::None => {}
-            flow => return flow,
+            TerminalFlowKind::MaybeExit => saw_maybe_exit = true,
+            TerminalFlowKind::MaybeStop => saw_maybe_stop = true,
+            TerminalFlowKind::Exit => {
+                return if saw_maybe_stop {
+                    TerminalFlowKind::Stop
+                } else {
+                    TerminalFlowKind::Exit
+                };
+            }
+            TerminalFlowKind::Stop => return TerminalFlowKind::Stop,
         }
     }
 
-    TerminalFlowKind::None
+    if saw_maybe_stop {
+        TerminalFlowKind::MaybeStop
+    } else if saw_maybe_exit {
+        TerminalFlowKind::MaybeExit
+    } else {
+        TerminalFlowKind::None
+    }
 }
 
 fn stmt_terminal_flow_kind(stmt: &Stmt) -> TerminalFlowKind {
@@ -1353,9 +1372,8 @@ fn command_terminal_flow_kind(command: &Command) -> TerminalFlowKind {
 fn maybe_stop_terminal_flow_kind(flow: TerminalFlowKind) -> TerminalFlowKind {
     match flow {
         TerminalFlowKind::None => TerminalFlowKind::None,
-        TerminalFlowKind::MaybeStop | TerminalFlowKind::Exit | TerminalFlowKind::Stop => {
-            TerminalFlowKind::MaybeStop
-        }
+        TerminalFlowKind::MaybeExit | TerminalFlowKind::Exit => TerminalFlowKind::MaybeExit,
+        TerminalFlowKind::MaybeStop | TerminalFlowKind::Stop => TerminalFlowKind::MaybeStop,
     }
 }
 
@@ -1364,6 +1382,7 @@ fn alternative_terminal_flow_kind(
     can_skip_all: bool,
 ) -> TerminalFlowKind {
     let mut saw_none = can_skip_all;
+    let mut saw_maybe_exit = false;
     let mut saw_maybe_stop = false;
     let mut saw_exit = false;
     let mut saw_stop = false;
@@ -1371,19 +1390,23 @@ fn alternative_terminal_flow_kind(
     for flow in branches {
         match flow {
             TerminalFlowKind::None => saw_none = true,
+            TerminalFlowKind::MaybeExit => saw_maybe_exit = true,
             TerminalFlowKind::MaybeStop => saw_maybe_stop = true,
             TerminalFlowKind::Exit => saw_exit = true,
             TerminalFlowKind::Stop => saw_stop = true,
         }
     }
 
-    if saw_maybe_stop || (saw_none && (saw_exit || saw_stop)) {
+    if saw_maybe_stop || ((saw_none || saw_maybe_exit) && saw_stop) {
         return TerminalFlowKind::MaybeStop;
+    }
+    if saw_maybe_exit || (saw_none && saw_exit) {
+        return TerminalFlowKind::MaybeExit;
     }
     if saw_exit && !saw_stop {
         return TerminalFlowKind::Exit;
     }
-    if saw_exit || saw_stop {
+    if saw_exit {
         return TerminalFlowKind::Stop;
     }
 
@@ -3188,6 +3211,35 @@ helper() {
             .expect("expected helper function header");
 
         assert!(!function_has_terminal_exit(helper_header.function()));
+    }
+
+    #[test]
+    fn conditional_exit_before_exit_makes_function_terminal() {
+        let source = "\
+#!/bin/sh
+helper() {
+  if [ \"$SKIP\" ]; then
+    exit 1
+  fi
+  exit 0
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let helper_header = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(name, _)| name.as_str() == "helper")
+            })
+            .expect("expected helper function header");
+
+        assert!(function_has_terminal_exit(helper_header.function()));
     }
 
     #[test]

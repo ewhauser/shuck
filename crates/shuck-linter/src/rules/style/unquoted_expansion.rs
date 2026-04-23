@@ -316,6 +316,28 @@ echo /tmp/$SAFE
     }
 
     #[test]
+    fn reports_literal_bindings_after_conditionally_exiting_exit_like_helpers() {
+        let source = "\
+#!/bin/sh
+OPTION_BINARY_FILE=\"../lynis\"
+Exit() { if [ \"$SKIP\" ]; then exit 1; fi; exit 0; }
+Exit
+OPENBSD_CONTENTS=\"openbsd/+CONTENTS\"
+FIND=$(sh -n ${OPTION_BINARY_FILE} ; echo $?)
+echo x >> ${OPENBSD_CONTENTS}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${OPTION_BINARY_FILE}", "${OPENBSD_CONTENTS}"]
+        );
+    }
+
+    #[test]
     fn ignores_safe_bindings_after_conditional_exit_like_helper_calls() {
         let source = "\
 #!/bin/sh
