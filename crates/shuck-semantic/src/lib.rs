@@ -5670,6 +5670,71 @@ main() {
     }
 
     #[test]
+    fn script_terminating_calls_use_rewritten_statement_spans() {
+        let sources = [
+            "\
+exit_script() {
+  exit 0
+}
+main() {
+  exit_script >/dev/null
+  printf '%s\\n' never
+}
+",
+            "\
+exit_script() {
+  exit 0
+}
+main() {
+  ! exit_script
+  printf '%s\\n' never
+}
+",
+        ];
+
+        for source in sources {
+            let model = model(source);
+            let analysis = model.analysis();
+            let unreachable = analysis
+                .dead_code()
+                .iter()
+                .flat_map(|entry| entry.unreachable.iter())
+                .map(|span| span.slice(source).trim_end().to_owned())
+                .collect::<Vec<_>>();
+
+            assert!(
+                unreachable.contains(&"printf '%s\\n' never".to_owned()),
+                "unreachable spans: {unreachable:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn brace_group_function_definitions_can_make_later_calls_terminating() {
+        let source = "\
+{
+  exit_script() {
+    exit 0
+  }
+}
+main() {
+  exit_script
+  printf '%s\\n' never
+}
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let unreachable = analysis
+            .dead_code()
+            .iter()
+            .flat_map(|entry| entry.unreachable.iter())
+            .map(|span| span.slice(source).trim_end().to_owned())
+            .collect::<Vec<_>>();
+
+        assert!(unreachable.contains(&"printf '%s\\n' never".to_owned()));
+    }
+
+    #[test]
     fn later_function_definitions_do_not_make_earlier_calls_terminating() {
         let source = "\
 main() {

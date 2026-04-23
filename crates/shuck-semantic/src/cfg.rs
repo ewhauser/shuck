@@ -544,11 +544,42 @@ fn resolve_function_calls_by_span(
             let Some(scope) = program.function_body_scopes.get(&binding).copied() else {
                 continue;
             };
-            resolved.insert(SpanKey::new(site.span), scope);
+            let command_span = recorded_command_span_for_call_site(program, site);
+            resolved.insert(SpanKey::new(command_span), scope);
         }
     }
 
     resolved
+}
+
+fn recorded_command_span_for_call_site(program: &RecordedProgram, site: &CallSite) -> Span {
+    program
+        .commands()
+        .iter()
+        .filter(|command| {
+            matches!(command.kind, RecordedCommandKind::Linear)
+                && span_contains(command.span, site.span)
+        })
+        .min_by_key(|command| {
+            (
+                command.span.end.offset - command.span.start.offset,
+                command.span.start.offset,
+            )
+        })
+        .or_else(|| {
+            program
+                .commands()
+                .iter()
+                .filter(|command| span_contains(command.span, site.span))
+                .min_by_key(|command| {
+                    (
+                        command.span.end.offset - command.span.start.offset,
+                        command.span.start.offset,
+                    )
+                })
+        })
+        .map(|command| command.span)
+        .unwrap_or(site.span)
 }
 
 fn collect_unconditional_function_bindings(
@@ -584,17 +615,74 @@ fn collect_sequence_function_bindings(
     unconditional: &mut FxHashSet<BindingId>,
 ) {
     for &command_id in program.commands_in(commands) {
-        let key = SpanKey::new(program.command(command_id).span);
-        let Some(command_bindings) = command_bindings.get(&key) else {
-            continue;
-        };
-        unconditional.extend(command_bindings.iter().copied().filter(|binding| {
-            matches!(
-                bindings[binding.index()].kind,
-                BindingKind::FunctionDefinition
-            )
-        }));
+        collect_command_function_bindings(
+            program,
+            command_id,
+            command_bindings,
+            bindings,
+            unconditional,
+        );
     }
+}
+
+fn collect_command_function_bindings(
+    program: &RecordedProgram,
+    command_id: RecordedCommandId,
+    command_bindings: &FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
+    bindings: &[Binding],
+    unconditional: &mut FxHashSet<BindingId>,
+) {
+    let command = program.command(command_id);
+    collect_direct_function_bindings(command.span, command_bindings, bindings, unconditional);
+
+    match command.kind {
+        RecordedCommandKind::List { first, .. } => collect_command_function_bindings(
+            program,
+            first,
+            command_bindings,
+            bindings,
+            unconditional,
+        ),
+        RecordedCommandKind::BraceGroup { body } => collect_sequence_function_bindings(
+            program,
+            body,
+            command_bindings,
+            bindings,
+            unconditional,
+        ),
+        RecordedCommandKind::Linear
+        | RecordedCommandKind::Break { .. }
+        | RecordedCommandKind::Continue { .. }
+        | RecordedCommandKind::Return
+        | RecordedCommandKind::Exit
+        | RecordedCommandKind::If { .. }
+        | RecordedCommandKind::While { .. }
+        | RecordedCommandKind::Until { .. }
+        | RecordedCommandKind::For { .. }
+        | RecordedCommandKind::Select { .. }
+        | RecordedCommandKind::ArithmeticFor { .. }
+        | RecordedCommandKind::Case { .. }
+        | RecordedCommandKind::Subshell { .. }
+        | RecordedCommandKind::Pipeline { .. } => {}
+    }
+}
+
+fn collect_direct_function_bindings(
+    span: Span,
+    command_bindings: &FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
+    bindings: &[Binding],
+    unconditional: &mut FxHashSet<BindingId>,
+) {
+    let key = SpanKey::new(span);
+    let Some(command_bindings) = command_bindings.get(&key) else {
+        return;
+    };
+    unconditional.extend(command_bindings.iter().copied().filter(|binding| {
+        matches!(
+            bindings[binding.index()].kind,
+            BindingKind::FunctionDefinition
+        )
+    }));
 }
 
 fn function_scope_always_exits_script(
@@ -691,6 +779,10 @@ fn command_exit_effect(
         | RecordedCommandKind::Subshell { .. }
         | RecordedCommandKind::Pipeline { .. } => ExitEffect::continuing(),
     }
+}
+
+fn span_contains(outer: Span, inner: Span) -> bool {
+    outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
 }
 
 fn list_exit_effect(
