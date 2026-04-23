@@ -58,10 +58,10 @@ fn version_operand_span(binary: &ConditionalBinaryFact<'_>, source: &str) -> Opt
 
     match (
         left.as_ref()
-            .is_some_and(|(_, text)| is_decimal_version_like(text)),
+            .is_some_and(|(_, text)| is_dotted_numeric_version_like(text)),
         right
             .as_ref()
-            .is_some_and(|(_, text)| is_decimal_version_like(text)),
+            .is_some_and(|(_, text)| is_dotted_numeric_version_like(text)),
     ) {
         (false, false) => None,
         (true, false) => left.map(|(span, _)| span),
@@ -69,7 +69,10 @@ fn version_operand_span(binary: &ConditionalBinaryFact<'_>, source: &str) -> Opt
     }
 }
 
-fn is_decimal_version_like(text: &str) -> bool {
+// Treat any all-digit dotted literal (for example `1.27` or `2.5.1`) as
+// version-like here, since lexical `[[ ... < ... ]]` / `[[ ... > ... ]]`
+// comparisons are not version-aware for either shape.
+fn is_dotted_numeric_version_like(text: &str) -> bool {
     let mut saw_dot = false;
     let mut saw_digit = false;
     let mut segment_has_digit = false;
@@ -125,7 +128,7 @@ mod tests {
     }
 
     #[test]
-    fn reports_quoted_version_literals_and_dynamic_version_sources() {
+    fn reports_quoted_version_literals_and_dotted_version_sources() {
         let source = "\
 #!/bin/bash
 [[ \"$actual\" > \"0.8\" ]]
