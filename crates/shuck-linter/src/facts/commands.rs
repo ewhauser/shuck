@@ -832,7 +832,7 @@ fn command_redirect_read_source_words<'a>(
         .filter_map(|redirect| {
             if !matches!(
                 redirect.redirect().kind,
-                RedirectKind::Input | RedirectKind::ReadWrite
+                RedirectKind::Input | RedirectKind::ReadWrite | RedirectKind::HereString
             ) {
                 return None;
             }
