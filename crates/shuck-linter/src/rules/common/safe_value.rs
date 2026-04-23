@@ -367,7 +367,6 @@ impl<'a> SafeValueIndex<'a> {
                     .any(|command| {
                         !command.is_nested_word_command()
                             && command.body_args().is_empty()
-                            && command.redirects().is_empty()
                             && self.command_runs_in_unconditional_flow(command.id(), at)
                             && {
                                 let call_span = command.span_in_source(self.source);
@@ -1266,6 +1265,7 @@ fn function_has_terminal_exit(function: &FunctionDef) -> bool {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TerminalFlowKind {
     None,
+    MaybeStop,
     Exit,
     Stop,
 }
@@ -1293,7 +1293,50 @@ fn command_terminal_flow_kind(command: &Command) -> TerminalFlowKind {
     match command {
         Command::Builtin(BuiltinCommand::Exit(_)) => TerminalFlowKind::Exit,
         Command::Builtin(BuiltinCommand::Return(_)) => TerminalFlowKind::Stop,
+        Command::Compound(CompoundCommand::If(command)) => alternative_terminal_flow_kind(
+            std::iter::once(stmt_seq_terminal_flow_kind(&command.then_branch))
+                .chain(
+                    command
+                        .elif_branches
+                        .iter()
+                        .map(|(_, body)| stmt_seq_terminal_flow_kind(body)),
+                )
+                .chain(command.else_branch.iter().map(stmt_seq_terminal_flow_kind)),
+            command.else_branch.is_none(),
+        ),
+        Command::Compound(CompoundCommand::For(command)) => {
+            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
+        }
+        Command::Compound(CompoundCommand::Repeat(command)) => {
+            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
+        }
+        Command::Compound(CompoundCommand::Foreach(command)) => {
+            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
+        }
+        Command::Compound(CompoundCommand::ArithmeticFor(command)) => {
+            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
+        }
+        Command::Compound(CompoundCommand::While(command)) => {
+            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
+        }
+        Command::Compound(CompoundCommand::Until(command)) => {
+            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
+        }
+        Command::Compound(CompoundCommand::Select(command)) => {
+            maybe_stop_terminal_flow_kind(stmt_seq_terminal_flow_kind(&command.body))
+        }
+        Command::Compound(CompoundCommand::Case(command)) => alternative_terminal_flow_kind(
+            command
+                .cases
+                .iter()
+                .map(|case| stmt_seq_terminal_flow_kind(&case.body)),
+            true,
+        ),
         Command::Compound(CompoundCommand::BraceGroup(body)) => stmt_seq_terminal_flow_kind(body),
+        Command::Compound(CompoundCommand::Time(command)) => command
+            .command
+            .as_deref()
+            .map_or(TerminalFlowKind::None, stmt_terminal_flow_kind),
         Command::Simple(_)
         | Command::Builtin(_)
         | Command::Decl(_)
@@ -1302,6 +1345,46 @@ fn command_terminal_flow_kind(command: &Command) -> TerminalFlowKind {
         | Command::Function(_)
         | Command::AnonymousFunction(_) => TerminalFlowKind::None,
     }
+}
+
+fn maybe_stop_terminal_flow_kind(flow: TerminalFlowKind) -> TerminalFlowKind {
+    match flow {
+        TerminalFlowKind::None => TerminalFlowKind::None,
+        TerminalFlowKind::MaybeStop | TerminalFlowKind::Exit | TerminalFlowKind::Stop => {
+            TerminalFlowKind::MaybeStop
+        }
+    }
+}
+
+fn alternative_terminal_flow_kind(
+    branches: impl IntoIterator<Item = TerminalFlowKind>,
+    can_skip_all: bool,
+) -> TerminalFlowKind {
+    let mut saw_none = can_skip_all;
+    let mut saw_maybe_stop = false;
+    let mut saw_exit = false;
+    let mut saw_stop = false;
+
+    for flow in branches {
+        match flow {
+            TerminalFlowKind::None => saw_none = true,
+            TerminalFlowKind::MaybeStop => saw_maybe_stop = true,
+            TerminalFlowKind::Exit => saw_exit = true,
+            TerminalFlowKind::Stop => saw_stop = true,
+        }
+    }
+
+    if saw_maybe_stop || (saw_none && (saw_exit || saw_stop)) {
+        return TerminalFlowKind::MaybeStop;
+    }
+    if saw_exit && !saw_stop {
+        return TerminalFlowKind::Exit;
+    }
+    if saw_exit || saw_stop {
+        return TerminalFlowKind::Stop;
+    }
+
+    TerminalFlowKind::None
 }
 
 fn span_strictly_contains(outer: Span, inner: Span) -> bool {
@@ -3014,6 +3097,65 @@ helper() {
             .expect("expected helper function header");
 
         assert!(function_has_terminal_exit(helper_header.function()));
+    }
+
+    #[test]
+    fn all_if_branches_exiting_make_function_terminal() {
+        let source = "\
+#!/bin/sh
+helper() {
+  if [ \"$SKIP\" ]; then
+    exit 0
+  else
+    exit 1
+  fi
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let helper_header = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(name, _)| name.as_str() == "helper")
+            })
+            .expect("expected helper function header");
+
+        assert!(function_has_terminal_exit(helper_header.function()));
+    }
+
+    #[test]
+    fn conditional_return_before_exit_does_not_make_function_terminal() {
+        let source = "\
+#!/bin/sh
+helper() {
+  if [ \"$SKIP\" ]; then
+    return 0
+  fi
+  exit 1
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let helper_header = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(name, _)| name.as_str() == "helper")
+            })
+            .expect("expected helper function header");
+
+        assert!(!function_has_terminal_exit(helper_header.function()));
     }
 
     #[test]
