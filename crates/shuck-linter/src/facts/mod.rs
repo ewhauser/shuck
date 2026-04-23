@@ -36,9 +36,6 @@ use self::{
     },
 };
 use crate::context::ContextRegionKind;
-use crate::rules::common::query::{
-    self, CommandSubstitutionKind, CommandVisit, CommandWalkOptions,
-};
 use crate::suppression::shellcheck_directive_can_apply_to_following_command;
 use crate::{AmbientShellOptions, FileContext};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -48,12 +45,13 @@ use shuck_ast::{
     BackgroundOperator, BinaryCommand, BinaryOp, BourneParameterExpansion, BraceQuoteContext,
     BraceSyntaxKind, BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command,
     CommandSubstitutionSyntax, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
-    ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, FunctionDef, Name,
-    ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Position,
-    PrefixMatchKind, Redirect, RedirectKind, SelectCommand, SimpleCommand, SourceText, Span, Stmt,
-    StmtSeq, StmtTerminator, Subscript, SubscriptSelector, TextRange, VarRef, WhileCommand, Word,
-    WordPart, WordPartNode, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment,
-    ZshQualifiedGlob, is_shell_variable_name, static_word_text, word_is_standalone_status_capture,
+    ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, FunctionDef,
+    HeredocBodyPartNode, Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern,
+    PatternPart, Position, PrefixMatchKind, Redirect, RedirectKind, SelectCommand, SimpleCommand,
+    SourceText, Span, Stmt, StmtSeq, StmtTerminator, Subscript, SubscriptSelector, TextRange,
+    VarRef, WhileCommand, Word, WordPart, WordPartNode, ZshExpansionOperation, ZshExpansionTarget,
+    ZshGlobSegment, ZshQualifiedGlob, is_shell_variable_name, static_word_text,
+    word_is_standalone_status_capture,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
@@ -75,6 +73,7 @@ pub use self::surface::{
     SingleQuotedFragmentFact,
 };
 
+include!("traversal.rs");
 include!("core.rs");
 include!("simple_tests.rs");
 include!("conditionals.rs");
@@ -97,6 +96,25 @@ include!("heredocs.rs");
 include!("braces.rs");
 include!("arithmetic.rs");
 include!("words.rs");
+
+#[cfg(feature = "benchmarking")]
+pub(crate) fn benchmark_normalize_commands(file: &File, source: &str) -> usize {
+    iter_commands_with_context(
+        &file.body,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+    )
+    .map(|traversed| {
+        let normalized = normalize_command(traversed.visit.command, source);
+        normalized.wrappers.len()
+            + normalized.body_words.len()
+            + usize::from(normalized.literal_name.is_some())
+            + usize::from(normalized.effective_name.is_some())
+            + usize::from(normalized.declaration.is_some())
+    })
+    .sum()
+}
 
 #[allow(unused_imports)]
 pub(crate) mod core {
@@ -124,7 +142,7 @@ pub(crate) mod redirects {
 
 #[allow(unused_imports)]
 pub(crate) mod substitutions {
-    pub use super::{SubstitutionFact, SubstitutionHostKind};
+    pub use super::{CommandSubstitutionKind, SubstitutionFact, SubstitutionHostKind};
 }
 
 #[allow(unused_imports)]

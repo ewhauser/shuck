@@ -1,7 +1,6 @@
-use shuck_ast::{Command, CompoundCommand, File, Position, Span};
+use shuck_ast::{Command, CompoundCommand, File, Position, Span, Stmt, StmtSeq};
 use shuck_parser::parser::{ParseDiagnostic, ParseResult};
 
-use crate::rules::common::query::{self, CommandWalkOptions};
 use crate::rules::correctness::c_prototype_fragment::CPrototypeFragment;
 use crate::rules::correctness::dangling_else::DanglingElse;
 use crate::rules::correctness::if_bracket_glued::IfBracketGlued;
@@ -673,30 +672,99 @@ fn missing_done_belongs_to_for_loop(file: &File, source: &str) -> bool {
     let eof_offset = file.span.end.offset;
     let mut trailing_loop_kind = None;
 
-    for visit in query::iter_commands(&file.body, CommandWalkOptions::default()) {
-        if visit.stmt.span.end.offset != eof_offset {
-            continue;
+    walk_commands(&file.body, &mut |stmt| {
+        if stmt.span.end.offset != eof_offset {
+            return;
         }
 
-        let is_for_loop = match visit.command {
+        let is_for_loop = match &stmt.command {
             Command::Compound(CompoundCommand::For(_)) => true,
             Command::Compound(CompoundCommand::While(_) | CompoundCommand::Until(_)) => false,
-            _ => continue,
+            _ => return,
         };
 
-        let start_offset = visit.stmt.span.start.offset;
+        let start_offset = stmt.span.start.offset;
         if trailing_loop_kind
             .as_ref()
             .is_none_or(|(best_start, _)| start_offset >= *best_start)
         {
             trailing_loop_kind = Some((start_offset, is_for_loop));
         }
-    }
+    });
 
     trailing_loop_kind
         .map(|(_, is_for_loop)| is_for_loop)
         .or_else(|| missing_done_loop_kind_from_source(source))
         .unwrap_or(false)
+}
+
+fn walk_commands(commands: &StmtSeq, visit: &mut impl FnMut(&Stmt)) {
+    for stmt in commands.iter() {
+        walk_command(stmt, visit);
+    }
+}
+
+fn walk_command(stmt: &Stmt, visit: &mut impl FnMut(&Stmt)) {
+    visit(stmt);
+
+    match &stmt.command {
+        Command::Binary(command) => {
+            walk_command(&command.left, visit);
+            walk_command(&command.right, visit);
+        }
+        Command::Compound(command) => walk_compound_command(command, visit),
+        Command::Function(function) => walk_command(&function.body, visit),
+        Command::AnonymousFunction(function) => walk_command(&function.body, visit),
+        Command::Simple(_) | Command::Builtin(_) | Command::Decl(_) => {}
+    }
+}
+
+fn walk_compound_command(command: &CompoundCommand, visit: &mut impl FnMut(&Stmt)) {
+    match command {
+        CompoundCommand::If(command) => {
+            walk_commands(&command.condition, visit);
+            walk_commands(&command.then_branch, visit);
+            for (condition, body) in &command.elif_branches {
+                walk_commands(condition, visit);
+                walk_commands(body, visit);
+            }
+            if let Some(body) = &command.else_branch {
+                walk_commands(body, visit);
+            }
+        }
+        CompoundCommand::For(command) => walk_commands(&command.body, visit),
+        CompoundCommand::Repeat(command) => walk_commands(&command.body, visit),
+        CompoundCommand::Foreach(command) => walk_commands(&command.body, visit),
+        CompoundCommand::ArithmeticFor(command) => walk_commands(&command.body, visit),
+        CompoundCommand::While(command) => {
+            walk_commands(&command.condition, visit);
+            walk_commands(&command.body, visit);
+        }
+        CompoundCommand::Until(command) => {
+            walk_commands(&command.condition, visit);
+            walk_commands(&command.body, visit);
+        }
+        CompoundCommand::Case(command) => {
+            for case in &command.cases {
+                walk_commands(&case.body, visit);
+            }
+        }
+        CompoundCommand::Select(command) => walk_commands(&command.body, visit),
+        CompoundCommand::Subshell(commands) | CompoundCommand::BraceGroup(commands) => {
+            walk_commands(commands, visit);
+        }
+        CompoundCommand::Always(command) => {
+            walk_commands(&command.body, visit);
+            walk_commands(&command.always_body, visit);
+        }
+        CompoundCommand::Time(command) => {
+            if let Some(command) = &command.command {
+                walk_command(command, visit);
+            }
+        }
+        CompoundCommand::Coproc(command) => walk_command(&command.body, visit),
+        CompoundCommand::Arithmetic(_) | CompoundCommand::Conditional(_) => {}
+    }
 }
 
 fn missing_done_loop_kind_from_source(source: &str) -> Option<bool> {

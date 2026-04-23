@@ -388,7 +388,7 @@ fn build_env_prefix_scope_spans(source: &str, commands: &[CommandFact<'_>]) -> E
             continue;
         }
 
-        let assignments = query::command_assignments(command.command());
+        let assignments = command_assignments(command.command());
         let broken_legacy_bracket_tail = match command.command() {
             Command::Simple(simple) => broken_legacy_bracket_tail(simple, source),
             Command::Builtin(_)
@@ -1638,7 +1638,7 @@ fn has_intervening_persistent_reset(
 }
 
 fn command_prefix_assignments_reset_name(command: &Command, name: &Name) -> bool {
-    query::command_assignments(command)
+    command_assignments(command)
         .iter()
         .any(|assignment| assignment.target.name == *name)
 }
@@ -2290,7 +2290,7 @@ fn collect_binding_values<'a>(
 ) {
     let assignments = match command {
         Command::Simple(simple) if simple.name.span.slice(source).is_empty() => &simple.assignments,
-        Command::Builtin(_) | Command::Decl(_) => query::command_assignments(command),
+        Command::Builtin(_) | Command::Decl(_) => command_assignments(command),
         Command::Simple(_)
         | Command::Binary(_)
         | Command::Compound(_)
@@ -2312,7 +2312,7 @@ fn collect_binding_values<'a>(
         }
     }
 
-    for operand in query::declaration_operands(command) {
+    for operand in declaration_operands(command) {
         let DeclOperand::Assignment(assignment) = operand else {
             continue;
         };

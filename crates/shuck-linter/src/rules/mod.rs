@@ -76,4 +76,42 @@ mod architecture_tests {
             violations.join("\n"),
         );
     }
+
+    #[test]
+    fn rules_common_has_no_query_module() {
+        let query_module = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/rules/common/query.rs");
+
+        assert!(
+            !query_module.exists(),
+            "rule-facing traversal helpers must live in facts, not rules/common/query.rs",
+        );
+    }
+
+    #[test]
+    fn facts_traversal_helpers_stay_private() {
+        let traversal_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/facts/traversal.rs");
+        let source = fs::read_to_string(&traversal_path)
+            .unwrap_or_else(|error| panic!("failed to read {}: {error}", traversal_path.display()));
+        let forbidden_visibility = [
+            "pub(crate) struct CommandVisit",
+            "pub(crate) struct CommandWalkOptions",
+            "pub(crate) fn walk_commands",
+            "pub(crate) fn iter_commands",
+            "pub(crate) fn iter_commands_with_context",
+            "pub(crate) fn visit_arithmetic_words",
+            "pub(crate) fn visit_var_ref_subscript_words",
+            "pub(crate) fn visit_subscript_words",
+        ];
+        let violations = forbidden_visibility
+            .iter()
+            .copied()
+            .filter(|token| source.contains(token))
+            .collect::<Vec<_>>();
+
+        assert!(
+            violations.is_empty(),
+            "facts traversal helpers should stay private to the facts module:\n{}",
+            violations.join("\n"),
+        );
+    }
 }

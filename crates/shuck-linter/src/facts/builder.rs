@@ -77,7 +77,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut condition_status_capture_spans = Vec::new();
         let mut condition_command_substitution_spans = Vec::new();
 
-        for traversed in query::iter_commands_with_context(
+        for traversed in iter_commands_with_context(
             &self.file.body,
             CommandWalkOptions {
                 descend_nested_word_commands: true,
