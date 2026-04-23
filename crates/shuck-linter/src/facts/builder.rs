@@ -465,7 +465,7 @@ impl<'a> LinterFactsBuilder<'a> {
         );
         let double_paren_grouping_spans = build_double_paren_grouping_spans(&commands, self.source);
         let arithmetic_update_operator_spans =
-            build_arithmetic_update_operator_spans(&self.file.body, self.source);
+            build_arithmetic_update_operator_spans(&self.file.body, self.semantic, self.source);
         let base_prefix_arithmetic_spans =
             build_base_prefix_arithmetic_spans(&self.file.body, self.source);
         let subscript_index_reference_spans =

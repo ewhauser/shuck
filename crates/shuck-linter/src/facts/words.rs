@@ -3871,14 +3871,14 @@ fn collect_arithmetic_update_operator_spans_from_parts(
     source: &str,
     spans: &mut Vec<Span>,
 ) {
-    collect_arithmetic_update_operator_spans_from_parts_impl(parts, source, spans, false);
+    collect_arithmetic_update_operator_spans_from_parts_impl(parts, source, spans, None);
 }
 
 fn collect_arithmetic_update_operator_spans_from_parts_impl(
     parts: &[WordPartNode],
     source: &str,
     spans: &mut Vec<Span>,
-    include_nested_commands: bool,
+    nested_command_semantic: Option<&SemanticModel>,
 ) {
     for part in parts {
         match &part.kind {
@@ -3887,7 +3887,7 @@ fn collect_arithmetic_update_operator_spans_from_parts_impl(
                     parts,
                     source,
                     spans,
-                    include_nested_commands,
+                    nested_command_semantic,
                 )
             }
             WordPart::ArithmeticExpansion {
@@ -3902,14 +3902,16 @@ fn collect_arithmetic_update_operator_spans_from_parts_impl(
                         &expression_word_ast.parts,
                         source,
                         spans,
-                        include_nested_commands,
+                        nested_command_semantic,
                     );
                 }
             }
             WordPart::Parameter(parameter) => {
                 collect_arithmetic_update_operator_spans_in_parameter_expansion_impl(
-                    parameter, source, spans,
-                    include_nested_commands,
+                    parameter,
+                    source,
+                    spans,
+                    nested_command_semantic,
                 )
             }
             WordPart::ParameterExpansion {
@@ -3921,11 +3923,13 @@ fn collect_arithmetic_update_operator_spans_from_parts_impl(
                     reference,
                     source,
                     spans,
-                    include_nested_commands,
+                    nested_command_semantic,
                 );
                 collect_arithmetic_update_operator_spans_in_parameter_operator_impl(
-                    operator, source, spans,
-                    include_nested_commands,
+                    operator,
+                    source,
+                    spans,
+                    nested_command_semantic,
                 );
             }
             WordPart::Length(reference)
@@ -3938,7 +3942,7 @@ fn collect_arithmetic_update_operator_spans_from_parts_impl(
                     reference,
                     source,
                     spans,
-                    include_nested_commands,
+                    nested_command_semantic,
                 )
             }
             WordPart::Substring {
@@ -3961,7 +3965,7 @@ fn collect_arithmetic_update_operator_spans_from_parts_impl(
                     reference,
                     source,
                     spans,
-                    include_nested_commands,
+                    nested_command_semantic,
                 );
                 if let Some(expression) = offset_ast {
                     collect_arithmetic_update_operator_spans(Some(expression), source, spans);
@@ -3970,7 +3974,7 @@ fn collect_arithmetic_update_operator_spans_from_parts_impl(
                         &offset_word_ast.parts,
                         source,
                         spans,
-                        include_nested_commands,
+                        nested_command_semantic,
                     );
                 }
                 if let Some(expression) = length_ast {
@@ -3980,7 +3984,7 @@ fn collect_arithmetic_update_operator_spans_from_parts_impl(
                         &length_word_ast.parts,
                         source,
                         spans,
-                        include_nested_commands,
+                        nested_command_semantic,
                     );
                 }
             }
@@ -3991,9 +3995,9 @@ fn collect_arithmetic_update_operator_spans_from_parts_impl(
             | WordPart::ZshQualifiedGlob(_) => {}
             WordPart::CommandSubstitution { body, .. }
             | WordPart::ProcessSubstitution { body, .. } => {
-                if include_nested_commands {
+                if let Some(semantic) = nested_command_semantic {
                     collect_arithmetic_update_operator_spans_in_nested_command_body(
-                        body, source, spans,
+                        body, semantic, source, spans,
                     );
                 }
             }
@@ -4006,14 +4010,14 @@ fn collect_arithmetic_update_operator_spans_in_var_ref(
     source: &str,
     spans: &mut Vec<Span>,
 ) {
-    collect_arithmetic_update_operator_spans_in_var_ref_impl(reference, source, spans, false);
+    collect_arithmetic_update_operator_spans_in_var_ref_impl(reference, source, spans, None);
 }
 
 fn collect_arithmetic_update_operator_spans_in_var_ref_impl(
     reference: &VarRef,
     source: &str,
     spans: &mut Vec<Span>,
-    include_nested_commands: bool,
+    nested_command_semantic: Option<&SemanticModel>,
 ) {
     collect_arithmetic_update_operator_spans_in_subscript(reference.subscript.as_ref(), source, spans);
     query::visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
@@ -4021,18 +4025,22 @@ fn collect_arithmetic_update_operator_spans_in_var_ref_impl(
             &word.parts,
             source,
             spans,
-            include_nested_commands,
+            nested_command_semantic,
         );
     });
 }
 
 fn collect_arithmetic_update_operator_spans_in_parameter_expansion_with_nested_commands(
     parameter: &ParameterExpansion,
+    semantic: &SemanticModel,
     source: &str,
     spans: &mut Vec<Span>,
 ) {
     collect_arithmetic_update_operator_spans_in_parameter_expansion_impl(
-        parameter, source, spans, true,
+        parameter,
+        source,
+        spans,
+        Some(semantic),
     );
 }
 
@@ -4040,7 +4048,7 @@ fn collect_arithmetic_update_operator_spans_in_parameter_expansion_impl(
     parameter: &ParameterExpansion,
     source: &str,
     spans: &mut Vec<Span>,
-    include_nested_commands: bool,
+    nested_command_semantic: Option<&SemanticModel>,
 ) {
     match &parameter.syntax {
         ParameterExpansionSyntax::Bourne(syntax) => match syntax {
@@ -4052,7 +4060,7 @@ fn collect_arithmetic_update_operator_spans_in_parameter_expansion_impl(
                     reference,
                     source,
                     spans,
-                    include_nested_commands,
+                    nested_command_semantic,
                 );
             }
             BourneParameterExpansion::Indirect {
@@ -4065,12 +4073,12 @@ fn collect_arithmetic_update_operator_spans_in_parameter_expansion_impl(
                     reference,
                     source,
                     spans,
-                    include_nested_commands,
+                    nested_command_semantic,
                 );
                 if let Some(operator) = operator.as_ref() {
                     collect_arithmetic_update_operator_spans_in_parameter_operator_impl(
                         operator, source, spans,
-                        include_nested_commands,
+                        nested_command_semantic,
                     );
                 }
                 if let Some(operand_word_ast) = operand_word_ast.as_ref() {
@@ -4078,7 +4086,7 @@ fn collect_arithmetic_update_operator_spans_in_parameter_expansion_impl(
                         &operand_word_ast.parts,
                         source,
                         spans,
-                        include_nested_commands,
+                        nested_command_semantic,
                     );
                 }
             }
@@ -4092,18 +4100,18 @@ fn collect_arithmetic_update_operator_spans_in_parameter_expansion_impl(
                     reference,
                     source,
                     spans,
-                    include_nested_commands,
+                    nested_command_semantic,
                 );
                 collect_arithmetic_update_operator_spans_in_parameter_operator_impl(
                     operator, source, spans,
-                    include_nested_commands,
+                    nested_command_semantic,
                 );
                 if let Some(operand_word_ast) = operand_word_ast.as_ref() {
                     collect_arithmetic_update_operator_spans_from_parts_impl(
                         &operand_word_ast.parts,
                         source,
                         spans,
-                        include_nested_commands,
+                        nested_command_semantic,
                     );
                 }
             }
@@ -4119,7 +4127,7 @@ fn collect_arithmetic_update_operator_spans_in_parameter_expansion_impl(
                     reference,
                     source,
                     spans,
-                    include_nested_commands,
+                    nested_command_semantic,
                 );
                 if let Some(expression) = offset_ast {
                     collect_arithmetic_update_operator_spans(Some(expression), source, spans);
@@ -4128,7 +4136,7 @@ fn collect_arithmetic_update_operator_spans_in_parameter_expansion_impl(
                         &offset_word_ast.parts,
                         source,
                         spans,
-                        include_nested_commands,
+                        nested_command_semantic,
                     );
                 }
                 if let Some(expression) = length_ast {
@@ -4138,7 +4146,7 @@ fn collect_arithmetic_update_operator_spans_in_parameter_expansion_impl(
                         &length_word_ast.parts,
                         source,
                         spans,
-                        include_nested_commands,
+                        nested_command_semantic,
                     );
                 }
             }
@@ -4150,13 +4158,13 @@ fn collect_arithmetic_update_operator_spans_in_parameter_expansion_impl(
                     reference,
                     source,
                     spans,
-                    include_nested_commands,
+                    nested_command_semantic,
                 );
             }
             ZshExpansionTarget::Nested(parameter) => {
                 collect_arithmetic_update_operator_spans_in_parameter_expansion_impl(
                     parameter, source, spans,
-                    include_nested_commands,
+                    nested_command_semantic,
                 );
             }
             ZshExpansionTarget::Word(word) => {
@@ -4164,7 +4172,7 @@ fn collect_arithmetic_update_operator_spans_in_parameter_expansion_impl(
                     &word.parts,
                     source,
                     spans,
-                    include_nested_commands,
+                    nested_command_semantic,
                 );
             }
             ZshExpansionTarget::Empty => {}
@@ -4176,7 +4184,7 @@ fn collect_arithmetic_update_operator_spans_in_parameter_operator_impl(
     operator: &ParameterOp,
     source: &str,
     spans: &mut Vec<Span>,
-    include_nested_commands: bool,
+    nested_command_semantic: Option<&SemanticModel>,
 ) {
     match operator {
         ParameterOp::ReplaceFirst {
@@ -4190,7 +4198,7 @@ fn collect_arithmetic_update_operator_spans_in_parameter_operator_impl(
             &replacement_word_ast.parts,
             source,
             spans,
-            include_nested_commands,
+            nested_command_semantic,
         ),
         ParameterOp::UseDefault
         | ParameterOp::AssignDefault

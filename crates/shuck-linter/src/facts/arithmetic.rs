@@ -476,7 +476,11 @@ fn build_double_paren_grouping_spans(commands: &[CommandFact<'_>], source: &str)
         .collect()
 }
 
-fn build_arithmetic_update_operator_spans(body: &StmtSeq, source: &str) -> Vec<Span> {
+fn build_arithmetic_update_operator_spans(
+    body: &StmtSeq,
+    semantic: &SemanticModel,
+    source: &str,
+) -> Vec<Span> {
     let mut spans = Vec::new();
 
     for visit in query::iter_commands(
@@ -485,7 +489,12 @@ fn build_arithmetic_update_operator_spans(body: &StmtSeq, source: &str) -> Vec<S
             descend_nested_word_commands: true,
         },
     ) {
-        collect_arithmetic_update_operator_spans_in_command(visit.command, source, &mut spans);
+        collect_arithmetic_update_operator_spans_in_command(
+            visit.command,
+            semantic,
+            source,
+            &mut spans,
+        );
         for redirect in visit.redirects {
             if let Some(word) = redirect.word_target() {
                 collect_arithmetic_update_operator_spans_in_word(word, source, &mut spans);
@@ -494,6 +503,7 @@ fn build_arithmetic_update_operator_spans(body: &StmtSeq, source: &str) -> Vec<S
             {
                 collect_arithmetic_update_operator_spans_in_heredoc_body(
                     &heredoc.body.parts,
+                    semantic,
                     source,
                     &mut spans,
                 );
@@ -508,13 +518,16 @@ fn build_arithmetic_update_operator_spans(body: &StmtSeq, source: &str) -> Vec<S
 
 fn collect_arithmetic_update_operator_spans_in_command(
     command: &Command,
+    semantic: &SemanticModel,
     source: &str,
     spans: &mut Vec<Span>,
 ) {
     match command {
         Command::Simple(command) => {
             for assignment in &command.assignments {
-                collect_arithmetic_update_operator_spans_in_assignment(assignment, source, spans);
+                collect_arithmetic_update_operator_spans_in_assignment(
+                    assignment, semantic, source, spans,
+                );
             }
             collect_arithmetic_update_operator_spans_in_word(&command.name, source, spans);
             for word in &command.args {
@@ -525,7 +538,7 @@ fn collect_arithmetic_update_operator_spans_in_command(
             BuiltinCommand::Break(command) => {
                 for assignment in &command.assignments {
                     collect_arithmetic_update_operator_spans_in_assignment(
-                        assignment, source, spans,
+                        assignment, semantic, source, spans,
                     );
                 }
                 if let Some(word) = &command.depth {
@@ -538,7 +551,7 @@ fn collect_arithmetic_update_operator_spans_in_command(
             BuiltinCommand::Continue(command) => {
                 for assignment in &command.assignments {
                     collect_arithmetic_update_operator_spans_in_assignment(
-                        assignment, source, spans,
+                        assignment, semantic, source, spans,
                     );
                 }
                 if let Some(word) = &command.depth {
@@ -551,7 +564,7 @@ fn collect_arithmetic_update_operator_spans_in_command(
             BuiltinCommand::Return(command) => {
                 for assignment in &command.assignments {
                     collect_arithmetic_update_operator_spans_in_assignment(
-                        assignment, source, spans,
+                        assignment, semantic, source, spans,
                     );
                 }
                 if let Some(word) = &command.code {
@@ -564,7 +577,7 @@ fn collect_arithmetic_update_operator_spans_in_command(
             BuiltinCommand::Exit(command) => {
                 for assignment in &command.assignments {
                     collect_arithmetic_update_operator_spans_in_assignment(
-                        assignment, source, spans,
+                        assignment, semantic, source, spans,
                     );
                 }
                 if let Some(word) = &command.code {
@@ -577,7 +590,9 @@ fn collect_arithmetic_update_operator_spans_in_command(
         },
         Command::Decl(command) => {
             for assignment in &command.assignments {
-                collect_arithmetic_update_operator_spans_in_assignment(assignment, source, spans);
+                collect_arithmetic_update_operator_spans_in_assignment(
+                    assignment, semantic, source, spans,
+                );
             }
             for operand in &command.operands {
                 match operand {
@@ -586,7 +601,7 @@ fn collect_arithmetic_update_operator_spans_in_command(
                     }
                     DeclOperand::Assignment(assignment) => {
                         collect_arithmetic_update_operator_spans_in_assignment(
-                            assignment, source, spans,
+                            assignment, semantic, source, spans,
                         );
                     }
                     DeclOperand::Name(_) => {}
@@ -656,10 +671,21 @@ fn collect_arithmetic_update_operator_spans_in_command(
 
 fn collect_arithmetic_update_operator_spans_in_assignment(
     assignment: &Assignment,
+    semantic: &SemanticModel,
     source: &str,
     spans: &mut Vec<Span>,
 ) {
-    collect_arithmetic_update_operator_spans_in_var_ref(&assignment.target, source, spans);
+    collect_arithmetic_update_operator_spans_in_assignment_target(
+        &assignment.target,
+        semantic,
+        source,
+        spans,
+    );
+    let target_is_contextual_assoc = var_ref_name_has_visible_assoc_binding_at(
+        &assignment.target,
+        semantic,
+        assignment.target.name_span,
+    );
 
     match &assignment.value {
         AssignmentValue::Scalar(word) => {
@@ -672,7 +698,9 @@ fn collect_arithmetic_update_operator_spans_in_assignment(
                         collect_arithmetic_update_operator_spans_in_word(word, source, spans);
                     }
                     ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
-                        if array.kind != ArrayKind::Associative {
+                        if array.kind != ArrayKind::Associative
+                            && !(array.kind == ArrayKind::Contextual && target_is_contextual_assoc)
+                        {
                             collect_arithmetic_update_operator_spans_in_subscript(
                                 Some(key),
                                 source,
@@ -685,6 +713,55 @@ fn collect_arithmetic_update_operator_spans_in_assignment(
             }
         }
     }
+}
+
+fn collect_arithmetic_update_operator_spans_in_assignment_target(
+    reference: &VarRef,
+    semantic: &SemanticModel,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    if !var_ref_subscript_has_assoc_semantics(reference, semantic) {
+        collect_arithmetic_update_operator_spans_in_subscript(
+            reference.subscript.as_ref(),
+            source,
+            spans,
+        );
+    }
+    query::visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
+        collect_arithmetic_update_operator_spans_from_parts(&word.parts, source, spans);
+    });
+}
+
+fn var_ref_subscript_has_assoc_semantics(reference: &VarRef, semantic: &SemanticModel) -> bool {
+    let Some(subscript) = reference.subscript.as_ref() else {
+        return false;
+    };
+    if matches!(
+        subscript.interpretation,
+        shuck_ast::SubscriptInterpretation::Associative
+    ) {
+        return true;
+    }
+    if !matches!(
+        subscript.interpretation,
+        shuck_ast::SubscriptInterpretation::Contextual
+    ) {
+        return false;
+    }
+
+    var_ref_name_has_visible_assoc_binding_at(reference, semantic, subscript.span())
+}
+
+fn var_ref_name_has_visible_assoc_binding_at(
+    reference: &VarRef,
+    semantic: &SemanticModel,
+    scope_span: Span,
+) -> bool {
+    let current_scope = semantic.scope_at(scope_span.start.offset);
+    semantic
+        .visible_binding_for_assoc_lookup(&reference.name, current_scope, reference.name_span)
+        .is_some_and(|binding| binding.attributes.contains(BindingAttributes::ASSOC))
 }
 
 fn collect_arithmetic_update_operator_spans_in_word(
@@ -764,6 +841,7 @@ fn collect_arithmetic_update_operator_spans_in_conditional_expr(
 
 fn collect_arithmetic_update_operator_spans_in_heredoc_body(
     parts: &[shuck_ast::HeredocBodyPartNode],
+    semantic: &SemanticModel,
     source: &str,
     spans: &mut Vec<Span>,
 ) {
@@ -786,12 +864,12 @@ fn collect_arithmetic_update_operator_spans_in_heredoc_body(
             }
             shuck_ast::HeredocBodyPart::CommandSubstitution { body, .. } => {
                 collect_arithmetic_update_operator_spans_in_nested_command_body(
-                    body, source, spans,
+                    body, semantic, source, spans,
                 );
             }
             shuck_ast::HeredocBodyPart::Parameter(parameter) => {
                 collect_arithmetic_update_operator_spans_in_parameter_expansion_with_nested_commands(
-                    parameter, source, spans,
+                    parameter, semantic, source, spans,
                 );
             }
             shuck_ast::HeredocBodyPart::Literal(_) | shuck_ast::HeredocBodyPart::Variable(_) => {}
@@ -801,6 +879,7 @@ fn collect_arithmetic_update_operator_spans_in_heredoc_body(
 
 fn collect_arithmetic_update_operator_spans_in_nested_command_body(
     body: &StmtSeq,
+    semantic: &SemanticModel,
     source: &str,
     spans: &mut Vec<Span>,
 ) {
@@ -810,7 +889,7 @@ fn collect_arithmetic_update_operator_spans_in_nested_command_body(
             descend_nested_word_commands: true,
         },
     ) {
-        collect_arithmetic_update_operator_spans_in_command(visit.command, source, spans);
+        collect_arithmetic_update_operator_spans_in_command(visit.command, semantic, source, spans);
         for redirect in visit.redirects {
             if let Some(word) = redirect.word_target() {
                 collect_arithmetic_update_operator_spans_in_word(word, source, spans);
@@ -819,6 +898,7 @@ fn collect_arithmetic_update_operator_spans_in_nested_command_body(
             {
                 collect_arithmetic_update_operator_spans_in_heredoc_body(
                     &heredoc.body.parts,
+                    semantic,
                     source,
                     spans,
                 );
