@@ -2276,7 +2276,9 @@ impl<'a> Parser<'a> {
             }
 
             let has_brace_text = match &part.kind {
-                WordPart::Literal(text) => text.syntax_str(self.input, part.span).contains(['{', '}']),
+                WordPart::Literal(text) => {
+                    text.syntax_str(self.input, part.span).contains(['{', '}'])
+                }
                 WordPart::SingleQuoted { .. }
                 | WordPart::DoubleQuoted { .. }
                 | WordPart::ZshQualifiedGlob(_) => part.span.slice(self.input).contains(['{', '}']),
@@ -2447,7 +2449,9 @@ impl<'a> Parser<'a> {
         fn quote_context(state: Option<QuoteState>) -> BraceQuoteContext {
             match state {
                 None => BraceQuoteContext::Unquoted,
-                Some(QuoteState::Single | QuoteState::AnsiSingle) => BraceQuoteContext::SingleQuoted,
+                Some(QuoteState::Single | QuoteState::AnsiSingle) => {
+                    BraceQuoteContext::SingleQuoted
+                }
                 Some(QuoteState::Double) => BraceQuoteContext::DoubleQuoted,
             }
         }
@@ -2757,11 +2761,11 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-                let brace_start = position;
-                if let Some(len) = Self::template_placeholder_len(text, index, quote_context) {
-                    let brace_end = brace_start.advanced_by(&text[index..index + len]);
-                    out.push(BraceSyntax {
-                        kind: BraceSyntaxKind::TemplatePlaceholder,
+            let brace_start = position;
+            if let Some(len) = Self::template_placeholder_len(text, index, quote_context) {
+                let brace_end = brace_start.advanced_by(&text[index..index + len]);
+                out.push(BraceSyntax {
+                    kind: BraceSyntaxKind::TemplatePlaceholder,
                     span: Span::from_positions(brace_start, brace_end),
                     quote_context,
                 });
@@ -2770,29 +2774,29 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-                if let Some((len, kind)) = Self::brace_construct_len(text, index, quote_context) {
-                    let brace_end = brace_start.advanced_by(&text[index..index + len]);
-                    out.push(BraceSyntax {
-                        kind,
-                        span: Span::from_positions(brace_start, brace_end),
-                        quote_context,
-                    });
-                    if len > 2 {
-                        let inner_start = index + '{'.len_utf8();
-                        let inner_end = index + len - '}'.len_utf8();
-                        if inner_start < inner_end {
-                            let inner_base = brace_start.advanced_by("{");
-                            Self::scan_brace_syntax_text(
-                                &text[inner_start..inner_end],
-                                inner_base,
-                                quote_context,
-                                out,
-                            );
-                        }
+            if let Some((len, kind)) = Self::brace_construct_len(text, index, quote_context) {
+                let brace_end = brace_start.advanced_by(&text[index..index + len]);
+                out.push(BraceSyntax {
+                    kind,
+                    span: Span::from_positions(brace_start, brace_end),
+                    quote_context,
+                });
+                if len > 2 {
+                    let inner_start = index + '{'.len_utf8();
+                    let inner_end = index + len - '}'.len_utf8();
+                    if inner_start < inner_end {
+                        let inner_base = brace_start.advanced_by("{");
+                        Self::scan_brace_syntax_text(
+                            &text[inner_start..inner_end],
+                            inner_base,
+                            quote_context,
+                            out,
+                        );
                     }
-                    position = brace_end;
-                    index += len;
-                    continue;
+                }
+                position = brace_end;
+                index += len;
+                continue;
             }
 
             position.advance('{');
