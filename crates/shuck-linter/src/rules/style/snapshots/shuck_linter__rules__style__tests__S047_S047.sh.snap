@@ -1,9 +1,27 @@
 ---
 source: crates/shuck-linter/src/rules/style/mod.rs
-assertion_line: 90
+assertion_line: 175
 ---
-S047 avoid capturing `ls` output in command substitutions; use a glob or `find` instead
+S047 avoid processing `ls` output; use a glob or `find` instead
  --> <source>:2:12
   |
 2 | LAYOUTS="$(ls layout.*.h | cut -d. -f2 | xargs echo)"
+  |
+
+S047 avoid processing `ls` output; use a glob or `find` instead
+ --> <source>:3:10
+  |
+3 | count="$(ls *.html | wc -l)"
+  |
+
+S047 avoid processing `ls` output; use a glob or `find` instead
+ --> <source>:4:1
+  |
+4 | ls /tmp | sort
+  |
+
+S047 avoid processing `ls` output; use a glob or `find` instead
+ --> <source>:7:10
+  |
+7 | done < <(ls | sed 1q)
   |

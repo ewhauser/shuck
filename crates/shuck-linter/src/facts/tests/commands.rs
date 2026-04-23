@@ -3040,6 +3040,7 @@ name[$(printf assign)]=1
 declare arr[$(printf decl-name)]
 declare other=$(printf decl-assign-2)
 declare -A map=([$(printf key)]=1)
+bucket[$(ls | wc -l)]=1
 cat <<<$(printf here)
 out=$(printf hi > out.txt)
 drop=$(printf hi >/dev/null 2>&1)
@@ -3123,6 +3124,19 @@ z=$(ls layout.*.h | cut -d. -f2 | xargs echo)
             false,
             false,
         )));
+        assert_eq!(
+            facts
+                .commands()
+                .iter()
+                .flat_map(|fact| fact.substitution_facts())
+                .find(|fact| fact.span().slice(source) == "$(ls | wc -l)")
+                .expect("expected assignment subscript ls pipeline substitution")
+                .body_processed_ls_pipeline_spans()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["ls"]
+        );
         assert!(substitutions.contains(&(
             "$(printf hi > out.txt)".to_owned(),
             SubstitutionOutputIntent::Rerouted,
