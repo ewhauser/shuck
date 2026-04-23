@@ -1,19 +1,5 @@
 reviewed_divergences:
   - side: shellcheck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__alias-finder__tests__test_run.sh"
-    line: 3
-    end_line: 3
-    column: 8
-    end_column: 8
-    reason: "This zunit test harness uses `@setup {` as a framework block opener, so the remaining SC1083 hit is fallout from non-shell harness syntax rather than a brace-expansion ambiguity Shuck should model as S029."
-  - side: shellcheck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__gitfast__git-completion.bash"
-    line: 1029
-    end_line: 1029
-    column: 4
-    end_column: 4
-    reason: "This completion helper uses `{)` as a literal case-pattern arm while the corpus has already collapsed the file away from its authored shell context, so the surviving SC1083 report is treated as an oracle-specific helper-library mismatch instead of an S029 bug."
-  - side: shellcheck-only
     path_suffix: "termux__termux-packages__scripts__build__setup__termux_setup_gir.sh"
     line: 105
     end_line: 105
@@ -139,69 +125,6 @@ reviewed_divergences:
     column: 60
     end_column: 60
     reason: "This harness fixture serializes a variable reference through an escaped nested template inside a project-closure test case, so the remaining closing-brace hit is reviewed as harness-specific divergence."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__alias-finder__tests__test_run.sh"
-    line: 15
-    end_line: 15
-    column: 41
-    end_column: 41
-    reason: "After the non-shell `@test ... {` opener, this zunit harness keeps later `${#lines[@]}` assertions in a framework-specific context that Shuck currently reinterprets as plain shell text."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__alias-finder__tests__test_run.sh"
-    line: 24
-    end_line: 24
-    column: 66
-    end_column: 66
-    reason: "After the non-shell `@test ... {` opener, this zunit harness keeps later `${#lines[@]}` assertions in a framework-specific context that Shuck currently reinterprets as plain shell text."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__alias-finder__tests__test_run.sh"
-    line: 33
-    end_line: 33
-    column: 50
-    end_column: 50
-    reason: "After the non-shell `@test ... {` opener, this zunit harness keeps later `${#lines[@]}` assertions in a framework-specific context that Shuck currently reinterprets as plain shell text."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__alias-finder__tests__test_run.sh"
-    line: 44
-    end_line: 44
-    column: 75
-    end_column: 75
-    reason: "After the non-shell `@test ... {` opener, this zunit harness keeps later `${#lines[@]}` assertions in a framework-specific context that Shuck currently reinterprets as plain shell text."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__alias-finder__tests__test_run.sh"
-    line: 53
-    end_line: 53
-    column: 90
-    end_column: 90
-    reason: "After the non-shell `@test ... {` opener, this zunit harness keeps later `${#lines[@]}` assertions in a framework-specific context that Shuck currently reinterprets as plain shell text."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__alias-finder__tests__test_run.sh"
-    line: 62
-    end_line: 62
-    column: 91
-    end_column: 91
-    reason: "After the non-shell `@test ... {` opener, this zunit harness keeps later `${#lines[@]}` assertions in a framework-specific context that Shuck currently reinterprets as plain shell text."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__alias-finder__tests__test_run.sh"
-    line: 74
-    end_line: 74
-    column: 106
-    end_column: 106
-    reason: "After the non-shell `@test ... {` opener, this zunit harness keeps later `${#lines[@]}` assertions in a framework-specific context that Shuck currently reinterprets as plain shell text."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__alias-finder__tests__test_run.sh"
-    line: 84
-    end_line: 84
-    column: 62
-    end_column: 62
-    reason: "After the non-shell `@test ... {` opener, this zunit harness keeps later `${#lines[@]}` assertions in a framework-specific context that Shuck currently reinterprets as plain shell text."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__alias-finder__tests__test_run.sh"
-    line: 97
-    end_line: 97
-    column: 89
-    end_column: 89
-    reason: "After the non-shell `@test ... {` opener, this zunit harness keeps later `${#lines[@]}` assertions in a framework-specific context that Shuck currently reinterprets as plain shell text."
   - side: shuck-only
     path_suffix: "scop__bash-completion__completions-core__tmux.bash"
     line: 59

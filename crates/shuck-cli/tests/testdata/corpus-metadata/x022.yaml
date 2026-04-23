@@ -6,6 +6,3 @@ reviewed_divergences:
   - side: shuck-only
     path_suffix: "oh-my-fish__oh-my-fish__bin__install"
     reason: "This installer is a fish script with fish-specific `read -g` and `read -l` flag usage. Shuck can still see those helper paths through project-closure analysis, but they are outside the POSIX sh portability target for X022."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__tools__check_for_upgrade.sh"
-    reason: "This upgrade helper belongs to a zsh codebase and uses zsh-specific syntax such as `[[ ... ]]` patterns alongside `read -k`. X022 intentionally stays scoped to files Shuck actually treats as sh or dash instead of collapsing that helper to POSIX sh."

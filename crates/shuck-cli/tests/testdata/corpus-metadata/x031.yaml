@@ -29,9 +29,6 @@ reviewed_divergences:
   - side: shellcheck-only
     path_suffix: "void-linux__void-packages__common__xbps-src__shutils__show.sh"
     reason: "This helper sources another script from inside a function while project-closure analysis treats the file as POSIX `sh`. Shuck now routes that function-local `source` case to X080, while the current ShellCheck oracle still emits the generic X031 portability code on this path."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__oh-my-zsh.sh"
-    reason: "This fixture is an Oh My Zsh startup script. In the shell-collapse comparison path it gets treated like portable `sh`, but these `source` commands belong to Zsh-specific startup loading rather than the POSIX portability target for X031."
   - side: shellcheck-only
     path_suffix: "SlackBuildsOrg__slackbuilds__misc__cwiid__rc.cwiid.new"
     line: 39

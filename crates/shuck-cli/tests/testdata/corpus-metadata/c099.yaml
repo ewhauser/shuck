@@ -51,9 +51,6 @@ reviewed_divergences:
     path_contains: "nvm-sh__nvm__"
     reason: "The remaining SC2124 reports in this repo family are broader array-to-scalar assignments, not the quoted all-elements `@`-slice form C099 intentionally targets. Shuck keeps C099 scoped to quoted `${@:N}`-style slice assignments instead of every scalar assignment from positional or array data."
   - side: shellcheck-only
-    path_contains: "ohmyzsh__ohmyzsh__"
-    reason: "The remaining SC2124 reports in this repo family are broader array-to-scalar assignments, not the quoted all-elements `@`-slice form C099 intentionally targets. Shuck keeps C099 scoped to quoted `${@:N}`-style slice assignments instead of every scalar assignment from positional or array data."
-  - side: shellcheck-only
     path_contains: "openrc__openrc__"
     reason: "The remaining SC2124 reports in this repo family are broader array-to-scalar assignments, not the quoted all-elements `@`-slice form C099 intentionally targets. Shuck keeps C099 scoped to quoted `${@:N}`-style slice assignments instead of every scalar assignment from positional or array data."
   - side: shellcheck-only

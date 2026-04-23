@@ -6,20 +6,6 @@ reviewed_divergences:
     column: 33
     end_column: 38
     reason: "PPID is a shell-provided parent-process variable here, so the uppercase read can be intentional even though a lowercase helper binding exists elsewhere in the script."
-  - side: shellcheck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__drush__drush.complete.sh"
-    line: 24
-    end_line: 24
-    column: 20
-    end_column: 32
-    reason: "This helper intentionally mirrors a project-specific double-underscore variable name, and shuck keeps C156 narrower than ShellCheck's helper-name guessing in collapsed plugin code."
-  - side: shellcheck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__macos__spotify"
-    line: 197
-    end_line: 197
-    column: 67
-    end_column: 85
-    reason: "This is a one-off string typo inside helper code, but shuck does not broaden C156 into a general edit-distance spell checker for arbitrary uppercase names."
   - side: shuck-only
     path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
     line: 116

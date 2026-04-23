@@ -1,17 +1,5 @@
 reviewed_divergences:
   - side: shellcheck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__catimg__catimg.sh"
-    reason: "ShellCheck still anchors this helper's `function` portability hit to the whole multi-line definition body. Shuck now reports the same X004 finding on the header span only, so this remaining delta is range-only."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__catimg__catimg.sh"
-    reason: "ShellCheck still anchors this helper's `function` portability hit to the whole multi-line definition body. Shuck now reports the same X004 finding on the header span only, so this remaining delta is range-only."
-  - side: shellcheck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__wd___wd.sh"
-    reason: "ShellCheck still anchors this helper's `function` portability hit to the whole multi-line definition body. Shuck now reports the same X004 finding on the header span only, so this remaining delta is range-only."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__wd___wd.sh"
-    reason: "ShellCheck still anchors this helper's `function` portability hit to the whole multi-line definition body. Shuck now reports the same X004 finding on the header span only, so this remaining delta is range-only."
-  - side: shellcheck-only
     path_suffix: "SlackBuildsOrg__slackbuilds__system__munin-node__rc.munin-node"
     reason: "ShellCheck anchors this bare `function name {}` helper to the full multi-line body, while shuck reports the same X004 finding on the header span only. The remaining difference is range-only."
   - side: shuck-only

@@ -1,9 +1,4 @@
 reviewed_divergences:
-  - side: shellcheck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__gitfast__git-completion.bash"
-    line: 326
-    end_line: 326
-    reason: "This completion helper reaches the nested `${(M)${(k)...}}` form only inside a guarded `ZSH_VERSION` branch. Shuck keeps that compound expansion on X044 and does not duplicate separate X043 modifier hits for the inner and outer flag groups in this shell-collapsed helper."
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__build"
     reason: "This Bash helper only uses the `${=...}` split form inside an explicit `ZSH_VERSION` branch before falling back to the Bash form. The pinned ShellCheck run stays quiet on that guarded zsh path in this project-closure comparison, so the remaining X043 hit is reviewed for this helper."
@@ -25,8 +20,3 @@ reviewed_divergences:
   - side: shuck-only
     path_suffix: "rvm__rvm__scripts__functions__utility_package"
     reason: "This Bash helper only uses the `${=...}` split form inside explicit `ZSH_VERSION` branches before falling back to the Bash form. The pinned ShellCheck run stays quiet on those guarded zsh paths, so the remaining X043 hits are reviewed for this helper."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__wd___wd.sh"
-    line: 22
-    end_line: 22
-    reason: "This helper is a zsh completion plugin (`#compdef`, `zmodload`, zsh arrays), so its modifier form is intentional and the generic `.sh` fallback dialect is not the right portability target for this fixture."

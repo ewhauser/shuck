@@ -25,12 +25,6 @@ reviewed_divergences:
     path_suffix: "nvm-sh__nvm__test__slow__nvm_get_latest__nvm_get_latest"
     reason: "This file is part of the current S001 baseline tail and is treated as a reviewed divergence for this file."
   - side: shellcheck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__macos__spotify"
-    reason: "This file is part of the current S001 baseline tail and is treated as a reviewed divergence for this file."
-  - side: shellcheck-only
-    path_suffix: "ohmyzsh__ohmyzsh__tools__install.sh"
-    reason: "This file is part of the current S001 baseline tail and is treated as a reviewed divergence for this file."
-  - side: shellcheck-only
     path_suffix: "romkatv__powerlevel10k__gitstatus__gitstatus.plugin.sh"
     reason: "This file is part of the current S001 baseline tail and is treated as a reviewed divergence for this file."
   - side: shellcheck-only
@@ -347,9 +341,6 @@ reviewed_divergences:
     reason: "This file is part of the current S001 baseline tail and is treated as a reviewed divergence for this file."
   - side: shuck-only
     path_suffix: "nvm-sh__nvm__test__fast__Unit tests__nvm_get_arch_unofficial"
-    reason: "This file is part of the current S001 baseline tail and is treated as a reviewed divergence for this file."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__catimg__catimg.sh"
     reason: "This file is part of the current S001 baseline tail and is treated as a reviewed divergence for this file."
   - side: shuck-only
     path_suffix: "pi-hole__pi-hole__advanced__Scripts__piholeDebug.sh"
@@ -1132,12 +1123,6 @@ reviewed_divergences:
     path_suffix: "nvm-sh__nvm__test__xenial__install version specified in .nvmrc from source"
     reason: "This file is part of the current S001 baseline tail and is treated as a reviewed divergence for this file."
   - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__macos__spotify"
-    reason: "This file is part of the current S001 baseline tail and is treated as a reviewed divergence for this file."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__tools__install.sh"
-    reason: "This file is part of the current S001 baseline tail and is treated as a reviewed divergence for this file."
-  - side: shuck-only
     path_suffix: "pi-hole__pi-hole__advanced__Scripts__piholeCheckout.sh"
     reason: "This file is part of the current S001 baseline tail and is treated as a reviewed divergence for this file."
   - side: shuck-only
@@ -1713,15 +1698,6 @@ reviewed_divergences:
     reason: "This file is part of the current S001 baseline tail and is treated as a reviewed divergence for this file."
   - side: shuck-only
     path_suffix: "nvm-sh__nvm__test__common.sh"
-    reason: "This file is part of the current S001 baseline tail and is treated as a reviewed divergence for this file."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__oh-my-zsh.sh"
-    reason: "This file is part of the current S001 baseline tail and is treated as a reviewed divergence for this file."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__gitfast__git-completion.bash"
-    reason: "This file is part of the current S001 baseline tail and is treated as a reviewed divergence for this file."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__gitfast__git-prompt.sh"
     reason: "This file is part of the current S001 baseline tail and is treated as a reviewed divergence for this file."
   - side: shuck-only
     path_suffix: "pyenv__pyenv__libexec__pyenv-version"

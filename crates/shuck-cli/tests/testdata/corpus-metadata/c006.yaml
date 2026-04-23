@@ -8,21 +8,6 @@ reviewed_divergences:
   - side: shuck-only
     path_suffix: "nvm-sh__nvm__test__fast__Unit tests__nvm_install_no_progress_bar"
     reason: "This nvm test harness reads helper-produced line bookkeeping that ShellCheck does not compare as live state in the corpus run."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__macos__spotify"
-    reason: "This oh-my-zsh helper relies on completion/runtime state provided by surrounding functions, so the remaining Shuck-side read is reviewed narrowly."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__oh-my-zsh.sh"
-    reason: "This oh-my-zsh entrypoint uses zsh-only loop bindings and `${name:h:t}`-style modifiers inside a shell-collapse/project-closure context, so we review these Shuck-only reads narrowly instead of widening C006 around non-native zsh syntax."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__alias-finder__tests__test_run.sh"
-    reason: "This zunit test harness populates `lines` as framework-managed result state, and ShellCheck does not compare that helper-owned array as a live undefined-variable read here."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__gitfast__git-completion.bash"
-    reason: "This completion helper reaches into zsh's special `parameters` table inside a shell-collapse helper context, and ShellCheck stays quiet on that zsh-specific runtime surface in the corpus run."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__wd___wd.sh"
-    reason: "This zsh completion helper uses a zsh-specific mapfile expansion shape inside a shell-collapse context, and ShellCheck stays quiet on the corpus fixture."
   - side: shellcheck-only
     path_suffix: "rvm__rvm__bin__rvmsudo"
     reason: "This file only differs on the exact C006 anchor in the corpus run, so both sides stay reviewed narrowly instead of widening the core span logic again."

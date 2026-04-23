@@ -24,9 +24,6 @@ reviewed_divergences:
     path_contains: "nvm-sh__nvm__"
     reason: "The remaining SC3044 reports in this repo family are other bash-only builtins such as `typeset`, `shopt`, `complete`, `pushd`, `popd`, `mapfile`, `disown`, or `suspend`. X016 intentionally covers only `declare`, so these broader portability warnings stay reviewed for this corpus slice."
   - side: shellcheck-only
-    path_contains: "ohmyzsh__ohmyzsh__"
-    reason: "The remaining SC3044 reports in this repo family are other bash-only builtins such as `typeset`, `shopt`, `complete`, `pushd`, `popd`, `mapfile`, `disown`, or `suspend`. X016 intentionally covers only `declare`, so these broader portability warnings stay reviewed for this corpus slice."
-  - side: shellcheck-only
     path_contains: "romkatv__powerlevel10k__"
     reason: "The remaining SC3044 reports in this repo family are other bash-only builtins such as `typeset`, `shopt`, `complete`, `pushd`, `popd`, `mapfile`, `disown`, or `suspend`. X016 intentionally covers only `declare`, so these broader portability warnings stay reviewed for this corpus slice."
   - side: shellcheck-only

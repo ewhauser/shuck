@@ -1,4 +1,1 @@
-reviewed_divergences:
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__oh-my-zsh.sh"
-    reason: "This startup file is building zsh-specific arrays such as `fpath`, `aliases_pre`, and `galiases_pre`, so the remaining X013 hits are intentional zsh setup that only shows up after the corpus path collapses the project to POSIX sh."
+reviewed_divergences: []

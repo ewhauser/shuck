@@ -29,11 +29,6 @@ reviewed_divergences:
     line: 2250
     end_line: 2250
     reason: "This shell-collapse wrapper is kept as a reviewed S005 divergence in the corpus comparison."
-  - side: shellcheck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__macos__spotify"
-    line: 63
-    end_line: 63
-    reason: "This helper-library help text is compared through the project-closure copy, and the corpus treats the backtick style warning as reviewed there."
   - side: shuck-only
     path_suffix: "pyenv__pyenv__libexec__pyenv-init"
     line: 327

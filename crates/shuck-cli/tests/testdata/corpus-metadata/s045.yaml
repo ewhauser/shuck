@@ -16,22 +16,6 @@ reviewed_divergences:
     line: 765
     reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
   - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__macos__spotify"
-    line: 231
-    reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__macos__spotify"
-    line: 256
-    reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__macos__spotify"
-    line: 260
-    reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__plugins__macos__spotify"
-    line: 263
-    reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
     path_suffix: "sstephenson__bats__libexec__bats"
     line: 68
     reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
@@ -93,10 +77,6 @@ reviewed_divergences:
     path_suffix: "moovweb__gvm__scripts__function___bash_pseudo_hash"
     line: 283
     reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
-    path_suffix: "ohmyzsh__ohmyzsh__oh-my-zsh.sh"
-    line: 136
-    reason: "The current ShellCheck oracle does not emit SC2004 for this explicit dollar-prefixed arithmetic operand, but Shuck still warns on the same arithmetic form elsewhere in the corpus."
   - side: shuck-only
     path_suffix: "paulirish__dotfiles__.git-completion.bash"
     line: 191
