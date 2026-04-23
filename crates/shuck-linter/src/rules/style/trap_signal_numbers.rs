@@ -11,7 +11,7 @@ impl Violation for TrapSignalNumbers {
     }
 
     fn message(&self) -> String {
-        "prefer symbolic signal names in `trap` instead of numeric IDs".to_owned()
+        "use symbolic signal names in `trap` for non-portable numeric IDs".to_owned()
     }
 }
 
@@ -35,6 +35,10 @@ pub fn trap_signal_numbers(checker: &mut Checker) {
 }
 
 fn trap_numeric_signal_spans(args: &[&Word], source: &str) -> Vec<Span> {
+    if !trap_action_allows_numeric_signal_report(args, source) {
+        return Vec::new();
+    }
+
     let Some(parsed) = parse_trap_args(args, source) else {
         return Vec::new();
     };
@@ -48,14 +52,35 @@ fn trap_numeric_signal_spans(args: &[&Word], source: &str) -> Vec<Span> {
         .filter_map(|word| {
             static_word_text(word, source)
                 .as_deref()
-                .is_some_and(is_numeric_signal_name)
+                .is_some_and(is_reportable_numeric_signal)
                 .then_some(word.span)
         })
         .collect()
 }
 
+fn trap_action_allows_numeric_signal_report(args: &[&Word], source: &str) -> bool {
+    if args.len() < 2 {
+        return false;
+    }
+
+    !matches!(
+        args.first()
+            .and_then(|word| static_word_text(word, source))
+            .as_deref(),
+        Some("-" | "--")
+    )
+}
+
+fn is_reportable_numeric_signal(text: &str) -> bool {
+    is_numeric_signal_name(text) && !is_portable_numeric_trap_alias(text)
+}
+
 fn is_numeric_signal_name(text: &str) -> bool {
     !text.is_empty() && text.chars().all(|character| character.is_ascii_digit())
+}
+
+fn is_portable_numeric_trap_alias(text: &str) -> bool {
+    matches!(text, "0" | "1" | "2" | "3" | "6" | "9" | "14" | "15")
 }
 
 #[cfg(test)]
@@ -67,30 +92,37 @@ mod tests {
     fn reports_numeric_trap_signals() {
         let source = "\
 #!/bin/sh
-trap 'echo caught signal' 1 2 13 15
-trap -- '' 0
-trap -- '' 9 10
+trap 'echo caught signal' 4 5 7 8
+trap '' 10 11 12 13 16
+trap '' 00 01 015
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrapSignalNumbers));
 
-        assert_eq!(diagnostics.len(), 7);
         assert_eq!(
             diagnostics
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["1", "2", "13", "15", "0", "9", "10"]
+            vec![
+                "4", "5", "7", "8", "10", "11", "12", "13", "16", "00", "01", "015"
+            ]
         );
     }
 
     #[test]
-    fn ignores_symbolic_and_listing_modes() {
+    fn ignores_portable_numeric_aliases_symbolic_and_listing_modes() {
         let source = "\
 #!/bin/sh
 trap '' HUP INT TERM
+trap '' 0 1 2 3 6 9 14 15
 trap -l 1
 trap -p 2
 trap -lp 15
+command trap '' 9
+trap - 13
+trap -- '' 13
+trap -- - 13
+trap 13
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::TrapSignalNumbers));
 
@@ -101,7 +133,7 @@ trap -lp 15
     fn does_not_run_for_other_shells() {
         let source = "\
 #!/bin/zsh
-trap 'echo caught signal' 1 2
+trap 'echo caught signal' 4 10
 ";
         let diagnostics = test_snippet(
             source,

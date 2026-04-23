@@ -3,14 +3,14 @@ legacy_name: trap-signal-numbers
 new_category: Style
 new_code: S068
 runtime_kind: ast
-shellcheck_code: SC2369
+shellcheck_code: SC2172
 shellcheck_level: warning
 shells:
   - sh
   - bash
   - dash
   - ksh
-description: Numeric signal identifiers are used in a trap command.
+description: Non-portable numeric signal identifiers are used in a trap command.
 rationale: Use symbolic signal names for clarity and portability.
 safe_fix: false
 fix_description: null
