@@ -3467,7 +3467,7 @@ impl<'a> Lexer<'a> {
                 _ if escaped => {
                     escaped = false;
                 }
-                '\\' => escaped = true,
+                '\\' if !in_single => escaped = true,
                 '\'' if !in_double && !in_backtick => in_single = !in_single,
                 '"' if !in_single && !in_backtick => in_double = !in_double,
                 '`' if !in_single && !in_double => in_backtick = !in_backtick,
@@ -3515,7 +3515,7 @@ impl<'a> Lexer<'a> {
             }
 
             match ch {
-                '\\' => escaped = true,
+                '\\' if !in_single => escaped = true,
                 '\'' if !in_double && !in_backtick => in_single = !in_single,
                 '"' if !in_single && !in_backtick => in_double = !in_double,
                 '`' if !in_single && !in_double => in_backtick = !in_backtick,
@@ -3563,7 +3563,7 @@ impl<'a> Lexer<'a> {
             }
 
             match ch {
-                '\\' => escaped = true,
+                '\\' if !in_single => escaped = true,
                 '\'' if !in_double && !in_backtick => in_single = !in_single,
                 '"' if !in_single && !in_backtick => in_double = !in_double,
                 '`' if !in_single && !in_double => in_backtick = !in_backtick,
@@ -4906,6 +4906,17 @@ mod tests {
 
         assert_next_token(&mut lexer, TokenKind::Word, Some("echo"));
         assert_next_token(&mut lexer, TokenKind::Word, Some(r#"{"}",a}"#));
+        assert_next_token(&mut lexer, TokenKind::Newline, None);
+        assert!(lexer.next_lexed_token().is_none());
+    }
+
+    #[test]
+    fn test_brace_expansion_token_preserves_single_quoted_backslash_member_boundary() {
+        let mut lexer = Lexer::new("echo {'a\\',b} next\n");
+
+        assert_next_token(&mut lexer, TokenKind::Word, Some("echo"));
+        assert_next_token(&mut lexer, TokenKind::Word, Some(r#"{'a\',b}"#));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("next"));
         assert_next_token(&mut lexer, TokenKind::Newline, None);
         assert!(lexer.next_lexed_token().is_none());
     }

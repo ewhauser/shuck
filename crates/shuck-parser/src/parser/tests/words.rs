@@ -2296,6 +2296,20 @@ fn test_parse_word_with_mid_word_brace_segment_ignores_quoted_closers() {
 }
 
 #[test]
+fn test_parse_brace_expansion_with_single_quoted_backslash_member_keeps_following_args() {
+    let input = "echo {'a\\',b} next\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let AstCommand::Simple(command) = &script.body[0].command else {
+        panic!("expected simple command");
+    };
+    assert_eq!(command.args.len(), 2);
+    assert_eq!(command.args[0].span.slice(input), r#"{'a\',b}"#);
+    assert_eq!(command.args[1].span.slice(input), "next");
+    assert!(command.args[0].has_active_brace_expansion());
+}
+
+#[test]
 fn test_brace_syntax_handles_deeply_nested_braces_without_recursion() {
     let depth = 8192usize;
     let mut input = String::with_capacity(depth * 3 + 2);
