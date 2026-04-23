@@ -18,6 +18,7 @@ pub struct LinterFacts<'a> {
     env_prefix_expansion_scope_spans: Vec<Span>,
     presence_tested_names: FxHashSet<Name>,
     nested_presence_test_spans: FxHashMap<Name, Vec<Span>>,
+    presence_test_references_by_name: FxHashMap<Name, Vec<PresenceTestReferenceFact>>,
     subscript_index_reference_spans: FxHashSet<FactSpan>,
     compound_assignment_value_word_spans: FxHashSet<FactSpan>,
     word_nodes: Vec<WordNode<'a>>,
@@ -336,6 +337,16 @@ impl<'a> LinterFacts<'a> {
             .filter_map(|command| assignment_value_target_for_span(command, span))
             .min_by_key(|(_, value_span)| value_span.end.offset - value_span.start.offset)
             .map(|(name, _)| name)
+    }
+
+    pub(crate) fn presence_test_references(
+        &self,
+        name: &Name,
+    ) -> &[PresenceTestReferenceFact] {
+        self.presence_test_references_by_name
+            .get(name)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
     }
 
     pub fn is_subscript_index_reference(&self, span: Span) -> bool {

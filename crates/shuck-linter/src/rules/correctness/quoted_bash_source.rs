@@ -1,5 +1,5 @@
 use rustc_hash::FxHashSet;
-use shuck_ast::{Command, ConditionalBinaryOp, ConditionalExpr, ConditionalUnaryOp, Span, Word};
+use shuck_ast::{Command, Span};
 use shuck_semantic::{
     Binding, BindingAttributes, BindingKind, DeclarationBuiltin, DeclarationOperand, Reference,
     ReferenceId,
@@ -27,15 +27,7 @@ pub fn quoted_bash_source(checker: &mut Checker) {
         .plain_unindexed_reference_spans()
         .iter()
         .copied()
-        .filter(|span| {
-            plain_reference_is_array_like(
-                checker.facts(),
-                checker.source(),
-                semantic,
-                &analysis,
-                *span,
-            )
-        })
+        .filter(|span| plain_reference_is_array_like(checker.facts(), semantic, &analysis, *span))
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || QuotedBashSource);
@@ -47,28 +39,23 @@ fn span_is_within(outer: Span, inner: Span) -> bool {
 
 fn plain_reference_is_array_like(
     facts: &LinterFacts<'_>,
-    source: &str,
     semantic: &shuck_semantic::SemanticModel,
     analysis: &shuck_semantic::SemanticAnalysis<'_>,
     span: Span,
 ) -> bool {
     semantic.references().iter().any(|reference| {
-        reference.span == span
-            && reference_is_array_like(facts, source, semantic, analysis, reference)
+        reference.span == span && reference_is_array_like(facts, semantic, analysis, reference)
     })
 }
 
 fn reference_is_array_like(
     facts: &LinterFacts<'_>,
-    source: &str,
     semantic: &shuck_semantic::SemanticModel,
     analysis: &shuck_semantic::SemanticAnalysis<'_>,
     reference: &Reference,
 ) -> bool {
     if semantic.is_guarded_parameter_reference(reference.id)
-        || reference_has_prior_dominating_presence_test(
-            facts, source, semantic, analysis, reference,
-        )
+        || reference_has_prior_dominating_presence_test(facts, analysis, reference)
         || reference_reads_into_same_name_array_writer(facts, semantic, reference)
     {
         return false;
@@ -207,8 +194,6 @@ fn reference_reads_into_same_name_array_writer(
 
 fn reference_has_prior_dominating_presence_test(
     facts: &LinterFacts<'_>,
-    source: &str,
-    semantic: &shuck_semantic::SemanticModel,
     analysis: &shuck_semantic::SemanticAnalysis<'_>,
     reference: &Reference,
 ) -> bool {
@@ -218,12 +203,13 @@ fn reference_has_prior_dominating_presence_test(
         return false;
     }
 
-    facts.commands().iter().any(|command| {
-        command.span().end.offset < reference.span.start.offset
-            && presence_test_reference_spans(source, semantic, command, &reference.name)
-                .into_iter()
-                .any(|test_id| reference_id_dominates_reference(analysis, reference, test_id))
-    })
+    facts
+        .presence_test_references(&reference.name)
+        .iter()
+        .any(|test| {
+            test.command_span().end.offset < reference.span.start.offset
+                && reference_id_dominates_reference(analysis, reference, test.reference_id())
+        })
 }
 
 fn loop_header_word_quote(facts: &LinterFacts<'_>, span: Span) -> Option<WordQuote> {
@@ -239,94 +225,6 @@ fn loop_header_word_quote(facts: &LinterFacts<'_>, span: Span) -> Option<WordQuo
         )
         .find(|word| span_is_within(word.span(), span))
         .map(|word| word.classification().quote)
-}
-
-fn presence_test_reference_spans(
-    source: &str,
-    semantic: &shuck_semantic::SemanticModel,
-    command: &crate::CommandFact<'_>,
-    name: &shuck_ast::Name,
-) -> Vec<ReferenceId> {
-    let mut spans = Vec::new();
-
-    if let Some(simple_test) = command.simple_test() {
-        for word in simple_test.truthy_expression_words(source) {
-            spans.extend(word_reference_ids(semantic, word, name));
-        }
-        for (_, operand) in simple_test.string_unary_expression_words(source) {
-            spans.extend(word_reference_ids(semantic, operand, name));
-        }
-    }
-
-    if let Some(conditional) = command.conditional() {
-        spans.extend(conditional_presence_test_reference_ids(
-            semantic,
-            conditional.expression(),
-            name,
-        ));
-    }
-
-    spans
-}
-
-fn conditional_presence_test_reference_ids(
-    semantic: &shuck_semantic::SemanticModel,
-    expression: &ConditionalExpr,
-    name: &shuck_ast::Name,
-) -> Vec<ReferenceId> {
-    match expression {
-        ConditionalExpr::Word(word) => word_reference_ids(semantic, word, name),
-        ConditionalExpr::Unary(unary)
-            if matches!(
-                unary.op,
-                ConditionalUnaryOp::EmptyString | ConditionalUnaryOp::NonEmptyString
-            ) =>
-        {
-            conditional_presence_test_reference_ids(semantic, &unary.expr, name)
-        }
-        ConditionalExpr::Binary(binary)
-            if matches!(
-                binary.op,
-                ConditionalBinaryOp::And | ConditionalBinaryOp::Or
-            ) =>
-        {
-            let mut spans = conditional_presence_test_reference_ids(semantic, &binary.left, name);
-            spans.extend(conditional_presence_test_reference_ids(
-                semantic,
-                &binary.right,
-                name,
-            ));
-            spans
-        }
-        ConditionalExpr::Parenthesized(parenthesized) => {
-            conditional_presence_test_reference_ids(semantic, &parenthesized.expr, name)
-        }
-        ConditionalExpr::Unary(_)
-        | ConditionalExpr::Binary(_)
-        | ConditionalExpr::Pattern(_)
-        | ConditionalExpr::Regex(_)
-        | ConditionalExpr::VarRef(_) => Vec::new(),
-    }
-}
-
-fn word_reference_ids(
-    semantic: &shuck_semantic::SemanticModel,
-    word: &Word,
-    name: &shuck_ast::Name,
-) -> Vec<ReferenceId> {
-    semantic
-        .references()
-        .iter()
-        .filter(|reference| {
-            reference.name == *name
-                && !matches!(
-                    reference.kind,
-                    shuck_semantic::ReferenceKind::DeclarationName
-                )
-                && span_is_within(word.span, reference.span)
-        })
-        .map(|reference| reference.id)
-        .collect()
 }
 
 fn reference_id_dominates_reference(

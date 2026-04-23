@@ -346,7 +346,8 @@ impl<'a> LinterFactsBuilder<'a> {
             fact.substitution_facts = substitutions;
         }
 
-        let presence_tested_names = build_presence_tested_names(&commands, self.source);
+        let presence_tested_names =
+            build_presence_tested_names(&commands, self.source, self.semantic);
         let function_headers =
             build_function_header_facts(self.semantic, &functions, &commands, self.source);
         let function_cli_dispatch_facts = build_function_cli_dispatch_facts(
@@ -625,6 +626,7 @@ impl<'a> LinterFactsBuilder<'a> {
             env_prefix_expansion_scope_spans,
             presence_tested_names: presence_tested_names.global_names,
             nested_presence_test_spans: presence_tested_names.nested_command_spans_by_name,
+            presence_test_references_by_name: presence_tested_names.references_by_name,
             subscript_index_reference_spans,
             compound_assignment_value_word_spans,
             word_nodes,
