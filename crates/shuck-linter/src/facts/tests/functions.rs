@@ -337,6 +337,13 @@ fn builds_function_style_spans() {
     let source = "\
 #!/bin/bash
 f() [[ -n \"$x\" ]]
+p() if true; then :; fi
+q() case x in x) :;; esac
+r() for x in y; do :; done
+s() while true; do :; done
+t() until false; do :; done
+u() ( echo hi )
+v() (( x++ ))
 g() {
   if cond; then
     false
@@ -393,7 +400,14 @@ o() {
                 .iter()
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["[[ -n \"$x\" ]]"]
+            vec![
+                "[[ -n \"$x\" ]]",
+                "if true; then :; fi\n",
+                "case x in x) :;; esac\n",
+                "for x in y; do :; done",
+                "while true; do :; done\n",
+                "until false; do :; done\n",
+            ]
         );
         assert_eq!(
             facts
