@@ -1,4 +1,4 @@
-use crate::{Checker, ExpansionContext, Rule, Violation};
+use crate::{Checker, ExpansionContext, Rule, ShellDialect, Violation};
 
 pub struct UnquotedArrayExpansion;
 
@@ -13,7 +13,7 @@ impl Violation for UnquotedArrayExpansion {
 }
 
 pub fn unquoted_array_expansion(checker: &mut Checker) {
-    let spans = [
+    let mut spans = [
         ExpansionContext::CommandName,
         ExpansionContext::CommandArgument,
         ExpansionContext::HereString,
@@ -29,15 +29,26 @@ pub fn unquoted_array_expansion(checker: &mut Checker) {
     })
     .collect::<Vec<_>>();
 
-    for span in spans {
-        checker.report_dedup(UnquotedArrayExpansion, span);
+    if checker.shell() == ShellDialect::Sh {
+        spans.extend(
+            checker
+                .facts()
+                .expansion_word_facts(ExpansionContext::DeclarationAssignmentValue)
+                .flat_map(|fact| {
+                    fact.unquoted_all_elements_array_expansion_spans()
+                        .iter()
+                        .copied()
+                }),
+        );
     }
+
+    checker.report_all_dedup(spans, || UnquotedArrayExpansion);
 }
 
 #[cfg(test)]
 mod tests {
     use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::{LinterSettings, Rule, ShellDialect};
 
     #[test]
     fn anchors_on_inner_array_expansion_spans() {
@@ -168,6 +179,71 @@ printf '%s\\n' ${arr[@]:1} ${arr[*]:1} ${!arr[@]} ${arr[@]/#/#} ${arr[@]@Q} ${ar
                 "${arr[@]@Q}",
                 "${arr[@]:-fallback}",
             ]
+        );
+    }
+
+    #[test]
+    fn reports_trap_signal_array_expansions() {
+        let source = "\
+#!/bin/bash
+trap \"trap - ${sig[*]}; kill $pid\" ${sig[@]}
+trap - ${sig[@]}
+trap 'echo $@' EXIT
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedArrayExpansion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${sig[@]}", "${sig[@]}"]
+        );
+    }
+
+    #[test]
+    fn reports_sh_declaration_assignment_splats() {
+        let source = "\
+local dst=${src[@]}
+export args=${argv[@]}
+declare copy=(${src[@]})
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedArrayExpansion).with_shell(ShellDialect::Sh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${src[@]}", "${argv[@]}", "${src[@]}"]
+        );
+    }
+
+    #[test]
+    fn ignores_declaration_assignment_splats_in_bash_mode() {
+        let source = "\
+#!/bin/bash
+local dst=${src[@]}
+declare copy=(${src[@]})
+printf '%s\\n' ${src[@]}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedArrayExpansion).with_shell(ShellDialect::Bash),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${src[@]}"]
         );
     }
 

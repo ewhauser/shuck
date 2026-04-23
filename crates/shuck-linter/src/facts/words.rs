@@ -2127,6 +2127,9 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 let surface_command_name = surface_context.command_name();
                 let trap_command =
                     static_word_text(&command.name, self.source).as_deref() == Some("trap");
+                let trap_action = trap_command
+                    .then(|| trap_action_word_from_simple_command(command, self.source))
+                    .flatten();
                 let variable_set_operand =
                     surface::simple_command_variable_set_operand(command, self.source);
                 let mut saw_open_double_quote = false;
@@ -2160,6 +2163,13 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                     if trap_command {
                         saw_open_double_quote |=
                             self.collect_surface_only_word(word, surface_word_context);
+                        if !trap_action.is_some_and(|action| std::ptr::eq(action, word)) {
+                            self.push_word(
+                                word,
+                                WordFactContext::Expansion(ExpansionContext::CommandArgument),
+                                WordFactHostKind::Direct,
+                            );
+                        }
                     } else {
                         if surface_command_name == Some("eval") {
                             collect_wrapped_arithmetic_spans_in_word(
@@ -5224,6 +5234,13 @@ fn trap_action_word<'a>(command: &'a Command, source: &str) -> Option<&'a Word> 
         return None;
     };
 
+    trap_action_word_from_simple_command(command, source)
+}
+
+fn trap_action_word_from_simple_command<'a>(
+    command: &'a SimpleCommand,
+    source: &str,
+) -> Option<&'a Word> {
     if static_word_text(&command.name, source).as_deref() != Some("trap") {
         return None;
     }
