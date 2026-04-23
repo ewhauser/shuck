@@ -1211,8 +1211,8 @@ impl<'a> Lexer<'a> {
                 }
             }
             '{' => {
+                let start = self.current_position();
                 if self.ignore_braces_enabled() {
-                    let start = self.current_position();
                     self.consume_ascii_chars(1);
                     match self.peek_char() {
                         Some(' ') | Some('\t') | Some('\n') | None => {
@@ -1228,8 +1228,9 @@ impl<'a> Lexer<'a> {
                 } else if self.is_brace_group_start() {
                     self.advance();
                     Some(LexedToken::punctuation(TokenKind::LeftBrace))
+                } else if self.brace_literal_starts_case_pattern_delimiter() {
+                    self.read_word_starting_with("{", start)
                 } else {
-                    // {single} without comma/dot-dot is kept as literal word
                     self.read_brace_literal_word()
                 }
             }
@@ -3606,11 +3607,18 @@ impl<'a> Lexer<'a> {
         false
     }
 
+    fn brace_literal_starts_case_pattern_delimiter(&self) -> bool {
+        let mut chars = self.lookahead_chars();
+        if chars.next() != Some('{') {
+            return false;
+        }
+        chars.next() == Some(')')
+    }
+
     /// Read a {literal} pattern without comma/dot-dot as a word
     fn read_brace_literal_word(&mut self) -> Option<LexedToken<'a>> {
         let mut word = String::with_capacity(16);
 
-        // Read the opening {
         if let Some('{') = self.peek_char() {
             word.push('{');
             self.advance();
@@ -3618,7 +3626,6 @@ impl<'a> Lexer<'a> {
             return None;
         }
 
-        // Read until matching }
         let mut depth = 1;
         while let Some(ch) = self.peek_char() {
             word.push(ch);
@@ -3635,7 +3642,6 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        // Continue reading any suffix
         while let Some(ch) = self.peek_char() {
             if Self::is_word_char(ch) {
                 if self.reinject_buf.is_empty() {
@@ -5420,6 +5426,30 @@ EOF
         assert_next_token(&mut lexer, TokenKind::Word, Some("fi"));
         assert_next_token(&mut lexer, TokenKind::Newline, None);
         assert_next_token(&mut lexer, TokenKind::RightBrace, None);
+        assert_next_token(&mut lexer, TokenKind::Newline, None);
+        assert!(lexer.next_lexed_token().is_none());
+    }
+
+    #[test]
+    fn test_case_pattern_literal_left_brace_does_not_swallow_following_arms() {
+        let source = "case \"$word\" in\n  {) : ;;\n  :) : ;;\nesac\n";
+        let mut lexer = Lexer::new(source);
+
+        assert_next_token(&mut lexer, TokenKind::Word, Some("case"));
+        assert_next_token(&mut lexer, TokenKind::QuotedWord, Some("$word"));
+        assert_next_token(&mut lexer, TokenKind::Word, Some("in"));
+        assert_next_token(&mut lexer, TokenKind::Newline, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("{"));
+        assert_next_token(&mut lexer, TokenKind::RightParen, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some(":"));
+        assert_next_token(&mut lexer, TokenKind::DoubleSemicolon, None);
+        assert_next_token(&mut lexer, TokenKind::Newline, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some(":"));
+        assert_next_token(&mut lexer, TokenKind::RightParen, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some(":"));
+        assert_next_token(&mut lexer, TokenKind::DoubleSemicolon, None);
+        assert_next_token(&mut lexer, TokenKind::Newline, None);
+        assert_next_token(&mut lexer, TokenKind::Word, Some("esac"));
         assert_next_token(&mut lexer, TokenKind::Newline, None);
         assert!(lexer.next_lexed_token().is_none());
     }
