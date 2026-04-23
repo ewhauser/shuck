@@ -49,6 +49,18 @@ mod tests {
     }
 
     #[test]
+    fn reports_named_coproc_command_span() {
+        let source = "#!/bin/sh\ncoproc pycoproc (python3 \"$pywrapper\")\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::Coproc));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "coproc pycoproc (python3 \"$pywrapper\")"
+        );
+    }
+
+    #[test]
     fn ignores_bash_scripts() {
         let source = "#!/bin/bash\ncoproc cat\n";
         let diagnostics = test_snippet(
