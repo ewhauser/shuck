@@ -1,8 +1,9 @@
 use shuck_ast::{ConditionalUnaryOp, Span, Word};
 
+use crate::facts::word_spans;
 use crate::{
     Checker, ConditionalFact, ConditionalNodeFact, Rule, SimpleTestFact, SimpleTestShape,
-    Violation, static_word_text, word_unquoted_glob_pattern_spans,
+    Violation, static_word_text,
 };
 
 pub struct GlobInTestDirectory;
@@ -150,7 +151,7 @@ fn simple_test_unary_file_test_span(
 }
 
 fn reportable_glob_span(word: &Word, source: &str) -> Option<Span> {
-    (!word_unquoted_glob_pattern_spans(word, source).is_empty()).then_some(word.span)
+    (!word_spans::word_unquoted_glob_pattern_spans(word, source).is_empty()).then_some(word.span)
 }
 
 fn is_simple_test_separator(token: Option<&str>) -> bool {

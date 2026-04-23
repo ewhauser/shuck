@@ -1,7 +1,5 @@
-use crate::{
-    Checker, Rule, Violation, WordQuote, all_elements_array_expansion_part_spans,
-    word_double_quoted_scalar_only_expansion_spans, word_quoted_star_splat_spans,
-};
+use crate::facts::word_spans;
+use crate::{Checker, Rule, Violation, WordQuote};
 
 pub struct QuotedDollarStarLoop;
 
@@ -29,14 +27,16 @@ pub fn quoted_dollar_star_loop(checker: &mut Checker) {
             let classification = word.classification();
             if classification.quote != WordQuote::FullyQuoted
                 || classification.is_fixed_literal()
-                || !all_elements_array_expansion_part_spans(word.word(), source).is_empty()
+                || !word_spans::all_elements_array_expansion_part_spans(word.word(), source)
+                    .is_empty()
             {
                 return None;
             }
 
             (classification.has_command_substitution()
-                || !word_double_quoted_scalar_only_expansion_spans(word.word()).is_empty()
-                || !word_quoted_star_splat_spans(word.word()).is_empty())
+                || !word_spans::word_double_quoted_scalar_only_expansion_spans(word.word())
+                    .is_empty()
+                || !word_spans::word_quoted_star_splat_spans(word.word()).is_empty())
             .then_some(word.span())
         })
         .collect::<Vec<_>>();

@@ -3420,7 +3420,7 @@ fn parse_find_command<'a>(
         let Some(text) = static_word_text(word, source) else {
             if let Some(state) = pending_argument {
                 if state.expects_pattern_operand()
-                    && !span::word_unquoted_glob_pattern_spans(word, source).is_empty()
+                    && !word_spans::word_unquoted_glob_pattern_spans(word, source).is_empty()
                 {
                     glob_pattern_operand_spans.push(word.span);
                 }
@@ -3431,7 +3431,7 @@ fn parse_find_command<'a>(
 
         if let Some(state) = pending_argument {
             if state.expects_pattern_operand()
-                && !span::word_unquoted_glob_pattern_spans(word, source).is_empty()
+                && !word_spans::word_unquoted_glob_pattern_spans(word, source).is_empty()
             {
                 glob_pattern_operand_spans.push(word.span);
             }

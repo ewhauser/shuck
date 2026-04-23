@@ -298,7 +298,7 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
             _ => return part_span,
         };
 
-        span::shellcheck_collapsed_backtick_part_span(
+        word_spans::shellcheck_collapsed_backtick_part_span(
             adjusted,
             source,
             self.facts.backtick_substitution_spans(),
@@ -306,92 +306,92 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
     }
 
     pub fn has_direct_all_elements_array_expansion_in_source(self, source: &str) -> bool {
-        crate::word_has_direct_all_elements_array_expansion_in_source(self.word(), source)
+        word_spans::word_has_direct_all_elements_array_expansion_in_source(self.word(), source)
     }
 
     pub fn has_quoted_all_elements_array_slice(self) -> bool {
-        crate::word_has_quoted_all_elements_array_slice(self.word())
+        word_spans::word_has_quoted_all_elements_array_slice(self.word())
     }
 
     pub fn double_quoted_scalar_affix_span(self) -> Option<Span> {
-        crate::double_quoted_scalar_affix_span(self.word())
+        word_spans::double_quoted_scalar_affix_span(self.word())
     }
 
     pub fn is_pure_positional_at_splat(self) -> bool {
-        crate::word_is_pure_positional_at_splat(self.word())
+        word_spans::word_is_pure_positional_at_splat(self.word())
     }
 
     pub fn quoted_unindexed_bash_source_span_in_source(self, source: &str) -> Option<Span> {
-        crate::word_quoted_unindexed_bash_source_span_in_source(self.word(), source)
+        word_spans::word_quoted_unindexed_bash_source_span_in_source(self.word(), source)
     }
 
     pub fn unquoted_glob_pattern_spans(self, source: &str) -> Vec<Span> {
-        crate::word_unquoted_glob_pattern_spans(self.word(), source)
+        word_spans::word_unquoted_glob_pattern_spans(self.word(), source)
     }
 
     pub fn unquoted_glob_pattern_spans_outside_brace_expansion(self, source: &str) -> Vec<Span> {
-        crate::word_unquoted_glob_pattern_spans_outside_brace_expansion(self.word(), source)
+        word_spans::word_unquoted_glob_pattern_spans_outside_brace_expansion(self.word(), source)
     }
 
     pub fn suspicious_bracket_glob_spans(self, source: &str) -> Vec<Span> {
-        crate::word_suspicious_bracket_glob_spans(self.word(), source)
+        word_spans::word_suspicious_bracket_glob_spans(self.word(), source)
     }
 
     pub fn standalone_literal_backslash_span(self, source: &str) -> Option<Span> {
-        crate::word_standalone_literal_backslash_span(self.word(), source)
+        word_spans::word_standalone_literal_backslash_span(self.word(), source)
     }
 
     pub fn unquoted_assign_default_spans(self) -> Vec<Span> {
-        crate::word_unquoted_assign_default_spans(self.word())
+        word_spans::word_unquoted_assign_default_spans(self.word())
     }
 
     pub fn use_replacement_spans(self) -> Vec<Span> {
-        crate::word_use_replacement_spans(self.word())
+        word_spans::word_use_replacement_spans(self.word())
     }
 
     pub fn unquoted_star_parameter_spans(self) -> Vec<Span> {
-        crate::word_unquoted_star_parameter_spans(
+        word_spans::word_unquoted_star_parameter_spans(
             self.word(),
             self.unquoted_array_expansion_spans(),
         )
     }
 
     pub fn unquoted_star_splat_spans(self) -> Vec<Span> {
-        crate::word_unquoted_star_splat_spans(self.word())
+        word_spans::word_unquoted_star_splat_spans(self.word())
     }
 
     pub fn unquoted_word_after_single_quoted_segment_spans(self, source: &str) -> Vec<Span> {
-        crate::word_unquoted_word_after_single_quoted_segment_spans(self.word(), source)
+        word_spans::word_unquoted_word_after_single_quoted_segment_spans(self.word(), source)
     }
 
     pub fn unquoted_scalar_between_double_quoted_segments_spans(
         self,
         candidate_spans: &[Span],
     ) -> Vec<Span> {
-        crate::word_unquoted_scalar_between_double_quoted_segments_spans(
+        word_spans::word_unquoted_scalar_between_double_quoted_segments_spans(
             self.word(),
             candidate_spans,
         )
     }
 
     pub fn nested_dynamic_double_quote_spans(self) -> Vec<Span> {
-        crate::word_nested_dynamic_double_quote_spans(self.word())
+        word_spans::word_nested_dynamic_double_quote_spans(self.word())
     }
 
     pub fn folded_positional_at_splat_span_in_source(self, source: &str) -> Option<Span> {
-        crate::word_folded_positional_at_splat_span_in_source(self.word(), source)
+        word_spans::word_folded_positional_at_splat_span_in_source(self.word(), source)
     }
 
     pub fn zsh_flag_modifier_spans(self) -> Vec<Span> {
-        crate::word_zsh_flag_modifier_spans(self.word())
+        word_spans::word_zsh_flag_modifier_spans(self.word())
     }
 
     pub fn zsh_nested_expansion_spans(self) -> Vec<Span> {
-        crate::word_zsh_nested_expansion_spans(self.word())
+        word_spans::word_zsh_nested_expansion_spans(self.word())
     }
 
     pub fn nested_zsh_substitution_spans(self) -> Vec<Span> {
-        crate::word_nested_zsh_substitution_spans(self.word())
+        word_spans::word_nested_zsh_substitution_spans(self.word())
     }
 
     pub fn brace_expansion_spans(self) -> Vec<Span> {
@@ -1128,8 +1128,8 @@ pub(crate) fn word_occurrence_is_pure_quoted_dynamic(
     source: &str,
 ) -> bool {
     let word = occurrence_word(nodes, fact);
-    !span::word_double_quoted_scalar_only_expansion_spans(word).is_empty()
-        || !span::word_quoted_all_elements_array_slice_spans(word).is_empty()
+    !word_spans::word_double_quoted_scalar_only_expansion_spans(word).is_empty()
+        || !word_spans::word_quoted_all_elements_array_slice_spans(word).is_empty()
         || word_occurrence_is_double_quoted_command_substitution_only(nodes, fact, source)
         || word_occurrence_is_backtick_escaped_double_quoted_dynamic(nodes, fact, source)
 }
@@ -1652,29 +1652,33 @@ fn derive_word_fact_data(word: &Word, source: &str) -> WordNodeDerived {
     WordNodeDerived {
         static_text: static_word_text(word, source).map(|text| text.into_owned().into_boxed_str()),
         trailing_literal_char: word_trailing_literal_char(word, source),
-        starts_with_extglob: span::word_starts_with_extglob(word, source),
+        starts_with_extglob: word_spans::word_starts_with_extglob(word, source),
         has_literal_affixes: word_has_literal_affixes(word),
         contains_shell_quoting_literals: word_contains_shell_quoting_literals(word, source),
-        active_expansion_spans: span::active_expansion_spans_in_source(word, source)
+        active_expansion_spans: word_spans::active_expansion_spans_in_source(word, source)
             .into_boxed_slice(),
-        scalar_expansion_spans: span::scalar_expansion_part_spans(word, source).into_boxed_slice(),
-        unquoted_scalar_expansion_spans: span::unquoted_scalar_expansion_part_spans(word, source)
-            .into_boxed_slice(),
-        array_expansion_spans: span::array_expansion_part_spans(word, source).into_boxed_slice(),
-        all_elements_array_expansion_spans: span::all_elements_array_expansion_part_spans(
+        scalar_expansion_spans:
+            word_spans::scalar_expansion_part_spans(word, source).into_boxed_slice(),
+        unquoted_scalar_expansion_spans:
+            word_spans::unquoted_scalar_expansion_part_spans(word, source).into_boxed_slice(),
+        array_expansion_spans:
+            word_spans::array_expansion_part_spans(word, source).into_boxed_slice(),
+        all_elements_array_expansion_spans: word_spans::all_elements_array_expansion_part_spans(
             word, source,
         )
         .into_boxed_slice(),
         direct_all_elements_array_expansion_spans:
-            span::direct_all_elements_array_expansion_part_spans(word, source).into_boxed_slice(),
-        unquoted_all_elements_array_expansion_spans:
-            span::unquoted_all_elements_array_expansion_part_spans(word, source).into_boxed_slice(),
-        unquoted_array_expansion_spans: span::unquoted_array_expansion_part_spans(word, source)
+            word_spans::direct_all_elements_array_expansion_part_spans(word, source)
             .into_boxed_slice(),
-        command_substitution_spans: span::command_substitution_part_spans_in_source(word, source)
+        unquoted_all_elements_array_expansion_spans:
+            word_spans::unquoted_all_elements_array_expansion_part_spans(word, source)
+                .into_boxed_slice(),
+        unquoted_array_expansion_spans: word_spans::unquoted_array_expansion_part_spans(word, source)
+            .into_boxed_slice(),
+        command_substitution_spans: word_spans::command_substitution_part_spans_in_source(word, source)
             .into_boxed_slice(),
         unquoted_command_substitution_spans:
-            span::unquoted_command_substitution_part_spans_in_source(word, source)
+            word_spans::unquoted_command_substitution_part_spans_in_source(word, source)
                 .into_boxed_slice(),
         double_quoted_expansion_spans: double_quoted_expansion_part_spans(word).into_boxed_slice(),
         unquoted_literal_between_double_quoted_segments_spans:
@@ -2646,7 +2650,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         {
             self.arithmetic
                 .arithmetic_score_line_spans
-                .extend(span::parenthesized_arithmetic_expansion_part_spans(word));
+                .extend(word_spans::parenthesized_arithmetic_expansion_part_spans(word));
         }
 
         collect_arithmetic_expansion_spans_from_parts(
@@ -2792,7 +2796,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
     fn collect_array_index_arithmetic_spans(&mut self, word: &Word) {
         self.arithmetic
             .array_index_arithmetic_spans
-            .extend(span::arithmetic_expansion_part_spans(word));
+            .extend(word_spans::arithmetic_expansion_part_spans(word));
     }
 
     fn collect_dollar_prefixed_indexed_subscript_spans(&mut self, word: &Word) {

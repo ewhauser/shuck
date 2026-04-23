@@ -1,6 +1,5 @@
-use crate::{
-    Checker, Edit, Fix, FixAvailability, Rule, Violation, word_unquoted_glob_pattern_spans,
-};
+use crate::facts::word_spans;
+use crate::{Checker, Edit, Fix, FixAvailability, Rule, Violation};
 
 pub struct UnquotedGrepRegex;
 
@@ -29,7 +28,9 @@ pub fn unquoted_grep_regex(checker: &mut Checker) {
         .filter(|fact| fact.effective_name_is("grep"))
         .filter_map(|fact| fact.options().grep())
         .flat_map(|grep| grep.patterns().iter())
-        .filter(|pattern| !word_unquoted_glob_pattern_spans(pattern.word(), source).is_empty())
+        .filter(|pattern| {
+            !word_spans::word_unquoted_glob_pattern_spans(pattern.word(), source).is_empty()
+        })
         .map(|pattern| {
             let span = pattern.span();
             let replacement = facts

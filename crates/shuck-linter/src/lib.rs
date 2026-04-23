@@ -18,6 +18,8 @@ mod facts;
 #[allow(missing_docs)]
 mod fix;
 #[allow(missing_docs)]
+mod fix_helpers;
+#[allow(missing_docs)]
 mod parse_diagnostics;
 #[allow(missing_docs)]
 mod registry;
@@ -72,6 +74,7 @@ pub use facts::{
 pub use facts::{CommandId, FactSpan, LinterFacts};
 /// Autofix types and fix application helpers.
 pub use fix::{Applicability, AppliedFixes, Edit, Fix, FixAvailability, apply_fixes};
+pub(crate) use fix_helpers::leading_static_word_prefix_fix_in_source;
 /// Rule identifiers, categories, and registry lookup helpers.
 pub use registry::{Category, Rule, code_to_rule};
 /// Rule metadata lookup utilities.
@@ -95,34 +98,6 @@ pub use rules::common::expansion::{
 pub use rules::common::query::CommandSubstitutionKind;
 #[allow(unused_imports)]
 pub(crate) use rules::common::safe_value::{SafeValueIndex, SafeValueQuery};
-#[allow(unused_imports)]
-pub(crate) use rules::common::span::{
-    all_elements_array_expansion_part_spans, assignment_name_span,
-    case_item_suspicious_bracket_glob_spans, command_substitution_part_spans,
-    conditional_array_subscript_span, conditional_extglob_span,
-    conditional_suspicious_bracket_glob_spans, double_quoted_scalar_affix_span,
-    leading_static_word_prefix_fix_in_source, quoted_word_content_span_in_source,
-    unescaped_backtick_command_substitution_span, word_all_elements_array_slice_span_in_source,
-    word_all_elements_array_slice_spans, word_array_subscript_span,
-    word_double_quoted_scalar_only_expansion_spans, word_extglob_span,
-    word_folded_positional_at_splat_span, word_folded_positional_at_splat_span_in_source,
-    word_has_direct_all_elements_array_expansion_in_source, word_has_folded_positional_at_splat,
-    word_has_quoted_all_elements_array_slice, word_has_single_literal_part,
-    word_has_unquoted_brace_expansion, word_is_pure_positional_at_splat,
-    word_literal_part_spans_excluding_parameter_operator_tails,
-    word_literal_scan_segments_excluding_expansions, word_nested_dynamic_double_quote_spans,
-    word_nested_zsh_substitution_spans, word_positional_at_splat_span_in_source,
-    word_positional_at_splat_spans, word_quoted_all_elements_array_slice_spans,
-    word_quoted_star_splat_spans, word_quoted_unindexed_bash_source_span_in_source,
-    word_shell_quoting_literal_run_span_in_source, word_shell_quoting_literal_span,
-    word_standalone_literal_backslash_span, word_suspicious_bracket_glob_spans,
-    word_unbraced_variable_before_bracket_spans, word_unquoted_assign_default_spans,
-    word_unquoted_escaped_pipe_or_brace_spans_in_source, word_unquoted_glob_pattern_spans,
-    word_unquoted_glob_pattern_spans_outside_brace_expansion,
-    word_unquoted_scalar_between_double_quoted_segments_spans, word_unquoted_star_parameter_spans,
-    word_unquoted_star_splat_spans, word_unquoted_word_after_single_quoted_segment_spans,
-    word_use_replacement_spans, word_zsh_flag_modifier_spans, word_zsh_nested_expansion_spans,
-};
 /// Word and test-classification types exposed by fact APIs.
 pub use rules::common::word::{TestOperandClass, WordClassification};
 #[allow(unused_imports)]
