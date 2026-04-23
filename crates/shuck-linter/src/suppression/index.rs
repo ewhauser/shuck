@@ -611,6 +611,21 @@ echo still_dead
     }
 
     #[test]
+    fn applies_legacy_shellcheck_dead_code_suppression_alias() {
+        let source = "\
+exit 0
+# shellcheck disable=SC2365
+echo dead
+echo still_dead
+";
+        let index = suppression_index(source);
+
+        assert!(!index.is_suppressed(Rule::UnreachableAfterExit, 1));
+        assert!(index.is_suppressed(Rule::UnreachableAfterExit, 3));
+        assert!(!index.is_suppressed(Rule::UnreachableAfterExit, 4));
+    }
+
+    #[test]
     fn applies_shuck_disable_with_shellcheck_codes_to_the_next_command() {
         let source = "\
 foo='a b'

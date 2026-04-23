@@ -551,6 +551,13 @@ reviewed_divergences:
   - side: shuck-only
     path_suffix: "openvpn__easy-rsa__easyrsa3__easyrsa"
     reason: "This Easy-RSA front-end carries shell-mode and temporary-file bookkeeping through long helper-driven control flow, so the remaining C006 reads are reviewed runtime handoffs rather than missing local assignments."
+  - side: shellcheck-only
+    path_suffix: "openvpn__easy-rsa__easyrsa3__easyrsa"
+    line: 3780
+    end_line: 3780
+    column: 38
+    end_column: 52
+    reason: "This exact Easy-RSA read sits in a region Shuck classifies as unreachable through an exit-helper path, so the remaining oracle-side C006 gap stays reviewed narrowly instead of widening undefined-variable reporting in unreachable code."
   - side: shuck-only
     path_suffix: "rupa__z__z.sh"
     reason: "This directory-ranking helper builds matcher state through branch-local accumulators, so the remaining C006 read is a reviewed control-flow handoff rather than an isolated undefined local."

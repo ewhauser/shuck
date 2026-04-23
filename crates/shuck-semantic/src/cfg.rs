@@ -1,11 +1,11 @@
-use rustc_hash::FxHashMap;
-use shuck_ast::{CaseTerminator, Span};
+use rustc_hash::{FxHashMap, FxHashSet};
+use shuck_ast::{CaseTerminator, Name, Span};
 use shuck_parser::ZshEmulationMode;
 use smallvec::SmallVec;
 use std::marker::PhantomData;
 
 use crate::source_closure::SourcePathTemplate;
-use crate::{BindingId, ReferenceId, ScopeId, SpanKey};
+use crate::{Binding, BindingId, BindingKind, CallSite, ReferenceId, Scope, ScopeId, SpanKey};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BlockId(pub(crate) u32);
@@ -121,6 +121,7 @@ pub(crate) struct RecordedProgram {
     elif_branches: Vec<RecordedElifBranch>,
     pub(crate) command_infos: FxHashMap<SpanKey, RecordedCommandInfo>,
     pub(crate) function_body_scopes: FxHashMap<BindingId, ScopeId>,
+    pub(crate) call_command_spans: FxHashMap<SpanKey, Span>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -429,9 +430,663 @@ fn push_range<T>(store: &mut Vec<T>, mut items: Vec<T>) -> RecordedRange<T> {
     RecordedRange::new(start, store.len() - start)
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct ExitEffect {
+    may_continue: bool,
+    may_return: bool,
+    may_exit: bool,
+}
+
+impl ExitEffect {
+    fn continuing() -> Self {
+        Self {
+            may_continue: true,
+            may_return: false,
+            may_exit: false,
+        }
+    }
+
+    fn returning() -> Self {
+        Self {
+            may_continue: false,
+            may_return: true,
+            may_exit: false,
+        }
+    }
+
+    fn exiting() -> Self {
+        Self {
+            may_continue: false,
+            may_return: false,
+            may_exit: true,
+        }
+    }
+
+    fn combine_alternative(&mut self, other: Self) {
+        self.may_continue |= other.may_continue;
+        self.may_return |= other.may_return;
+        self.may_exit |= other.may_exit;
+    }
+}
+
+fn compute_script_terminating_call_spans(
+    program: &RecordedProgram,
+    command_bindings: &FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
+    scopes: &[Scope],
+    bindings: &[Binding],
+    call_sites: &FxHashMap<Name, SmallVec<[CallSite; 2]>>,
+) -> FxHashSet<SpanKey> {
+    if program.function_body_scopes.is_empty() || call_sites.is_empty() {
+        return FxHashSet::default();
+    }
+
+    let unconditional_function_bindings =
+        collect_unconditional_function_bindings(program, command_bindings, bindings);
+    let scope_function_bindings = function_bindings_by_scope(program);
+    let mut resolver = FunctionCallResolver {
+        program,
+        scopes,
+        bindings,
+        call_sites,
+        unconditional_function_bindings: &unconditional_function_bindings,
+        function_bindings_by_scope: &scope_function_bindings,
+        entry_before_offset_cache: FxHashMap::default(),
+    };
+    let mut terminating_call_spans = FxHashSet::default();
+    let mut always_exiting_scopes = FxHashSet::default();
+
+    loop {
+        let mut changed = false;
+        for &scope in program.function_bodies().keys() {
+            if always_exiting_scopes.contains(&scope) {
+                continue;
+            }
+            if function_scope_always_exits_script(program, scope, &terminating_call_spans) {
+                always_exiting_scopes.insert(scope);
+                changed = true;
+            }
+        }
+        changed |= resolve_script_terminating_call_spans(
+            program,
+            call_sites,
+            &mut resolver,
+            &always_exiting_scopes,
+            &mut terminating_call_spans,
+        );
+        if !changed {
+            break;
+        }
+    }
+
+    terminating_call_spans
+}
+
+fn resolve_script_terminating_call_spans(
+    program: &RecordedProgram,
+    call_sites: &FxHashMap<Name, SmallVec<[CallSite; 2]>>,
+    resolver: &mut FunctionCallResolver<'_>,
+    always_exiting_scopes: &FxHashSet<ScopeId>,
+    terminating_call_spans: &mut FxHashSet<SpanKey>,
+) -> bool {
+    let target_names = program
+        .function_body_scopes
+        .iter()
+        .filter(|(_, scope)| always_exiting_scopes.contains(scope))
+        .map(|(binding, _)| resolver.bindings[binding.index()].name.clone())
+        .collect::<FxHashSet<_>>();
+    let mut changed = false;
+
+    for name in target_names {
+        let Some(sites) = call_sites.get(&name) else {
+            continue;
+        };
+
+        for site in sites {
+            let Some(binding) =
+                resolver.visible_function_binding(&name, site.scope, site.span.start.offset)
+            else {
+                continue;
+            };
+            let Some(scope) = program.function_body_scopes.get(&binding).copied() else {
+                continue;
+            };
+            if !always_exiting_scopes.contains(&scope) {
+                continue;
+            }
+            let command_span = recorded_command_span_for_call_site(program, site);
+            changed |= terminating_call_spans.insert(SpanKey::new(command_span));
+        }
+    }
+
+    changed
+}
+
+fn function_bindings_by_scope(
+    program: &RecordedProgram,
+) -> FxHashMap<ScopeId, SmallVec<[BindingId; 2]>> {
+    let mut bindings_by_scope: FxHashMap<ScopeId, SmallVec<[BindingId; 2]>> = FxHashMap::default();
+    for (&binding, &scope) in &program.function_body_scopes {
+        bindings_by_scope.entry(scope).or_default().push(binding);
+    }
+    bindings_by_scope
+}
+
+struct FunctionCallResolver<'a> {
+    program: &'a RecordedProgram,
+    scopes: &'a [Scope],
+    bindings: &'a [Binding],
+    call_sites: &'a FxHashMap<Name, SmallVec<[CallSite; 2]>>,
+    unconditional_function_bindings: &'a FxHashSet<BindingId>,
+    function_bindings_by_scope: &'a FxHashMap<ScopeId, SmallVec<[BindingId; 2]>>,
+    entry_before_offset_cache: FxHashMap<(ScopeId, ScopeId, usize), bool>,
+}
+
+fn recorded_command_span_for_call_site(program: &RecordedProgram, site: &CallSite) -> Span {
+    if let Some(command_span) = program
+        .call_command_spans
+        .get(&SpanKey::new(site.span))
+        .copied()
+    {
+        return command_span;
+    }
+
+    program
+        .commands()
+        .iter()
+        .filter(|command| {
+            matches!(command.kind, RecordedCommandKind::Linear)
+                && span_contains(command.span, site.span)
+        })
+        .min_by_key(|command| {
+            (
+                command.span.end.offset - command.span.start.offset,
+                command.span.start.offset,
+            )
+        })
+        .or_else(|| {
+            program
+                .commands()
+                .iter()
+                .filter(|command| span_contains(command.span, site.span))
+                .min_by_key(|command| {
+                    (
+                        command.span.end.offset - command.span.start.offset,
+                        command.span.start.offset,
+                    )
+                })
+        })
+        .map(|command| command.span)
+        .unwrap_or(site.span)
+}
+
+fn collect_unconditional_function_bindings(
+    program: &RecordedProgram,
+    command_bindings: &FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
+    bindings: &[Binding],
+) -> FxHashSet<BindingId> {
+    let mut unconditional = FxHashSet::default();
+    collect_sequence_function_bindings(
+        program,
+        program.file_commands(),
+        command_bindings,
+        bindings,
+        &mut unconditional,
+    );
+    for commands in program.function_bodies().values().copied() {
+        collect_sequence_function_bindings(
+            program,
+            commands,
+            command_bindings,
+            bindings,
+            &mut unconditional,
+        );
+    }
+    unconditional
+}
+
+fn collect_sequence_function_bindings(
+    program: &RecordedProgram,
+    commands: RecordedCommandRange,
+    command_bindings: &FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
+    bindings: &[Binding],
+    unconditional: &mut FxHashSet<BindingId>,
+) {
+    for &command_id in program.commands_in(commands) {
+        collect_command_function_bindings(
+            program,
+            command_id,
+            command_bindings,
+            bindings,
+            unconditional,
+        );
+    }
+}
+
+fn collect_command_function_bindings(
+    program: &RecordedProgram,
+    command_id: RecordedCommandId,
+    command_bindings: &FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
+    bindings: &[Binding],
+    unconditional: &mut FxHashSet<BindingId>,
+) {
+    let command = program.command(command_id);
+    collect_direct_function_bindings(command.span, command_bindings, bindings, unconditional);
+
+    match command.kind {
+        RecordedCommandKind::List { first, .. } => collect_command_function_bindings(
+            program,
+            first,
+            command_bindings,
+            bindings,
+            unconditional,
+        ),
+        RecordedCommandKind::BraceGroup { body } => collect_sequence_function_bindings(
+            program,
+            body,
+            command_bindings,
+            bindings,
+            unconditional,
+        ),
+        RecordedCommandKind::Linear
+        | RecordedCommandKind::Break { .. }
+        | RecordedCommandKind::Continue { .. }
+        | RecordedCommandKind::Return
+        | RecordedCommandKind::Exit
+        | RecordedCommandKind::If { .. }
+        | RecordedCommandKind::While { .. }
+        | RecordedCommandKind::Until { .. }
+        | RecordedCommandKind::For { .. }
+        | RecordedCommandKind::Select { .. }
+        | RecordedCommandKind::ArithmeticFor { .. }
+        | RecordedCommandKind::Case { .. }
+        | RecordedCommandKind::Subshell { .. }
+        | RecordedCommandKind::Pipeline { .. } => {}
+    }
+}
+
+fn collect_direct_function_bindings(
+    span: Span,
+    command_bindings: &FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
+    bindings: &[Binding],
+    unconditional: &mut FxHashSet<BindingId>,
+) {
+    let key = SpanKey::new(span);
+    let Some(command_bindings) = command_bindings.get(&key) else {
+        return;
+    };
+    unconditional.extend(command_bindings.iter().copied().filter(|binding| {
+        matches!(
+            bindings[binding.index()].kind,
+            BindingKind::FunctionDefinition
+        )
+    }));
+}
+
+fn function_scope_always_exits_script(
+    program: &RecordedProgram,
+    scope: ScopeId,
+    terminating_call_spans: &FxHashSet<SpanKey>,
+) -> bool {
+    let effect = sequence_exit_effect(
+        program,
+        program.function_body(scope),
+        terminating_call_spans,
+    );
+    !effect.may_continue && !effect.may_return && effect.may_exit
+}
+
+fn sequence_exit_effect(
+    program: &RecordedProgram,
+    commands: RecordedCommandRange,
+    terminating_call_spans: &FxHashSet<SpanKey>,
+) -> ExitEffect {
+    let mut sequence_effect = ExitEffect::default();
+    let mut may_continue = true;
+
+    for &command_id in program.commands_in(commands) {
+        if !may_continue {
+            break;
+        }
+
+        let command_effect = command_exit_effect(program, command_id, terminating_call_spans);
+        sequence_effect.may_exit |= command_effect.may_exit;
+        sequence_effect.may_return |= command_effect.may_return;
+        may_continue = command_effect.may_continue;
+    }
+
+    sequence_effect.may_continue = may_continue;
+    sequence_effect
+}
+
+fn command_exit_effect(
+    program: &RecordedProgram,
+    command_id: RecordedCommandId,
+    terminating_call_spans: &FxHashSet<SpanKey>,
+) -> ExitEffect {
+    let command = program.command(command_id);
+
+    match command.kind {
+        RecordedCommandKind::Linear => {
+            let span_key = SpanKey::new(command.span);
+            if terminating_call_spans.contains(&span_key) {
+                ExitEffect::exiting()
+            } else {
+                ExitEffect::continuing()
+            }
+        }
+        RecordedCommandKind::Break { .. } | RecordedCommandKind::Continue { .. } => {
+            ExitEffect::continuing()
+        }
+        RecordedCommandKind::Return => ExitEffect::returning(),
+        RecordedCommandKind::Exit => ExitEffect::exiting(),
+        RecordedCommandKind::List { first, rest } => {
+            list_exit_effect(program, first, rest, terminating_call_spans)
+        }
+        RecordedCommandKind::If {
+            condition,
+            then_branch,
+            elif_branches,
+            else_branch,
+        } => if_exit_effect(
+            program,
+            condition,
+            then_branch,
+            elif_branches,
+            else_branch,
+            terminating_call_spans,
+        ),
+        RecordedCommandKind::BraceGroup { body } => {
+            sequence_exit_effect(program, body, terminating_call_spans)
+        }
+        RecordedCommandKind::While { .. }
+        | RecordedCommandKind::Until { .. }
+        | RecordedCommandKind::For { .. }
+        | RecordedCommandKind::Select { .. }
+        | RecordedCommandKind::ArithmeticFor { .. }
+        | RecordedCommandKind::Case { .. }
+        | RecordedCommandKind::Subshell { .. }
+        | RecordedCommandKind::Pipeline { .. } => ExitEffect::continuing(),
+    }
+}
+
+fn span_contains(outer: Span, inner: Span) -> bool {
+    outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
+}
+
+fn list_exit_effect(
+    program: &RecordedProgram,
+    first: RecordedCommandId,
+    rest: RecordedListItemRange,
+    terminating_call_spans: &FxHashSet<SpanKey>,
+) -> ExitEffect {
+    let first_effect = command_exit_effect(program, first, terminating_call_spans);
+    if !first_effect.may_continue {
+        return first_effect;
+    }
+
+    let mut effect = first_effect;
+    for item in program.list_items(rest) {
+        let item_effect = command_exit_effect(program, item.command, terminating_call_spans);
+        effect.may_continue = true;
+        effect.may_return |= item_effect.may_return;
+        effect.may_exit |= item_effect.may_exit;
+        effect.may_continue |= item_effect.may_continue;
+    }
+    effect
+}
+
+fn if_exit_effect(
+    program: &RecordedProgram,
+    condition: RecordedCommandRange,
+    then_branch: RecordedCommandRange,
+    elif_branches: RecordedElifBranchRange,
+    else_branch: RecordedCommandRange,
+    terminating_call_spans: &FxHashSet<SpanKey>,
+) -> ExitEffect {
+    let condition_effect = sequence_exit_effect(program, condition, terminating_call_spans);
+    let mut effect = ExitEffect {
+        may_continue: false,
+        may_return: condition_effect.may_return,
+        may_exit: condition_effect.may_exit,
+    };
+
+    if !condition_effect.may_continue {
+        return effect;
+    }
+
+    effect.combine_alternative(sequence_exit_effect(
+        program,
+        then_branch,
+        terminating_call_spans,
+    ));
+    effect.combine_alternative(elif_chain_exit_effect(
+        program,
+        elif_branches,
+        else_branch,
+        terminating_call_spans,
+    ));
+    effect
+}
+
+fn elif_chain_exit_effect(
+    program: &RecordedProgram,
+    elif_branches: RecordedElifBranchRange,
+    else_branch: RecordedCommandRange,
+    terminating_call_spans: &FxHashSet<SpanKey>,
+) -> ExitEffect {
+    let mut false_path = if else_branch.is_empty() {
+        ExitEffect::continuing()
+    } else {
+        sequence_exit_effect(program, else_branch, terminating_call_spans)
+    };
+
+    for branch in program.elif_branches(elif_branches).iter().rev() {
+        let condition_effect =
+            sequence_exit_effect(program, branch.condition, terminating_call_spans);
+        let mut branch_effect = ExitEffect {
+            may_continue: false,
+            may_return: condition_effect.may_return,
+            may_exit: condition_effect.may_exit,
+        };
+
+        if condition_effect.may_continue {
+            branch_effect.combine_alternative(sequence_exit_effect(
+                program,
+                branch.body,
+                terminating_call_spans,
+            ));
+            branch_effect.combine_alternative(false_path);
+        }
+
+        false_path = branch_effect;
+    }
+
+    false_path
+}
+
+impl FunctionCallResolver<'_> {
+    fn visible_function_binding(
+        &mut self,
+        name: &Name,
+        scope: ScopeId,
+        offset: usize,
+    ) -> Option<BindingId> {
+        for scope_id in ancestor_scopes(self.scopes, scope) {
+            let Some(candidates) = self.scopes[scope_id.index()].bindings.get(name) else {
+                continue;
+            };
+
+            for binding in candidates.iter().rev().copied() {
+                let candidate = &self.bindings[binding.index()];
+                if !matches!(candidate.kind, BindingKind::FunctionDefinition) {
+                    continue;
+                }
+
+                if scope_id == scope {
+                    if candidate.span.start.offset <= offset
+                        && self.unconditional_function_bindings.contains(&binding)
+                    {
+                        return Some(binding);
+                    }
+                    continue;
+                }
+
+                if !self.unconditional_function_bindings.contains(&binding) {
+                    return None;
+                }
+
+                return self
+                    .parent_scope_binding_available_before_scope_runs(candidate, scope)
+                    .then_some(binding);
+            }
+        }
+
+        None
+    }
+
+    fn parent_scope_binding_available_before_scope_runs(
+        &mut self,
+        candidate: &Binding,
+        scope: ScopeId,
+    ) -> bool {
+        if candidate.span.start.offset <= self.scopes[scope.index()].span.start.offset {
+            return true;
+        }
+
+        let mut visiting = FxHashSet::default();
+        !self.scope_has_known_entry_before_offset(
+            scope,
+            candidate.scope,
+            candidate.span.start.offset,
+            &mut visiting,
+        )
+    }
+
+    fn scope_has_known_entry_before_offset(
+        &mut self,
+        scope: ScopeId,
+        call_scope: ScopeId,
+        offset: usize,
+        visiting: &mut FxHashSet<ScopeId>,
+    ) -> bool {
+        let cache_key = (scope, call_scope, offset);
+        let cacheable = visiting.is_empty();
+        if cacheable && let Some(cached) = self.entry_before_offset_cache.get(&cache_key) {
+            return *cached;
+        }
+
+        if !visiting.insert(scope) {
+            return false;
+        }
+
+        let has_entry =
+            self.function_bindings_by_scope
+                .get(&scope)
+                .is_some_and(|function_bindings| {
+                    function_bindings.iter().copied().any(|binding| {
+                        let function = &self.bindings[binding.index()];
+                        let Some(sites) = self.call_sites.get(&function.name) else {
+                            return false;
+                        };
+                        sites.iter().any(|site| {
+                            self.call_site_may_reference_binding(site, binding, offset)
+                                && self.call_site_can_run_before_offset(
+                                    site, call_scope, offset, visiting,
+                                )
+                        })
+                    })
+                });
+
+        visiting.remove(&scope);
+        if cacheable {
+            self.entry_before_offset_cache.insert(cache_key, has_entry);
+        }
+        has_entry
+    }
+
+    fn call_site_can_run_before_offset(
+        &mut self,
+        site: &CallSite,
+        call_scope: ScopeId,
+        offset: usize,
+        visiting: &mut FxHashSet<ScopeId>,
+    ) -> bool {
+        let command_start = recorded_command_span_for_call_site(self.program, site)
+            .start
+            .offset;
+        let Some(enclosing_function) = self.enclosing_function_scope(site.scope) else {
+            return command_start < offset && self.scope_has_ancestor(site.scope, call_scope);
+        };
+
+        self.scope_has_known_entry_before_offset(enclosing_function, call_scope, offset, visiting)
+    }
+
+    fn call_site_may_reference_binding(
+        &self,
+        site: &CallSite,
+        binding: BindingId,
+        offset: usize,
+    ) -> bool {
+        let target = &self.bindings[binding.index()];
+        if !self.scope_has_ancestor(site.scope, target.scope) {
+            return false;
+        }
+
+        if target.scope == site.scope {
+            return self.lexically_visible_function_binding_in_scope(
+                &target.name,
+                site.scope,
+                site.span.start.offset,
+            ) == Some(binding);
+        }
+
+        target.span.start.offset < offset
+    }
+
+    fn enclosing_function_scope(&self, scope: ScopeId) -> Option<ScopeId> {
+        ancestor_scopes(self.scopes, scope)
+            .find(|scope_id| self.function_bindings_by_scope.contains_key(scope_id))
+    }
+
+    fn scope_has_ancestor(&self, scope: ScopeId, ancestor: ScopeId) -> bool {
+        ancestor_scopes(self.scopes, scope).any(|scope_id| scope_id == ancestor)
+    }
+
+    fn lexically_visible_function_binding_in_scope(
+        &self,
+        name: &Name,
+        scope: ScopeId,
+        offset: usize,
+    ) -> Option<BindingId> {
+        self.scopes[scope.index()]
+            .bindings
+            .get(name)?
+            .iter()
+            .rev()
+            .copied()
+            .find(|binding| {
+                let candidate = &self.bindings[binding.index()];
+                matches!(candidate.kind, BindingKind::FunctionDefinition)
+                    && candidate.span.start.offset <= offset
+            })
+    }
+}
+
+fn ancestor_scopes(scopes: &[Scope], start: ScopeId) -> impl Iterator<Item = ScopeId> + '_ {
+    std::iter::successors(Some(start), move |scope| scopes[scope.index()].parent)
+}
+
 struct SequenceResult {
     entry: Option<BlockId>,
     exits: Vec<BlockId>,
+}
+
+#[derive(Clone, Copy)]
+struct IfRanges {
+    condition: RecordedCommandRange,
+    then_branch: RecordedCommandRange,
+    elif_branches: RecordedElifBranchRange,
+    else_branch: RecordedCommandRange,
 }
 
 #[derive(Clone, Copy)]
@@ -444,6 +1099,7 @@ struct GraphBuilder<'a> {
     program: &'a RecordedProgram,
     command_bindings: &'a FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
     command_references: &'a FxHashMap<SpanKey, SmallVec<[ReferenceId; 4]>>,
+    script_terminating_calls: FxHashSet<SpanKey>,
     blocks: Vec<BasicBlock>,
     successors: FxHashMap<BlockId, Vec<(BlockId, EdgeKind)>>,
     command_blocks: FxHashMap<SpanKey, Vec<BlockId>>,
@@ -455,11 +1111,22 @@ pub(crate) fn build_control_flow_graph(
     program: &RecordedProgram,
     command_bindings: &FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
     command_references: &FxHashMap<SpanKey, SmallVec<[ReferenceId; 4]>>,
+    scopes: &[Scope],
+    bindings: &[Binding],
+    call_sites: &FxHashMap<Name, SmallVec<[CallSite; 2]>>,
 ) -> ControlFlowGraph {
+    let script_terminating_calls = compute_script_terminating_call_spans(
+        program,
+        command_bindings,
+        scopes,
+        bindings,
+        call_sites,
+    );
     let mut builder = GraphBuilder {
         program,
         command_bindings,
         command_references,
+        script_terminating_calls,
         blocks: Vec::new(),
         successors: FxHashMap::default(),
         command_blocks: FxHashMap::default(),
@@ -524,7 +1191,7 @@ impl<'a> GraphBuilder<'a> {
         for &command_id in self.program.commands_in(commands) {
             let command = self.program.command(command_id);
             let start = self.blocks.len();
-            let sequence = self.build_command(command_id, loops);
+            let sequence = self.build_command(command_id, loops, unreachable_cause.is_some());
             if entry.is_none() {
                 entry = sequence.entry;
             }
@@ -542,10 +1209,9 @@ impl<'a> GraphBuilder<'a> {
 
             if sequence.exits.is_empty() {
                 pending.clear();
-                unreachable_cause = Some(command.span);
+                unreachable_cause.get_or_insert(command.span);
             } else {
                 pending = sequence.exits;
-                unreachable_cause = None;
             }
         }
 
@@ -559,15 +1225,24 @@ impl<'a> GraphBuilder<'a> {
         &mut self,
         command_id: RecordedCommandId,
         loops: &[LoopTarget],
+        force_command_header: bool,
     ) -> SequenceResult {
         let command = self.program.command(command_id);
         match &command.kind {
             RecordedCommandKind::Linear => {
                 let block = self.command_block(command.span);
                 self.attach_nested_regions(block, command.nested_regions, loops);
+                let exits = if self
+                    .script_terminating_calls
+                    .contains(&SpanKey::new(command.span))
+                {
+                    Vec::new()
+                } else {
+                    vec![block]
+                };
                 SequenceResult {
                     entry: Some(block),
-                    exits: vec![block],
+                    exits,
                 }
             }
             RecordedCommandKind::Break { depth } => {
@@ -598,7 +1273,7 @@ impl<'a> GraphBuilder<'a> {
                 }
             }
             RecordedCommandKind::List { first, rest } => {
-                self.build_list(command_id, *first, *rest, loops)
+                self.build_list(command_id, *first, *rest, loops, force_command_header)
             }
             RecordedCommandKind::If {
                 condition,
@@ -607,18 +1282,31 @@ impl<'a> GraphBuilder<'a> {
                 else_branch,
             } => self.build_if(
                 command_id,
-                *condition,
-                *then_branch,
-                *elif_branches,
-                *else_branch,
+                IfRanges {
+                    condition: *condition,
+                    then_branch: *then_branch,
+                    elif_branches: *elif_branches,
+                    else_branch: *else_branch,
+                },
                 loops,
+                force_command_header,
             ),
-            RecordedCommandKind::While { condition, body } => {
-                self.build_while_like(command_id, *condition, *body, loops, true)
-            }
-            RecordedCommandKind::Until { condition, body } => {
-                self.build_while_like(command_id, *condition, *body, loops, false)
-            }
+            RecordedCommandKind::While { condition, body } => self.build_while_like(
+                command_id,
+                *condition,
+                *body,
+                loops,
+                true,
+                force_command_header,
+            ),
+            RecordedCommandKind::Until { condition, body } => self.build_while_like(
+                command_id,
+                *condition,
+                *body,
+                loops,
+                false,
+                force_command_header,
+            ),
             RecordedCommandKind::For { body }
             | RecordedCommandKind::Select { body }
             | RecordedCommandKind::ArithmeticFor { body } => {
@@ -627,7 +1315,12 @@ impl<'a> GraphBuilder<'a> {
             RecordedCommandKind::Case { arms } => self.build_case(command_id, *arms, loops),
             RecordedCommandKind::BraceGroup { body } => {
                 let sequence = self.build_sequence(*body, loops);
-                self.wrap_sequence_with_command_header(command_id, sequence, loops)
+                self.wrap_sequence_with_command_header(
+                    command_id,
+                    sequence,
+                    loops,
+                    force_command_header,
+                )
             }
             RecordedCommandKind::Subshell { body, .. } => {
                 let block = self.command_block(command.span);
@@ -645,7 +1338,7 @@ impl<'a> GraphBuilder<'a> {
                 let block = self.command_block(command.span);
                 self.attach_nested_regions(block, command.nested_regions, loops);
                 for segment in self.program.pipeline_segments(*segments) {
-                    let sequence = self.build_command(segment.command, loops);
+                    let sequence = self.build_command(segment.command, loops, false);
                     if let Some(segment_entry) = sequence.entry {
                         self.scope_entries
                             .entry(segment.scope)
@@ -666,9 +1359,10 @@ impl<'a> GraphBuilder<'a> {
         command_id: RecordedCommandId,
         mut sequence: SequenceResult,
         loops: &[LoopTarget],
+        force_command_header: bool,
     ) -> SequenceResult {
         let command = self.program.command(command_id);
-        if command.nested_regions.is_empty() {
+        if command.nested_regions.is_empty() && !force_command_header {
             return sequence;
         }
 
@@ -689,14 +1383,15 @@ impl<'a> GraphBuilder<'a> {
         first: RecordedCommandId,
         rest: RecordedListItemRange,
         loops: &[LoopTarget],
+        force_command_header: bool,
     ) -> SequenceResult {
-        let current = self.build_command(first, loops);
+        let current = self.build_command(first, loops, false);
         let entry = current.entry;
         let mut success_exits = current.exits.clone();
         let mut failure_exits = current.exits;
 
         for item in self.program.list_items(rest) {
-            let next = self.build_command(item.command, loops);
+            let next = self.build_command(item.command, loops, false);
             let (triggering_exits, edge_kind) = match item.operator {
                 RecordedListOperator::And => (&success_exits, EdgeKind::ConditionalTrue),
                 RecordedListOperator::Or => (&failure_exits, EdgeKind::ConditionalFalse),
@@ -729,23 +1424,26 @@ impl<'a> GraphBuilder<'a> {
 
         let mut exits = success_exits;
         append_unique_block_ids(&mut exits, &failure_exits);
-        self.wrap_sequence_with_command_header(command, SequenceResult { entry, exits }, loops)
+        self.wrap_sequence_with_command_header(
+            command,
+            SequenceResult { entry, exits },
+            loops,
+            force_command_header,
+        )
     }
 
     fn build_if(
         &mut self,
         command: RecordedCommandId,
-        condition: RecordedCommandRange,
-        then_branch: RecordedCommandRange,
-        elif_branches: RecordedElifBranchRange,
-        else_branch: RecordedCommandRange,
+        ranges: IfRanges,
         loops: &[LoopTarget],
+        force_command_header: bool,
     ) -> SequenceResult {
-        let condition_seq = self.build_sequence(condition, loops);
+        let condition_seq = self.build_sequence(ranges.condition, loops);
         let entry = condition_seq.entry.or_else(|| Some(self.empty_block()));
         let mut false_exits = condition_seq.exits.clone();
 
-        let then_seq = self.build_sequence(then_branch, loops);
+        let then_seq = self.build_sequence(ranges.then_branch, loops);
         if let (Some(cond_entry), Some(then_entry)) = (entry, then_seq.entry) {
             for exit in &condition_seq.exits {
                 self.add_edge(*exit, then_entry, EdgeKind::ConditionalTrue);
@@ -757,7 +1455,7 @@ impl<'a> GraphBuilder<'a> {
 
         let mut branch_exits = then_seq.exits;
 
-        for elif_branch in self.program.elif_branches(elif_branches) {
+        for elif_branch in self.program.elif_branches(ranges.elif_branches) {
             let elif_cond = self.build_sequence(elif_branch.condition, loops);
             if let Some(elif_entry) = elif_cond.entry {
                 for exit in &false_exits {
@@ -776,7 +1474,7 @@ impl<'a> GraphBuilder<'a> {
             branch_exits.extend(elif_body_seq.exits);
         }
 
-        let else_seq = self.build_sequence(else_branch, loops);
+        let else_seq = self.build_sequence(ranges.else_branch, loops);
         if let Some(else_entry) = else_seq.entry {
             for exit in &false_exits {
                 self.add_edge(*exit, else_entry, EdgeKind::ConditionalFalse);
@@ -793,6 +1491,7 @@ impl<'a> GraphBuilder<'a> {
                 exits: branch_exits,
             },
             loops,
+            force_command_header,
         )
     }
 
@@ -803,6 +1502,7 @@ impl<'a> GraphBuilder<'a> {
         body: RecordedCommandRange,
         loops: &[LoopTarget],
         while_sense: bool,
+        force_command_header: bool,
     ) -> SequenceResult {
         let exit_block = self.empty_block();
         let condition_seq = self.build_sequence(condition, loops);
@@ -852,6 +1552,7 @@ impl<'a> GraphBuilder<'a> {
                 exits: vec![exit_block],
             },
             loops,
+            force_command_header,
         )
     }
 

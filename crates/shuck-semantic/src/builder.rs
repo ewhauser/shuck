@@ -361,6 +361,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 .entry(callee.clone())
                 .or_default()
                 .push(call_site);
+            self.recorded_program.call_command_spans.insert(
+                SpanKey::new(command.span),
+                self.command_stack.last().copied().unwrap_or(command.span),
+            );
 
             self.classify_special_simple_command(&callee, command, flow);
         }
