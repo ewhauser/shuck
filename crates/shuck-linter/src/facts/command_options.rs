@@ -36,11 +36,16 @@ impl<'a> PathWordFact<'a> {
 pub struct ReadCommandFacts {
     pub uses_raw_input: bool,
     target_name_uses: Box<[ComparableNameUse]>,
+    array_target_name_uses: Box<[ComparableNameUse]>,
 }
 
 impl ReadCommandFacts {
     pub(crate) fn target_name_uses(&self) -> &[ComparableNameUse] {
         &self.target_name_uses
+    }
+
+    pub(crate) fn array_target_name_uses(&self) -> &[ComparableNameUse] {
+        &self.array_target_name_uses
     }
 }
 
@@ -226,14 +231,19 @@ impl FindExecShellCommandFacts {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct MapfileCommandFacts {
     input_fd: Option<i32>,
+    target_name_uses: Box<[ComparableNameUse]>,
 }
 
 impl MapfileCommandFacts {
-    pub fn input_fd(self) -> Option<i32> {
+    pub fn input_fd(&self) -> Option<i32> {
         self.input_fd
+    }
+
+    pub(crate) fn target_name_uses(&self) -> &[ComparableNameUse] {
+        &self.target_name_uses
     }
 }
 
@@ -642,6 +652,10 @@ impl<'a> CommandOptionFacts<'a> {
                 .then(|| ReadCommandFacts {
                     uses_raw_input: read_uses_raw_input(normalized.body_args(), source),
                     target_name_uses: read_target_name_uses(normalized.body_args(), source),
+                    array_target_name_uses: read_array_target_name_uses(
+                        normalized.body_args(),
+                        source,
+                    ),
                 }),
             su: normalized
                 .effective_name_is("su")
@@ -782,13 +796,25 @@ fn read_uses_raw_input(args: &[&Word], source: &str) -> bool {
 }
 
 fn read_target_name_uses(args: &[&Word], source: &str) -> Box<[ComparableNameUse]> {
+    read_name_uses(args, source).0
+}
+
+fn read_array_target_name_uses(args: &[&Word], source: &str) -> Box<[ComparableNameUse]> {
+    read_name_uses(args, source).1
+}
+
+fn read_name_uses(
+    args: &[&Word],
+    source: &str,
+) -> (Box<[ComparableNameUse]>, Box<[ComparableNameUse]>) {
     let mut targets = Vec::new();
+    let mut array_targets = Vec::new();
     let mut index = 0usize;
 
     while let Some(word) = args.get(index) {
         let Some(text) = static_word_text(word, source) else {
             if word_starts_with_literal_dash(word, source) {
-                return Vec::new().into_boxed_slice();
+                return (Vec::new().into_boxed_slice(), Vec::new().into_boxed_slice());
             }
 
             for target in &args[index..] {
@@ -820,10 +846,13 @@ fn read_target_name_uses(args: &[&Word], source: &str) -> Box<[ComparableNameUse
                     if let Some(target) =
                         read_attached_array_target_name_use(word, source, &text[attached_start..])
                     {
+                        array_targets.push(target.clone());
                         targets.push(target);
                     }
                 } else if let Some(target) = args.get(index + 1) {
-                    targets.extend(comparable_read_target_name_uses(target, source));
+                    let target_uses = comparable_read_target_name_uses(target, source);
+                    array_targets.extend(target_uses.iter().cloned());
+                    targets.extend(target_uses);
                     index += 1;
                 }
                 saw_array_target = true;
@@ -845,7 +874,7 @@ fn read_target_name_uses(args: &[&Word], source: &str) -> Box<[ComparableNameUse
         index += 1;
     }
 
-    targets.into_boxed_slice()
+    (targets.into_boxed_slice(), array_targets.into_boxed_slice())
 }
 
 fn read_attached_array_target_name_use(

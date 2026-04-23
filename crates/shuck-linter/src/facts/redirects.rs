@@ -104,6 +104,12 @@ impl ComparablePath {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct ComparableNameKey(Box<str>);
 
+impl ComparableNameKey {
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum ComparableNameUseKind {
     Literal,

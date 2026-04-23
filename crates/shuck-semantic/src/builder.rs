@@ -2370,7 +2370,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             "read" => {
                 let read_assigns_array = read_assigns_array(&command.args, self.source);
                 for (target_index, (argument, span)) in
-                    iter_read_targets(&command.args, self.source).enumerate()
+                    iter_read_targets(&command.args, self.source)
+                        .into_iter()
+                        .enumerate()
                 {
                     let target_attributes = if read_assigns_array && target_index == 0 {
                         BindingAttributes::ARRAY
@@ -3400,28 +3402,40 @@ fn is_name_fragment(value: &str) -> bool {
         .all(|character| character.is_ascii_alphanumeric() || character == '_')
 }
 
-fn iter_read_targets<'a>(
-    args: &'a [Word],
-    source: &'a str,
-) -> impl Iterator<Item = (Name, Span)> + 'a {
+fn iter_read_targets(args: &[Word], source: &str) -> Vec<(Name, Span)> {
     let options = parse_read_options(args, source);
-    args[options.target_start_index..]
-        .iter()
-        .filter_map(move |word| named_target_word(word, source))
+    let mut targets = Vec::new();
+
+    if let Some(array_target) = options.array_target {
+        targets.push(array_target);
+    }
+
+    if options.assigns_array {
+        return targets;
+    }
+
+    targets.extend(
+        args[options.target_start_index..]
+            .iter()
+            .filter_map(|word| named_target_word(word, source)),
+    );
+    targets
 }
 
 fn read_assigns_array(args: &[Word], source: &str) -> bool {
     parse_read_options(args, source).assigns_array
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct ParsedReadOptions {
     assigns_array: bool,
     target_start_index: usize,
+    array_target: Option<(Name, Span)>,
 }
 
 fn parse_read_options(args: &[Word], source: &str) -> ParsedReadOptions {
     let mut assigns_array = false;
+    let mut array_target = None;
     let mut index = 0;
     while let Some(word) = args.get(index) {
         let Some(text) = static_word_text(word, source) else {
@@ -3438,9 +3452,23 @@ fn parse_read_options(args: &[Word], source: &str) -> ParsedReadOptions {
             break;
         }
 
+        let mut stop_after_array_target = false;
         for (offset, flag) in flags.char_indices() {
             if flag == 'a' {
                 assigns_array = true;
+                let attached_offset = offset + flag.len_utf8();
+                if attached_offset < flags.len() {
+                    array_target =
+                        read_attached_array_target(word, source, &flags[attached_offset..]);
+                } else if let Some(target) = args
+                    .get(index + 1)
+                    .and_then(|word| named_target_word(word, source))
+                {
+                    array_target = Some(target);
+                    index += 1;
+                }
+                stop_after_array_target = true;
+                break;
             }
             if read_flag_takes_value(flag) {
                 if offset + flag.len_utf8() == flags.len() {
@@ -3450,11 +3478,15 @@ fn parse_read_options(args: &[Word], source: &str) -> ParsedReadOptions {
             }
         }
         index += 1;
+        if stop_after_array_target {
+            break;
+        }
     }
 
     ParsedReadOptions {
         assigns_array,
         target_start_index: index.min(args.len()),
+        array_target,
     }
 }
 
@@ -3528,6 +3560,37 @@ fn simple_command_has_name(command: &shuck_ast::SimpleCommand, source: &str) -> 
 fn named_target_word(word: &Word, source: &str) -> Option<(Name, Span)> {
     let text = static_word_text(word, source)?;
     is_name(&text).then_some((Name::from(text.as_ref()), word.span))
+}
+
+fn read_attached_array_target(
+    word: &Word,
+    source: &str,
+    target_text: &str,
+) -> Option<(Name, Span)> {
+    if !is_name(target_text) {
+        return None;
+    }
+
+    let target_span = word
+        .span
+        .slice(source)
+        .rfind(target_text)
+        .map(|start| {
+            read_option_attached_target_span(word.span, source, start, start + target_text.len())
+        })
+        .unwrap_or(word.span);
+
+    Some((Name::from(target_text), target_span))
+}
+
+fn read_option_attached_target_span(span: Span, source: &str, start: usize, end: usize) -> Span {
+    let start_pos = span
+        .start
+        .advanced_by(&source[span.start.offset..span.start.offset + start]);
+    let end_pos = span
+        .start
+        .advanced_by(&source[span.start.offset..span.start.offset + end]);
+    Span::from_positions(start_pos, end_pos)
 }
 
 fn recorded_command_info(

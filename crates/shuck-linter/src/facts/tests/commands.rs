@@ -1124,7 +1124,7 @@ unset -v \"${!prefix_@}\" x${!prefix_*} \"${!name}\" \"${!arr[@]}\"
 
 #[test]
 fn tracks_mapfile_input_fd_and_grouped_find_or_branches() {
-    let source = "#!/bin/bash\nmapfile -u 3 -t files 3< <(printf '%s\\n' hi)\nfind . \\( -name a -o -name b -print \\)\n";
+    let source = "#!/bin/bash\nmapfile -u 3 -t files 3< <(printf '%s\\n' hi)\nmapfile -C cb -c 1 lines\nfind . \\( -name a -o -name b -print \\)\n";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
     let semantic = SemanticModel::build(&output.file, source, &indexer);
@@ -1138,6 +1138,30 @@ fn tracks_mapfile_input_fd_and_grouped_find_or_branches() {
         .and_then(|fact| fact.options().mapfile())
         .expect("expected mapfile facts");
     assert_eq!(mapfile.input_fd(), Some(3));
+    assert_eq!(
+        mapfile
+            .target_name_uses()
+            .iter()
+            .map(|target| target.span().slice(source))
+            .collect::<Vec<_>>(),
+        vec!["files"]
+    );
+
+    let callback_mapfile = facts
+        .commands()
+        .iter()
+        .filter(|fact| fact.effective_name_is("mapfile"))
+        .nth(1)
+        .and_then(|fact| fact.options().mapfile())
+        .expect("expected callback mapfile facts");
+    assert_eq!(
+        callback_mapfile
+            .target_name_uses()
+            .iter()
+            .map(|target| target.span().slice(source))
+            .collect::<Vec<_>>(),
+        vec!["lines"]
+    );
 
     let dynamic_source = "#!/bin/bash\nmapfile -u \"$fd\" -t files < <(printf '%s\\n' hi)\n";
     let dynamic_output = Parser::new(dynamic_source).parse().unwrap();

@@ -10,8 +10,8 @@ shells:
   - bash
   - dash
   - ksh
-description: An array variable is converted to a flat string then used as a string.
-rationale: Keep the array intact or explicitly join it with a delimiter.
+description: A variable name that was already array-like is later rebound as a plain scalar.
+rationale: Reusing one name for both array and scalar semantics makes later expansions harder to reason about.
 safe_fix: false
 fix_description: null
 source:

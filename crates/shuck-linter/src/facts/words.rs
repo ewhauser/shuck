@@ -6553,7 +6553,25 @@ fn parse_mapfile_command(args: &[&Word], source: &str) -> MapfileCommandFacts {
         index += 1;
     }
 
-    MapfileCommandFacts { input_fd }
+    if args
+        .get(index)
+        .and_then(|word| static_word_text(word, source))
+        .as_deref()
+        == Some("--")
+    {
+        index += 1;
+    }
+
+    let target_name_uses = args
+        .get(index)
+        .filter(|word| !word_starts_with_literal_dash(word, source))
+        .map(|word| comparable_read_target_name_uses(word, source))
+        .unwrap_or_default();
+
+    MapfileCommandFacts {
+        input_fd,
+        target_name_uses,
+    }
 }
 
 fn mapfile_option_takes_argument(flag: char) -> bool {

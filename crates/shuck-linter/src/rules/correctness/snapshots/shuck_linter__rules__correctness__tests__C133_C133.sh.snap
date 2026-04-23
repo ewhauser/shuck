@@ -1,9 +1,20 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
-assertion_line: 185
 ---
-C133 array values are flattened to a scalar string before later scalar use
+C133 a variable name switches from array-like use to a plain scalar assignment
  --> <source>:5:1
   |
 5 | exts="${exts[*]}"
   |
+
+C133 a variable name switches from array-like use to a plain scalar assignment
+  --> <source>:10:1
+   |
+10 | items="${items[0]}"
+   |
+
+C133 a variable name switches from array-like use to a plain scalar assignment
+  --> <source>:15:9
+   |
+15 |   local exts="archive"
+   |

@@ -1,37 +1,22 @@
 reviewed_divergences:
-  - side: shellcheck-only
-    path_contains: "233boy__v2ray__"
-    reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings stay out of scope for this rule."
-  - side: shellcheck-only
-    path_contains: "RetroPie__RetroPie-Setup__"
-    reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings stay out of scope for this rule."
-  - side: shellcheck-only
-    path_contains: "alexanderepstein__Bash-Snippets__"
-    reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings stay out of scope for this rule."
-  - side: shellcheck-only
-    path_contains: "bitnami__containers__"
-    reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings stay out of scope for this rule."
-  - side: shellcheck-only
-    path_contains: "community-scripts__ProxmoxVE__"
-    reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings stay out of scope for this rule."
-  - side: shellcheck-only
-    path_contains: "docker-library__official-images__"
-    reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings stay out of scope for this rule."
-  - side: shellcheck-only
-    path_contains: "gentoo__gentoo__"
-    reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings stay out of scope for this rule."
-  - side: shellcheck-only
-    path_contains: "google__oss-fuzz__"
-    reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings stay out of scope for this rule."
-  - side: shellcheck-only
-    path_contains: "nextcloud__docker__"
-    reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings stay out of scope for this rule."
-  - side: shellcheck-only
-    path_contains: "pyenv__pyenv__"
-    reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings stay out of scope for this rule."
-  - side: shellcheck-only
-    path_contains: "rvm__rvm__"
-    reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings stay out of scope for this rule."
-  - side: shellcheck-only
-    path_contains: "void-linux__void-packages__"
-    reason: "C133 intentionally requires an actual array-expansion conversion pattern in the assignment value. Plain same-name scalar reassignments after historical array bindings stay out of scope for this rule."
+  - side: shuck-only
+    path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__helpers.sh"
+    reason: "This helper only reproduces the remaining C133 warning inside the large-corpus source-closure harness. Direct ShellCheck and direct Shuck checks on the file stay quiet, so we track it as closure-sensitive harness noise rather than a stable rule mismatch."
+  - side: shuck-only
+    path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__supplementary__configedit.sh"
+    reason: "This configedit helper only reproduces the remaining C133 warnings inside the large-corpus source-closure harness. Direct ShellCheck and direct Shuck checks on the file stay quiet, so we track it as closure-sensitive harness noise rather than a stable rule mismatch."
+  - side: shuck-only
+    path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__supplementary__scraper.sh"
+    reason: "This scraper helper only reproduces the remaining C133 warnings inside the large-corpus source-closure harness. Direct ShellCheck and direct Shuck checks on the file stay quiet, so we track it as closure-sensitive harness noise rather than a stable rule mismatch."
+  - side: shuck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__system__xen__openvswitch__openvswitch-clean.sh"
+    reason: "This Xen openvswitch cleanup helper only reproduces the remaining C133 warnings inside the large-corpus source-closure harness. Direct ShellCheck and direct Shuck checks on the file stay quiet, so we track it as closure-sensitive harness noise rather than a stable rule mismatch."
+  - side: shuck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__system__xen__openvswitch__vif-openvswitch-extended"
+    reason: "This Xen vif helper only reproduces the remaining C133 warnings inside the large-corpus source-closure harness. Direct ShellCheck and direct Shuck checks on the file stay quiet, so we track it as closure-sensitive harness noise rather than a stable rule mismatch."
+  - side: shuck-only
+    path_suffix: "dokku__dokku__plugins__scheduler-docker-local__scheduler-logs-failed"
+    reason: "This Dokku scheduler helper only reproduces the remaining C133 warnings inside the large-corpus source-closure harness. Direct ShellCheck and direct Shuck checks on the file stay quiet, so we track it as closure-sensitive harness noise rather than a stable rule mismatch."
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__libexec__pyenv-rehash"
+    reason: "This pyenv rehash helper only reproduces the remaining C133 warnings inside the large-corpus source-closure harness. Direct ShellCheck and direct Shuck checks on the file stay quiet, so we track it as closure-sensitive harness noise rather than a stable rule mismatch."
