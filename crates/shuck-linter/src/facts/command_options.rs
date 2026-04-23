@@ -361,6 +361,7 @@ pub struct SetCommandFacts {
     errtrace_flag_spans: Box<[Span]>,
     functrace_flag_spans: Box<[Span]>,
     pipefail_option_spans: Box<[Span]>,
+    non_posix_option_spans: Box<[Span]>,
     flags_without_prefix_spans: Box<[Span]>,
 }
 
@@ -379,6 +380,10 @@ impl SetCommandFacts {
 
     pub fn pipefail_option_spans(&self) -> &[Span] {
         &self.pipefail_option_spans
+    }
+
+    pub fn non_posix_option_spans(&self) -> &[Span] {
+        &self.non_posix_option_spans
     }
 
     pub fn flags_without_prefix_spans(&self) -> &[Span] {
@@ -3896,6 +3901,7 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
     let mut errtrace_flag_spans = Vec::new();
     let mut functrace_flag_spans = Vec::new();
     let mut pipefail_option_spans = Vec::new();
+    let mut non_posix_option_spans = Vec::new();
     let mut flags_without_prefix_spans = Vec::new();
     let mut index = 0usize;
 
@@ -3945,6 +3951,10 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
                     pipefail_change = Some(enable);
                     pipefail_option_spans.push(name_word.span);
                 }
+
+                if !set_o_option_name_is_posix(&name) {
+                    non_posix_option_spans.push(name_word.span);
+                }
                 index += 2;
                 continue;
             }
@@ -3983,13 +3993,19 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
                 break;
             };
 
-            if name == "errtrace" {
+            if name == "errexit" {
+                errexit_change = Some(enable);
+            } else if name == "errtrace" {
                 errtrace_change = Some(enable);
             } else if name == "functrace" {
                 functrace_change = Some(enable);
             } else if name == "pipefail" {
                 pipefail_change = Some(enable);
                 pipefail_option_spans.push(name_word.span);
+            }
+
+            if !set_o_option_name_is_posix(&name) {
+                non_posix_option_spans.push(name_word.span);
             }
             index += 2;
             continue;
@@ -4007,8 +4023,28 @@ fn parse_set_command(args: &[&Word], source: &str) -> SetCommandFacts {
         errtrace_flag_spans: errtrace_flag_spans.into_boxed_slice(),
         functrace_flag_spans: functrace_flag_spans.into_boxed_slice(),
         pipefail_option_spans: pipefail_option_spans.into_boxed_slice(),
+        non_posix_option_spans: non_posix_option_spans.into_boxed_slice(),
         flags_without_prefix_spans: flags_without_prefix_spans.into_boxed_slice(),
     }
+}
+
+fn set_o_option_name_is_posix(name: &str) -> bool {
+    matches!(
+        name,
+        "allexport"
+            | "errexit"
+            | "ignoreeof"
+            | "monitor"
+            | "noclobber"
+            | "noexec"
+            | "noglob"
+            | "nolog"
+            | "notify"
+            | "nounset"
+            | "verbose"
+            | "vi"
+            | "xtrace"
+    )
 }
 
 fn parse_directory_change_command(
