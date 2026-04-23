@@ -40,31 +40,29 @@ The system is organized into three analytical layers, each building on the one b
    |
    v
  +-----------------------------------------+
- | Word Analysis Layer (expansion.rs)      |  "What expansion happens here?"
- |  ExpansionAnalysis, RedirectTarget-      |
- |  Analysis, SubstitutionClassification,  |
- |  RuntimeLiteralAnalysis                 |
+ | Linter Facts Expansion Layer            |  "What expansion happens here?"
+ |  facts/words.rs, facts/redirects.rs,    |
+ |  facts/substitutions.rs                 |
  +-----------------------------------------+
    |
    v
  +-----------------------------------------+
  | Context Enumeration Layer               |  "Where do expansions occur?"
- |  (query.rs, span.rs, word.rs)           |
- |  visit_expansion_words, span helpers,   |
- |  classify_word, static_word_text        |
+ |  WordOccurrence, RedirectFact,          |
+ |  SubstitutionFact, word_spans helpers   |
  +-----------------------------------------+
    |
    v
  AST (shuck-ast Word, WordPart, Redirect, ...)
 ```
 
-Rules combine the layers: they iterate contexts with `visit_expansion_words`, analyze words with expansion analysis functions, check safety with `SafeValueIndex`, and locate diagnostic spans with span helpers.
+Rules combine the layers: they iterate precomputed `LinterFacts` word, redirect, and substitution facts, check safety with `SafeValueIndex`, and locate diagnostic spans with fact-owned span helpers.
 
-All expansion types live in `crates/shuck-linter/src/rules/common/`. They are internal to the linter crate and not part of any public API.
+Expansion types live in `crates/shuck-linter/src/facts/`. They are linter facts rather than parser or semantic concepts; public fact-returned types are re-exported from the crate root, while lower-level analyzers remain crate-internal.
 
 ### Layer 1: Context Enumeration
 
-**Files:** `query.rs`, `span.rs`, `word.rs`
+**Files:** `facts/words.rs`, `facts/word_spans.rs`, `facts/redirects.rs`, `facts/substitutions.rs`
 
 This layer answers "where do expansions occur in this script?" and provides convenience wrappers for word classification.
 
@@ -94,19 +92,15 @@ pub enum ExpansionContext {
 
 **When to use:** Every rule that reasons about expansion should know the context it is analyzing. The context determines which hazards apply (field splitting does not apply in `[[ ]]` string tests), which runtime sensitivities matter (tilde expansion does not apply in case patterns), and what "safe" means (a value safe in argv context may be unsafe in a regex operand).
 
-#### visit_expansion_words
+#### WordOccurrence Facts
 
-The `visit_expansion_words` function iterates all words in a command that undergo shell expansion, paired with their context. It is the primary entry point for rules that need to examine expansion across all positions in a command.
+`LinterFacts::word_facts()` and `LinterFacts::expansion_word_facts(context)` expose all words that undergo shell expansion, paired with their context. They are the primary entry points for rules that need to examine expansion across all positions in a command.
 
 ```rust
-pub fn visit_expansion_words(
-    command: &Command,
-    source: &str,
-    callback: impl FnMut(&Word, ExpansionContext),
-);
+pub fn expansion_word_facts(&self, context: ExpansionContext) -> WordOccurrenceIter<'_, 'a>;
 ```
 
-It covers command names, arguments, assignment values, redirect targets, loop/case/select/trap words, and conditional operands. Rules that only care about specific contexts can filter within the callback.
+The facts cover command names, arguments, assignment values, redirect targets, loop/case/select/trap words, and conditional operands. Rules that only care about specific contexts can query or filter the fact iterator.
 
 #### WordClassification and classify_word
 
@@ -129,7 +123,7 @@ pub struct WordClassification {
 
 #### Span Helpers
 
-`span.rs` provides functions that locate specific expansion parts within a word, used by rules to anchor diagnostics on the relevant expansion rather than the entire word:
+`facts/word_spans.rs` provides functions that locate specific expansion parts within a word, surfaced through `WordOccurrenceRef` methods so rules can anchor diagnostics on the relevant expansion rather than the entire word:
 
 - `command_substitution_part_spans` / `unquoted_command_substitution_part_spans` — find `$(...)` and `` `...` `` parts
 - `array_expansion_part_spans` / `unquoted_array_expansion_part_spans` — find `${arr[@]}` and similar
@@ -138,7 +132,7 @@ pub struct WordClassification {
 
 ### Layer 2: Word Analysis
 
-**File:** `expansion.rs`
+**Files:** `facts/words.rs`, `facts/redirects.rs`, `facts/substitutions.rs`
 
 This layer answers "what expansion happens in this word?" by walking the AST `WordPart` tree and aggregating facts about quoting, value shape, hazards, and substitution structure.
 
@@ -241,12 +235,12 @@ pub struct RedirectTargetAnalysis {
 
 **When to use:** Rules that analyze redirects, particularly `C057` and `C058` (redirected substitution rules). The `/dev/null` classification is especially important: it determines whether a command substitution's stdout is being discarded, which changes whether the substitution is useful.
 
-#### SubstitutionClassification
+#### SubstitutionFact
 
-Produced by `classify_substitution(substitution, source)`. Walks all commands inside a command substitution to determine what happens to stdout:
+Built in `facts/substitutions.rs`. It walks commands inside a command substitution to determine what happens to stdout:
 
 ```rust
-pub struct SubstitutionClassification {
+pub struct SubstitutionFact {
     pub kind: CommandSubstitutionKind,
     pub span: Span,
     pub stdout_intent: SubstitutionOutputIntent,  // Captured | Discarded | Rerouted | Mixed
@@ -327,31 +321,28 @@ The index handles:
 Rules follow a common pattern:
 
 1. **Build indexes** — If the rule needs safe-value analysis, call `SafeValueIndex::build` once for the file.
-2. **Iterate contexts** — Use `visit_expansion_words` to iterate all words in each command, paired with their `ExpansionContext`.
-3. **Classify words** — Call `classify_word` for basic queries or `analyze_word` for the full record.
+2. **Iterate contexts** — Use `checker.facts().word_facts()` or `checker.facts().expansion_word_facts(context)` to iterate words with their `ExpansionContext`.
+3. **Classify words** — Read `WordOccurrenceRef::analysis()` or `WordOccurrenceRef` convenience methods instead of re-analyzing the AST in the rule.
 4. **Check safety** — If the rule needs to determine whether an unquoted expansion is acceptable, call `part_is_safe` or `word_is_safe` with the appropriate `SafeValueQuery`.
 5. **Anchor diagnostics** — Use span helpers to locate the specific expansion part to highlight, rather than flagging the entire word.
 
 #### Example: S001 (Unquoted Expansion)
 
 ```
-for each command in file:
-  build SafeValueIndex from semantic model
-  visit_expansion_words(command):
-    if context is not relevant: skip
-    classify_word(word):
-      if not scalar expansion: skip
-    for each expansion part span:
-      if part_is_safe(part, Argv): skip   // e.g., integer variable
-      emit diagnostic at part span
+build SafeValueIndex from semantic model
+for each word fact:
+  if context is not relevant: skip
+  if analysis has no scalar expansion hazard: skip
+  for each expansion part span:
+    if part_is_safe(part, Argv): skip   // e.g., integer variable
+    emit diagnostic at part span
 ```
 
 #### Example: C055 (Pattern With Variable)
 
 ```
-visit_expansion_words(command):
-  if context != ParameterPattern: skip
-  if classify_word(word).is_expanded():
+for each ParameterPattern word fact:
+  if analysis is expanded:
     emit diagnostic at word span
 ```
 
@@ -408,7 +399,7 @@ Use the semantic model's reaching-definition and dataflow infrastructure to trac
 
 The expansion analysis layer is verified at three levels:
 
-- **Unit tests** in `expansion.rs`: Test `analyze_word`, `analyze_literal_runtime`, `analyze_redirect_target`, and `classify_substitution` directly with parsed shell fragments. Cover array vs. scalar shape, quoting effects, redirect /dev/null classification, descriptor dup tracking, and fd-swap patterns.
+- **Fact-layer unit tests** in `facts/words.rs`, `facts/redirects.rs`, and `facts/substitutions.rs`: Test `analyze_word`, `analyze_literal_runtime`, cached redirect target analysis, comparable path summaries, and substitution stdout intent with parsed shell fragments. Cover array vs. scalar shape, quoting effects, redirect `/dev/null` classification, descriptor dup tracking, and fd-swap patterns.
 
 - **Snapshot and fixture tests** per consumer rule: Each rule that uses the expansion system has its own test suite validating that the combined analysis produces correct diagnostics for known patterns.
 

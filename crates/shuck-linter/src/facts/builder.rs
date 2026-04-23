@@ -384,7 +384,7 @@ impl<'a> LinterFactsBuilder<'a> {
             build_case_pattern_impossible_spans(&commands, self.source);
         let pipelines = build_pipeline_facts(&commands, &command_ids_by_span);
         let scope_read_source_words =
-            build_scope_read_source_words(&commands, &pipelines, &if_condition_command_ids);
+            build_scope_read_source_words(&commands, &pipelines, &if_condition_command_ids, source);
         for (fact, words) in commands.iter_mut().zip(scope_read_source_words) {
             fact.scope_read_source_words = words;
         }

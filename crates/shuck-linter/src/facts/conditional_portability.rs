@@ -2,11 +2,10 @@ use rustc_hash::FxHashSet;
 use shuck_ast::{ConditionalBinaryOp, ConditionalUnaryOp, Span, static_word_text};
 
 use super::{
-    CommandFact, CommandId, ConditionalFact, ConditionalNodeFact, FactSpan, SimpleTestFact,
-    SimpleTestSyntax, WordNode, WordOccurrence, word_spans,
+    CommandFact, CommandId, ConditionalFact, ConditionalNodeFact, ExpansionContext, FactSpan,
+    SimpleTestFact, SimpleTestSyntax, WordNode, WordOccurrence, word_spans,
 };
 use crate::facts::occurrence_word;
-use crate::rules::common::expansion::ExpansionContext;
 
 #[derive(Debug, Clone, Default)]
 pub struct ConditionalPortabilityFacts {

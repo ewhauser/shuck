@@ -11,9 +11,8 @@ use shuck_semantic::{
 };
 use shuck_semantic::{BindingId, BlockId, ReferenceId, ReferenceKind};
 
-use crate::{FactSpan, LinterFacts};
-
-use super::expansion::{ExpansionContext, analyze_literal_runtime};
+use crate::facts::analyze_literal_runtime;
+use crate::{ExpansionContext, FactSpan, LinterFacts};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SafeValueQuery {
@@ -1867,8 +1866,8 @@ mod tests {
     };
 
     use super::{SafeValueIndex, SafeValueQuery, function_has_terminal_exit};
+    use crate::ExpansionContext;
     use crate::LinterFacts;
-    use crate::rules::common::expansion::ExpansionContext;
     use crate::{ShellDialect, classify_file_context};
 
     #[test]

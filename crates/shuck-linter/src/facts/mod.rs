@@ -34,11 +34,6 @@ use self::{
     },
 };
 use crate::context::ContextRegionKind;
-use crate::rules::common::expansion::{
-    ExpansionAnalysis, ExpansionContext, RedirectTargetAnalysis, RuntimeLiteralAnalysis,
-    SubstitutionOutputIntent, WordExpansionKind, WordLiteralness, WordQuote, WordSubstitutionShape,
-    analyze_literal_runtime, analyze_redirect_target, analyze_word,
-};
 use crate::rules::common::{
     command::{self, DeclarationKind, NormalizedCommand, NormalizedDeclaration, WrapperKind},
     query::{self, CommandSubstitutionKind, CommandVisit, CommandWalkOptions},
@@ -54,15 +49,15 @@ use shuck_ast::{
     CommandSubstitutionSyntax, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
     ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, FunctionDef, Name,
     ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Position,
-    Redirect, RedirectKind, SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq,
-    StmtTerminator, Subscript, TextRange, VarRef, WhileCommand, Word, WordPart, WordPartNode,
-    ZshExpansionTarget, ZshGlobSegment, ZshQualifiedGlob, is_shell_variable_name, static_word_text,
-    word_is_standalone_status_capture,
+    PrefixMatchKind, Redirect, RedirectKind, SelectCommand, SimpleCommand, SourceText, Span, Stmt,
+    StmtSeq, StmtTerminator, Subscript, SubscriptSelector, TextRange, VarRef, WhileCommand, Word,
+    WordPart, WordPartNode, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment,
+    ZshQualifiedGlob, is_shell_variable_name, static_word_text, word_is_standalone_status_capture,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
 use shuck_semantic::{
-    BindingAttributes, BindingId, BindingKind, ScopeId, SemanticModel, ZshOptionState,
+    BindingAttributes, BindingId, BindingKind, OptionValue, ScopeId, SemanticModel, ZshOptionState,
 };
 use smallvec::SmallVec;
 use std::{borrow::Cow, cell::OnceCell, ops::ControlFlow};

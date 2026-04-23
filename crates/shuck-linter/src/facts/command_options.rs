@@ -1,16 +1,34 @@
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct PathWordFact<'a> {
     word: &'a Word,
     context: ExpansionContext,
+    comparable_path: Option<ComparablePath>,
 }
 
 impl<'a> PathWordFact<'a> {
+    pub(crate) fn new(
+        word: &'a Word,
+        context: ExpansionContext,
+        source: &str,
+        zsh_options: Option<&ZshOptionState>,
+    ) -> Self {
+        Self {
+            word,
+            context,
+            comparable_path: comparable_path(word, source, context, zsh_options),
+        }
+    }
+
     pub fn word(&self) -> &'a Word {
         self.word
     }
 
     pub fn context(&self) -> ExpansionContext {
         self.context
+    }
+
+    pub(crate) fn comparable_path(&self) -> Option<&ComparablePath> {
+        self.comparable_path.as_ref()
     }
 }
 

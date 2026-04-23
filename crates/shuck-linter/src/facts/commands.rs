@@ -493,16 +493,18 @@ fn build_scope_read_source_words<'a>(
     commands: &[CommandFact<'a>],
     pipelines: &[PipelineFact<'a>],
     if_condition_command_ids: &FxHashSet<CommandId>,
+    source: &str,
 ) -> Vec<Box<[PathWordFact<'a>]>> {
     let mut words_by_command = vec![Vec::new(); commands.len()];
 
     for command in commands {
-        let mut scope_words = own_scope_read_source_words(command, if_condition_command_ids);
+        let mut scope_words = own_scope_read_source_words(command, if_condition_command_ids, source);
         if command_has_file_output_redirect(command) {
             scope_words.extend(nested_scope_read_source_words(
                 commands,
                 command,
                 if_condition_command_ids,
+                source,
             ));
         }
         dedup_path_words(&mut scope_words);
@@ -527,12 +529,12 @@ fn build_scope_read_source_words<'a>(
         let mut pipeline_words = commands
             .iter()
             .filter(|command| contains_span(pipeline.span(), command.span()))
-            .flat_map(|command| own_scope_read_source_words(command, if_condition_command_ids))
+            .flat_map(|command| own_scope_read_source_words(command, if_condition_command_ids, source))
             .collect::<Vec<_>>();
         dedup_path_words(&mut pipeline_words);
 
         for writer_id in writer_ids {
-            words_by_command[writer_id.index()].extend(pipeline_words.iter().copied());
+            words_by_command[writer_id.index()].extend(pipeline_words.iter().cloned());
             dedup_path_words(&mut words_by_command[writer_id.index()]);
         }
     }
@@ -546,17 +548,22 @@ fn build_scope_read_source_words<'a>(
 fn own_scope_read_source_words<'a>(
     command: &CommandFact<'a>,
     if_condition_command_ids: &FxHashSet<CommandId>,
+    source: &str,
 ) -> Vec<PathWordFact<'a>> {
     let mut words = command_file_operand_words(command)
         .into_iter()
-        .map(|word| PathWordFact {
-            word,
-            context: ExpansionContext::CommandArgument,
+        .map(|word| {
+            PathWordFact::new(
+                word,
+                ExpansionContext::CommandArgument,
+                source,
+                command.zsh_options(),
+            )
         })
         .collect::<Vec<_>>();
-    words.extend(command_redirect_read_source_words(command));
+    words.extend(command_redirect_read_source_words(command, source));
     if !if_condition_command_ids.contains(&command.id()) {
-        words.extend(command_conditional_path_words(command));
+        words.extend(command_conditional_path_words(command, source));
     }
     words
 }
@@ -565,11 +572,12 @@ fn nested_scope_read_source_words<'a>(
     commands: &[CommandFact<'a>],
     command: &CommandFact<'a>,
     if_condition_command_ids: &FxHashSet<CommandId>,
+    source: &str,
 ) -> Vec<PathWordFact<'a>> {
     commands
         .iter()
         .filter(|other| other.id() != command.id() && contains_span(command.span(), other.span()))
-        .flat_map(|other| own_scope_read_source_words(other, if_condition_command_ids))
+        .flat_map(|other| own_scope_read_source_words(other, if_condition_command_ids, source))
         .collect()
 }
 
@@ -596,7 +604,10 @@ fn command_file_operand_words<'a>(command: &CommandFact<'a>) -> Vec<&'a Word> {
     command.file_operand_words().to_vec()
 }
 
-fn command_redirect_read_source_words<'a>(command: &CommandFact<'a>) -> Vec<PathWordFact<'a>> {
+fn command_redirect_read_source_words<'a>(
+    command: &CommandFact<'a>,
+    source: &str,
+) -> Vec<PathWordFact<'a>> {
     command
         .redirect_facts()
         .iter()
@@ -608,18 +619,25 @@ fn command_redirect_read_source_words<'a>(command: &CommandFact<'a>) -> Vec<Path
                 return None;
             }
 
-            Some(PathWordFact {
-                word: redirect.redirect().word_target()?,
-                context: match ExpansionContext::from_redirect_kind(redirect.redirect().kind) {
-                    Some(context) => context,
-                    None => unreachable!("input redirects should carry a word target context"),
-                },
-            })
+            let word = redirect.redirect().word_target()?;
+            let context = match ExpansionContext::from_redirect_kind(redirect.redirect().kind) {
+                Some(context) => context,
+                None => unreachable!("input redirects should carry a word target context"),
+            };
+            Some(PathWordFact::new(
+                word,
+                context,
+                source,
+                command.zsh_options(),
+            ))
         })
         .collect()
 }
 
-fn command_conditional_path_words<'a>(command: &CommandFact<'a>) -> Vec<PathWordFact<'a>> {
+fn command_conditional_path_words<'a>(
+    command: &CommandFact<'a>,
+    source: &str,
+) -> Vec<PathWordFact<'a>> {
     let mut words = Vec::new();
 
     if let Some(conditional) = command.conditional() {
@@ -629,16 +647,20 @@ fn command_conditional_path_words<'a>(command: &CommandFact<'a>) -> Vec<PathWord
                     if binary.operator_family() == ConditionalOperatorFamily::StringBinary =>
                 {
                     if let Some(word) = binary.left().word() {
-                        words.push(PathWordFact {
+                        words.push(PathWordFact::new(
                             word,
-                            context: ExpansionContext::StringTestOperand,
-                        });
+                            ExpansionContext::StringTestOperand,
+                            source,
+                            command.zsh_options(),
+                        ));
                     }
                     if let Some(word) = binary.right().word() {
-                        words.push(PathWordFact {
+                        words.push(PathWordFact::new(
                             word,
-                            context: ExpansionContext::StringTestOperand,
-                        });
+                            ExpansionContext::StringTestOperand,
+                            source,
+                            command.zsh_options(),
+                        ));
                     }
                 }
                 ConditionalNodeFact::Binary(_) => {}

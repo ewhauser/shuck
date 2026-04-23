@@ -1,13 +1,12 @@
 use shuck_ast::Span;
 
 use super::{
-    BacktickFragmentFact, CommandFact, SingleQuotedFragmentFact, WordNode, WordOccurrence,
-    word_spans,
+    BacktickFragmentFact, CommandFact, ExpansionContext, SingleQuotedFragmentFact, WordNode,
+    WordOccurrence, word_spans,
 };
 use crate::FileContext;
 use crate::context::FileContextTag;
 use crate::facts::{occurrence_span, occurrence_word};
-use crate::rules::common::expansion::ExpansionContext;
 
 pub(super) struct EscapeScanContext<'a> {
     pub(super) source: &'a str,

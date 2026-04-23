@@ -1,4 +1,12 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubstitutionOutputIntent {
+    Captured,
+    Discarded,
+    Rerouted,
+    Mixed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubstitutionHostKind {
     CommandArgument,
     HereStringOperand,

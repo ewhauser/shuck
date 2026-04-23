@@ -1,8 +1,7 @@
 use rustc_hash::FxHashMap;
 use shuck_ast::{RedirectKind, Span};
 
-use crate::rules::common::expansion::{ComparablePathKey, ExpansionContext, comparable_path};
-use crate::{Checker, Rule, Violation};
+use crate::{Checker, ComparablePathKey, ExpansionContext, Rule, Violation};
 
 pub struct RedirectClobbersInput;
 
@@ -17,17 +16,16 @@ impl Violation for RedirectClobbersInput {
 }
 
 pub fn redirect_clobbers_input(checker: &mut Checker) {
-    let source = checker.source();
     let spans = checker
         .facts()
         .structural_commands()
-        .flat_map(|fact| clobber_spans_for_command(fact, source))
+        .flat_map(clobber_spans_for_command)
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || RedirectClobbersInput);
 }
 
-fn clobber_spans_for_command(fact: &crate::CommandFact<'_>, source: &str) -> Vec<Span> {
+fn clobber_spans_for_command(fact: &crate::CommandFact<'_>) -> Vec<Span> {
     if fact.effective_name_is("echo") || fact.effective_name_is("printf") {
         return Vec::new();
     }
@@ -42,15 +40,8 @@ fn clobber_spans_for_command(fact: &crate::CommandFact<'_>, source: &str) -> Vec
         .filter_map(|redirect| redirect.redirect().word_target().map(|word| word.span))
         .collect::<Vec<_>>();
 
-    let options = fact.zsh_options();
     for redirect in fact.redirect_facts() {
-        let Some(target) = redirect.redirect().word_target() else {
-            continue;
-        };
-        let Some(context) = ExpansionContext::from_redirect_kind(redirect.redirect().kind) else {
-            continue;
-        };
-        let Some(comparable) = comparable_path(target, source, context, options) else {
+        let Some(comparable) = redirect.comparable_path() else {
             continue;
         };
 
@@ -86,9 +77,7 @@ fn clobber_spans_for_command(fact: &crate::CommandFact<'_>, source: &str) -> Vec
             continue;
         }
 
-        let Some(comparable) =
-            comparable_path(source_word.word(), source, source_word.context(), options)
-        else {
+        let Some(comparable) = source_word.comparable_path() else {
             continue;
         };
 
