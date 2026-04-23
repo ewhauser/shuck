@@ -489,6 +489,14 @@ fn build_arithmetic_update_operator_spans(body: &StmtSeq, source: &str) -> Vec<S
         for redirect in visit.redirects {
             if let Some(word) = redirect.word_target() {
                 collect_arithmetic_update_operator_spans_in_word(word, source, &mut spans);
+            } else if let Some(heredoc) = redirect.heredoc()
+                && heredoc.delimiter.expands_body
+            {
+                collect_arithmetic_update_operator_spans_in_heredoc_body(
+                    &heredoc.body.parts,
+                    source,
+                    &mut spans,
+                );
             }
         }
     }
@@ -700,6 +708,64 @@ fn collect_arithmetic_update_operator_spans_in_pattern(
             | PatternPart::AnyString
             | PatternPart::AnyChar
             | PatternPart::CharClass(_) => {}
+        }
+    }
+}
+
+fn collect_arithmetic_update_operator_spans_in_heredoc_body(
+    parts: &[shuck_ast::HeredocBodyPartNode],
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for part in parts {
+        match &part.kind {
+            shuck_ast::HeredocBodyPart::ArithmeticExpansion {
+                expression_ast,
+                expression_word_ast,
+                ..
+            } => {
+                if let Some(expression_ast) = expression_ast.as_ref() {
+                    collect_arithmetic_update_operator_spans(Some(expression_ast), source, spans);
+                } else {
+                    collect_arithmetic_update_operator_spans_in_word(
+                        expression_word_ast,
+                        source,
+                        spans,
+                    );
+                }
+            }
+            shuck_ast::HeredocBodyPart::CommandSubstitution { body, .. } => {
+                for stmt in &body.stmts {
+                    collect_arithmetic_update_operator_spans_in_command(
+                        &stmt.command,
+                        source,
+                        spans,
+                    );
+                    for redirect in &stmt.redirects {
+                        if let Some(word) = redirect.word_target() {
+                            collect_arithmetic_update_operator_spans_in_word(
+                                word,
+                                source,
+                                spans,
+                            );
+                        } else if let Some(heredoc) = redirect.heredoc()
+                            && heredoc.delimiter.expands_body
+                        {
+                            collect_arithmetic_update_operator_spans_in_heredoc_body(
+                                &heredoc.body.parts,
+                                source,
+                                spans,
+                            );
+                        }
+                    }
+                }
+            }
+            shuck_ast::HeredocBodyPart::Parameter(parameter) => {
+                collect_arithmetic_update_operator_spans_in_parameter_expansion(
+                    parameter, source, spans,
+                );
+            }
+            shuck_ast::HeredocBodyPart::Literal(_) | shuck_ast::HeredocBodyPart::Variable(_) => {}
         }
     }
 }
