@@ -135,8 +135,15 @@ fn looks_like_defined_variable_name(checker: &Checker<'_>, text: &str, span: Spa
                 return false;
             }
 
-            checker.semantic().binding_visible_at(binding_id, span)
-                && binding.span.start.offset != span.start.offset
+            if binding.span.start.offset == span.start.offset {
+                return false;
+            }
+
+            let imported_binding = binding.attributes.intersects(
+                BindingAttributes::IMPORTED_POSSIBLE | BindingAttributes::IMPORTED_FILE_ENTRY,
+            ) || matches!(binding.kind, BindingKind::Imported);
+
+            !imported_binding || checker.semantic().binding_visible_at(binding_id, span)
         })
 }
 
@@ -241,7 +248,7 @@ done
     }
 
     #[test]
-    fn later_or_out_of_scope_bindings_do_not_suppress_diagnostics() {
+    fn same_file_bindings_suppress_literal_variable_name_heuristics() {
         let source = "\
 #!/bin/bash
 [[ foo -eq 1 ]]
@@ -250,6 +257,29 @@ helper() {
   local bar=1
 }
 [[ bar -eq 1 ]]
+show_launch() {
+  [[ \"$LEGACY_JOY2KEY\" -eq 0 && \"DISABLE_MENU\" -ne 1 ]]
+}
+get_config() {
+  DISABLE_MENU=1
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::StringComparedWithEq),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn function_definitions_do_not_suppress_diagnostics() {
+        let source = "\
+#!/bin/bash
+DISABLE_MENU() {
+  :
+}
+[[ \"DISABLE_MENU\" -ne 1 ]]
 ";
         let diagnostics = test_snippet(
             source,
@@ -261,7 +291,7 @@ helper() {
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["foo", "bar"]
+            vec!["\"DISABLE_MENU\""]
         );
     }
 
