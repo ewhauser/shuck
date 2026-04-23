@@ -2,7 +2,7 @@ use shuck_ast::Span;
 
 use crate::{
     Checker, CommandSubstitutionKind, ConditionalNodeFact, ConditionalOperatorFamily,
-    ExpansionContext, Rule, SubstitutionFact, Violation, WordFactContext,
+    ExpansionContext, Rule, SimpleTestSyntax, SubstitutionFact, Violation, WordFactContext,
 };
 
 pub struct GrepOutputInTest;
@@ -57,6 +57,10 @@ fn collect_simple_test_spans(
     simple_test: &crate::SimpleTestFact<'_>,
     substitutions: &[&SubstitutionFact],
 ) -> Vec<Span> {
+    if simple_test.syntax() != SimpleTestSyntax::Bracket {
+        return Vec::new();
+    }
+
     let source = checker.source();
     let mut spans = simple_test
         .truthy_expression_words(source)
@@ -239,7 +243,8 @@ fn word_has_top_level_grep_substitution(
         .collect::<Vec<_>>();
 
     candidates.iter().any(|substitution| {
-        substitution.body_contains_grep()
+        !substitution.uses_backtick_syntax()
+            && substitution.body_contains_grep()
             && !candidates.iter().any(|other| {
                 other.span() != substitution.span()
                     && span_contains(other.span(), substitution.span())
@@ -274,20 +279,14 @@ mod tests {
     }
 
     #[test]
-    fn reports_legacy_backticks_in_simple_tests() {
+    fn ignores_legacy_backticks_in_simple_tests() {
         let source = "\
 #!/bin/sh
 [ -z `nvm ls | grep '^ *\\.'` ]
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::GrepOutputInTest));
 
-        assert_eq!(
-            diagnostics
-                .iter()
-                .map(|diagnostic| diagnostic.span.slice(source))
-                .collect::<Vec<_>>(),
-            vec!["-z"]
-        );
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
@@ -305,6 +304,17 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["$(grep foo file) "]
         );
+    }
+
+    #[test]
+    fn ignores_legacy_backticks_in_conditionals() {
+        let source = "\
+#!/bin/bash
+[[ -n `go env 2>/dev/null | grep proxy.golang.org` ]]
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::GrepOutputInTest));
+
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
@@ -397,6 +407,18 @@ mod tests {
 [ ! -a \"$(grep foo input.txt)\" ]
 [ ! -o \"$(grep foo input.txt)\" ]
 [ -a \"$path\" -o -z \"$ok\" ]
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::GrepOutputInTest));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_test_builtin_string_unary_forms() {
+        let source = "\
+#!/bin/sh
+test -n \"$(grep foo input.txt)\"
+test -z \"$(grep foo input.txt)\"
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::GrepOutputInTest));
 

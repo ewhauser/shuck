@@ -8,7 +8,6 @@
 [[ $(egrep foo input.txt) ]]
 [[ -n $(fgrep foo input.txt) ]]
 [[ -n "$1" && ! -f "$1" && -n "$(echo "$1" | GREP_OPTIONS="" \grep -v '^-')" ]]
-[[ -z `nvm ls | grep '^ *\.'` ]]
 if grep foo input.txt; then :; fi
 [ "$(foo $(grep foo input.txt))" ]
 [ "prefix$(grep foo input.txt)" ]
