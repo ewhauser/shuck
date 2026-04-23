@@ -12,13 +12,8 @@ impl Violation for SubshellInArithmetic {
     }
 }
 
-pub fn subshell_in_arithmetic(checker: &mut Checker) {
-    let spans = checker
-        .facts()
-        .arithmetic_command_substitution_spans()
-        .to_vec();
-
-    checker.report_all_dedup(spans, || SubshellInArithmetic);
+pub fn subshell_in_arithmetic(_checker: &mut Checker) {
+    // The current SC2290 oracle has no diagnostic for this older policy.
 }
 
 #[cfg(test)]
@@ -29,7 +24,7 @@ mod tests {
     use crate::{LinterSettings, Rule, assert_diagnostics};
 
     #[test]
-    fn reports_command_substitutions_inside_arithmetic_expansion() -> anyhow::Result<()> {
+    fn does_not_report_command_substitutions_inside_arithmetic_expansion() -> anyhow::Result<()> {
         let snapshot = format!("{}_{}", Rule::SubshellInArithmetic.code(), "C077.sh");
         let (diagnostics, source) = test_path(
             Path::new("correctness").join("C077.sh").as_path(),
@@ -40,19 +35,18 @@ mod tests {
     }
 
     #[test]
-    fn reports_command_substitutions_in_arithmetic_for_clauses() {
+    fn does_not_report_command_substitutions_in_arithmetic_for_clauses() {
         let source = "#!/bin/bash\nfor (( i=$(printf 1); i < 3; i++ )); do :; done\n";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::SubshellInArithmetic),
         );
 
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.slice(source), "$(printf 1)");
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
     #[test]
-    fn reports_command_substitutions_in_wrapped_substring_offset_arithmetic() {
+    fn does_not_report_command_substitutions_in_wrapped_substring_offset_arithmetic() {
         let source =
             "#!/bin/bash\nrest=abcdef\nprintf '%s\\n' \"${rest:$((${#rest}-$(printf 1)))}\"\n";
         let diagnostics = test_snippet(
@@ -60,8 +54,7 @@ mod tests {
             &LinterSettings::for_rule(Rule::SubshellInArithmetic),
         );
 
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.slice(source), "$(printf 1)");
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
     #[test]

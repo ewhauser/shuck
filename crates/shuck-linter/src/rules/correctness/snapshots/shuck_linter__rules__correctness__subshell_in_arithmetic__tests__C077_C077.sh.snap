@@ -1,9 +1,4 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/subshell_in_arithmetic.rs
-assertion_line: 38
+assertion_line: 33
 ---
-C077 avoid command substitutions inside arithmetic expansion
- --> <source>:4:20
-  |
-4 | spaces=$(($start - $(echo "$tool" | wc -c)))
-  |
