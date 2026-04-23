@@ -74,7 +74,7 @@ fn binding_establishes_array_history(checker: &Checker<'_>, binding: &Binding) -
     match binding.kind {
         BindingKind::Imported => false,
         BindingKind::ReadTarget => read_target_is_array_like(checker, binding),
-        BindingKind::MapfileTarget => true,
+        BindingKind::MapfileTarget => mapfile_target_is_array_like(checker, binding),
         BindingKind::Declaration(DeclarationBuiltin::Local)
             if !binding
                 .attributes
@@ -106,6 +106,47 @@ fn binding_uses_builtin_array_history(checker: &Checker<'_>, binding: &Binding) 
 }
 
 fn read_target_is_array_like(checker: &Checker<'_>, binding: &Binding) -> bool {
+    binding_command(checker, binding)
+        .and_then(|command| command.options().read())
+        .is_some_and(|read| {
+            read.array_target_name_uses()
+                .iter()
+                .any(|target| target.span() == binding.span)
+        })
+}
+
+fn mapfile_target_is_array_like(checker: &Checker<'_>, binding: &Binding) -> bool {
+    if !matches!(checker.shell(), ShellDialect::Bash) {
+        return false;
+    }
+
+    let Some(command) = binding_command(checker, binding) else {
+        return false;
+    };
+    if !(command.effective_name_is("mapfile") || command.effective_name_is("readarray")) {
+        return false;
+    }
+
+    let Some(name_span) = command.body_word_span() else {
+        return false;
+    };
+    let Some(command_name) = command.effective_or_literal_name() else {
+        return false;
+    };
+
+    !matches!(
+        checker
+            .semantic()
+            .visible_binding(&command_name.into(), name_span)
+            .map(|binding| binding.kind),
+        Some(BindingKind::FunctionDefinition)
+    )
+}
+
+fn binding_command<'a>(
+    checker: &'a Checker<'_>,
+    binding: &Binding,
+) -> Option<&'a crate::facts::commands::CommandFact<'a>> {
     checker
         .facts()
         .innermost_command_at(binding.span.start.offset)
@@ -116,12 +157,6 @@ fn read_target_is_array_like(checker: &Checker<'_>, binding: &Binding) -> bool {
                 .iter()
                 .rev()
                 .find(|command| contains_span(command.span(), binding.span))
-        })
-        .and_then(|command| command.options().read())
-        .is_some_and(|read| {
-            read.array_target_name_uses()
-                .iter()
-                .any(|target| target.span() == binding.span)
         })
 }
 
@@ -348,7 +383,27 @@ fuzzer=$1
     fn ignores_mapfile_scalar_assignments_outside_bash() {
         let source = "\
 #!/bin/sh
+mapfile entries
+entries=value
 MAPFILE=value
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_mapfile_targets_from_shadowing_functions() {
+        let source = "\
+#!/bin/bash
+mapfile() {
+  :
+}
+mapfile entries
+entries=value
 ";
         let diagnostics = test_snippet(
             source,
