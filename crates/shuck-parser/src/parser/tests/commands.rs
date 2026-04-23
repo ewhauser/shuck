@@ -3540,21 +3540,32 @@ fn test_parse_zsh_command_v_does_not_fake_short_repeat_effects() {
 }
 
 #[test]
-fn test_parse_zsh_command_unknown_option_does_not_fake_short_repeat_effects() {
-    let source = "command -x unsetopt short_repeat\nrepeat 2 echo global\n";
-    let output = Parser::with_dialect(source, ShellDialect::Zsh)
-        .parse()
-        .unwrap()
-        .file;
+fn test_parse_zsh_unknown_precommand_options_do_not_fake_short_repeat_effects() {
+    for source in [
+        "command -x unsetopt short_repeat\nrepeat 2 echo global\n",
+        "builtin -x unsetopt short_repeat\nrepeat 2 echo global\n",
+        "exec -x unsetopt short_repeat\nrepeat 2 echo global\n",
+    ] {
+        let output = Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap()
+            .file;
 
-    let command = expect_simple(&output.body[0]);
-    assert_eq!(command.name.render(source), "command");
+        let command = expect_simple(&output.body[0]);
+        assert!(
+            matches!(
+                command.name.render(source).as_str(),
+                "command" | "builtin" | "exec"
+            ),
+            "{source}"
+        );
 
-    let (compound, _) = expect_compound(&output.body[1]);
-    let AstCompoundCommand::Repeat(repeat) = compound else {
-        panic!("expected top-level repeat command");
-    };
-    assert_eq!(repeat.count.render(source), "2");
+        let (compound, _) = expect_compound(&output.body[1]);
+        let AstCompoundCommand::Repeat(repeat) = compound else {
+            panic!("expected top-level repeat command for {source}");
+        };
+        assert_eq!(repeat.count.render(source), "2", "{source}");
+    }
 }
 
 #[test]

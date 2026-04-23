@@ -1995,7 +1995,7 @@ pub fn static_command_wrapper_target_index<'a>(
     let target_index = match current_name {
         "noglob" => next_word_index(word_count, current_index),
         "command" => command_wrapper_target_index(word_count, current_index, &mut static_text_at),
-        "builtin" => generic_wrapper_target_index(word_count, current_index, &mut static_text_at),
+        "builtin" => builtin_wrapper_target_index(word_count, current_index, &mut static_text_at),
         "exec" => exec_wrapper_target_index(word_count, current_index, &mut static_text_at),
         _ => return StaticCommandWrapperTarget::NotWrapper,
     };
@@ -2190,12 +2190,12 @@ fn command_wrapper_target_index<'a>(
     None
 }
 
-fn generic_wrapper_target_index<'a>(
+fn builtin_wrapper_target_index<'a>(
     word_count: usize,
     current_index: usize,
     static_text_at: &mut impl FnMut(usize) -> Option<Cow<'a, str>>,
 ) -> Option<usize> {
-    let mut index = current_index + 1;
+    let index = current_index + 1;
 
     while index < word_count {
         let Some(arg) = static_text_at(index) else {
@@ -2207,8 +2207,7 @@ fn generic_wrapper_target_index<'a>(
         }
 
         if arg.starts_with('-') && arg != "-" {
-            index += 1;
-            continue;
+            return None;
         }
 
         return Some(index);
@@ -2234,13 +2233,22 @@ fn exec_wrapper_target_index<'a>(
         }
 
         if arg == "-a" {
-            index = (index + 2).min(word_count);
+            let name_index = index + 1;
+            if name_index >= word_count {
+                return None;
+            }
+            static_text_at(name_index)?;
+            index += 2;
+            continue;
+        }
+
+        if matches!(arg.as_ref(), "-c" | "-l") {
+            index += 1;
             continue;
         }
 
         if arg.starts_with('-') && arg != "-" {
-            index += 1;
-            continue;
+            return None;
         }
 
         return Some(index);

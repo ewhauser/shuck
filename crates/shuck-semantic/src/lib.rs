@@ -7753,16 +7753,27 @@ print *
     }
 
     #[test]
-    fn zsh_option_analysis_ignores_unsupported_command_options() {
-        let source = "\
+    fn zsh_option_analysis_ignores_unsupported_precommand_options() {
+        for source in [
+            "\
 command -x setopt no_glob
 print *
-";
-        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
-        let options = model
-            .zsh_options_at(source.find("print").unwrap())
-            .expect("expected wrapped zsh options");
+",
+            "\
+builtin -x setopt no_glob
+print *
+",
+            "\
+exec -x setopt no_glob
+print *
+",
+        ] {
+            let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+            let options = model
+                .zsh_options_at(source.find("print").unwrap())
+                .expect("expected wrapped zsh options");
 
-        assert_eq!(options.glob, OptionValue::On);
+            assert_eq!(options.glob, OptionValue::On, "{source}");
+        }
     }
 }

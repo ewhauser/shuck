@@ -686,15 +686,20 @@ mod tests {
     }
 
     #[test]
-    fn normalize_command_does_not_peel_unsupported_command_options() {
-        let source = "command -x printf '%s\\n' hi\n";
-        let command = parse_first_command(source);
-        let normalized = normalize_command(&command, source);
+    fn normalize_command_does_not_peel_unsupported_wrapper_options() {
+        for (source, wrapper) in [
+            ("command -x printf '%s\\n' hi\n", WrapperKind::Command),
+            ("builtin -x read var\n", WrapperKind::Builtin),
+            ("exec -x printf '%s\\n' hi\n", WrapperKind::Exec),
+        ] {
+            let command = parse_first_command(source);
+            let normalized = normalize_command(&command, source);
 
-        assert_eq!(normalized.literal_name.as_deref(), Some("command"));
-        assert_eq!(normalized.effective_name.as_deref(), None);
-        assert_eq!(normalized.wrappers, vec![WrapperKind::Command]);
-        assert!(normalized.body_words.is_empty());
+            assert!(normalized.literal_name.is_some(), "{source}");
+            assert_eq!(normalized.effective_name.as_deref(), None, "{source}");
+            assert_eq!(normalized.wrappers, vec![wrapper], "{source}");
+            assert!(normalized.body_words.is_empty(), "{source}");
+        }
     }
 
     #[test]
