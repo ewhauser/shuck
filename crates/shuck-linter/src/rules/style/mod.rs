@@ -54,7 +54,6 @@ pub mod quoted_dollar_star_loop;
 pub mod read_without_raw;
 pub mod redundant_return_status;
 pub mod redundant_spaces_in_echo;
-pub mod relative_symlink_target;
 pub mod single_iteration_loop;
 pub mod single_quote_backslash;
 pub mod spaced_tabstrip_close;
@@ -108,7 +107,6 @@ mod tests {
     #[test_case(Rule::EgrepDeprecated, Path::new("S060.sh"))]
     #[test_case(Rule::FgrepDeprecated, Path::new("S061.sh"))]
     #[test_case(Rule::DefaultValueInColonAssign, Path::new("S062.sh"))]
-    #[test_case(Rule::RelativeSymlinkTarget, Path::new("S063.sh"))]
     #[test_case(Rule::XargsWithInlineReplace, Path::new("S064.sh"))]
     #[test_case(Rule::XPrefixInTest, Path::new("S065.sh"))]
     #[test_case(Rule::LeadingGlobInGrepPattern, Path::new("S067.sh"))]

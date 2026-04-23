@@ -241,17 +241,6 @@ impl WaitCommandFacts {
 }
 
 #[derive(Debug, Clone)]
-pub struct LnCommandFacts<'a> {
-    symlink_target_words: Box<[&'a Word]>,
-}
-
-impl<'a> LnCommandFacts<'a> {
-    pub fn symlink_target_words(&self) -> &[&'a Word] {
-        &self.symlink_target_words
-    }
-}
-
-#[derive(Debug, Clone)]
 pub struct GrepCommandFacts<'a> {
     pub uses_only_matching: bool,
     pub uses_fixed_strings: bool,
@@ -504,7 +493,6 @@ pub struct CommandOptionFacts<'a> {
     mapfile: Option<MapfileCommandFacts>,
     xargs: Option<XargsCommandFacts>,
     wait: Option<WaitCommandFacts>,
-    ln: Option<LnCommandFacts<'a>>,
     grep: Option<GrepCommandFacts<'a>>,
     ps: Option<PsCommandFacts>,
     set: Option<SetCommandFacts>,
@@ -575,10 +563,6 @@ impl<'a> CommandOptionFacts<'a> {
 
     pub fn wait(&self) -> Option<&WaitCommandFacts> {
         self.wait.as_ref()
-    }
-
-    pub fn ln(&self) -> Option<&LnCommandFacts<'a>> {
-        self.ln.as_ref()
     }
 
     pub fn grep(&self) -> Option<&GrepCommandFacts<'a>> {
@@ -679,10 +663,6 @@ impl<'a> CommandOptionFacts<'a> {
             wait: normalized
                 .effective_name_is("wait")
                 .then(|| parse_wait_command(normalized.body_args(), source)),
-            ln: normalized
-                .effective_name_is("ln")
-                .then(|| parse_ln_command(normalized.body_args(), source))
-                .flatten(),
             grep: normalized
                 .effective_name_is("grep")
                 .then(|| parse_grep_command(normalized.body_args(), source))
