@@ -146,4 +146,15 @@ wget() { :; }
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
+
+    #[test]
+    fn ignores_named_coproc_syntax() {
+        let source = "\
+#!/bin/sh
+coproc pycoproc (python3 \"$pywrapper\")
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FunctionParamsInSh));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
 }
