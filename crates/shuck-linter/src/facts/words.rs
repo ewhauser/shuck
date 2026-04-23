@@ -5055,7 +5055,8 @@ fn collect_wrapped_arithmetic_spans_in_word(
     let mut index = 0usize;
 
     while index + 2 < bytes.len() {
-        if bytes[index] != b'$' || bytes[index + 1] != b'(' || bytes[index + 2] != b'(' {
+        if !is_unescaped_dollar(bytes, index) || bytes[index + 1] != b'(' || bytes[index + 2] != b'('
+        {
             index += 1;
             continue;
         }

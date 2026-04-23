@@ -498,6 +498,19 @@ eval \"rssi=\\\"\\\\$rssi${i}\\\"; i=$(( $i + 1 ))\"\n\
     }
 
     #[test]
+    fn ignores_escaped_arithmetic_openers_in_eval_strings() {
+        let source = "\
+#!/bin/bash
+__array_start=0
+hash_name=name
+eval \"index=\\$((\\${#_hash_${hash_name}_keys[*]} + $__array_start))\"\n\
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DollarInArithmetic));
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn ignores_dynamic_and_compound_subscript_parameter_accesses_in_arithmetic_expressions() {
         let source = "\
 #!/bin/bash

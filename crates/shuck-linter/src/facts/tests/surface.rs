@@ -1476,6 +1476,28 @@ two[$key]+=y
 }
 
 #[test]
+fn ignores_associative_appends_after_parameter_default_subscripts_for_dollar_in_arithmetic() {
+    let source = "\
+#!/bin/bash
+declare -A map=() other=()
+key=name
+: \"${map[$key]:=}\"
+map[$key]+=$'\\n'
+map[$key]+=\"${values[*]}\"
+";
+
+    with_facts(source, None, |_, facts| {
+        let spans = facts
+            .dollar_in_arithmetic_spans()
+            .iter()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert!(spans.is_empty(), "unexpected spans: {spans:?}");
+    });
+}
+
+#[test]
 fn ignores_globally_declared_associative_assignment_subscripts_for_dollar_in_arithmetic() {
     let source = "\
 #!/bin/bash

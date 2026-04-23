@@ -2862,6 +2862,25 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     }
 
     fn add_parameter_default_binding(&mut self, reference: &VarRef) {
+        let mut attributes = binding_attributes_for_var_ref(reference);
+        if reference.subscript.is_some()
+            && !attributes.contains(BindingAttributes::ASSOC)
+            && self
+                .resolve_reference(
+                    &reference.name,
+                    self.current_scope(),
+                    reference.name_span.start.offset,
+                )
+                .map(|binding_id| {
+                    self.bindings[binding_id.index()]
+                        .attributes
+                        .contains(BindingAttributes::ASSOC)
+                })
+                .unwrap_or(false)
+        {
+            attributes |= BindingAttributes::ARRAY | BindingAttributes::ASSOC;
+        }
+
         self.add_binding(
             &reference.name,
             BindingKind::ParameterDefaultAssignment,
@@ -2870,7 +2889,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             BindingOrigin::ParameterDefaultAssignment {
                 definition_span: reference.span,
             },
-            BindingAttributes::empty(),
+            attributes,
         );
     }
 
