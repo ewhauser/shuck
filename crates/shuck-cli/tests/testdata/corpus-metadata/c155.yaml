@@ -1,116 +1,45 @@
 reviewed_divergences:
-  - side: shuck-only
-    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
-    line: 916
-    reason: "This configure helper intentionally exports build flags only for the nested configure subshell, and the remaining C155 hit comes from file-wide later-use inference across helper-library and project-closure analysis where the pinned oracle stays silent."
-  - side: shuck-only
-    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
-    line: 919
-    reason: "This configure helper intentionally exports build flags only for the nested configure subshell, and the remaining C155 hit comes from file-wide later-use inference across helper-library and project-closure analysis where the pinned oracle stays silent."
-  - side: shuck-only
-    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
-    line: 922
-    reason: "This configure helper intentionally exports build flags only for the nested configure subshell, and the remaining C155 hit comes from file-wide later-use inference across helper-library and project-closure analysis where the pinned oracle stays silent."
-  - side: shuck-only
-    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
-    line: 925
-    reason: "This configure helper intentionally exports build flags only for the nested configure subshell, and the remaining C155 hit comes from file-wide later-use inference across helper-library and project-closure analysis where the pinned oracle stays silent."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__functions__cli"
-    line: 385
-    reason: "This function-style subshell relies on helper-side mutation flow through sourced project-closure behavior, which shuck does not yet promote into a later-read C155 fact."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__functions__installer"
-    line: 226
-    reason: "This installer subshell mutates `rvm_path` only for a helper path that is compared through project-closure analysis, and shuck does not currently lift that sourced helper dependency into C155."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__tools"
-    line: 69
-    reason: "This HOME reassignment sits in a helper path whose observable effect depends on project-closure context from sibling helper execution, which shuck does not currently model as a C155 side effect."
-  - side: shuck-only
-    path_suffix: "HariSekhon__DevOps-Bash-tools__bin__find_broken_symlinks.sh"
-    line: 53
-    end_line: 53
-    reason: "This script sources shared HariSekhon bash helpers before the pipeline. The remaining `exitcode` later-read depends on project-closure shell state rather than the standalone file text, so we record the closure-sensitive comparison on the C155 read-side anchor."
-  - side: shellcheck-only
-    path_suffix: "acmesh-official__acme.sh__acme.sh"
-    line: 5908
-    end_line: 5908
-    column: 69
-    end_column: 76
-    reason: "This renewal-list helper compares through directive-handling and project-closure, and the remaining C155 difference is the exact anchor inside one dense formatted expansion. The warning shape matches, but the oracle pins the later-use span on the `Le_Alt` expansion while shuck currently lands slightly earlier in the same output expression."
-  - side: shuck-only
-    path_suffix: "acmesh-official__acme.sh__acme.sh"
-    line: 5908
-    end_line: 5908
-    column: 67
-    end_column: 74
-    reason: "This renewal-list helper compares through directive-handling and project-closure, and the remaining C155 difference is the exact anchor inside one dense formatted expansion. The warning shape matches, but shuck currently lands slightly earlier in the same output expression than the oracle."
-  - side: shuck-only
-    path_suffix: "alexanderepstein__Bash-Snippets__gist__gist"
-    reason: "These gist listing and detail loops compare through directive-handling and project-closure after sourcing user configuration. The remaining C155 hits are closure-sensitive pipeline noise rather than stable standalone mismatches."
-  - side: shuck-only
-    path_suffix: "aristocratos__bashtop__bashtop"
-    reason: "Bashtop bootstraps runtime state from sourced config and theme files before these `proc[...]` later reads. The remaining C155 hits only reproduce in the directive-handling/project-closure harness, so they are recorded as closure-sensitive noise."
-  - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_table.sh"
-    reason: "This monitoring generator repeatedly sources per-network data files and helper state. The remaining shuck-only C155 hits in this file are closure-sensitive monitor wiring rather than stable standalone mismatches."
-  - side: shellcheck-only
-    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_table.sh"
-    reason: "This monitoring generator repeatedly sources per-network data files and helper state. The remaining shellcheck-only C155 hits depend on project-closure globals that shuck does not yet lift across sourced helper boundaries."
-  - side: shuck-only
-    path_suffix: "oh-my-fish__oh-my-fish__bin__install"
-    reason: "This installer is written for fish rather than a Bourne shell, so the project-closure shell-collapsed comparison is not a reliable SC2031 oracle for these `OMF_PATH` later reads."
-  - side: shuck-only
-    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
-    line: 1318
-    reason: "These helper-library builder functions are compared through project-closure, and the remaining C155 later-read hits come from shuck's file-wide helper-closure inference on environment setup variables where the pinned oracle stays silent in this fixture."
-  - side: shuck-only
-    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
-    line: 1502
-    reason: "These helper-library builder functions are compared through project-closure, and the remaining C155 later-read hits come from shuck's file-wide helper-closure inference on environment setup variables where the pinned oracle stays silent in this fixture."
-  - side: shuck-only
-    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
-    line: 1520
-    reason: "These helper-library builder functions are compared through project-closure, and the remaining C155 later-read hits come from shuck's file-wide helper-closure inference on environment setup variables where the pinned oracle stays silent in this fixture."
-  - side: shuck-only
-    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
-    line: 1521
-    reason: "These helper-library builder functions are compared through project-closure, and the remaining C155 later-read hits come from shuck's file-wide helper-closure inference on environment setup variables where the pinned oracle stays silent in this fixture."
-  - side: shuck-only
-    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
-    line: 1883
-    reason: "These helper-library builder functions are compared through project-closure, and the remaining C155 later-read hits come from shuck's file-wide helper-closure inference on environment setup variables where the pinned oracle stays silent in this fixture."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__functions__installer"
-    line: 236
-    reason: "This installer helper's remaining C155 hits depend on sourced helper-side effects for `rvm_path` inside project-closure analysis, which shuck does not yet lift into later-read facts."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__functions__installer"
-    line: 280
-    reason: "This installer helper's remaining C155 hits depend on sourced helper-side effects for `rvm_path` inside project-closure analysis, which shuck does not yet lift into later-read facts."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__functions__installer"
-    line: 285
-    reason: "This installer helper's remaining C155 hits depend on sourced helper-side effects for `rvm_path` inside project-closure analysis, which shuck does not yet lift into later-read facts."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__gemsets"
-    line: 379
-    reason: "This gemset helper's remaining C155 hits depend on sourced helper-side effects for `rvm_ruby_string` inside project-closure analysis, which shuck does not yet lift into later-read facts."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__gemsets"
-    line: 510
-    reason: "This gemset helper's remaining C155 hits depend on sourced helper-side effects for `rvm_ruby_string` inside project-closure analysis, which shuck does not yet lift into later-read facts."
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__gemsets"
-    line: 514
-    reason: "This gemset helper's remaining C155 hits depend on sourced helper-side effects for `rvm_ruby_string` inside project-closure analysis, which shuck does not yet lift into later-read facts."
-  - side: shuck-only
-    path_suffix: "xwmx__nb__nb"
-    reason: "These nb helper sections run inside a directive-heavy project context that sources wrapper code before reusing locals. The remaining C155 hits are closure-sensitive comparison noise rather than standalone mismatches."
-  - side: shellcheck-only
-    path_suffix: "acmesh-official__acme.sh__acme.sh"
-    reason: "This renewal-list helper compares through directive-handling and project-closure, and the remaining C155 difference is only the exact anchor inside one dense formatted expansion. We record the file-level location drift as reviewed for this oracle pair."
-  - side: shuck-only
-    path_suffix: "acmesh-official__acme.sh__acme.sh"
-    reason: "This renewal-list helper compares through directive-handling and project-closure, and the remaining C155 difference is only the exact anchor inside one dense formatted expansion. We record the file-level location drift as reviewed for this oracle pair."
+- side: shuck-only
+  path_suffix: HariSekhon__DevOps-Bash-tools__bin__find_broken_symlinks.sh
+  line: 53
+  end_line: 53
+  reason: This script sources shared HariSekhon bash helpers before the pipeline. The remaining `exitcode` later-read depends on project-closure shell state rather than the standalone file text, so we record the closure-sensitive comparison on the C155 read-side anchor.
+- side: shuck-only
+  path_suffix: alexanderepstein__Bash-Snippets__gist__gist
+  reason: These gist listing and detail loops compare through directive-handling and project-closure after sourcing user configuration. The remaining C155 hits are closure-sensitive pipeline noise rather than stable standalone mismatches.
+- side: shuck-only
+  path_suffix: aristocratos__bashtop__bashtop
+  reason: Bashtop bootstraps runtime state from sourced config and theme files before these `proc[...]` later reads. The remaining C155 hits only reproduce in the directive-handling/project-closure harness, so they are recorded as closure-sensitive noise.
+- side: shuck-only
+  path_suffix: bittorf__kalua__openwrt-monitoring__meshrdf_generate_table.sh
+  reason: This monitoring generator repeatedly sources per-network data files and helper state. The remaining shuck-only C155 hits in this file are closure-sensitive monitor wiring rather than stable standalone mismatches.
+- side: shellcheck-only
+  path_suffix: bittorf__kalua__openwrt-monitoring__meshrdf_generate_table.sh
+  reason: This monitoring generator repeatedly sources per-network data files and helper state. The remaining shellcheck-only C155 hits depend on project-closure globals that shuck does not yet lift across sourced helper boundaries.
+- side: shellcheck-only
+  path_suffix: rvm__rvm__scripts__functions__installer
+  line: 236
+  reason: This installer helper's remaining C155 hits depend on sourced helper-side effects for `rvm_path` inside project-closure analysis, which shuck does not yet lift into later-read facts.
+- side: shellcheck-only
+  path_suffix: rvm__rvm__scripts__functions__installer
+  line: 280
+  reason: This installer helper's remaining C155 hits depend on sourced helper-side effects for `rvm_path` inside project-closure analysis, which shuck does not yet lift into later-read facts.
+- side: shellcheck-only
+  path_suffix: rvm__rvm__scripts__functions__installer
+  line: 285
+  reason: This installer helper's remaining C155 hits depend on sourced helper-side effects for `rvm_path` inside project-closure analysis, which shuck does not yet lift into later-read facts.
+- side: shellcheck-only
+  path_suffix: rvm__rvm__scripts__gemsets
+  line: 379
+  reason: This gemset helper's remaining C155 hits depend on sourced helper-side effects for `rvm_ruby_string` inside project-closure analysis, which shuck does not yet lift into later-read facts.
+- side: shellcheck-only
+  path_suffix: rvm__rvm__scripts__gemsets
+  line: 510
+  reason: This gemset helper's remaining C155 hits depend on sourced helper-side effects for `rvm_ruby_string` inside project-closure analysis, which shuck does not yet lift into later-read facts.
+- side: shellcheck-only
+  path_suffix: rvm__rvm__scripts__gemsets
+  line: 514
+  reason: This gemset helper's remaining C155 hits depend on sourced helper-side effects for `rvm_ruby_string` inside project-closure analysis, which shuck does not yet lift into later-read facts.
+- side: shuck-only
+  path_suffix: xwmx__nb__nb
+  reason: These nb helper sections run inside a directive-heavy project context that sources wrapper code before reusing locals. The remaining C155 hits are closure-sensitive comparison noise rather than standalone mismatches.

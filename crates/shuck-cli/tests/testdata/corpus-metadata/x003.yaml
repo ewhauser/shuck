@@ -1,7 +1,1 @@
-reviewed_divergences:
-  - side: shuck-only
-    path_suffix: "nvm-sh__nvm__test__install_script__install_nvm_from_git"
-    reason: "ShellCheck aborts on a malformed test expression in this harness before it produces portability findings for the later `local` declarations. Shuck still recovers far enough to report the `#!/bin/sh` portability issue."
-  - side: shuck-only
-    path_suffix: "romkatv__powerlevel10k__gitstatus__install"
-    reason: "ShellCheck emits syntax diagnostics on this installer and never surfaces the `local` portability findings from the surrounding `#!/bin/sh` functions. Shuck continues past those parse problems and keeps the `local` diagnostics visible."
+reviewed_divergences: []

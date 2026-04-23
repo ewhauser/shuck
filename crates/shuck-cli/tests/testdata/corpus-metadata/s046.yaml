@@ -1,8 +1,1 @@
-reviewed_divergences:
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__packages__rust__build.sh"
-    line: 256
-    column: 2
-    end_line: 256
-    end_column: 4
-    reason: "ShellCheck 0.11.0 does not report SC2293 for this raw ls-to-xargs pipeline, but shuck follows the repo-authored S046 scope and flags the unsafe pipeline shape."
+reviewed_divergences: []

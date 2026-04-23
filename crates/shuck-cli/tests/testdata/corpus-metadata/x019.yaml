@@ -1,13 +1,1 @@
-reviewed_divergences:
-  - side: shuck-only
-    path_suffix: "pyenv__pyenv__pyenv.d__rehash__source.bash"
-    line: 11
-    end_line: 11
-    column: 42
-    end_column: 53
-    reason: "This shim builder is already Bash-specific, and the shell-collapse comparison path still maps the same `${shims[@]}` array use back to slightly different columns between the two analyzers."
-  - side: shellcheck-only
-    path_suffix: "pyenv__pyenv__pyenv.d__rehash__source.bash"
-    line: 11
-    end_line: 11
-    reason: "This rehash helper already depends on bash arrays, `shopt`, and `BASH_SOURCE`, so the remaining SC3054 hit reflects project-closure collapsing a bash helper to POSIX sh more aggressively than Shuck's dialect resolution."
+reviewed_divergences: []

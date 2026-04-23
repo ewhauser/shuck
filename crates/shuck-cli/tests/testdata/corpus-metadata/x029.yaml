@@ -1,5 +1,1 @@
-reviewed_divergences:
-  - side: shellcheck-only
-    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_table.sh"
-    line: 3876
-    reason: "ShellCheck's result depends on project closure for this fixture."
+reviewed_divergences: []

@@ -1,8 +1,1 @@
-reviewed_divergences:
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__scripts__build__termux_get_repo_files.sh"
-    line: 88
-    reason: "This Termux build helper uses Bash arrays and `[[ ... ]]` conditionals in a file without a concrete shell header. Shuck still reaches the `wait -n` site through its collapsed-shell path, while the current ShellCheck oracle leaves that Bash-specific helper unclassified for X022."
-  - side: shuck-only
-    path_suffix: "oh-my-fish__oh-my-fish__bin__install"
-    reason: "This installer is a fish script with fish-specific `read -g` and `read -l` flag usage. Shuck can still see those helper paths through project-closure analysis, but they are outside the POSIX sh portability target for X022."
+reviewed_divergences: []

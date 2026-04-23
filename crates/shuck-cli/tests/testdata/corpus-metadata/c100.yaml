@@ -1,82 +1,70 @@
 reviewed_divergences:
-  - side: shellcheck-only
-    path_contains: "233boy__v2ray__"
-    reason: "The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern."
-  - side: shellcheck-only
-    path_contains: "Bash-it__bash-it__"
-    reason: "The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern."
-  - side: shellcheck-only
-    path_contains: "HariSekhon__DevOps-Bash-tools__"
-    reason: "The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern."
-  - side: shellcheck-only
-    path_contains: "RetroPie__RetroPie-Setup__"
-    reason: "The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern."
-  - side: shellcheck-only
-    path_contains: "SlackBuildsOrg__slackbuilds__"
-    reason: "The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern."
-  - side: shellcheck-only
-    path_contains: "alexanderepstein__Bash-Snippets__"
-    reason: "The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern."
-  - side: shellcheck-only
-    path_contains: "alpinelinux__aports__"
-    reason: "The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern."
-  - side: shellcheck-only
-    path_contains: "bitnami__containers__"
-    reason: "The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern."
-  - side: shellcheck-only
-    path_contains: "community-scripts__ProxmoxVE__"
-    reason: "The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern."
-  - side: shellcheck-only
-    path_contains: "docker-library__official-images__"
-    reason: "The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern."
-  - side: shellcheck-only
-    path_contains: "dokku__dokku__"
-    reason: "The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern."
-  - side: shellcheck-only
-    path_contains: "fideloper__Vaprobash__"
-    reason: "The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern."
-  - side: shellcheck-only
-    path_contains: "gentoo__gentoo__"
-    reason: "The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern."
-  - side: shellcheck-only
-    path_contains: "google__oss-fuzz__"
-    reason: "The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern."
-  - side: shellcheck-only
-    path_contains: "lmc999__RegionRestrictionCheck__"
-    reason: "The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern."
-  - side: shellcheck-only
-    path_contains: "nextcloud__docker__"
-    reason: "The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern."
-  - side: shellcheck-only
-    path_contains: "pyenv__pyenv__"
-    reason: "The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern."
-  - side: shellcheck-only
-    path_contains: "rvm__rvm__"
-    reason: "The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern."
-  - side: shellcheck-only
-    path_contains: "scop__bash-completion__"
-    reason: "The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern."
-  - side: shellcheck-only
-    path_contains: "sickcodes__Docker-OSX__"
-    reason: "The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern."
-  - side: shellcheck-only
-    path_contains: "termux__termux-packages__"
-    reason: "The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern."
-  - side: shellcheck-only
-    path_contains: "tteck__Proxmox__"
-    reason: "The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern."
-  - side: shellcheck-only
-    path_contains: "void-linux__void-packages__"
-    reason: "The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern."
-  - side: shuck-only
-    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
-    line: 146
-    reason: "This helper fixture hits a ShellCheck parse abort before full analysis, so SC2128 is not emitted while shuck still reports the quoted BASH_SOURCE scalar expansion."
-  - side: shuck-only
-    path_suffix: "sstephenson__bats__libexec__bats-exec-test"
-    line: 216
-    reason: "This Bats helper still uses a quoted scalar BASH_SOURCE check inside its trap setup, and shuck intentionally keeps the explicit-index warning even though the current oracle does not surface the comparable diagnostic here."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__scripts__bin__add-to-path.sh"
-    line: 7
-    reason: "This Termux bootstrap script derives its bin directory from a quoted scalar BASH_SOURCE expansion, and shuck intentionally keeps the explicit-index warning even when the current oracle does not report the same scalar-access form in this collapsed-shell fixture."
+- side: shellcheck-only
+  path_contains: 233boy__v2ray__
+  reason: The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern.
+- side: shellcheck-only
+  path_contains: Bash-it__bash-it__
+  reason: The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern.
+- side: shellcheck-only
+  path_contains: HariSekhon__DevOps-Bash-tools__
+  reason: The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern.
+- side: shellcheck-only
+  path_contains: RetroPie__RetroPie-Setup__
+  reason: The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern.
+- side: shellcheck-only
+  path_contains: SlackBuildsOrg__slackbuilds__
+  reason: The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern.
+- side: shellcheck-only
+  path_contains: alexanderepstein__Bash-Snippets__
+  reason: The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern.
+- side: shellcheck-only
+  path_contains: alpinelinux__aports__
+  reason: The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern.
+- side: shellcheck-only
+  path_contains: bitnami__containers__
+  reason: The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern.
+- side: shellcheck-only
+  path_contains: community-scripts__ProxmoxVE__
+  reason: The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern.
+- side: shellcheck-only
+  path_contains: docker-library__official-images__
+  reason: The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern.
+- side: shellcheck-only
+  path_contains: dokku__dokku__
+  reason: The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern.
+- side: shellcheck-only
+  path_contains: fideloper__Vaprobash__
+  reason: The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern.
+- side: shellcheck-only
+  path_contains: gentoo__gentoo__
+  reason: The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern.
+- side: shellcheck-only
+  path_contains: google__oss-fuzz__
+  reason: The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern.
+- side: shellcheck-only
+  path_contains: lmc999__RegionRestrictionCheck__
+  reason: The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern.
+- side: shellcheck-only
+  path_contains: nextcloud__docker__
+  reason: The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern.
+- side: shellcheck-only
+  path_contains: pyenv__pyenv__
+  reason: The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern.
+- side: shellcheck-only
+  path_contains: rvm__rvm__
+  reason: The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern.
+- side: shellcheck-only
+  path_contains: scop__bash-completion__
+  reason: The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern.
+- side: shellcheck-only
+  path_contains: sickcodes__Docker-OSX__
+  reason: The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern.
+- side: shellcheck-only
+  path_contains: termux__termux-packages__
+  reason: The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern.
+- side: shellcheck-only
+  path_contains: tteck__Proxmox__
+  reason: The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern.
+- side: shellcheck-only
+  path_contains: void-linux__void-packages__
+  reason: The remaining SC2128 reports in this repo family are broader unindexed-array or array-to-scalar expansions, not the quoted scalar `BASH_SOURCE` form C100 intentionally targets. Shuck keeps C100 scoped to quoted scalar `BASH_SOURCE` expansions instead of every SC2128 pattern.

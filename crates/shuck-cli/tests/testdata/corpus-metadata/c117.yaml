@@ -1,7 +1,1 @@
-reviewed_divergences:
-  - side: shuck-only
-    path_suffix: "ko1nksm__shellspec__spec__general_spec.sh"
-    reason: "This fixture is ShellSpec table data, not a shell assignment stream. The `=` tokens belong to test-case rows, so flagging them would misread the harness syntax."
-  - side: shuck-only
-    path_suffix: "moovweb__gvm__examples__native__configure"
-    reason: "This generated configure script embeds symbol-detection text, and the `=` token is part of that embedded metadata rather than a shell assignment."
+reviewed_divergences: []

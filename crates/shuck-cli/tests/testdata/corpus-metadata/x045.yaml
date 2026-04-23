@@ -1,15 +1,1 @@
-reviewed_divergences:
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__packages__libtorrent__build.sh"
-    line: 22
-    end_line: 22
-    column: 2
-    end_column: 9
-    reason: "This Termux build helper is inferred as POSIX `sh`, and Shuck keeps the `+=` portability warning on that assignment target. The current corpus oracle omits this specific finding for this fixture even though the shell-mode interpretation still treats `+=` as non-portable."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__packages__loksh__build.sh"
-    line: 32
-    end_line: 32
-    column: 2
-    end_column: 8
-    reason: "This Termux build helper is inferred as POSIX `sh`, and Shuck keeps the `+=` portability warning on that assignment target. The current corpus oracle omits this specific finding for this fixture even though the shell-mode interpretation still treats `+=` as non-portable."
+reviewed_divergences: []

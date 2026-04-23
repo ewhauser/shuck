@@ -1,8 +1,1 @@
-reviewed_divergences:
-  - side: shellcheck-only
-    path_suffix: "rvm__rvm__scripts__cli"
-    line: 143
-    end_line: 143
-    column: 49
-    end_column: 51
-    reason: "This fixture's SC2252 record is the unrelated `||`/`&&` warning surfaced in the corpus, not nested zsh substitution syntax."
+reviewed_divergences: []

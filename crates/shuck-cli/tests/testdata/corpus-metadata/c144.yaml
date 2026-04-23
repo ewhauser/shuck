@@ -1,8 +1,1 @@
-reviewed_divergences:
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__packages__tsocks__04_getpeername.patch"
-    line: 51
-    end_line: 51
-    column: 31
-    end_column: 34
-    reason: "This fixture is a patch payload wrapped by a shell launcher. The matched `EOF` token is part of diff text rather than an executed heredoc closer, so this C144 result is recorded as patch-data noise."
+reviewed_divergences: []

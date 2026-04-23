@@ -1,126 +1,18 @@
 review_all_divergences: false
 reviewed_divergences:
-  - side: shuck-only
-    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
-    reason: "This helper script uses arithmetic updates in generated option-parsing and version-formatting code, and the current ShellCheck oracle does not emit SC2004 for those sites even though Shuck keeps the warning for the same arithmetic pattern elsewhere."
-  - side: shuck-only
-    path_suffix: "bats-core__bats-core__libexec__bats-core__bats-preprocess"
-    line: 19
-    reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
-    path_suffix: "dehydrated-io__dehydrated__dehydrated"
-    line: 760
-    reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
-    path_suffix: "dehydrated-io__dehydrated__dehydrated"
-    line: 765
-    reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
-    path_suffix: "sstephenson__bats__libexec__bats"
-    line: 68
-    reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
-    path_suffix: "sstephenson__bats__libexec__bats-preprocess"
-    line: 18
-    reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__scripts__updates__internal__termux_github_graphql.sh"
-    line: 28
-    reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__scripts__updates__internal__termux_github_graphql.sh"
-    line: 36
-    reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__scripts__updates__internal__termux_github_graphql.sh"
-    line: 46
-    reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
-    path_suffix: "termux__termux-packages__scripts__updates__internal__termux_github_graphql.sh"
-    line: 61
-    reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
-    path_suffix: "void-linux__void-packages__common__xbps-src__shutils__purge_distfiles.sh"
-    line: 78
-    reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
-    path_suffix: "Bash-it__bash-it__lib__command_duration.bash"
-    reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
-    path_suffix: "Bash-it__bash-it__themes__hawaii50__hawaii50.theme.bash"
-    reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
-    path_suffix: "HariSekhon__DevOps-Bash-tools__.bash.d__title.sh"
-    reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
-    path_suffix: "alexanderepstein__Bash-Snippets__cloudup__cloudup"
-    reason: "The current ShellCheck oracle does not emit SC2004 for this explicit dollar-prefixed arithmetic operand, but Shuck still warns on the same arithmetic form elsewhere in the corpus."
-  - side: shuck-only
-    path_suffix: "alpinelinux__aports__community__tea__bash_autocomplete"
-    reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
-    path_suffix: "awslabs__git-secrets__test__bats__libexec__bats"
-    reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
-    path_suffix: "awslabs__git-secrets__test__bats__libexec__bats-preprocess"
-    reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
-    path_suffix: "basecamp__omarchy__install__helpers__errors.sh"
-    reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
-    path_suffix: "basecamp__omarchy__install__helpers__logging.sh"
-    reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
-    path_suffix: "bitnami__containers__bitnami__airflow__3__debian-12__rootfs__opt__bitnami__scripts__libairflow.sh"
-    reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
-    path_suffix: "moovweb__gvm__scripts__function___bash_pseudo_hash"
-    line: 283
-    reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
-    path_suffix: "paulirish__dotfiles__.git-completion.bash"
-    line: 191
-    reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
-    path_suffix: "paulirish__dotfiles__.git-completion.bash"
-    line: 209
-    reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
-    path_suffix: "paulirish__dotfiles__.git-completion.bash"
-    line: 216
-    reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
-    path_suffix: "paulirish__dotfiles__.git-completion.bash"
-    line: 338
-    reason: "The current ShellCheck oracle does not emit SC2004 for this explicit dollar-prefixed arithmetic operand, but Shuck still warns on the same arithmetic form elsewhere in the corpus."
-  - side: shuck-only
-    path_suffix: "paulirish__dotfiles__.git-completion.bash"
-    line: 1418
-    reason: "The current ShellCheck oracle does not emit SC2004 for this explicit dollar-prefixed arithmetic operand, but Shuck still warns on the same arithmetic form elsewhere in the corpus."
-  - side: shuck-only
-    path_suffix: "paulirish__dotfiles__.git-completion.bash"
-    line: 1464
-    reason: "The current ShellCheck oracle does not emit SC2004 for this explicit dollar-prefixed arithmetic operand, but Shuck still warns on the same arithmetic form elsewhere in the corpus."
-  - side: shuck-only
-    path_suffix: "sickcodes__Docker-OSX__rankmirrors"
-    line: 159
-    reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
-    path_suffix: "tmux-plugins__tmux-resurrect__scripts__tmux_spinner.sh"
-    reason: "The current ShellCheck oracle reuses SC2004 for substring and slice bounds, while Shuck keeps S045 scoped to explicit dollar-prefixed arithmetic operands rather than slice offsets and lengths."
-  - side: shuck-only
-    path_suffix: "docker-library__official-images__naughty-commits.sh"
-    line: 87
-    reason: "This loop-scoped associative map appends through keyed writes after a grouped `declare -A` declaration. The current ShellCheck oracle stays silent on those keyed appends, while Shuck still treats the subscripts as arithmetic-style indexed writes at this site."
-  - side: shuck-only
-    path_suffix: "docker-library__official-images__naughty-commits.sh"
-    line: 90
-    reason: "This loop-scoped associative map appends through keyed writes after a grouped `declare -A` declaration. The current ShellCheck oracle stays silent on those keyed appends, while Shuck still treats the subscripts as arithmetic-style indexed writes at this site."
-  - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__hash"
-    line: 32
-    reason: "This eval-built arithmetic string mixes dynamic variable names with array-length expansion. The current ShellCheck oracle does not emit SC2004 for that generated expression, while Shuck still reports the dollar-prefixed operands inside the eval payload."
-  - side: shuck-only
-    path_suffix: "v1s1t0r1sh3r3__airgeddon__airgeddon.sh"
-    line: 15602
-    reason: "This helper records an interface key in a global associative map immediately after declaring it with `declare -gA`. The current ShellCheck oracle does not flag that keyed write, while Shuck still treats the subscript as indexed arithmetic at this site."
+- side: shuck-only
+  path_suffix: docker-library__official-images__naughty-commits.sh
+  line: 87
+  reason: This loop-scoped associative map appends through keyed writes after a grouped `declare -A` declaration. The current ShellCheck oracle stays silent on those keyed appends, while Shuck still treats the subscripts as arithmetic-style indexed writes at this site.
+- side: shuck-only
+  path_suffix: docker-library__official-images__naughty-commits.sh
+  line: 90
+  reason: This loop-scoped associative map appends through keyed writes after a grouped `declare -A` declaration. The current ShellCheck oracle stays silent on those keyed appends, while Shuck still treats the subscripts as arithmetic-style indexed writes at this site.
+- side: shuck-only
+  path_suffix: rvm__rvm__scripts__hash
+  line: 32
+  reason: This eval-built arithmetic string mixes dynamic variable names with array-length expansion. The current ShellCheck oracle does not emit SC2004 for that generated expression, while Shuck still reports the dollar-prefixed operands inside the eval payload.
+- side: shuck-only
+  path_suffix: v1s1t0r1sh3r3__airgeddon__airgeddon.sh
+  line: 15602
+  reason: This helper records an interface key in a global associative map immediately after declaring it with `declare -gA`. The current ShellCheck oracle does not flag that keyed write, while Shuck still treats the subscript as indexed arithmetic at this site.
