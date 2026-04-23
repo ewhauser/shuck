@@ -1998,7 +1998,8 @@ fn same_command_file_operand_words<'a>(
             })
             .into_boxed_slice()
         }
-        Some("basename" | "dirname") => {
+        Some("basename") => basename_file_operand_words(args, source).into_boxed_slice(),
+        Some("dirname") => {
             collect_file_operand_words_after_prefix(args, source, 0, |_| None).into_boxed_slice()
         }
         Some("jq") => jq_file_operand_words(args, source).into_boxed_slice(),
@@ -2037,6 +2038,76 @@ fn awk_has_file_program_source(args: &[&Word], source: &str) -> bool {
                 || text.starts_with("--file=")
                 || short_option_cluster_contains_flag(text.as_ref(), 'f')
         })
+}
+
+fn basename_file_operand_words<'a>(args: &[&'a Word], source: &str) -> Vec<&'a Word> {
+    let mut operands = Vec::new();
+    let mut index = 0usize;
+    let mut options_open = true;
+    let mut skip_suffix_arg = false;
+    let mut multiple_names = false;
+
+    while let Some(word) = args.get(index) {
+        if skip_suffix_arg {
+            skip_suffix_arg = false;
+            index += 1;
+            continue;
+        }
+
+        let Some(text) = static_word_text(word, source) else {
+            if options_open && word_starts_with_literal_dash(word, source) {
+                index += 1;
+                continue;
+            }
+
+            options_open = false;
+            operands.push(*word);
+            index += 1;
+            continue;
+        };
+
+        if options_open && text == "--" {
+            options_open = false;
+            index += 1;
+            continue;
+        }
+
+        if options_open && text.starts_with('-') && text != "-" {
+            match text.as_ref() {
+                "-a" | "--multiple" => multiple_names = true,
+                "-s" | "--suffix" => {
+                    multiple_names = true;
+                    skip_suffix_arg = true;
+                }
+                _ if text.starts_with("--suffix=") => multiple_names = true,
+                _ if text.starts_with('-') && !text.starts_with("--") => {
+                    let cluster = &text.as_ref()[1..];
+                    if cluster.contains('a') {
+                        multiple_names = true;
+                    }
+                    if let Some(suffix_flag) = cluster.find('s') {
+                        multiple_names = true;
+                        if suffix_flag + 1 == cluster.len() {
+                            skip_suffix_arg = true;
+                        }
+                    }
+                }
+                _ => {}
+            }
+            index += 1;
+            continue;
+        }
+
+        options_open = false;
+        operands.push(*word);
+        index += 1;
+    }
+
+    if multiple_names {
+        operands
+    } else {
+        operands.into_iter().take(1).collect()
+    }
 }
 
 fn short_option_cluster_contains_flag(text: &str, flag: char) -> bool {

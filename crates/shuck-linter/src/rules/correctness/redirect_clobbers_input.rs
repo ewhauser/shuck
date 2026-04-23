@@ -239,6 +239,9 @@ jq --args '$ARGS.positional[0]' \"$cfg\" >\"$cfg\"
 jq --jsonargs '$ARGS.positional[0]' \"$cfg\" >\"$cfg\"
 jq --indent 2 --args '$ARGS.positional[0]' \"$cfg\" >\"$cfg\"
 jq -nc '.x=1' \"$cfg\" >\"$cfg\"
+cat < \"$suffix\" > \"$(basename \"$name\" \"$suffix\")\"
+cat < \"$suffix\" > \"$(basename -s \"$suffix\" \"$name\")\"
+cat < \"$suffix\" > \"$(basename --suffix=\"$suffix\" \"$name\")\"
 ";
         let diagnostics = test_snippet(
             source,
