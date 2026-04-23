@@ -2340,6 +2340,82 @@ f
     }
 
     #[test]
+    fn source_inside_function_if_body_in_sh_is_flagged_by_x080() {
+        let diagnostics = lint(
+            "#!/bin/sh\nf() {\n  if [ -r \"$RC_CONF\" ]; then\n    source $RC_CONF\n  fi\n}\n",
+            &LinterSettings::for_rule(Rule::SourceInsideFunctionInSh),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::SourceInsideFunctionInSh);
+    }
+
+    #[test]
+    fn source_inside_function_with_dynamic_path_in_sh_is_flagged_by_x080() {
+        let diagnostics = lint(
+            "#!/bin/sh\ntermux_step_start_build() {\n  source \"$TERMUX_PKG_BUILDER_SCRIPT\"\n}\n",
+            &LinterSettings::for_rule(Rule::SourceInsideFunctionInSh),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::SourceInsideFunctionInSh);
+    }
+
+    #[test]
+    fn source_inside_function_in_cwiid_style_script_is_flagged_by_x080() {
+        let diagnostics = lint(
+            "\
+#!/bin/sh
+start_cwiid() {
+    local cwiid_conf
+    local cwiid_addr
+    local cmd
+    local daemons
+
+    unset WIIMOTE
+
+    if [ -r \"$RC_CONF\" ]; then
+        source $RC_CONF
+    else
+        WIIMOTE[0]=auto
+    fi
+}
+",
+            &LinterSettings::for_rule(Rule::SourceInsideFunctionInSh),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::SourceInsideFunctionInSh);
+    }
+
+    #[test]
+    fn default_settings_keep_source_inside_function_diagnostic_in_cwiid_style_script() {
+        let diagnostics = lint(
+            "\
+#!/bin/sh
+start_cwiid() {
+    local cwiid_conf
+    local cwiid_addr
+    local cmd
+    local daemons
+
+    unset WIIMOTE
+
+    if [ -r \"$RC_CONF\" ]; then
+        source $RC_CONF
+    else
+        WIIMOTE[0]=auto
+    fi
+}
+",
+            &LinterSettings::default(),
+        );
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.rule == Rule::SourceInsideFunctionInSh)
+        );
+    }
+
+    #[test]
     fn top_level_source_is_not_flagged_by_x080() {
         let diagnostics = lint(
             "#!/bin/sh\nsource ./helpers.sh\n",
@@ -2457,6 +2533,16 @@ f
     fn source_builtin_in_command_substitution_is_flagged() {
         let diagnostics = lint(
             "#!/bin/sh\nversion=$(source ./helpers.sh)\n",
+            &LinterSettings::for_rule(Rule::SourceBuiltinInSh),
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::SourceBuiltinInSh);
+    }
+
+    #[test]
+    fn source_builtin_with_dynamic_path_is_flagged() {
+        let diagnostics = lint(
+            "#!/bin/sh\nsource \"$TERMUX_PKG_BUILDER_SCRIPT\"\n",
             &LinterSettings::for_rule(Rule::SourceBuiltinInSh),
         );
         assert_eq!(diagnostics.len(), 1);
