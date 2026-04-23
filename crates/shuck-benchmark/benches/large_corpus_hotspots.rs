@@ -10,7 +10,7 @@ use criterion::{
 use shuck_benchmark::configure_benchmark_allocator;
 use shuck_indexer::Indexer;
 use shuck_linter::{
-    LinterSettings, ShellCheckCodeMap, ShellDialect, SuppressionIndex,
+    LinterSettings, Rule, RuleSet, ShellCheckCodeMap, ShellDialect, SuppressionIndex,
     benchmark_collect_word_facts, first_statement_line,
     lint_file_at_path_with_resolver_and_parse_result, parse_directives,
 };
@@ -285,7 +285,19 @@ fn lint_large_corpus_fixture(
     fixture: &LargeCorpusFixture,
     resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> usize {
-    let settings = LinterSettings::default()
+    lint_large_corpus_fixture_with_settings(
+        fixture,
+        resolver,
+        large_corpus_default_settings(fixture),
+    )
+}
+
+fn lint_large_corpus_fixture_with_settings(
+    fixture: &LargeCorpusFixture,
+    resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+    settings: LinterSettings,
+) -> usize {
+    let settings = settings
         .with_shell(ShellDialect::from_name(&fixture.shell))
         .with_analyzed_paths([fixture.path.clone()]);
     let parse_result = parse_large_corpus_fixture(fixture);
@@ -316,6 +328,24 @@ fn lint_large_corpus_fixture(
     );
 
     black_box(diagnostics.len())
+}
+
+fn large_corpus_default_settings(fixture: &LargeCorpusFixture) -> LinterSettings {
+    LinterSettings::default()
+        .with_shell(ShellDialect::from_name(&fixture.shell))
+        .with_analyzed_paths([fixture.path.clone()])
+}
+
+fn large_corpus_c100_only_settings() -> LinterSettings {
+    LinterSettings::for_rule(Rule::QuotedBashSource)
+}
+
+fn large_corpus_without_c100_settings() -> LinterSettings {
+    let mut settings = LinterSettings::default();
+    settings.rules = settings
+        .rules
+        .subtract(&RuleSet::from_iter([Rule::QuotedBashSource]));
+    settings
 }
 
 fn build_large_corpus_word_facts(input: &PreparedWordFactsInput) -> usize {
@@ -426,6 +456,55 @@ fn bench_large_corpus_linter(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_large_corpus_linter_rule_splits(c: &mut Criterion) {
+    let Ok(fixtures) = large_corpus_fixtures() else {
+        let Err(message) = large_corpus_fixtures() else {
+            unreachable!();
+        };
+        eprintln!("skipping large corpus hotspot benches: {message}");
+        return;
+    };
+
+    let fixture = &fixtures.airgeddon;
+    let mut group = c.benchmark_group("large_corpus_linter_rule_splits");
+    group.sample_size(10);
+    group.throughput(Throughput::Bytes(fixture.bytes()));
+
+    group.bench_with_input(
+        BenchmarkId::from_parameter("airgeddon/c100_only"),
+        fixture,
+        |b, fixture| {
+            let resolver = fixtures.resolver.clone();
+            let settings = large_corpus_c100_only_settings();
+            b.iter(|| {
+                lint_large_corpus_fixture_with_settings(
+                    fixture,
+                    Some(resolver.as_ref() as &(dyn SourcePathResolver + Send + Sync)),
+                    settings.clone(),
+                )
+            });
+        },
+    );
+
+    group.bench_with_input(
+        BenchmarkId::from_parameter("airgeddon/without_c100"),
+        fixture,
+        |b, fixture| {
+            let resolver = fixtures.resolver.clone();
+            let settings = large_corpus_without_c100_settings();
+            b.iter(|| {
+                lint_large_corpus_fixture_with_settings(
+                    fixture,
+                    Some(resolver.as_ref() as &(dyn SourcePathResolver + Send + Sync)),
+                    settings.clone(),
+                )
+            });
+        },
+    );
+
+    group.finish();
+}
+
 fn bench_large_corpus_word_facts(c: &mut Criterion) {
     let Ok(fixtures) = large_corpus_fixtures() else {
         let Err(message) = large_corpus_fixtures() else {
@@ -457,6 +536,7 @@ fn bench_large_corpus_word_facts(c: &mut Criterion) {
 criterion_group!(
     benches,
     bench_large_corpus_linter,
+    bench_large_corpus_linter_rule_splits,
     bench_large_corpus_word_facts
 );
 criterion_main!(benches);

@@ -1,11 +1,11 @@
-use rustc_hash::FxHashSet;
-use shuck_ast::{Command, Span};
+use rustc_hash::{FxHashMap, FxHashSet};
+use shuck_ast::{Command, Name, Span};
 use shuck_semantic::{
     Binding, BindingAttributes, BindingId, BindingKind, DeclarationBuiltin, DeclarationOperand,
-    Reference,
+    Reference, ReferenceId, ScopeId,
 };
 
-use crate::{Checker, LinterFacts, Rule, Violation, WordQuote};
+use crate::{Checker, LinterFacts, Rule, Violation, WordQuote, facts::CommandId};
 
 pub struct QuotedBashSource;
 
@@ -21,7 +21,6 @@ impl Violation for QuotedBashSource {
 
 pub fn quoted_bash_source(checker: &mut Checker) {
     let semantic = checker.semantic();
-    let analysis = semantic.analysis();
     let candidate_spans = checker
         .facts()
         .plain_unindexed_reference_spans()
@@ -29,17 +28,542 @@ pub fn quoted_bash_source(checker: &mut Checker) {
         .copied()
         .map(span_key)
         .collect::<FxHashSet<_>>();
-    let spans = semantic
+    let candidate_references = semantic
         .references()
         .iter()
         .filter(|reference| candidate_spans.contains(&span_key(reference.span)))
-        .filter(|reference| {
-            reference_is_array_like(checker.facts(), semantic, &analysis, reference)
-        })
+        .collect::<Vec<_>>();
+    let mut context =
+        QuotedBashSourceContext::new(checker.facts(), semantic, &candidate_references);
+    let spans = candidate_references
+        .into_iter()
+        .filter(|reference| context.reference_is_array_like(reference))
         .map(|reference| reference.span)
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || QuotedBashSource);
+}
+
+struct QuotedBashSourceContext<'a, 'src> {
+    facts: &'a LinterFacts<'src>,
+    semantic: &'a shuck_semantic::SemanticModel,
+    local_declarations: LocalDeclarationIndex,
+    innermost_command_ids_by_offset: FxHashMap<usize, Option<CommandId>>,
+    simple_command_ancestors_by_offset: FxHashMap<usize, Vec<SimpleCommandAncestor>>,
+    same_command_writers_by_name: FxHashMap<Name, Vec<BindingId>>,
+    presence_test_ends_by_name_binding: FxHashMap<Name, FxHashMap<Option<BindingId>, Vec<usize>>>,
+    resolved_binding_ids: FxHashMap<ReferenceId, Option<BindingId>>,
+    binding_inherits_indexed_array_type_cache: FxHashMap<BindingId, bool>,
+    binding_has_prior_local_barrier_cache: FxHashMap<BindingId, bool>,
+    binding_is_append_declaration_cache: FxHashMap<BindingId, bool>,
+    binding_reset_by_name_only_before_cache: FxHashMap<(BindingId, usize), bool>,
+}
+
+impl<'a, 'src> QuotedBashSourceContext<'a, 'src> {
+    fn new(
+        facts: &'a LinterFacts<'src>,
+        semantic: &'a shuck_semantic::SemanticModel,
+        candidate_references: &[&Reference],
+    ) -> Self {
+        let mut command_query_offsets = candidate_references
+            .iter()
+            .map(|reference| reference.span.start.offset)
+            .collect::<Vec<_>>();
+        command_query_offsets.extend(
+            semantic
+                .bindings()
+                .iter()
+                .filter(|binding| {
+                    matches!(
+                        binding.kind,
+                        BindingKind::ArrayAssignment
+                            | BindingKind::MapfileTarget
+                            | BindingKind::ReadTarget
+                    )
+                })
+                .map(|binding| binding.span.start.offset),
+        );
+
+        Self {
+            facts,
+            semantic,
+            local_declarations: LocalDeclarationIndex::build(semantic),
+            innermost_command_ids_by_offset: build_innermost_command_ids_by_offset(
+                facts.commands(),
+                command_query_offsets,
+            ),
+            simple_command_ancestors_by_offset: FxHashMap::default(),
+            same_command_writers_by_name: FxHashMap::default(),
+            presence_test_ends_by_name_binding: FxHashMap::default(),
+            resolved_binding_ids: FxHashMap::default(),
+            binding_inherits_indexed_array_type_cache: FxHashMap::default(),
+            binding_has_prior_local_barrier_cache: FxHashMap::default(),
+            binding_is_append_declaration_cache: FxHashMap::default(),
+            binding_reset_by_name_only_before_cache: FxHashMap::default(),
+        }
+    }
+
+    fn reference_is_array_like(&mut self, reference: &Reference) -> bool {
+        if self.semantic.is_guarded_parameter_reference(reference.id)
+            || self.reference_has_prior_presence_test(reference)
+            || self.reference_reads_into_same_name_array_writer(reference)
+        {
+            return false;
+        }
+        if let Some(binding) = self.semantic.resolved_binding(reference.id)
+            && self.semantic.binding_visible_at(binding.id, reference.span)
+            && !binding_is_array_like(binding)
+            && !self.binding_inherits_indexed_array_type(binding)
+            && (binding_resets_indexed_array_type(binding)
+                || self.binding_has_prior_local_barrier(binding))
+        {
+            return false;
+        }
+
+        if is_bash_runtime_array_name(reference.name.as_str()) {
+            return true;
+        }
+
+        let mut binding_ids = Vec::new();
+        let mut seen = FxHashSet::default();
+        if let Some(binding) = self.semantic.resolved_binding(reference.id)
+            && !binding_is_array_like(binding)
+            && seen.insert(binding.id)
+        {
+            binding_ids.push(binding.id);
+        }
+        for binding_id in candidate_binding_ids_for_reference(self.semantic, reference) {
+            if seen.insert(binding_id) {
+                binding_ids.push(binding_id);
+            }
+        }
+
+        binding_ids.into_iter().any(|binding_id| {
+            let binding = self.semantic.binding(binding_id);
+            !self.binding_reset_by_name_only_declaration_before(binding, reference.span)
+                && (binding_is_array_like(binding)
+                    || self.binding_inherits_indexed_array_type(binding))
+        })
+    }
+
+    fn binding_inherits_indexed_array_type(&mut self, binding: &Binding) -> bool {
+        if let Some(cached) = self
+            .binding_inherits_indexed_array_type_cache
+            .get(&binding.id)
+            .copied()
+        {
+            return cached;
+        }
+
+        let inherited = if binding_resets_indexed_array_type(binding) {
+            false
+        } else {
+            let initialized_scalar_declaration =
+                matches!(binding.kind, BindingKind::Declaration(_))
+                    && binding
+                        .attributes
+                        .contains(BindingAttributes::DECLARATION_INITIALIZED)
+                    && !binding
+                        .attributes
+                        .intersects(BindingAttributes::ARRAY | BindingAttributes::ASSOC);
+            let append_declaration = self.binding_is_append_declaration(binding);
+            let prior_local_barrier = self.binding_has_prior_local_barrier(binding);
+            let prior_bindings = self
+                .semantic
+                .bindings_for(&binding.name)
+                .iter()
+                .copied()
+                .filter(|candidate_id| {
+                    let candidate = self.semantic.binding(*candidate_id);
+                    let same_scope_candidate_allowed =
+                        !initialized_scalar_declaration || append_declaration;
+                    candidate.span.start.offset < binding.span.start.offset
+                        && ((candidate.scope != binding.scope && !prior_local_barrier)
+                            || same_scope_candidate_allowed)
+                        && !self
+                            .binding_reset_by_name_only_declaration_before(candidate, binding.span)
+                })
+                .collect::<Vec<_>>();
+
+            let mut inherited = false;
+            for candidate_id in prior_bindings.into_iter().rev() {
+                let candidate = self.semantic.binding(candidate_id);
+                if binding_resets_indexed_array_type(candidate) {
+                    inherited = false;
+                    break;
+                }
+                if binding_is_sticky_indexed_array(candidate) {
+                    inherited = true;
+                    break;
+                }
+            }
+            inherited
+        };
+
+        self.binding_inherits_indexed_array_type_cache
+            .insert(binding.id, inherited);
+        inherited
+    }
+
+    fn reference_reads_into_same_name_array_writer(&mut self, reference: &Reference) -> bool {
+        let candidate_bindings = self
+            .same_command_candidate_writer_bindings(&reference.name)
+            .to_vec();
+        candidate_bindings.into_iter().any(|binding_id| {
+            let binding = self.semantic.binding(binding_id);
+            binding.span.start.offset <= reference.span.start.offset
+                && self
+                    .same_simple_command_is_assignment_only(binding.span, reference.span)
+                    .is_some_and(|assignment_only| {
+                        binding_suppresses_same_command_array_read(binding, assignment_only)
+                    })
+        })
+    }
+
+    fn reference_has_prior_presence_test(&mut self, reference: &Reference) -> bool {
+        if loop_header_word_quote(self.facts, reference.span)
+            .is_some_and(|quote| quote != WordQuote::Unquoted)
+        {
+            return false;
+        }
+
+        let reference_binding = self.resolved_binding_id(reference.id);
+        self.presence_test_ends_by_binding(&reference.name)
+            .get(&reference_binding)
+            .is_some_and(|ends| ends.partition_point(|end| *end < reference.span.start.offset) > 0)
+    }
+
+    fn presence_test_ends_by_binding(
+        &mut self,
+        name: &Name,
+    ) -> &FxHashMap<Option<BindingId>, Vec<usize>> {
+        if !self.presence_test_ends_by_name_binding.contains_key(name) {
+            let mut by_binding = FxHashMap::<Option<BindingId>, Vec<usize>>::default();
+
+            for test in self.facts.presence_test_references(name) {
+                let binding_id = self.resolved_binding_id(test.reference_id());
+                by_binding
+                    .entry(binding_id)
+                    .or_default()
+                    .push(test.command_span().end.offset);
+            }
+
+            for test in self.facts.presence_test_names(name) {
+                let binding_id =
+                    resolve_binding_visible_at(self.semantic, name, test.tested_span());
+                by_binding
+                    .entry(binding_id)
+                    .or_default()
+                    .push(test.command_span().end.offset);
+            }
+
+            for ends in by_binding.values_mut() {
+                ends.sort_unstable();
+                ends.dedup();
+            }
+
+            self.presence_test_ends_by_name_binding
+                .insert(name.clone(), by_binding);
+        }
+
+        self.presence_test_ends_by_name_binding
+            .get(name)
+            .expect("presence-test bindings should be cached")
+    }
+
+    fn resolved_binding_id(&mut self, reference_id: ReferenceId) -> Option<BindingId> {
+        *self
+            .resolved_binding_ids
+            .entry(reference_id)
+            .or_insert_with(|| {
+                self.semantic
+                    .resolved_binding(reference_id)
+                    .map(|binding| binding.id)
+            })
+    }
+
+    fn same_command_candidate_writer_bindings(&mut self, name: &Name) -> &[BindingId] {
+        self.same_command_writers_by_name
+            .entry(name.clone())
+            .or_insert_with(|| {
+                let mut bindings = self
+                    .semantic
+                    .bindings_for(name)
+                    .iter()
+                    .copied()
+                    .filter(|binding_id| {
+                        let binding = self.semantic.binding(*binding_id);
+                        matches!(
+                            binding.kind,
+                            BindingKind::ArrayAssignment
+                                | BindingKind::MapfileTarget
+                                | BindingKind::ReadTarget
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                bindings.sort_unstable_by_key(|binding_id| {
+                    self.semantic.binding(*binding_id).span.start.offset
+                });
+                bindings
+            })
+    }
+
+    fn simple_command_ancestors(&mut self, offset: usize) -> &[SimpleCommandAncestor] {
+        self.simple_command_ancestors_by_offset
+            .entry(offset)
+            .or_insert_with(|| {
+                let mut ancestors = Vec::new();
+                let mut current = self
+                    .innermost_command_ids_by_offset
+                    .get(&offset)
+                    .copied()
+                    .flatten();
+                while let Some(command_id) = current {
+                    let command = self.facts.command(command_id);
+                    if matches!(command.command(), Command::Simple(_)) {
+                        ancestors.push(SimpleCommandAncestor {
+                            id: command_id,
+                            assignment_only: command.literal_name() == Some(""),
+                        });
+                    }
+                    current = self.facts.command_parent_id(command_id);
+                }
+                ancestors
+            })
+    }
+
+    fn same_simple_command_is_assignment_only(
+        &mut self,
+        binding_span: Span,
+        reference_span: Span,
+    ) -> Option<bool> {
+        let binding_ancestors = self
+            .simple_command_ancestors(binding_span.start.offset)
+            .to_vec();
+        let reference_ancestors = self
+            .simple_command_ancestors(reference_span.start.offset)
+            .to_vec();
+
+        for reference_ancestor in reference_ancestors {
+            if let Some(binding_ancestor) = binding_ancestors
+                .iter()
+                .find(|binding_ancestor| binding_ancestor.id == reference_ancestor.id)
+            {
+                return Some(binding_ancestor.assignment_only);
+            }
+        }
+
+        None
+    }
+
+    fn binding_reset_by_name_only_declaration_before(
+        &mut self,
+        binding: &Binding,
+        at: Span,
+    ) -> bool {
+        *self
+            .binding_reset_by_name_only_before_cache
+            .entry((binding.id, at.start.offset))
+            .or_insert_with(|| {
+                self.local_declarations
+                    .name_only_local_declarations_for(binding.scope, &binding.name)
+                    .iter()
+                    .any(|span| {
+                        span.start.offset > binding.span.start.offset
+                            && span.end.offset < at.start.offset
+                    })
+            })
+    }
+
+    fn binding_has_prior_local_barrier(&mut self, binding: &Binding) -> bool {
+        *self
+            .binding_has_prior_local_barrier_cache
+            .entry(binding.id)
+            .or_insert_with(|| {
+                self.local_declarations
+                    .local_declarations_for(binding.scope, &binding.name)
+                    .iter()
+                    .any(|span| span.end.offset < binding.span.start.offset)
+            })
+    }
+
+    fn binding_is_append_declaration(&mut self, binding: &Binding) -> bool {
+        *self
+            .binding_is_append_declaration_cache
+            .entry(binding.id)
+            .or_insert_with(|| {
+                self.local_declarations.is_local_append_declaration(
+                    binding.scope,
+                    &binding.name,
+                    binding.span,
+                )
+            })
+    }
+}
+
+#[derive(Clone, Copy)]
+struct SimpleCommandAncestor {
+    id: CommandId,
+    assignment_only: bool,
+}
+
+struct LocalDeclarationIndex {
+    local_declarations_by_scope_name: FxHashMap<(ScopeId, Name), Vec<Span>>,
+    name_only_local_declarations_by_scope_name: FxHashMap<(ScopeId, Name), Vec<Span>>,
+    append_local_declaration_spans: FxHashSet<(ScopeId, Name, usize, usize)>,
+}
+
+impl LocalDeclarationIndex {
+    fn build(semantic: &shuck_semantic::SemanticModel) -> Self {
+        let mut local_declarations_by_scope_name =
+            FxHashMap::<(ScopeId, Name), Vec<Span>>::default();
+        let mut name_only_local_declarations_by_scope_name =
+            FxHashMap::<(ScopeId, Name), Vec<Span>>::default();
+        let mut append_local_declaration_spans = FxHashSet::default();
+
+        for declaration in semantic.declarations() {
+            if !matches!(declaration.builtin, DeclarationBuiltin::Local) {
+                continue;
+            }
+
+            let scope = semantic.scope_at(declaration.span.start.offset);
+            for operand in &declaration.operands {
+                match operand {
+                    DeclarationOperand::Name { name, .. } => {
+                        local_declarations_by_scope_name
+                            .entry((scope, name.clone()))
+                            .or_default()
+                            .push(declaration.span);
+                        name_only_local_declarations_by_scope_name
+                            .entry((scope, name.clone()))
+                            .or_default()
+                            .push(declaration.span);
+                    }
+                    DeclarationOperand::Assignment {
+                        name,
+                        name_span,
+                        append,
+                        ..
+                    } => {
+                        local_declarations_by_scope_name
+                            .entry((scope, name.clone()))
+                            .or_default()
+                            .push(declaration.span);
+                        if *append {
+                            append_local_declaration_spans.insert((
+                                scope,
+                                name.clone(),
+                                name_span.start.offset,
+                                name_span.end.offset,
+                            ));
+                        }
+                    }
+                    DeclarationOperand::Flag { .. } | DeclarationOperand::DynamicWord { .. } => {}
+                }
+            }
+        }
+
+        Self {
+            local_declarations_by_scope_name,
+            name_only_local_declarations_by_scope_name,
+            append_local_declaration_spans,
+        }
+    }
+
+    fn local_declarations_for(&self, scope: ScopeId, name: &Name) -> &[Span] {
+        self.local_declarations_by_scope_name
+            .get(&(scope, name.clone()))
+            .map_or(&[], Vec::as_slice)
+    }
+
+    fn name_only_local_declarations_for(&self, scope: ScopeId, name: &Name) -> &[Span] {
+        self.name_only_local_declarations_by_scope_name
+            .get(&(scope, name.clone()))
+            .map_or(&[], Vec::as_slice)
+    }
+
+    fn is_local_append_declaration(&self, scope: ScopeId, name: &Name, span: Span) -> bool {
+        self.append_local_declaration_spans.contains(&(
+            scope,
+            name.clone(),
+            span.start.offset,
+            span.end.offset,
+        ))
+    }
+}
+
+#[derive(Clone, Copy)]
+struct OpenCommand {
+    end_offset: usize,
+    id: CommandId,
+}
+
+fn build_innermost_command_ids_by_offset(
+    commands: &[crate::facts::CommandFact<'_>],
+    mut offsets: Vec<usize>,
+) -> FxHashMap<usize, Option<CommandId>> {
+    if offsets.is_empty() {
+        return FxHashMap::default();
+    }
+
+    offsets.sort_unstable();
+    offsets.dedup();
+
+    let mut command_spans = commands
+        .iter()
+        .map(|command| (command.span(), command.id()))
+        .collect::<Vec<_>>();
+    if command_spans
+        .windows(2)
+        .any(|window| compare_command_offset_entries(window[0], window[1]).is_gt())
+    {
+        command_spans.sort_unstable_by(|left, right| compare_command_offset_entries(*left, *right));
+    }
+
+    let mut command_ids_by_offset = FxHashMap::default();
+    let mut active_commands = Vec::new();
+    let mut next_command = 0;
+    for offset in offsets {
+        pop_finished_commands(&mut active_commands, offset);
+
+        while let Some((span, id)) = command_spans.get(next_command).copied() {
+            if span.start.offset > offset {
+                break;
+            }
+
+            pop_finished_commands(&mut active_commands, span.start.offset);
+            active_commands.push(OpenCommand {
+                end_offset: span.end.offset,
+                id,
+            });
+            next_command += 1;
+        }
+
+        pop_finished_commands(&mut active_commands, offset);
+        command_ids_by_offset.insert(offset, active_commands.last().map(|command| command.id));
+    }
+
+    command_ids_by_offset
+}
+
+fn compare_command_offset_entries(
+    (left_span, _left_id): (Span, CommandId),
+    (right_span, _right_id): (Span, CommandId),
+) -> std::cmp::Ordering {
+    left_span
+        .start
+        .offset
+        .cmp(&right_span.start.offset)
+        .then_with(|| right_span.end.offset.cmp(&left_span.end.offset))
+}
+
+fn pop_finished_commands(active_commands: &mut Vec<OpenCommand>, offset: usize) {
+    while active_commands
+        .last()
+        .is_some_and(|command| command.end_offset < offset)
+    {
+        active_commands.pop();
+    }
 }
 
 fn span_is_within(outer: Span, inner: Span) -> bool {
@@ -48,54 +572,6 @@ fn span_is_within(outer: Span, inner: Span) -> bool {
 
 fn span_key(span: Span) -> (usize, usize) {
     (span.start.offset, span.end.offset)
-}
-
-fn reference_is_array_like(
-    facts: &LinterFacts<'_>,
-    semantic: &shuck_semantic::SemanticModel,
-    analysis: &shuck_semantic::SemanticAnalysis<'_>,
-    reference: &Reference,
-) -> bool {
-    if semantic.is_guarded_parameter_reference(reference.id)
-        || reference_has_prior_presence_test(facts, semantic, reference)
-        || reference_reads_into_same_name_array_writer(facts, semantic, reference)
-    {
-        return false;
-    }
-    if let Some(binding) = semantic.resolved_binding(reference.id)
-        && semantic.binding_visible_at(binding.id, reference.span)
-        && !binding_is_array_like(binding)
-        && !binding_inherits_indexed_array_type(semantic, analysis, binding)
-        && (binding_resets_indexed_array_type(binding)
-            || binding_has_prior_local_barrier(semantic, binding))
-    {
-        return false;
-    }
-
-    if is_bash_runtime_array_name(reference.name.as_str()) {
-        return true;
-    }
-
-    let mut binding_ids = Vec::new();
-    let mut seen = FxHashSet::default();
-    if let Some(binding) = semantic.resolved_binding(reference.id)
-        && !binding_is_array_like(binding)
-        && seen.insert(binding.id)
-    {
-        binding_ids.push(binding.id);
-    }
-    for binding_id in candidate_binding_ids_for_reference(semantic, analysis, reference) {
-        if seen.insert(binding_id) {
-            binding_ids.push(binding_id);
-        }
-    }
-
-    binding_ids.into_iter().any(|binding_id| {
-        let binding = semantic.binding(binding_id);
-        !binding_reset_by_name_only_declaration_before(semantic, binding, reference.span)
-            && (binding_is_array_like(binding)
-                || binding_inherits_indexed_array_type(semantic, analysis, binding))
-    })
 }
 
 fn binding_is_array_like(binding: &Binding) -> bool {
@@ -107,64 +583,6 @@ fn binding_is_array_like(binding: &Binding) -> bool {
             binding.kind,
             BindingKind::ArrayAssignment | BindingKind::MapfileTarget
         )
-}
-
-fn binding_inherits_indexed_array_type(
-    semantic: &shuck_semantic::SemanticModel,
-    analysis: &shuck_semantic::SemanticAnalysis<'_>,
-    binding: &Binding,
-) -> bool {
-    if binding_resets_indexed_array_type(binding) {
-        return false;
-    }
-
-    let initialized_scalar_declaration = matches!(binding.kind, BindingKind::Declaration(_))
-        && binding
-            .attributes
-            .contains(BindingAttributes::DECLARATION_INITIALIZED)
-        && !binding
-            .attributes
-            .intersects(BindingAttributes::ARRAY | BindingAttributes::ASSOC);
-    let append_declaration = binding_is_append_declaration(semantic, binding);
-    let prior_local_barrier = binding_has_prior_local_barrier(semantic, binding);
-    let reaching_bindings = analysis
-        .reaching_bindings_for_name(&binding.name, binding.span)
-        .into_iter()
-        .collect::<FxHashSet<_>>();
-    let informative_same_scope_reaching = reaching_bindings
-        .iter()
-        .any(|candidate_id| *candidate_id != binding.id);
-    let prior_bindings = semantic
-        .bindings_for(&binding.name)
-        .iter()
-        .copied()
-        .filter(|candidate_id| {
-            let candidate = semantic.binding(*candidate_id);
-            let same_scope_candidate_allowed =
-                if initialized_scalar_declaration && !append_declaration {
-                    false
-                } else {
-                    append_declaration
-                        || !informative_same_scope_reaching
-                        || reaching_bindings.contains(candidate_id)
-                };
-            candidate.span.start.offset < binding.span.start.offset
-                && ((candidate.scope != binding.scope && !prior_local_barrier)
-                    || same_scope_candidate_allowed)
-                && !binding_reset_by_name_only_declaration_before(semantic, candidate, binding.span)
-        })
-        .map(|candidate_id| semantic.binding(candidate_id));
-
-    for candidate in prior_bindings.rev() {
-        if binding_resets_indexed_array_type(candidate) {
-            return false;
-        }
-        if binding_is_sticky_indexed_array(candidate) {
-            return true;
-        }
-    }
-
-    false
 }
 
 fn binding_resets_indexed_array_type(binding: &Binding) -> bool {
@@ -207,60 +625,6 @@ fn is_uninitialized_local_array_declaration(binding: &Binding) -> bool {
             .contains(BindingAttributes::DECLARATION_INITIALIZED)
 }
 
-fn reference_reads_into_same_name_array_writer(
-    facts: &LinterFacts<'_>,
-    semantic: &shuck_semantic::SemanticModel,
-    reference: &Reference,
-) -> bool {
-    semantic
-        .bindings_for(&reference.name)
-        .iter()
-        .copied()
-        .any(|binding_id| {
-            let binding = semantic.binding(binding_id);
-            binding.span.start.offset <= reference.span.start.offset
-                && same_simple_command_is_assignment_only(facts, binding.span, reference.span)
-                    .is_some_and(|assignment_only| {
-                        binding_suppresses_same_command_array_read(binding, assignment_only)
-                    })
-        })
-}
-
-fn reference_has_prior_presence_test(
-    facts: &LinterFacts<'_>,
-    semantic: &shuck_semantic::SemanticModel,
-    reference: &Reference,
-) -> bool {
-    if loop_header_word_quote(facts, reference.span)
-        .is_some_and(|quote| quote != WordQuote::Unquoted)
-    {
-        return false;
-    }
-
-    let reference_binding = semantic
-        .resolved_binding(reference.id)
-        .map(|binding| binding.id);
-
-    facts
-        .presence_test_references(&reference.name)
-        .iter()
-        .any(|test| {
-            test.command_span().end.offset < reference.span.start.offset
-                && semantic
-                    .resolved_binding(test.reference_id())
-                    .map(|binding| binding.id)
-                    == reference_binding
-        })
-        || facts
-            .presence_test_names(&reference.name)
-            .iter()
-            .any(|test| {
-                test.command_span().end.offset < reference.span.start.offset
-                    && presence_test_name_binding(semantic, &reference.name, test.tested_span())
-                        == reference_binding
-            })
-}
-
 fn loop_header_word_quote(facts: &LinterFacts<'_>, span: Span) -> Option<WordQuote> {
     facts
         .for_headers()
@@ -283,7 +647,7 @@ fn binding_suppresses_same_command_array_read(binding: &Binding, assignment_only
         || (matches!(binding.kind, BindingKind::ArrayAssignment) && assignment_only)
 }
 
-fn presence_test_name_binding(
+fn resolve_binding_visible_at(
     semantic: &shuck_semantic::SemanticModel,
     name: &shuck_ast::Name,
     tested_span: Span,
@@ -296,26 +660,8 @@ fn presence_test_name_binding(
         .find(|binding_id| semantic.binding_visible_at(*binding_id, tested_span))
 }
 
-fn same_simple_command_is_assignment_only(
-    facts: &LinterFacts<'_>,
-    binding_span: Span,
-    reference_span: Span,
-) -> Option<bool> {
-    facts
-        .commands()
-        .iter()
-        .filter(|command| matches!(command.command(), Command::Simple(_)))
-        .filter(|command| {
-            let span = command.span();
-            span_is_within(span, binding_span) && span_is_within(span, reference_span)
-        })
-        .min_by_key(|command| command.span().end.offset - command.span().start.offset)
-        .map(|command| command.literal_name() == Some(""))
-}
-
 fn candidate_binding_ids_for_reference(
     semantic: &shuck_semantic::SemanticModel,
-    analysis: &shuck_semantic::SemanticAnalysis<'_>,
     reference: &Reference,
 ) -> Vec<BindingId> {
     let all_bindings = semantic.bindings_for(&reference.name);
@@ -328,11 +674,6 @@ fn candidate_binding_ids_for_reference(
             })
         })
         .collect::<Vec<_>>();
-    if !binding_ids.is_empty() {
-        return binding_ids;
-    }
-
-    let binding_ids = analysis.reaching_bindings_for_name(&reference.name, reference.span);
     if !binding_ids.is_empty() {
         return binding_ids;
     }
@@ -354,64 +695,6 @@ fn candidate_binding_ids_for_reference(
         .collect::<FxHashSet<_>>()
         .into_iter()
         .collect::<Vec<_>>()
-}
-
-fn binding_reset_by_name_only_declaration_before(
-    semantic: &shuck_semantic::SemanticModel,
-    binding: &Binding,
-    at: Span,
-) -> bool {
-    semantic.declarations().iter().any(|declaration| {
-        matches!(declaration.builtin, DeclarationBuiltin::Local)
-            && declaration.span.start.offset > binding.span.start.offset
-            && declaration.span.end.offset < at.start.offset
-            && semantic.scope_at(declaration.span.start.offset) == binding.scope
-            && declaration.operands.iter().any(|operand| {
-                matches!(
-                    operand,
-                    DeclarationOperand::Name { name, .. } if name == &binding.name
-                )
-            })
-    })
-}
-
-fn binding_has_prior_local_barrier(
-    semantic: &shuck_semantic::SemanticModel,
-    binding: &Binding,
-) -> bool {
-    semantic.declarations().iter().any(|declaration| {
-        matches!(declaration.builtin, DeclarationBuiltin::Local)
-            && declaration.span.end.offset < binding.span.start.offset
-            && semantic.scope_at(declaration.span.start.offset) == binding.scope
-            && declaration.operands.iter().any(|operand| {
-                matches!(
-                    operand,
-                    DeclarationOperand::Name { name, .. }
-                        | DeclarationOperand::Assignment { name, .. }
-                        if name == &binding.name
-                )
-            })
-    })
-}
-
-fn binding_is_append_declaration(
-    semantic: &shuck_semantic::SemanticModel,
-    binding: &Binding,
-) -> bool {
-    semantic.declarations().iter().any(|declaration| {
-        semantic.scope_at(declaration.span.start.offset) == binding.scope
-            && declaration.operands.iter().any(|operand| {
-                matches!(
-                    operand,
-                    DeclarationOperand::Assignment {
-                        name,
-                        name_span,
-                        append: true,
-                        ..
-                    } if name == &binding.name && name_span == &binding.span
-                )
-            })
-    })
 }
 
 fn is_bash_runtime_array_name(name: &str) -> bool {
