@@ -7,9 +7,10 @@ use shuck_ast::{
     AssignmentValue, BinaryCommand, BinaryOp, BourneParameterExpansion, BuiltinCommand, Command,
     CompoundCommand, ConditionalExpr, DeclOperand, File, FunctionDef, HeredocBody, HeredocBodyPart,
     HeredocBodyPartNode, Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern,
-    PatternGroupKind, PatternPart, PatternPartNode, Span, Stmt, StmtSeq, Subscript, VarRef, Word,
-    WordPart, WordPartNode, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment,
-    static_word_text, try_static_word_parts_text,
+    PatternGroupKind, PatternPart, PatternPartNode, Span, StaticCommandWrapperTarget, Stmt,
+    StmtSeq, Subscript, VarRef, Word, WordPart, WordPartNode, ZshExpansionOperation,
+    ZshExpansionTarget, ZshGlobSegment, static_command_name_text,
+    static_command_wrapper_target_index, static_word_text, try_static_word_parts_text,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::{ShellProfile, ZshEmulationMode};
@@ -339,7 +340,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         if let Some(name) = static_command_name_text(&command.name, self.source)
             && !name.is_empty()
         {
-            let callee = Name::from(name.as_str());
+            let callee = Name::from(name.as_ref());
             let scope = self.current_scope();
             let call_site = CallSite {
                 callee: callee.clone(),
@@ -3394,84 +3395,6 @@ fn named_target_word(word: &Word, source: &str) -> Option<(Name, Span)> {
     is_name(&text).then_some((Name::from(text.as_ref()), word.span))
 }
 
-fn static_command_name_text(word: &Word, source: &str) -> Option<String> {
-    let mut result = String::new();
-    collect_static_command_name_parts(
-        &word.parts,
-        source,
-        StaticCommandNameContext::Unquoted,
-        &mut result,
-    )
-    .then_some(result)
-}
-
-#[derive(Clone, Copy)]
-enum StaticCommandNameContext {
-    Unquoted,
-    DoubleQuoted,
-}
-
-fn collect_static_command_name_parts(
-    parts: &[WordPartNode],
-    source: &str,
-    context: StaticCommandNameContext,
-    out: &mut String,
-) -> bool {
-    for part in parts {
-        match &part.kind {
-            WordPart::Literal(text) => {
-                decode_static_command_literal(text.as_str(source, part.span), context, out);
-            }
-            WordPart::SingleQuoted { value, .. } => out.push_str(value.slice(source)),
-            WordPart::DoubleQuoted { parts, .. } => {
-                if !collect_static_command_name_parts(
-                    parts,
-                    source,
-                    StaticCommandNameContext::DoubleQuoted,
-                    out,
-                ) {
-                    return false;
-                }
-            }
-            _ => return false,
-        }
-    }
-
-    true
-}
-
-fn decode_static_command_literal(text: &str, context: StaticCommandNameContext, out: &mut String) {
-    let mut chars = text.chars();
-
-    while let Some(ch) = chars.next() {
-        if ch != '\\' {
-            out.push(ch);
-            continue;
-        }
-
-        let Some(next) = chars.next() else {
-            out.push('\\');
-            break;
-        };
-
-        match context {
-            StaticCommandNameContext::Unquoted => {
-                if next != '\n' {
-                    out.push(next);
-                }
-            }
-            StaticCommandNameContext::DoubleQuoted => match next {
-                '$' | '`' | '"' | '\\' => out.push(next),
-                '\n' => {}
-                _ => {
-                    out.push('\\');
-                    out.push(next);
-                }
-            },
-        }
-    }
-}
-
 fn recorded_command_info(
     command: &Command,
     source: &str,
@@ -3498,7 +3421,8 @@ fn recorded_simple_command_info(
     let words = std::iter::once(&command.name)
         .chain(command.args.iter())
         .collect::<Vec<_>>();
-    let mut static_callee = static_command_name_text(&command.name, source);
+    let mut static_callee =
+        static_command_name_text(&command.name, source).map(|name| name.into_owned());
     let static_args = command
         .args
         .iter()
@@ -3514,7 +3438,7 @@ fn recorded_simple_command_info(
     if static_callee.as_deref() == Some("noglob") {
         static_callee = words
             .get(1)
-            .and_then(|word| static_command_name_text(word, source));
+            .and_then(|word| static_command_name_text(word, source).map(|name| name.into_owned()));
     }
 
     let mut info = RecordedCommandInfo {
@@ -3567,96 +3491,21 @@ fn normalize_recorded_zsh_effect_command(words: &[&Word], source: &str) -> Optio
             continue;
         }
 
-        match text.as_ref() {
-            "noglob" => {
-                index += 1;
+        match static_command_wrapper_target_index(words.len(), index, text.as_ref(), |word_index| {
+            static_word_text(words[word_index], source)
+        }) {
+            StaticCommandWrapperTarget::NotWrapper => return Some((text.into_owned(), index)),
+            StaticCommandWrapperTarget::Wrapper {
+                target_index: Some(target_index),
+            } => {
+                index = target_index;
                 continue;
             }
-            "command" => {
-                index = skip_recorded_command_wrapper_options(words, source, index + 1)?;
-                continue;
-            }
-            "builtin" => {
-                index = skip_recorded_wrapper_options(words, source, index + 1);
-                continue;
-            }
-            "exec" => {
-                index = skip_recorded_exec_wrapper_options(words, source, index + 1);
-                continue;
-            }
-            _ => return Some((text.into_owned(), index)),
+            StaticCommandWrapperTarget::Wrapper { target_index: None } => return None,
         }
     }
 
     None
-}
-
-fn skip_recorded_command_wrapper_options(
-    words: &[&Word],
-    source: &str,
-    mut index: usize,
-) -> Option<usize> {
-    while let Some(word) = words.get(index) {
-        let Some(text) = static_word_text(word, source) else {
-            break;
-        };
-        if text == "--" {
-            index += 1;
-            break;
-        }
-        if text.starts_with('-') && text != "-" {
-            if text
-                .strip_prefix('-')
-                .is_some_and(|flags| flags.chars().any(|flag| matches!(flag, 'v' | 'V')))
-            {
-                return None;
-            }
-            index += 1;
-            continue;
-        }
-        break;
-    }
-    Some(index)
-}
-
-fn skip_recorded_wrapper_options(words: &[&Word], source: &str, mut index: usize) -> usize {
-    while let Some(word) = words.get(index) {
-        let Some(text) = static_word_text(word, source) else {
-            break;
-        };
-        if text == "--" {
-            index += 1;
-            break;
-        }
-        if text.starts_with('-') && text != "-" {
-            index += 1;
-            continue;
-        }
-        break;
-    }
-    index
-}
-
-fn skip_recorded_exec_wrapper_options(words: &[&Word], source: &str, mut index: usize) -> usize {
-    while let Some(word) = words.get(index) {
-        let Some(text) = static_word_text(word, source) else {
-            break;
-        };
-        if text == "--" {
-            index += 1;
-            break;
-        }
-        if text == "-a" {
-            index = (index + 2).min(words.len());
-            continue;
-        }
-        if text.starts_with('-') && text != "-" {
-            index += 1;
-            continue;
-        }
-        break;
-    }
-    index
 }
 
 fn is_recorded_assignment_word(word: &str) -> bool {

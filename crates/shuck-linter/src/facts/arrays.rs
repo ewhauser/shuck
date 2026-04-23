@@ -64,11 +64,11 @@ fn parameter_uses_replacement_operator(parameter: &ParameterExpansion) -> bool {
 
 
 fn collect_broken_assoc_key_spans(command: &Command, source: &str, spans: &mut Vec<Span>) {
-    for assignment in query::command_assignments(command) {
+    for assignment in command_assignments(command) {
         collect_broken_assoc_key_spans_in_assignment(assignment, source, spans);
     }
 
-    for operand in query::declaration_operands(command) {
+    for operand in declaration_operands(command) {
         let DeclOperand::Assignment(assignment) = operand else {
             continue;
         };
@@ -171,13 +171,13 @@ fn has_unclosed_assoc_key_prefix(word: &Word, source: &str) -> bool {
 }
 
 fn collect_comma_array_assignment_spans(command: &Command, source: &str, spans: &mut Vec<Span>) {
-    for assignment in query::command_assignments(command) {
+    for assignment in command_assignments(command) {
         if let Some(span) = comma_array_assignment_span(assignment, source) {
             spans.push(span);
         }
     }
 
-    for operand in query::declaration_operands(command) {
+    for operand in declaration_operands(command) {
         let DeclOperand::Assignment(assignment) = operand else {
             continue;
         };
@@ -192,13 +192,13 @@ fn collect_ifs_literal_backslash_assignment_value_spans(
     source: &str,
     spans: &mut Vec<Span>,
 ) {
-    for assignment in query::command_assignments(command) {
+    for assignment in command_assignments(command) {
         if let Some(span) = ifs_literal_backslash_assignment_value_span(assignment, source) {
             spans.push(span);
         }
     }
 
-    for operand in query::declaration_operands(command) {
+    for operand in declaration_operands(command) {
         let DeclOperand::Assignment(assignment) = operand else {
             continue;
         };

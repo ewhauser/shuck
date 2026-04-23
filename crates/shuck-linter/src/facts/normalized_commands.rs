@@ -2,7 +2,8 @@ use std::borrow::Cow;
 
 use shuck_ast::{
     Assignment, BuiltinCommand, Command, DeclClause, DeclOperand, Redirect, SimpleCommand, Span,
-    Word, static_word_text,
+    StaticCommandWrapperTarget, Word, static_command_name_text,
+    static_command_wrapper_target_index, static_word_text,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -316,22 +317,12 @@ fn resolve_command_resolution(
     source: &str,
 ) -> Option<CommandResolution> {
     match current_name {
-        "noglob" => Some(CommandResolution::Wrapper {
-            kind: WrapperKind::Noglob,
-            target_index: words.get(current_index + 1).map(|_| current_index + 1),
-        }),
-        "command" => Some(CommandResolution::Wrapper {
-            kind: WrapperKind::Command,
-            target_index: command_wrapper_target_index(words, current_index, source),
-        }),
-        "builtin" => Some(CommandResolution::Wrapper {
-            kind: WrapperKind::Builtin,
-            target_index: words.get(current_index + 1).map(|_| current_index + 1),
-        }),
-        "exec" => Some(CommandResolution::Wrapper {
-            kind: WrapperKind::Exec,
-            target_index: exec_wrapper_target_index(words, current_index, source),
-        }),
+        "noglob" | "command" | "builtin" | "exec" => Some(resolve_shared_wrapper(
+            words,
+            current_index,
+            current_name,
+            source,
+        )),
         "busybox" => Some(CommandResolution::Wrapper {
             kind: WrapperKind::Busybox,
             target_index: words.get(current_index + 1).map(|_| current_index + 1),
@@ -354,51 +345,28 @@ fn resolve_command_resolution(
     }
 }
 
-fn command_wrapper_target_index(
+fn resolve_shared_wrapper(
     words: &[&Word],
     current_index: usize,
+    current_name: &str,
     source: &str,
-) -> Option<usize> {
-    let mut index = current_index + 1;
+) -> CommandResolution {
+    let kind = match current_name {
+        "noglob" => WrapperKind::Noglob,
+        "command" => WrapperKind::Command,
+        "builtin" => WrapperKind::Builtin,
+        "exec" => WrapperKind::Exec,
+        _ => unreachable!("caller only passes shared wrappers"),
+    };
+    let StaticCommandWrapperTarget::Wrapper { target_index } =
+        static_command_wrapper_target_index(words.len(), current_index, current_name, |index| {
+            static_word_text(words[index], source)
+        })
+    else {
+        unreachable!("shared wrapper name should resolve to a wrapper target");
+    };
 
-    while index < words.len() {
-        let Some(arg) = static_word_text(words[index], source) else {
-            return Some(index);
-        };
-
-        match arg.as_ref() {
-            "--" => return words.get(index + 1).map(|_| index + 1),
-            "-p" => index += 1,
-            "-v" | "-V" => return None,
-            _ if arg.starts_with('-') => return None,
-            _ => return Some(index),
-        }
-    }
-
-    None
-}
-
-fn exec_wrapper_target_index(words: &[&Word], current_index: usize, source: &str) -> Option<usize> {
-    let mut index = current_index + 1;
-
-    while index < words.len() {
-        let Some(arg) = static_word_text(words[index], source) else {
-            return Some(index);
-        };
-
-        match arg.as_ref() {
-            "--" => return words.get(index + 1).map(|_| index + 1),
-            "-c" | "-l" => index += 1,
-            "-a" => {
-                static_word_text(words.get(index + 1)?, source)?;
-                index += 2;
-            }
-            _ if arg.starts_with('-') => return None,
-            _ => return Some(index),
-        }
-    }
-
-    None
+    CommandResolution::Wrapper { kind, target_index }
 }
 
 fn find_exec_target_index(
@@ -542,14 +510,6 @@ fn builtin_span(command: &BuiltinCommand) -> Span {
     }
 }
 
-fn static_command_name_text<'a>(word: &'a Word, source: &'a str) -> Option<Cow<'a, str>> {
-    let text = static_word_text(word, source)?;
-    match text.strip_prefix('\\') {
-        Some(stripped) => Some(Cow::Owned(stripped.to_owned())),
-        None => Some(text),
-    }
-}
-
 fn command_basename(name: &str) -> &str {
     name.rsplit('/').next().unwrap_or(name)
 }
@@ -577,6 +537,13 @@ mod tests {
                 ("printf", Some("'%s\\n'")),
             ),
             (
+                "command -pp printf '%s\\n' hi\n",
+                Some("command"),
+                Some("printf"),
+                vec![WrapperKind::Command],
+                ("printf", Some("'%s\\n'")),
+            ),
+            (
                 "noglob rm *.txt\n",
                 Some("noglob"),
                 Some("rm"),
@@ -592,6 +559,27 @@ mod tests {
             ),
             (
                 "exec printf '%s\\n' hi\n",
+                Some("exec"),
+                Some("printf"),
+                vec![WrapperKind::Exec],
+                ("printf", Some("'%s\\n'")),
+            ),
+            (
+                "exec -cl printf '%s\\n' hi\n",
+                Some("exec"),
+                Some("printf"),
+                vec![WrapperKind::Exec],
+                ("printf", Some("'%s\\n'")),
+            ),
+            (
+                "exec -lc printf '%s\\n' hi\n",
+                Some("exec"),
+                Some("printf"),
+                vec![WrapperKind::Exec],
+                ("printf", Some("'%s\\n'")),
+            ),
+            (
+                "exec -la shuck printf '%s\\n' hi\n",
                 Some("exec"),
                 Some("printf"),
                 vec![WrapperKind::Exec],
@@ -723,6 +711,23 @@ mod tests {
                 .map(|word| word.span.slice(source)),
             Some("\"printf\"")
         );
+    }
+
+    #[test]
+    fn normalize_command_does_not_peel_unsupported_wrapper_options() {
+        for (source, wrapper) in [
+            ("command -x printf '%s\\n' hi\n", WrapperKind::Command),
+            ("builtin -x read var\n", WrapperKind::Builtin),
+            ("exec -x printf '%s\\n' hi\n", WrapperKind::Exec),
+        ] {
+            let command = parse_first_command(source);
+            let normalized = normalize_command(&command, source);
+
+            assert!(normalized.literal_name.is_some(), "{source}");
+            assert_eq!(normalized.effective_name.as_deref(), None, "{source}");
+            assert_eq!(normalized.wrappers, vec![wrapper], "{source}");
+            assert!(normalized.body_words.is_empty(), "{source}");
+        }
     }
 
     #[test]

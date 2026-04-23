@@ -9,6 +9,7 @@
 
 mod conditional_portability;
 mod escape_scan;
+mod normalized_commands;
 mod presence;
 pub(crate) mod surface;
 #[cfg(test)]
@@ -20,6 +21,7 @@ use self::word_spans::{expansion_part_spans, word_unbraced_variable_before_brack
 use self::{
     conditional_portability::{ConditionalPortabilityInputs, build_conditional_portability_facts},
     escape_scan::{EscapeScanContext, EscapeScanInputs, build_escape_scan_matches},
+    normalized_commands as command,
     presence::build_presence_tested_names,
     surface::{
         CaseModificationFragmentFact, CasePatternExpansionFact, DollarDoubleQuotedFragmentFact,
@@ -34,12 +36,8 @@ use self::{
     },
 };
 use crate::context::ContextRegionKind;
-use crate::rules::common::{
-    command::{self, DeclarationKind, NormalizedCommand, NormalizedDeclaration, WrapperKind},
-    query::{self, CommandSubstitutionKind, CommandVisit, CommandWalkOptions},
-};
 use crate::suppression::shellcheck_directive_can_apply_to_following_command;
-use crate::{AmbientShellOptions, FileContext};
+use crate::{AmbientShellOptions, FileContext, ShellDialect};
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue,
@@ -47,28 +45,36 @@ use shuck_ast::{
     BackgroundOperator, BinaryCommand, BinaryOp, BourneParameterExpansion, BraceQuoteContext,
     BraceSyntaxKind, BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command,
     CommandSubstitutionSyntax, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
-    ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, FunctionDef, Name,
-    ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Position,
-    PrefixMatchKind, Redirect, RedirectKind, SelectCommand, SimpleCommand, SourceText, Span, Stmt,
-    StmtSeq, StmtTerminator, Subscript, SubscriptSelector, TextRange, VarRef, WhileCommand, Word,
-    WordPart, WordPartNode, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment,
-    ZshQualifiedGlob, is_shell_variable_name, static_word_text, word_is_standalone_status_capture,
+    ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, FunctionDef,
+    HeredocBodyPartNode, Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern,
+    PatternPart, Position, PrefixMatchKind, Redirect, RedirectKind, SelectCommand, SimpleCommand,
+    SourceText, Span, Stmt, StmtSeq, StmtTerminator, Subscript, SubscriptSelector, TextRange,
+    VarRef, WhileCommand, Word, WordPart, WordPartNode, ZshExpansionOperation, ZshExpansionTarget,
+    ZshGlobSegment, ZshQualifiedGlob, is_shell_variable_name, static_word_text,
+    word_is_standalone_status_capture,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
 use shuck_semantic::{
-    BindingAttributes, BindingId, BindingKind, OptionValue, ScopeId, SemanticModel, ZshOptionState,
+    Binding, BindingAttributes, BindingId, BindingKind, DeclarationBuiltin, OptionValue, ScopeId,
+    SemanticModel, ZshOptionState,
 };
 use smallvec::SmallVec;
 use std::{borrow::Cow, cell::OnceCell, ops::ControlFlow};
 
 pub use self::conditional_portability::ConditionalPortabilityFacts;
 pub(crate) use self::escape_scan::{EscapeScanMatch, EscapeScanSourceKind};
+#[cfg(feature = "benchmarking")]
+pub(crate) use self::normalized_commands::normalize_command;
+pub use self::normalized_commands::{
+    DeclarationKind, NormalizedCommand, NormalizedDeclaration, WrapperKind,
+};
 pub use self::surface::{
     BacktickFragmentFact, LegacyArithmeticFragmentFact, PositionalParameterFragmentFact,
     SingleQuotedFragmentFact,
 };
 
+include!("traversal.rs");
 include!("core.rs");
 include!("simple_tests.rs");
 include!("conditionals.rs");
@@ -91,6 +97,25 @@ include!("heredocs.rs");
 include!("braces.rs");
 include!("arithmetic.rs");
 include!("words.rs");
+
+#[cfg(feature = "benchmarking")]
+pub(crate) fn benchmark_normalize_commands(file: &File, source: &str) -> usize {
+    iter_commands_with_context(
+        &file.body,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+    )
+    .map(|traversed| {
+        let normalized = normalize_command(traversed.visit.command, source);
+        normalized.wrappers.len()
+            + normalized.body_words.len()
+            + usize::from(normalized.literal_name.is_some())
+            + usize::from(normalized.effective_name.is_some())
+            + usize::from(normalized.declaration.is_some())
+    })
+    .sum()
+}
 
 #[allow(unused_imports)]
 pub(crate) mod core {
@@ -118,7 +143,7 @@ pub(crate) mod redirects {
 
 #[allow(unused_imports)]
 pub(crate) mod substitutions {
-    pub use super::{SubstitutionFact, SubstitutionHostKind};
+    pub use super::{CommandSubstitutionKind, SubstitutionFact, SubstitutionHostKind};
 }
 
 #[allow(unused_imports)]
@@ -150,9 +175,9 @@ pub(crate) mod statements {
 pub(crate) mod command_options {
     pub use super::{
         CommandOptionFacts, ExitCommandFacts, FindCommandFacts, FindExecCommandFacts,
-        FindExecShellCommandFacts, GrepPatternSourceKind, PathWordFact, PrintfCommandFacts,
-        ReadCommandFacts, RmCommandFacts, SshCommandFacts, SudoFamilyCommandFacts,
-        UnsetCommandFacts, WaitCommandFacts, XargsCommandFacts,
+        FindExecShellCommandFacts, GrepPatternSourceKind, PathNameFact, PathNameKind, PathWordFact,
+        PrintfCommandFacts, ReadCommandFacts, RmCommandFacts, SshCommandFacts,
+        SudoFamilyCommandFacts, UnsetCommandFacts, WaitCommandFacts, XargsCommandFacts,
     };
 }
 

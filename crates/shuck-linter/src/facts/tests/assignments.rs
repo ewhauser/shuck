@@ -1,4 +1,5 @@
 use super::*;
+use crate::AmbientShellOptions;
 
 #[test]
 fn indexes_scalar_bindings_from_assignments_and_declarations() {
@@ -841,4 +842,72 @@ fn ignores_commas_after_process_substitutions_inside_parameter_expansions_in_com
             .map(|span| span.slice(source))
             .collect::<Vec<_>>()
     );
+}
+
+#[test]
+fn bash_pipefail_skips_top_level_pipeline_subshell_use_sites() {
+    let source = "\
+#!/usr/bin/env bash
+set -o pipefail
+count=0
+printf '%s\\n' x | while read -r _; do count=1; done
+echo \"$count\"
+";
+
+    assert!(subshell_later_use_slices(source, ShellDialect::Bash).is_empty());
+}
+
+#[test]
+fn bash_pipefail_keeps_enclosing_command_substitution_use_sites() {
+    let source = "\
+#!/usr/bin/env bash
+set -o pipefail
+value=outer
+snapshot=\"$(value=inner | cat)\"
+echo \"$value\"
+";
+
+    assert_eq!(
+        subshell_later_use_slices(source, ShellDialect::Bash),
+        vec!["$value"]
+    );
+}
+
+#[test]
+fn uninitialized_declarations_do_not_hide_subshell_use_sites() {
+    let source = "\
+#!/usr/bin/env bash
+demo() {
+  (value=inner)
+  local value
+  printf '%s\\n' \"${value:-}\"
+}
+";
+
+    assert_eq!(
+        subshell_later_use_slices(source, ShellDialect::Bash),
+        vec!["${value:-}"]
+    );
+}
+
+fn subshell_later_use_slices(source: &str, shell: ShellDialect) -> Vec<&str> {
+    let output = Parser::new(source).parse().unwrap();
+    let indexer = Indexer::new(source, &output);
+    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let file_context = classify_file_context(source, None, shell);
+    let facts = LinterFacts::build_with_shell_and_ambient_shell_options(
+        &output.file,
+        source,
+        &semantic,
+        &indexer,
+        &file_context,
+        shell,
+        AmbientShellOptions::default(),
+    );
+
+    facts
+        .subshell_later_use_sites()
+        .iter()
+        .map(|site| site.span.slice(source))
+        .collect()
 }

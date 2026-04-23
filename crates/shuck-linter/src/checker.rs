@@ -63,12 +63,13 @@ impl<'a> Checker<'a> {
             indexer,
             file,
             source,
-            facts: LinterFacts::build_with_ambient_shell_options(
+            facts: LinterFacts::build_with_shell_and_ambient_shell_options(
                 file,
                 source,
                 semantic,
                 indexer,
                 file_context,
+                shell,
                 ambient_shell_options,
             ),
             rules,

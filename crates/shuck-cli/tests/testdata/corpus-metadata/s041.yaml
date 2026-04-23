@@ -1,16 +1,1 @@
-reviewed_divergences:
-  - side: shuck-only
-    path_contains: "Bash-it__bash-it__"
-    reason: "Shuck treats a bare compound command in function position as a missing-braces portability issue. The nix ShellCheck 0.11.0 oracle in this repo does not emit SC2276 for the small probes we checked, including subshell and bare test/if forms, so these repo-family hits are intentionally recorded as reviewed shuck-only divergence."
-  - side: shuck-only
-    path_contains: "SlackBuildsOrg__slackbuilds__"
-    reason: "Shuck treats a bare compound command in function position as a missing-braces portability issue. The nix ShellCheck 0.11.0 oracle in this repo does not emit SC2276 for the small probes we checked, including subshell and bare test/if forms, so these repo-family hits are intentionally recorded as reviewed shuck-only divergence."
-  - side: shuck-only
-    path_contains: "asdf-vm__asdf__"
-    reason: "Shuck treats a bare compound command in function position as a missing-braces portability issue. The nix ShellCheck 0.11.0 oracle in this repo does not emit SC2276 for the small probes we checked, including subshell and bare test/if forms, so these repo-family hits are intentionally recorded as reviewed shuck-only divergence."
-  - side: shuck-only
-    path_contains: "megastep__makeself__"
-    reason: "Shuck treats a bare compound command in function position as a missing-braces portability issue. The nix ShellCheck 0.11.0 oracle in this repo does not emit SC2276 for the small probes we checked, including subshell and bare test/if forms, so these repo-family hits are intentionally recorded as reviewed shuck-only divergence."
-  - side: shuck-only
-    path_contains: "rvm__rvm__"
-    reason: "Shuck treats a bare compound command in function position as a missing-braces portability issue. The nix ShellCheck 0.11.0 oracle in this repo does not emit SC2276 for the small probes we checked, including subshell and bare test/if forms, so these repo-family hits are intentionally recorded as reviewed shuck-only divergence."
+reviewed_divergences: []

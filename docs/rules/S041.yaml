@@ -10,8 +10,8 @@ shells:
   - bash
   - dash
   - ksh
-description: A function body is a bare compound command instead of a brace group.
-rationale: "Wrap the function body in `{ ... }` for portability."
+description: A function body uses an unbraced compound command that should be brace-wrapped.
+rationale: "Wrap these function bodies in `{ ... }` for compatibility; subshell and arithmetic function bodies are accepted."
 safe_fix: true
 fix_description: "Wrap the existing compound function body in `{ ...; }` without changing the inner command."
 source:

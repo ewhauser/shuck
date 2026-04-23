@@ -1055,6 +1055,26 @@ fn test_parse_empty_arithmetic_command_keeps_span_without_typed_ast() {
 }
 
 #[test]
+fn test_parse_dynamic_arithmetic_command_keeps_compound_shape_without_typed_ast() {
+    let input = "((proc[selected]==(1${filter:++1})-proc[start]))\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let (compound, redirects) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Arithmetic(command) = compound else {
+        panic!("expected arithmetic compound command");
+    };
+
+    assert!(redirects.is_empty());
+    assert_eq!(command.left_paren_span.slice(input), "((");
+    assert_eq!(command.right_paren_span.slice(input), "))");
+    assert_eq!(
+        command.expr_span.unwrap().slice(input),
+        "proc[selected]==(1${filter:++1})-proc[start]"
+    );
+    assert!(command.expr_ast.is_none());
+}
+
+#[test]
 fn test_parse_arithmetic_command_with_nested_parens_and_double_right_paren() {
     let input = "(( (previous_pipe_index > 0) && (previous_pipe_index == ($# - 1)) ))\n";
     let script = Parser::new(input).parse().unwrap().file;
@@ -3493,14 +3513,21 @@ repeat 2 echo global
 
 #[test]
 fn test_parse_zsh_wrapped_unsetopt_short_repeat_demotes_repeat_to_simple_command() {
-    let source = "command unsetopt short_repeat\nrepeat 2 echo hi\n";
-    let output = Parser::with_dialect(source, ShellDialect::Zsh)
-        .parse()
-        .unwrap()
-        .file;
+    for source in [
+        "command unsetopt short_repeat\nrepeat 2 echo hi\n",
+        "command -pp unsetopt short_repeat\nrepeat 2 echo hi\n",
+        "exec -cl unsetopt short_repeat\nrepeat 2 echo hi\n",
+        "exec -lc unsetopt short_repeat\nrepeat 2 echo hi\n",
+        "exec -la shuck unsetopt short_repeat\nrepeat 2 echo hi\n",
+    ] {
+        let output = Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap()
+            .file;
 
-    let command = expect_simple(&output.body[1]);
-    assert_eq!(command.name.render(source), "repeat");
+        let command = expect_simple(&output.body[1]);
+        assert_eq!(command.name.render(source), "repeat", "{source}");
+    }
 }
 
 #[test]
@@ -3523,20 +3550,54 @@ fn test_parse_zsh_plain_subshell_does_not_leak_short_repeat_prescan() {
 
 #[test]
 fn test_parse_zsh_command_v_does_not_fake_short_repeat_effects() {
-    let source = "command -v unsetopt short_repeat\nrepeat 2 echo global\n";
-    let output = Parser::with_dialect(source, ShellDialect::Zsh)
-        .parse()
-        .unwrap()
-        .file;
+    for source in [
+        "command -v unsetopt short_repeat\nrepeat 2 echo global\n",
+        "command -pv unsetopt short_repeat\nrepeat 2 echo global\n",
+        "command -pV unsetopt short_repeat\nrepeat 2 echo global\n",
+    ] {
+        let output = Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap()
+            .file;
 
-    let command = expect_simple(&output.body[0]);
-    assert_eq!(command.name.render(source), "command");
+        let command = expect_simple(&output.body[0]);
+        assert_eq!(command.name.render(source), "command", "{source}");
 
-    let (compound, _) = expect_compound(&output.body[1]);
-    let AstCompoundCommand::Repeat(repeat) = compound else {
-        panic!("expected top-level repeat command");
-    };
-    assert_eq!(repeat.count.render(source), "2");
+        let (compound, _) = expect_compound(&output.body[1]);
+        let AstCompoundCommand::Repeat(repeat) = compound else {
+            panic!("expected top-level repeat command for {source}");
+        };
+        assert_eq!(repeat.count.render(source), "2", "{source}");
+    }
+}
+
+#[test]
+fn test_parse_zsh_unknown_precommand_options_do_not_fake_short_repeat_effects() {
+    for source in [
+        "command -x unsetopt short_repeat\nrepeat 2 echo global\n",
+        "builtin -x unsetopt short_repeat\nrepeat 2 echo global\n",
+        "exec -x unsetopt short_repeat\nrepeat 2 echo global\n",
+    ] {
+        let output = Parser::with_dialect(source, ShellDialect::Zsh)
+            .parse()
+            .unwrap()
+            .file;
+
+        let command = expect_simple(&output.body[0]);
+        assert!(
+            matches!(
+                command.name.render(source).as_str(),
+                "command" | "builtin" | "exec"
+            ),
+            "{source}"
+        );
+
+        let (compound, _) = expect_compound(&output.body[1]);
+        let AstCompoundCommand::Repeat(repeat) = compound else {
+            panic!("expected top-level repeat command for {source}");
+        };
+        assert_eq!(repeat.count.render(source), "2", "{source}");
+    }
 }
 
 #[test]

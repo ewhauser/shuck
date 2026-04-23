@@ -54,6 +54,8 @@ pub use context::{
 };
 /// Rule diagnostics and severity levels.
 pub use diagnostic::{Diagnostic, Severity};
+/// Command-substitution classification exposed by fact APIs.
+pub use facts::CommandSubstitutionKind;
 pub(crate) use facts::ComparablePathKey;
 /// Extracted structural facts available to rules and callers.
 pub use facts::{
@@ -64,10 +66,10 @@ pub use facts::{
     ExpansionContext, ExpansionHazards, ExpansionValueShape, FindCommandFacts,
     FindExecCommandFacts, FindExecShellCommandFacts, ForHeaderFact, FunctionCallArityFacts,
     FunctionHeaderFact, GrepPatternSourceKind, LegacyArithmeticFragmentFact, ListFact,
-    ListOperatorFact, LoopHeaderWordFact, PathWordFact, PipelineFact, PipelineOperatorFact,
-    PipelineSegmentFact, PositionalParameterFragmentFact, PrintfCommandFacts, ReadCommandFacts,
-    RedirectDevNullStatus, RedirectFact, RedirectTargetAnalysis, RedirectTargetKind,
-    RmCommandFacts, RuntimeLiteralAnalysis, SelectHeaderFact, SimpleTestFact,
+    ListOperatorFact, LoopHeaderWordFact, PathNameFact, PathNameKind, PathWordFact, PipelineFact,
+    PipelineOperatorFact, PipelineSegmentFact, PositionalParameterFragmentFact, PrintfCommandFacts,
+    ReadCommandFacts, RedirectDevNullStatus, RedirectFact, RedirectTargetAnalysis,
+    RedirectTargetKind, RmCommandFacts, RuntimeLiteralAnalysis, SelectHeaderFact, SimpleTestFact,
     SimpleTestOperatorFamily, SimpleTestShape, SimpleTestSyntax, SingleQuotedFragmentFact,
     SshCommandFacts, StatementFact, SubstitutionFact, SubstitutionHostKind,
     SubstitutionOutputIntent, SudoFamilyCommandFacts, SudoFamilyInvoker, TestOperandClass,
@@ -76,7 +78,10 @@ pub use facts::{
     WordQuote, WordSubstitutionShape, XargsCommandFacts, leading_literal_word_prefix,
 };
 /// Fact collection types and stable identifiers into those collections.
-pub use facts::{CommandId, FactSpan, LinterFacts};
+pub use facts::{
+    CommandId, DeclarationKind, FactSpan, LinterFacts, NormalizedCommand, NormalizedDeclaration,
+    WrapperKind,
+};
 /// Autofix types and fix application helpers.
 pub use fix::{Applicability, AppliedFixes, Edit, Fix, FixAvailability, apply_fixes};
 pub(crate) use fix_helpers::leading_static_word_prefix_fix_in_source;
@@ -88,12 +93,6 @@ pub use rule_metadata::{RuleMetadata, ShellCheckLevel, rule_metadata, rule_metad
 pub use rule_selector::{RuleSelector, SelectorParseError};
 /// Sets of enabled or disabled rules.
 pub use rule_set::RuleSet;
-/// Command normalization helper types exposed by fact APIs.
-pub use rules::common::command::{
-    DeclarationKind, NormalizedCommand, NormalizedDeclaration, WrapperKind,
-};
-/// Command-substitution classification exposed by fact APIs.
-pub use rules::common::query::CommandSubstitutionKind;
 #[allow(unused_imports)]
 pub(crate) use rules::common::safe_value::{SafeValueIndex, SafeValueQuery};
 #[allow(unused_imports)]
@@ -161,26 +160,7 @@ pub fn analyze_file(
 #[doc(hidden)]
 #[must_use]
 pub fn benchmark_normalize_commands(file: &File, source: &str) -> usize {
-    use crate::rules::common::{
-        command::normalize_command,
-        query::{self, CommandWalkOptions},
-    };
-
-    query::iter_commands_with_context(
-        &file.body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-    )
-    .map(|traversed| {
-        let normalized = normalize_command(traversed.visit.command, source);
-        normalized.wrappers.len()
-            + normalized.body_words.len()
-            + usize::from(normalized.literal_name.is_some())
-            + usize::from(normalized.effective_name.is_some())
-            + usize::from(normalized.declaration.is_some())
-    })
-    .sum()
+    facts::benchmark_normalize_commands(file, source)
 }
 
 #[cfg(feature = "benchmarking")]

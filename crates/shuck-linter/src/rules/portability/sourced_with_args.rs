@@ -1,4 +1,4 @@
-use shuck_ast::static_word_text;
+use shuck_ast::static_command_name_text;
 
 use crate::context::FileContextTag;
 use crate::{Checker, Rule, ShellDialect, Violation};
@@ -42,11 +42,6 @@ pub fn sourced_with_args(checker: &mut Checker) {
 
 fn targets_posix_dot_shell(shell: ShellDialect) -> bool {
     matches!(shell, ShellDialect::Sh | ShellDialect::Dash)
-}
-
-fn static_command_name_text(word: &shuck_ast::Word, source: &str) -> Option<String> {
-    let text = static_word_text(word, source)?;
-    Some(text.strip_prefix('\\').unwrap_or(text.as_ref()).to_owned())
 }
 
 #[cfg(test)]

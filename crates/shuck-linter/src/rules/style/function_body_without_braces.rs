@@ -39,7 +39,8 @@ mod tests {
         let source = "\
 #!/bin/bash
 f() [[ -n \"$x\" ]]
-g() ( echo hi )
+g() if true; then :; fi
+h() case x in x) :;; esac
 ";
         let diagnostics = test_snippet(
             source,
@@ -51,16 +52,22 @@ g() ( echo hi )
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["[[ -n \"$x\" ]]", "echo hi )"]
+            vec![
+                "[[ -n \"$x\" ]]",
+                "if true; then :; fi\n",
+                "case x in x) :;; esac\n",
+            ]
         );
     }
 
     #[test]
-    fn ignores_braced_function_bodies() {
+    fn ignores_function_bodies_shellcheck_accepts() {
         let source = "\
 #!/bin/bash
 f() { [[ -n \"$x\" ]]; }
 g() { ( echo hi ); }
+h() ( echo hi )
+i() (( x++ ))
 ";
         let diagnostics = test_snippet(
             source,

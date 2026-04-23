@@ -4,6 +4,7 @@ struct LinterFactsBuilder<'a> {
     semantic: &'a SemanticModel,
     _indexer: &'a Indexer,
     _file_context: &'a FileContext,
+    shell: ShellDialect,
     ambient_shell_options: AmbientShellOptions,
 }
 
@@ -33,6 +34,7 @@ impl<'a> LinterFactsBuilder<'a> {
         semantic: &'a SemanticModel,
         indexer: &'a Indexer,
         file_context: &'a FileContext,
+        shell: ShellDialect,
         ambient_shell_options: AmbientShellOptions,
     ) -> Self {
         Self {
@@ -41,6 +43,7 @@ impl<'a> LinterFactsBuilder<'a> {
             semantic,
             _indexer: indexer,
             _file_context: file_context,
+            shell,
             ambient_shell_options,
         }
     }
@@ -77,7 +80,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut condition_status_capture_spans = Vec::new();
         let mut condition_command_substitution_spans = Vec::new();
 
-        for traversed in query::iter_commands_with_context(
+        for traversed in iter_commands_with_context(
             &self.file.body,
             CommandWalkOptions {
                 descend_nested_word_commands: true,
@@ -186,6 +189,8 @@ impl<'a> LinterFactsBuilder<'a> {
                 substitution_facts: Vec::new().into_boxed_slice(),
                 options,
                 scope_read_source_words: Vec::new().into_boxed_slice(),
+                scope_read_source_names: Vec::new().into_boxed_slice(),
+                scope_write_target_names: Vec::new().into_boxed_slice(),
                 declaration_assignment_probes,
                 glued_closing_bracket_operand_span,
                 glued_closing_bracket_insert_offset,
@@ -383,10 +388,26 @@ impl<'a> LinterFactsBuilder<'a> {
         let case_pattern_impossible_spans =
             build_case_pattern_impossible_spans(&commands, self.source);
         let pipelines = build_pipeline_facts(&commands, &command_ids_by_span);
-        let scope_read_source_words =
-            build_scope_read_source_words(&commands, &pipelines, &if_condition_command_ids, source);
+        let scope_read_source_words = build_scope_read_source_words(
+            &commands,
+            &pipelines,
+            &if_condition_command_ids,
+            source,
+        );
         for (fact, words) in commands.iter_mut().zip(scope_read_source_words) {
             fact.scope_read_source_words = words;
+        }
+        let scope_read_source_names =
+            build_scope_read_source_names(&commands, &pipelines, self.semantic, self.source);
+        let scope_write_target_names =
+            build_scope_write_target_names(&commands, self.semantic, self.source);
+        for ((fact, read_names), write_names) in commands
+            .iter_mut()
+            .zip(scope_read_source_names)
+            .zip(scope_write_target_names)
+        {
+            fact.scope_read_source_names = read_names;
+            fact.scope_write_target_names = write_names;
         }
         let lists = build_list_facts(&commands, &command_ids_by_span, self.source);
         let completion_registered_function_command_flags =
@@ -412,6 +433,11 @@ impl<'a> LinterFactsBuilder<'a> {
                 .iter()
                 .filter_map(|fact| fact.options().set())
                 .any(|set| set.errexit_change == Some(true));
+        let pipefail_enabled_anywhere = self.ambient_shell_options.pipefail
+            || commands
+                .iter()
+                .filter_map(|fact| fact.options().set())
+                .any(|set| set.pipefail_change == Some(true));
         let commented_continuation_comment_spans =
             build_commented_continuation_comment_spans(self.source, self._indexer);
         let trailing_directive_comment_spans = build_trailing_directive_comment_spans(
@@ -423,8 +449,12 @@ impl<'a> LinterFactsBuilder<'a> {
         let backtick_command_name_spans = build_backtick_command_name_spans(&commands);
         let dollar_question_after_command_spans =
             build_dollar_question_after_command_spans(&self.file.body, self.source);
-        let nonpersistent_assignment_spans =
-            build_nonpersistent_assignment_spans(self.semantic, &commands);
+        let nonpersistent_assignment_spans = build_nonpersistent_assignment_spans(
+            self.semantic,
+            &commands,
+            self.source,
+            matches!(self.shell, ShellDialect::Bash) && pipefail_enabled_anywhere,
+        );
         let heredoc_summary =
             build_heredoc_fact_summary(&commands, self.source, self.file.span.end.offset);
         let plus_equals_assignment_spans = build_plus_equals_assignment_spans(&commands);

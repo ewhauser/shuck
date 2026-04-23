@@ -2224,6 +2224,24 @@ fn build_unquoted_literal_between_double_quoted_segments_spans(
         })
         .collect::<Vec<_>>();
 
+    for span in mixed_quote_line_join_between_double_quotes_spans(word, source) {
+        if !spans.contains(&span) {
+            spans.push(span);
+        }
+    }
+
+    if let Some(span) = mixed_quote_following_line_join_between_double_quotes_span(word, source)
+        && !spans.contains(&span)
+    {
+        spans.push(span);
+    }
+
+    for span in mixed_quote_chained_line_join_between_double_quotes_spans(word, source) {
+        if !spans.contains(&span) {
+            spans.push(span);
+        }
+    }
+
     if let Some(span) = mixed_quote_trailing_line_join_between_double_quotes_span(word, source)
         && !spans.contains(&span)
     {
@@ -2280,6 +2298,14 @@ fn mixed_quote_literal_is_warnable_between_double_quotes(text: &str) -> bool {
     }
 
     if text.chars().any(|ch| ch.is_ascii_alphanumeric()) {
+        if text.chars().any(|ch| matches!(ch, '*' | '?' | '[' | '{' | '}')) {
+            return false;
+        }
+
+        if mixed_quote_literal_has_shellcheck_skipped_word_operator(text) {
+            return false;
+        }
+
         return !text.chars().any(char::is_whitespace);
     }
 
@@ -2290,6 +2316,10 @@ fn mixed_quote_literal_is_warnable_between_double_quotes(text: &str) -> bool {
     text.chars().all(|ch| {
         ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.' | '@' | '+' | '-' | '%' | ':')
     })
+}
+
+fn mixed_quote_literal_has_shellcheck_skipped_word_operator(text: &str) -> bool {
+    text.contains('+') || text.contains('@')
 }
 
 fn mixed_quote_word_parts_inside_nested_shell_fragments(word: &Word, source: &str) -> Vec<bool> {
@@ -2330,8 +2360,24 @@ fn mixed_quote_shell_fragment_balance_delta_for_part(
         WordPart::ProcessSubstitution { .. } => {
             mixed_quote_shell_fragment_balance_delta(part.span.slice(source), true)
         }
+        WordPart::DoubleQuoted { .. } => {
+            let text = part.span.slice(source);
+            let body = text
+                .strip_prefix('"')
+                .and_then(|text| text.strip_suffix('"'))
+                .unwrap_or(text);
+            mixed_quote_shell_fragment_balance_delta(body, false)
+        }
         _ => mixed_quote_shell_fragment_balance_delta(part.span.slice(source), false),
     }
+}
+
+#[derive(Clone, Copy)]
+enum MixedQuoteShellParenFrame {
+    Command {
+        opened_in_double_quotes: bool,
+    },
+    Group,
 }
 
 fn mixed_quote_shell_fragment_balance_delta(
@@ -2345,6 +2391,8 @@ fn mixed_quote_shell_fragment_balance_delta(
     let mut in_single_quotes = false;
     let mut in_double_quotes = false;
     let mut in_comment = false;
+    let mut command_frames = Vec::new();
+    let mut parameter_frames = Vec::new();
     let mut previous_char = None;
 
     while let Some(ch) = chars.next() {
@@ -2388,11 +2436,13 @@ fn mixed_quote_shell_fragment_balance_delta(
             continue;
         }
 
+        let allow_top_level_command_comment =
+            allow_top_level_command_comments && parameter_delta == 0;
         if ch == '#'
             && !in_double_quotes
             && mixed_quote_shell_comment_can_start(
                 command_delta,
-                allow_top_level_command_comments,
+                allow_top_level_command_comment,
                 previous_char,
             )
         {
@@ -2404,12 +2454,16 @@ fn mixed_quote_shell_fragment_balance_delta(
             match chars.peek().copied() {
                 Some('(') => {
                     command_delta += 1;
+                    command_frames.push(MixedQuoteShellParenFrame::Command {
+                        opened_in_double_quotes: in_double_quotes,
+                    });
                     chars.next();
                     previous_char = Some('(');
                     continue;
                 }
                 Some('{') => {
                     parameter_delta += 1;
+                    parameter_frames.push(in_double_quotes);
                     chars.next();
                     previous_char = Some('{');
                     continue;
@@ -2419,9 +2473,38 @@ fn mixed_quote_shell_fragment_balance_delta(
         }
 
         match ch {
-            ')' => command_delta -= 1,
-            '}' => parameter_delta -= 1,
+            '(' if !in_double_quotes && command_delta > 0 => {
+                command_frames.push(MixedQuoteShellParenFrame::Group);
+            }
+            ')' => match command_frames.last().copied() {
+                Some(MixedQuoteShellParenFrame::Group) if !in_double_quotes => {
+                    command_frames.pop();
+                }
+                Some(MixedQuoteShellParenFrame::Command {
+                    opened_in_double_quotes,
+                }) if !in_double_quotes || opened_in_double_quotes => {
+                    command_frames.pop();
+                    command_delta -= 1;
+                }
+                None if !in_double_quotes => command_delta -= 1,
+                _ => {}
+            },
+            '}' => match parameter_frames.last().copied() {
+                Some(opened_in_double_quotes) if !in_double_quotes || opened_in_double_quotes => {
+                    parameter_frames.pop();
+                    parameter_delta -= 1;
+                }
+                None if !in_double_quotes => parameter_delta -= 1,
+                _ => {}
+            },
             _ => {}
+        }
+
+        if command_delta <= 0 {
+            command_frames.clear();
+        }
+        if parameter_delta <= 0 {
+            parameter_frames.clear();
         }
 
         previous_char = Some(ch);
@@ -2461,12 +2544,290 @@ fn mixed_quote_trailing_line_join_between_double_quotes_span(
         return None;
     };
 
-    if !source[word.span.end.offset..].starts_with('"') {
+    if !mixed_quote_text_ends_with_unescaped_double_quote(prefix)
+        || !source[word.span.end.offset..].starts_with('"')
+    {
         return None;
     }
 
     let start = word.span.start.advanced_by(prefix);
     Some(Span::from_positions(start, start.advanced_by(suffix)))
+}
+
+fn mixed_quote_line_join_between_double_quotes_spans(word: &Word, source: &str) -> Vec<Span> {
+    if !matches!(
+        word.parts.first().map(|part| &part.kind),
+        Some(WordPart::DoubleQuoted { .. })
+    ) {
+        return Vec::new();
+    }
+
+    let text = word.span.slice(source);
+    let mut spans = Vec::new();
+    let mut byte_offset = 0;
+
+    while byte_offset < text.len() {
+        let Some(relative_offset) = text[byte_offset..].find('\\') else {
+            break;
+        };
+        let start_offset = byte_offset + relative_offset;
+        let Some(suffix) = text[start_offset..]
+            .strip_prefix("\\\r\n\"")
+            .map(|_| "\\\r\n")
+            .or_else(|| text[start_offset..].strip_prefix("\\\n\"").map(|_| "\\\n"))
+        else {
+            byte_offset = start_offset + 1;
+            continue;
+        };
+
+        if mixed_quote_text_ends_with_unescaped_double_quote(&text[..start_offset]) {
+            let start = word.span.start.advanced_by(&text[..start_offset]);
+            spans.push(Span::from_positions(start, start.advanced_by(suffix)));
+        }
+
+        byte_offset = start_offset + suffix.len();
+    }
+
+    spans
+}
+
+fn mixed_quote_following_line_join_between_double_quotes_span(
+    word: &Word,
+    source: &str,
+) -> Option<Span> {
+    if !matches!(
+        word.parts.first().map(|part| &part.kind),
+        Some(WordPart::DoubleQuoted { .. })
+    ) {
+        return None;
+    }
+
+    if !mixed_quote_text_ends_with_unescaped_double_quote(word.span.slice(source)) {
+        return None;
+    }
+
+    let suffix = source[word.span.end.offset..]
+        .strip_prefix("\\\r\n\"")
+        .map(|_| "\\\r\n")
+        .or_else(|| {
+            source[word.span.end.offset..]
+                .strip_prefix("\\\n\"")
+                .map(|_| "\\\n")
+        })?;
+    Some(Span::from_positions(
+        word.span.end,
+        word.span.end.advanced_by(suffix),
+    ))
+}
+
+fn mixed_quote_chained_line_join_between_double_quotes_spans(
+    word: &Word,
+    source: &str,
+) -> Vec<Span> {
+    if !matches!(
+        word.parts.first().map(|part| &part.kind),
+        Some(WordPart::DoubleQuoted { .. })
+    ) {
+        return Vec::new();
+    }
+
+    let text = word.span.slice(source);
+    if !(text.ends_with("\\\n") || text.ends_with("\\\r\n")) {
+        return Vec::new();
+    }
+
+    let mut spans = Vec::new();
+    let mut cursor = word.span.end.offset;
+    while source[cursor..].starts_with('"') {
+        let Some(closing_quote_relative) =
+            mixed_quote_closing_double_quote_offset(&source[cursor..])
+        else {
+            break;
+        };
+        let after_closing_quote = cursor + closing_quote_relative + 1;
+        let Some(suffix) = source[after_closing_quote..]
+            .strip_prefix("\\\r\n\"")
+            .map(|_| "\\\r\n")
+            .or_else(|| {
+                source[after_closing_quote..]
+                    .strip_prefix("\\\n\"")
+                    .map(|_| "\\\n")
+            })
+        else {
+            break;
+        };
+
+        let start = Position::new().advanced_by(&source[..after_closing_quote]);
+        spans.push(Span::from_positions(start, start.advanced_by(suffix)));
+        cursor = after_closing_quote + suffix.len();
+    }
+
+    spans
+}
+
+fn mixed_quote_closing_double_quote_offset(text: &str) -> Option<usize> {
+    let mut chars = text.char_indices().peekable();
+    let (_, first) = chars.next()?;
+    if first != '"' {
+        return None;
+    }
+
+    let mut escaped = false;
+    let mut command_depth = 0i32;
+    let mut parameter_depth = 0i32;
+    let mut command_frames = Vec::new();
+    let mut parameter_frames = Vec::new();
+    let mut in_backtick_command = false;
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+    let mut in_comment = false;
+    let mut previous_char = Some('"');
+
+    while let Some((offset, ch)) = chars.next() {
+        let nested_depth = command_depth > 0 || parameter_depth > 0 || in_backtick_command;
+
+        if in_comment {
+            if ch == '\n' {
+                in_comment = false;
+                previous_char = Some(ch);
+            }
+            continue;
+        }
+
+        if in_single_quotes {
+            if ch == '\'' {
+                in_single_quotes = false;
+            }
+            previous_char = Some(ch);
+            continue;
+        }
+
+        if escaped {
+            escaped = false;
+            previous_char = Some(ch);
+            continue;
+        }
+
+        if ch == '\\' {
+            escaped = true;
+            previous_char = Some(ch);
+            continue;
+        }
+
+        if ch == '`' && !in_single_quotes {
+            in_backtick_command = !in_backtick_command;
+            previous_char = Some(ch);
+            continue;
+        }
+
+        if nested_depth && ch == '\'' && !in_double_quotes {
+            in_single_quotes = true;
+            previous_char = Some(ch);
+            continue;
+        }
+
+        if ch == '"' {
+            if !nested_depth {
+                return Some(offset);
+            }
+            in_double_quotes = !in_double_quotes;
+            previous_char = Some(ch);
+            continue;
+        }
+
+        let allow_top_level_command_comment = in_backtick_command && parameter_depth == 0;
+        if nested_depth
+            && ch == '#'
+            && !in_double_quotes
+            && mixed_quote_shell_comment_can_start(
+                command_depth,
+                allow_top_level_command_comment,
+                previous_char,
+            )
+        {
+            in_comment = true;
+            continue;
+        }
+
+        if ch == '$' {
+            match chars.peek().copied() {
+                Some((_, '(')) => {
+                    command_depth += 1;
+                    command_frames.push(MixedQuoteShellParenFrame::Command {
+                        opened_in_double_quotes: in_double_quotes,
+                    });
+                    chars.next();
+                    previous_char = Some('(');
+                    continue;
+                }
+                Some((_, '{')) => {
+                    parameter_depth += 1;
+                    parameter_frames.push(in_double_quotes);
+                    chars.next();
+                    previous_char = Some('{');
+                    continue;
+                }
+                _ => {}
+            }
+        }
+
+        if nested_depth {
+            match ch {
+                '(' if !in_double_quotes && command_depth > 0 => {
+                    command_frames.push(MixedQuoteShellParenFrame::Group);
+                }
+                ')' => match command_frames.last().copied() {
+                    Some(MixedQuoteShellParenFrame::Group) if !in_double_quotes => {
+                        command_frames.pop();
+                    }
+                    Some(MixedQuoteShellParenFrame::Command {
+                        opened_in_double_quotes,
+                    }) if !in_double_quotes || opened_in_double_quotes => {
+                        command_frames.pop();
+                        command_depth -= 1;
+                    }
+                    None if !in_double_quotes => command_depth -= 1,
+                    _ => {}
+                },
+                '}' => match parameter_frames.last().copied() {
+                    Some(opened_in_double_quotes)
+                        if !in_double_quotes || opened_in_double_quotes =>
+                    {
+                        parameter_frames.pop();
+                        parameter_depth -= 1;
+                    }
+                    None if !in_double_quotes => parameter_depth -= 1,
+                    _ => {}
+                },
+                _ => {}
+            }
+            command_depth = command_depth.max(0);
+            parameter_depth = parameter_depth.max(0);
+            if command_depth == 0 {
+                command_frames.clear();
+            }
+            if parameter_depth == 0 {
+                parameter_frames.clear();
+            }
+        }
+
+        previous_char = Some(ch);
+    }
+
+    None
+}
+
+fn mixed_quote_text_ends_with_unescaped_double_quote(text: &str) -> bool {
+    let Some(prefix) = text.strip_suffix('"') else {
+        return false;
+    };
+
+    let backslash_count = prefix
+        .chars()
+        .rev()
+        .take_while(|ch| *ch == '\\')
+        .count();
+    backslash_count % 2 == 0
 }
 
 pub(crate) fn word_occurrence_is_double_quoted_command_substitution_only(
@@ -2612,7 +2973,7 @@ pub(crate) fn benchmark_collect_word_facts(
     let mut arithmetic_summary = ArithmeticFactSummary::default();
     let mut surface_fragments = SurfaceFragmentSink::new(source);
 
-    for (next_command_id, traversed) in query::iter_commands_with_context(
+    for (next_command_id, traversed) in iter_commands_with_context(
         &file.body,
         CommandWalkOptions {
             descend_nested_word_commands: true,
@@ -3198,14 +3559,14 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
     }
 
     fn collect_expansion_assignment_value_words(&mut self, command: &'a Command) {
-        for assignment in query::command_assignments(command) {
+        for assignment in command_assignments(command) {
             self.collect_expansion_assignment_words(
                 assignment,
                 WordFactContext::Expansion(ExpansionContext::AssignmentValue),
             );
         }
 
-        for operand in query::declaration_operands(command) {
+        for operand in declaration_operands(command) {
             match operand {
                 DeclOperand::Name(reference) => {
                     self.surface.record_var_ref_subscript(reference);
@@ -3214,7 +3575,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                         Some(reference.name_span),
                         reference.subscript.as_ref(),
                     );
-                    query::visit_var_ref_subscript_words_with_source(
+                    visit_var_ref_subscript_words_with_source(
                         reference,
                         self.source,
                         &mut |word| {
@@ -3264,7 +3625,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             Some(assignment.target.name_span),
             assignment.target.subscript.as_ref(),
         );
-        query::visit_var_ref_subscript_words_with_source(
+        visit_var_ref_subscript_words_with_source(
             &assignment.target,
             self.source,
             &mut |word| {
@@ -3317,7 +3678,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                                 Some(assignment.target.name_span),
                                 Some(key),
                             );
-                            query::visit_subscript_words(Some(key), self.source, &mut |word| {
+                            visit_subscript_words(Some(key), self.source, &mut |word| {
                                 collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
                                     &word.parts,
                                     self.source,
@@ -3511,7 +3872,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             }
             ConditionalExpr::VarRef(reference) => {
                 self.surface.record_var_ref_subscript(reference);
-                query::visit_var_ref_subscript_words_with_source(
+                visit_var_ref_subscript_words_with_source(
                     reference,
                     self.source,
                     &mut |word| {
@@ -3746,7 +4107,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                     ..
                 } => {
                     if let Some(expression) = expression_ast.as_ref() {
-                        query::visit_arithmetic_words(expression, &mut |word| {
+                        visit_arithmetic_words(expression, &mut |word| {
                             self.push_pending_arithmetic_word_occurrence(
                                 word,
                                 enclosing_expansion_context,
@@ -4324,7 +4685,7 @@ fn collect_arithmetic_command_spans(
     dollar_spans: &mut Vec<Span>,
     command_substitution_spans: &mut Vec<Span>,
 ) {
-    query::visit_arithmetic_words(expression, &mut |word| {
+    visit_arithmetic_words(expression, &mut |word| {
         collect_arithmetic_context_spans_in_word(
             word,
             source,
@@ -4341,7 +4702,7 @@ fn collect_slice_arithmetic_expression_spans(
     dollar_spans: &mut Vec<Span>,
     command_substitution_spans: &mut Vec<Span>,
 ) {
-    query::visit_arithmetic_words(expression, &mut |word| {
+    visit_arithmetic_words(expression, &mut |word| {
         collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
             &word.parts,
             source,
@@ -4962,7 +5323,7 @@ fn collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
             } => {
                 let mut ignored_command_substitution_spans = Vec::new();
                 if let Some(expression) = expression_ast {
-                    query::visit_arithmetic_words(expression, &mut |word| {
+                    visit_arithmetic_words(expression, &mut |word| {
                         collect_arithmetic_context_spans_in_word(
                             word,
                             source,
@@ -5087,7 +5448,7 @@ fn collect_arithmetic_expansion_spans_from_parts(
                 ..
             } => {
                 if let Some(expression) = expression_ast {
-                    query::visit_arithmetic_words(expression, &mut |word| {
+                    visit_arithmetic_words(expression, &mut |word| {
                         collect_arithmetic_context_spans_in_word(
                             word,
                             source,
@@ -5399,7 +5760,7 @@ fn collect_arithmetic_update_operator_spans_in_var_ref_impl(
             spans,
         );
     }
-    query::visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
+    visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
         collect_arithmetic_update_operator_spans_from_parts_impl(
             &word.parts,
             semantic,
@@ -5621,7 +5982,7 @@ fn collect_arithmetic_spans_in_var_ref(
     dollar_spans: &mut Vec<Span>,
     command_substitution_spans: &mut Vec<Span>,
 ) {
-    query::visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
+    visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
         collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
             &word.parts,
             source,

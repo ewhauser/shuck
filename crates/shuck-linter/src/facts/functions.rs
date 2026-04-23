@@ -648,7 +648,11 @@ fn word_part_is_plain_positional_parameter(part: &WordPart, target: &str) -> boo
 
 fn function_body_without_braces_span(function: &FunctionDef) -> Option<Span> {
     match &function.body.command {
-        Command::Compound(CompoundCommand::BraceGroup(_)) => None,
+        Command::Compound(
+            CompoundCommand::BraceGroup(_)
+            | CompoundCommand::Subshell(_)
+            | CompoundCommand::Arithmetic(_),
+        ) => None,
         Command::Compound(_) => Some(function.body.span),
         Command::Simple(_)
         | Command::Decl(_)

@@ -141,7 +141,7 @@ pub(super) fn build_pipeline_facts<'a>(
                 return None;
             }
 
-            let segments = query::pipeline_segments(fact.command())?;
+            let segments = pipeline_segments(fact.command())?;
             Some(PipelineFact {
                 key: fact.key(),
                 command,
@@ -154,6 +154,35 @@ pub(super) fn build_pipeline_facts<'a>(
             })
         })
         .collect()
+}
+
+fn pipeline_segments(command: &Command) -> Option<Vec<&Stmt>> {
+    let Command::Binary(command) = command else {
+        return None;
+    };
+    if !matches!(command.op, BinaryOp::Pipe | BinaryOp::PipeAll) {
+        return None;
+    }
+
+    let mut segments = Vec::new();
+    collect_pipeline_segments(command, &mut segments);
+    Some(segments)
+}
+
+fn collect_pipeline_segments<'a>(command: &'a BinaryCommand, segments: &mut Vec<&'a Stmt>) {
+    match &command.left.command {
+        Command::Binary(left) if matches!(left.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
+            collect_pipeline_segments(left, segments);
+        }
+        _ => segments.push(&command.left),
+    }
+
+    match &command.right.command {
+        Command::Binary(right) if matches!(right.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
+            collect_pipeline_segments(right, segments);
+        }
+        _ => segments.push(&command.right),
+    }
 }
 
 fn pipeline_operator_facts(command: &BinaryCommand) -> Box<[PipelineOperatorFact]> {
@@ -204,3 +233,39 @@ fn build_pipeline_segment_fact<'a>(
     }
 }
 
+#[cfg(test)]
+mod pipeline_tests {
+    use shuck_ast::{Command, StmtSeq, Word};
+    use shuck_parser::parser::Parser;
+
+    use super::pipeline_segments;
+
+    fn parse_commands(source: &str) -> StmtSeq {
+        let output = Parser::new(source).parse().unwrap();
+        output.file.body
+    }
+
+    fn static_word_owned_text(word: &Word, source: &str) -> Option<String> {
+        word.try_static_text(source).map(|text| text.into_owned())
+    }
+
+    #[test]
+    fn pipeline_segments_flattens_pipe_chains() {
+        let source = "printf '%s\\n' a | command kill 0 | tee out.txt\n";
+        let commands = parse_commands(source);
+        let Command::Binary(command) = &commands[0].command else {
+            panic!("expected binary command");
+        };
+
+        let segments = pipeline_segments(&Command::Binary(command.clone()))
+            .expect("expected pipeline segments")
+            .into_iter()
+            .map(|stmt| match &stmt.command {
+                Command::Simple(command) => static_word_owned_text(&command.name, source).unwrap(),
+                _ => "<non-simple>".to_owned(),
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(segments, vec!["printf", "command", "tee"]);
+    }
+}

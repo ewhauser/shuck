@@ -681,7 +681,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                         &mut self.facts.positional_parameter_operator_spans,
                     );
                     if let Some(expression_ast) = expression_ast.as_ref() {
-                        query::visit_arithmetic_words(expression_ast, &mut |word| {
+                        visit_arithmetic_words(expression_ast, &mut |word| {
                             self.collect_word(word, context);
                         });
                     } else {
@@ -702,7 +702,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                         &mut self.facts.positional_parameter_operator_spans,
                     );
                     if let Some(expression_ast) = expression_ast.as_ref() {
-                        query::visit_arithmetic_words(expression_ast, &mut |word| {
+                        visit_arithmetic_words(expression_ast, &mut |word| {
                             self.collect_word(word, context);
                         });
                     } else {
@@ -922,7 +922,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                         &mut self.facts.positional_parameter_operator_spans,
                     );
                     if let Some(expression_ast) = expression_ast.as_ref() {
-                        query::visit_arithmetic_words(expression_ast, &mut |word| {
+                        visit_arithmetic_words(expression_ast, &mut |word| {
                             self.collect_word(word, context);
                         });
                     } else {
@@ -943,7 +943,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                         &mut self.facts.positional_parameter_operator_spans,
                     );
                     if let Some(expression_ast) = expression_ast.as_ref() {
-                        query::visit_arithmetic_words(expression_ast, &mut |word| {
+                        visit_arithmetic_words(expression_ast, &mut |word| {
                             self.collect_word(word, context);
                         });
                     } else {
@@ -2035,7 +2035,7 @@ fn arithmetic_expr_has_positional_parameter_operator(
     source: &str,
 ) -> bool {
     let mut should_report = false;
-    query::visit_arithmetic_words(expression, &mut |word| {
+    visit_arithmetic_words(expression, &mut |word| {
         if word_has_unquoted_positional_parameter_operator_neighbors(word, source) {
             should_report = true;
         }

@@ -363,7 +363,7 @@ fn includes_nested_jq_file_operands_in_writer_scope_reads() {
                 .iter()
                 .map(|fact| fact.word().span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["\"$cfg\""]
+            vec!["$(jq '.dns={}' \"$cfg\")", "\"$cfg\""]
         );
     });
 }
