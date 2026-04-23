@@ -629,13 +629,19 @@ fn collect_arithmetic_update_operator_spans_in_command(
                     }
                 }
             }
+            CompoundCommand::Conditional(command) => {
+                collect_arithmetic_update_operator_spans_in_conditional_expr(
+                    &command.expression,
+                    source,
+                    spans,
+                );
+            }
             CompoundCommand::Select(command) => {
                 for word in &command.words {
                     collect_arithmetic_update_operator_spans_in_word(word, source, spans);
                 }
             }
             CompoundCommand::If(_)
-            | CompoundCommand::Conditional(_)
             | CompoundCommand::While(_)
             | CompoundCommand::Until(_)
             | CompoundCommand::Subshell(_)
@@ -708,6 +714,50 @@ fn collect_arithmetic_update_operator_spans_in_pattern(
             | PatternPart::AnyString
             | PatternPart::AnyChar
             | PatternPart::CharClass(_) => {}
+        }
+    }
+}
+
+fn collect_arithmetic_update_operator_spans_in_conditional_expr(
+    expression: &ConditionalExpr,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match expression {
+        ConditionalExpr::Binary(expr) => {
+            collect_arithmetic_update_operator_spans_in_conditional_expr(
+                &expr.left,
+                source,
+                spans,
+            );
+            collect_arithmetic_update_operator_spans_in_conditional_expr(
+                &expr.right,
+                source,
+                spans,
+            );
+        }
+        ConditionalExpr::Unary(expr) => {
+            collect_arithmetic_update_operator_spans_in_conditional_expr(
+                &expr.expr,
+                source,
+                spans,
+            );
+        }
+        ConditionalExpr::Parenthesized(expr) => {
+            collect_arithmetic_update_operator_spans_in_conditional_expr(
+                &expr.expr,
+                source,
+                spans,
+            );
+        }
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+            collect_arithmetic_update_operator_spans_in_word(word, source, spans);
+        }
+        ConditionalExpr::Pattern(pattern) => {
+            collect_arithmetic_update_operator_spans_in_pattern(pattern, source, spans);
+        }
+        ConditionalExpr::VarRef(reference) => {
+            collect_arithmetic_update_operator_spans_in_var_ref(reference, source, spans);
         }
     }
 }
