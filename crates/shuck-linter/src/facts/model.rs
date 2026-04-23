@@ -1,5 +1,3 @@
-use crate::rules::common::query as common_query;
-
 pub struct LinterFacts<'a> {
     source: &'a str,
     commands: Vec<CommandFact<'a>>,
@@ -845,10 +843,10 @@ fn assignment_value_target_for_span<'a>(
     command: &'a CommandFact<'a>,
     span: Span,
 ) -> Option<(&'a Name, Span)> {
-    common_query::command_assignments(command.command())
+    command_assignments(command.command())
         .iter()
         .chain(
-            common_query::declaration_operands(command.command())
+            declaration_operands(command.command())
                 .iter()
                 .filter_map(|operand| match operand {
                     DeclOperand::Assignment(assignment) => Some(assignment),
