@@ -686,6 +686,18 @@ mod tests {
     }
 
     #[test]
+    fn normalize_command_does_not_peel_unsupported_command_options() {
+        let source = "command -x printf '%s\\n' hi\n";
+        let command = parse_first_command(source);
+        let normalized = normalize_command(&command, source);
+
+        assert_eq!(normalized.literal_name.as_deref(), Some("command"));
+        assert_eq!(normalized.effective_name.as_deref(), None);
+        assert_eq!(normalized.wrappers, vec![WrapperKind::Command]);
+        assert!(normalized.body_words.is_empty());
+    }
+
+    #[test]
     fn normalize_command_canonicalizes_escaped_static_names() {
         for (source, expected) in [
             ("\\cd /tmp\n", "cd"),

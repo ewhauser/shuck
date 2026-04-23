@@ -2174,15 +2174,14 @@ fn command_wrapper_target_index<'a>(
             return next_word_index(word_count, index);
         }
 
-        if arg.starts_with('-') && arg != "-" {
-            if arg
-                .strip_prefix('-')
-                .is_some_and(|flags| flags.chars().any(|flag| matches!(flag, 'v' | 'V')))
-            {
-                return None;
+        match arg.as_ref() {
+            "-p" => {
+                index += 1;
+                continue;
             }
-            index += 1;
-            continue;
+            "-v" | "-V" => return None,
+            _ if arg.starts_with('-') && arg != "-" => return None,
+            _ => {}
         }
 
         return Some(index);

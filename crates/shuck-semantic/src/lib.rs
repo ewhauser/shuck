@@ -7751,4 +7751,18 @@ print *
 
         assert_eq!(options.glob, OptionValue::On);
     }
+
+    #[test]
+    fn zsh_option_analysis_ignores_unsupported_command_options() {
+        let source = "\
+command -x setopt no_glob
+print *
+";
+        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+        let options = model
+            .zsh_options_at(source.find("print").unwrap())
+            .expect("expected wrapped zsh options");
+
+        assert_eq!(options.glob, OptionValue::On);
+    }
 }
