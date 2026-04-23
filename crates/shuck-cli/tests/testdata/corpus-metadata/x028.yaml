@@ -1,6 +1,0 @@
-reviewed_divergences:
-  - side: shuck-only
-    path_suffix: "pyenv__pyenv__plugins__python-build__bin__python-build"
-    line: 96
-    end_line: 96
-    reason: "This helper is a Bash library entrypoint, but the shell-collapse comparison path still feeds it through a POSIX sh oracle. The pinned ShellCheck run aborts later on sh-incompatible syntax before it ever reaches this `tr a-z A-Z` helper, so the missed SC2018 report is treated as a narrow reviewed divergence."
