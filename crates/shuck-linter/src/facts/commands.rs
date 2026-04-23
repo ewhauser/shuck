@@ -347,12 +347,20 @@ fn matching_shell_delimiter_start(inner: &str, open: u8, close: u8) -> Option<us
                     quote_state = None;
                 }
             }
+            Some(QuoteState::Backtick) => {
+                if bytes[index] == b'`' && !byte_is_shell_escaped(bytes, index) {
+                    quote_state = None;
+                }
+            }
             None => match bytes[index] {
                 b'\'' if !byte_is_shell_escaped(bytes, index) => {
                     quote_state = Some(QuoteState::Single);
                 }
                 b'"' if !byte_is_shell_escaped(bytes, index) => {
                     quote_state = Some(QuoteState::Double);
+                }
+                b'`' if !byte_is_shell_escaped(bytes, index) => {
+                    quote_state = Some(QuoteState::Backtick);
                 }
                 byte if byte == close && !byte_is_shell_escaped(bytes, index) => depth += 1,
                 byte if byte == open && !byte_is_shell_escaped(bytes, index) => {
@@ -385,6 +393,7 @@ fn byte_is_shell_escaped(bytes: &[u8], index: usize) -> bool {
 enum QuoteState {
     Single,
     Double,
+    Backtick,
 }
 
 fn extend_over_shellcheck_trailing_inline_space(end: Position, source: &str) -> Position {

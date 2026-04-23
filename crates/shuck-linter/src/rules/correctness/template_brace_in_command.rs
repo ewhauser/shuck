@@ -110,7 +110,9 @@ printf# hi
 \"/usr/bin/qemu-${machine}\"
 \"$(printf cmd)\"
 \"$(printf ')')\"
+\"$(echo `printf ')'`)\"
 \"${cmd:-\\}}\"
+\"${cmd:-`printf '}'`}\"
 command [ x = y ]
 env FOO=1 [ x = y ]
 >out command [ x = y ]

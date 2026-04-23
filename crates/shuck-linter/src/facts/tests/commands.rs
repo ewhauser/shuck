@@ -444,8 +444,10 @@ fn command_facts_surface_command_name_shape_helpers() {
 \"ERROR: missing first arg for name to docker_compose_version_test()\"
 \"${loader:?}\"
 \"${cmd:-\\}}\"
+\"${cmd:-`printf '}'`}\"
 \"$(printf cmd)\"
 \"$(printf ')')\"
+\"$(echo `printf ')'`)\"
 printf#
 ";
     let output = Parser::new(source).parse().unwrap();
@@ -471,8 +473,10 @@ printf#
         command("\"ERROR: missing first arg for name to docker_compose_version_test()\"");
     let parameter_expansion = command("\"${loader:?}\"");
     let escaped_brace_parameter_expansion = command("\"${cmd:-\\}}\"");
+    let backtick_brace_parameter_expansion = command("\"${cmd:-`printf '}'`}\"");
     let command_substitution = command("\"$(printf cmd)\"");
     let quoted_paren_command_substitution = command("\"$(printf ')')\"");
+    let backtick_paren_command_substitution = command("\"$(echo `printf ')'`)\"");
     let hash_suffix = command("printf#");
 
     assert!(placeholder.body_word_contains_template_placeholder(source));
@@ -482,9 +486,17 @@ printf#
         !escaped_brace_parameter_expansion
             .body_word_has_suspicious_quoted_command_trailer(source, None)
     );
+    assert!(
+        !backtick_brace_parameter_expansion
+            .body_word_has_suspicious_quoted_command_trailer(source, None)
+    );
     assert!(!command_substitution.body_word_has_suspicious_quoted_command_trailer(source, None));
     assert!(
         !quoted_paren_command_substitution
+            .body_word_has_suspicious_quoted_command_trailer(source, None)
+    );
+    assert!(
+        !backtick_paren_command_substitution
             .body_word_has_suspicious_quoted_command_trailer(source, None)
     );
     assert!(hash_suffix.body_word_has_hash_suffix(source));
