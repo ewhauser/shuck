@@ -453,6 +453,7 @@ pub struct SemanticModel {
     recorded_program: RecordedProgram,
     command_bindings: FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
     command_references: FxHashMap<SpanKey, SmallVec<[ReferenceId; 4]>>,
+    cleared_variables: FxHashMap<(ScopeId, Name), SmallVec<[usize; 2]>>,
     import_origins_by_binding: FxHashMap<BindingId, Vec<PathBuf>>,
     heuristic_unused_assignments: Vec<BindingId>,
     zsh_option_analysis: Option<ZshOptionAnalysis>,
@@ -553,6 +554,7 @@ impl SemanticModel {
             recorded_program: built.recorded_program,
             command_bindings: built.command_bindings,
             command_references: built.command_references,
+            cleared_variables: built.cleared_variables,
             import_origins_by_binding: FxHashMap::default(),
             heuristic_unused_assignments: built.heuristic_unused_assignments,
             zsh_option_analysis,
@@ -648,6 +650,18 @@ impl SemanticModel {
             && self
                 .ancestor_scopes(self.scope_at(at.start.offset))
                 .any(|scope| scope == binding.scope)
+    }
+
+    #[doc(hidden)]
+    pub fn binding_cleared_before(&self, binding_id: BindingId, at: Span) -> bool {
+        let binding = self.binding(binding_id);
+        self.cleared_variables
+            .get(&(binding.scope, binding.name.clone()))
+            .is_some_and(|cleared_offsets| {
+                cleared_offsets.iter().any(|cleared_offset| {
+                    *cleared_offset > binding.span.start.offset && *cleared_offset < at.start.offset
+                })
+            })
     }
 
     #[doc(hidden)]
@@ -4879,7 +4893,7 @@ main() {
     fn special_command_targets_store_name_only_spans() {
         let source = "\
 read -r read_target
-read -ra read_array_target
+read -ra read_array_target read_array_remainder
 mapfile mapfile_target
 readarray readarray_target
 printf -v printf_target '%s' value
@@ -4908,6 +4922,24 @@ getopts 'ab' getopts_target
         assert_eq!(read_array_target.span.slice(source), "read_array_target");
         assert!(
             read_array_target
+                .attributes
+                .contains(BindingAttributes::ARRAY)
+        );
+
+        let read_array_remainder = model
+            .bindings()
+            .iter()
+            .find(|binding| {
+                binding.name == "read_array_remainder"
+                    && matches!(binding.kind, BindingKind::ReadTarget)
+            })
+            .unwrap();
+        assert_eq!(
+            read_array_remainder.span.slice(source),
+            "read_array_remainder"
+        );
+        assert!(
+            !read_array_remainder
                 .attributes
                 .contains(BindingAttributes::ARRAY)
         );

@@ -63,6 +63,7 @@ pub(crate) struct BuildOutput {
     pub(crate) recorded_program: RecordedProgram,
     pub(crate) command_bindings: FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
     pub(crate) command_references: FxHashMap<SpanKey, SmallVec<[ReferenceId; 4]>>,
+    pub(crate) cleared_variables: FxHashMap<(ScopeId, Name), SmallVec<[usize; 2]>>,
     pub(crate) heuristic_unused_assignments: Vec<BindingId>,
 }
 
@@ -89,7 +90,7 @@ pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     command_bindings: FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
     command_references: FxHashMap<SpanKey, SmallVec<[ReferenceId; 4]>>,
     source_directives: BTreeMap<usize, SourceDirectiveOverride>,
-    cleared_variables: FxHashMap<(ScopeId, Name), usize>,
+    cleared_variables: FxHashMap<(ScopeId, Name), SmallVec<[usize; 2]>>,
     runtime: RuntimePrelude,
     completed_scopes: FxHashSet<ScopeId>,
     deferred_functions: Vec<DeferredFunction<'a>>,
@@ -209,6 +210,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             recorded_program: builder.recorded_program,
             command_bindings: builder.command_bindings,
             command_references: builder.command_references,
+            cleared_variables: builder.cleared_variables,
             heuristic_unused_assignments,
         }
     }
@@ -2354,8 +2356,15 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     ) {
         match name.as_str() {
             "read" => {
-                let target_attributes = read_target_attributes(&command.args, self.source);
-                for (argument, span) in iter_read_targets(&command.args, self.source) {
+                let read_assigns_array = read_assigns_array(&command.args, self.source);
+                for (target_index, (argument, span)) in
+                    iter_read_targets(&command.args, self.source).enumerate()
+                {
+                    let target_attributes = if read_assigns_array && target_index == 0 {
+                        BindingAttributes::ARRAY
+                    } else {
+                        BindingAttributes::empty()
+                    };
                     self.add_binding(
                         &argument,
                         BindingKind::ReadTarget,
@@ -2524,10 +2533,10 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 }
             }
 
-            self.cleared_variables.insert(
-                (self.current_scope(), Name::from(text.as_ref())),
-                argument.span.start.offset,
-            );
+            self.cleared_variables
+                .entry((self.current_scope(), Name::from(text.as_ref())))
+                .or_default()
+                .push(argument.span.start.offset);
         }
     }
 
@@ -2681,7 +2690,11 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     ) -> bool {
         self.cleared_variables
             .get(&(scope, name.clone()))
-            .is_some_and(|cleared_offset| *cleared_offset > binding_offset)
+            .is_some_and(|cleared_offsets| {
+                cleared_offsets
+                    .iter()
+                    .any(|cleared_offset| *cleared_offset > binding_offset)
+            })
     }
 
     fn has_uncleared_local_binding_in_scope(
@@ -3366,14 +3379,6 @@ fn iter_read_targets<'a>(
     args.iter()
         .filter_map(move |word| named_target_word(word, source))
         .filter(|(name, _)| !name.as_str().starts_with('-'))
-}
-
-fn read_target_attributes(args: &[Word], source: &str) -> BindingAttributes {
-    if read_assigns_array(args, source) {
-        BindingAttributes::ARRAY
-    } else {
-        BindingAttributes::empty()
-    }
 }
 
 fn read_assigns_array(args: &[Word], source: &str) -> bool {
