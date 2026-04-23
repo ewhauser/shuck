@@ -1365,6 +1365,23 @@ template=\"${template/IMG_DOWNLOAD_SIZE/$(stat -c %s ${image_file}.xz)}\"
     }
 
     #[test]
+    fn reports_dynamic_values_inside_parameter_replacement_arithmetic_expansions() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' \"${template/IMG_OFFSET/$(( $(cat file) $1 step ))}\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$1"]
+        );
+    }
+
+    #[test]
     fn reports_dynamic_values_inside_arithmetic_shell_words() {
         let source = "\
 #!/bin/sh

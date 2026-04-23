@@ -2839,24 +2839,108 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                         );
                     }
                 }
+                WordPart::Parameter(parameter) => self
+                    .collect_pending_arithmetic_word_occurrences_in_parameter_expansion(
+                        parameter,
+                        enclosing_expansion_context,
+                        host_kind,
+                    ),
+                WordPart::ParameterExpansion { operator, .. }
+                | WordPart::IndirectExpansion {
+                    operator: Some(operator),
+                    ..
+                } => self.collect_pending_arithmetic_word_occurrences_in_parameter_operator(
+                    operator,
+                    enclosing_expansion_context,
+                    host_kind,
+                ),
                 WordPart::Literal(_)
                 | WordPart::SingleQuoted { .. }
                 | WordPart::Variable(_)
-                | WordPart::Parameter(_)
                 | WordPart::CommandSubstitution { .. }
-                | WordPart::ParameterExpansion { .. }
                 | WordPart::Length(_)
                 | WordPart::ArrayAccess(_)
                 | WordPart::ArrayLength(_)
                 | WordPart::ArrayIndices(_)
                 | WordPart::Substring { .. }
                 | WordPart::ArraySlice { .. }
-                | WordPart::IndirectExpansion { .. }
+                | WordPart::IndirectExpansion { operator: None, .. }
                 | WordPart::PrefixMatch { .. }
                 | WordPart::ProcessSubstitution { .. }
                 | WordPart::Transformation { .. }
                 | WordPart::ZshQualifiedGlob(_) => {}
             }
+        }
+    }
+
+    fn collect_pending_arithmetic_word_occurrences_in_parameter_expansion(
+        &mut self,
+        parameter: &'a ParameterExpansion,
+        enclosing_expansion_context: ExpansionContext,
+        host_kind: WordFactHostKind,
+    ) {
+        match &parameter.syntax {
+            ParameterExpansionSyntax::Bourne(
+                BourneParameterExpansion::Operation { operator, .. }
+                | BourneParameterExpansion::Indirect {
+                    operator: Some(operator),
+                    ..
+                },
+            ) => self.collect_pending_arithmetic_word_occurrences_in_parameter_operator(
+                operator,
+                enclosing_expansion_context,
+                host_kind,
+            ),
+            ParameterExpansionSyntax::Bourne(
+                BourneParameterExpansion::Access { .. }
+                | BourneParameterExpansion::Length { .. }
+                | BourneParameterExpansion::Indices { .. }
+                | BourneParameterExpansion::Indirect { operator: None, .. }
+                | BourneParameterExpansion::PrefixMatch { .. }
+                | BourneParameterExpansion::Slice { .. }
+                | BourneParameterExpansion::Transformation { .. },
+            ) => {}
+            ParameterExpansionSyntax::Zsh(syntax) => {
+                match &syntax.target {
+                    ZshExpansionTarget::Nested(parameter) => self
+                        .collect_pending_arithmetic_word_occurrences_in_parameter_expansion(
+                            parameter,
+                            enclosing_expansion_context,
+                            host_kind,
+                        ),
+                    ZshExpansionTarget::Word(word) => self.collect_pending_arithmetic_word_occurrences(
+                        word,
+                        enclosing_expansion_context,
+                        host_kind,
+                    ),
+                    ZshExpansionTarget::Reference(_) | ZshExpansionTarget::Empty => {}
+                }
+
+                if let Some(operation) = syntax.operation.as_ref()
+                    && let Some(replacement_word) = operation.replacement_word_ast()
+                {
+                    self.collect_pending_arithmetic_word_occurrences(
+                        replacement_word,
+                        enclosing_expansion_context,
+                        host_kind,
+                    );
+                }
+            }
+        }
+    }
+
+    fn collect_pending_arithmetic_word_occurrences_in_parameter_operator(
+        &mut self,
+        operator: &'a ParameterOp,
+        enclosing_expansion_context: ExpansionContext,
+        host_kind: WordFactHostKind,
+    ) {
+        if let Some(replacement_word) = operator.replacement_word_ast() {
+            self.collect_pending_arithmetic_word_occurrences(
+                replacement_word,
+                enclosing_expansion_context,
+                host_kind,
+            );
         }
     }
 
