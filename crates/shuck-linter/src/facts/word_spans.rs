@@ -78,6 +78,10 @@ pub fn all_elements_array_expansion_part_spans(word: &Word, source: &str) -> Vec
     spans
 }
 
+pub fn word_has_all_elements_array_expansion_syntax(word: &Word) -> bool {
+    parts_have_all_elements_array_expansion_syntax(&word.parts)
+}
+
 pub fn direct_all_elements_array_expansion_part_spans(word: &Word, source: &str) -> Vec<Span> {
     let mut spans = Vec::new();
     collect_direct_all_elements_array_expansion_spans(&word.parts, source, &mut spans);
@@ -964,6 +968,42 @@ fn collect_all_elements_array_expansion_spans(
             _ => {}
         }
     }
+}
+
+fn parts_have_all_elements_array_expansion_syntax(parts: &[WordPartNode]) -> bool {
+    parts.iter().any(|part| match &part.kind {
+        WordPart::SingleQuoted { .. } => false,
+        WordPart::DoubleQuoted { parts, .. } => {
+            parts_have_all_elements_array_expansion_syntax(parts)
+        }
+        WordPart::Variable(name) => name.as_str() == "@",
+        WordPart::ArrayAccess(reference) | WordPart::ArrayIndices(reference) => {
+            var_ref_uses_all_elements_at_splat(reference)
+        }
+        WordPart::ArraySlice { reference, .. } => var_ref_uses_all_elements_at_splat(reference),
+        WordPart::PrefixMatch {
+            kind: PrefixMatchKind::At,
+            ..
+        } => true,
+        WordPart::PrefixMatch {
+            kind: PrefixMatchKind::Star,
+            ..
+        } => false,
+        WordPart::Parameter(parameter) => {
+            parameter_uses_unquoted_all_elements_array_expansion(parameter)
+        }
+        WordPart::Literal(_)
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ArithmeticExpansion { .. }
+        | WordPart::Length(_)
+        | WordPart::ParameterExpansion { .. }
+        | WordPart::IndirectExpansion { .. }
+        | WordPart::ProcessSubstitution { .. }
+        | WordPart::Transformation { .. }
+        | WordPart::Substring { .. }
+        | WordPart::ArrayLength(_)
+        | WordPart::ZshQualifiedGlob(_) => false,
+    })
 }
 
 fn collect_unquoted_all_elements_array_expansion_spans(

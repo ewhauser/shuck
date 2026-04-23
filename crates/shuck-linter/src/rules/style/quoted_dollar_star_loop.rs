@@ -14,7 +14,6 @@ impl Violation for QuotedDollarStarLoop {
 }
 
 pub fn quoted_dollar_star_loop(checker: &mut Checker) {
-    let source = checker.source();
     let spans = checker
         .facts()
         .for_headers()
@@ -27,8 +26,7 @@ pub fn quoted_dollar_star_loop(checker: &mut Checker) {
             let classification = word.classification();
             if classification.quote != WordQuote::FullyQuoted
                 || classification.is_fixed_literal()
-                || !word_spans::all_elements_array_expansion_part_spans(word.word(), source)
-                    .is_empty()
+                || word.has_all_elements_array_expansion()
             {
                 return None;
             }
@@ -122,6 +120,73 @@ select item in \"$*\"; do
   break
 done
 printf '%s\\n' \"$*\" \"${arr[*]}\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedDollarStarLoop),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_nested_for_loops_over_quoted_at_expansions() {
+        let source = "\
+#!/bin/bash
+COMMITS=(a b)
+arns_to_block=(one two)
+query=\"$(
+  for commit in \"${COMMITS[@]}\"; do
+    printf '%s\\n' \"$commit\"
+  done
+)\"
+json=$(
+  for arn in \"${arns_to_block[@]}\"; do
+    printf '%s\\n' \"$arn\"
+  done
+)
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::QuotedDollarStarLoop),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn ignores_corpus_wrapped_quoted_at_expansions() {
+        let source = "\
+#!/bin/bash
+COMMITS=(abc def)
+WORKFLOW_COMMITS_QUERY=\"
+query {
+  repository(owner: \\\"termux\\\", name: \\\"termux-packages\\\") {
+  $(
+    for commit in \"${COMMITS[@]}\"; do
+      echo \"_${commit::7}: object(oid: \\\"${commit}\\\") { ...workflowRun }\"
+    done
+  )
+  }
+}
+\"
+
+arns_to_block=(one two)
+aws s3api put-bucket-policy --bucket \"$bucket\" --policy \"$(cat <<EOF
+{
+  \\\"Principal\\\": {
+    \\\"AWS\\\": [
+$(
+  for arn in \"${arns_to_block[@]}\"; do
+    printf '%10s\\\"%s\\\",\\n' \"\" \"$arn\"
+  done |
+  sed '$ s/,$//'
+)
+    ]
+  }
+}
+EOF
+)\"
 ";
         let diagnostics = test_snippet(
             source,

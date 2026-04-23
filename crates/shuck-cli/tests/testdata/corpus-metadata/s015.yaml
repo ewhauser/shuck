@@ -1,15 +1,1 @@
-reviewed_divergences:
-- side: shuck-only
-  path_suffix: termux__termux-packages__scripts__utils__termux_reuse_pr_build_artifacts.sh
-  line: 258
-  end_line: 258
-  column: 18
-  end_column: 33
-  reason: This GraphQL-query builder iterates `"${COMMITS[@]}"`, which keeps one loop item per commit. Direct oracle probes stay quiet on that loop shape, so the remaining corpus-only miss is reviewed narrowly instead of widening S015 again.
-- side: shuck-only
-  path_suffix: HariSekhon__DevOps-Bash-tools__aws__aws_s3_bucket.sh
-  line: 112
-  end_line: 112
-  column: 16
-  end_column: 37
-  reason: This JSON-building helper loops over `"${arns_to_block[@]}"`, which preserves one item per array element. A standalone oracle probe stays quiet on that shape, so the remaining full-file hit is treated as project-closure noise rather than a live S015 bug.
+reviewed_divergences: []
