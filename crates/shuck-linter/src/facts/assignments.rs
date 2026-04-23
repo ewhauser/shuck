@@ -1224,6 +1224,11 @@ fn build_nonpersistent_assignment_spans(
     source: &str,
     suppress_bash_pipefail_pipeline_side_effects: bool,
 ) -> NonpersistentAssignmentSpans {
+    let scope_spans_by_id = semantic
+        .scopes()
+        .iter()
+        .map(|scope| (scope.id, scope.span))
+        .collect::<FxHashMap<_, _>>();
     let mut candidate_bindings_by_scope: FxHashMap<
         (Name, usize, usize),
         CandidateSubshellAssignment,
@@ -1244,6 +1249,7 @@ fn build_nonpersistent_assignment_spans(
         let Some(nonpersistent_scope) = nonpersistent_scope_span_for_assignment(
             semantic,
             binding.span.start.offset,
+            &scope_spans_by_id,
             suppress_bash_pipefail_pipeline_side_effects,
         ) else {
             continue;
@@ -1617,30 +1623,19 @@ struct PersistentReset {
 fn nonpersistent_scope_span_for_assignment(
     semantic: &SemanticModel,
     offset: usize,
+    scope_spans_by_id: &FxHashMap<ScopeId, Span>,
     suppress_bash_pipefail_pipeline_side_effects: bool,
 ) -> Option<NonpersistentScopeSpan> {
     semantic
-        .scopes()
-        .iter()
-        .filter(|scope| {
-            scope.span.start.offset <= offset
-                && offset < scope.span.end.offset
-                && match semantic.scope_kind(scope.id) {
-                    shuck_semantic::ScopeKind::Pipeline
-                        if suppress_bash_pipefail_pipeline_side_effects =>
-                    {
-                        false
-                    }
-                    shuck_semantic::ScopeKind::Pipeline
-                    | shuck_semantic::ScopeKind::Subshell
-                    | shuck_semantic::ScopeKind::CommandSubstitution => true,
-                    shuck_semantic::ScopeKind::Function(_) | shuck_semantic::ScopeKind::File => {
-                        false
-                    }
-                }
+        .ancestor_scopes(semantic.scope_at(offset))
+        .find(|scope_id| match semantic.scope_kind(*scope_id) {
+            shuck_semantic::ScopeKind::Pipeline => !suppress_bash_pipefail_pipeline_side_effects,
+            shuck_semantic::ScopeKind::Subshell
+            | shuck_semantic::ScopeKind::CommandSubstitution => true,
+            shuck_semantic::ScopeKind::Function(_) | shuck_semantic::ScopeKind::File => false,
         })
-        .min_by_key(|scope| scope.span.end.offset - scope.span.start.offset)
-        .map(|scope| NonpersistentScopeSpan { span: scope.span })
+        .and_then(|scope_id| scope_spans_by_id.get(&scope_id).copied())
+        .map(|span| NonpersistentScopeSpan { span })
 }
 
 fn is_persistent_subshell_reset_binding(kind: BindingKind, attributes: BindingAttributes) -> bool {
