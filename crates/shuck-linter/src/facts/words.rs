@@ -3966,6 +3966,7 @@ fn collect_arithmetic_update_operator_spans_in_var_ref(
     source: &str,
     spans: &mut Vec<Span>,
 ) {
+    collect_arithmetic_update_operator_spans_in_subscript(reference.subscript.as_ref(), source, spans);
     query::visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
         collect_arithmetic_update_operator_spans_from_parts(&word.parts, source, spans);
     });
