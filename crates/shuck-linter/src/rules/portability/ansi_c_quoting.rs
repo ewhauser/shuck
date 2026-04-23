@@ -17,16 +17,34 @@ pub fn ansi_c_quoting(checker: &mut Checker) {
         return;
     }
 
+    let regex_rhs_spans = checker
+        .facts()
+        .commands()
+        .iter()
+        .filter_map(|fact| fact.conditional())
+        .flat_map(|fact| fact.regex_nodes())
+        .filter_map(|regex| regex.right().word().map(|word| word.span))
+        .collect::<Vec<_>>();
+
     let spans = checker
         .facts()
         .single_quoted_fragments()
         .iter()
         .filter(|fragment| fragment.dollar_quoted())
         .filter(|fragment| is_well_formed_ansi_c_quote(fragment.span(), checker.source()))
+        .filter(|fragment| {
+            !regex_rhs_spans
+                .iter()
+                .any(|span| span_contains(*span, fragment.span()))
+        })
         .map(|fragment| fragment.span())
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || AnsiCQuoting);
+}
+
+fn span_contains(outer: shuck_ast::Span, inner: shuck_ast::Span) -> bool {
+    outer.start.offset <= inner.start.offset && outer.end.offset >= inner.end.offset
 }
 
 fn is_well_formed_ansi_c_quote(span: shuck_ast::Span, source: &str) -> bool {
@@ -127,6 +145,28 @@ show_pkg_var \"$var\" \"${!var//$'\\n'/' '}\"\n\
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$'\\n'"]
+        );
+    }
+
+    #[test]
+    fn ignores_ansi_c_quoting_inside_regex_operands_but_not_other_double_bracket_operands() {
+        let source = "\
+#!/bin/sh
+[[ \"$value\" =~ $'\\n' ]]
+[[ \"$value\" =~ ^$'\\n'$ ]]
+[[ \"$value\" == $'a' ]]
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::AnsiCQuoting).with_shell(ShellDialect::Sh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$'a'"]
         );
     }
 }
