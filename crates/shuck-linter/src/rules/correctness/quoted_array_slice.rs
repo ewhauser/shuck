@@ -1,6 +1,4 @@
-use rustc_hash::FxHashSet;
-
-use crate::{Checker, ExpansionContext, FactSpan, Rule, Violation};
+use crate::{Checker, ExpansionContext, Rule, Violation, WordFactHostKind};
 
 pub struct QuotedArraySlice;
 
@@ -10,27 +8,22 @@ impl Violation for QuotedArraySlice {
     }
 
     fn message(&self) -> String {
-        "quoted array-slice expansions collapse into one string value".to_owned()
+        "all-elements array expansions collapse in scalar assignment values".to_owned()
     }
 }
 
 pub fn quoted_array_slice(checker: &mut Checker) {
-    let scalar_assignment_value_spans = checker
-        .facts()
-        .binding_values()
-        .values()
-        .filter_map(|binding_value| binding_value.scalar_word())
-        .map(|word| FactSpan::new(word.span))
-        .collect::<FxHashSet<_>>();
-
+    let facts = checker.facts();
+    let source = checker.source();
     let spans = [
         ExpansionContext::AssignmentValue,
         ExpansionContext::DeclarationAssignmentValue,
     ]
     .into_iter()
-    .flat_map(|context| checker.facts().expansion_word_facts(context))
-    .filter(|fact| scalar_assignment_value_spans.contains(&fact.key()))
-    .filter(|fact| fact.has_quoted_all_elements_array_slice())
+    .flat_map(|context| facts.expansion_word_facts(context))
+    .filter(|fact| fact.host_kind() == WordFactHostKind::Direct)
+    .filter(|fact| !facts.is_compound_assignment_value_word(*fact))
+    .filter(|fact| fact.has_direct_all_elements_array_expansion_in_source(source))
     .map(|fact| fact.span())
     .collect::<Vec<_>>();
 
@@ -41,6 +34,47 @@ pub fn quoted_array_slice(checker: &mut Checker) {
 mod tests {
     use crate::test::test_snippet;
     use crate::{LinterSettings, Rule};
+
+    #[test]
+    fn reports_all_elements_array_expansions_in_scalar_bindings() {
+        let source = "\
+#!/bin/bash
+x=\"$@\"
+y=\"${@}\"
+z=${@:5}
+p=\"${arr[@]}\"
+q=\"${arr[@]:-fallback}\"
+r=\"${arr[@]@Q}\"
+flags+=\" ${add_flags[@]}\"
+targets[$key]=\"${items[@]}\"
+CFLAGS+=\" ${add_flags[@]}\" make
+declare declared=\"$@\"
+readonly packed=${arr[@]}
+f() { local nested=\"${@:3}\"; }
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::QuotedArraySlice));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "\"$@\"",
+                "\"${@}\"",
+                "${@:5}",
+                "\"${arr[@]}\"",
+                "\"${arr[@]:-fallback}\"",
+                "\"${arr[@]@Q}\"",
+                "\" ${add_flags[@]}\"",
+                "\"${items[@]}\"",
+                "\" ${add_flags[@]}\"",
+                "\"$@\"",
+                "${arr[@]}",
+                "\"${@:3}\"",
+            ]
+        );
+    }
 
     #[test]
     fn reports_quoted_array_slice_assignments_into_scalar_bindings() {
@@ -70,12 +104,11 @@ f() { local nested=\"${@:3}\"; }
     }
 
     #[test]
-    fn ignores_unquoted_non_slice_and_compound_array_assignments() {
+    fn ignores_replacement_star_and_non_scalar_contexts() {
         let source = "\
 #!/bin/bash
-x=${@:5}
-x=\"$@\"
-x=\"${@:-fallback}\"
+x=\"${@:+fallback}\"
+x=\"${arr[@]:+fallback}\"
 x=\"${arr[*]:1}\"
 arr=(\"${@:2}\")
 declare -a packed=(\"${arr[@]:1}\")

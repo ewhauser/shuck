@@ -1,32 +1,99 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 283
 ---
-C099 quoted array-slice expansions collapse into one string value
+C099 all-elements array expansions collapse in scalar assignment values
  --> <source>:6:8
   |
-6 | params="${@:5}"
+6 | params="$@"
   |
 
-C099 quoted array-slice expansions collapse into one string value
+C099 all-elements array expansions collapse in scalar assignment values
  --> <source>:7:8
   |
-7 | joined="prefix${@:2}suffix"
+7 | params="${@}"
   |
 
-C099 quoted array-slice expansions collapse into one string value
- --> <source>:8:18
+C099 all-elements array expansions collapse in scalar assignment values
+ --> <source>:8:8
   |
-8 | declare declared="${arr[@]:1}"
-  |
-
-C099 quoted array-slice expansions collapse into one string value
- --> <source>:9:17
-  |
-9 | readonly packed="${arr[@]:1:2}"
+8 | params=${@:5}
   |
 
-C099 quoted array-slice expansions collapse into one string value
-  --> <source>:12:16
+C099 all-elements array expansions collapse in scalar assignment values
+ --> <source>:9:8
+  |
+9 | joined="${arr[@]}"
+  |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:10:10
    |
-12 |   local nested="${@:3}"
+10 | fallback="${arr[@]:-fallback}"
+   |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:11:8
+   |
+11 | quoted="${arr[@]@Q}"
+   |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:12:8
+   |
+12 | flags+=" ${add_flags[@]}"
+   |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:13:15
+   |
+13 | targets[$key]="${items[@]}"
+   |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:14:9
+   |
+14 | CFLAGS+=" ${add_flags[@]}" make
+   |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:15:18
+   |
+15 | declare declared="$@"
+   |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:16:17
+   |
+16 | readonly packed=${arr[@]}
+   |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:19:8
+   |
+19 | params="${@:5}"
+   |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:20:8
+   |
+20 | joined="prefix${@:2}suffix"
+   |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:21:18
+   |
+21 | declare declared="${arr[@]:1}"
+   |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:22:17
+   |
+22 | readonly packed="${arr[@]:1:2}"
+   |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:25:16
+   |
+25 |   local nested="${@:3}"
    |

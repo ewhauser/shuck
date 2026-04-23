@@ -2,7 +2,20 @@
 
 # shellcheck disable=2034,2154
 
-# Invalid: quoted all-elements array slices in scalar assignments.
+# Invalid: all-elements expansions in scalar assignments collapse element boundaries.
+params="$@"
+params="${@}"
+params=${@:5}
+joined="${arr[@]}"
+fallback="${arr[@]:-fallback}"
+quoted="${arr[@]@Q}"
+flags+=" ${add_flags[@]}"
+targets[$key]="${items[@]}"
+CFLAGS+=" ${add_flags[@]}" make
+declare declared="$@"
+readonly packed=${arr[@]}
+
+# Invalid: quoted all-elements array slices also collapse in scalar assignments.
 params="${@:5}"
 joined="prefix${@:2}suffix"
 declare declared="${arr[@]:1}"
@@ -12,15 +25,12 @@ f() {
   local nested="${@:3}"
 }
 
-# Valid: unquoted slice forwarding.
-params=${@:5}
-
-# Valid: non-slice expansions.
-joined="${@}"
-joined="${@:-fallback}"
-
 # Valid: star-selector slices are outside this rule.
 joined="${arr[*]:1}"
+
+# Valid: replacement forms substitute the replacement word, not the element list.
+joined="${@:+fallback}"
+joined="${arr[@]:+fallback}"
 
 # Valid: array compound assignments keep element boundaries.
 arr=("${@:2}")
