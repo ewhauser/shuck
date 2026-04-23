@@ -200,6 +200,20 @@ test large_corpus_conforms_with_shellcheck ... ok
         self.assertIn("/tmp/keep.sh", filtered)
         self.assertNotIn("/tmp/drop.sh", filtered)
 
+    def test_reviewed_divergence_filter_uses_trailing_reason_token(self) -> None:
+        section = """/tmp/keep.sh
+  shuck-only C001/SC2034 3:1-3:5 warning message mentions reason=debug reason=known large-corpus rule allowlist
+
+/tmp/drop.sh
+  shuck-only C003/SC1091 4:1-4:5 warning message mentions reason=debug reason=metadata-backed reviewed divergence
+"""
+
+        filtered = MODULE.filter_reviewed_divergence_section_for_known_failures(section)
+
+        self.assertIsNotNone(filtered)
+        self.assertIn("/tmp/keep.sh", filtered)
+        self.assertNotIn("/tmp/drop.sh", filtered)
+
     def test_reviewed_divergence_only_run_still_populates_rule_and_fixture_tables(self) -> None:
         log = """large corpus compatibility summary: blocking=0 warnings=2 fixtures=1 unsupported_shells=0 implementation_diffs=0 mapping_issues=0 reviewed_divergences=2 harness_warnings=0 harness_failures=0
 Reviewed Divergence:

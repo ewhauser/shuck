@@ -208,7 +208,7 @@ def diagnostic_reason(line: str) -> str | None:
     stripped = line.strip()
     if " reason=" not in stripped:
         return None
-    return stripped.split(" reason=", 1)[1].strip()
+    return stripped.rsplit(" reason=", 1)[1].strip()
 
 
 def summary_for_match(
