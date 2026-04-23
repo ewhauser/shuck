@@ -1,11 +1,11 @@
-use rustc_hash::FxHashMap;
-use shuck_ast::{CaseTerminator, Span};
+use rustc_hash::{FxHashMap, FxHashSet};
+use shuck_ast::{CaseTerminator, Name, Span};
 use shuck_parser::ZshEmulationMode;
 use smallvec::SmallVec;
 use std::marker::PhantomData;
 
 use crate::source_closure::SourcePathTemplate;
-use crate::{BindingId, ReferenceId, ScopeId, SpanKey};
+use crate::{Binding, BindingId, BindingKind, CallSite, ReferenceId, Scope, ScopeId, SpanKey};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BlockId(pub(crate) u32);
@@ -429,6 +429,651 @@ fn push_range<T>(store: &mut Vec<T>, mut items: Vec<T>) -> RecordedRange<T> {
     RecordedRange::new(start, store.len() - start)
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct ExitEffect {
+    may_continue: bool,
+    may_return: bool,
+    may_exit: bool,
+}
+
+impl ExitEffect {
+    fn continuing() -> Self {
+        Self {
+            may_continue: true,
+            may_return: false,
+            may_exit: false,
+        }
+    }
+
+    fn returning() -> Self {
+        Self {
+            may_continue: false,
+            may_return: true,
+            may_exit: false,
+        }
+    }
+
+    fn exiting() -> Self {
+        Self {
+            may_continue: false,
+            may_return: false,
+            may_exit: true,
+        }
+    }
+
+    fn combine_alternative(&mut self, other: Self) {
+        self.may_continue |= other.may_continue;
+        self.may_return |= other.may_return;
+        self.may_exit |= other.may_exit;
+    }
+}
+
+fn compute_script_terminating_call_spans(
+    program: &RecordedProgram,
+    command_bindings: &FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
+    scopes: &[Scope],
+    bindings: &[Binding],
+    call_sites: &FxHashMap<Name, SmallVec<[CallSite; 2]>>,
+) -> FxHashSet<SpanKey> {
+    let unconditional_function_bindings =
+        collect_unconditional_function_bindings(program, command_bindings, bindings);
+    let resolved_calls = resolve_function_calls_by_span(
+        program,
+        scopes,
+        bindings,
+        call_sites,
+        &unconditional_function_bindings,
+    );
+    if resolved_calls.is_empty() {
+        return FxHashSet::default();
+    }
+
+    let mut always_exiting_scopes = FxHashSet::default();
+    loop {
+        let mut changed = false;
+        for &scope in program.function_bodies().keys() {
+            if always_exiting_scopes.contains(&scope) {
+                continue;
+            }
+            if function_scope_always_exits_script(
+                program,
+                scope,
+                &resolved_calls,
+                &always_exiting_scopes,
+            ) {
+                always_exiting_scopes.insert(scope);
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    resolved_calls
+        .into_iter()
+        .filter_map(|(span, callee_scope)| {
+            always_exiting_scopes
+                .contains(&callee_scope)
+                .then_some(span)
+        })
+        .collect()
+}
+
+fn resolve_function_calls_by_span(
+    program: &RecordedProgram,
+    scopes: &[Scope],
+    bindings: &[Binding],
+    call_sites: &FxHashMap<Name, SmallVec<[CallSite; 2]>>,
+    unconditional_function_bindings: &FxHashSet<BindingId>,
+) -> FxHashMap<SpanKey, ScopeId> {
+    let mut resolved = FxHashMap::default();
+    let scope_function_bindings = function_bindings_by_scope(program);
+    let resolver = FunctionCallResolver {
+        program,
+        scopes,
+        bindings,
+        call_sites,
+        unconditional_function_bindings,
+        function_bindings_by_scope: &scope_function_bindings,
+    };
+
+    for (name, sites) in call_sites {
+        for site in sites {
+            let Some(binding) =
+                resolver.visible_function_binding(name, site.scope, site.span.start.offset)
+            else {
+                continue;
+            };
+            let Some(scope) = program.function_body_scopes.get(&binding).copied() else {
+                continue;
+            };
+            let command_span = recorded_command_span_for_call_site(program, site);
+            resolved.insert(SpanKey::new(command_span), scope);
+        }
+    }
+
+    resolved
+}
+
+fn function_bindings_by_scope(
+    program: &RecordedProgram,
+) -> FxHashMap<ScopeId, SmallVec<[BindingId; 2]>> {
+    let mut bindings_by_scope: FxHashMap<ScopeId, SmallVec<[BindingId; 2]>> = FxHashMap::default();
+    for (&binding, &scope) in &program.function_body_scopes {
+        bindings_by_scope.entry(scope).or_default().push(binding);
+    }
+    bindings_by_scope
+}
+
+struct FunctionCallResolver<'a> {
+    program: &'a RecordedProgram,
+    scopes: &'a [Scope],
+    bindings: &'a [Binding],
+    call_sites: &'a FxHashMap<Name, SmallVec<[CallSite; 2]>>,
+    unconditional_function_bindings: &'a FxHashSet<BindingId>,
+    function_bindings_by_scope: &'a FxHashMap<ScopeId, SmallVec<[BindingId; 2]>>,
+}
+
+fn recorded_command_span_for_call_site(program: &RecordedProgram, site: &CallSite) -> Span {
+    program
+        .commands()
+        .iter()
+        .filter(|command| {
+            matches!(command.kind, RecordedCommandKind::Linear)
+                && span_contains(command.span, site.span)
+        })
+        .min_by_key(|command| {
+            (
+                command.span.end.offset - command.span.start.offset,
+                command.span.start.offset,
+            )
+        })
+        .or_else(|| {
+            program
+                .commands()
+                .iter()
+                .filter(|command| span_contains(command.span, site.span))
+                .min_by_key(|command| {
+                    (
+                        command.span.end.offset - command.span.start.offset,
+                        command.span.start.offset,
+                    )
+                })
+        })
+        .map(|command| command.span)
+        .unwrap_or(site.span)
+}
+
+fn collect_unconditional_function_bindings(
+    program: &RecordedProgram,
+    command_bindings: &FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
+    bindings: &[Binding],
+) -> FxHashSet<BindingId> {
+    let mut unconditional = FxHashSet::default();
+    collect_sequence_function_bindings(
+        program,
+        program.file_commands(),
+        command_bindings,
+        bindings,
+        &mut unconditional,
+    );
+    for commands in program.function_bodies().values().copied() {
+        collect_sequence_function_bindings(
+            program,
+            commands,
+            command_bindings,
+            bindings,
+            &mut unconditional,
+        );
+    }
+    unconditional
+}
+
+fn collect_sequence_function_bindings(
+    program: &RecordedProgram,
+    commands: RecordedCommandRange,
+    command_bindings: &FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
+    bindings: &[Binding],
+    unconditional: &mut FxHashSet<BindingId>,
+) {
+    for &command_id in program.commands_in(commands) {
+        collect_command_function_bindings(
+            program,
+            command_id,
+            command_bindings,
+            bindings,
+            unconditional,
+        );
+    }
+}
+
+fn collect_command_function_bindings(
+    program: &RecordedProgram,
+    command_id: RecordedCommandId,
+    command_bindings: &FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
+    bindings: &[Binding],
+    unconditional: &mut FxHashSet<BindingId>,
+) {
+    let command = program.command(command_id);
+    collect_direct_function_bindings(command.span, command_bindings, bindings, unconditional);
+
+    match command.kind {
+        RecordedCommandKind::List { first, .. } => collect_command_function_bindings(
+            program,
+            first,
+            command_bindings,
+            bindings,
+            unconditional,
+        ),
+        RecordedCommandKind::BraceGroup { body } => collect_sequence_function_bindings(
+            program,
+            body,
+            command_bindings,
+            bindings,
+            unconditional,
+        ),
+        RecordedCommandKind::Linear
+        | RecordedCommandKind::Break { .. }
+        | RecordedCommandKind::Continue { .. }
+        | RecordedCommandKind::Return
+        | RecordedCommandKind::Exit
+        | RecordedCommandKind::If { .. }
+        | RecordedCommandKind::While { .. }
+        | RecordedCommandKind::Until { .. }
+        | RecordedCommandKind::For { .. }
+        | RecordedCommandKind::Select { .. }
+        | RecordedCommandKind::ArithmeticFor { .. }
+        | RecordedCommandKind::Case { .. }
+        | RecordedCommandKind::Subshell { .. }
+        | RecordedCommandKind::Pipeline { .. } => {}
+    }
+}
+
+fn collect_direct_function_bindings(
+    span: Span,
+    command_bindings: &FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
+    bindings: &[Binding],
+    unconditional: &mut FxHashSet<BindingId>,
+) {
+    let key = SpanKey::new(span);
+    let Some(command_bindings) = command_bindings.get(&key) else {
+        return;
+    };
+    unconditional.extend(command_bindings.iter().copied().filter(|binding| {
+        matches!(
+            bindings[binding.index()].kind,
+            BindingKind::FunctionDefinition
+        )
+    }));
+}
+
+fn function_scope_always_exits_script(
+    program: &RecordedProgram,
+    scope: ScopeId,
+    resolved_calls: &FxHashMap<SpanKey, ScopeId>,
+    always_exiting_scopes: &FxHashSet<ScopeId>,
+) -> bool {
+    let effect = sequence_exit_effect(
+        program,
+        program.function_body(scope),
+        resolved_calls,
+        always_exiting_scopes,
+    );
+    !effect.may_continue && !effect.may_return && effect.may_exit
+}
+
+fn sequence_exit_effect(
+    program: &RecordedProgram,
+    commands: RecordedCommandRange,
+    resolved_calls: &FxHashMap<SpanKey, ScopeId>,
+    always_exiting_scopes: &FxHashSet<ScopeId>,
+) -> ExitEffect {
+    let mut sequence_effect = ExitEffect::default();
+    let mut may_continue = true;
+
+    for &command_id in program.commands_in(commands) {
+        if !may_continue {
+            break;
+        }
+
+        let command_effect =
+            command_exit_effect(program, command_id, resolved_calls, always_exiting_scopes);
+        sequence_effect.may_exit |= command_effect.may_exit;
+        sequence_effect.may_return |= command_effect.may_return;
+        may_continue = command_effect.may_continue;
+    }
+
+    sequence_effect.may_continue = may_continue;
+    sequence_effect
+}
+
+fn command_exit_effect(
+    program: &RecordedProgram,
+    command_id: RecordedCommandId,
+    resolved_calls: &FxHashMap<SpanKey, ScopeId>,
+    always_exiting_scopes: &FxHashSet<ScopeId>,
+) -> ExitEffect {
+    let command = program.command(command_id);
+
+    match command.kind {
+        RecordedCommandKind::Linear => {
+            let span_key = SpanKey::new(command.span);
+            if resolved_calls
+                .get(&span_key)
+                .is_some_and(|scope| always_exiting_scopes.contains(scope))
+            {
+                ExitEffect::exiting()
+            } else {
+                ExitEffect::continuing()
+            }
+        }
+        RecordedCommandKind::Break { .. } | RecordedCommandKind::Continue { .. } => {
+            ExitEffect::continuing()
+        }
+        RecordedCommandKind::Return => ExitEffect::returning(),
+        RecordedCommandKind::Exit => ExitEffect::exiting(),
+        RecordedCommandKind::List { first, rest } => {
+            list_exit_effect(program, first, rest, resolved_calls, always_exiting_scopes)
+        }
+        RecordedCommandKind::If {
+            condition,
+            then_branch,
+            elif_branches,
+            else_branch,
+        } => if_exit_effect(
+            program,
+            condition,
+            then_branch,
+            elif_branches,
+            else_branch,
+            resolved_calls,
+            always_exiting_scopes,
+        ),
+        RecordedCommandKind::BraceGroup { body } => {
+            sequence_exit_effect(program, body, resolved_calls, always_exiting_scopes)
+        }
+        RecordedCommandKind::While { .. }
+        | RecordedCommandKind::Until { .. }
+        | RecordedCommandKind::For { .. }
+        | RecordedCommandKind::Select { .. }
+        | RecordedCommandKind::ArithmeticFor { .. }
+        | RecordedCommandKind::Case { .. }
+        | RecordedCommandKind::Subshell { .. }
+        | RecordedCommandKind::Pipeline { .. } => ExitEffect::continuing(),
+    }
+}
+
+fn span_contains(outer: Span, inner: Span) -> bool {
+    outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
+}
+
+fn list_exit_effect(
+    program: &RecordedProgram,
+    first: RecordedCommandId,
+    rest: RecordedListItemRange,
+    resolved_calls: &FxHashMap<SpanKey, ScopeId>,
+    always_exiting_scopes: &FxHashSet<ScopeId>,
+) -> ExitEffect {
+    let first_effect = command_exit_effect(program, first, resolved_calls, always_exiting_scopes);
+    if !first_effect.may_continue {
+        return first_effect;
+    }
+
+    let mut effect = first_effect;
+    for item in program.list_items(rest) {
+        let item_effect =
+            command_exit_effect(program, item.command, resolved_calls, always_exiting_scopes);
+        effect.may_continue = true;
+        effect.may_return |= item_effect.may_return;
+        effect.may_exit |= item_effect.may_exit;
+        effect.may_continue |= item_effect.may_continue;
+    }
+    effect
+}
+
+fn if_exit_effect(
+    program: &RecordedProgram,
+    condition: RecordedCommandRange,
+    then_branch: RecordedCommandRange,
+    elif_branches: RecordedElifBranchRange,
+    else_branch: RecordedCommandRange,
+    resolved_calls: &FxHashMap<SpanKey, ScopeId>,
+    always_exiting_scopes: &FxHashSet<ScopeId>,
+) -> ExitEffect {
+    let condition_effect =
+        sequence_exit_effect(program, condition, resolved_calls, always_exiting_scopes);
+    let mut effect = ExitEffect {
+        may_continue: false,
+        may_return: condition_effect.may_return,
+        may_exit: condition_effect.may_exit,
+    };
+
+    if !condition_effect.may_continue {
+        return effect;
+    }
+
+    effect.combine_alternative(sequence_exit_effect(
+        program,
+        then_branch,
+        resolved_calls,
+        always_exiting_scopes,
+    ));
+    effect.combine_alternative(elif_chain_exit_effect(
+        program,
+        elif_branches,
+        else_branch,
+        resolved_calls,
+        always_exiting_scopes,
+    ));
+    effect
+}
+
+fn elif_chain_exit_effect(
+    program: &RecordedProgram,
+    elif_branches: RecordedElifBranchRange,
+    else_branch: RecordedCommandRange,
+    resolved_calls: &FxHashMap<SpanKey, ScopeId>,
+    always_exiting_scopes: &FxHashSet<ScopeId>,
+) -> ExitEffect {
+    let mut false_path = if else_branch.is_empty() {
+        ExitEffect::continuing()
+    } else {
+        sequence_exit_effect(program, else_branch, resolved_calls, always_exiting_scopes)
+    };
+
+    for branch in program.elif_branches(elif_branches).iter().rev() {
+        let condition_effect = sequence_exit_effect(
+            program,
+            branch.condition,
+            resolved_calls,
+            always_exiting_scopes,
+        );
+        let mut branch_effect = ExitEffect {
+            may_continue: false,
+            may_return: condition_effect.may_return,
+            may_exit: condition_effect.may_exit,
+        };
+
+        if condition_effect.may_continue {
+            branch_effect.combine_alternative(sequence_exit_effect(
+                program,
+                branch.body,
+                resolved_calls,
+                always_exiting_scopes,
+            ));
+            branch_effect.combine_alternative(false_path);
+        }
+
+        false_path = branch_effect;
+    }
+
+    false_path
+}
+
+impl FunctionCallResolver<'_> {
+    fn visible_function_binding(
+        &self,
+        name: &Name,
+        scope: ScopeId,
+        offset: usize,
+    ) -> Option<BindingId> {
+        for scope_id in ancestor_scopes(self.scopes, scope) {
+            let Some(candidates) = self.scopes[scope_id.index()].bindings.get(name) else {
+                continue;
+            };
+
+            for binding in candidates.iter().rev().copied() {
+                let candidate = &self.bindings[binding.index()];
+                if !matches!(candidate.kind, BindingKind::FunctionDefinition) {
+                    continue;
+                }
+
+                if scope_id == scope {
+                    if candidate.span.start.offset <= offset
+                        && self.unconditional_function_bindings.contains(&binding)
+                    {
+                        return Some(binding);
+                    }
+                    continue;
+                }
+
+                if !self.unconditional_function_bindings.contains(&binding) {
+                    return None;
+                }
+
+                return self
+                    .parent_scope_binding_available_before_scope_runs(candidate, scope)
+                    .then_some(binding);
+            }
+        }
+
+        None
+    }
+
+    fn parent_scope_binding_available_before_scope_runs(
+        &self,
+        candidate: &Binding,
+        scope: ScopeId,
+    ) -> bool {
+        if candidate.span.start.offset <= self.scopes[scope.index()].span.start.offset {
+            return true;
+        }
+
+        let mut visiting = FxHashSet::default();
+        !self.scope_has_known_entry_before_offset(
+            scope,
+            candidate.scope,
+            candidate.span.start.offset,
+            &mut visiting,
+        )
+    }
+
+    fn scope_has_known_entry_before_offset(
+        &self,
+        scope: ScopeId,
+        call_scope: ScopeId,
+        offset: usize,
+        visiting: &mut FxHashSet<ScopeId>,
+    ) -> bool {
+        if !visiting.insert(scope) {
+            return false;
+        }
+
+        let has_entry =
+            self.function_bindings_by_scope
+                .get(&scope)
+                .is_some_and(|function_bindings| {
+                    function_bindings.iter().copied().any(|binding| {
+                        let function = &self.bindings[binding.index()];
+                        let Some(sites) = self.call_sites.get(&function.name) else {
+                            return false;
+                        };
+                        sites.iter().any(|site| {
+                            self.call_site_may_reference_binding(site, binding, offset)
+                                && self.call_site_can_run_before_offset(
+                                    site, call_scope, offset, visiting,
+                                )
+                        })
+                    })
+                });
+
+        visiting.remove(&scope);
+        has_entry
+    }
+
+    fn call_site_can_run_before_offset(
+        &self,
+        site: &CallSite,
+        call_scope: ScopeId,
+        offset: usize,
+        visiting: &mut FxHashSet<ScopeId>,
+    ) -> bool {
+        let command_start = recorded_command_span_for_call_site(self.program, site)
+            .start
+            .offset;
+        let Some(enclosing_function) = self.enclosing_function_scope(site.scope) else {
+            return command_start < offset && self.scope_has_ancestor(site.scope, call_scope);
+        };
+
+        self.scope_has_known_entry_before_offset(enclosing_function, call_scope, offset, visiting)
+    }
+
+    fn call_site_may_reference_binding(
+        &self,
+        site: &CallSite,
+        binding: BindingId,
+        offset: usize,
+    ) -> bool {
+        let target = &self.bindings[binding.index()];
+        if !self.scope_has_ancestor(site.scope, target.scope) {
+            return false;
+        }
+
+        if target.scope == site.scope {
+            return self.lexically_visible_function_binding_in_scope(
+                &target.name,
+                site.scope,
+                site.span.start.offset,
+            ) == Some(binding);
+        }
+
+        target.span.start.offset < offset
+    }
+
+    fn enclosing_function_scope(&self, scope: ScopeId) -> Option<ScopeId> {
+        ancestor_scopes(self.scopes, scope)
+            .find(|scope_id| self.function_bindings_by_scope.contains_key(scope_id))
+    }
+
+    fn scope_has_ancestor(&self, scope: ScopeId, ancestor: ScopeId) -> bool {
+        ancestor_scopes(self.scopes, scope).any(|scope_id| scope_id == ancestor)
+    }
+
+    fn lexically_visible_function_binding_in_scope(
+        &self,
+        name: &Name,
+        scope: ScopeId,
+        offset: usize,
+    ) -> Option<BindingId> {
+        self.scopes[scope.index()]
+            .bindings
+            .get(name)?
+            .iter()
+            .rev()
+            .copied()
+            .find(|binding| {
+                let candidate = &self.bindings[binding.index()];
+                matches!(candidate.kind, BindingKind::FunctionDefinition)
+                    && candidate.span.start.offset <= offset
+            })
+    }
+}
+
+fn ancestor_scopes(scopes: &[Scope], start: ScopeId) -> impl Iterator<Item = ScopeId> + '_ {
+    std::iter::successors(Some(start), move |scope| scopes[scope.index()].parent)
+}
+
 struct SequenceResult {
     entry: Option<BlockId>,
     exits: Vec<BlockId>,
@@ -444,6 +1089,7 @@ struct GraphBuilder<'a> {
     program: &'a RecordedProgram,
     command_bindings: &'a FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
     command_references: &'a FxHashMap<SpanKey, SmallVec<[ReferenceId; 4]>>,
+    script_terminating_calls: FxHashSet<SpanKey>,
     blocks: Vec<BasicBlock>,
     successors: FxHashMap<BlockId, Vec<(BlockId, EdgeKind)>>,
     command_blocks: FxHashMap<SpanKey, Vec<BlockId>>,
@@ -455,11 +1101,22 @@ pub(crate) fn build_control_flow_graph(
     program: &RecordedProgram,
     command_bindings: &FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
     command_references: &FxHashMap<SpanKey, SmallVec<[ReferenceId; 4]>>,
+    scopes: &[Scope],
+    bindings: &[Binding],
+    call_sites: &FxHashMap<Name, SmallVec<[CallSite; 2]>>,
 ) -> ControlFlowGraph {
+    let script_terminating_calls = compute_script_terminating_call_spans(
+        program,
+        command_bindings,
+        scopes,
+        bindings,
+        call_sites,
+    );
     let mut builder = GraphBuilder {
         program,
         command_bindings,
         command_references,
+        script_terminating_calls,
         blocks: Vec::new(),
         successors: FxHashMap::default(),
         command_blocks: FxHashMap::default(),
@@ -565,9 +1222,17 @@ impl<'a> GraphBuilder<'a> {
             RecordedCommandKind::Linear => {
                 let block = self.command_block(command.span);
                 self.attach_nested_regions(block, command.nested_regions, loops);
+                let exits = if self
+                    .script_terminating_calls
+                    .contains(&SpanKey::new(command.span))
+                {
+                    Vec::new()
+                } else {
+                    vec![block]
+                };
                 SequenceResult {
                     entry: Some(block),
-                    exits: vec![block],
+                    exits,
                 }
             }
             RecordedCommandKind::Break { depth } => {
@@ -668,12 +1333,10 @@ impl<'a> GraphBuilder<'a> {
         loops: &[LoopTarget],
     ) -> SequenceResult {
         let command = self.program.command(command_id);
-        if command.nested_regions.is_empty() {
-            return sequence;
-        }
-
         let header = self.command_block(command.span);
-        self.attach_nested_regions(header, command.nested_regions, loops);
+        if !command.nested_regions.is_empty() {
+            self.attach_nested_regions(header, command.nested_regions, loops);
+        }
         if let Some(entry) = sequence.entry {
             self.add_edge(header, entry, EdgeKind::Sequential);
         } else {

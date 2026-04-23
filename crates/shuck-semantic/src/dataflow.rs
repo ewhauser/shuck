@@ -354,10 +354,43 @@ fn build_dead_code(cfg: &ControlFlowGraph) -> Vec<DeadCode> {
             .1
             .extend(block.commands.iter().copied());
     }
-    dead_code_by_cause
+    let mut dead_code = dead_code_by_cause
         .into_iter()
-        .map(|(_, (cause, unreachable))| DeadCode { unreachable, cause })
-        .collect()
+        .map(|(_, (cause, unreachable))| DeadCode {
+            unreachable: outermost_unreachable_spans(unreachable),
+            cause,
+        })
+        .collect::<Vec<_>>();
+    dead_code.sort_by_key(|dead| (dead.cause.start.offset, dead.cause.end.offset));
+    dead_code
+}
+
+fn outermost_unreachable_spans(mut spans: Vec<Span>) -> Vec<Span> {
+    spans.sort_by(|left, right| {
+        left.start
+            .offset
+            .cmp(&right.start.offset)
+            .then_with(|| right.end.offset.cmp(&left.end.offset))
+    });
+
+    let mut outermost = Vec::new();
+    for span in spans {
+        if outermost
+            .iter()
+            .any(|outer| span_contained_by(span, *outer))
+        {
+            continue;
+        }
+        if outermost.contains(&span) {
+            continue;
+        }
+        outermost.push(span);
+    }
+    outermost
+}
+
+fn span_contained_by(inner: Span, outer: Span) -> bool {
+    outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
 }
 
 fn build_bindings_by_name(bindings: &[Binding]) -> FxHashMap<Name, SmallVec<[BindingId; 2]>> {
