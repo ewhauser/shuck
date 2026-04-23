@@ -2292,7 +2292,7 @@ read -a \"items\" trailing
 }
 
 #[test]
-fn summarizes_su_login_and_command_forms() {
+fn summarizes_su_login_forms() {
     let source = "\
 #!/bin/bash
 su root
@@ -2301,6 +2301,7 @@ su \"$user\" -s /bin/sh -c \"$cmd\"
 su -s /bin/sh root
 su -
 su --login root
+su -l
 ";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
@@ -2308,20 +2309,21 @@ su --login root
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
 
-    let su_flags = facts
+    let su_login_flags = facts
         .commands()
         .iter()
         .filter(|fact| fact.effective_name_is("su"))
-        .map(|fact| fact.options().su().map(|su| su.has_login_or_command_flag()))
+        .map(|fact| fact.options().su().map(|su| su.has_login_flag()))
         .collect::<Vec<_>>();
 
     assert_eq!(
-        su_flags,
+        su_login_flags,
         vec![
             Some(false),
-            Some(true),
-            Some(true),
             Some(false),
+            Some(false),
+            Some(false),
+            Some(true),
             Some(true),
             Some(true)
         ]
@@ -2329,11 +2331,14 @@ su --login root
 }
 
 #[test]
-fn keeps_incomplete_su_command_flags_unsafe() {
+fn keeps_only_login_aliases_marked_as_login_forms() {
     let source = "\
 #!/bin/bash
 su -c
 su --command
+su -m root
+su -- root
+su root -s /bin/sh
 ";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
@@ -2341,58 +2346,23 @@ su --command
     let file_context = classify_file_context(source, None, ShellDialect::Bash);
     let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
 
-    let su_flags = facts
+    let su_login_flags = facts
         .commands()
         .iter()
         .filter(|fact| fact.effective_name_is("su"))
-        .map(|fact| fact.options().su().map(|su| su.has_login_or_command_flag()))
+        .map(|fact| fact.options().su().map(|su| su.has_login_flag()))
         .collect::<Vec<_>>();
 
-    assert_eq!(su_flags, vec![Some(false), Some(false)]);
-}
-
-#[test]
-fn stops_treating_su_args_after_double_dash_as_flags() {
-    let source = "\
-#!/bin/bash
-su -- root echo -c hi
-";
-    let output = Parser::new(source).parse().unwrap();
-    let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
-
-    let su_flags = facts
-        .commands()
-        .iter()
-        .filter(|fact| fact.effective_name_is("su"))
-        .map(|fact| fact.options().su().map(|su| su.has_login_or_command_flag()))
-        .collect::<Vec<_>>();
-
-    assert_eq!(su_flags, vec![Some(false)]);
-}
-
-#[test]
-fn stops_treating_su_forwarded_command_args_as_flags() {
-    let source = "\
-#!/bin/bash
-su root bash -c 'id'
-";
-    let output = Parser::new(source).parse().unwrap();
-    let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
-
-    let su_flags = facts
-        .commands()
-        .iter()
-        .filter(|fact| fact.effective_name_is("su"))
-        .map(|fact| fact.options().su().map(|su| su.has_login_or_command_flag()))
-        .collect::<Vec<_>>();
-
-    assert_eq!(su_flags, vec![Some(false)]);
+    assert_eq!(
+        su_login_flags,
+        vec![
+            Some(false),
+            Some(false),
+            Some(false),
+            Some(false),
+            Some(false)
+        ]
+    );
 }
 
 #[test]
