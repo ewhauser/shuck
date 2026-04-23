@@ -79,4 +79,33 @@ echo ${foo:-${1##*/}}
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn ignores_parameter_trim_inside_arithmetic_in_sh() {
+        let source = "\
+#!/bin/sh
+echo $((42949 - ${1#-} / 100000))
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::BasePrefixInArithmetic),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_parameter_defaults_with_base_prefixes_in_sh_arithmetic() {
+        let source = "\
+#!/bin/sh
+echo $(( ${foo:-10#1} ))
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::BasePrefixInArithmetic),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "10#1");
+    }
 }
