@@ -1237,6 +1237,7 @@ fn build_nonpersistent_assignment_spans(
     let mut command_id_query_offsets = Vec::new();
     let mut relevant_references = Vec::new();
     let mut relevant_synthetic_reads = Vec::new();
+    let loop_assignment_spans = build_subshell_loop_assignment_report_spans(commands);
 
     for binding in semantic.bindings() {
         if !is_reportable_subshell_assignment(binding.kind, binding.attributes) {
@@ -1265,7 +1266,7 @@ fn build_nonpersistent_assignment_spans(
                 binding_id: binding.id,
                 effective_local: binding_effectively_targets_local(semantic, binding),
                 enclosing_function_scope: enclosing_function_scope_for_scope(semantic, binding.scope),
-                assignment_span: binding.span,
+                assignment_span: subshell_assignment_report_span(binding, &loop_assignment_spans),
                 subshell_start: nonpersistent_scope.span.start.offset,
                 subshell_end: nonpersistent_scope.span.end.offset,
             });
@@ -1589,6 +1590,51 @@ fn is_reportable_subshell_later_use_binding(
 
 fn is_reportable_nonpersistent_assignment_name(name: &Name) -> bool {
     name.as_str() != "IFS"
+}
+
+fn build_subshell_loop_assignment_report_spans(
+    commands: &[CommandFact<'_>],
+) -> FxHashMap<FactSpan, Span> {
+    let mut spans = FxHashMap::default();
+
+    for command in commands {
+        match command.command() {
+            Command::Compound(CompoundCommand::For(for_command)) => {
+                let keyword_span = leading_keyword_span(for_command.span, "for");
+                for target in &for_command.targets {
+                    if target.name.is_some() {
+                        spans.insert(FactSpan::new(target.span), keyword_span);
+                    }
+                }
+            }
+            Command::Compound(CompoundCommand::Select(select_command)) => {
+                spans.insert(
+                    FactSpan::new(select_command.variable_span),
+                    leading_keyword_span(select_command.span, "select"),
+                );
+            }
+            _ => {}
+        }
+    }
+
+    spans
+}
+
+fn leading_keyword_span(command_span: Span, keyword: &str) -> Span {
+    Span::from_positions(command_span.start, command_span.start.advanced_by(keyword))
+}
+
+fn subshell_assignment_report_span(
+    binding: &Binding,
+    loop_assignment_spans: &FxHashMap<FactSpan, Span>,
+) -> Span {
+    if binding.kind == BindingKind::LoopVariable
+        && let Some(span) = loop_assignment_spans.get(&FactSpan::new(binding.span))
+    {
+        return *span;
+    }
+
+    binding.span
 }
 
 #[derive(Debug, Clone, Copy)]
