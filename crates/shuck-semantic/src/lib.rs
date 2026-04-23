@@ -1172,6 +1172,9 @@ impl<'model> SemanticAnalysis<'model> {
                 &self.model.recorded_program,
                 &self.model.command_bindings,
                 &self.model.command_references,
+                &self.model.scopes,
+                &self.model.bindings,
+                &self.model.call_sites,
             )
         })
     }
@@ -5621,6 +5624,52 @@ DESCRIPTION=\"${DESCRIPTION:-Deployment metadata updated}\"
     }
 
     #[test]
+    fn compound_dead_code_reports_outermost_spans() {
+        let source = "\
+return
+if true; then
+  echo one
+fi
+printf '%s\\n' two
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let dead_code = analysis.dead_code();
+        let unreachable = dead_code
+            .iter()
+            .flat_map(|entry| entry.unreachable.iter())
+            .map(|span| span.slice(source).trim_end().to_owned())
+            .collect::<Vec<_>>();
+
+        assert!(unreachable.contains(&"if true; then\n  echo one\nfi".to_owned()));
+        assert!(unreachable.contains(&"printf '%s\\n' two".to_owned()));
+        assert!(!unreachable.contains(&"echo one".to_owned()));
+    }
+
+    #[test]
+    fn dead_code_after_script_terminating_function_calls_is_detected() {
+        let source = "\
+exit_script() {
+  exit 0
+}
+main() {
+  exit_script
+  printf '%s\\n' never
+}
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let unreachable = analysis
+            .dead_code()
+            .iter()
+            .flat_map(|entry| entry.unreachable.iter())
+            .map(|span| span.slice(source).trim_end().to_owned())
+            .collect::<Vec<_>>();
+
+        assert!(unreachable.contains(&"printf '%s\\n' never".to_owned()));
+    }
+
+    #[test]
     fn conditional_exit_keeps_or_fallback_reachable() {
         let source = "run && exit 0 || echo fallback\n";
         let model = model(source);
@@ -7528,6 +7577,9 @@ echo done
             &model.recorded_program,
             &model.command_bindings,
             &model.command_references,
+            &model.scopes,
+            &model.bindings,
+            &model.call_sites,
         );
 
         assert!(!cfg.block_ids_for_span(conditional.span).is_empty());
@@ -7570,6 +7622,9 @@ echo done
             &model.recorded_program,
             &model.command_bindings,
             &model.command_references,
+            &model.scopes,
+            &model.bindings,
+            &model.call_sites,
         );
 
         assert!(!cfg.block_ids_for_span(conditional.span).is_empty());

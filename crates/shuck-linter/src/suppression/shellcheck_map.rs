@@ -131,7 +131,7 @@ mod tests {
             map.resolve("SC1087"),
             Some(Rule::BraceVariableBeforeBracket)
         );
-        assert_eq!(map.resolve("SC2317"), None);
+        assert_eq!(map.resolve("SC2317"), Some(Rule::UnreachableAfterExit));
         assert_eq!(map.resolve("SC7777"), None);
     }
 
@@ -194,6 +194,7 @@ mod tests {
         assert_eq!(map.code_for_rule(Rule::RedirectToCommandName), Some(2238));
         assert_eq!(map.code_for_rule(Rule::DuplicateShebangFlag), Some(2096));
         assert_eq!(map.code_for_rule(Rule::BashFileSlurp), Some(3034));
+        assert_eq!(map.code_for_rule(Rule::UnreachableAfterExit), Some(2317));
         assert_eq!(map.code_for_rule(Rule::LiteralControlEscape), Some(1012));
         assert_eq!(
             map.code_for_rule(Rule::BraceVariableBeforeBracket),

@@ -3752,32 +3752,55 @@ f
 ";
         let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
 
-        assert_eq!(diagnostics.len(), 5);
+        assert_eq!(diagnostics.len(), 4);
         assert!(
             diagnostics
                 .iter()
                 .all(|diagnostic| diagnostic.rule == Rule::UnreachableAfterExit)
         );
-        assert_eq!(
-            diagnostics[0].span.slice(source).trim_end(),
-            "echo unreachable"
-        );
-        assert_eq!(
-            diagnostics[1].span.slice(source).trim_end(),
-            "printf '%s\\n' never"
-        );
-        assert!(
-            diagnostics[2]
-                .span
-                .slice(source)
-                .trim_end()
-                .starts_with("f() {")
-        );
-        assert_eq!(
-            diagnostics[3].span.slice(source).trim_end(),
-            "echo also_unreachable"
-        );
-        assert_eq!(diagnostics[4].span.slice(source).trim_end(), "f");
+        assert_eq!(diagnostics[0].span.slice(source), "echo unreachable");
+        assert_eq!(diagnostics[1].span.slice(source), "printf '%s\\n' never");
+        assert_eq!(diagnostics[2].span.slice(source), "f() {\n  return 0\n  echo also_unreachable\n}");
+        assert_eq!(diagnostics[3].span.slice(source), "f");
+    }
+
+    #[test]
+    fn unreachable_after_exit_prefers_outermost_compound_command_spans() {
+        let source = "\
+#!/bin/bash
+return
+if true; then
+  echo one
+fi
+printf '%s\\n' two
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.slice(source), "if true; then\n  echo one\nfi");
+        assert_eq!(diagnostics[0].span.end.line, 5);
+        assert_eq!(diagnostics[0].span.end.column, 3);
+        assert_eq!(diagnostics[1].span.slice(source), "printf '%s\\n' two");
+        assert_eq!(diagnostics[1].span.end.line, 6);
+        assert_eq!(diagnostics[1].span.end.column, 18);
+    }
+
+    #[test]
+    fn unreachable_after_exit_reports_after_script_terminating_function_calls() {
+        let source = "\
+#!/bin/bash
+exit_script() {
+  exit 0
+}
+main() {
+  exit_script
+  printf '%s\\n' never
+}
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "printf '%s\\n' never");
     }
 
     #[test]
