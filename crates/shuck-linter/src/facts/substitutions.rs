@@ -619,7 +619,7 @@ fn summarize_compound_stmt_redirects(
     redirects: &[Redirect],
     source: &str,
 ) -> RedirectSummary {
-    let redirect_facts = build_redirect_facts(redirects, source, None);
+    let redirect_facts = build_redirect_facts(redirects, None, source, None);
     if redirect_facts.is_empty() {
         return summary;
     }
@@ -661,7 +661,7 @@ fn summarize_command_redirects<'a>(
     if let Some(id) = command_id_for_command(command, command_ids_by_span) {
         summarize_redirect_facts(command_fact(commands, id).redirect_facts())
     } else {
-        let redirect_facts = build_redirect_facts(redirects, source, None);
+        let redirect_facts = build_redirect_facts(redirects, None, source, None);
         summarize_redirect_facts(&redirect_facts)
     }
 }

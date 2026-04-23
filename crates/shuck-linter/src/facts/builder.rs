@@ -155,8 +155,12 @@ impl<'a> LinterFactsBuilder<'a> {
                     surface: &mut surface_fragments,
                 },
             );
-            let redirect_facts =
-                build_redirect_facts(visit.redirects, self.source, command_zsh_options.as_ref());
+            let redirect_facts = build_redirect_facts(
+                visit.redirects,
+                Some(self.semantic),
+                self.source,
+                command_zsh_options.as_ref(),
+            );
             let options = CommandOptionFacts::build(visit.command, &normalized, self.source);
             let declaration_assignment_probes = build_declaration_assignment_probes(
                 visit.command,
@@ -462,8 +466,8 @@ impl<'a> LinterFactsBuilder<'a> {
             &positional_parameters,
         );
         let double_paren_grouping_spans = build_double_paren_grouping_spans(&commands, self.source);
-        let arithmetic_for_update_operator_spans =
-            build_arithmetic_for_update_operator_spans(&commands, self.source);
+        let arithmetic_update_operator_spans =
+            build_arithmetic_update_operator_spans(&self.file.body, self.semantic, self.source);
         let base_prefix_arithmetic_spans =
             build_base_prefix_arithmetic_spans(&self.file.body, self.source);
         let subscript_index_reference_spans =
@@ -673,7 +677,7 @@ impl<'a> LinterFactsBuilder<'a> {
             positional_parameter_fragments: positional_parameters,
             positional_parameter_operator_spans,
             double_paren_grouping_spans,
-            arithmetic_for_update_operator_spans,
+            arithmetic_update_operator_spans,
             base_prefix_arithmetic_spans,
             escape_scan_matches,
             echo_backslash_escape_word_spans,

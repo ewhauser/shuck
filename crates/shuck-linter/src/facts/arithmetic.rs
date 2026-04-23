@@ -741,27 +741,594 @@ fn build_double_paren_grouping_spans(commands: &[CommandFact<'_>], source: &str)
         .collect()
 }
 
-fn build_arithmetic_for_update_operator_spans(
-    commands: &[CommandFact<'_>],
+fn build_arithmetic_update_operator_spans(
+    body: &StmtSeq,
+    semantic: &SemanticModel,
     source: &str,
 ) -> Vec<Span> {
     let mut spans = Vec::new();
 
-    for fact in commands {
-        let Command::Compound(CompoundCommand::ArithmeticFor(command)) = fact.command() else {
-            continue;
-        };
-
-        collect_arithmetic_update_operator_spans(command.init_ast.as_ref(), source, &mut spans);
-        collect_arithmetic_update_operator_spans(
-            command.condition_ast.as_ref(),
+    for visit in query::iter_commands(
+        body,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+    ) {
+        collect_arithmetic_update_operator_spans_in_command(
+            visit.command,
+            semantic,
             source,
             &mut spans,
         );
-        collect_arithmetic_update_operator_spans(command.step_ast.as_ref(), source, &mut spans);
+        for redirect in visit.redirects {
+            if let Some(word) = redirect.word_target() {
+                collect_arithmetic_update_operator_spans_in_word(
+                    word, semantic, source, &mut spans,
+                );
+            } else if let Some(heredoc) = redirect.heredoc()
+                && heredoc.delimiter.expands_body
+            {
+                collect_arithmetic_update_operator_spans_in_heredoc_body(
+                    &heredoc.body.parts,
+                    semantic,
+                    source,
+                    &mut spans,
+                );
+            }
+        }
     }
 
+    spans.sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
+    spans.dedup();
     spans
+}
+
+fn collect_arithmetic_update_operator_spans_in_command(
+    command: &Command,
+    semantic: &SemanticModel,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match command {
+        Command::Simple(command) => {
+            for assignment in &command.assignments {
+                collect_arithmetic_update_operator_spans_in_assignment(
+                    assignment, semantic, source, spans,
+                );
+            }
+            collect_arithmetic_update_operator_spans_in_word(&command.name, semantic, source, spans);
+            for word in &command.args {
+                collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
+            }
+        }
+        Command::Builtin(command) => match command {
+            BuiltinCommand::Break(command) => {
+                for assignment in &command.assignments {
+                    collect_arithmetic_update_operator_spans_in_assignment(
+                        assignment, semantic, source, spans,
+                    );
+                }
+                if let Some(word) = &command.depth {
+                    collect_arithmetic_update_operator_spans_in_word(
+                        word, semantic, source, spans,
+                    );
+                }
+                for word in &command.extra_args {
+                    collect_arithmetic_update_operator_spans_in_word(
+                        word, semantic, source, spans,
+                    );
+                }
+            }
+            BuiltinCommand::Continue(command) => {
+                for assignment in &command.assignments {
+                    collect_arithmetic_update_operator_spans_in_assignment(
+                        assignment, semantic, source, spans,
+                    );
+                }
+                if let Some(word) = &command.depth {
+                    collect_arithmetic_update_operator_spans_in_word(
+                        word, semantic, source, spans,
+                    );
+                }
+                for word in &command.extra_args {
+                    collect_arithmetic_update_operator_spans_in_word(
+                        word, semantic, source, spans,
+                    );
+                }
+            }
+            BuiltinCommand::Return(command) => {
+                for assignment in &command.assignments {
+                    collect_arithmetic_update_operator_spans_in_assignment(
+                        assignment, semantic, source, spans,
+                    );
+                }
+                if let Some(word) = &command.code {
+                    collect_arithmetic_update_operator_spans_in_word(
+                        word, semantic, source, spans,
+                    );
+                }
+                for word in &command.extra_args {
+                    collect_arithmetic_update_operator_spans_in_word(
+                        word, semantic, source, spans,
+                    );
+                }
+            }
+            BuiltinCommand::Exit(command) => {
+                for assignment in &command.assignments {
+                    collect_arithmetic_update_operator_spans_in_assignment(
+                        assignment, semantic, source, spans,
+                    );
+                }
+                if let Some(word) = &command.code {
+                    collect_arithmetic_update_operator_spans_in_word(
+                        word, semantic, source, spans,
+                    );
+                }
+                for word in &command.extra_args {
+                    collect_arithmetic_update_operator_spans_in_word(
+                        word, semantic, source, spans,
+                    );
+                }
+            }
+        },
+        Command::Decl(command) => {
+            for assignment in &command.assignments {
+                collect_arithmetic_update_operator_spans_in_assignment(
+                    assignment, semantic, source, spans,
+                );
+            }
+            for operand in &command.operands {
+                match operand {
+                    DeclOperand::Flag(word) | DeclOperand::Dynamic(word) => {
+                        collect_arithmetic_update_operator_spans_in_word(
+                            word, semantic, source, spans,
+                        );
+                    }
+                    DeclOperand::Assignment(assignment) => {
+                        collect_arithmetic_update_operator_spans_in_assignment(
+                            assignment, semantic, source, spans,
+                        );
+                    }
+                    DeclOperand::Name(_) => {}
+                }
+            }
+        }
+        Command::Compound(command) => match command {
+            CompoundCommand::For(command) => {
+                if let Some(words) = &command.words {
+                    for word in words {
+                        collect_arithmetic_update_operator_spans_in_word(
+                            word, semantic, source, spans,
+                        );
+                    }
+                }
+            }
+            CompoundCommand::Repeat(command) => {
+                collect_arithmetic_update_operator_spans_in_word(
+                    &command.count,
+                    semantic,
+                    source,
+                    spans,
+                );
+            }
+            CompoundCommand::Foreach(command) => {
+                for word in &command.words {
+                    collect_arithmetic_update_operator_spans_in_word(
+                        word, semantic, source, spans,
+                    );
+                }
+            }
+            CompoundCommand::Arithmetic(command) => {
+                collect_arithmetic_update_operator_spans(command.expr_ast.as_ref(), source, spans);
+            }
+            CompoundCommand::ArithmeticFor(command) => {
+                collect_arithmetic_update_operator_spans(command.init_ast.as_ref(), source, spans);
+                collect_arithmetic_update_operator_spans(
+                    command.condition_ast.as_ref(),
+                    source,
+                    spans,
+                );
+                collect_arithmetic_update_operator_spans(command.step_ast.as_ref(), source, spans);
+            }
+            CompoundCommand::Case(command) => {
+                collect_arithmetic_update_operator_spans_in_word(
+                    &command.word,
+                    semantic,
+                    source,
+                    spans,
+                );
+                for item in &command.cases {
+                    for pattern in &item.patterns {
+                        collect_arithmetic_update_operator_spans_in_pattern(
+                            pattern, semantic, source, spans,
+                        );
+                    }
+                }
+            }
+            CompoundCommand::Conditional(command) => {
+                collect_arithmetic_update_operator_spans_in_conditional_expr(
+                    &command.expression,
+                    semantic,
+                    source,
+                    spans,
+                );
+            }
+            CompoundCommand::Select(command) => {
+                for word in &command.words {
+                    collect_arithmetic_update_operator_spans_in_word(
+                        word, semantic, source, spans,
+                    );
+                }
+            }
+            CompoundCommand::If(_)
+            | CompoundCommand::While(_)
+            | CompoundCommand::Until(_)
+            | CompoundCommand::Subshell(_)
+            | CompoundCommand::BraceGroup(_)
+            | CompoundCommand::Always(_)
+            | CompoundCommand::Coproc(_)
+            | CompoundCommand::Time(_) => {}
+        },
+        Command::Binary(_) | Command::Function(_) | Command::AnonymousFunction(_) => {}
+    }
+}
+
+fn collect_arithmetic_update_operator_spans_in_assignment(
+    assignment: &Assignment,
+    semantic: &SemanticModel,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    collect_arithmetic_update_operator_spans_in_assignment_target(
+        &assignment.target,
+        semantic,
+        source,
+        spans,
+    );
+    let target_is_contextual_assoc = var_ref_name_has_visible_assoc_binding_at(
+        &assignment.target,
+        semantic,
+        assignment.target.name_span,
+    );
+
+    match &assignment.value {
+        AssignmentValue::Scalar(word) => {
+            collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
+        }
+        AssignmentValue::Compound(array) => {
+            for element in &array.elements {
+                match element {
+                    ArrayElem::Sequential(word) => {
+                        collect_arithmetic_update_operator_spans_in_word(
+                            word, semantic, source, spans,
+                        );
+                    }
+                    ArrayElem::Keyed { key, value } | ArrayElem::KeyedAppend { key, value } => {
+                        if array.kind != ArrayKind::Associative
+                            && !(array.kind == ArrayKind::Contextual && target_is_contextual_assoc)
+                        {
+                            collect_arithmetic_update_operator_spans_in_subscript(
+                                Some(key),
+                                source,
+                                spans,
+                            );
+                        }
+                        collect_arithmetic_update_operator_spans_in_subscript_words(
+                            key, semantic, source, spans,
+                        );
+                        collect_arithmetic_update_operator_spans_in_word(
+                            value, semantic, source, spans,
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn collect_arithmetic_update_operator_spans_in_assignment_target(
+    reference: &VarRef,
+    semantic: &SemanticModel,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    if !var_ref_subscript_has_assoc_semantics(reference, semantic) {
+        collect_arithmetic_update_operator_spans_in_subscript(
+            reference.subscript.as_ref(),
+            source,
+            spans,
+        );
+    }
+    query::visit_var_ref_subscript_words_with_source(reference, source, &mut |word| {
+        collect_arithmetic_update_operator_spans_from_parts(&word.parts, semantic, source, spans);
+    });
+}
+
+fn var_ref_subscript_has_assoc_semantics(reference: &VarRef, semantic: &SemanticModel) -> bool {
+    let Some(subscript) = reference.subscript.as_ref() else {
+        return false;
+    };
+    if matches!(
+        subscript.interpretation,
+        shuck_ast::SubscriptInterpretation::Associative
+    ) {
+        return true;
+    }
+    if !matches!(
+        subscript.interpretation,
+        shuck_ast::SubscriptInterpretation::Contextual
+    ) {
+        return false;
+    }
+
+    var_ref_name_has_visible_assoc_binding_at(reference, semantic, subscript.span())
+}
+
+fn var_ref_name_has_visible_assoc_binding_at(
+    reference: &VarRef,
+    semantic: &SemanticModel,
+    scope_span: Span,
+) -> bool {
+    if let Some(visible) =
+        var_ref_name_has_visible_assoc_binding_in_nearest_scope(reference, semantic, scope_span)
+    {
+        return visible;
+    }
+
+    var_ref_name_has_visible_assoc_binding_from_named_callers(&reference.name, semantic, scope_span)
+}
+
+fn var_ref_name_has_visible_assoc_binding_in_nearest_scope(
+    reference: &VarRef,
+    semantic: &SemanticModel,
+    scope_span: Span,
+) -> Option<bool> {
+    let current_scope = semantic.scope_at(scope_span.start.offset);
+    semantic
+        .visible_binding_for_assoc_lookup(&reference.name, current_scope, reference.name_span)
+        .map(|binding| binding.attributes.contains(BindingAttributes::ASSOC))
+}
+
+fn var_ref_name_has_visible_assoc_binding_from_named_callers(
+    name: &Name,
+    semantic: &SemanticModel,
+    scope_span: Span,
+) -> bool {
+    let Some(function_names) = named_function_scope_names(semantic, scope_span.start.offset) else {
+        return false;
+    };
+
+    let mut seen = FxHashSet::default();
+    let mut worklist = function_names.to_vec();
+
+    while let Some(function_name) = worklist.pop() {
+        if !seen.insert(function_name.clone()) {
+            continue;
+        }
+
+        for call_site in semantic.call_sites_for(&function_name) {
+            let current_scope = semantic.scope_at(call_site.name_span.start.offset);
+            if let Some(binding) =
+                semantic.visible_binding_for_assoc_lookup(name, current_scope, call_site.name_span)
+            {
+                if binding.attributes.contains(BindingAttributes::ASSOC) {
+                    return true;
+                }
+                continue;
+            }
+
+            if let Some(caller_names) = named_function_scope_names(semantic, call_site.name_span.start.offset) {
+                worklist.extend(caller_names.iter().cloned());
+            }
+        }
+    }
+
+    false
+}
+
+fn named_function_scope_names(semantic: &SemanticModel, offset: usize) -> Option<&[Name]> {
+    let scope = semantic.scope_at(offset);
+    semantic
+        .ancestor_scopes(scope)
+        .find_map(|scope_id| match &semantic.scope(scope_id).kind {
+            shuck_semantic::ScopeKind::Function(shuck_semantic::FunctionScopeKind::Named(
+                names,
+            )) => Some(names.as_slice()),
+            _ => None,
+        })
+}
+
+fn collect_arithmetic_update_operator_spans_in_word(
+    word: &Word,
+    semantic: &SemanticModel,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    collect_arithmetic_update_operator_spans_from_parts(&word.parts, semantic, source, spans);
+}
+
+fn collect_arithmetic_update_operator_spans_in_pattern(
+    pattern: &Pattern,
+    semantic: &SemanticModel,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for (part, _) in pattern.parts_with_spans() {
+        match part {
+            PatternPart::Group { patterns, .. } => {
+                for pattern in patterns {
+                    collect_arithmetic_update_operator_spans_in_pattern(
+                        pattern, semantic, source, spans,
+                    );
+                }
+            }
+            PatternPart::Word(word) => {
+                collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
+            }
+            PatternPart::Literal(_)
+            | PatternPart::AnyString
+            | PatternPart::AnyChar
+            | PatternPart::CharClass(_) => {}
+        }
+    }
+}
+
+fn collect_arithmetic_update_operator_spans_in_conditional_expr(
+    expression: &ConditionalExpr,
+    semantic: &SemanticModel,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match expression {
+        ConditionalExpr::Binary(expr) => {
+            collect_arithmetic_update_operator_spans_in_conditional_expr(
+                &expr.left,
+                semantic,
+                source,
+                spans,
+            );
+            collect_arithmetic_update_operator_spans_in_conditional_expr(
+                &expr.right,
+                semantic,
+                source,
+                spans,
+            );
+        }
+        ConditionalExpr::Unary(expr) => {
+            collect_arithmetic_update_operator_spans_in_conditional_expr(
+                &expr.expr,
+                semantic,
+                source,
+                spans,
+            );
+        }
+        ConditionalExpr::Parenthesized(expr) => {
+            collect_arithmetic_update_operator_spans_in_conditional_expr(
+                &expr.expr,
+                semantic,
+                source,
+                spans,
+            );
+        }
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+            collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
+        }
+        ConditionalExpr::Pattern(pattern) => {
+            collect_arithmetic_update_operator_spans_in_pattern(
+                pattern, semantic, source, spans,
+            );
+        }
+        ConditionalExpr::VarRef(reference) => {
+            collect_arithmetic_update_operator_spans_in_var_ref(
+                reference, semantic, source, spans,
+            );
+        }
+    }
+}
+
+fn collect_arithmetic_update_operator_spans_in_heredoc_body(
+    parts: &[shuck_ast::HeredocBodyPartNode],
+    semantic: &SemanticModel,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for part in parts {
+        match &part.kind {
+            shuck_ast::HeredocBodyPart::ArithmeticExpansion {
+                expression_ast,
+                expression_word_ast,
+                ..
+            } => {
+                if let Some(expression_ast) = expression_ast.as_ref() {
+                    collect_arithmetic_update_operator_spans(Some(expression_ast), source, spans);
+                } else {
+                    collect_arithmetic_update_operator_spans_in_word(
+                        expression_word_ast,
+                        semantic,
+                        source,
+                        spans,
+                    );
+                }
+            }
+            shuck_ast::HeredocBodyPart::CommandSubstitution { body, .. } => {
+                collect_arithmetic_update_operator_spans_in_nested_command_body(
+                    body, semantic, source, spans,
+                );
+            }
+            shuck_ast::HeredocBodyPart::Parameter(parameter) => {
+                collect_arithmetic_update_operator_spans_in_parameter_expansion_with_nested_commands(
+                    parameter, semantic, source, spans,
+                );
+            }
+            shuck_ast::HeredocBodyPart::Literal(_) | shuck_ast::HeredocBodyPart::Variable(_) => {}
+        }
+    }
+}
+
+fn collect_arithmetic_update_operator_spans_in_nested_command_body(
+    body: &StmtSeq,
+    semantic: &SemanticModel,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    for visit in query::iter_commands(
+        body,
+        CommandWalkOptions {
+            descend_nested_word_commands: true,
+        },
+    ) {
+        collect_arithmetic_update_operator_spans_in_command(visit.command, semantic, source, spans);
+        for redirect in visit.redirects {
+            if let Some(word) = redirect.word_target() {
+                collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
+            } else if let Some(heredoc) = redirect.heredoc()
+                && heredoc.delimiter.expands_body
+            {
+                collect_arithmetic_update_operator_spans_in_heredoc_body(
+                    &heredoc.body.parts,
+                    semantic,
+                    source,
+                    spans,
+                );
+            }
+        }
+    }
+}
+
+fn collect_arithmetic_update_operator_spans_in_subscript(
+    subscript: Option<&Subscript>,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    let Some(subscript) = subscript else {
+        return;
+    };
+    if matches!(
+        subscript.interpretation,
+        shuck_ast::SubscriptInterpretation::Associative
+    ) {
+        return;
+    }
+    if let Some(expression) = subscript.arithmetic_ast.as_ref() {
+        collect_arithmetic_update_operator_spans(Some(expression), source, spans);
+    }
+}
+
+fn collect_arithmetic_update_operator_spans_in_subscript_words(
+    subscript: &Subscript,
+    semantic: &SemanticModel,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    query::visit_subscript_words(Some(subscript), source, &mut |word| {
+        collect_arithmetic_update_operator_spans_from_parts_impl(
+            &word.parts,
+            semantic,
+            source,
+            spans,
+            true,
+        );
+    });
 }
 
 fn collect_arithmetic_update_operator_spans(

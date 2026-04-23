@@ -1,15 +1,1 @@
-reviewed_divergences:
-  - side: shellcheck-only
-    path_suffix: "termux__termux-packages__scripts__build__termux_step_massage.sh"
-    line: 329
-    end_line: 329
-    column: 9
-    end_column: 11
-    reason: "This SC3018 site is the `c++` operator in a standalone arithmetic command guarded with `|| :`, not an arithmetic-for header. That behavior is outside X062's rule definition."
-  - side: shellcheck-only
-    path_suffix: "termux__termux-packages__scripts__build__termux_step_massage.sh"
-    line: 369
-    end_line: 369
-    column: 9
-    end_column: 11
-    reason: "This SC3018 site is the `c++` operator in a standalone arithmetic command guarded with `|| :`, not an arithmetic-for header. That behavior is outside X062's rule definition."
+reviewed_divergences: []
