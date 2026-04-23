@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::{
     Arc, Mutex,
-    atomic::{AtomicBool, AtomicUsize, Ordering},
+    atomic::{AtomicUsize, Ordering},
     mpsc,
 };
 use std::thread;
@@ -63,7 +63,7 @@ const LARGE_CORPUS_STATIC_ZSH_OVERRIDE_SUFFIXES: &[&str] = &[
     "ohmyzsh__ohmyzsh__tools__check_for_upgrade.sh",
 ];
 const LARGE_CORPUS_SHELLCHECK_UNSUPPORTED_REPO_PREFIXES: &[&str] = &["ohmyzsh__ohmyzsh__"];
-const LARGE_CORPUS_REVIEWED_SHELLCHECK_PARSE_ABORT_SUFFIXES: &[&str] = &[
+const LARGE_CORPUS_SHELLCHECK_PARSE_IGNORE_SUFFIXES: &[&str] = &[
     "SlackBuildsOrg__slackbuilds__network__modemu2k__modemu2k.SlackBuild",
     "SlackBuildsOrg__slackbuilds__system__firmware-gobi-2000__firmware-gobi-2000.SlackBuild",
     "alpinelinux__aports__community__dnscrypt-proxy__dnscrypt-proxy.setup",
@@ -78,9 +78,6 @@ const LARGE_CORPUS_REVIEWED_SHELLCHECK_PARSE_ABORT_SUFFIXES: &[&str] = &[
     "rvm__rvm__scripts__functions__requirements__gentoo_portage",
     "rvm__rvm__scripts__functions__rvmrc",
 ];
-const LARGE_CORPUS_REVIEWED_SHUCK_PARSE_EXCEPTION_SUFFIXES: &[&str] =
-    &["paulirish__dotfiles__.git-completion.bash"];
-
 const SHELLCHECK_CACHE_SCHEMA: u32 = 3;
 const SHELLCHECK_CACHE_MIGRATION_VERSION: u32 = 1;
 
@@ -700,12 +697,11 @@ struct ShuckRun {
 enum FixtureFailureKind {
     Other,
     Timeout,
-    Warning,
 }
 
 impl FixtureFailureKind {
     fn blocks(self) -> bool {
-        matches!(self, Self::Other)
+        matches!(self, Self::Other | Self::Timeout)
     }
 }
 
@@ -731,7 +727,6 @@ struct FixtureFailureCollection {
     harness_warnings: Vec<String>,
     harness_failures: Vec<String>,
     unsupported_shells: usize,
-    timeout_cap_reached: bool,
 }
 
 impl FixtureFailureCollection {
@@ -926,6 +921,15 @@ fn select_supported_large_corpus_fixtures<'a>(
         .collect()
 }
 
+fn select_large_corpus_timing_fixtures(
+    fixtures: &[LargeCorpusFixture],
+) -> Vec<&LargeCorpusFixture> {
+    fixtures
+        .iter()
+        .filter(|fixture| fixture_supported_for_large_corpus_timing(fixture))
+        .collect()
+}
+
 // ---------------------------------------------------------------------------
 // Main test
 // ---------------------------------------------------------------------------
@@ -950,7 +954,7 @@ fn large_corpus_conforms_with_shellcheck() {
     }
 
     if cfg.timing_mode {
-        let supported_fixtures = select_supported_large_corpus_fixtures(&fixtures, None);
+        let supported_fixtures = select_large_corpus_timing_fixtures(&fixtures);
         let linter_settings =
             build_large_corpus_linter_settings(cfg.selected_rules, cfg.mapped_only);
         let shuck_path_resolver = Arc::new(LargeCorpusPathResolver::new(&supported_fixtures));
@@ -999,7 +1003,6 @@ fn large_corpus_conforms_with_shellcheck() {
         });
     let mut failure_collection = failure_collection;
     failure_collection.unsupported_shells = skipped_unsupported_shells;
-    let timeout_cap_note = timeout_cap_note_suffix(failure_collection.timeout_cap_reached);
 
     eprintln!(
         "large corpus compatibility summary: blocking={} warnings={} fixtures={} unsupported_shells={} implementation_diffs={} mapping_issues={} reviewed_divergences={} harness_warnings={} harness_failures={}",
@@ -1014,10 +1017,6 @@ fn large_corpus_conforms_with_shellcheck() {
         failure_collection.harness_failures.len(),
     );
     emit_large_corpus_c001_compat_note(&linter_settings);
-    emit_timeout_cap_note(
-        "large corpus compatibility",
-        failure_collection.timeout_cap_reached,
-    );
     if failure_collection.blocking_failures() == 0
         && failure_collection.nonblocking_issue_count() > 0
     {
@@ -1026,11 +1025,10 @@ fn large_corpus_conforms_with_shellcheck() {
 
     assert!(
         failure_collection.blocking_failures() == 0,
-        "large corpus compatibility had {} blocking issue(s) across {} fixture(s) ({} skipped unsupported shells){}:\n\n{}",
+        "large corpus compatibility had {} blocking issue(s) across {} fixture(s) ({} skipped unsupported shells):\n\n{}",
         failure_collection.blocking_failures(),
         fixtures.len(),
         skipped_unsupported_shells,
-        timeout_cap_note,
         format_large_corpus_failure_report(&failure_collection)
     );
 }
@@ -1066,18 +1064,11 @@ fn large_corpus_zsh_fixtures_parse() {
     let failure_collection = collect_fixture_failures(&zsh_fixtures, cfg.keep_going, |fixture| {
         evaluate_fixture_zsh_parse(fixture, cfg.shuck_timeout)
     });
-    let timeout_cap_note = timeout_cap_note_suffix(failure_collection.timeout_cap_reached);
-    emit_timeout_cap_note(
-        "large corpus zsh parse",
-        failure_collection.timeout_cap_reached,
-    );
-
     assert!(
         failure_collection.blocking_failures() == 0,
-        "large corpus zsh parse had {} blocking issue(s) across {} fixture(s){}:\n\n{}",
+        "large corpus zsh parse had {} blocking issue(s) across {} fixture(s):\n\n{}",
         failure_collection.blocking_failures(),
         zsh_fixtures.len(),
-        timeout_cap_note,
         format_large_corpus_failure_report(&failure_collection)
     );
 }
@@ -1169,16 +1160,12 @@ where
 
     let worker_count = worker_count.max(1).min(fixtures.len());
     let next_index = AtomicUsize::new(0);
-    let timeout_failures = AtomicUsize::new(0);
-    let timeout_cap_reached = AtomicBool::new(false);
     let collection = Mutex::new(Vec::<(usize, FixtureEvaluation)>::new());
 
     thread::scope(|scope| {
         for _ in 0..worker_count {
             let collection = &collection;
             let next_index = &next_index;
-            let timeout_failures = &timeout_failures;
-            let timeout_cap_reached = &timeout_cap_reached;
             scope.spawn(move || {
                 let mut local_evaluations = Vec::new();
                 loop {
@@ -1199,15 +1186,6 @@ where
                                 .is_some_and(|failure| failure.kind == FixtureFailureKind::Timeout)
                             {
                                 log_large_corpus_timeout(fixture);
-                                let timeout_count =
-                                    timeout_failures.fetch_add(1, Ordering::Relaxed) + 1;
-                                if timeout_count <= LARGE_CORPUS_TIMEOUT_FAILURE_CAP {
-                                    local_evaluations.push((index, evaluation));
-                                }
-                                if timeout_count >= LARGE_CORPUS_TIMEOUT_FAILURE_CAP {
-                                    timeout_cap_reached.store(true, Ordering::Relaxed);
-                                }
-                                continue;
                             }
 
                             local_evaluations.push((index, evaluation));
@@ -1240,7 +1218,6 @@ where
     for (_, evaluation) in evaluations {
         merge_fixture_evaluation(&mut failures, evaluation);
     }
-    failures.timeout_cap_reached = timeout_cap_reached.load(Ordering::Relaxed);
     failures
 }
 
@@ -1324,13 +1301,6 @@ fn evaluate_fixture_compatibility(
             } else {
                 details.push("shellcheck parsed fixture successfully".into());
             }
-            if record_reviewed_large_corpus_harness_warning(
-                &mut evaluation,
-                &fixture.path,
-                &details,
-            ) {
-                return evaluation;
-            }
             evaluation.harness_failure = Some(FixtureFailure {
                 kind: FixtureFailureKind::Other,
                 message: format_fixture_failure(&fixture.path, &details),
@@ -1352,13 +1322,6 @@ fn evaluate_fixture_compatibility(
         Ok(sc_run) => {
             if sc_run.parse_aborted {
                 let details = vec!["shellcheck parse aborted".into()];
-                if record_reviewed_large_corpus_harness_warning(
-                    &mut evaluation,
-                    &fixture.path,
-                    &details,
-                ) {
-                    return evaluation;
-                }
                 evaluation.harness_failure = Some(FixtureFailure {
                     kind: FixtureFailureKind::Other,
                     message: format_fixture_failure(&fixture.path, &details),
@@ -1536,10 +1499,9 @@ fn merge_fixture_evaluation(
         .extend(evaluation.reviewed_divergences);
     if let Some(failure) = evaluation.harness_failure {
         match failure.kind {
-            FixtureFailureKind::Timeout | FixtureFailureKind::Warning => {
-                collection.harness_warnings.push(failure.message)
+            FixtureFailureKind::Other | FixtureFailureKind::Timeout => {
+                collection.harness_failures.push(failure.message)
             }
-            FixtureFailureKind::Other => collection.harness_failures.push(failure.message),
         }
     }
 }
@@ -1838,31 +1800,6 @@ fn format_large_corpus_report(collection: &FixtureFailureCollection) -> String {
     format_large_corpus_report_with_mode(collection, LargeCorpusReportMode::Full)
 }
 
-fn timeout_cap_note_message() -> String {
-    format!(
-        "only the first {} fixture timeouts were recorded as harness warnings; additional timeout fixtures were omitted",
-        LARGE_CORPUS_TIMEOUT_FAILURE_CAP
-    )
-}
-
-fn timeout_cap_note_suffix(timeout_cap_reached: bool) -> String {
-    if timeout_cap_reached {
-        format!("; {}", timeout_cap_note_message())
-    } else {
-        String::new()
-    }
-}
-
-fn timeout_cap_note_line(scope: &str, timeout_cap_reached: bool) -> Option<String> {
-    timeout_cap_reached.then(|| format!("{scope} note: {}.", timeout_cap_note_message()))
-}
-
-fn emit_timeout_cap_note(scope: &str, timeout_cap_reached: bool) {
-    if let Some(note) = timeout_cap_note_line(scope, timeout_cap_reached) {
-        eprintln!("{note}");
-    }
-}
-
 fn format_large_corpus_report_with_mode(
     collection: &FixtureFailureCollection,
     mode: LargeCorpusReportMode,
@@ -1922,6 +1859,18 @@ fn fixture_supported_for_large_corpus(
     fixture: &LargeCorpusFixture,
     shellcheck_supported_shells: Option<&HashMap<&'static str, ()>>,
 ) -> bool {
+    fixture_supported_for_large_corpus_with_options(fixture, shellcheck_supported_shells, true)
+}
+
+fn fixture_supported_for_large_corpus_timing(fixture: &LargeCorpusFixture) -> bool {
+    fixture_supported_for_large_corpus_with_options(fixture, None, false)
+}
+
+fn fixture_supported_for_large_corpus_with_options(
+    fixture: &LargeCorpusFixture,
+    shellcheck_supported_shells: Option<&HashMap<&'static str, ()>>,
+    exclude_shellcheck_parse_ignored: bool,
+) -> bool {
     if path_is_statically_ignored_large_corpus_fixture(&fixture.path)
         || path_is_shellcheck_unsupported_large_corpus_fixture(&fixture.path)
         || path_is_sample_file(&fixture.path)
@@ -1930,6 +1879,12 @@ fn fixture_supported_for_large_corpus(
         || path_is_guess_file(&fixture.path)
         || path_is_config_sub_file(&fixture.path)
         || fixture_is_repo_git_entry(fixture)
+    {
+        return false;
+    }
+
+    if exclude_shellcheck_parse_ignored
+        && path_is_ignored_large_corpus_shellcheck_parse_fixture(&fixture.path)
     {
         return false;
     }
@@ -2001,6 +1956,10 @@ fn path_is_statically_ignored_large_corpus_fixture(path: &Path) -> bool {
     path_matches_large_corpus_suffix(path, LARGE_CORPUS_STATIC_IGNORE_SUFFIXES)
 }
 
+fn path_is_ignored_large_corpus_shellcheck_parse_fixture(path: &Path) -> bool {
+    path_matches_large_corpus_suffix(path, LARGE_CORPUS_SHELLCHECK_PARSE_IGNORE_SUFFIXES)
+}
+
 fn path_has_large_corpus_static_zsh_override(path: &Path) -> bool {
     path_matches_large_corpus_suffix(path, LARGE_CORPUS_STATIC_ZSH_OVERRIDE_SUFFIXES)
 }
@@ -2016,65 +1975,6 @@ fn path_is_shellcheck_unsupported_large_corpus_fixture(path: &Path) -> bool {
             .iter()
             .any(|prefix| part.starts_with(prefix))
     })
-}
-
-fn path_has_reviewed_shellcheck_parse_abort(path: &Path) -> bool {
-    path_matches_large_corpus_suffix(path, LARGE_CORPUS_REVIEWED_SHELLCHECK_PARSE_ABORT_SUFFIXES)
-}
-
-fn path_has_reviewed_shuck_parse_exception(path: &Path) -> bool {
-    path_matches_large_corpus_suffix(path, LARGE_CORPUS_REVIEWED_SHUCK_PARSE_EXCEPTION_SUFFIXES)
-}
-
-fn reviewed_large_corpus_harness_warning_reason(
-    path: &Path,
-    details: &[String],
-) -> Option<&'static str> {
-    let shellcheck_parse_aborted = details
-        .iter()
-        .any(|detail| detail.contains("shellcheck parse aborted"));
-    let shuck_parse_errored = details
-        .iter()
-        .any(|detail| detail.contains("shuck parse error:"));
-
-    if shellcheck_parse_aborted
-        && !shuck_parse_errored
-        && path_has_reviewed_shellcheck_parse_abort(path)
-    {
-        return Some(
-            "reviewed fixture exception: shellcheck stops on this fixture even though the target shell still accepts it",
-        );
-    }
-
-    if details
-        .iter()
-        .any(|detail| detail.contains("shellcheck parsed fixture successfully"))
-        && path_has_reviewed_shuck_parse_exception(path)
-    {
-        return Some(
-            "reviewed fixture exception: this valid bash completion pattern still trips Shuck's parser",
-        );
-    }
-
-    None
-}
-
-fn record_reviewed_large_corpus_harness_warning(
-    evaluation: &mut FixtureEvaluation,
-    path: &Path,
-    details: &[String],
-) -> bool {
-    let Some(reason) = reviewed_large_corpus_harness_warning_reason(path, details) else {
-        return false;
-    };
-
-    let mut warning_details = vec![reason.to_owned()];
-    warning_details.extend(details.iter().cloned());
-    evaluation.harness_failure = Some(FixtureFailure {
-        kind: FixtureFailureKind::Warning,
-        message: format_fixture_failure(path, &warning_details),
-    });
-    true
 }
 
 fn path_is_sample_file(path: &Path) -> bool {
@@ -3536,66 +3436,34 @@ mod tests {
     }
 
     #[test]
-    fn reviewed_shellcheck_parse_abort_fixture_is_downgraded_to_warning() {
-        let details = vec!["shellcheck parse aborted".to_owned()];
-        let path = Path::new("pyenv__pyenv__plugins__python-build__bin__python-build");
-        let mut evaluation = FixtureEvaluation::default();
+    fn shellcheck_parse_ignore_paths_are_skipped_for_conformance() {
+        let fixture = LargeCorpusFixture {
+            path: PathBuf::from("pyenv__pyenv__plugins__python-build__bin__python-build"),
+            cache_rel_path: PathBuf::from("pyenv__pyenv__plugins__python-build__bin__python-build"),
+            shell: "sh".into(),
+            source_hash: String::new(),
+        };
 
-        assert!(record_reviewed_large_corpus_harness_warning(
-            &mut evaluation,
-            path,
-            &details
+        assert!(path_is_ignored_large_corpus_shellcheck_parse_fixture(
+            &fixture.path
         ));
-        assert_eq!(
-            evaluation.harness_failure.as_ref().unwrap().kind,
-            FixtureFailureKind::Warning
-        );
-        assert!(
-            evaluation
-                .harness_failure
-                .as_ref()
-                .unwrap()
-                .message
-                .contains("reviewed fixture exception")
-        );
+        assert!(!fixture_supported_for_large_corpus(&fixture, None));
+        assert!(!fixture_selected_for_large_corpus_zsh_parse(&fixture));
     }
 
     #[test]
-    fn reviewed_shellcheck_parse_abort_fixture_with_shuck_parse_error_stays_blocking() {
-        let details = vec![
-            "shuck parse error: parse error at line 42, column 7: expected 'fi'".to_owned(),
-            "shellcheck parse aborted".to_owned(),
-        ];
-        let path = Path::new("pyenv__pyenv__plugins__python-build__bin__python-build");
-        let mut evaluation = FixtureEvaluation::default();
+    fn shellcheck_parse_ignore_paths_are_kept_for_timing() {
+        let fixture = LargeCorpusFixture {
+            path: PathBuf::from("pyenv__pyenv__plugins__python-build__bin__python-build"),
+            cache_rel_path: PathBuf::from("pyenv__pyenv__plugins__python-build__bin__python-build"),
+            shell: "sh".into(),
+            source_hash: String::new(),
+        };
 
-        assert!(!record_reviewed_large_corpus_harness_warning(
-            &mut evaluation,
-            path,
-            &details
+        assert!(path_is_ignored_large_corpus_shellcheck_parse_fixture(
+            &fixture.path
         ));
-        assert!(evaluation.harness_failure.is_none());
-    }
-
-    #[test]
-    fn reviewed_shuck_parse_exception_fixture_is_downgraded_to_warning() {
-        let details = vec![
-            "shuck parse error: parse error at line 1325, column 2: expected ')' after case pattern"
-                .to_owned(),
-            "shellcheck parsed fixture successfully".to_owned(),
-        ];
-        let path = Path::new("paulirish__dotfiles__.git-completion.bash");
-        let mut evaluation = FixtureEvaluation::default();
-
-        assert!(record_reviewed_large_corpus_harness_warning(
-            &mut evaluation,
-            path,
-            &details
-        ));
-        assert_eq!(
-            evaluation.harness_failure.as_ref().unwrap().kind,
-            FixtureFailureKind::Warning
-        );
+        assert!(fixture_supported_for_large_corpus_timing(&fixture));
     }
 
     #[test]
@@ -4220,7 +4088,6 @@ mod tests {
             seen,
             vec![PathBuf::from("first.sh"), PathBuf::from("second.sh")]
         );
-        assert!(!failures.timeout_cap_reached);
         assert_eq!(failures.implementation_diffs.len(), 2);
         assert!(failures.implementation_diffs[0].contains("first.sh"));
         assert!(failures.implementation_diffs[1].contains("second.sh"));
@@ -4255,28 +4122,30 @@ mod tests {
     }
 
     #[test]
-    fn sequential_timeouts_become_harness_warnings() {
+    fn sequential_timeouts_fail_immediately() {
         let fixture = fixture("timeout.sh");
         let fixtures = vec![&fixture];
 
-        let failures = collect_fixture_failures(&fixtures, false, |fixture| FixtureEvaluation {
-            harness_failure: Some(FixtureFailure {
-                kind: FixtureFailureKind::Timeout,
-                message: format_fixture_failure(
-                    &fixture.path,
-                    &[format!(
-                        "shuck error: {}",
-                        format_timeout_message("shuck", Duration::from_secs(30))
-                    )],
-                ),
-            }),
-            ..FixtureEvaluation::default()
-        });
+        let panic = panic::catch_unwind(AssertUnwindSafe(|| {
+            collect_fixture_failures(&fixtures, false, |fixture| FixtureEvaluation {
+                harness_failure: Some(FixtureFailure {
+                    kind: FixtureFailureKind::Timeout,
+                    message: format_fixture_failure(
+                        &fixture.path,
+                        &[format!(
+                            "shuck error: {}",
+                            format_timeout_message("shuck", Duration::from_secs(30))
+                        )],
+                    ),
+                }),
+                ..FixtureEvaluation::default()
+            })
+        }))
+        .unwrap_err();
 
-        assert_eq!(failures.blocking_failures(), 0);
-        assert_eq!(failures.harness_warnings.len(), 1);
-        assert!(failures.harness_failures.is_empty());
-        assert!(failures.has_nonblocking_items());
+        let message = panic_payload_message(panic);
+        assert!(message.contains("timeout.sh"));
+        assert!(message.contains("timed out after"));
     }
 
     #[test]
@@ -4304,21 +4173,6 @@ mod tests {
     }
 
     #[test]
-    fn timeout_cap_note_line_is_structured() {
-        assert_eq!(
-            timeout_cap_note_line("large corpus compatibility", true),
-            Some(format!(
-                "large corpus compatibility note: only the first {} fixture timeouts were recorded as harness warnings; additional timeout fixtures were omitted.",
-                LARGE_CORPUS_TIMEOUT_FAILURE_CAP
-            ))
-        );
-        assert_eq!(
-            timeout_cap_note_line("large corpus compatibility", false),
-            None
-        );
-    }
-
-    #[test]
     fn keep_going_captures_fixture_panics() {
         let fixture = fixture("panic.sh");
         let fixtures = vec![&fixture];
@@ -4327,14 +4181,13 @@ mod tests {
             panic!("boom");
         });
 
-        assert!(!failures.timeout_cap_reached);
         assert_eq!(failures.harness_failures.len(), 1);
         assert!(failures.harness_failures[0].contains("panic.sh"));
         assert!(failures.harness_failures[0].contains("fixture panic: boom"));
     }
 
     #[test]
-    fn keep_going_keeps_evaluating_after_timeout_warning_cap() {
+    fn keep_going_records_timeout_failures() {
         let fixtures: Vec<_> = (0..10)
             .map(|i| fixture(&format!("timeout-{i}.sh")))
             .collect();
@@ -4374,18 +4227,14 @@ mod tests {
             &progress,
         );
 
-        assert!(failures.timeout_cap_reached);
-        assert_eq!(
-            failures.harness_warnings.len(),
-            LARGE_CORPUS_TIMEOUT_FAILURE_CAP
-        );
-        assert!(failures.harness_failures.is_empty());
         assert_eq!(seen.load(Ordering::Relaxed), fixture_refs.len());
         assert_eq!(failures.implementation_diffs.len(), 1);
+        assert_eq!(failures.harness_failures.len(), fixture_refs.len() - 1);
+        assert!(failures.harness_warnings.is_empty());
         assert!(failures.implementation_diffs[0].contains("timeout-9.sh"));
         assert!(
             failures
-                .harness_warnings
+                .harness_failures
                 .iter()
                 .all(|failure| failure.contains("timed out after"))
         );
