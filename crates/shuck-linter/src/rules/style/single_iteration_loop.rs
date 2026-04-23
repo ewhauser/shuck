@@ -1,4 +1,6 @@
-use crate::{Checker, ExpansionContext, Rule, Violation, WordFactContext};
+use crate::{
+    Checker, ExpansionContext, Rule, Violation, WordFactContext, WordLiteralness, WordQuote,
+};
 
 pub struct SingleIterationLoop;
 
@@ -13,6 +15,7 @@ impl Violation for SingleIterationLoop {
 }
 
 pub fn single_iteration_loop(checker: &mut Checker) {
+    let source = checker.source();
     let spans = checker
         .facts()
         .for_headers()
@@ -27,8 +30,17 @@ pub fn single_iteration_loop(checker: &mut Checker) {
                 word.span(),
                 WordFactContext::Expansion(ExpansionContext::ForList),
             )?;
-            let runtime_hazards = fact.runtime_literal().hazards;
             let analysis = fact.analysis();
+            if analysis.quote == WordQuote::FullyQuoted
+                && analysis.literalness == WordLiteralness::Expanded
+                && fact.double_quoted_scalar_affix_span().is_none()
+            {
+                return None;
+            }
+            if fact.has_direct_all_elements_array_expansion_in_source(source) {
+                return None;
+            }
+            let runtime_hazards = fact.runtime_literal().hazards;
             let hazards = analysis.hazards;
             if runtime_hazards.pathname_matching
                 || runtime_hazards.brace_fanout
@@ -55,7 +67,8 @@ mod tests {
     #[test]
     fn reports_only_single_literal_for_list_items() {
         let source = "\
-#!/bin/sh
+#!/bin/bash
+set -- a b
 for item in a; do
 \tprintf '%s\\n' \"$item\"
 done
@@ -65,10 +78,37 @@ done
 for item in \"$@\"; do
 \tprintf '%s\\n' \"$item\"
 done
+for item in \"${@}\"; do
+\tprintf '%s\\n' \"$item\"
+done
+for item in \"${@:1}\"; do
+\tprintf '%s\\n' \"$item\"
+done
+for item in \"${@:-.}\"; do
+\tprintf '%s\\n' \"$item\"
+done
+for item in \"$PATCHES\"; do
+\tprintf '%s\\n' \"$item\"
+done
+for item in \"${dir}\"; do
+\tprintf '%s\\n' \"$item\"
+done
+for item in \"$(printf a)\"; do
+\tprintf '%s\\n' \"$item\"
+done
 for item in \"${dir}\"/x.patch; do
 \tprintf '%s\\n' \"$item\"
 done
+for item in \"${dir}\"/*; do
+\tprintf '%s\\n' \"$item\"
+done
 for item in \"$(printf /tmp)\"/x.patch; do
+\tprintf '%s\\n' \"$item\"
+done
+for item in \"$(dirname \"$0\")\"/../docs/usage/distrobox*; do
+\tprintf '%s\\n' \"$item\"
+done
+for item in \"$basedir/\"*; do
 \tprintf '%s\\n' \"$item\"
 done
 for item in foo${bar}baz; do

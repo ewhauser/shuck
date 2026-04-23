@@ -473,10 +473,6 @@ pub(crate) fn analyze_literal_runtime(
     context: ExpansionContext,
     options: Option<&ZshOptionState>,
 ) -> RuntimeLiteralAnalysis {
-    if static_word_text(word, source).is_none() {
-        return RuntimeLiteralAnalysis::default();
-    }
-
     let mut analysis = RuntimeLiteralAnalysis::default();
     let mut state = RuntimeLiteralState::default();
 
@@ -1367,6 +1363,20 @@ mod tests {
 
         assert!(!analysis.hazards.pathname_matching);
         assert!(!analysis.can_expand_to_multiple_fields);
+    }
+
+    #[test]
+    fn analyze_literal_runtime_tracks_globs_in_mixed_words() {
+        let source =
+            "printf '%s\\n' \"$basedir/\"* \"$(dirname \"$0\")\"/../docs/usage/distrobox*\n";
+        let words = parse_argument_words(source);
+        let first = analyze_literal_runtime(&words[1], source, ExpansionContext::ForList, None);
+        let second = analyze_literal_runtime(&words[2], source, ExpansionContext::ForList, None);
+
+        assert!(first.hazards.pathname_matching);
+        assert!(first.is_runtime_sensitive());
+        assert!(second.hazards.pathname_matching);
+        assert!(second.is_runtime_sensitive());
     }
 
     #[test]
