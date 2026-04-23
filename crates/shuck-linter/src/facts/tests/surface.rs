@@ -1750,6 +1750,32 @@ fn ignores_quoted_dollar_words_in_arithmetic_command_contexts() {
 }
 
 #[test]
+fn indexes_pending_arithmetic_word_facts_by_span() {
+    let source = "#!/bin/bash\nprintf '%s\\n' $(( $name + 1 ))\n";
+
+    with_facts(source, None, |_, facts| {
+        let arithmetic = facts
+            .arithmetic_command_word_facts()
+            .find(|fact| fact.span().slice(source) == "$name")
+            .expect("expected arithmetic word fact");
+
+        assert!(arithmetic.is_arithmetic_command());
+        assert_eq!(
+            facts
+                .word_fact(arithmetic.span(), arithmetic.context())
+                .map(|fact| fact.span().slice(source)),
+            Some("$name")
+        );
+        assert_eq!(
+            facts
+                .any_word_fact(arithmetic.span())
+                .map(|fact| fact.span().slice(source)),
+            Some("$name")
+        );
+    });
+}
+
+#[test]
 fn ignores_dynamic_and_compound_subscript_parameter_accesses_in_arithmetic() {
     let source = "\
 #!/bin/bash

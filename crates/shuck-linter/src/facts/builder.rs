@@ -509,6 +509,19 @@ impl<'a> LinterFactsBuilder<'a> {
             assignment_scope_spans: env_prefix_assignment_scope_spans,
             expansion_scope_spans: env_prefix_expansion_scope_spans,
         } = build_env_prefix_scope_spans(self.source, &commands);
+        word_occurrences.extend(pending_arithmetic_word_occurrences.into_iter().map(
+            |pending| WordOccurrence {
+                node_id: pending.node_id,
+                command_id: pending.command_id,
+                nested_word_command: pending.nested_word_command,
+                context: WordFactContext::ArithmeticCommand,
+                host_kind: pending.host_kind,
+                runtime_literal: RuntimeLiteralAnalysis::default(),
+                operand_class: None,
+                enclosing_expansion_context: Some(pending.enclosing_expansion_context),
+                array_assignment_split_scalar_expansion_spans: OnceCell::new(),
+            },
+        ));
         let mut word_index = FxHashMap::<FactSpan, SmallVec<[WordOccurrenceId; 2]>>::default();
         let mut word_occurrence_ids_by_command =
             vec![SmallVec::<[WordOccurrenceId; 4]>::new(); commands.len()];
@@ -561,21 +574,6 @@ impl<'a> LinterFactsBuilder<'a> {
         );
         let command_parent_ids = build_command_parent_ids(&commands);
         let command_dominance_barrier_flags = build_command_dominance_barrier_flags(&commands);
-        word_occurrences.extend(
-            pending_arithmetic_word_occurrences
-                .into_iter()
-                .map(|pending| WordOccurrence {
-                    node_id: pending.node_id,
-                    command_id: pending.command_id,
-                    nested_word_command: pending.nested_word_command,
-                    context: WordFactContext::ArithmeticCommand,
-                    host_kind: pending.host_kind,
-                    runtime_literal: RuntimeLiteralAnalysis::default(),
-                    operand_class: None,
-                    enclosing_expansion_context: Some(pending.enclosing_expansion_context),
-                    array_assignment_split_scalar_expansion_spans: OnceCell::new(),
-                }),
-        );
 
         LinterFacts {
             source,
