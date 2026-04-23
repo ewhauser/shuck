@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use shuck_ast::Name;
 use shuck_semantic::{Binding, BindingAttributes, BindingKind, DeclarationBuiltin};
 
-use crate::{Checker, Rule, ShellDialect, Violation, WrapperKind};
+use crate::{Checker, ComparableNameUseKind, Rule, ShellDialect, Violation, WrapperKind};
 
 pub struct ArrayToStringConversion;
 
@@ -77,7 +77,6 @@ fn builtin_array_history_events(checker: &Checker<'_>) -> Vec<(usize, Name)> {
         .facts()
         .commands()
         .iter()
-        .filter(|command| command_forces_builtin_resolution(command))
         .flat_map(|command| command_array_history_events(checker, command))
         .collect::<Vec<_>>();
     events.sort_by_key(|(offset, _)| *offset);
@@ -96,6 +95,7 @@ fn command_array_history_events(
             .map(|read| {
                 read.array_target_name_uses()
                     .iter()
+                    .filter(|target| matches!(target.kind(), ComparableNameUseKind::Literal))
                     .map(|target| {
                         (
                             target.span().start.offset,
@@ -118,6 +118,7 @@ fn command_array_history_events(
                 mapfile
                     .target_name_uses()
                     .iter()
+                    .filter(|target| matches!(target.kind(), ComparableNameUseKind::Literal))
                     .map(|target| {
                         (
                             target.span().start.offset,
@@ -535,6 +536,28 @@ cb=value
     }
 
     #[test]
+    fn reports_mapfile_targets_after_callback_options() {
+        let source = "\
+#!/bin/bash
+mapfile -C cb -c 1 lines
+lines=value
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["lines"],
+            "{diagnostics:#?}"
+        );
+    }
+
+    #[test]
     fn reports_read_array_history_through_command_wrapper() {
         let source = "\
 #!/bin/bash
@@ -582,6 +605,25 @@ lines=value
             vec!["lines"],
             "{diagnostics:#?}"
         );
+    }
+
+    #[test]
+    fn ignores_dynamic_command_targets_as_array_history() {
+        let source = "\
+#!/bin/bash
+dest=entries
+command read -a \"$dest\"
+builtin mapfile \"$dest\"
+read -a \"$dest\"
+mapfile \"$dest\"
+dest=value
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
 
     #[test]
