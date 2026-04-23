@@ -1827,6 +1827,8 @@ fn array_subscript_test_follows_sc2202_simple_test_operand_positions() {
 [ \\$foo[kops] ]
 [ foo[kops] = bar ]
 [ foo = bar[kops] ]
+[ lhs[kops] -eq 1 ]
+[ 1 -ge rhs[kops] ]
 [ foo -nt bar[kops] ]
 ";
 
@@ -1838,7 +1840,14 @@ fn array_subscript_test_follows_sc2202_simple_test_operand_positions() {
                 .iter()
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["foo*", "\\$foo[kops]", "foo[kops]", "bar[kops]"]
+            vec![
+                "foo*",
+                "\\$foo[kops]",
+                "foo[kops]",
+                "lhs[kops]",
+                "rhs[kops]",
+                "bar[kops]"
+            ]
         );
     });
 }

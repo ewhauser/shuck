@@ -405,6 +405,8 @@ done
 [ \\$tools[kops] ]
 [ foo[kops] = bar ]
 [ foo = bar[kops] ]
+[ lhs[kops] -eq 1 ]
+[ 1 -ge rhs[kops] ]
 [ foo -nt bar[kops] ]
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ArraySubscriptTest));
@@ -414,7 +416,14 @@ done
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$tools[kops]", "\\$tools[kops]", "foo[kops]", "bar[kops]"]
+            vec![
+                "$tools[kops]",
+                "\\$tools[kops]",
+                "foo[kops]",
+                "lhs[kops]",
+                "rhs[kops]",
+                "bar[kops]",
+            ]
         );
     }
 

@@ -235,43 +235,94 @@ fn command_is_shadowed_function(
     checker: &Checker<'_>,
     command: &crate::facts::commands::CommandFact<'_>,
 ) -> bool {
+    let Some(name_span) = command.body_word_span() else {
+        return false;
+    };
+    if command_wrapper_is_shadowed_function(checker, command, name_span) {
+        return true;
+    }
     if command_forces_builtin_resolution(command) {
         return false;
     }
 
-    let Some(name_span) = command.body_word_span() else {
-        return false;
-    };
     let Some(command_name) = command.effective_or_literal_name() else {
         return false;
     };
-    let command_name = Name::from(command_name);
+    command_name_has_visible_function_binding(checker, command_name, name_span)
+}
+
+fn command_name_has_visible_function_binding(
+    checker: &Checker<'_>,
+    name: &str,
+    at: shuck_ast::Span,
+) -> bool {
     let semantic = checker.semantic();
+    let name = Name::from(name);
+
+    if semantic
+        .function_definitions(&name)
+        .iter()
+        .copied()
+        .any(|binding_id| semantic.binding_visible_at(binding_id, at))
+    {
+        return true;
+    }
 
     semantic
-        .bindings_for(&command_name)
+        .bindings_for(&name)
         .iter()
         .rev()
         .copied()
         .any(|binding_id| {
             let binding = semantic.binding(binding_id);
-            binding_is_function_like(binding) && semantic.binding_visible_at(binding_id, name_span)
+            binding
+                .attributes
+                .contains(BindingAttributes::IMPORTED_FUNCTION)
+                && semantic.binding_visible_at(binding_id, at)
         })
 }
 
 fn command_forces_builtin_resolution(command: &crate::facts::commands::CommandFact<'_>) -> bool {
-    command.has_wrapper(WrapperKind::Command) || command.has_wrapper(WrapperKind::Builtin)
+    let mut saw_forcing_wrapper = false;
+
+    for wrapper in command.wrappers() {
+        match wrapper {
+            WrapperKind::Command | WrapperKind::Builtin => saw_forcing_wrapper = true,
+            _ => return false,
+        }
+    }
+
+    saw_forcing_wrapper
+}
+
+fn command_wrapper_is_shadowed_function(
+    checker: &Checker<'_>,
+    command: &crate::facts::commands::CommandFact<'_>,
+    at: shuck_ast::Span,
+) -> bool {
+    let mut lookup_bypasses_functions = false;
+
+    for wrapper in command.wrappers() {
+        let wrapper_name = match wrapper {
+            WrapperKind::Command => "command",
+            WrapperKind::Builtin => "builtin",
+            _ => return false,
+        };
+
+        if !lookup_bypasses_functions
+            && command_name_has_visible_function_binding(checker, wrapper_name, at)
+        {
+            return true;
+        }
+
+        lookup_bypasses_functions = true;
+    }
+
+    false
 }
 
 fn contains_span(outer: shuck_ast::Span, inner: shuck_ast::Span) -> bool {
     outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
-}
-
-fn binding_is_function_like(binding: &Binding) -> bool {
-    matches!(binding.kind, BindingKind::FunctionDefinition)
-        || binding
-            .attributes
-            .contains(BindingAttributes::IMPORTED_FUNCTION)
 }
 
 fn binding_is_array_like(binding: &Binding) -> bool {
@@ -661,6 +712,29 @@ lines=value
             vec!["entries", "lines"],
             "{diagnostics:#?}"
         );
+    }
+
+    #[test]
+    fn ignores_wrapper_targets_when_wrapper_commands_are_shadowed() {
+        let source = "\
+#!/bin/bash
+command() {
+  :
+}
+builtin() {
+  :
+}
+command read -a entries
+builtin mapfile lines
+entries=value
+lines=value
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
 
     #[test]

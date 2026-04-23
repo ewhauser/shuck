@@ -263,7 +263,10 @@ fn collect_simple_test_portability_spans(
                         facts.array_subscript_test.push(span);
                     }
                 }
-                Some("<" | ">" | "-ef" | "-nt" | "-ot") => {
+                Some(
+                    "<" | ">" | "-eq" | "-ne" | "-lt" | "-le" | "-gt" | "-ge" | "-ef" | "-nt"
+                    | "-ot",
+                ) => {
                     if let Some(span) = reportable_simple_test_glob_span(operands[index], source) {
                         facts.array_subscript_test.push(span);
                     }
