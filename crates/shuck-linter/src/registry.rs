@@ -305,12 +305,6 @@ declare_rules! {
         MapfileProcessSubstitution
     ),
     (
-        "C110",
-        Category::Correctness,
-        Severity::Warning,
-        ConstantInTestAssignment
-    ),
-    (
         "C111",
         Category::Correctness,
         Severity::Warning,
@@ -720,7 +714,6 @@ pub fn code_to_rule(code: &str) -> Option<Rule> {
         "SH-274" => Some(Rule::HyphenatedFunctionName),
         "SH-234" => Some(Rule::IfsSetToLiteralBackslashN),
         "SH-236" => Some(Rule::GlobInTestDirectory),
-        "SH-246" => Some(Rule::ConstantInTestAssignment),
         "SH-284" => Some(Rule::MalformedArithmeticInCondition),
         "SH-287" => Some(Rule::ExprSubstrInTest),
         "SH-288" => Some(Rule::StringComparedWithEq),

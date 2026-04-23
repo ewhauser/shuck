@@ -927,9 +927,6 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::GlobInTestDirectory) {
             rules::correctness::glob_in_test_directory::glob_in_test_directory(self);
         }
-        if self.is_rule_enabled(Rule::ConstantInTestAssignment) {
-            rules::correctness::constant_in_test_assignment::constant_in_test_assignment(self);
-        }
         if self.is_rule_enabled(Rule::ExprSubstrInTest) {
             rules::correctness::expr_substr_in_test::expr_substr_in_test(self);
         }

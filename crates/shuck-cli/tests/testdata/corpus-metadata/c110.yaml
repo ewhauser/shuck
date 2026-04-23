@@ -1,8 +1,0 @@
-reviewed_divergences:
-  - side: shuck-only
-    path_suffix: "SlackBuildsOrg__slackbuilds__academic__stellarsolver__stellarsolver.SlackBuild"
-    line: 88
-    column: 23
-    end_line: 88
-    end_column: 24
-    reason: "This SlackBuild compares a quoted expansion that resembles an assignment, and the pinned ShellCheck build does not emit SC2341 for it. Shuck keeps the stricter warning here, so the corpus comparison should ignore this site."
