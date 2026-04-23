@@ -9,6 +9,7 @@ pub struct LinterFacts<'a> {
     command_dominance_barrier_flags: Vec<bool>,
     if_condition_command_ids: FxHashSet<CommandId>,
     elif_condition_command_ids: FxHashSet<CommandId>,
+    zsh_guarded_command_ids: FxHashSet<CommandId>,
     binding_values: FxHashMap<BindingId, BindingValueFact<'a>>,
     binding_target_spans: FxHashMap<BindingId, Span>,
     broken_assoc_key_spans: Vec<Span>,
@@ -294,6 +295,10 @@ impl<'a> LinterFacts<'a> {
 
     pub fn is_elif_condition_command(&self, id: CommandId) -> bool {
         self.elif_condition_command_ids.contains(&id)
+    }
+
+    pub fn command_is_in_positive_zsh_guard(&self, id: CommandId) -> bool {
+        self.zsh_guarded_command_ids.contains(&id)
     }
 
     pub fn presence_tested_names(&self) -> &FxHashSet<Name> {

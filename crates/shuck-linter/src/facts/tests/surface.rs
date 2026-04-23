@@ -2545,6 +2545,45 @@ printf '%s\\n' '${$(svn info):0:1}'
 }
 
 #[test]
+fn word_facts_mark_commands_inside_positive_zsh_guards() {
+    let source = "\
+#!/bin/bash
+if [[ -n ${ZSH_VERSION-} && -z ${GIT_SOURCING_ZSH_COMPLETION-} ]]; then
+  unset ${(M)${(k)parameters[@]}:#__gitcomp_builtin_*} 2>/dev/null
+fi
+
+unset ${(M)${(k)parameters[@]}:#__gitcomp_builtin_*} 2>/dev/null
+";
+
+    with_facts(source, None, |_, facts| {
+        let flagged_words = facts
+            .word_facts()
+            .filter(|fact| !fact.nested_zsh_substitution_spans().is_empty())
+            .map(|fact| {
+                (
+                    fact.span().slice(source).to_owned(),
+                    fact.is_in_positive_zsh_guard(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            flagged_words,
+            vec![
+                (
+                    "${(M)${(k)parameters[@]}:#__gitcomp_builtin_*}".to_owned(),
+                    true,
+                ),
+                (
+                    "${(M)${(k)parameters[@]}:#__gitcomp_builtin_*}".to_owned(),
+                    false,
+                ),
+            ]
+        );
+    });
+}
+
+#[test]
 fn shared_command_traversal_collects_word_facts_and_surface_fragments() {
     let source = "\
 #!/bin/bash
