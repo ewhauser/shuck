@@ -60,4 +60,22 @@ fi
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn ignores_positive_zsh_compatibility_guards_in_elif_branches() {
+        let source = "\
+#!/bin/bash
+if [[ -n ${BASH_VERSION-} ]]; then
+  :
+elif [[ -n ${ZSH_VERSION-} ]]; then
+  unset ${(M)${(k)parameters[@]}:#__gitcomp_builtin_*} 2>/dev/null
+fi
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::NestedZshSubstitution),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
 }

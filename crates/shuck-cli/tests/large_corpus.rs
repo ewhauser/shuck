@@ -2818,10 +2818,11 @@ fn build_mapped_shellcheck_codes() -> HashSet<u32> {
 
 fn build_selected_shellcheck_codes(selected_rules: &shuck_linter::RuleSet) -> HashSet<u32> {
     let shellcheck_map = shuck_linter::ShellCheckCodeMap::default();
+    let rules = expand_selected_rules_for_large_corpus(selected_rules);
 
-    selected_rules
+    rules
         .iter()
-        .filter_map(|rule| shellcheck_map.code_for_rule(rule))
+        .filter_map(|rule| large_corpus_shellcheck_code_for_rule(&shellcheck_map, rule))
         .collect()
 }
 
@@ -3812,9 +3813,18 @@ mod tests {
     }
 
     #[test]
-    fn selected_rule_shellcheck_filters_are_empty_for_rules_without_active_code() {
+    fn selected_rule_shellcheck_filters_include_large_corpus_alias_codes() {
         let selected_rules =
             shuck_linter::RuleSet::from_iter([shuck_linter::Rule::SourceInsideFunctionInSh]);
+        let codes = build_selected_shellcheck_codes(&selected_rules);
+
+        assert_eq!(codes, HashSet::from([3046]));
+    }
+
+    #[test]
+    fn selected_rule_shellcheck_filters_are_empty_for_rules_without_active_code() {
+        let selected_rules =
+            shuck_linter::RuleSet::from_iter([shuck_linter::Rule::BackslashBeforeCommand]);
         let codes = build_selected_shellcheck_codes(&selected_rules);
 
         assert!(codes.is_empty());

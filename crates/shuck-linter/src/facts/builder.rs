@@ -742,21 +742,39 @@ fn build_zsh_guarded_command_ids(
         };
 
         if !if_condition_requires_zsh(&command.condition) {
+            for (condition, branch) in &command.elif_branches {
+                if if_condition_requires_zsh(condition) {
+                    extend_zsh_guarded_command_ids(&mut guarded_ids, branch, command_ids_by_span);
+                }
+            }
             continue;
         }
 
-        guarded_ids.extend(
-            query::iter_commands(
-                &command.then_branch,
-                CommandWalkOptions {
-                    descend_nested_word_commands: true,
-                },
-            )
-            .filter_map(|visit| command_id_for_command(visit.command, command_ids_by_span)),
-        );
+        extend_zsh_guarded_command_ids(&mut guarded_ids, &command.then_branch, command_ids_by_span);
+        for (condition, branch) in &command.elif_branches {
+            if if_condition_requires_zsh(condition) {
+                extend_zsh_guarded_command_ids(&mut guarded_ids, branch, command_ids_by_span);
+            }
+        }
     }
 
     guarded_ids
+}
+
+fn extend_zsh_guarded_command_ids(
+    guarded_ids: &mut FxHashSet<CommandId>,
+    branch: &StmtSeq,
+    command_ids_by_span: &CommandLookupIndex,
+) {
+    guarded_ids.extend(
+        query::iter_commands(
+            branch,
+            CommandWalkOptions {
+                descend_nested_word_commands: true,
+            },
+        )
+        .filter_map(|visit| command_id_for_command(visit.command, command_ids_by_span)),
+    );
 }
 
 fn if_condition_requires_zsh(condition: &StmtSeq) -> bool {
