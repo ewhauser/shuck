@@ -929,7 +929,7 @@ fn collect_heredoc_body_part_visits<'a, F>(
                 }
             }
             shuck_ast::HeredocBodyPart::CommandSubstitution { body, .. } => {
-                collect_command_visits(&body, options, context, visitor);
+                collect_command_visits(body, options, context, visitor);
             }
             shuck_ast::HeredocBodyPart::Literal(_)
             | shuck_ast::HeredocBodyPart::Variable(_)
