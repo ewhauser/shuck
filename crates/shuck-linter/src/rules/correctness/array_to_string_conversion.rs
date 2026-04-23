@@ -99,7 +99,7 @@ fn command_array_history_events(
                     .map(|target| {
                         (
                             target.span().start.offset,
-                            Name::from(target.span().slice(checker.source())),
+                            Name::from(target.key().as_str()),
                         )
                     })
                     .collect()
@@ -121,7 +121,7 @@ fn command_array_history_events(
                     .map(|target| {
                         (
                             target.span().start.offset,
-                            Name::from(target.span().slice(checker.source())),
+                            Name::from(target.key().as_str()),
                         )
                     })
                     .collect()
@@ -580,6 +580,36 @@ lines=value
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["lines"],
+            "{diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn reports_quoted_wrapper_targets_as_array_history() {
+        let source = "\
+#!/bin/bash
+read() {
+  :
+}
+mapfile() {
+  :
+}
+command read -a \"entries\"
+builtin mapfile 'lines'
+entries=value
+lines=value
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["entries", "lines"],
             "{diagnostics:#?}"
         );
     }
