@@ -528,6 +528,13 @@ pub fn word_zsh_flag_modifier_spans(word: &Word) -> Vec<Span> {
             if syntax.modifiers.is_empty() {
                 return None;
             }
+            if syntax
+                .modifiers
+                .first()
+                .is_some_and(|modifier| modifier.name == '=')
+            {
+                return None;
+            }
 
             match syntax.target {
                 ZshExpansionTarget::Reference(_) | ZshExpansionTarget::Word(_) => {}
