@@ -336,6 +336,77 @@ fn collect_base_prefix_spans_in_parameter_expansion(
     }
 }
 
+fn collect_base_prefix_spans_in_arithmetic_parameter_expansion(
+    parameter: &shuck_ast::ParameterExpansion,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+            BourneParameterExpansion::Access { reference }
+            | BourneParameterExpansion::Length { reference }
+            | BourneParameterExpansion::Indices { reference }
+            | BourneParameterExpansion::Transformation { reference, .. } => {
+                collect_base_prefix_spans_in_var_ref(reference, source, spans);
+            }
+            BourneParameterExpansion::Indirect {
+                reference,
+                operand,
+                operand_word_ast,
+                ..
+            }
+            | BourneParameterExpansion::Operation {
+                reference,
+                operand,
+                operand_word_ast,
+                ..
+            } => {
+                collect_base_prefix_spans_in_var_ref(reference, source, spans);
+                collect_base_prefix_spans_in_arithmetic_fragment(
+                    operand_word_ast.as_ref(),
+                    operand.as_ref(),
+                    source,
+                    spans,
+                );
+            }
+            BourneParameterExpansion::Slice {
+                reference,
+                offset_word_ast,
+                offset_ast,
+                length_word_ast,
+                length_ast,
+                ..
+            } => {
+                collect_base_prefix_spans_in_var_ref(reference, source, spans);
+                if let Some(expression) = offset_ast {
+                    collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+                } else {
+                    collect_base_prefix_spans_in_arithmetic_word(offset_word_ast, source, spans);
+                }
+                if let Some(expression) = length_ast {
+                    collect_base_prefix_spans_in_arithmetic(expression, source, spans);
+                } else if let Some(length_word_ast) = length_word_ast {
+                    collect_base_prefix_spans_in_arithmetic_word(length_word_ast, source, spans);
+                }
+            }
+            BourneParameterExpansion::PrefixMatch { .. } => {}
+        },
+        ParameterExpansionSyntax::Zsh(syntax) => {
+            collect_base_prefix_spans_in_arithmetic_zsh_target(&syntax.target, source, spans);
+            if let Some(operation) = &syntax.operation {
+                match operation {
+                    shuck_ast::ZshExpansionOperation::Slice { .. }
+                    | shuck_ast::ZshExpansionOperation::PatternOperation { .. }
+                    | shuck_ast::ZshExpansionOperation::Defaulting { .. }
+                    | shuck_ast::ZshExpansionOperation::TrimOperation { .. }
+                    | shuck_ast::ZshExpansionOperation::ReplacementOperation { .. }
+                    | shuck_ast::ZshExpansionOperation::Unknown { .. } => {}
+                }
+            }
+        }
+    }
+}
+
 fn collect_base_prefix_spans_in_zsh_target(
     target: &shuck_ast::ZshExpansionTarget,
     source: &str,
@@ -350,6 +421,25 @@ fn collect_base_prefix_spans_in_zsh_target(
         }
         shuck_ast::ZshExpansionTarget::Word(word) => {
             collect_base_prefix_spans_in_word(word, source, spans);
+        }
+        shuck_ast::ZshExpansionTarget::Empty => {}
+    }
+}
+
+fn collect_base_prefix_spans_in_arithmetic_zsh_target(
+    target: &shuck_ast::ZshExpansionTarget,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    match target {
+        shuck_ast::ZshExpansionTarget::Reference(reference) => {
+            collect_base_prefix_spans_in_var_ref(reference, source, spans);
+        }
+        shuck_ast::ZshExpansionTarget::Nested(parameter) => {
+            collect_base_prefix_spans_in_arithmetic_parameter_expansion(parameter, source, spans);
+        }
+        shuck_ast::ZshExpansionTarget::Word(word) => {
+            collect_base_prefix_spans_in_arithmetic_word(word, source, spans);
         }
         shuck_ast::ZshExpansionTarget::Empty => {}
     }
@@ -480,14 +570,32 @@ fn collect_base_prefix_spans_in_arithmetic_word_part(
             }
         }
         WordPart::Parameter(parameter) => {
-            collect_base_prefix_spans_in_parameter_expansion(parameter, source, spans);
+            collect_base_prefix_spans_in_arithmetic_parameter_expansion(parameter, source, spans);
         }
-        WordPart::ParameterExpansion { reference, .. }
-        | WordPart::Length(reference)
+        WordPart::ParameterExpansion {
+            reference,
+            operand,
+            operand_word_ast,
+            ..
+        }
+        | WordPart::IndirectExpansion {
+            reference,
+            operand,
+            operand_word_ast,
+            ..
+        } => {
+            collect_base_prefix_spans_in_var_ref(reference, source, spans);
+            collect_base_prefix_spans_in_arithmetic_fragment(
+                operand_word_ast.as_ref(),
+                operand.as_ref(),
+                source,
+                spans,
+            );
+        }
+        WordPart::Length(reference)
         | WordPart::ArrayAccess(reference)
         | WordPart::ArrayLength(reference)
         | WordPart::ArrayIndices(reference)
-        | WordPart::IndirectExpansion { reference, .. }
         | WordPart::Transformation { reference, .. } => {
             collect_base_prefix_spans_in_var_ref(reference, source, spans);
         }
@@ -551,6 +659,27 @@ fn collect_base_prefix_spans_in_fragment(
         return;
     };
     collect_base_prefix_spans_in_word(word, source, spans);
+}
+
+fn collect_base_prefix_spans_in_arithmetic_fragment(
+    word: Option<&Word>,
+    text: Option<&SourceText>,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    let Some(text) = text else {
+        return;
+    };
+    let snippet = text.slice(source);
+    if !snippet.contains('#') {
+        return;
+    }
+
+    let Some(word) = word else {
+        collect_base_prefix_spans_in_text(text.span(), source, spans);
+        return;
+    };
+    collect_base_prefix_spans_in_arithmetic_word(word, source, spans);
 }
 
 fn collect_base_prefix_spans_in_text(span: Span, source: &str, spans: &mut Vec<Span>) {

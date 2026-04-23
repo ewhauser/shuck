@@ -1578,6 +1578,30 @@ echo $((42949 - ${1#-} / 100000))
 }
 
 #[test]
+fn collects_base_prefixes_in_arithmetic_parameter_defaults() {
+    let source = "\
+#!/bin/sh
+echo $(( ${foo:-10#1} ))
+";
+    let output = Parser::with_dialect(source, shuck_parser::parser::ShellDialect::Posix)
+        .parse()
+        .unwrap();
+    let indexer = Indexer::new(source, &output);
+    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let file_context = classify_file_context(source, None, ShellDialect::Bash);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+    assert_eq!(
+        facts
+            .base_prefix_arithmetic_spans()
+            .iter()
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>(),
+        vec!["10#1"]
+    );
+}
+
+#[test]
 fn builds_find_exec_shell_command_facts_for_execdir_shell_targets() {
     let source = "\
 #!/bin/sh
