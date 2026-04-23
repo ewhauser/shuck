@@ -32,79 +32,16 @@ impl<'a> PathWordFact<'a> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum PathNameKind {
-    Literal,
-    Parameter,
-    RedirectLiteral,
-    QuotedRedirectLiteral,
-    RedirectParameter,
-    HeredocParameter,
-    GeneratedLiteral,
-    GeneratedParameter,
-    BindingTarget,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PathNameFact {
-    name: Box<str>,
-    kind: PathNameKind,
-    span: Span,
-    binding_id: Option<BindingId>,
-    initialized_local_scope: Option<ScopeId>,
-}
-
-impl PathNameFact {
-    pub fn new(name: impl Into<Box<str>>, kind: PathNameKind, span: Span) -> Self {
-        Self {
-            name: name.into(),
-            kind,
-            span,
-            binding_id: None,
-            initialized_local_scope: None,
-        }
-    }
-
-    pub(crate) fn with_semantics(
-        name: impl Into<Box<str>>,
-        kind: PathNameKind,
-        span: Span,
-        binding_id: Option<BindingId>,
-        initialized_local_scope: Option<ScopeId>,
-    ) -> Self {
-        Self {
-            name: name.into(),
-            kind,
-            span,
-            binding_id,
-            initialized_local_scope,
-        }
-    }
-
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub fn kind(&self) -> PathNameKind {
-        self.kind
-    }
-
-    pub fn span(&self) -> Span {
-        self.span
-    }
-
-    pub(crate) fn binding_id(&self) -> Option<BindingId> {
-        self.binding_id
-    }
-
-    pub(crate) fn initialized_local_scope(&self) -> Option<ScopeId> {
-        self.initialized_local_scope
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct ReadCommandFacts {
     pub uses_raw_input: bool,
+    target_name_uses: Box<[ComparableNameUse]>,
+}
+
+impl ReadCommandFacts {
+    pub(crate) fn target_name_uses(&self) -> &[ComparableNameUse] {
+        &self.target_name_uses
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -704,6 +641,7 @@ impl<'a> CommandOptionFacts<'a> {
                 .effective_name_is("read")
                 .then(|| ReadCommandFacts {
                     uses_raw_input: read_uses_raw_input(normalized.body_args(), source),
+                    target_name_uses: read_target_name_uses(normalized.body_args(), source),
                 }),
             su: normalized
                 .effective_name_is("su")
@@ -841,6 +779,108 @@ fn read_uses_raw_input(args: &[&Word], source: &str) -> bool {
     }
 
     false
+}
+
+fn read_target_name_uses(args: &[&Word], source: &str) -> Box<[ComparableNameUse]> {
+    let mut targets = Vec::new();
+    let mut index = 0usize;
+
+    while let Some(word) = args.get(index) {
+        let Some(text) = static_word_text(word, source) else {
+            if word_starts_with_literal_dash(word, source) {
+                return Vec::new().into_boxed_slice();
+            }
+
+            for target in &args[index..] {
+                targets.extend(comparable_name_uses(target, source));
+            }
+            break;
+        };
+
+        if text == "--" {
+            for target in &args[index + 1..] {
+                targets.extend(comparable_name_uses(target, source));
+            }
+            break;
+        }
+
+        if !text.starts_with('-') || text == "-" {
+            for target in &args[index..] {
+                targets.extend(comparable_name_uses(target, source));
+            }
+            break;
+        }
+
+        let mut chars = text[1..].char_indices().peekable();
+        let mut saw_array_target = false;
+        while let Some((flag_offset, flag)) = chars.next() {
+            if flag == 'a' {
+                let attached_start = flag_offset + 2;
+                if attached_start < text.len() {
+                    if let Some(target) =
+                        read_attached_array_target_name_use(word, source, &text[attached_start..])
+                    {
+                        targets.push(target);
+                    }
+                } else if let Some(target) = args.get(index + 1) {
+                    targets.extend(comparable_name_uses(target, source));
+                    index += 1;
+                }
+                saw_array_target = true;
+                break;
+            }
+
+            if option_takes_argument(flag) {
+                if chars.peek().is_none() {
+                    index += 1;
+                }
+                break;
+            }
+        }
+
+        if saw_array_target {
+            break;
+        }
+
+        index += 1;
+    }
+
+    targets.into_boxed_slice()
+}
+
+fn read_attached_array_target_name_use(
+    word: &Word,
+    source: &str,
+    target_text: &str,
+) -> Option<ComparableNameUse> {
+    if !comparable_name_text(target_text) {
+        return None;
+    }
+
+    let target_span = word
+        .span
+        .slice(source)
+        .rfind(target_text)
+        .map(|start| {
+            read_option_attached_target_span(word.span, source, start, start + target_text.len())
+        })
+        .unwrap_or(word.span);
+
+    Some(ComparableNameUse {
+        span: target_span,
+        key: ComparableNameKey(target_text.into()),
+        kind: ComparableNameUseKind::Literal,
+    })
+}
+
+fn read_option_attached_target_span(span: Span, source: &str, start: usize, end: usize) -> Span {
+    let start_pos = span
+        .start
+        .advanced_by(&source[span.start.offset..span.start.offset + start]);
+    let end_pos = span
+        .start
+        .advanced_by(&source[span.start.offset..span.start.offset + end]);
+    Span::from_positions(start_pos, end_pos)
 }
 
 fn parse_echo_command<'a>(args: &[&'a Word], source: &str) -> EchoCommandFacts<'a> {
@@ -2026,10 +2066,6 @@ fn same_command_file_operand_words<'a>(
             })
             .into_boxed_slice()
         }
-        Some("basename") => basename_file_operand_words(args, source).into_boxed_slice(),
-        Some("dirname") => {
-            collect_file_operand_words_after_prefix(args, source, 0, |_| None).into_boxed_slice()
-        }
         Some("jq") => jq_file_operand_words(args, source).into_boxed_slice(),
         Some("bsdtar") | Some("tar") => {
             collect_file_operand_words_after_prefix(args, source, 0, |text| match text {
@@ -2066,76 +2102,6 @@ fn awk_has_file_program_source(args: &[&Word], source: &str) -> bool {
                 || text.starts_with("--file=")
                 || short_option_cluster_contains_flag(text.as_ref(), 'f')
         })
-}
-
-fn basename_file_operand_words<'a>(args: &[&'a Word], source: &str) -> Vec<&'a Word> {
-    let mut operands = Vec::new();
-    let mut index = 0usize;
-    let mut options_open = true;
-    let mut skip_suffix_arg = false;
-    let mut multiple_names = false;
-
-    while let Some(word) = args.get(index) {
-        if skip_suffix_arg {
-            skip_suffix_arg = false;
-            index += 1;
-            continue;
-        }
-
-        let Some(text) = static_word_text(word, source) else {
-            if options_open && word_starts_with_literal_dash(word, source) {
-                index += 1;
-                continue;
-            }
-
-            options_open = false;
-            operands.push(*word);
-            index += 1;
-            continue;
-        };
-
-        if options_open && text == "--" {
-            options_open = false;
-            index += 1;
-            continue;
-        }
-
-        if options_open && text.starts_with('-') && text != "-" {
-            match text.as_ref() {
-                "-a" | "--multiple" => multiple_names = true,
-                "-s" | "--suffix" => {
-                    multiple_names = true;
-                    skip_suffix_arg = true;
-                }
-                _ if text.starts_with("--suffix=") => multiple_names = true,
-                _ if text.starts_with('-') && !text.starts_with("--") => {
-                    let cluster = &text.as_ref()[1..];
-                    if cluster.contains('a') {
-                        multiple_names = true;
-                    }
-                    if let Some(suffix_flag) = cluster.find('s') {
-                        multiple_names = true;
-                        if suffix_flag + 1 == cluster.len() {
-                            skip_suffix_arg = true;
-                        }
-                    }
-                }
-                _ => {}
-            }
-            index += 1;
-            continue;
-        }
-
-        options_open = false;
-        operands.push(*word);
-        index += 1;
-    }
-
-    if multiple_names {
-        operands
-    } else {
-        operands.into_iter().take(1).collect()
-    }
 }
 
 fn short_option_cluster_contains_flag(text: &str, flag: char) -> bool {

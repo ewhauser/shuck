@@ -150,7 +150,7 @@ impl<'a> SimpleTestFact<'a> {
             .collect()
     }
 
-    pub fn operator_expression_operand_words(&'a self, source: &str) -> Vec<&'a Word> {
+    pub fn operator_expression_operand_words(&self, source: &str) -> Vec<&'a Word> {
         simple_test_operator_expression_operand_words(self, source)
     }
 
@@ -520,7 +520,7 @@ fn simple_test_expressions<'a>(
 }
 
 fn simple_test_operator_expression_operand_words<'a>(
-    simple_test: &'a SimpleTestFact<'a>,
+    simple_test: &SimpleTestFact<'a>,
     source: &str,
 ) -> Vec<&'a Word> {
     let operands = simple_test.effective_operands();
@@ -553,7 +553,7 @@ fn simple_test_operator_expression_operand_words<'a>(
 }
 
 fn collect_simple_test_operator_expression_operand_words<'a>(
-    simple_test: &'a SimpleTestFact<'a>,
+    simple_test: &SimpleTestFact<'a>,
     start: usize,
     end: usize,
     source: &str,

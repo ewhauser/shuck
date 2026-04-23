@@ -175,9 +175,9 @@ pub(crate) mod statements {
 pub(crate) mod command_options {
     pub use super::{
         CommandOptionFacts, ExitCommandFacts, FindCommandFacts, FindExecCommandFacts,
-        FindExecShellCommandFacts, GrepPatternSourceKind, PathNameFact, PathNameKind, PathWordFact,
-        PrintfCommandFacts, ReadCommandFacts, RmCommandFacts, SshCommandFacts,
-        SudoFamilyCommandFacts, UnsetCommandFacts, WaitCommandFacts, XargsCommandFacts,
+        FindExecShellCommandFacts, GrepPatternSourceKind, PathWordFact, PrintfCommandFacts,
+        ReadCommandFacts, RmCommandFacts, SshCommandFacts, SudoFamilyCommandFacts,
+        UnsetCommandFacts, WaitCommandFacts, XargsCommandFacts,
     };
 }
 
