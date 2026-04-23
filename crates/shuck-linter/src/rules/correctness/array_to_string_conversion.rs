@@ -106,6 +106,10 @@ fn binding_uses_builtin_array_history(checker: &Checker<'_>, binding: &Binding) 
 }
 
 fn read_target_is_array_like(checker: &Checker<'_>, binding: &Binding) -> bool {
+    if !matches!(checker.shell(), ShellDialect::Bash) {
+        return false;
+    }
+
     binding_command(checker, binding)
         .filter(|command| command.effective_name_is("read"))
         .filter(|command| !command_is_shadowed_function(checker, command))
@@ -420,6 +424,21 @@ mapfile() {
   :
 }
 mapfile entries
+entries=value
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_read_scalar_assignments_outside_bash() {
+        let source = "\
+#!/bin/sh
+read -a entries
 entries=value
 ";
         let diagnostics = test_snippet(
