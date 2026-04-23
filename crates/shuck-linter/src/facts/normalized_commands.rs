@@ -537,6 +537,13 @@ mod tests {
                 ("printf", Some("'%s\\n'")),
             ),
             (
+                "command -pp printf '%s\\n' hi\n",
+                Some("command"),
+                Some("printf"),
+                vec![WrapperKind::Command],
+                ("printf", Some("'%s\\n'")),
+            ),
+            (
                 "noglob rm *.txt\n",
                 Some("noglob"),
                 Some("rm"),

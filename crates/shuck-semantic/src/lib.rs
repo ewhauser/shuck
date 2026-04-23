@@ -7739,6 +7739,20 @@ print *
     }
 
     #[test]
+    fn zsh_option_analysis_tracks_command_repeated_p_wrapper() {
+        let source = "\
+command -pp setopt no_glob
+print *
+";
+        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+        let options = model
+            .zsh_options_at(source.find("print").unwrap())
+            .expect("expected wrapped zsh option effects");
+
+        assert_eq!(options.glob, OptionValue::Off);
+    }
+
+    #[test]
     fn zsh_option_analysis_tracks_exec_bundled_option_wrappers() {
         for source in [
             "\
@@ -7765,16 +7779,27 @@ print *
 
     #[test]
     fn zsh_option_analysis_ignores_command_lookup_modes() {
-        let source = "\
+        for source in [
+            "\
 command -v setopt no_glob
 print *
-";
-        let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
-        let options = model
-            .zsh_options_at(source.find("print").unwrap())
-            .expect("expected wrapped zsh options");
+",
+            "\
+command -pv setopt no_glob
+print *
+",
+            "\
+command -pV setopt no_glob
+print *
+",
+        ] {
+            let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+            let options = model
+                .zsh_options_at(source.find("print").unwrap())
+                .expect("expected wrapped zsh options");
 
-        assert_eq!(options.glob, OptionValue::On);
+            assert_eq!(options.glob, OptionValue::On, "{source}");
+        }
     }
 
     #[test]

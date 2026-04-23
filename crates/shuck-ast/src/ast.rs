@@ -2174,14 +2174,26 @@ fn command_wrapper_target_index<'a>(
             return next_word_index(word_count, index);
         }
 
-        match arg.as_ref() {
-            "-p" => {
-                index += 1;
-                continue;
+        if let Some(options) = arg.strip_prefix('-') {
+            if options.is_empty() {
+                return Some(index);
             }
-            "-v" | "-V" => return None,
-            _ if arg.starts_with('-') && arg != "-" => return None,
-            _ => {}
+
+            let mut lookup_mode = false;
+            for option in options.chars() {
+                match option {
+                    'p' => {}
+                    'v' | 'V' => lookup_mode = true,
+                    _ => return None,
+                }
+            }
+
+            if lookup_mode {
+                return None;
+            }
+
+            index += 1;
+            continue;
         }
 
         return Some(index);
