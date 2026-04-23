@@ -5979,6 +5979,60 @@ main
     }
 
     #[test]
+    fn top_level_parent_call_before_nested_definition_keeps_later_code_reachable() {
+        let source = "\
+outer() {
+  inner() {
+    helper
+    printf '%s\\n' maybe
+  }
+  inner
+  helper() {
+    exit 0
+  }
+}
+outer
+";
+        let model = model(source);
+
+        assert!(
+            model.analysis().dead_code().is_empty(),
+            "dead code: {:?}",
+            model.analysis().dead_code()
+        );
+    }
+
+    #[test]
+    fn nested_calls_after_parent_definition_can_use_script_terminating_helpers() {
+        let source = "\
+outer() {
+  inner() {
+    helper
+    printf '%s\\n' never
+  }
+  helper() {
+    exit 0
+  }
+  inner
+}
+outer
+";
+        let model = model(source);
+        let unreachable = model
+            .analysis()
+            .dead_code()
+            .iter()
+            .flat_map(|entry| entry.unreachable.iter())
+            .map(|span| span.slice(source).trim_end().to_owned())
+            .collect::<Vec<_>>();
+
+        assert!(
+            unreachable.contains(&"printf '%s\\n' never".to_owned()),
+            "unreachable spans: {unreachable:?}"
+        );
+    }
+
+    #[test]
     fn later_redefinitions_do_not_fall_back_to_stale_terminating_helpers() {
         let source = "\
 exit_script() {

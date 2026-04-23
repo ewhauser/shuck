@@ -991,7 +991,7 @@ impl FunctionCallResolver<'_> {
                         sites.iter().any(|site| {
                             self.call_site_may_reference_binding(site, binding, offset)
                                 && self.call_site_can_run_before_offset(
-                                    site, call_scope, offset, visiting,
+                                    scope, site, call_scope, offset, visiting,
                                 )
                         })
                     })
@@ -1006,6 +1006,7 @@ impl FunctionCallResolver<'_> {
 
     fn call_site_can_run_before_offset(
         &mut self,
+        target_scope: ScopeId,
         site: &CallSite,
         call_scope: ScopeId,
         offset: usize,
@@ -1015,8 +1016,15 @@ impl FunctionCallResolver<'_> {
             .start
             .offset;
         let Some(enclosing_function) = self.enclosing_function_scope(site.scope) else {
-            return command_start < offset && self.scope_has_ancestor(site.scope, call_scope);
+            if self.scope_has_ancestor(site.scope, call_scope) {
+                return command_start < offset;
+            }
+            return self.scope_has_ancestor(call_scope, target_scope);
         };
+
+        if enclosing_function == call_scope {
+            return command_start < offset;
+        }
 
         self.scope_has_known_entry_before_offset(enclosing_function, call_scope, offset, visiting)
     }
