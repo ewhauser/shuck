@@ -72,7 +72,7 @@ impl Violation for ArraySubscriptTest {
     }
 
     fn message(&self) -> String {
-        "array-style subscripts in test expressions are not portable to POSIX sh".to_owned()
+        "pathname globs do not work as operands in `[ ... ]` tests".to_owned()
     }
 }
 
@@ -394,6 +394,28 @@ done
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::CaretNegationInBracket);
         assert_eq!(diagnostics[0].span.slice(source), "[^a]");
+    }
+
+    #[test]
+    fn array_subscript_test_matches_sc2202_operand_positions() {
+        let source = "\
+#!/bin/sh
+[ $tools[kops] ]
+[ \"${tools[kops]}\" ]
+[ \\$tools[kops] ]
+[ foo[kops] = bar ]
+[ foo = bar[kops] ]
+[ foo -nt bar[kops] ]
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ArraySubscriptTest));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$tools[kops]", "\\$tools[kops]", "foo[kops]", "bar[kops]"]
+        );
     }
 
     #[test]

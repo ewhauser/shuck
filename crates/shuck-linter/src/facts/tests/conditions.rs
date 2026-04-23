@@ -1792,6 +1792,31 @@ test -O \"$file\"
 }
 
 #[test]
+fn array_subscript_test_follows_sc2202_simple_test_operand_positions() {
+    let source = "\
+#!/bin/sh
+[ foo* ]
+[ \"$foo[kops]\" ]
+[ \\$foo[kops] ]
+[ foo[kops] = bar ]
+[ foo = bar[kops] ]
+[ foo -nt bar[kops] ]
+";
+
+    with_facts(source, None, |_, facts| {
+        assert_eq!(
+            facts
+                .conditional_portability()
+                .array_subscript_test()
+                .iter()
+                .map(|span| span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["foo*", "\\$foo[kops]", "foo[kops]", "bar[kops]"]
+        );
+    });
+}
+
+#[test]
 fn builds_conditional_portability_pattern_buckets_from_surface_and_word_sources() {
     let source = "\
 #!/bin/bash

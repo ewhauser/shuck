@@ -1,5 +1,5 @@
 use rustc_hash::FxHashSet;
-use shuck_ast::{ConditionalBinaryOp, ConditionalUnaryOp, Span, static_word_text};
+use shuck_ast::{ConditionalBinaryOp, ConditionalUnaryOp, Span, Word, static_word_text};
 
 use super::{
     CommandFact, CommandId, ConditionalFact, ConditionalNodeFact, ExpansionContext, FactSpan,
@@ -129,12 +129,6 @@ pub(super) fn build_conditional_portability_facts<'a>(
         }
 
         if let Some(simple_test) = command.simple_test() {
-            facts.array_subscript_test.extend(
-                simple_test
-                    .operands()
-                    .iter()
-                    .filter_map(|word| word_spans::word_array_subscript_span(word, source)),
-            );
             facts.extglob_in_test.extend(
                 simple_test
                     .operands()
@@ -263,6 +257,25 @@ fn collect_simple_test_portability_spans(
                 .as_deref()
                 .is_some_and(is_simple_test_binary_operator)
         {
+            match operand_texts[index + 1].as_deref() {
+                Some("=" | "==" | "!=") => {
+                    if let Some(span) = reportable_simple_test_glob_span(operands[index], source) {
+                        facts.array_subscript_test.push(span);
+                    }
+                }
+                Some("<" | ">" | "-ef" | "-nt" | "-ot") => {
+                    if let Some(span) = reportable_simple_test_glob_span(operands[index], source) {
+                        facts.array_subscript_test.push(span);
+                    }
+                    if let Some(span) =
+                        reportable_simple_test_glob_span(operands[index + 2], source)
+                    {
+                        facts.array_subscript_test.push(span);
+                    }
+                }
+                _ => {}
+            }
+
             if operand_texts[index + 1].as_deref() == Some("==") {
                 match fact.syntax() {
                     SimpleTestSyntax::Test => has_eqeq = true,
@@ -280,6 +293,12 @@ fn collect_simple_test_portability_spans(
                 .as_deref()
                 .is_some_and(is_simple_test_unary_operator)
         {
+            if matches!(operand_texts[index].as_deref(), Some("-n" | "-z"))
+                && let Some(span) = reportable_simple_test_glob_span(operands[index + 1], source)
+            {
+                facts.array_subscript_test.push(span);
+            }
+
             match operand_texts[index].as_deref() {
                 Some("-k") => match fact.syntax() {
                     SimpleTestSyntax::Test => has_sticky_bit = true,
@@ -300,6 +319,9 @@ fn collect_simple_test_portability_spans(
             continue;
         }
 
+        if let Some(span) = reportable_simple_test_glob_span(operands[index], source) {
+            facts.array_subscript_test.push(span);
+        }
         index += 1;
     }
 
@@ -330,6 +352,10 @@ fn supports_extglob_portability_context(context: Option<ExpansionContext>) -> bo
                 | ExpansionContext::SelectList
         )
     )
+}
+
+fn reportable_simple_test_glob_span(word: &Word, source: &str) -> Option<Span> {
+    (!word_spans::word_unquoted_glob_pattern_spans(word, source).is_empty()).then_some(word.span)
 }
 
 fn supports_bracket_glob_portability_context(context: Option<ExpansionContext>) -> bool {
