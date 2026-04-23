@@ -3766,13 +3766,11 @@ mod tests {
                         && entry.path_contains.as_deref() == Some("termux__termux-packages__")
                 })
         }));
-        assert!(
-            metadata.values().any(|rule_metadata| {
-                rule_metadata.reviewed_divergences.iter().any(|entry| {
-                    !entry.rule_wide && entry.path_suffix.is_some() && entry.line.is_some()
-                })
+        assert!(metadata.values().any(|rule_metadata| {
+            rule_metadata.reviewed_divergences.iter().any(|entry| {
+                !entry.rule_wide && entry.path_suffix.is_some() && entry.line.is_some()
             })
-        );
+        }));
     }
 
     #[test]
