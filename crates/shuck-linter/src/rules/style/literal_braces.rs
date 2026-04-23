@@ -362,7 +362,7 @@ find $TERMUX_PKG_SRCDIR -mindepth 1 -maxdepth 1 -exec cp -a \\{\\} ./ \\;
     }
 
     #[test]
-    fn ignores_nested_parameter_expansion_braces() {
+    fn reports_outer_escaped_parameter_templates_with_nested_expansions() {
         let source = "\
 #!/bin/bash
 local args=${*:1:${#@}-1}
@@ -375,8 +375,12 @@ exec {IPC_FIFO_FD}<>\"$IPC_FIFO\"
 exec {IPC_FIFO_FD}>&-
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::LiteralBraces));
+        let positions = diagnostics
+            .iter()
+            .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.start.column))
+            .collect::<Vec<_>>();
 
-        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+        assert_eq!(positions, vec![(3, 29), (3, 43), (4, 11), (4, 44)]);
     }
 
     #[test]
@@ -433,7 +437,7 @@ echo \\${${name}}/\\${fallback}
             .map(|diagnostic| (diagnostic.span.start.line, diagnostic.span.start.column))
             .collect::<Vec<_>>();
 
-        assert_eq!(positions, vec![(2, 20), (2, 29)]);
+        assert_eq!(positions, vec![(2, 8), (2, 16), (2, 20), (2, 29)]);
     }
 
     #[test]
