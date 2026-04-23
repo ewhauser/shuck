@@ -28,6 +28,7 @@ pub(super) fn build_presence_tested_names(
         if let Some(conditional) = command.conditional() {
             collect_presence_tested_names_from_conditional_expr(
                 conditional.root().expression(),
+                source,
                 &mut command_names,
             );
         }
@@ -135,6 +136,14 @@ fn collect_presence_tested_names_from_simple_test_leaf(
         );
     }
 
+    if static_word_text(first, source).as_deref() == Some("-v") {
+        if let Some(word) = operands.get(1).copied() {
+            collect_presence_tested_name_from_variable_set_word(word, source, names);
+            return 2;
+        }
+        return 1;
+    }
+
     if static_word_text(first, source)
         .as_deref()
         .is_some_and(|operator| {
@@ -171,12 +180,23 @@ fn is_simple_test_logical_operator(word: &Word, source: &str) -> bool {
 
 fn collect_presence_tested_names_from_conditional_expr(
     expression: &ConditionalExpr,
+    source: &str,
     names: &mut FxHashSet<Name>,
 ) {
     let expression = strip_parenthesized_conditionals(expression);
 
     match expression {
         ConditionalExpr::Word(word) => collect_presence_tested_names_from_word(word, names),
+        ConditionalExpr::Unary(unary) if unary.op == ConditionalUnaryOp::VariableSet => {
+            collect_presence_tested_name_from_conditional_variable_set_operand(
+                &unary.expr,
+                source,
+                names,
+            );
+        }
+        ConditionalExpr::Unary(unary) if unary.op == ConditionalUnaryOp::Not => {
+            collect_presence_tested_names_from_conditional_expr(&unary.expr, source, names);
+        }
         ConditionalExpr::Unary(unary)
             if conditional_unary_operator_family(unary.op)
                 == ConditionalOperatorFamily::StringUnary =>
@@ -187,8 +207,8 @@ fn collect_presence_tested_names_from_conditional_expr(
             if conditional_binary_operator_family(binary.op)
                 == ConditionalOperatorFamily::Logical =>
         {
-            collect_presence_tested_names_from_conditional_expr(&binary.left, names);
-            collect_presence_tested_names_from_conditional_expr(&binary.right, names);
+            collect_presence_tested_names_from_conditional_expr(&binary.left, source, names);
+            collect_presence_tested_names_from_conditional_expr(&binary.right, source, names);
         }
         ConditionalExpr::Unary(_)
         | ConditionalExpr::Binary(_)
@@ -198,6 +218,43 @@ fn collect_presence_tested_names_from_conditional_expr(
         ConditionalExpr::Parenthesized(_) => {
             unreachable!("parentheses should be stripped before collecting presence tests")
         }
+    }
+}
+
+fn collect_presence_tested_name_from_conditional_variable_set_operand(
+    expression: &ConditionalExpr,
+    source: &str,
+    names: &mut FxHashSet<Name>,
+) {
+    let expression = strip_parenthesized_conditionals(expression);
+
+    match expression {
+        ConditionalExpr::VarRef(reference) => {
+            names.insert(reference.name.clone());
+        }
+        ConditionalExpr::Word(word) => {
+            collect_presence_tested_name_from_variable_set_word(word, source, names);
+        }
+        ConditionalExpr::Parenthesized(_) => {
+            unreachable!("parentheses should be stripped before collecting presence tests")
+        }
+        ConditionalExpr::Unary(_)
+        | ConditionalExpr::Binary(_)
+        | ConditionalExpr::Pattern(_)
+        | ConditionalExpr::Regex(_) => {}
+    }
+}
+
+fn collect_presence_tested_name_from_variable_set_word(
+    word: &Word,
+    source: &str,
+    names: &mut FxHashSet<Name>,
+) {
+    if let Some(name) = static_word_text(word, source).and_then(|text| {
+        let base_name = text.split_once('[').map_or(text.as_ref(), |(name, _)| name);
+        is_shell_variable_name(base_name).then(|| Name::from(base_name))
+    }) {
+        names.insert(name);
     }
 }
 

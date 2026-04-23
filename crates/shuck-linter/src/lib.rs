@@ -3143,10 +3143,18 @@ printf '%s %s\\n' \"$idx\" \"$target\"
 #!/bin/bash
 [ -z \"$guarded\" ] && echo nope
 [ \"$truthy\" ] && echo maybe
+[ -v simple_v ] && echo set
+test -v test_v && echo set
 [ -z \"$chain_left\" -a -z \"$chain_right\" ] && echo both
 [ \"$or_left\" -o \"$or_right\" ] && echo either
 if [[ -n \"${nonempty:-}\" && \"$also_truthy\" ]]; then
   echo yes
+fi
+if [[ -v conditional_v ]]; then
+  echo set
+fi
+if [[ ! -v conditional_not_v ]]; then
+  echo unset
 fi
 if [ \"$eq_mix\" = x -a -z \"$guard_after_eq\" ]; then
   echo no
@@ -3157,7 +3165,7 @@ fi
 if [[ -s \"$file_only\" ]]; then
   echo no
 fi
-echo \"$guarded\" \"$truthy\" \"$chain_left\" \"$chain_right\" \"$or_left\" \"$or_right\" \"$nonempty\" \"$also_truthy\" \"$eq_mix\" \"$guard_after_eq\" \"$eq_only\" \"$file_only\" \"$still_missing\"
+echo \"$guarded\" \"$truthy\" \"$simple_v\" \"$test_v\" \"$chain_left\" \"$chain_right\" \"$or_left\" \"$or_right\" \"$nonempty\" \"$also_truthy\" \"$conditional_v\" \"$conditional_not_v\" \"$eq_mix\" \"$guard_after_eq\" \"$eq_only\" \"$file_only\" \"$still_missing\"
 ";
         let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
 
@@ -3170,6 +3178,16 @@ echo \"$guarded\" \"$truthy\" \"$chain_left\" \"$chain_right\" \"$or_left\" \"$o
             diagnostics
                 .iter()
                 .all(|diagnostic| !diagnostic.message.contains("truthy"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.message.contains("simple_v"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.message.contains("test_v"))
         );
         assert!(
             diagnostics
@@ -3200,6 +3218,16 @@ echo \"$guarded\" \"$truthy\" \"$chain_left\" \"$chain_right\" \"$or_left\" \"$o
             diagnostics
                 .iter()
                 .all(|diagnostic| !diagnostic.message.contains("also_truthy"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.message.contains("conditional_v"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| !diagnostic.message.contains("conditional_not_v"))
         );
         assert!(
             diagnostics

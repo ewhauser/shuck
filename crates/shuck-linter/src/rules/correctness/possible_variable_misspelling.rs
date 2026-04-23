@@ -1,5 +1,4 @@
 use rustc_hash::FxHashSet;
-use shuck_semantic::Binding;
 
 use crate::{Checker, Rule, Violation};
 
@@ -40,12 +39,11 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
         .collect::<FxHashSet<_>>();
 
     let mut findings = checker
-        .semantic()
-        .unresolved_references()
+        .semantic_analysis()
+        .uninitialized_references()
         .iter()
-        .copied()
-        .filter_map(|reference_id| {
-            let reference = checker.semantic().reference(reference_id);
+        .filter_map(|uninitialized| {
+            let reference = checker.semantic().reference(uninitialized.reference);
             if !is_reportable_variable_reference(
                 checker,
                 reference,
@@ -61,19 +59,48 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
             if is_known_runtime_name(reference.name.as_str()) {
                 return None;
             }
+            if is_internal_placeholder_name(reference.name.as_str()) {
+                return None;
+            }
             if guarded_names.contains(&reference.name) {
                 return None;
             }
             if has_same_name_defining_bindings(checker, &reference.name) {
                 return None;
             }
-
-            let candidate = preferred_candidate_binding(checker, reference.name.as_str())?;
-            Some((
+            if is_assignment_target_variant_reference(
+                checker,
+                reference.name.as_str(),
                 reference.span,
-                reference.name.to_string(),
-                candidate.name.to_string(),
-            ))
+            ) {
+                return None;
+            }
+            if is_build_flag_alias_assignment_value(
+                checker,
+                reference.name.as_str(),
+                reference.span,
+            ) {
+                return None;
+            }
+
+            let candidate = preferred_candidate_name(checker, reference.name.as_str())?;
+            if is_parallel_c_and_cxx_flag_use(
+                checker,
+                reference.name.as_str(),
+                reference.span,
+                candidate.as_str(),
+            ) {
+                return None;
+            }
+            if reference_is_source_prefix_of_candidate(
+                checker,
+                reference.name.as_str(),
+                reference.span,
+                candidate.as_str(),
+            ) {
+                return None;
+            }
+            Some((reference.span, reference.name.to_string(), candidate))
         })
         .collect::<Vec<_>>();
 
@@ -96,15 +123,12 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
 
 fn looks_like_case_mismatch_reference(name: &str) -> bool {
     is_environment_style_name(name)
-        && name.len() >= 4
+        && name.len() >= 3
         && name.chars().any(|char| char.is_ascii_uppercase())
 }
 
-fn preferred_candidate_binding<'a>(
-    checker: &'a Checker<'_>,
-    target_name: &str,
-) -> Option<&'a Binding> {
-    let candidates = checker
+fn preferred_candidate_name(checker: &Checker<'_>, target_name: &str) -> Option<String> {
+    let binding_candidates = checker
         .semantic()
         .bindings()
         .iter()
@@ -112,25 +136,19 @@ fn preferred_candidate_binding<'a>(
         .filter(|binding| binding.name.as_str() != target_name)
         .filter(|binding| binding.name.as_str().len() >= 4)
         .filter_map(|binding| {
-            candidate_match_rank(target_name, binding.name.as_str()).map(|rank| (rank, binding))
-        })
-        .collect::<Vec<_>>();
+            candidate_match_rank(target_name, binding.name.as_str()).map(|rank| {
+                (
+                    rank,
+                    binding.span.start.offset,
+                    binding.span.end.offset,
+                    binding.name.to_string(),
+                )
+            })
+        });
 
-    let best_rank = candidates.iter().map(|(rank, _)| *rank).min()?;
-    let unique_best_candidates = candidates
-        .iter()
-        .filter(|(rank, _)| *rank == best_rank)
-        .map(|(_, binding)| canonical_uppercase_name(binding.name.as_str()))
-        .collect::<FxHashSet<_>>();
-    if unique_best_candidates.len() > 1 {
-        return None;
-    }
-
-    candidates
-        .into_iter()
-        .filter(|(rank, _)| *rank == best_rank)
-        .min_by_key(|(_, binding)| (binding.span.start.offset, binding.span.end.offset))
-        .map(|(_, binding)| binding)
+    binding_candidates
+        .min_by_key(|(rank, start, end, _)| (*rank, *start, *end))
+        .map(|(_, _, _, name)| name)
 }
 
 fn canonical_uppercase_name(name: &str) -> String {
@@ -139,144 +157,182 @@ fn canonical_uppercase_name(name: &str) -> String {
 
 fn candidate_match_rank(target_name: &str, candidate_name: &str) -> Option<u8> {
     let candidate_upper = canonical_uppercase_name(candidate_name);
-    if candidate_upper == target_name {
+
+    if target_name.len() >= 4 && candidate_upper == target_name {
         return Some(0);
     }
-    if candidate_upper == format!("X{target_name}") {
-        return Some(1);
-    }
-    if target_name == format!("{candidate_upper}_") {
-        return Some(2);
-    }
-    if is_short_split_id_variant(target_name, candidate_upper.as_str()) {
-        return Some(3);
-    }
-    if is_common_build_setting_name(target_name) {
+
+    if !is_environment_style_name(candidate_name)
+        || target_name.len() < 3
+        || candidate_name.len() < 4
+    {
         return None;
     }
-    if is_environment_style_name(candidate_name)
-        && has_single_environment_style_typo(target_name, candidate_upper.as_str())
-    {
-        return Some(4);
+
+    let distance =
+        bounded_ascii_edit_distance(target_name.as_bytes(), candidate_upper.as_bytes(), 2)?;
+    if distance == 0 {
+        return None;
+    }
+    if distance == 2 && !has_strong_two_edit_shape(target_name, candidate_upper.as_str()) {
+        return None;
     }
 
-    None
+    Some(distance + 1)
 }
 
-fn is_short_split_id_variant(target_name: &str, candidate_upper: &str) -> bool {
-    short_two_segment_underscore_variant(candidate_upper, target_name)
-        || short_two_segment_underscore_variant(target_name, candidate_upper)
+fn has_strong_two_edit_shape(target_name: &str, candidate_upper: &str) -> bool {
+    let common_prefix = common_prefix_len(target_name.as_bytes(), candidate_upper.as_bytes());
+    let common_suffix = common_suffix_len(
+        &target_name.as_bytes()[common_prefix..],
+        &candidate_upper.as_bytes()[common_prefix..],
+    );
+
+    is_compiler_flag_family_pair(target_name, candidate_upper)
+        || common_prefix >= 5
+        || common_suffix >= 6
+        || (common_prefix >= 4 && common_suffix >= 4)
+        || (common_prefix >= 2 && common_suffix >= 5)
 }
 
-fn short_two_segment_underscore_variant(with_underscore: &str, without_underscore: &str) -> bool {
-    let mut segments = with_underscore.split('_');
-    let Some(first) = segments.next() else {
-        return false;
-    };
-    let Some(second) = segments.next() else {
-        return false;
-    };
-    if segments.next().is_some() || first.is_empty() || second.is_empty() {
-        return false;
-    }
-    if first.len() > 2 || second.len() > 2 {
-        return false;
-    }
-
-    format!("{first}{second}") == without_underscore
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum EnvironmentStyleEdit {
-    Substitute,
-    Insert { byte: u8, index: usize },
-    Delete { byte: u8, index: usize },
-    Transpose,
-}
-
-fn has_single_environment_style_typo(target_name: &str, candidate_upper: &str) -> bool {
-    let Some(edit) =
-        single_environment_style_edit(target_name.as_bytes(), candidate_upper.as_bytes())
+fn is_assignment_target_variant_reference(
+    checker: &Checker<'_>,
+    reference_name: &str,
+    reference_span: shuck_ast::Span,
+) -> bool {
+    let Some(target_name) = checker
+        .facts()
+        .assignment_value_target_name_for_span(reference_span)
+        .map(|name| name.as_str())
     else {
         return false;
     };
 
-    match edit {
-        EnvironmentStyleEdit::Substitute | EnvironmentStyleEdit::Transpose => true,
-        EnvironmentStyleEdit::Insert { byte, index }
-        | EnvironmentStyleEdit::Delete { byte, index } => {
-            index > 0
-                && !(byte == b'X'
-                    && byte_before_edit(index, target_name.as_bytes(), candidate_upper.as_bytes())
-                        == Some(b'_'))
-        }
-    }
+    reference_name
+        .strip_prefix(target_name)
+        .is_some_and(|suffix| {
+            !suffix.is_empty() && suffix.chars().all(|char| char.is_ascii_digit())
+        })
 }
 
-fn single_environment_style_edit(target: &[u8], candidate: &[u8]) -> Option<EnvironmentStyleEdit> {
-    if target.len() == candidate.len() {
-        let mismatches = target
-            .iter()
-            .zip(candidate.iter())
-            .enumerate()
-            .filter_map(|(index, (&left, &right))| (left != right).then_some((index, left, right)))
-            .collect::<Vec<_>>();
-
-        return match mismatches.as_slice() {
-            [(_, left, right)] if left.is_ascii_alphabetic() && right.is_ascii_alphabetic() => {
-                Some(EnvironmentStyleEdit::Substitute)
-            }
-            [
-                (first_index, first_left, first_right),
-                (second_index, second_left, second_right),
-            ] if second_index == &(first_index + 1)
-                && first_left.is_ascii_alphabetic()
-                && first_right.is_ascii_alphabetic()
-                && second_left.is_ascii_alphabetic()
-                && second_right.is_ascii_alphabetic()
-                && *first_left == *second_right
-                && *second_left == *first_right =>
-            {
-                Some(EnvironmentStyleEdit::Transpose)
-            }
-            _ => None,
-        };
+fn is_build_flag_alias_assignment_value(
+    checker: &Checker<'_>,
+    reference_name: &str,
+    reference_span: shuck_ast::Span,
+) -> bool {
+    if reference_name != "LDFLAGS" {
+        return false;
     }
 
-    if target.len() + 1 == candidate.len() {
-        let index = first_mismatch_index(target, candidate).unwrap_or(target.len());
-        let inserted = candidate[index];
-        return (inserted.is_ascii_alphabetic() && target[index..] == candidate[index + 1..])
-            .then_some(EnvironmentStyleEdit::Insert {
-                byte: inserted,
-                index,
-            });
-    }
-
-    if candidate.len() + 1 == target.len() {
-        let index = first_mismatch_index(target, candidate).unwrap_or(candidate.len());
-        let deleted = target[index];
-        return (deleted.is_ascii_alphabetic() && target[index + 1..] == candidate[index..])
-            .then_some(EnvironmentStyleEdit::Delete {
-                byte: deleted,
-                index,
-            });
-    }
-
-    None
+    checker
+        .facts()
+        .assignment_value_target_name_for_span(reference_span)
+        .map(|name| name.as_str())
+        .is_some_and(|target_name| {
+            target_name
+                .strip_suffix(reference_name)
+                .is_some_and(|prefix| matches!(prefix, "MY" | "GO" | "CGO_" | "EXTRA_"))
+        })
 }
 
-fn first_mismatch_index(left: &[u8], right: &[u8]) -> Option<usize> {
+fn is_parallel_c_and_cxx_flag_use(
+    checker: &Checker<'_>,
+    reference_name: &str,
+    reference_span: shuck_ast::Span,
+    candidate_name: &str,
+) -> bool {
+    if reference_name != "CPPFLAGS" || canonical_uppercase_name(candidate_name) != "CXXFLAGS" {
+        return false;
+    }
+
+    let source = checker.source();
+    let current_line = source_line_at(source, reference_span.start.offset);
+    if text_mentions_shell_name(current_line, "CFLAGS") {
+        return true;
+    }
+
+    let nearby_lines = source_line_window(source, reference_span.start.offset, 1);
+    text_mentions_shell_name(nearby_lines, "CPPFLAGS")
+        && text_mentions_shell_name(nearby_lines, "CFLAGS")
+        && text_mentions_shell_name(nearby_lines, "CXXFLAGS")
+}
+
+fn reference_is_source_prefix_of_candidate(
+    checker: &Checker<'_>,
+    reference_name: &str,
+    reference_span: shuck_ast::Span,
+    candidate_name: &str,
+) -> bool {
+    let candidate_upper = canonical_uppercase_name(candidate_name);
+    let Some(suffix) = candidate_upper.strip_prefix(reference_name) else {
+        return false;
+    };
+    if suffix.is_empty() || !suffix.chars().all(|char| char.is_ascii_digit()) {
+        return false;
+    }
+
+    checker
+        .source()
+        .as_bytes()
+        .get(reference_span.end.offset..reference_span.end.offset + suffix.len())
+        .is_some_and(|source_suffix| source_suffix.eq_ignore_ascii_case(suffix.as_bytes()))
+}
+
+fn is_compiler_flag_family_pair(target_name: &str, candidate_upper: &str) -> bool {
+    matches!(
+        (target_name, candidate_upper),
+        ("CFLAGS", "CPPFLAGS" | "CXXFLAGS" | "CLDFLAGS" | "CC9FLAGS")
+            | ("CXXFLAGS", "CPPFLAGS" | "CC9FLAGS")
+            | ("CPPFLAGS", "CXXFLAGS")
+    )
+}
+
+fn common_prefix_len(left: &[u8], right: &[u8]) -> usize {
     left.iter()
-        .zip(right.iter())
-        .position(|(left, right)| left != right)
+        .zip(right)
+        .take_while(|(left, right)| left == right)
+        .count()
 }
 
-fn byte_before_edit(index: usize, target: &[u8], candidate: &[u8]) -> Option<u8> {
-    index
-        .checked_sub(1)
-        .and_then(|previous| target.get(previous).or_else(|| candidate.get(previous)))
-        .copied()
+fn common_suffix_len(left: &[u8], right: &[u8]) -> usize {
+    left.iter()
+        .rev()
+        .zip(right.iter().rev())
+        .take_while(|(left, right)| left == right)
+        .count()
+}
+
+fn bounded_ascii_edit_distance(left: &[u8], right: &[u8], max_distance: u8) -> Option<u8> {
+    let max_distance = usize::from(max_distance);
+    if left.len().abs_diff(right.len()) > max_distance {
+        return None;
+    }
+
+    let mut previous = (0..=right.len()).collect::<Vec<_>>();
+    let mut current = vec![0; right.len() + 1];
+
+    for (left_index, left_byte) in left.iter().enumerate() {
+        current[0] = left_index + 1;
+        let mut row_min = current[0];
+
+        for (right_index, right_byte) in right.iter().enumerate() {
+            let deletion = previous[right_index + 1] + 1;
+            let insertion = current[right_index] + 1;
+            let substitution = previous[right_index] + usize::from(left_byte != right_byte);
+            let value = deletion.min(insertion).min(substitution);
+            current[right_index + 1] = value;
+            row_min = row_min.min(value);
+        }
+
+        if row_min > max_distance {
+            return None;
+        }
+
+        std::mem::swap(&mut previous, &mut current);
+    }
+
+    let distance = previous[right.len()];
+    (distance <= max_distance).then_some(distance as u8)
 }
 
 fn is_known_runtime_name(name: &str) -> bool {
@@ -310,16 +366,67 @@ fn is_known_runtime_name(name: &str) -> bool {
             | "HISTCONTROL"
             | "HISTSIZE"
             | "EUID"
+            | "TMPDIR"
             | "GEM_HOME"
             | "GEM_PATH"
     ) || name.starts_with("LC_")
 }
 
-fn is_common_build_setting_name(name: &str) -> bool {
-    matches!(
-        name,
-        "CFLAGS" | "CPPFLAGS" | "CXXFLAGS" | "LDFLAGS" | "LIBS"
-    )
+fn is_internal_placeholder_name(name: &str) -> bool {
+    name.strip_prefix("_SHUCK_GHA_")
+        .is_some_and(|suffix| suffix.chars().all(|char| char.is_ascii_digit()))
+}
+
+fn source_line_at(source: &str, offset: usize) -> &str {
+    let start = line_start_offset(source, offset);
+    let end = source[offset..]
+        .find('\n')
+        .map_or(source.len(), |index| offset + index);
+    &source[start..end]
+}
+
+fn line_start_offset(source: &str, offset: usize) -> usize {
+    source[..offset].rfind('\n').map_or(0, |index| index + 1)
+}
+
+fn source_line_window(source: &str, offset: usize, radius: usize) -> &str {
+    let mut start = offset;
+    for _ in 0..=radius {
+        start = source[..start].rfind('\n').map_or(0, |index| index);
+        if start == 0 {
+            break;
+        }
+    }
+
+    let mut end = offset;
+    for _ in 0..=radius {
+        end = source[end..]
+            .find('\n')
+            .map_or(source.len(), |index| end + index + 1);
+        if end == source.len() {
+            break;
+        }
+    }
+
+    &source[start..end]
+}
+
+fn text_mentions_shell_name(text: &str, name: &str) -> bool {
+    text.match_indices(name).any(|(start, _)| {
+        let end = start + name.len();
+        let before = start
+            .checked_sub(1)
+            .and_then(|index| text.as_bytes().get(index))
+            .copied();
+        let after = text.as_bytes().get(end).copied();
+
+        before.is_none_or(|byte| !is_shell_name_byte(byte))
+            && after.is_none_or(|byte| !is_shell_name_byte(byte))
+    })
+}
+
+fn is_shell_name_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
 #[cfg(test)]
@@ -434,7 +541,7 @@ BRANCH=stable
     }
 
     #[test]
-    fn keeps_reviewed_alias_families_out_of_scope() {
+    fn reports_environment_style_alias_families() {
         let source = "\
 #!/bin/sh
 foo_bar=demo
@@ -451,11 +558,17 @@ echo \"$CLDFLAGS\"
             &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
         );
 
-        assert!(diagnostics.is_empty());
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$PKGCONFIG", "$XBPS_REMOVE_XCMD", "$CLDFLAGS"]
+        );
     }
 
     #[test]
-    fn reports_short_split_id_variants_but_not_broader_underscore_aliases() {
+    fn reports_underscore_split_variants() {
         let source = "\
 #!/bin/sh
 CT_ID=100
@@ -473,7 +586,7 @@ echo \"$PKGCONFIG\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$CTID"]
+            vec!["$CTID", "$PKGCONFIG"]
         );
     }
 
@@ -489,6 +602,8 @@ euid=1
 echo \"$GEM_HOME\"
 echo \"$GEM_PATH\"
 echo \"$EUID\"
+tmpdir=1
+echo \"$TMPDIR\"
 ";
         let diagnostics = test_snippet(
             source,
@@ -499,7 +614,7 @@ echo \"$EUID\"
     }
 
     #[test]
-    fn ignores_fuzzy_matches_for_common_build_settings() {
+    fn ignores_transposed_common_build_settings() {
         let source = "\
 #!/bin/sh
 LDFLGAS='-Wl,--gc-sections'
@@ -511,6 +626,31 @@ echo \"$LDFLAGS\"
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_two_edit_environment_style_matches_and_short_references() {
+        let source = "\
+#!/bin/sh
+CXXFLAGS='-O2'
+DISK_REF=scsi0
+OPT1=1
+echo \"$CFLAGS\"
+echo \"$DISK0_REF\"
+echo \"$OPT\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$CFLAGS", "$DISK0_REF", "$OPT"]
+        );
     }
 
     #[test]
@@ -585,13 +725,54 @@ seconds=1
 pipestatus=1
 start_delay=1
 WITH_cyrus=1
+FIX_B=1
 : \"${START_DELAY:-1}\"
 : \"${WITH_CYRUS:-yes}\"
+if [[ -v FIX_C ]]; then
+  echo \"$FIX_C\"
+fi
+if [ -v FIX_D ]; then
+  echo \"$FIX_D\"
+fi
+test -v FIX_E && echo \"$FIX_E\"
+if [[ ! -v FIX_F ]]; then
+  echo \"$FIX_F\"
+fi
 echo \"$HOSTNAME\"
 echo \"$SECONDS\"
 echo \"$PIPESTATUS\"
 echo \"$START_DELAY\"
 echo \"$WITH_CYRUS\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_synthetic_github_actions_placeholders() {
+        let source = "\
+#!/bin/sh
+_SHUCK_GHA_1=1
+echo \"$_SHUCK_GHA_2\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_assignment_value_variants_named_after_the_target() {
+        let source = "\
+#!/bin/bash
+SRCNAM64=demo
+SRCNAM=\"$SRCNAM32\"
 ";
         let diagnostics = test_snippet(
             source,
