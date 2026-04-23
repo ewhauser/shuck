@@ -335,9 +335,6 @@ impl<'a> Checker<'a> {
         if self.is_rule_enabled(Rule::FgrepDeprecated) {
             rules::style::fgrep_deprecated::fgrep_deprecated(self);
         }
-        if self.is_rule_enabled(Rule::RelativeSymlinkTarget) {
-            rules::style::relative_symlink_target::relative_symlink_target(self);
-        }
         if self.is_rule_enabled(Rule::XargsWithInlineReplace) {
             rules::style::xargs_with_inline_replace::xargs_with_inline_replace(self);
         }

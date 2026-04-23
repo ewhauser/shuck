@@ -908,54 +908,6 @@ echo \"prefix$(printf %s foo)\" | sed 's/foo/bar/'
 }
 
 #[test]
-fn summarizes_ln_symlink_target_operands() {
-    let source = "\
-#!/bin/bash
-ln -s ../../alpha alpha-link
-ln -st/tmp ../../beta ../../gamma
-ln --symbolic --target-directory=/tmp ../../delta ../../epsilon
-ln -s -- ../../zeta zeta-link
-ln -sT ../../eta eta-link
-command ln -s ../../wrapped wrapped
-ln ../../hard hard-link
-ln -t /tmp ../../theta
-";
-    let output = Parser::new(source).parse().unwrap();
-    let indexer = Indexer::new(source, &output);
-    let semantic = SemanticModel::build(&output.file, source, &indexer);
-    let file_context = classify_file_context(source, None, ShellDialect::Bash);
-    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
-
-    let symlink_targets = facts
-        .commands()
-        .iter()
-        .filter(|fact| fact.effective_name_is("ln"))
-        .map(|fact| {
-            fact.options().ln().map(|ln| {
-                ln.symlink_target_words()
-                    .iter()
-                    .map(|word| word.span.slice(source))
-                    .collect::<Vec<_>>()
-            })
-        })
-        .collect::<Vec<_>>();
-
-    assert_eq!(
-        symlink_targets,
-        vec![
-            Some(vec!["../../alpha"]),
-            Some(vec!["../../beta", "../../gamma"]),
-            Some(vec!["../../delta", "../../epsilon"]),
-            Some(vec!["../../zeta"]),
-            Some(vec!["../../eta"]),
-            Some(vec!["../../wrapped"]),
-            None,
-            None,
-        ]
-    );
-}
-
-#[test]
 fn preserves_dynamic_unset_operands_after_option_parsing_stops() {
     let source = "\
 #!/bin/bash
