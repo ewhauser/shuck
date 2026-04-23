@@ -2850,8 +2850,16 @@ impl<'a> Parser<'a> {
                 let mut depth = 1;
                 let close_span = loop {
                     match self.current_token_kind {
-                        Some(TokenKind::LeftParen) => {
-                            depth += 1;
+                        Some(
+                            TokenKind::LeftParen
+                            | TokenKind::DoubleLeftParen
+                            | TokenKind::ProcessSubIn
+                            | TokenKind::ProcessSubOut,
+                        ) => {
+                            depth += match self.current_token_kind {
+                                Some(TokenKind::DoubleLeftParen) => 2,
+                                _ => 1,
+                            };
                             self.advance();
                         }
                         Some(TokenKind::RightParen) => {
@@ -2862,6 +2870,25 @@ impl<'a> Parser<'a> {
                                 break close_span;
                             }
                             self.advance();
+                        }
+                        Some(TokenKind::DoubleRightParen) => {
+                            let (first_span, second_span) =
+                                Self::split_double_right_paren(self.current_span);
+                            match depth {
+                                0 => unreachable!("process substitution depth cannot underflow"),
+                                1 => {
+                                    self.advance();
+                                    break first_span;
+                                }
+                                2 => {
+                                    self.advance();
+                                    break second_span;
+                                }
+                                _ => {
+                                    depth -= 2;
+                                    self.advance();
+                                }
+                            }
                         }
                         None => {
                             return Err(Error::parse(

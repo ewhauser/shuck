@@ -35,14 +35,28 @@ pub fn untracked_source_file(checker: &mut Checker) {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     use shuck_indexer::Indexer;
     use shuck_parser::parser::Parser;
+    use shuck_semantic::SourcePathResolver;
     use tempfile::tempdir;
 
     use crate::test::test_snippet_at_path;
     use crate::{LinterSettings, Rule, lint_file_at_path_with_resolver};
+
+    struct TestSourceResolver {
+        helper: PathBuf,
+    }
+
+    impl SourcePathResolver for TestSourceResolver {
+        fn resolve_candidate_paths(&self, _source_path: &Path, candidate: &str) -> Vec<PathBuf> {
+            (candidate == "./known_pins.db")
+                .then_some(self.helper.clone())
+                .into_iter()
+                .collect()
+        }
+    }
 
     #[test]
     fn reports_missing_literal_source() {
@@ -94,6 +108,124 @@ mod tests {
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.slice(source), "./helper.sh");
+    }
+
+    #[test]
+    fn reports_directive_pinned_dynamic_source_when_helper_is_not_an_input() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("known_pins.db");
+        let source = "\
+#!/bin/bash
+scriptfolder=\"$(dirname \"$0\")/\"
+known_pins_dbfile=\"known_pins.db\"
+# shellcheck source=./known_pins.db
+source \"${scriptfolder}${known_pins_dbfile}\"
+";
+        fs::write(&helper, "echo ok\n").unwrap();
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::UntrackedSourceFile),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "\"${scriptfolder}${known_pins_dbfile}\""
+        );
+    }
+
+    #[test]
+    fn reports_no_space_shellcheck_source_directive_when_helper_is_missing() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let source = "\
+#!/bin/bash
+scriptfolder=\"$(dirname \"$0\")/\"
+known_pins_dbfile=\"known_pins.db\"
+#shellcheck source=./known_pins.db
+source \"${scriptfolder}${known_pins_dbfile}\"
+";
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::UntrackedSourceFile),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "\"${scriptfolder}${known_pins_dbfile}\""
+        );
+    }
+
+    #[test]
+    fn reports_directive_pinned_dynamic_source_inside_function_when_helper_is_missing() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let source = "\
+#!/bin/bash
+known_pins_dbfile=\"known_pins.db\"
+function wps_pin_database_prerequisites() {
+  #shellcheck source=./known_pins.db
+  source \"${scriptfolder}${known_pins_dbfile}\"
+}
+";
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::UntrackedSourceFile),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "\"${scriptfolder}${known_pins_dbfile}\""
+        );
+    }
+
+    #[test]
+    fn reports_directive_pinned_dynamic_source_with_resolver_when_helper_is_not_an_input() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("known_pins.db");
+        let source = "\
+#!/bin/bash
+scriptfolder=\"$(dirname \"$0\")/\"
+known_pins_dbfile=\"known_pins.db\"
+# shellcheck source=./known_pins.db
+source \"${scriptfolder}${known_pins_dbfile}\"
+";
+        fs::write(&main, source).unwrap();
+        fs::write(&helper, "echo ok\n").unwrap();
+
+        let parse_result = Parser::with_dialect(source, shuck_parser::ShellDialect::Bash)
+            .parse()
+            .unwrap();
+        let indexer = Indexer::new(source, &parse_result);
+        let resolver = TestSourceResolver {
+            helper: helper.clone(),
+        };
+
+        let diagnostics = lint_file_at_path_with_resolver(
+            &parse_result.file,
+            source,
+            &indexer,
+            &LinterSettings::for_rule(Rule::UntrackedSourceFile),
+            None,
+            Some(&main),
+            Some(&resolver),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "\"${scriptfolder}${known_pins_dbfile}\""
+        );
     }
 
     #[test]

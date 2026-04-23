@@ -116,6 +116,83 @@ fn test_parse_named_fd_redirect_read_write() {
 }
 
 #[test]
+fn test_parse_process_substitution_argument_with_here_string_inside_outer_process_substitution() {
+    let input = "\
+readarray -t deps < <(
+  grep -Fx \\
+    -f <(echo \"${packages[@]}\") \\
+    - <<< \"${changed[@]}\"
+) || :
+";
+    let script = Parser::with_dialect(input, ShellDialect::Bash)
+        .parse()
+        .unwrap()
+        .file;
+
+    let stmt = &script.body[0];
+    let AstCommand::Binary(binary) = &stmt.command else {
+        panic!("expected binary command");
+    };
+    assert_eq!(binary.op, BinaryOp::Or);
+
+    let readarray = expect_simple(&binary.left);
+    assert_eq!(readarray.name.render(input), "readarray");
+
+    let outer_target = binary.left.redirects[0]
+        .word_target()
+        .expect("expected process substitution redirect target");
+    let WordPart::ProcessSubstitution { body, is_input } = &outer_target.parts[0].kind else {
+        panic!("expected outer process substitution");
+    };
+    assert!(*is_input);
+
+    let inner = expect_simple(&body[0]);
+    assert_eq!(inner.name.render(input), "grep");
+    assert!(
+        inner.args.iter().any(|arg| arg
+            .parts
+            .iter()
+            .any(|part| matches!(part.kind, WordPart::ProcessSubstitution { .. }))),
+        "expected inner process substitution argument"
+    );
+    assert_eq!(body[0].redirects.len(), 1);
+    assert_eq!(body[0].redirects[0].kind, RedirectKind::HereString);
+}
+
+#[test]
+fn test_parse_nested_process_substitutions_inside_while_redirect_in_if_body() {
+    let input = "\
+if [[ $enabled == true ]]; then
+  local -a implicit_tasks
+  while IFS='' read -r line; do
+    implicit_tasks+=(\"$line\")
+  done < <(comm -23 <(printf \"%s\\n\" \"${subproject_tasks[@]}\" | sort) \\
+    <(printf \"%s\\n\" \"${root_tasks[@]}\" | sort))
+  for task in \"${implicit_tasks[@]}\"; do
+    gradle_all_tasks+=(\"$task\")
+  done
+fi
+";
+    Parser::with_dialect(input, ShellDialect::Bash)
+        .parse()
+        .unwrap();
+}
+
+#[test]
+fn test_parse_multiline_double_bracket_if_with_quoted_command_substitution_and_backgrounded_subshell()
+ {
+    let input = "\
+if [[ $gradle_files_checksum != \"$(cat \"$cache_dir/$cache_name.md5\")\" ||
+  ! -f \"$cache_dir/$gradle_files_checksum\" ]]; then
+  (__gradle-generate-tasks-cache &> /dev/null &)
+fi
+";
+    Parser::with_dialect(input, ShellDialect::Bash)
+        .parse()
+        .unwrap();
+}
+
+#[test]
 fn test_redirect_only_command_parses() {
     let input = ">myfile\n";
     let script = Parser::new(input).parse().unwrap().file;
