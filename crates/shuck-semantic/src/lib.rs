@@ -5691,6 +5691,26 @@ exit_script() {
     }
 
     #[test]
+    fn conditional_function_definitions_do_not_make_calls_terminating() {
+        let source = "\
+if false; then
+  exit_script() {
+    exit 0
+  }
+fi
+exit_script
+printf '%s\\n' still_reachable
+";
+        let model = model(source);
+
+        assert!(
+            model.analysis().dead_code().is_empty(),
+            "dead code: {:?}",
+            model.analysis().dead_code()
+        );
+    }
+
+    #[test]
     fn conditional_exit_keeps_or_fallback_reachable() {
         let source = "run && exit 0 || echo fallback\n";
         let model = model(source);

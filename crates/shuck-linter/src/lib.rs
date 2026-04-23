@@ -3828,6 +3828,23 @@ exit_script() {
     }
 
     #[test]
+    fn unreachable_after_exit_ignores_conditionally_defined_exit_helpers() {
+        let source = "\
+#!/bin/bash
+if false; then
+  exit_script() {
+    exit 0
+  }
+fi
+exit_script
+printf '%s\\n' still_reachable
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn unreachable_after_exit_ignores_fallback_after_conditional_exit() {
         let source = "\
 #!/bin/bash

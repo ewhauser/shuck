@@ -470,11 +470,20 @@ impl ExitEffect {
 
 fn compute_script_terminating_call_spans(
     program: &RecordedProgram,
+    command_bindings: &FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
     scopes: &[Scope],
     bindings: &[Binding],
     call_sites: &FxHashMap<Name, SmallVec<[CallSite; 2]>>,
 ) -> FxHashSet<SpanKey> {
-    let resolved_calls = resolve_function_calls_by_span(program, scopes, bindings, call_sites);
+    let unconditional_function_bindings =
+        collect_unconditional_function_bindings(program, command_bindings, bindings);
+    let resolved_calls = resolve_function_calls_by_span(
+        program,
+        scopes,
+        bindings,
+        call_sites,
+        &unconditional_function_bindings,
+    );
     if resolved_calls.is_empty() {
         return FxHashSet::default();
     }
@@ -516,6 +525,7 @@ fn resolve_function_calls_by_span(
     scopes: &[Scope],
     bindings: &[Binding],
     call_sites: &FxHashMap<Name, SmallVec<[CallSite; 2]>>,
+    unconditional_function_bindings: &FxHashSet<BindingId>,
 ) -> FxHashMap<SpanKey, ScopeId> {
     let mut resolved = FxHashMap::default();
 
@@ -527,6 +537,7 @@ fn resolve_function_calls_by_span(
                 name,
                 site.scope,
                 site.span.start.offset,
+                unconditional_function_bindings,
             ) else {
                 continue;
             };
@@ -538,6 +549,52 @@ fn resolve_function_calls_by_span(
     }
 
     resolved
+}
+
+fn collect_unconditional_function_bindings(
+    program: &RecordedProgram,
+    command_bindings: &FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
+    bindings: &[Binding],
+) -> FxHashSet<BindingId> {
+    let mut unconditional = FxHashSet::default();
+    collect_sequence_function_bindings(
+        program,
+        program.file_commands(),
+        command_bindings,
+        bindings,
+        &mut unconditional,
+    );
+    for commands in program.function_bodies().values().copied() {
+        collect_sequence_function_bindings(
+            program,
+            commands,
+            command_bindings,
+            bindings,
+            &mut unconditional,
+        );
+    }
+    unconditional
+}
+
+fn collect_sequence_function_bindings(
+    program: &RecordedProgram,
+    commands: RecordedCommandRange,
+    command_bindings: &FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
+    bindings: &[Binding],
+    unconditional: &mut FxHashSet<BindingId>,
+) {
+    for &command_id in program.commands_in(commands) {
+        let key = SpanKey::new(program.command(command_id).span);
+        let Some(command_bindings) = command_bindings.get(&key) else {
+            continue;
+        };
+        unconditional.extend(command_bindings.iter().copied().filter(|binding| {
+            matches!(
+                bindings[binding.index()].kind,
+                BindingKind::FunctionDefinition
+            )
+        }));
+    }
 }
 
 fn function_scope_always_exits_script(
@@ -745,27 +802,18 @@ fn visible_function_binding(
     name: &Name,
     scope: ScopeId,
     offset: usize,
+    unconditional_function_bindings: &FxHashSet<BindingId>,
 ) -> Option<BindingId> {
     for scope_id in ancestor_scopes(scopes, scope) {
         let Some(candidates) = scopes[scope_id.index()].bindings.get(name) else {
             continue;
         };
 
-        if scope_id != scope {
-            if let Some(binding) = candidates.iter().rev().copied().find(|binding| {
-                let candidate = &bindings[binding.index()];
-                matches!(candidate.kind, BindingKind::FunctionDefinition)
-                    && candidate.span.start.offset <= offset
-            }) {
-                return Some(binding);
-            }
-            continue;
-        }
-
         for binding in candidates.iter().rev().copied() {
             let candidate = &bindings[binding.index()];
             if matches!(candidate.kind, BindingKind::FunctionDefinition)
                 && candidate.span.start.offset <= offset
+                && unconditional_function_bindings.contains(&binding)
             {
                 return Some(binding);
             }
@@ -810,8 +858,13 @@ pub(crate) fn build_control_flow_graph(
     bindings: &[Binding],
     call_sites: &FxHashMap<Name, SmallVec<[CallSite; 2]>>,
 ) -> ControlFlowGraph {
-    let script_terminating_calls =
-        compute_script_terminating_call_spans(program, scopes, bindings, call_sites);
+    let script_terminating_calls = compute_script_terminating_call_spans(
+        program,
+        command_bindings,
+        scopes,
+        bindings,
+        call_sites,
+    );
     let mut builder = GraphBuilder {
         program,
         command_bindings,

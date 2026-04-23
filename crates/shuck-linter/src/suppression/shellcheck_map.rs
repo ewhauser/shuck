@@ -15,6 +15,7 @@ const SUPPRESSION_ALIAS_CODES: &[(u32, Rule)] = &[
     (2234, Rule::SingleTestSubshell),
     (2351, Rule::XPrefixInTest),
     (3084, Rule::SourceInsideFunctionInSh),
+    (2365, Rule::UnreachableAfterExit),
 ];
 
 /// Maps ShellCheck SC codes to Shuck rules.
@@ -164,6 +165,7 @@ mod tests {
             vec![Rule::SourceInsideFunctionInSh]
         );
         assert_eq!(map.resolve_all("SC2260"), vec![Rule::RedirectBeforePipe]);
+        assert_eq!(map.resolve_all("SC2365"), vec![Rule::UnreachableAfterExit]);
     }
 
     #[test]
