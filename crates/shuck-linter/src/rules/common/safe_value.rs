@@ -410,6 +410,9 @@ impl<'a> SafeValueIndex<'a> {
         if command_scope.is_some() && command_scope != call_scope {
             return false;
         }
+        if self.command_is_in_background_context(command_id) {
+            return false;
+        }
 
         let mut parent_id = self.facts.command_parent_id(command_id);
         while let Some(id) = parent_id {
@@ -2854,6 +2857,35 @@ printf '%s\\n' ${debug:+\"a b\"}
                     && fact.span().slice(source) == "${debug:+\"a b\"}"
             })
             .expect("expected replacement-operator command argument fact");
+
+        assert!(safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
+    }
+
+    #[test]
+    fn backgrounded_exit_like_definitions_do_not_block_safe_bindings() {
+        let source = "\
+#!/bin/sh
+SAFE=foo
+Exit() { exit 0; } &
+Exit
+echo /tmp/$SAFE
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+
+        let word_fact = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact.span().slice(source) == "/tmp/$SAFE"
+            })
+            .expect("expected mixed path command argument");
 
         assert!(safe_values.word_occurrence_is_safe(word_fact, SafeValueQuery::Argv));
     }

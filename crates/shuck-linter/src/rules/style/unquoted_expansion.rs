@@ -413,6 +413,20 @@ echo /tmp/$SAFE
     }
 
     #[test]
+    fn ignores_safe_bindings_after_backgrounded_exit_like_helper_definitions() {
+        let source = "\
+#!/bin/sh
+SAFE=foo
+Exit() { exit 0; } &
+Exit
+echo /tmp/$SAFE
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn collapses_multiline_backtick_spans_to_shellcheck_columns() {
         let source = "\
 #!/bin/sh
