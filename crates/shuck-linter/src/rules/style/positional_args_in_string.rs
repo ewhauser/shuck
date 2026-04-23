@@ -139,6 +139,7 @@ printf '%s\\n' \"Errors:\\n${errors[@]}\"
 #!/bin/bash
 set -- a b
 echo \"gvm_pkgset_use: \\$@   => $@\"
+[[ \"${GVM_DEBUG}\" -eq 1 ]] && echo \"gvm_pkgset_use: \\$@   => $@\"
 ";
         let diagnostics = test_snippet(
             source,
@@ -150,7 +151,7 @@ echo \"gvm_pkgset_use: \\$@   => $@\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$@"]
+            vec!["$@", "$@"]
         );
     }
 }

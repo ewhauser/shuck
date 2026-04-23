@@ -4423,6 +4423,25 @@ impl<'a> Parser<'a> {
                     };
                     words.push(word);
                 }
+                Some(TokenKind::DoubleRightBracket)
+                    if words.first().is_some_and(|word| {
+                        matches!(
+                            word.parts.as_slice(),
+                            [WordPartNode {
+                                kind: WordPart::ArithmeticExpansion {
+                                    syntax: ArithmeticExpansionSyntax::DollarParenParen,
+                                    ..
+                                },
+                                ..
+                            }]
+                        )
+                    }) =>
+                {
+                    let span = self.current_span;
+                    let word = self.word_from_raw_text(span.slice(self.input), span);
+                    self.advance();
+                    words.push(word);
+                }
                 Some(TokenKind::Newline) => {
                     let next_kind = self.peek_next_kind();
                     let supports_fd_var = next_kind.is_some_and(|kind| {

@@ -561,6 +561,7 @@ fn arithmetic_text_helper_distinguishes_self_contained_expressions() {
 }
 
 mod commands;
+mod commands_double_right_bracket;
 mod heredocs;
 mod redirects;
 mod words;
