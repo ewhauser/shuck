@@ -191,6 +191,56 @@ mod tests {
     }
 
     #[test]
+    fn ignores_caller_associative_reference_subscripts_that_look_like_updates() {
+        let source = "\
+#!/bin/sh
+helper() {
+  echo \"${tools[c++]}\"
+  [[ ${tools[d--]} ]]
+}
+main() {
+  declare -A tools
+  helper
+}
+main
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CStyleForArithmeticInSh),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_shadowed_caller_associative_reference_subscripts_that_look_like_updates() {
+        let source = "\
+#!/bin/sh
+helper() {
+  local tools
+  echo \"${tools[c++]}\"
+}
+main() {
+  declare -A tools
+  helper
+}
+main
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CStyleForArithmeticInSh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["++"]
+        );
+    }
+
+    #[test]
     fn ignores_bash_scripts() {
         let source = "#!/bin/bash\nfor ((++i; j < 3; k--)); do :; done\n";
         let diagnostics = test_snippet(

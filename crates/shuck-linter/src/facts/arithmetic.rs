@@ -801,10 +801,73 @@ fn var_ref_name_has_visible_assoc_binding_at(
     semantic: &SemanticModel,
     scope_span: Span,
 ) -> bool {
+    if let Some(visible) =
+        var_ref_name_has_visible_assoc_binding_in_nearest_scope(reference, semantic, scope_span)
+    {
+        return visible;
+    }
+
+    var_ref_name_has_visible_assoc_binding_from_named_callers(&reference.name, semantic, scope_span)
+}
+
+fn var_ref_name_has_visible_assoc_binding_in_nearest_scope(
+    reference: &VarRef,
+    semantic: &SemanticModel,
+    scope_span: Span,
+) -> Option<bool> {
     let current_scope = semantic.scope_at(scope_span.start.offset);
     semantic
         .visible_binding_for_assoc_lookup(&reference.name, current_scope, reference.name_span)
-        .is_some_and(|binding| binding.attributes.contains(BindingAttributes::ASSOC))
+        .map(|binding| binding.attributes.contains(BindingAttributes::ASSOC))
+}
+
+fn var_ref_name_has_visible_assoc_binding_from_named_callers(
+    name: &Name,
+    semantic: &SemanticModel,
+    scope_span: Span,
+) -> bool {
+    let Some(function_names) = named_function_scope_names(semantic, scope_span.start.offset) else {
+        return false;
+    };
+
+    let mut seen = FxHashSet::default();
+    let mut worklist = function_names.to_vec();
+
+    while let Some(function_name) = worklist.pop() {
+        if !seen.insert(function_name.clone()) {
+            continue;
+        }
+
+        for call_site in semantic.call_sites_for(&function_name) {
+            let current_scope = semantic.scope_at(call_site.name_span.start.offset);
+            if let Some(binding) =
+                semantic.visible_binding_for_assoc_lookup(name, current_scope, call_site.name_span)
+            {
+                if binding.attributes.contains(BindingAttributes::ASSOC) {
+                    return true;
+                }
+                continue;
+            }
+
+            if let Some(caller_names) = named_function_scope_names(semantic, call_site.name_span.start.offset) {
+                worklist.extend(caller_names.iter().cloned());
+            }
+        }
+    }
+
+    false
+}
+
+fn named_function_scope_names(semantic: &SemanticModel, offset: usize) -> Option<&[Name]> {
+    let scope = semantic.scope_at(offset);
+    semantic
+        .ancestor_scopes(scope)
+        .find_map(|scope_id| match &semantic.scope(scope_id).kind {
+            shuck_semantic::ScopeKind::Function(shuck_semantic::FunctionScopeKind::Named(
+                names,
+            )) => Some(names.as_slice()),
+            _ => None,
+        })
 }
 
 fn collect_arithmetic_update_operator_spans_in_word(
