@@ -304,6 +304,26 @@ mod tests {
     }
 
     #[test]
+    fn array_subscript_test_only_reports_unbraced_test_operands() {
+        let source = "\
+#!/bin/sh
+if [ $tools[kops] ]; then :; fi
+if [ \"${tools[kops]}\" ]; then :; fi
+if [ ${#tools[@]} -eq 0 ]; then :; fi
+if [ ${cost%[\\.]*} -lt 10 ]; then :; fi
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ArraySubscriptTest));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$tools[kops]"]
+        );
+    }
+
+    #[test]
     fn ignores_at_extglob_literals_in_assignment_values() {
         let source = "#!/bin/sh\nname=@(foo|bar)\n";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ExtglobInSh));

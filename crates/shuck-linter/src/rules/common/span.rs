@@ -773,6 +773,11 @@ pub fn word_array_subscript_span(word: &Word, source: &str) -> Option<Span> {
     })
 }
 
+pub fn word_unbraced_array_subscript_span(word: &Word, source: &str) -> Option<Span> {
+    (!word.has_quoted_parts() && text_has_unbraced_variable_subscript(word.span.slice(source)))
+        .then_some(word.span)
+}
+
 pub fn word_extglob_span(word: &Word, source: &str) -> Option<Span> {
     word_extglob_span_from_literal_parts(&word.parts, source).or_else(|| {
         if word_has_only_literal_parts(&word.parts) {
@@ -3308,6 +3313,37 @@ fn text_has_variable_subscript(text: &str) -> bool {
         }
 
         if !is_name_start(bytes[next]) {
+            index += 1;
+            continue;
+        }
+
+        let mut cursor = next + 1;
+        while cursor < bytes.len() && is_name_continue(bytes[cursor]) {
+            cursor += 1;
+        }
+
+        if cursor < bytes.len() && bytes[cursor] == b'[' && bytes[cursor + 1..].contains(&b']') {
+            return true;
+        }
+
+        index = cursor;
+    }
+
+    false
+}
+
+fn text_has_unbraced_variable_subscript(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut index = 0usize;
+
+    while index < bytes.len() {
+        if bytes[index] != b'$' || byte_is_backslash_escaped(bytes, index) {
+            index += 1;
+            continue;
+        }
+
+        let next = index + 1;
+        if next >= bytes.len() || bytes[next] == b'{' || !is_name_start(bytes[next]) {
             index += 1;
             continue;
         }
