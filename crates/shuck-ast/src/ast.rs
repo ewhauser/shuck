@@ -1886,6 +1886,12 @@ impl Word {
         self.parts.iter().any(|part| part.kind.is_quoted())
     }
 
+    /// Returns this word's fully static decoded text when it contains no
+    /// runtime expansions.
+    pub fn try_static_text<'a>(&'a self, source: &'a str) -> Option<Cow<'a, str>> {
+        try_static_word_parts_text(&self.parts, source)
+    }
+
     /// Render this word using exact source slices when available and owned cooked
     /// text only where the parser normalized the input.
     pub fn render(&self, source: &str) -> String {
@@ -1946,6 +1952,46 @@ impl fmt::Display for Word {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.fmt_with_source_mode(f, None, RenderMode::Decoded)
     }
+}
+
+/// Returns fully static decoded text for a contiguous slice of word parts when
+/// the slice contains no runtime expansions.
+pub fn try_static_word_parts_text<'a>(
+    parts: &'a [WordPartNode],
+    source: &'a str,
+) -> Option<Cow<'a, str>> {
+    if let [part] = parts {
+        return try_static_word_part_text(part, source);
+    }
+
+    let mut result = String::new();
+    collect_static_word_parts_text(parts, source, &mut result).then_some(Cow::Owned(result))
+}
+
+fn try_static_word_part_text<'a>(part: &'a WordPartNode, source: &'a str) -> Option<Cow<'a, str>> {
+    match &part.kind {
+        WordPart::Literal(text) => Some(Cow::Borrowed(text.as_str(source, part.span))),
+        WordPart::SingleQuoted { value, .. } => Some(Cow::Borrowed(value.slice(source))),
+        WordPart::DoubleQuoted { parts, .. } => try_static_word_parts_text(parts, source),
+        _ => None,
+    }
+}
+
+fn collect_static_word_parts_text(parts: &[WordPartNode], source: &str, out: &mut String) -> bool {
+    for part in parts {
+        match &part.kind {
+            WordPart::Literal(text) => out.push_str(text.as_str(source, part.span)),
+            WordPart::SingleQuoted { value, .. } => out.push_str(value.slice(source)),
+            WordPart::DoubleQuoted { parts, .. } => {
+                if !collect_static_word_parts_text(parts, source, out) {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
+    }
+
+    true
 }
 
 /// Whether a heredoc body expands shell syntax.
@@ -3446,6 +3492,8 @@ pub enum AssignmentValue {
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Cow;
+
     use super::*;
 
     fn word(parts: Vec<WordPart>) -> Word {
@@ -3564,6 +3612,56 @@ mod tests {
 
     fn simple_stmt(name: &str, args: Vec<Word>) -> Stmt {
         stmt(Command::Simple(simple_command(name, args)))
+    }
+
+    #[test]
+    fn word_try_static_text_borrows_simple_static_words() {
+        assert!(matches!(
+            Word::literal("plain").try_static_text(""),
+            Some(Cow::Borrowed("plain"))
+        ));
+
+        let single_quoted = word(vec![WordPart::SingleQuoted {
+            value: "single".into(),
+            dollar: false,
+        }]);
+        assert!(matches!(
+            single_quoted.try_static_text(""),
+            Some(Cow::Borrowed("single"))
+        ));
+    }
+
+    #[test]
+    fn word_try_static_text_concatenates_nested_static_parts() {
+        let span = Span::new();
+        let word = Word {
+            parts: vec![
+                WordPartNode::new(WordPart::Literal(LiteralText::owned("foo")), span),
+                WordPartNode::new(
+                    WordPart::DoubleQuoted {
+                        parts: vec![WordPartNode::new(
+                            WordPart::Literal(LiteralText::owned("bar")),
+                            span,
+                        )],
+                        dollar: false,
+                    },
+                    span,
+                ),
+            ],
+            span,
+            brace_syntax: Vec::new(),
+        };
+
+        assert!(matches!(
+            word.try_static_text(""),
+            Some(Cow::Owned(ref value)) if value == "foobar"
+        ));
+    }
+
+    #[test]
+    fn word_try_static_text_rejects_runtime_expansions() {
+        let variable = word(vec![WordPart::Variable("name".into())]);
+        assert!(variable.try_static_text("").is_none());
     }
 
     fn span_for_source(source: &str) -> Span {

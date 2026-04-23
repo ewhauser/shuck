@@ -9,6 +9,7 @@ use shuck_ast::{
     HeredocBodyPartNode, Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern,
     PatternGroupKind, PatternPart, PatternPartNode, Span, Stmt, StmtSeq, Subscript, VarRef, Word,
     WordPart, WordPartNode, ZshExpansionOperation, ZshExpansionTarget, ZshGlobSegment,
+    try_static_word_parts_text,
 };
 use shuck_indexer::Indexer;
 use shuck_parser::{ShellProfile, ZshEmulationMode};
@@ -3405,8 +3406,7 @@ fn static_command_name_text(word: &Word, source: &str) -> Option<String> {
 }
 
 fn static_word_text(word: &Word, source: &str) -> Option<String> {
-    let mut result = String::new();
-    collect_static_word_text(&word.parts, source, &mut result).then_some(result)
+    word.try_static_text(source).map(|text| text.into_owned())
 }
 
 #[derive(Clone, Copy)]
@@ -3832,23 +3832,6 @@ fn normalize_recorded_zsh_option_name(name: &str) -> Option<(String, bool)> {
     Some((normalized, false))
 }
 
-fn collect_static_word_text(parts: &[WordPartNode], source: &str, out: &mut String) -> bool {
-    for part in parts {
-        match &part.kind {
-            WordPart::Literal(text) => out.push_str(text.as_str(source, part.span)),
-            WordPart::SingleQuoted { value, .. } => out.push_str(value.slice(source)),
-            WordPart::DoubleQuoted { parts, .. } => {
-                if !collect_static_word_text(parts, source, out) {
-                    return false;
-                }
-            }
-            _ => return false,
-        }
-    }
-
-    true
-}
-
 fn classify_dynamic_source_word(word: &Word, source: &str) -> SourceRefKind {
     let mut variable = None;
     let mut tail = String::new();
@@ -3940,8 +3923,7 @@ fn root_word_part_is_dynamic_root(part: &WordPart) -> bool {
 }
 
 fn static_parts_text(parts: &[WordPartNode], source: &str) -> Option<String> {
-    let mut result = String::new();
-    collect_static_word_text(parts, source, &mut result).then_some(result)
+    try_static_word_parts_text(parts, source).map(|text| text.into_owned())
 }
 
 fn static_tail_text_starts_with_slash(
@@ -3949,10 +3931,14 @@ fn static_tail_text_starts_with_slash(
     trailing: &[WordPartNode],
     source: &str,
 ) -> bool {
-    let mut result = String::new();
-    collect_static_word_text(parts, source, &mut result)
-        && collect_static_word_text(trailing, source, &mut result)
-        && result.starts_with('/')
+    let Some(prefix) = try_static_word_parts_text(parts, source) else {
+        return false;
+    };
+    if !prefix.is_empty() {
+        return prefix.starts_with('/');
+    }
+
+    try_static_word_parts_text(trailing, source).is_some_and(|text| text.starts_with('/'))
 }
 
 fn unset_flags_are_valid(flags: &str) -> bool {
