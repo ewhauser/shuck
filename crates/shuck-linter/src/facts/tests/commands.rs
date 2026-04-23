@@ -400,6 +400,78 @@ fn summarizes_command_options_and_invokers() {
 }
 
 #[test]
+fn bracket_command_name_separator_fact_tracks_split_test_commands() {
+    let source = "\
+#!/bin/sh
+amoeba=\"\" [ \"${AMOEBA:-yes}\" = \"yes\" ]
+[
+  \"$1\" = yes
+]
+";
+    let output = Parser::new(source).parse().unwrap();
+    let indexer = Indexer::new(source, &output);
+    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let file_context = classify_file_context(source, None, ShellDialect::Sh);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+    let line2 = facts
+        .commands()
+        .iter()
+        .find(|fact| fact.literal_name() == Some("[") && fact.span().start.line == 2)
+        .expect("expected inline test command");
+    let line3 = facts
+        .commands()
+        .iter()
+        .find(|fact| fact.literal_name() == Some("[") && fact.span().start.line == 3)
+        .expect("expected plain bracket command");
+
+    assert!(line2.bracket_command_name_needs_separator(source));
+    assert!(!line3.bracket_command_name_needs_separator(source));
+}
+
+#[test]
+fn command_facts_surface_command_name_shape_helpers() {
+    let source = "\
+#!/bin/sh
+\"$root/pkg/{{name}}/bin/{{cmd}}\"
+\"ERROR: missing first arg for name to docker_compose_version_test()\"
+\"${loader:?}\"
+\"$(printf cmd)\"
+printf#
+";
+    let output = Parser::new(source).parse().unwrap();
+    let indexer = Indexer::new(source, &output);
+    let semantic = SemanticModel::build(&output.file, source, &indexer);
+    let file_context = classify_file_context(source, None, ShellDialect::Sh);
+    let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+
+    let command = |text: &str| {
+        facts
+            .commands()
+            .iter()
+            .find(|command| {
+                command
+                    .body_word_span()
+                    .is_some_and(|span| span.slice(source) == text)
+            })
+            .expect("expected command fact")
+    };
+
+    let placeholder = command("\"$root/pkg/{{name}}/bin/{{cmd}}\"");
+    let suspicious_quote =
+        command("\"ERROR: missing first arg for name to docker_compose_version_test()\"");
+    let parameter_expansion = command("\"${loader:?}\"");
+    let command_substitution = command("\"$(printf cmd)\"");
+    let hash_suffix = command("printf#");
+
+    assert!(placeholder.body_word_contains_template_placeholder(source));
+    assert!(suspicious_quote.body_word_has_suspicious_quoted_command_trailer(source, None));
+    assert!(!parameter_expansion.body_word_has_suspicious_quoted_command_trailer(source, None));
+    assert!(!command_substitution.body_word_has_suspicious_quoted_command_trailer(source, None));
+    assert!(hash_suffix.body_word_has_hash_suffix(source));
+}
+
+#[test]
 fn ssh_command_facts_match_shellcheck_command_shape() {
     let source = "\
 #!/bin/bash

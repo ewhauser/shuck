@@ -152,6 +152,44 @@ impl<'a> CommandFact<'a> {
         self.normalized.body_word_span()
     }
 
+    pub fn body_word_contains_template_placeholder(&self, source: &str) -> bool {
+        let Some(span) = self.body_word_span() else {
+            return false;
+        };
+        contains_template_placeholder_text(span.slice(source))
+    }
+
+    pub fn body_word_has_suspicious_quoted_command_trailer(
+        &self,
+        source: &str,
+        trailing_literal_char: Option<char>,
+    ) -> bool {
+        let Some(span) = self.body_word_span() else {
+            return false;
+        };
+        quoted_command_name_has_suspicious_ending(span.slice(source), trailing_literal_char)
+    }
+
+    pub fn body_word_has_hash_suffix(&self, source: &str) -> bool {
+        let Some(span) = self.body_word_span() else {
+            return false;
+        };
+        let text = span.slice(source);
+        text != "#" && text.ends_with('#')
+    }
+
+    pub fn bracket_command_name_needs_separator(&self, source: &str) -> bool {
+        if self.literal_name() != Some("[") {
+            return false;
+        }
+
+        let Some(span) = self.body_word_span() else {
+            return false;
+        };
+        let raw = span.slice(source);
+        raw != "[" || self.span().start.offset < span.start.offset
+    }
+
     pub fn body_args(&self) -> &[&'a Word] {
         self.normalized.body_args()
     }
@@ -180,10 +218,7 @@ fn pipeline_span_with_shellcheck_tail(
     let Some(body_name_word) = first.body_name_word() else {
         unreachable!("plain echo command should have a body name");
     };
-    Span::from_positions(
-        body_name_word.span.start,
-        end,
-    )
+    Span::from_positions(body_name_word.span.start, end)
 }
 
 fn command_span_with_redirects_and_shellcheck_tail(
@@ -226,6 +261,111 @@ fn effective_command_zsh_options(
     options
 }
 
+fn contains_template_placeholder_text(text: &str) -> bool {
+    let Some(start) = text.find("{{") else {
+        return false;
+    };
+    text[start + 2..].contains("}}")
+}
+
+fn quoted_command_name_has_suspicious_ending(
+    text: &str,
+    trailing_literal_char: Option<char>,
+) -> bool {
+    let Some(inner) = strip_matching_quotes(text) else {
+        return false;
+    };
+
+    let Some(ch) = trailing_literal_char.or_else(|| inner.chars().next_back()) else {
+        return false;
+    };
+    if !is_suspicious_command_trailer(ch) {
+        return false;
+    }
+    if trailing_literal_char.is_some() {
+        return true;
+    }
+
+    match ch {
+        '}' => !inner_ends_with_parameter_expansion(inner),
+        ')' => !inner_ends_with_command_substitution(inner),
+        _ => true,
+    }
+}
+
+fn strip_matching_quotes(text: &str) -> Option<&str> {
+    if text.len() < 2 {
+        return None;
+    }
+
+    match (
+        text.as_bytes().first().copied(),
+        text.as_bytes().last().copied(),
+    ) {
+        (Some(b'"'), Some(b'"')) | (Some(b'\''), Some(b'\'')) => Some(&text[1..text.len() - 1]),
+        _ => None,
+    }
+}
+
+fn is_suspicious_command_trailer(ch: char) -> bool {
+    matches!(
+        ch,
+        '.' | ',' | '#' | '[' | ']' | '(' | ')' | '{' | '}' | '\''
+    )
+}
+
+fn inner_ends_with_parameter_expansion(inner: &str) -> bool {
+    if !inner.ends_with('}') {
+        return false;
+    }
+
+    let bytes = inner.as_bytes();
+    let mut depth = 1usize;
+    let mut index = bytes.len() - 1;
+
+    while index > 0 {
+        index -= 1;
+        match bytes[index] {
+            b'}' => depth += 1,
+            b'{' => {
+                depth -= 1;
+                if depth == 0 {
+                    return index > 0 && bytes[index - 1] == b'$';
+                }
+            }
+            _ => {}
+        }
+    }
+
+    false
+}
+
+fn inner_ends_with_command_substitution(inner: &str) -> bool {
+    if !inner.ends_with(')') {
+        return false;
+    }
+
+    let bytes = inner.as_bytes();
+    let mut depth = 1usize;
+    let mut index = bytes.len() - 1;
+
+    while index > 0 {
+        index -= 1;
+        match bytes[index] {
+            b')' => depth += 1,
+            b'(' => {
+                depth -= 1;
+                if depth == 0 {
+                    return index > 0 && bytes[index - 1] == b'$';
+                }
+            }
+            _ => {}
+        }
+    }
+
+    false
+}
+
 fn extend_over_shellcheck_trailing_inline_space(end: Position, source: &str) -> Position {
     let tail = &source[end.offset..];
     let spaces_len = tail
@@ -263,7 +403,6 @@ fn position_at_offset(source: &str, target_offset: usize) -> Option<Position> {
     }
     Some(position)
 }
-
 
 fn build_background_semicolon_spans(
     commands: &[CommandFact<'_>],
@@ -314,7 +453,6 @@ fn background_semicolon_span(
     let end = position_at_offset(source, semicolon_offset + 1)?;
     Some(Span::from_positions(start, end))
 }
-
 
 fn build_scope_read_source_words<'a>(
     commands: &[CommandFact<'a>],
@@ -517,7 +655,6 @@ fn plain_backtick_command_name_span(word: &Word) -> Option<Span> {
         _ => None,
     }
 }
-
 
 fn command_span(command: &Command) -> Span {
     match command {

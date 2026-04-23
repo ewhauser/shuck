@@ -1,4 +1,4 @@
-use crate::{Checker, ExpansionContext, Rule, Violation, WordFactContext};
+use crate::{Checker, Rule, Violation};
 
 pub struct TemplateBraceInCommand;
 
@@ -22,144 +22,19 @@ pub fn template_brace_in_command(checker: &mut Checker) {
         .filter(|command| command.wrappers().is_empty())
         .filter_map(|command| {
             let span = command.body_word_span()?;
-            let text = span.slice(source);
             let trailing_literal_char = facts
-                .word_fact(
-                    span,
-                    WordFactContext::Expansion(ExpansionContext::CommandName),
-                )
+                .any_word_fact(span)
                 .and_then(|word| word.trailing_literal_char());
-            (contains_template_placeholder(text)
-                || quoted_command_name_has_suspicious_ending(text, trailing_literal_char)
-                || unquoted_command_name_has_hash_suffix(text)
-                || bracket_command_name_needs_separator(command, span, source))
-            .then_some(span)
+            let suspicious_word_shape = command.body_word_contains_template_placeholder(source)
+                || command
+                    .body_word_has_suspicious_quoted_command_trailer(source, trailing_literal_char)
+                || command.body_word_has_hash_suffix(source);
+            (suspicious_word_shape || command.bracket_command_name_needs_separator(source))
+                .then_some(span)
         })
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || TemplateBraceInCommand);
-}
-
-fn contains_template_placeholder(text: &str) -> bool {
-    let Some(start) = text.find("{{") else {
-        return false;
-    };
-    text[start + 2..].contains("}}")
-}
-
-fn quoted_command_name_has_suspicious_ending(
-    text: &str,
-    trailing_literal_char: Option<char>,
-) -> bool {
-    let Some(inner) = strip_matching_quotes(text) else {
-        return false;
-    };
-
-    let Some(ch) = trailing_literal_char.or_else(|| inner.chars().next_back()) else {
-        return false;
-    };
-    if !is_suspicious_command_trailer(ch) {
-        return false;
-    }
-    if trailing_literal_char.is_some() {
-        return true;
-    }
-
-    match ch {
-        '}' => !inner_ends_with_parameter_expansion(inner),
-        ')' => !inner_ends_with_command_substitution(inner),
-        _ => true,
-    }
-}
-
-fn strip_matching_quotes(text: &str) -> Option<&str> {
-    if text.len() < 2 {
-        return None;
-    }
-
-    match (
-        text.as_bytes().first().copied(),
-        text.as_bytes().last().copied(),
-    ) {
-        (Some(b'"'), Some(b'"')) | (Some(b'\''), Some(b'\'')) => Some(&text[1..text.len() - 1]),
-        _ => None,
-    }
-}
-
-fn is_suspicious_command_trailer(ch: char) -> bool {
-    matches!(
-        ch,
-        '.' | ',' | '#' | '[' | ']' | '(' | ')' | '{' | '}' | '\''
-    )
-}
-
-fn inner_ends_with_parameter_expansion(inner: &str) -> bool {
-    if !inner.ends_with('}') {
-        return false;
-    }
-
-    let bytes = inner.as_bytes();
-    let mut depth = 1usize;
-    let mut index = bytes.len() - 1;
-
-    while index > 0 {
-        index -= 1;
-        match bytes[index] {
-            b'}' => depth += 1,
-            b'{' => {
-                depth -= 1;
-                if depth == 0 {
-                    return index > 0 && bytes[index - 1] == b'$';
-                }
-            }
-            _ => {}
-        }
-    }
-
-    false
-}
-
-fn inner_ends_with_command_substitution(inner: &str) -> bool {
-    if !inner.ends_with(')') {
-        return false;
-    }
-
-    let bytes = inner.as_bytes();
-    let mut depth = 1usize;
-    let mut index = bytes.len() - 1;
-
-    while index > 0 {
-        index -= 1;
-        match bytes[index] {
-            b')' => depth += 1,
-            b'(' => {
-                depth -= 1;
-                if depth == 0 {
-                    return index > 0 && bytes[index - 1] == b'$';
-                }
-            }
-            _ => {}
-        }
-    }
-
-    false
-}
-
-fn unquoted_command_name_has_hash_suffix(text: &str) -> bool {
-    text != "#" && text.ends_with('#')
-}
-
-fn bracket_command_name_needs_separator(
-    command: &crate::CommandFact<'_>,
-    span: shuck_ast::Span,
-    source: &str,
-) -> bool {
-    if command.literal_name() != Some("[") {
-        return false;
-    }
-
-    let raw = span.slice(source);
-    raw != "[" || command.span().start.offset < span.start.offset
 }
 
 #[cfg(test)]
