@@ -1214,7 +1214,7 @@ fn parse_rm_command(args: &[&Word], source: &str) -> Option<RmCommandFacts> {
 
     let dangerous_path_spans = args[index..]
         .iter()
-        .flat_map(|word| std::iter::repeat(word.span).take(rm_path_danger_count(word, source)))
+        .flat_map(|word| std::iter::repeat_n(word.span, rm_path_danger_count(word, source)))
         .collect::<Vec<_>>();
 
     (!dangerous_path_spans.is_empty()).then_some(RmCommandFacts {
