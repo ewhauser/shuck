@@ -2774,9 +2774,9 @@ fn build_large_corpus_linter_settings(
         let rules = expand_selected_rules_for_large_corpus(&rules);
         shuck_linter::LinterSettings::for_rules(rules.iter())
     } else if mapped_only {
-        let mapped_rules: HashSet<_> = shuck_linter::ShellCheckCodeMap::default()
-            .mappings()
-            .map(|(_, rule)| rule)
+        let shellcheck_map = shuck_linter::ShellCheckCodeMap::default();
+        let mapped_rules: HashSet<_> = shuck_linter::Rule::iter()
+            .filter(|rule| large_corpus_shellcheck_code_for_rule(&shellcheck_map, *rule).is_some())
             .collect();
         shuck_linter::LinterSettings::for_rules(mapped_rules)
     } else {
@@ -5097,6 +5097,22 @@ mod tests {
         assert_eq!(
             large_corpus_c001_compat_note_line(&settings),
             Some(LARGE_CORPUS_C001_COMPAT_NOTE)
+        );
+    }
+
+    #[test]
+    fn mapped_only_large_corpus_settings_keep_x080_enabled() {
+        let settings = build_large_corpus_linter_settings(None, true);
+
+        assert!(
+            settings
+                .rules
+                .contains(shuck_linter::Rule::SourceBuiltinInSh)
+        );
+        assert!(
+            settings
+                .rules
+                .contains(shuck_linter::Rule::SourceInsideFunctionInSh)
         );
     }
 

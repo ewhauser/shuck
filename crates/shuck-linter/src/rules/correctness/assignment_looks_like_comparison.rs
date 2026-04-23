@@ -118,6 +118,9 @@ fn assignment_value_looks_like_comparison(
 
     let target = assignment.target.name.as_str();
     let value = static_word_text(word, source)?;
+    if value.contains(',') {
+        return None;
+    }
     let (prefix, remainder) = value.split_once('-')?;
     if remainder.is_empty() {
         return None;
@@ -193,5 +196,22 @@ BASE_IMAGE_JOB_TOPIC=schedule-base-image-build
                 .collect::<Vec<_>>(),
             vec!["schedule-base-image-build"]
         );
+    }
+
+    #[test]
+    fn ignores_comma_separated_command_lists_with_hyphenated_items() {
+        let source = "\
+#!/bin/bash
+helper() {
+    local list=
+    local list_cmds=list-mainporcelain,others,nohelpers,alias,list-complete,config
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::AssignmentLooksLikeComparison),
+        );
+
+        assert!(diagnostics.is_empty());
     }
 }
