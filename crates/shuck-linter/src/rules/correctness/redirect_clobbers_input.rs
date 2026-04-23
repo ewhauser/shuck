@@ -316,6 +316,11 @@ read input_path < input_path
 while read loop_path; do
   :
 done < loop_path
+while read heredoc_path; do
+  cat <<EOF
+$heredoc_path
+EOF
+done < heredoc_path
 while read iplist; do
   cat <<EOF >> json2
 \"$iplist/32\"
@@ -359,6 +364,9 @@ f() {
                 "input_path",
                 "loop_path",
                 "loop_path",
+                "heredoc_path",
+                "heredoc_path",
+                "heredoc_path",
                 "iplist",
                 "iplist",
                 "iplist",
