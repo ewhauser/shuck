@@ -130,6 +130,23 @@ mod tests {
     }
 
     #[test]
+    fn anchors_on_update_operators_inside_compound_assignment_key_words() {
+        let source = "#!/bin/sh\narr=([$((i++))]=x [$(printf '%s' \"$((j--))\")]=y)\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CStyleForArithmeticInSh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["++", "--"]
+        );
+    }
+
+    #[test]
     fn anchors_on_update_operators_inside_double_bracket_operands() {
         let source = "#!/bin/sh\n[[ \"$((i++))\" -gt 0 && \"$((j--))\" -lt 3 ]]\n";
         let diagnostics = test_snippet(

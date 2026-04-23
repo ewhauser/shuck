@@ -748,6 +748,9 @@ fn collect_arithmetic_update_operator_spans_in_assignment(
                                 spans,
                             );
                         }
+                        collect_arithmetic_update_operator_spans_in_subscript_words(
+                            key, semantic, source, spans,
+                        );
                         collect_arithmetic_update_operator_spans_in_word(
                             value, semantic, source, spans,
                         );
@@ -1044,6 +1047,23 @@ fn collect_arithmetic_update_operator_spans_in_subscript(
     if let Some(expression) = subscript.arithmetic_ast.as_ref() {
         collect_arithmetic_update_operator_spans(Some(expression), source, spans);
     }
+}
+
+fn collect_arithmetic_update_operator_spans_in_subscript_words(
+    subscript: &Subscript,
+    semantic: &SemanticModel,
+    source: &str,
+    spans: &mut Vec<Span>,
+) {
+    query::visit_subscript_words(Some(subscript), source, &mut |word| {
+        collect_arithmetic_update_operator_spans_from_parts_impl(
+            &word.parts,
+            semantic,
+            source,
+            spans,
+            true,
+        );
+    });
 }
 
 fn collect_arithmetic_update_operator_spans(
