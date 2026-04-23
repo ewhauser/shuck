@@ -22,6 +22,7 @@ pub fn zsh_flag_expansion(checker: &mut Checker) {
         .facts()
         .word_facts()
         .iter()
+        .filter(|fact| !fact.is_in_positive_zsh_guard())
         .flat_map(|fact| fact.zsh_flag_modifier_spans())
         .collect::<Vec<_>>();
 
@@ -55,6 +56,20 @@ mod tests {
     #[test]
     fn ignores_empty_target_modifier_forms() {
         let source = "#!/bin/sh\nx=${(%):-%x}\n";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ZshFlagExpansion));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_positive_zsh_compatibility_guards() {
+        let source = "\
+#!/bin/bash
+if [[ -n \"${ZSH_VERSION:-}\" ]]
+then parts=(${=rvm_ruby_string//-/ })
+else parts=(${rvm_ruby_string//-/ })
+fi
+";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::ZshFlagExpansion));
 
         assert!(diagnostics.is_empty());
