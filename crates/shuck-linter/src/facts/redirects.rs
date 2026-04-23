@@ -36,6 +36,7 @@ impl<'a> RedirectFact<'a> {
 
 fn build_redirect_facts<'a>(
     redirects: &'a [Redirect],
+    semantic: Option<&SemanticModel>,
     source: &str,
     zsh_options: Option<&ZshOptionState>,
 ) -> Box<[RedirectFact<'a>]> {
@@ -50,11 +51,14 @@ fn build_redirect_facts<'a>(
                 .word_target()
                 .map_or_else(Vec::new, |word| {
                     let mut spans = Vec::new();
-                    collect_arithmetic_update_operator_spans_from_parts(
-                        &word.parts,
-                        source,
-                        &mut spans,
-                    );
+                    if let Some(semantic) = semantic {
+                        collect_arithmetic_update_operator_spans_from_parts(
+                            &word.parts,
+                            semantic,
+                            source,
+                            &mut spans,
+                        );
+                    }
                     spans
                 })
                 .into_boxed_slice(),
@@ -123,4 +127,3 @@ fn redirect_operator_text(kind: RedirectKind) -> &'static str {
         RedirectKind::OutputBoth => "&>",
     }
 }
-

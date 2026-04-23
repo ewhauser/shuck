@@ -153,8 +153,12 @@ impl<'a> LinterFactsBuilder<'a> {
                     surface: &mut surface_fragments,
                 },
             );
-            let redirect_facts =
-                build_redirect_facts(visit.redirects, self.source, command_zsh_options.as_ref());
+            let redirect_facts = build_redirect_facts(
+                visit.redirects,
+                Some(self.semantic),
+                self.source,
+                command_zsh_options.as_ref(),
+            );
             let options = CommandOptionFacts::build(visit.command, &normalized, self.source);
             let declaration_assignment_probes = build_declaration_assignment_probes(
                 visit.command,

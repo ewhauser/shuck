@@ -180,6 +180,17 @@ mod tests {
     }
 
     #[test]
+    fn ignores_contextual_associative_reference_subscripts_that_look_like_updates() {
+        let source = "#!/bin/sh\ndeclare -A tools\necho \"${tools[c++]}\"\n[[ ${tools[d--]} ]]\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::CStyleForArithmeticInSh),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn ignores_bash_scripts() {
         let source = "#!/bin/bash\nfor ((++i; j < 3; k--)); do :; done\n";
         let diagnostics = test_snippet(
