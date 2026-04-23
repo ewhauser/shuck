@@ -474,7 +474,7 @@ fn c107_arithmetic_expr_is_zero_literal(
 }
 
 fn c107_status_word_span(word: &Word) -> Option<Span> {
-    crate::word_is_standalone_status_capture(word).then_some(word.span)
+    word_is_standalone_status_capture(word).then_some(word.span)
 }
 
 fn c107_word_is_zero_literal(word: &Word, source: &str) -> bool {

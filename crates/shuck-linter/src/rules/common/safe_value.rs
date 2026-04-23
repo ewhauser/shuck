@@ -2,7 +2,8 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     BourneParameterExpansion, BuiltinCommand, Command, CompoundCommand, FunctionDef, Name,
     ParameterExpansion, ParameterExpansionSyntax, ParameterOp, RedirectKind, SourceText, Span,
-    Stmt, StmtSeq, StmtTerminator, VarRef, Word, WordPart, WordPartNode,
+    Stmt, StmtSeq, StmtTerminator, VarRef, Word, WordPart, WordPartNode, static_word_text,
+    word_is_standalone_status_capture, word_is_standalone_variable_like,
 };
 use shuck_semantic::{
     AssignmentValueOrigin, BindingAttributes, BindingKind, BindingOrigin, LoopValueOrigin, ScopeId,
@@ -12,10 +13,7 @@ use shuck_semantic::{BindingId, BlockId, ReferenceId, ReferenceKind};
 
 use crate::{FactSpan, LinterFacts};
 
-use super::{
-    expansion::{ExpansionContext, analyze_literal_runtime},
-    word::static_word_text,
-};
+use super::expansion::{ExpansionContext, analyze_literal_runtime};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SafeValueQuery {
@@ -342,7 +340,7 @@ impl<'a> SafeValueIndex<'a> {
             command.body_args().iter().any(|word| word.span == at)
                 && command
                     .body_name_word()
-                    .is_some_and(crate::word_is_standalone_variable_like)
+                    .is_some_and(word_is_standalone_variable_like)
         })
     }
 
@@ -558,7 +556,7 @@ impl<'a> SafeValueIndex<'a> {
                     .and_then(|value| value.scalar_word());
                 if case_cli_scope == Some(binding.scope)
                     && matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
-                    && scalar_word.is_some_and(crate::word_is_standalone_status_capture)
+                    && scalar_word.is_some_and(word_is_standalone_status_capture)
                 {
                     false
                 } else {

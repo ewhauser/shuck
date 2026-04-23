@@ -1,6 +1,6 @@
-use crate::{
-    Checker, CommandFact, ExpansionContext, Rule, Violation, WordFactContext, static_word_text,
-};
+use shuck_ast::static_word_text;
+
+use crate::{Checker, CommandFact, ExpansionContext, Rule, Violation, WordFactContext};
 
 pub struct UnquotedPathInMkdir;
 

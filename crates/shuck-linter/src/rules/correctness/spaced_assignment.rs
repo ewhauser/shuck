@@ -1,6 +1,6 @@
-use shuck_ast::DeclOperand;
+use shuck_ast::{DeclOperand, static_word_text};
 
-use crate::{Checker, Rule, Violation, static_word_text};
+use crate::{Checker, Rule, Violation};
 
 pub struct SpacedAssignment;
 

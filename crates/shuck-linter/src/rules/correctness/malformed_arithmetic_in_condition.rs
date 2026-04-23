@@ -1,10 +1,9 @@
-use shuck_ast::Span;
+use shuck_ast::{ConditionalBinaryOp, Span, static_word_text};
 
 use crate::{
     Checker, ConditionalNodeFact, ExpansionContext, Rule, SimpleTestShape, Violation,
-    WordFactContext, WordQuote, static_word_text,
+    WordFactContext, WordQuote,
 };
-use shuck_ast::ConditionalBinaryOp;
 
 pub struct MalformedArithmeticInCondition;
 

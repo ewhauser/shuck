@@ -1,11 +1,9 @@
 use shuck_ast::{
     BourneParameterExpansion, ParameterExpansion, ParameterExpansionSyntax, PrefixMatchKind,
     Redirect, RedirectKind, Span, SubscriptSelector, Word, WordPart, WordPartNode,
-    ZshExpansionOperation,
+    ZshExpansionOperation, static_word_text,
 };
 use shuck_semantic::{OptionValue, ZshOptionState};
-
-use super::word::static_word_text;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ExpansionContext {

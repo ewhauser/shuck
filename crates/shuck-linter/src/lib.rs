@@ -98,14 +98,10 @@ pub use rules::common::expansion::{
 pub use rules::common::query::CommandSubstitutionKind;
 #[allow(unused_imports)]
 pub(crate) use rules::common::safe_value::{SafeValueIndex, SafeValueQuery};
+#[allow(unused_imports)]
+pub(crate) use rules::common::word::conditional_binary_op_is_string_match;
 /// Word and test-classification types exposed by fact APIs.
 pub use rules::common::word::{TestOperandClass, WordClassification};
-#[allow(unused_imports)]
-pub(crate) use rules::common::word::{
-    conditional_binary_op_is_string_match, is_shell_variable_name, static_word_text,
-    text_is_self_contained_arithmetic_expression, text_looks_like_nontrivial_arithmetic_expression,
-    word_is_standalone_status_capture, word_is_standalone_variable_like,
-};
 /// Linter configuration and per-file ignore types.
 pub use settings::{
     AmbientShellOptions, C001RuleOptions, CompiledPerFileIgnoreList, LinterRuleOptions,

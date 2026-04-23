@@ -1,9 +1,9 @@
-use shuck_ast::{ConditionalUnaryOp, Word};
+use shuck_ast::{ConditionalUnaryOp, Word, static_word_text};
 
 use crate::facts::word_spans;
 use crate::{
     Checker, ConditionalNodeFact, ConditionalOperatorFamily, Edit, Fix, FixAvailability, Rule,
-    Violation, static_word_text,
+    Violation,
 };
 
 pub struct LiteralUnaryStringTest;

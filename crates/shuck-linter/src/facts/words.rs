@@ -2986,16 +2986,6 @@ fn text_contains_shell_quoting_literals(
     false
 }
 
-fn is_shell_variable_name(name: &str) -> bool {
-    let mut chars = name.chars();
-    match chars.next() {
-        Some(first) if first == '_' || first.is_ascii_alphabetic() => {
-            chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
-        }
-        _ => false,
-    }
-}
-
 fn is_scannable_simple_arithmetic_subscript_text(text: &str) -> bool {
     let trimmed = text.trim();
     !trimmed.is_empty()

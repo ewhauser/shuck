@@ -1015,7 +1015,7 @@ mod tests {
         output.file.body
     }
 
-    fn static_word_text(word: &Word, source: &str) -> Option<String> {
+    fn static_word_owned_text(word: &Word, source: &str) -> Option<String> {
         word.try_static_text(source).map(|text| text.into_owned())
     }
 
@@ -1050,7 +1050,7 @@ mod tests {
                 return None;
             };
 
-            static_word_text(&command.name, source)
+            static_word_owned_text(&command.name, source)
         })
         .collect::<Vec<_>>();
 
@@ -1065,7 +1065,7 @@ mod tests {
                 return None;
             };
 
-            static_word_text(&command.name, source)
+            static_word_owned_text(&command.name, source)
         })
         .collect::<Vec<_>>();
 
@@ -1094,7 +1094,7 @@ fi
                 let Command::Simple(command) = visit.command else {
                     return;
                 };
-                let Some(name) = static_word_text(&command.name, source) else {
+                let Some(name) = static_word_owned_text(&command.name, source) else {
                     return;
                 };
                 if name == ":" {
@@ -1158,7 +1158,7 @@ done
                 let Command::Simple(command) = visit.command else {
                     return;
                 };
-                let Some(name) = static_word_text(&command.name, source) else {
+                let Some(name) = static_word_owned_text(&command.name, source) else {
                     return;
                 };
                 if name == ":" {
@@ -1201,7 +1201,7 @@ printf '%s\\n' ${value:-$(expr $(nproc) + 1)}
                 let Command::Simple(command) = visit.command else {
                     return;
                 };
-                let Some(name) = static_word_text(&command.name, source) else {
+                let Some(name) = static_word_owned_text(&command.name, source) else {
                     return;
                 };
                 visits.push((name, context.nested_word_command));
@@ -1230,7 +1230,7 @@ printf '%s\\n' ${value:-$(expr $(nproc) + 1)}
             .expect("expected pipeline segments")
             .into_iter()
             .map(|stmt| match &stmt.command {
-                Command::Simple(command) => static_word_text(&command.name, source).unwrap(),
+                Command::Simple(command) => static_word_owned_text(&command.name, source).unwrap(),
                 _ => "<non-simple>".to_owned(),
             })
             .collect::<Vec<_>>();

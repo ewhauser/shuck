@@ -1,9 +1,9 @@
 use rustc_hash::FxHashSet;
-use shuck_ast::{Assignment, AssignmentValue, BuiltinCommand, Command, DeclOperand, Span};
-
-use crate::{
-    Checker, ExpansionContext, Rule, Violation, WordFactContext, WordQuote, static_word_text,
+use shuck_ast::{
+    Assignment, AssignmentValue, BuiltinCommand, Command, DeclOperand, Span, static_word_text,
 };
+
+use crate::{Checker, ExpansionContext, Rule, Violation, WordFactContext, WordQuote};
 
 pub struct AssignmentLooksLikeComparison;
 

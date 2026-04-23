@@ -1889,7 +1889,7 @@ impl Word {
     /// Returns this word's fully static decoded text when it contains no
     /// runtime expansions.
     pub fn try_static_text<'a>(&'a self, source: &'a str) -> Option<Cow<'a, str>> {
-        try_static_word_parts_text(&self.parts, source)
+        static_word_text(self, source)
     }
 
     /// Render this word using exact source slices when available and owned cooked
@@ -1954,6 +1954,12 @@ impl fmt::Display for Word {
     }
 }
 
+/// Returns a word's fully static decoded text when it contains no runtime
+/// expansions.
+pub fn static_word_text<'a>(word: &'a Word, source: &'a str) -> Option<Cow<'a, str>> {
+    try_static_word_parts_text(&word.parts, source)
+}
+
 /// Returns fully static decoded text for a contiguous slice of word parts when
 /// the slice contains no runtime expansions.
 pub fn try_static_word_parts_text<'a>(
@@ -1992,6 +1998,59 @@ fn collect_static_word_parts_text(parts: &[WordPartNode], source: &str, out: &mu
     }
 
     true
+}
+
+/// Returns whether `name` is a shell variable identifier.
+pub fn is_shell_variable_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(first) if first == '_' || first.is_ascii_alphabetic() => {
+            chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+        }
+        _ => false,
+    }
+}
+
+/// Returns whether the word is a single variable-like expansion part.
+pub fn word_is_standalone_variable_like(word: &Word) -> bool {
+    match word.parts.as_slice() {
+        [part] => matches!(
+            part.kind,
+            WordPart::Variable(_)
+                | WordPart::Parameter(_)
+                | WordPart::ParameterExpansion { .. }
+                | WordPart::Length(_)
+                | WordPart::ArrayAccess(_)
+                | WordPart::ArrayLength(_)
+                | WordPart::ArrayIndices(_)
+                | WordPart::Substring { .. }
+                | WordPart::ArraySlice { .. }
+                | WordPart::IndirectExpansion { .. }
+                | WordPart::PrefixMatch { .. }
+                | WordPart::Transformation { .. }
+        ),
+        _ => false,
+    }
+}
+
+/// Returns whether the word captures only the previous command status.
+pub fn word_is_standalone_status_capture(word: &Word) -> bool {
+    matches!(word.parts.as_slice(), [part] if is_standalone_status_capture_part(&part.kind))
+}
+
+fn is_standalone_status_capture_part(part: &WordPart) -> bool {
+    match part {
+        WordPart::Variable(name) => name.as_str() == "?",
+        WordPart::DoubleQuoted { parts, .. } => {
+            matches!(parts.as_slice(), [part] if is_standalone_status_capture_part(&part.kind))
+        }
+        WordPart::Parameter(parameter) => matches!(
+            parameter.bourne(),
+            Some(BourneParameterExpansion::Access { reference })
+                if reference.name.as_str() == "?" && reference.subscript.is_none()
+        ),
+        _ => false,
+    }
 }
 
 /// Whether a heredoc body expands shell syntax.
@@ -3662,6 +3721,69 @@ mod tests {
     fn word_try_static_text_rejects_runtime_expansions() {
         let variable = word(vec![WordPart::Variable("name".into())]);
         assert!(variable.try_static_text("").is_none());
+    }
+
+    #[test]
+    fn shell_variable_name_helper_matches_identifier_rules() {
+        assert!(is_shell_variable_name("name"));
+        assert!(is_shell_variable_name("_name123"));
+        assert!(!is_shell_variable_name("1name"));
+        assert!(!is_shell_variable_name("name-value"));
+    }
+
+    #[test]
+    fn word_is_standalone_variable_like_matches_single_expansion_words() {
+        assert!(word_is_standalone_variable_like(&word(vec![
+            WordPart::Variable("name".into())
+        ])));
+        assert!(word_is_standalone_variable_like(&word(vec![
+            WordPart::Length(plain_ref("name"))
+        ])));
+        assert!(!word_is_standalone_variable_like(&word(vec![
+            WordPart::Literal(LiteralText::owned("prefix")),
+            WordPart::Variable("name".into()),
+        ])));
+        assert!(!word_is_standalone_variable_like(&word(vec![
+            WordPart::DoubleQuoted {
+                parts: vec![WordPartNode::new(
+                    WordPart::Variable("name".into()),
+                    Span::new(),
+                )],
+                dollar: false,
+            }
+        ])));
+    }
+
+    #[test]
+    fn word_is_standalone_status_capture_handles_plain_quoted_and_parameter_forms() {
+        assert!(word_is_standalone_status_capture(&word(vec![
+            WordPart::Variable("?".into())
+        ])));
+        assert!(word_is_standalone_status_capture(&word(vec![
+            WordPart::DoubleQuoted {
+                parts: vec![WordPartNode::new(
+                    WordPart::Variable("?".into()),
+                    Span::new(),
+                )],
+                dollar: false,
+            }
+        ])));
+        assert!(word_is_standalone_status_capture(&word(vec![
+            WordPart::Parameter(ParameterExpansion {
+                syntax: ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access {
+                    reference: plain_ref("?"),
+                }),
+                span: Span::new(),
+                raw_body: "?".into(),
+            })
+        ])));
+        assert!(!word_is_standalone_status_capture(&word(vec![
+            WordPart::Variable("name".into())
+        ])));
+        assert!(!word_is_standalone_status_capture(&word(vec![
+            WordPart::Literal(LiteralText::owned("status=")),
+            WordPart::Variable("?".into()),
+        ])));
     }
 
     fn span_for_source(source: &str) -> Span {

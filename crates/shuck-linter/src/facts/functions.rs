@@ -227,7 +227,7 @@ fn stmt_is_top_level_status_exit(stmt: &Stmt) -> bool {
     command
         .code
         .as_ref()
-        .is_some_and(crate::word_is_standalone_status_capture)
+        .is_some_and(word_is_standalone_status_capture)
 }
 
 fn build_function_parameter_fallback_spans(
@@ -807,7 +807,7 @@ fn terminal_redundant_return_status_span(commands: &StmtSeq) -> Option<Span> {
         return None;
     }
     let code = command.code.as_ref()?;
-    crate::word_is_standalone_status_capture(code).then_some(code.span)
+    word_is_standalone_status_capture(code).then_some(code.span)
 }
 
 fn stmt_is_terminal_status_propagating_command(stmt: &Stmt) -> bool {

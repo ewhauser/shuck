@@ -1,10 +1,4 @@
-use std::borrow::Cow;
-
-use shuck_ast::{
-    ArithmeticExpr, BourneParameterExpansion, Command, CompoundCommand, ConditionalBinaryOp,
-    ConditionalExpr, Pattern, PatternPart, Word, WordPart,
-};
-use shuck_parser::parser::Parser;
+use shuck_ast::{ConditionalBinaryOp, ConditionalExpr, Pattern, PatternPart, Word};
 
 pub use super::expansion::{
     ExpansionContext, WordExpansionKind, WordLiteralness, WordQuote, WordSubstitutionShape,
@@ -62,102 +56,6 @@ impl TestOperandClass {
     }
 }
 
-pub fn static_word_text<'a>(word: &'a Word, source: &'a str) -> Option<Cow<'a, str>> {
-    word.try_static_text(source)
-}
-
-pub fn is_shell_variable_name(name: &str) -> bool {
-    let mut chars = name.chars();
-    match chars.next() {
-        Some(first) if first == '_' || first.is_ascii_alphabetic() => {
-            chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
-        }
-        _ => false,
-    }
-}
-
-pub fn text_looks_like_nontrivial_arithmetic_expression(text: &str) -> bool {
-    let text = text.trim();
-    if text.is_empty() {
-        return false;
-    }
-
-    let source = format!("(( {text} ))");
-    let file = Parser::new(&source).parse();
-    if file.is_err() {
-        return false;
-    }
-
-    let Some(statement) = file.file.body.first() else {
-        return false;
-    };
-
-    let Command::Compound(CompoundCommand::Arithmetic(command)) = &statement.command else {
-        return false;
-    };
-
-    command.expr_ast.as_ref().is_some_and(|expr| {
-        !matches!(
-            expr.kind,
-            ArithmeticExpr::Number(_) | ArithmeticExpr::Variable(_)
-        )
-    })
-}
-
-pub fn text_is_self_contained_arithmetic_expression(text: &str) -> bool {
-    let text = text.trim();
-    if text.is_empty() {
-        return false;
-    }
-
-    let source = format!("(( {text} ))");
-    let file = Parser::new(&source).parse();
-    if file.is_err() {
-        return false;
-    }
-
-    let Some(statement) = file.file.body.first() else {
-        return false;
-    };
-
-    let Command::Compound(CompoundCommand::Arithmetic(command)) = &statement.command else {
-        return false;
-    };
-
-    command
-        .expr_ast
-        .as_ref()
-        .is_some_and(arithmetic_expr_is_self_contained)
-}
-
-fn arithmetic_expr_is_self_contained(expr: &shuck_ast::ArithmeticExprNode) -> bool {
-    match &expr.kind {
-        ArithmeticExpr::Number(_) => true,
-        ArithmeticExpr::Variable(_)
-        | ArithmeticExpr::Indexed { .. }
-        | ArithmeticExpr::ShellWord(_)
-        | ArithmeticExpr::Assignment { .. } => false,
-        ArithmeticExpr::Parenthesized { expression } => {
-            arithmetic_expr_is_self_contained(expression)
-        }
-        ArithmeticExpr::Unary { expr, .. } | ArithmeticExpr::Postfix { expr, .. } => {
-            arithmetic_expr_is_self_contained(expr)
-        }
-        ArithmeticExpr::Binary { left, right, .. } => {
-            arithmetic_expr_is_self_contained(left) && arithmetic_expr_is_self_contained(right)
-        }
-        ArithmeticExpr::Conditional {
-            condition,
-            then_expr,
-            else_expr,
-        } => {
-            arithmetic_expr_is_self_contained(condition)
-                && arithmetic_expr_is_self_contained(then_expr)
-                && arithmetic_expr_is_self_contained(else_expr)
-        }
-    }
-}
-
 pub fn conditional_binary_op_is_string_match(op: ConditionalBinaryOp) -> bool {
     matches!(
         op,
@@ -165,46 +63,6 @@ pub fn conditional_binary_op_is_string_match(op: ConditionalBinaryOp) -> bool {
             | ConditionalBinaryOp::PatternEq
             | ConditionalBinaryOp::PatternNe
     )
-}
-
-pub fn word_is_standalone_variable_like(word: &Word) -> bool {
-    match word.parts.as_slice() {
-        [part] => matches!(
-            part.kind,
-            WordPart::Variable(_)
-                | WordPart::Parameter(_)
-                | WordPart::ParameterExpansion { .. }
-                | WordPart::Length(_)
-                | WordPart::ArrayAccess(_)
-                | WordPart::ArrayLength(_)
-                | WordPart::ArrayIndices(_)
-                | WordPart::Substring { .. }
-                | WordPart::ArraySlice { .. }
-                | WordPart::IndirectExpansion { .. }
-                | WordPart::PrefixMatch { .. }
-                | WordPart::Transformation { .. }
-        ),
-        _ => false,
-    }
-}
-
-pub fn word_is_standalone_status_capture(word: &Word) -> bool {
-    matches!(word.parts.as_slice(), [part] if is_standalone_status_capture_part(&part.kind))
-}
-
-fn is_standalone_status_capture_part(part: &WordPart) -> bool {
-    match part {
-        WordPart::Variable(name) => name.as_str() == "?",
-        WordPart::DoubleQuoted { parts, .. } => {
-            matches!(parts.as_slice(), [part] if is_standalone_status_capture_part(&part.kind))
-        }
-        WordPart::Parameter(parameter) => matches!(
-            parameter.bourne(),
-            Some(BourneParameterExpansion::Access { reference })
-                if reference.name.as_str() == "?" && reference.subscript.is_none()
-        ),
-        _ => false,
-    }
 }
 
 pub(crate) fn classify_word(word: &Word, source: &str) -> WordClassification {
@@ -291,17 +149,13 @@ fn classify_pattern_operand(pattern: &Pattern, source: &str) -> TestOperandClass
 
 #[cfg(test)]
 mod tests {
-    use std::borrow::Cow;
-
-    use shuck_ast::{BuiltinCommand, Command, CompoundCommand};
+    use shuck_ast::{Command, CompoundCommand};
     use shuck_parser::parser::Parser;
 
     use super::{
         ExpansionContext, TestOperandClass, WordExpansionKind, WordLiteralness, WordQuote,
         WordSubstitutionShape, classify_conditional_operand, classify_contextual_operand,
-        classify_word, is_shell_variable_name, static_word_text,
-        text_is_self_contained_arithmetic_expression,
-        text_looks_like_nontrivial_arithmetic_expression, word_is_standalone_status_capture,
+        classify_word,
     };
 
     fn parse_commands(source: &str) -> shuck_ast::StmtSeq {
@@ -365,130 +219,6 @@ mod tests {
     }
 
     #[test]
-    fn static_word_text_keeps_nested_command_names_in_prefixed_quoted_substitutions() {
-        let source = "\
-echo \"\\\"$BUILDSCRIPT\\\" --library $(test \"${PKG_DIR%/*}\" = \"gpkg\" && echo \"glibc\" || echo \"bionic\")\"\n";
-        let commands = parse_commands(source);
-        let Command::Simple(command) = &commands[0].command else {
-            panic!("expected simple command");
-        };
-        let Some(body) = command.args[0]
-            .parts
-            .iter()
-            .find_map(|part| match &part.kind {
-                shuck_ast::WordPart::DoubleQuoted { parts, .. } => {
-                    parts.iter().find_map(|part| match &part.kind {
-                        shuck_ast::WordPart::CommandSubstitution { body, .. } => Some(body),
-                        _ => None,
-                    })
-                }
-                _ => None,
-            })
-        else {
-            panic!("expected command substitution inside quoted word");
-        };
-
-        let Command::Binary(or_chain) = &body[0].command else {
-            panic!("expected short-circuit binary command");
-        };
-        let Command::Binary(and_chain) = &or_chain.left.command else {
-            panic!("expected left-hand && chain");
-        };
-        let Command::Simple(test_command) = &and_chain.left.command else {
-            panic!("expected test command");
-        };
-        let Command::Simple(then_echo) = &and_chain.right.command else {
-            panic!("expected then echo");
-        };
-        let Command::Simple(else_echo) = &or_chain.right.command else {
-            panic!("expected else echo");
-        };
-
-        assert_eq!(
-            static_word_text(&test_command.name, source).as_deref(),
-            Some("test")
-        );
-        assert_eq!(
-            static_word_text(&then_echo.name, source).as_deref(),
-            Some("echo")
-        );
-        assert_eq!(
-            static_word_text(&else_echo.name, source).as_deref(),
-            Some("echo")
-        );
-    }
-
-    #[test]
-    fn static_word_text_borrows_literal_and_single_quoted_words() {
-        let source = "printf plain 'single' \"double\"\n";
-        let commands = parse_commands(source);
-        let Command::Simple(command) = &commands[0].command else {
-            panic!("expected simple command");
-        };
-
-        assert!(matches!(
-            static_word_text(&command.args[0], source),
-            Some(Cow::Borrowed("plain"))
-        ));
-        assert!(matches!(
-            static_word_text(&command.args[1], source),
-            Some(Cow::Borrowed("single"))
-        ));
-        assert!(matches!(
-            static_word_text(&command.args[2], source),
-            Some(Cow::Borrowed("double"))
-        ));
-    }
-
-    #[test]
-    fn static_word_text_cooks_concatenated_words_only_when_needed() {
-        let source = "printf \"pre${x}post\" \"ab$cd\" foo\"bar\"\n";
-        let commands = parse_commands(source);
-        let Command::Simple(command) = &commands[0].command else {
-            panic!("expected simple command");
-        };
-
-        assert!(static_word_text(&command.args[0], source).is_none());
-        assert!(static_word_text(&command.args[1], source).is_none());
-        assert!(matches!(
-            static_word_text(&command.args[2], source),
-            Some(Cow::Owned(ref value)) if value == "foobar"
-        ));
-    }
-
-    #[test]
-    fn shell_variable_name_helper_matches_identifier_rules() {
-        assert!(is_shell_variable_name("name"));
-        assert!(is_shell_variable_name("_name123"));
-        assert!(!is_shell_variable_name("1name"));
-        assert!(!is_shell_variable_name("name-value"));
-    }
-
-    #[test]
-    fn arithmetic_text_helper_requires_nontrivial_expressions() {
-        assert!(text_looks_like_nontrivial_arithmetic_expression("1 + 2"));
-        assert!(text_looks_like_nontrivial_arithmetic_expression("arr[1]"));
-        assert!(text_looks_like_nontrivial_arithmetic_expression("++count"));
-        assert!(!text_looks_like_nontrivial_arithmetic_expression("123"));
-        assert!(!text_looks_like_nontrivial_arithmetic_expression("name"));
-        assert!(!text_looks_like_nontrivial_arithmetic_expression(
-            "latest value"
-        ));
-    }
-
-    #[test]
-    fn arithmetic_text_helper_distinguishes_self_contained_expressions() {
-        assert!(text_is_self_contained_arithmetic_expression("1 + 2"));
-        assert!(text_is_self_contained_arithmetic_expression("(1 + 2)"));
-        assert!(!text_is_self_contained_arithmetic_expression("name"));
-        assert!(!text_is_self_contained_arithmetic_expression("arr[1]"));
-        assert!(!text_is_self_contained_arithmetic_expression("foo + 1"));
-        assert!(!text_is_self_contained_arithmetic_expression(
-            "latest value"
-        ));
-    }
-
-    #[test]
     fn classify_word_reports_scalar_and_array_expansions() {
         let source = "printf $foo ${arr[@]} ${arr[0]} ${arr[@]:1}\n";
         let commands = parse_commands(source);
@@ -512,48 +242,6 @@ echo \"\\\"$BUILDSCRIPT\\\" --library $(test \"${PKG_DIR%/*}\" = \"gpkg\" && ech
             classify_word(&command.args[3], source).expansion_kind,
             WordExpansionKind::Array
         );
-    }
-
-    #[test]
-    fn word_is_standalone_status_capture_handles_plain_and_quoted_forms() {
-        let source = "return $?; return \"$?\"; return ${?+0}; return ${?:-1}; return $foo\n";
-        let commands = parse_commands(source);
-
-        let Command::Builtin(BuiltinCommand::Return(plain)) = &commands[0].command else {
-            panic!("expected return builtin");
-        };
-        assert!(word_is_standalone_status_capture(
-            plain.code.as_ref().unwrap()
-        ));
-
-        let Command::Builtin(BuiltinCommand::Return(quoted)) = &commands[1].command else {
-            panic!("expected return builtin");
-        };
-        assert!(word_is_standalone_status_capture(
-            quoted.code.as_ref().unwrap()
-        ));
-
-        let Command::Builtin(BuiltinCommand::Return(operator_default)) = &commands[2].command
-        else {
-            panic!("expected return builtin");
-        };
-        assert!(!word_is_standalone_status_capture(
-            operator_default.code.as_ref().unwrap()
-        ));
-
-        let Command::Builtin(BuiltinCommand::Return(operator_assign)) = &commands[3].command else {
-            panic!("expected return builtin");
-        };
-        assert!(!word_is_standalone_status_capture(
-            operator_assign.code.as_ref().unwrap()
-        ));
-
-        let Command::Builtin(BuiltinCommand::Return(other)) = &commands[4].command else {
-            panic!("expected return builtin");
-        };
-        assert!(!word_is_standalone_status_capture(
-            other.code.as_ref().unwrap()
-        ));
     }
 
     #[test]

@@ -1,6 +1,6 @@
-use crate::{
-    Checker, ExpansionContext, Rule, Violation, WordFactContext, WordQuote, static_word_text,
-};
+use shuck_ast::static_word_text;
+
+use crate::{Checker, ExpansionContext, Rule, Violation, WordFactContext, WordQuote};
 
 pub struct UnquotedTrClass;
 

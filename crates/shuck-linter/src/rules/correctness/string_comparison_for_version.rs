@@ -1,7 +1,6 @@
-use crate::{
-    Checker, ConditionalBinaryFact, ConditionalNodeFact, Rule, Violation, static_word_text,
-};
-use shuck_ast::{ConditionalBinaryOp, Span};
+use shuck_ast::{ConditionalBinaryOp, Span, static_word_text};
+
+use crate::{Checker, ConditionalBinaryFact, ConditionalNodeFact, Rule, Violation};
 
 pub struct StringComparisonForVersion;
 

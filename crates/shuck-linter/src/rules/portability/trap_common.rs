@@ -1,6 +1,4 @@
-use shuck_ast::Word;
-
-use crate::static_word_text;
+use shuck_ast::{Word, static_word_text};
 
 pub(crate) struct ParsedTrapArgs<'a> {
     pub(crate) signal_words: &'a [&'a Word],

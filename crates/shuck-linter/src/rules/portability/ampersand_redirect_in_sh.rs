@@ -1,6 +1,6 @@
-use shuck_ast::{RedirectKind, Span};
+use shuck_ast::{RedirectKind, Span, static_word_text};
 
-use crate::{Checker, RedirectFact, Rule, ShellDialect, Violation, static_word_text};
+use crate::{Checker, RedirectFact, Rule, ShellDialect, Violation};
 
 pub struct AmpersandRedirectInSh;
 

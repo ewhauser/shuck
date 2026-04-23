@@ -177,7 +177,7 @@ fn conditional_operand_looks_like_quoted_pipeline(
         .zip(operand.word_classification())
         .and_then(|(word, classification)| {
             (classification.quote == WordQuote::FullyQuoted && classification.is_fixed_literal())
-                .then(|| crate::static_word_text(word, source))
+                .then(|| shuck_ast::static_word_text(word, source))
         })
         .flatten()
         .as_deref()

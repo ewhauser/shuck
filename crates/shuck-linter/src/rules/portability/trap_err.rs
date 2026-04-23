@@ -1,5 +1,7 @@
+use shuck_ast::static_word_text;
+
 use super::trap_common::parse_trap_args;
-use crate::{Checker, Rule, ShellDialect, Violation, static_word_text};
+use crate::{Checker, Rule, ShellDialect, Violation};
 
 pub struct TrapErr;
 
