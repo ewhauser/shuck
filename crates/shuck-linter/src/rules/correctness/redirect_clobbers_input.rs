@@ -287,6 +287,10 @@ jq -nc '.x=1' \"$cfg\" >\"$cfg\"
 cat < \"$suffix\" > \"$(basename \"$name\" \"$suffix\")\"
 cat < \"$suffix\" > \"$(basename -s \"$suffix\" \"$name\")\"
 cat < \"$suffix\" > \"$(basename --suffix=\"$suffix\" \"$name\")\"
+read quoted_input_path < \"quoted_input_path\"
+while read quoted_loop_path; do
+  :
+done < \"quoted_loop_path\"
 {
   f() {
     local OUT=
