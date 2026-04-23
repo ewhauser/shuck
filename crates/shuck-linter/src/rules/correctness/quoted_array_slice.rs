@@ -48,6 +48,8 @@ r=\"${arr[@]@Q}\"
 flags+=\" ${add_flags[@]}\"
 targets[$key]=\"${items[@]}\"
 CFLAGS+=\" ${add_flags[@]}\" make
+escaped=\"\\\\$@\"
+escaped_slice=\"\\\\${@:2}\"
 declare declared=\"$@\"
 readonly packed=${arr[@]}
 f() { local nested=\"${@:3}\"; }
@@ -69,6 +71,8 @@ f() { local nested=\"${@:3}\"; }
                 "\" ${add_flags[@]}\"",
                 "\"${items[@]}\"",
                 "\" ${add_flags[@]}\"",
+                "\"\\\\$@\"",
+                "\"\\\\${@:2}\"",
                 "\"$@\"",
                 "${arr[@]}",
                 "\"${@:3}\"",
@@ -110,6 +114,8 @@ f() { local nested=\"${@:3}\"; }
 x=\"${@:+fallback}\"
 x=\"${arr[@]:+fallback}\"
 x=\"${arr[*]:1}\"
+x=\"\\$@\"
+x=\"\\${@:2}\"
 arr=(\"${@:2}\")
 declare -a packed=(\"${arr[@]:1}\")
 printf '%s\\n' \"${@:2}\"

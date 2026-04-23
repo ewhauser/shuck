@@ -12,6 +12,8 @@ quoted="${arr[@]@Q}"
 flags+=" ${add_flags[@]}"
 targets[$key]="${items[@]}"
 CFLAGS+=" ${add_flags[@]}" make
+escaped="\\$@"
+escaped_slice="\\${@:2}"
 declare declared="$@"
 readonly packed=${arr[@]}
 
@@ -31,6 +33,8 @@ joined="${arr[*]:1}"
 # Valid: replacement forms substitute the replacement word, not the element list.
 joined="${@:+fallback}"
 joined="${arr[@]:+fallback}"
+joined="\$@"
+joined="\${@:2}"
 
 # Valid: array compound assignments keep element boundaries.
 arr=("${@:2}")

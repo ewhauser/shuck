@@ -57,43 +57,55 @@ C099 all-elements array expansions collapse in scalar assignment values
    |
 
 C099 all-elements array expansions collapse in scalar assignment values
-  --> <source>:15:18
+  --> <source>:15:9
    |
-15 | declare declared="$@"
-   |
-
-C099 all-elements array expansions collapse in scalar assignment values
-  --> <source>:16:17
-   |
-16 | readonly packed=${arr[@]}
+15 | escaped="\\$@"
    |
 
 C099 all-elements array expansions collapse in scalar assignment values
-  --> <source>:19:8
+  --> <source>:16:15
    |
-19 | params="${@:5}"
-   |
-
-C099 all-elements array expansions collapse in scalar assignment values
-  --> <source>:20:8
-   |
-20 | joined="prefix${@:2}suffix"
+16 | escaped_slice="\\${@:2}"
    |
 
 C099 all-elements array expansions collapse in scalar assignment values
-  --> <source>:21:18
+  --> <source>:17:18
    |
-21 | declare declared="${arr[@]:1}"
-   |
-
-C099 all-elements array expansions collapse in scalar assignment values
-  --> <source>:22:17
-   |
-22 | readonly packed="${arr[@]:1:2}"
+17 | declare declared="$@"
    |
 
 C099 all-elements array expansions collapse in scalar assignment values
-  --> <source>:25:16
+  --> <source>:18:17
    |
-25 |   local nested="${@:3}"
+18 | readonly packed=${arr[@]}
+   |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:21:8
+   |
+21 | params="${@:5}"
+   |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:22:8
+   |
+22 | joined="prefix${@:2}suffix"
+   |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:23:18
+   |
+23 | declare declared="${arr[@]:1}"
+   |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:24:17
+   |
+24 | readonly packed="${arr[@]:1:2}"
+   |
+
+C099 all-elements array expansions collapse in scalar assignment values
+  --> <source>:27:16
+   |
+27 |   local nested="${@:3}"
    |
