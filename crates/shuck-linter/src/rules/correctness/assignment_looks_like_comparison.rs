@@ -1,7 +1,6 @@
 use rustc_hash::FxHashSet;
-use shuck_ast::{
-    Assignment, AssignmentValue, BuiltinCommand, Command, DeclOperand, Span, static_word_text,
-};
+use shuck_ast::{Assignment, AssignmentValue, Command, Span, static_word_text};
+use shuck_semantic::{Binding, BindingAttributes, BindingKind};
 
 use crate::{Checker, ExpansionContext, Rule, Violation, WordFactContext, WordQuote};
 
@@ -23,12 +22,14 @@ pub fn assignment_looks_like_comparison(checker: &mut Checker) {
         .semantic()
         .bindings()
         .iter()
+        .filter(|binding| binding_contributes_known_variable_name(binding))
         .map(|binding| binding.name.as_str().to_owned())
         .collect::<FxHashSet<_>>();
     let spans = checker
         .facts()
         .commands()
         .iter()
+        .filter(|fact| fact.literal_name() == Some(""))
         .flat_map(|fact| command_assignment_spans(checker, fact.command(), source, &known_names))
         .collect::<Vec<_>>();
 
@@ -55,48 +56,12 @@ fn command_assignment_spans(
                 )
             })
             .collect(),
-        Command::Builtin(command) => builtin_assignments(command)
-            .iter()
-            .filter_map(|assignment| {
-                assignment_value_looks_like_comparison(
-                    checker,
-                    assignment,
-                    source,
-                    known_names,
-                    WordFactContext::Expansion(ExpansionContext::AssignmentValue),
-                )
-            })
-            .collect(),
-        Command::Decl(command) => command
-            .assignments
-            .iter()
-            .chain(command.operands.iter().filter_map(|operand| match operand {
-                DeclOperand::Assignment(assignment) => Some(assignment),
-                DeclOperand::Flag(_) | DeclOperand::Name(_) | DeclOperand::Dynamic(_) => None,
-            }))
-            .filter_map(|assignment| {
-                assignment_value_looks_like_comparison(
-                    checker,
-                    assignment,
-                    source,
-                    known_names,
-                    WordFactContext::Expansion(ExpansionContext::DeclarationAssignmentValue),
-                )
-            })
-            .collect(),
-        Command::Binary(_)
+        Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Binary(_)
         | Command::Compound(_)
         | Command::Function(_)
         | Command::AnonymousFunction(_) => Vec::new(),
-    }
-}
-
-fn builtin_assignments(command: &BuiltinCommand) -> &[Assignment] {
-    match command {
-        BuiltinCommand::Break(command) => &command.assignments,
-        BuiltinCommand::Continue(command) => &command.assignments,
-        BuiltinCommand::Return(command) => &command.assignments,
-        BuiltinCommand::Exit(command) => &command.assignments,
     }
 }
 
@@ -123,10 +88,31 @@ fn assignment_value_looks_like_comparison(
         return None;
     }
 
-    if prefix.eq_ignore_ascii_case(target) || known_names.contains(prefix) {
+    if prefix == target || known_names.contains(prefix) {
         Some(word.span)
     } else {
         None
+    }
+}
+
+fn binding_contributes_known_variable_name(binding: &Binding) -> bool {
+    match binding.kind {
+        BindingKind::FunctionDefinition => false,
+        BindingKind::Imported => !binding
+            .attributes
+            .contains(BindingAttributes::IMPORTED_FUNCTION),
+        BindingKind::Assignment
+        | BindingKind::ParameterDefaultAssignment
+        | BindingKind::AppendAssignment
+        | BindingKind::ArrayAssignment
+        | BindingKind::Declaration(_)
+        | BindingKind::LoopVariable
+        | BindingKind::ReadTarget
+        | BindingKind::MapfileTarget
+        | BindingKind::PrintfTarget
+        | BindingKind::GetoptsTarget
+        | BindingKind::ArithmeticAssignment
+        | BindingKind::Nameref => true,
     }
 }
 
@@ -162,6 +148,7 @@ bar=bar_baz
         let source = "\
 #!/bin/bash
 foo=bar-baz
+FOO=lower-baz
 foo=\"$foo-bar\"
 foo=${foo}-bar
 foo=(foo-bar)
@@ -193,5 +180,47 @@ BASE_IMAGE_JOB_TOPIC=schedule-base-image-build
                 .collect::<Vec<_>>(),
             vec!["schedule-base-image-build"]
         );
+    }
+
+    #[test]
+    fn ignores_command_environment_and_declaration_assignments() {
+        let source = "\
+#!/bin/bash
+foo=foo-1 env
+foo=foo-2 echo hi
+export foo=foo-3
+readonly foo=foo-4
+local foo=foo-5
+declare foo=foo-6
+typeset foo=foo-7
+foo=foo-8
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::AssignmentLooksLikeComparison),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["foo-8"]
+        );
+    }
+
+    #[test]
+    fn ignores_function_names_as_prefix_candidates() {
+        let source = "\
+#!/bin/bash
+en() { :; }
+lang=en-us
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::AssignmentLooksLikeComparison),
+        );
+
+        assert!(diagnostics.is_empty());
     }
 }
