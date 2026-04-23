@@ -127,7 +127,7 @@ test large_corpus_conforms_with_shellcheck ... FAILED
 
             html = output_path.read_text(encoding="utf-8")
 
-        self.assertIn("3\n        mapping issues, 4 reviewed divergences,", html)
+        self.assertIn("3\n        mapping issues, 4 reviewed divergences overall,", html)
         self.assertIn("6 main harness warnings,", html)
 
     def test_rendered_fixture_card_uses_progress_total(self) -> None:
@@ -200,6 +200,20 @@ test large_corpus_conforms_with_shellcheck ... ok
         self.assertIn("/tmp/keep.sh", filtered)
         self.assertNotIn("/tmp/drop.sh", filtered)
 
+    def test_reviewed_divergence_filter_uses_trailing_reason_token(self) -> None:
+        section = """/tmp/keep.sh
+  shuck-only C001/SC2034 3:1-3:5 warning message mentions reason=debug reason=known large-corpus rule allowlist
+
+/tmp/drop.sh
+  shuck-only C003/SC1091 4:1-4:5 warning message mentions reason=debug reason=metadata-backed reviewed divergence
+"""
+
+        filtered = MODULE.filter_reviewed_divergence_section_for_known_failures(section)
+
+        self.assertIsNotNone(filtered)
+        self.assertIn("/tmp/keep.sh", filtered)
+        self.assertNotIn("/tmp/drop.sh", filtered)
+
     def test_reviewed_divergence_only_run_still_populates_rule_and_fixture_tables(self) -> None:
         log = """large corpus compatibility summary: blocking=0 warnings=2 fixtures=1 unsupported_shells=0 implementation_diffs=0 mapping_issues=0 reviewed_divergences=2 harness_warnings=0 harness_failures=0
 Reviewed Divergence:
@@ -228,12 +242,14 @@ test large_corpus_conforms_with_shellcheck ... ok
 
             html = output_path.read_text(encoding="utf-8")
 
-        self.assertIn("Top 5 rules account for 100.0% of all rule-coded records.", html)
+        self.assertIn("Top 5 rules account for 100.0% of the rule activity shown here.", html)
         self.assertIn('<span class="badge">C001</span>', html)
         self.assertIn("Known Failure", html)
         self.assertIn("known large-corpus rule allowlist", html)
 
-    def test_metadata_backed_reviewed_divergence_stays_out_of_detailed_tables(self) -> None:
+    def test_metadata_backed_reviewed_divergence_is_counted_without_detail_rows(
+        self,
+    ) -> None:
         log = """large corpus compatibility summary: blocking=0 warnings=1 fixtures=1 unsupported_shells=0 implementation_diffs=0 mapping_issues=0 reviewed_divergences=1 harness_warnings=0 harness_failures=0
 Reviewed Divergence:
 /tmp/main-fixture.sh
@@ -260,7 +276,10 @@ test large_corpus_conforms_with_shellcheck ... ok
 
             html = output_path.read_text(encoding="utf-8")
 
-        self.assertNotIn('<span class="badge">C003</span>', html)
+        self.assertIn('<th>Metadata Skips</th>', html)
+        self.assertIn('<span class="badge">C003</span>', html)
+        self.assertIn("reviewed records skipped by metadata", html)
+        self.assertIn("No displayed mismatch records; this rule only appears via metadata skips.", html)
         self.assertNotIn("metadata-backed reviewed divergence", html)
         self.assertIn("1 reviewed divergences", html)
 
