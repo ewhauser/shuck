@@ -1960,6 +1960,49 @@ pub fn static_word_text<'a>(word: &'a Word, source: &'a str) -> Option<Cow<'a, s
     try_static_word_parts_text(&word.parts, source)
 }
 
+/// Returns a command word's fully static decoded command name when it contains
+/// no runtime expansions.
+///
+/// Unlike [`static_word_text`], this applies the extra backslash decoding used
+/// when a shell parses a command name position.
+pub fn static_command_name_text<'a>(word: &'a Word, source: &'a str) -> Option<Cow<'a, str>> {
+    try_static_command_name_parts_text(&word.parts, source, StaticCommandNameContext::Unquoted)
+}
+
+/// The result of looking for a static shell precommand wrapper.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StaticCommandWrapperTarget {
+    /// The current word is not a supported precommand wrapper.
+    NotWrapper,
+    /// The current word is a wrapper, and the optional index points at its command target.
+    Wrapper {
+        /// The wrapped command index, or `None` when the wrapper mode does not execute a target.
+        target_index: Option<usize>,
+    },
+}
+
+/// Resolves the target index for common shell precommand wrappers.
+///
+/// This handles wrappers shared by parsing, semantic analysis, and linter facts:
+/// `noglob`, `command`, `builtin`, and `exec`. The callback should return the
+/// already-static text for a word index, or `None` when that word is dynamic.
+pub fn static_command_wrapper_target_index<'a>(
+    word_count: usize,
+    current_index: usize,
+    current_name: &str,
+    mut static_text_at: impl FnMut(usize) -> Option<Cow<'a, str>>,
+) -> StaticCommandWrapperTarget {
+    let target_index = match current_name {
+        "noglob" => next_word_index(word_count, current_index),
+        "command" => command_wrapper_target_index(word_count, current_index, &mut static_text_at),
+        "builtin" => builtin_wrapper_target_index(word_count, current_index, &mut static_text_at),
+        "exec" => exec_wrapper_target_index(word_count, current_index, &mut static_text_at),
+        _ => return StaticCommandWrapperTarget::NotWrapper,
+    };
+
+    StaticCommandWrapperTarget::Wrapper { target_index }
+}
+
 /// Returns fully static decoded text for a contiguous slice of word parts when
 /// the slice contains no runtime expansions.
 pub fn try_static_word_parts_text<'a>(
@@ -1998,6 +2041,239 @@ fn collect_static_word_parts_text(parts: &[WordPartNode], source: &str, out: &mu
     }
 
     true
+}
+
+#[derive(Clone, Copy)]
+enum StaticCommandNameContext {
+    Unquoted,
+    DoubleQuoted,
+}
+
+fn try_static_command_name_parts_text<'a>(
+    parts: &'a [WordPartNode],
+    source: &'a str,
+    context: StaticCommandNameContext,
+) -> Option<Cow<'a, str>> {
+    if let [part] = parts {
+        return try_static_command_name_part_text(part, source, context);
+    }
+
+    let mut result = String::new();
+    collect_static_command_name_parts_text(parts, source, context, &mut result)
+        .then_some(Cow::Owned(result))
+}
+
+fn try_static_command_name_part_text<'a>(
+    part: &'a WordPartNode,
+    source: &'a str,
+    context: StaticCommandNameContext,
+) -> Option<Cow<'a, str>> {
+    match &part.kind {
+        WordPart::Literal(text) => Some(decode_static_command_literal(
+            text.as_str(source, part.span),
+            context,
+        )),
+        WordPart::SingleQuoted { value, .. } => Some(Cow::Borrowed(value.slice(source))),
+        WordPart::DoubleQuoted { parts, .. } => try_static_command_name_parts_text(
+            parts,
+            source,
+            StaticCommandNameContext::DoubleQuoted,
+        ),
+        _ => None,
+    }
+}
+
+fn collect_static_command_name_parts_text(
+    parts: &[WordPartNode],
+    source: &str,
+    context: StaticCommandNameContext,
+    out: &mut String,
+) -> bool {
+    for part in parts {
+        match &part.kind {
+            WordPart::Literal(text) => {
+                let decoded =
+                    decode_static_command_literal(text.as_str(source, part.span), context);
+                out.push_str(decoded.as_ref());
+            }
+            WordPart::SingleQuoted { value, .. } => out.push_str(value.slice(source)),
+            WordPart::DoubleQuoted { parts, .. } => {
+                if !collect_static_command_name_parts_text(
+                    parts,
+                    source,
+                    StaticCommandNameContext::DoubleQuoted,
+                    out,
+                ) {
+                    return false;
+                }
+            }
+            _ => return false,
+        }
+    }
+
+    true
+}
+
+fn decode_static_command_literal(text: &str, context: StaticCommandNameContext) -> Cow<'_, str> {
+    if !text.contains('\\') {
+        return Cow::Borrowed(text);
+    }
+
+    let mut result = String::with_capacity(text.len());
+    let mut chars = text.chars();
+
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            result.push(ch);
+            continue;
+        }
+
+        let Some(next) = chars.next() else {
+            result.push('\\');
+            break;
+        };
+
+        match context {
+            StaticCommandNameContext::Unquoted => {
+                if next != '\n' {
+                    result.push(next);
+                }
+            }
+            StaticCommandNameContext::DoubleQuoted => match next {
+                '$' | '`' | '"' | '\\' => result.push(next),
+                '\n' => {}
+                _ => {
+                    result.push('\\');
+                    result.push(next);
+                }
+            },
+        }
+    }
+
+    Cow::Owned(result)
+}
+
+fn next_word_index(word_count: usize, current_index: usize) -> Option<usize> {
+    let index = current_index + 1;
+    (index < word_count).then_some(index)
+}
+
+fn command_wrapper_target_index<'a>(
+    word_count: usize,
+    current_index: usize,
+    static_text_at: &mut impl FnMut(usize) -> Option<Cow<'a, str>>,
+) -> Option<usize> {
+    let mut index = current_index + 1;
+
+    while index < word_count {
+        let Some(arg) = static_text_at(index) else {
+            return Some(index);
+        };
+
+        if arg == "--" {
+            return next_word_index(word_count, index);
+        }
+
+        if let Some(options) = arg.strip_prefix('-') {
+            if options.is_empty() {
+                return Some(index);
+            }
+
+            let mut lookup_mode = false;
+            for option in options.chars() {
+                match option {
+                    'p' => {}
+                    'v' | 'V' => lookup_mode = true,
+                    _ => return None,
+                }
+            }
+
+            if lookup_mode {
+                return None;
+            }
+
+            index += 1;
+            continue;
+        }
+
+        return Some(index);
+    }
+
+    None
+}
+
+fn builtin_wrapper_target_index<'a>(
+    word_count: usize,
+    current_index: usize,
+    static_text_at: &mut impl FnMut(usize) -> Option<Cow<'a, str>>,
+) -> Option<usize> {
+    let index = current_index + 1;
+    if index >= word_count {
+        return None;
+    }
+
+    let Some(arg) = static_text_at(index) else {
+        return Some(index);
+    };
+
+    if arg == "--" {
+        return next_word_index(word_count, index);
+    }
+
+    if arg.starts_with('-') && arg != "-" {
+        return None;
+    }
+
+    Some(index)
+}
+
+fn exec_wrapper_target_index<'a>(
+    word_count: usize,
+    current_index: usize,
+    static_text_at: &mut impl FnMut(usize) -> Option<Cow<'a, str>>,
+) -> Option<usize> {
+    let mut index = current_index + 1;
+
+    while index < word_count {
+        let Some(arg) = static_text_at(index) else {
+            return Some(index);
+        };
+
+        if arg == "--" {
+            return next_word_index(word_count, index);
+        }
+
+        if let Some(options) = arg.strip_prefix('-') {
+            if options.is_empty() {
+                return Some(index);
+            }
+
+            let mut consumed_words = 1;
+            for (offset, option) in options.char_indices() {
+                match option {
+                    'c' | 'l' => {}
+                    'a' => {
+                        let has_attached_name = offset + option.len_utf8() < options.len();
+                        if !has_attached_name {
+                            if index + consumed_words >= word_count {
+                                return None;
+                            }
+                            consumed_words += 1;
+                        }
+                        break;
+                    }
+                    _ => return None,
+                }
+            }
+
+            index += consumed_words;
+            continue;
+        }
+
+        return Some(index);
+    }
+
+    None
 }
 
 /// Returns whether `name` is a shell variable identifier.

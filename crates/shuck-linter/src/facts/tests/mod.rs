@@ -15,8 +15,8 @@ use super::{
     build_innermost_command_ids_by_offset, parse_assignment_word,
     precomputed_command_id_for_offset,
 };
+use crate::WrapperKind;
 use crate::facts::surface::PositionalParameterFragmentKind;
-use crate::rules::common::command::WrapperKind;
 use crate::{LinterFacts, ShellDialect, classify_file_context};
 
 mod assignments;
