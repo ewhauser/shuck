@@ -231,14 +231,19 @@ impl FindExecShellCommandFacts {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct MapfileCommandFacts {
     input_fd: Option<i32>,
+    target_name_uses: Box<[ComparableNameUse]>,
 }
 
 impl MapfileCommandFacts {
-    pub fn input_fd(self) -> Option<i32> {
+    pub fn input_fd(&self) -> Option<i32> {
         self.input_fd
+    }
+
+    pub(crate) fn target_name_uses(&self) -> &[ComparableNameUse] {
+        &self.target_name_uses
     }
 }
 

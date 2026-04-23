@@ -134,6 +134,12 @@ fn mapfile_target_is_array_like(checker: &Checker<'_>, binding: &Binding) -> boo
     }
 
     !command_is_shadowed_function(checker, command)
+        && command.options().mapfile().is_some_and(|mapfile| {
+            mapfile
+                .target_name_uses()
+                .iter()
+                .any(|target| target.span() == binding.span)
+        })
 }
 
 fn binding_command<'a>(
@@ -425,6 +431,21 @@ mapfile() {
 }
 mapfile entries
 entries=value
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_mapfile_callback_names() {
+        let source = "\
+#!/bin/bash
+mapfile -C cb -c 1 lines
+cb=value
 ";
         let diagnostics = test_snippet(
             source,
