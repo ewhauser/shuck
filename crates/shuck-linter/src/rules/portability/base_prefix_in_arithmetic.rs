@@ -79,4 +79,18 @@ echo ${foo:-${1##*/}}
 
         assert!(diagnostics.is_empty());
     }
+
+    #[test]
+    fn ignores_parameter_trim_inside_arithmetic_in_sh() {
+        let source = "\
+#!/bin/sh
+echo $((42949 - ${1#-} / 100000))
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::BasePrefixInArithmetic),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
 }
