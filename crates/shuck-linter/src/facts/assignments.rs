@@ -1751,10 +1751,10 @@ fn build_prompt_runtime_read_spans(
     let mut reads = Vec::new();
 
     for command in commands {
-        for assignment in query::command_assignments(command.command()) {
+        for assignment in command_assignments(command.command()) {
             collect_prompt_runtime_reads_from_assignment(assignment, source, &mut reads);
         }
-        for operand in query::declaration_operands(command.command()) {
+        for operand in declaration_operands(command.command()) {
             if let DeclOperand::Assignment(assignment) = operand {
                 collect_prompt_runtime_reads_from_assignment(assignment, source, &mut reads);
             }

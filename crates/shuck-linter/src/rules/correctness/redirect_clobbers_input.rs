@@ -1,7 +1,9 @@
 use rustc_hash::FxHashMap;
 use shuck_ast::{RedirectKind, Span};
 
-use crate::{Checker, ComparablePathKey, ExpansionContext, Rule, Violation};
+use crate::{
+    Checker, ComparablePathKey, ExpansionContext, PathNameFact, PathNameKind, Rule, Violation,
+};
 
 pub struct RedirectClobbersInput;
 
@@ -33,6 +35,8 @@ fn clobber_spans_for_command(fact: &crate::CommandFact<'_>) -> Vec<Span> {
     let mut read_paths: FxHashMap<ComparablePathKey, Vec<Span>> = FxHashMap::default();
     let mut write_paths: FxHashMap<ComparablePathKey, Vec<Span>> = FxHashMap::default();
     let mut readwrite_paths: FxHashMap<ComparablePathKey, Vec<Span>> = FxHashMap::default();
+    let mut read_names: FxHashMap<Box<str>, Vec<PathNameFact>> = FxHashMap::default();
+    let mut write_names: FxHashMap<Box<str>, Vec<PathNameFact>> = FxHashMap::default();
     let own_readwrite_spans = fact
         .redirect_facts()
         .iter()
@@ -87,6 +91,20 @@ fn clobber_spans_for_command(fact: &crate::CommandFact<'_>) -> Vec<Span> {
             .push(comparable.span());
     }
 
+    for source_name in fact.scope_read_source_names() {
+        read_names
+            .entry(source_name.name().into())
+            .or_default()
+            .push(source_name.clone());
+    }
+
+    for target_name in fact.scope_write_target_names() {
+        write_names
+            .entry(target_name.name().into())
+            .or_default()
+            .push(target_name.clone());
+    }
+
     let mut spans = Vec::new();
     for (key, read_spans) in &read_paths {
         let Some(write_spans) = write_paths.get(key) else {
@@ -103,7 +121,104 @@ fn clobber_spans_for_command(fact: &crate::CommandFact<'_>) -> Vec<Span> {
         }
     }
 
+    for (name, read_spans) in &read_names {
+        let Some(write_spans) = write_names.get(name) else {
+            continue;
+        };
+        let name_spans = matching_name_spans_shellcheck_style(read_spans, write_spans);
+        if name_spans.is_empty() {
+            continue;
+        }
+
+        spans.extend(name_spans);
+    }
+
     spans
+}
+
+fn matching_name_spans_shellcheck_style(
+    read_spans: &[PathNameFact],
+    write_spans: &[PathNameFact],
+) -> Vec<Span> {
+    let mut spans = Vec::new();
+    for read in read_spans {
+        for write in write_spans {
+            if path_name_facts_match(read, write) {
+                spans.push(read.span());
+                spans.push(write.span());
+            }
+        }
+    }
+    spans
+}
+
+fn path_name_facts_match(read: &PathNameFact, write: &PathNameFact) -> bool {
+    read.span() != write.span()
+        && path_name_kinds_match(read.kind(), write.kind())
+        && parameter_name_bindings_match(read, write)
+}
+
+fn parameter_name_bindings_match(read: &PathNameFact, write: &PathNameFact) -> bool {
+    if !path_name_kind_is_parameter(read.kind()) || !path_name_kind_is_parameter(write.kind()) {
+        return true;
+    }
+
+    match (read.binding_id(), write.binding_id()) {
+        (Some(read), Some(write)) if read == write => true,
+        _ => initialized_local_scopes_match(read, write),
+    }
+}
+
+fn initialized_local_scopes_match(read: &PathNameFact, write: &PathNameFact) -> bool {
+    match (
+        read.initialized_local_scope(),
+        write.initialized_local_scope(),
+    ) {
+        (Some(read), Some(write)) => read == write,
+        (None, None) => true,
+        (Some(_), None) | (None, Some(_)) => false,
+    }
+}
+
+fn path_name_kind_is_parameter(kind: PathNameKind) -> bool {
+    matches!(
+        kind,
+        PathNameKind::Parameter
+            | PathNameKind::RedirectParameter
+            | PathNameKind::HeredocParameter
+            | PathNameKind::GeneratedParameter
+    )
+}
+
+fn path_name_kinds_match(read_kind: PathNameKind, write_kind: PathNameKind) -> bool {
+    match write_kind {
+        PathNameKind::Literal => matches!(
+            read_kind,
+            PathNameKind::Literal
+                | PathNameKind::Parameter
+                | PathNameKind::RedirectLiteral
+                | PathNameKind::RedirectParameter
+                | PathNameKind::HeredocParameter
+        ),
+        PathNameKind::Parameter => {
+            matches!(
+                read_kind,
+                PathNameKind::Parameter | PathNameKind::RedirectParameter
+            )
+        }
+        PathNameKind::RedirectLiteral
+        | PathNameKind::QuotedRedirectLiteral
+        | PathNameKind::RedirectParameter
+        | PathNameKind::HeredocParameter => false,
+        PathNameKind::GeneratedLiteral => matches!(read_kind, PathNameKind::RedirectLiteral),
+        PathNameKind::GeneratedParameter => {
+            matches!(
+                read_kind,
+                PathNameKind::RedirectLiteral | PathNameKind::RedirectParameter
+            )
+        }
+        PathNameKind::BindingTarget => matches!(read_kind, PathNameKind::RedirectLiteral),
+    }
 }
 
 #[cfg(test)]
@@ -169,6 +284,23 @@ jq --args '$ARGS.positional[0]' \"$cfg\" >\"$cfg\"
 jq --jsonargs '$ARGS.positional[0]' \"$cfg\" >\"$cfg\"
 jq --indent 2 --args '$ARGS.positional[0]' \"$cfg\" >\"$cfg\"
 jq -nc '.x=1' \"$cfg\" >\"$cfg\"
+cat < \"$suffix\" > \"$(basename \"$name\" \"$suffix\")\"
+cat < \"$suffix\" > \"$(basename -s \"$suffix\" \"$name\")\"
+cat < \"$suffix\" > \"$(basename --suffix=\"$suffix\" \"$name\")\"
+read quoted_input_path < \"quoted_input_path\"
+while read quoted_loop_path; do
+  :
+done < \"quoted_loop_path\"
+{
+  f() {
+    local OUT=
+    if [ \"$OUT\" = 0 ]; then
+      OUT=x
+    fi
+    printf '%s\\n' \"$OUT\"
+  }
+  f
+} | sort >> \"$OUT\"
 ";
         let diagnostics = test_snippet(
             source,
@@ -176,5 +308,83 @@ jq -nc '.x=1' \"$cfg\" >\"$cfg\"
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_shellcheck_compatible_name_collisions() {
+        let source = "\
+#!/bin/bash
+gzip -9c < \"$src\" > \"$pkg/usr/man/man1/$(basename \"$src\").gz\"
+sort <<< \"$OUT\" > \"$OUT\"
+read input_path < input_path
+while read loop_path; do
+  :
+done < loop_path
+while read heredoc_path; do
+  cat <<EOF
+$heredoc_path
+EOF
+done < heredoc_path
+while read iplist; do
+  cat <<EOF >> json2
+\"$iplist/32\"
+EOF
+done < iplist
+(
+  cat <<EOF
+$SGINGRESS1
+EOF
+) > SGINGRESS1
+{ [ \"$OUT\" -lt \"$crit_border\" ] && :; } | sort >> \"$OUT\"
+{ case \"$MODE\" in on) :;; esac; } | sort > \"$MODE\"
+{
+  g() {
+    local OUT
+    [ \"$OUT\" = 0 ] && :
+  }
+  g
+} | sort >> \"$OUT\"
+f() {
+  local out=/tmp/f
+  sort \"$out\" > \"$out\"
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::RedirectClobbersInput),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "\"$src\"",
+                "\"$src\"",
+                "\"$OUT\"",
+                "\"$OUT\"",
+                "input_path",
+                "input_path",
+                "loop_path",
+                "loop_path",
+                "heredoc_path",
+                "heredoc_path",
+                "heredoc_path",
+                "iplist",
+                "iplist",
+                "iplist",
+                "SGINGRESS1",
+                "SGINGRESS1",
+                "\"$OUT\"",
+                "\"$OUT\"",
+                "\"$MODE\"",
+                "\"$MODE\"",
+                "\"$OUT\"",
+                "\"$OUT\"",
+                "\"$out\"",
+                "\"$out\"",
+            ]
+        );
     }
 }
