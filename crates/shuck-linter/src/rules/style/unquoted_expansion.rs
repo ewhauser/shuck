@@ -600,6 +600,28 @@ wrapper() {
     }
 
     #[test]
+    fn reports_unquoted_expansions_after_deferred_exit_like_calls_resolved_by_later_helpers() {
+        let source = "\
+#!/bin/sh
+SAFE=foo
+wrapper() {
+  Exit
+  echo /tmp/$SAFE
+}
+Exit() { exit 0; }
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$SAFE"]
+        );
+    }
+
+    #[test]
     fn ignores_expansions_inside_quoted_fragments_of_mixed_words() {
         let source = "\
 #!/bin/bash

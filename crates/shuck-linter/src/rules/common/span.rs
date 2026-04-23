@@ -1648,6 +1648,7 @@ fn continued_line_chain_start(
         if source[index..].starts_with("\r\n") {
             index += "\r\n".len();
             if !in_comment && !in_single_quote && trailing_backslashes % 2 == 1 {
+                trailing_backslashes = 0;
                 continue;
             }
             chain_start = index;
@@ -1666,6 +1667,7 @@ fn continued_line_chain_start(
 
         if ch == '\n' {
             if !in_comment && !in_single_quote && trailing_backslashes % 2 == 1 {
+                trailing_backslashes = 0;
                 continue;
             }
             chain_start = index;
@@ -5266,6 +5268,22 @@ exec \"$@\" \"${@}\" \"${@:1}\" \"${@:-fallback}\" \"${@:${args_offset}}\" \"${@
         let source = "echo `printf '%s\\n' '\nfoo\\\n$bar'`\n";
         let start_offset = source.find("$bar").expect("expected expansion");
         let end_offset = start_offset + "$bar".len();
+        let span = Span::from_positions(
+            position_at_offset(source, start_offset).expect("expected start position"),
+            position_at_offset(source, end_offset).expect("expected end position"),
+        );
+
+        assert_eq!(
+            shellcheck_collapsed_backtick_part_span_in_source(span, source),
+            span
+        );
+    }
+
+    #[test]
+    fn shellcheck_collapsed_backtick_part_span_in_source_clears_escape_state_after_continuations() {
+        let source = "echo `printf '%s\\n' foo\\\n'$bar\\\n'\n$baz`\n";
+        let start_offset = source.find("$baz").expect("expected expansion");
+        let end_offset = start_offset + "$baz".len();
         let span = Span::from_positions(
             position_at_offset(source, start_offset).expect("expected start position"),
             position_at_offset(source, end_offset).expect("expected end position"),

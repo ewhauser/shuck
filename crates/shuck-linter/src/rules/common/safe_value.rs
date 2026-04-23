@@ -370,16 +370,10 @@ impl<'a> SafeValueIndex<'a> {
                             && self.command_runs_in_unconditional_flow(command.id(), at)
                             && {
                                 let call_span = command.span_in_source(self.source);
-                                function_definition_command
-                                    .span_in_source(self.source)
-                                    .end
-                                    .offset
-                                    <= call_span.start.offset
-                                    && self.definition_command_is_visible_at_call(
-                                        function_definition_command.id(),
-                                        call_span,
-                                    )
-                                    && call_span.end.offset <= at.start.offset
+                                self.definition_command_resolves_at_call(
+                                    function_definition_command.id(),
+                                    call_span,
+                                ) && call_span.end.offset <= at.start.offset
                                     && (call_span.start.offset >= binding.span.end.offset
                                         || call_span.end.offset <= binding.span.start.offset)
                             }
@@ -422,6 +416,26 @@ impl<'a> SafeValueIndex<'a> {
             parent_id = self.facts.command_parent_id(id);
         }
         true
+    }
+
+    fn definition_command_resolves_at_call(
+        &self,
+        command_id: crate::facts::CommandId,
+        call_span: Span,
+    ) -> bool {
+        if !self.definition_command_is_visible_at_call(command_id, call_span) {
+            return false;
+        }
+
+        let command = self.facts.command(command_id);
+        let definition_scope = self.enclosing_function_scope_at(command.span().start.offset);
+        let call_scope = self.enclosing_function_scope_at(call_span.start.offset);
+
+        if definition_scope.is_none() && call_scope.is_some() {
+            return true;
+        }
+
+        command.span_in_source(self.source).end.offset <= call_span.start.offset
     }
 
     fn command_for_name_word_span(&self, span: Span) -> Option<&crate::facts::CommandFact<'a>> {
@@ -3267,5 +3281,37 @@ helper() {
             .expect("expected helper function header");
 
         assert!(!function_has_terminal_exit(helper_header.function()));
+    }
+
+    #[test]
+    fn later_top_level_exit_helpers_block_same_function_bindings() {
+        let source = "\
+#!/bin/sh
+SAFE=foo
+wrapper() {
+  Exit
+  echo /tmp/$SAFE
+}
+Exit() { exit 0; }
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let analysis = semantic.analysis();
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let mut safe_values = SafeValueIndex::build(&semantic, &analysis, &facts, source);
+        let target = facts
+            .word_facts()
+            .iter()
+            .find(|fact| {
+                fact.expansion_context() == Some(ExpansionContext::CommandArgument)
+                    && fact
+                        .parts_with_spans()
+                        .any(|(_, span)| span.slice(source) == "$SAFE")
+            })
+            .expect("expected same-function argument fact");
+
+        assert!(!safe_values.word_occurrence_is_safe(target, SafeValueQuery::Argv));
     }
 }
