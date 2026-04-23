@@ -2,6 +2,7 @@
 pub struct CaseItemFact<'a> {
     item: &'a CaseItem,
     command_id: CommandId,
+    case_span: Span,
 }
 
 impl<'a> CaseItemFact<'a> {
@@ -19,6 +20,10 @@ impl<'a> CaseItemFact<'a> {
 
     pub fn terminator_span(&self) -> Option<Span> {
         self.item.terminator_span
+    }
+
+    pub fn case_span(&self) -> Span {
+        self.case_span
     }
 }
 
@@ -131,7 +136,10 @@ impl GetoptsCaseFact {
 }
 
 
-pub(super) fn build_case_item_facts<'a>(commands: &[CommandFact<'a>]) -> Vec<CaseItemFact<'a>> {
+pub(super) fn build_case_item_facts<'a>(
+    commands: &[CommandFact<'a>],
+    source: &str,
+) -> Vec<CaseItemFact<'a>> {
     commands
         .iter()
         .filter_map(|fact| {
@@ -139,9 +147,11 @@ pub(super) fn build_case_item_facts<'a>(commands: &[CommandFact<'a>]) -> Vec<Cas
                 return None;
             };
 
-            Some(command.cases.iter().map(|item| CaseItemFact {
+            let case_span = fact.span_in_source(source);
+            Some(command.cases.iter().map(move |item| CaseItemFact {
                 item,
                 command_id: fact.id(),
+                case_span,
             }))
         })
         .flatten()
@@ -1051,5 +1061,3 @@ fn static_case_pattern_text(pattern: &Pattern, source: &str) -> Option<String> {
 fn case_subject_variable_name(word: &Word) -> Option<&str> {
     standalone_variable_name_from_word_parts(&word.parts)
 }
-
-

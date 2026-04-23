@@ -352,7 +352,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let for_headers = build_for_header_facts(&commands, &command_ids_by_span, self.source);
         let select_headers =
             build_select_header_facts(&commands, &command_ids_by_span, self.source);
-        let case_items = build_case_item_facts(&commands);
+        let case_items = build_case_item_facts(&commands, self.source);
         let case_pattern_shadows = build_case_pattern_shadow_facts(&commands, self.source);
         let case_pattern_impossible_spans =
             build_case_pattern_impossible_spans(&commands, self.source);
