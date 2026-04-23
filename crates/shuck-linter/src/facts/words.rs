@@ -139,6 +139,11 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
         self.occurrence().host_kind
     }
 
+    pub fn is_in_positive_zsh_guard(self) -> bool {
+        self.facts
+            .command_is_in_positive_zsh_guard(self.command_id())
+    }
+
     pub fn analysis(self) -> ExpansionAnalysis {
         self.node().analysis
     }

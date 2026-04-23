@@ -22,6 +22,7 @@ pub fn nested_zsh_substitution(checker: &mut Checker) {
         .facts()
         .word_facts()
         .iter()
+        .filter(|fact| !fact.is_in_positive_zsh_guard())
         .flat_map(|fact| fact.nested_zsh_substitution_spans())
         .collect::<Vec<_>>();
 
@@ -36,6 +37,22 @@ mod tests {
     #[test]
     fn ignores_nested_targets_without_outer_operation() {
         let source = "#!/bin/sh\nversions=(${${(f)\"$(echo test)\"}})\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::NestedZshSubstitution),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_positive_zsh_compatibility_guards() {
+        let source = "\
+#!/bin/bash
+if [[ -n ${ZSH_VERSION-} && -z ${GIT_SOURCING_ZSH_COMPLETION-} ]]; then
+  unset ${(M)${(k)parameters[@]}:#__gitcomp_builtin_*} 2>/dev/null
+fi
+";
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::NestedZshSubstitution),

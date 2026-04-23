@@ -569,6 +569,8 @@ impl<'a> LinterFactsBuilder<'a> {
         );
         let command_parent_ids = build_command_parent_ids(&commands);
         let command_dominance_barrier_flags = build_command_dominance_barrier_flags(&commands);
+        let zsh_guarded_command_ids =
+            build_zsh_guarded_command_ids(&self.file.body, &command_ids_by_span);
 
         LinterFacts {
             source,
@@ -580,6 +582,7 @@ impl<'a> LinterFactsBuilder<'a> {
             command_dominance_barrier_flags,
             if_condition_command_ids,
             elif_condition_command_ids,
+            zsh_guarded_command_ids,
             binding_values,
             binding_target_spans,
             broken_assoc_key_spans,
@@ -727,6 +730,191 @@ fn stmt_contains_nested_control_flow(stmt: &Stmt) -> bool {
     }
 }
 
+fn build_zsh_guarded_command_ids(
+    body: &StmtSeq,
+    command_ids_by_span: &CommandLookupIndex,
+) -> FxHashSet<CommandId> {
+    let mut guarded_ids = FxHashSet::default();
+
+    for visit in query::iter_commands(body, CommandWalkOptions::default()) {
+        let Command::Compound(CompoundCommand::If(command)) = visit.command else {
+            continue;
+        };
+
+        if !if_condition_requires_zsh(&command.condition) {
+            continue;
+        }
+
+        guarded_ids.extend(
+            query::iter_commands(
+                &command.then_branch,
+                CommandWalkOptions {
+                    descend_nested_word_commands: true,
+                },
+            )
+            .filter_map(|visit| command_id_for_command(visit.command, command_ids_by_span)),
+        );
+    }
+
+    guarded_ids
+}
+
+fn if_condition_requires_zsh(condition: &StmtSeq) -> bool {
+    condition
+        .last()
+        .is_some_and(|stmt| command_implies_zsh_presence(&stmt.command))
+}
+
+fn command_implies_zsh_presence(command: &Command) -> bool {
+    match command {
+        Command::Binary(command) => match command.op {
+            BinaryOp::And => {
+                command_implies_zsh_presence(&command.left.command)
+                    || command_implies_zsh_presence(&command.right.command)
+            }
+            BinaryOp::Or => {
+                command_implies_zsh_presence(&command.left.command)
+                    && command_implies_zsh_presence(&command.right.command)
+            }
+            _ => false,
+        },
+        Command::Compound(CompoundCommand::Conditional(command)) => {
+            conditional_expr_implies_zsh_presence(&command.expression)
+        }
+        Command::Simple(_)
+        | Command::Builtin(_)
+        | Command::Decl(_)
+        | Command::Compound(_)
+        | Command::Function(_)
+        | Command::AnonymousFunction(_) => false,
+    }
+}
+
+fn conditional_expr_implies_zsh_presence(expression: &ConditionalExpr) -> bool {
+    match strip_positive_zsh_guard_parentheses(expression) {
+        ConditionalExpr::Binary(expr) => match expr.op {
+            ConditionalBinaryOp::And => {
+                conditional_expr_implies_zsh_presence(&expr.left)
+                    || conditional_expr_implies_zsh_presence(&expr.right)
+            }
+            ConditionalBinaryOp::Or => {
+                conditional_expr_implies_zsh_presence(&expr.left)
+                    && conditional_expr_implies_zsh_presence(&expr.right)
+            }
+            _ => false,
+        },
+        ConditionalExpr::Unary(expr) => match expr.op {
+            ConditionalUnaryOp::NonEmptyString | ConditionalUnaryOp::VariableSet => {
+                conditional_expr_targets_zsh_version(&expr.expr)
+            }
+            ConditionalUnaryOp::Not => negated_conditional_expr_implies_zsh_presence(&expr.expr),
+            _ => false,
+        },
+        ConditionalExpr::Parenthesized(_)
+        | ConditionalExpr::Word(_)
+        | ConditionalExpr::Pattern(_)
+        | ConditionalExpr::Regex(_)
+        | ConditionalExpr::VarRef(_) => false,
+    }
+}
+
+fn negated_conditional_expr_implies_zsh_presence(expression: &ConditionalExpr) -> bool {
+    match strip_positive_zsh_guard_parentheses(expression) {
+        ConditionalExpr::Unary(expr) if expr.op == ConditionalUnaryOp::EmptyString => {
+            conditional_expr_targets_zsh_version(&expr.expr)
+        }
+        ConditionalExpr::Unary(expr) if expr.op == ConditionalUnaryOp::Not => {
+            conditional_expr_implies_zsh_presence(&expr.expr)
+        }
+        _ => false,
+    }
+}
+
+fn conditional_expr_targets_zsh_version(expression: &ConditionalExpr) -> bool {
+    match strip_positive_zsh_guard_parentheses(expression) {
+        ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
+            word_references_name(word, "ZSH_VERSION")
+        }
+        ConditionalExpr::VarRef(reference) => {
+            reference.subscript.is_none() && reference.name == "ZSH_VERSION"
+        }
+        ConditionalExpr::Binary(_)
+        | ConditionalExpr::Unary(_)
+        | ConditionalExpr::Parenthesized(_)
+        | ConditionalExpr::Pattern(_) => false,
+    }
+}
+
+fn word_references_name(word: &Word, name: &str) -> bool {
+    word_parts_reference_name(&word.parts, name)
+}
+
+fn word_parts_reference_name(parts: &[WordPartNode], name: &str) -> bool {
+    let [part] = parts else {
+        return false;
+    };
+
+    match &part.kind {
+        WordPart::DoubleQuoted { parts, .. } => word_parts_reference_name(parts, name),
+        WordPart::Variable(variable) => variable == name,
+        WordPart::ParameterExpansion { reference, .. }
+        | WordPart::Length(reference)
+        | WordPart::ArrayAccess(reference)
+        | WordPart::ArrayLength(reference)
+        | WordPart::ArrayIndices(reference)
+        | WordPart::IndirectExpansion { reference, .. }
+        | WordPart::Substring { reference, .. }
+        | WordPart::ArraySlice { reference, .. }
+        | WordPart::Transformation { reference, .. } => {
+            reference.subscript.is_none() && reference.name == name
+        }
+        WordPart::Parameter(parameter) => {
+            parameter_expansion_references_name(parameter, name)
+        }
+        WordPart::Literal(_)
+        | WordPart::ZshQualifiedGlob(_)
+        | WordPart::SingleQuoted { .. }
+        | WordPart::CommandSubstitution { .. }
+        | WordPart::ArithmeticExpansion { .. }
+        | WordPart::PrefixMatch { .. }
+        | WordPart::ProcessSubstitution { .. } => false,
+    }
+}
+
+fn parameter_expansion_references_name(parameter: &ParameterExpansion, name: &str) -> bool {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(syntax) => match syntax {
+            BourneParameterExpansion::Access { reference }
+            | BourneParameterExpansion::Length { reference }
+            | BourneParameterExpansion::Indices { reference }
+            | BourneParameterExpansion::Indirect { reference, .. }
+            | BourneParameterExpansion::Slice { reference, .. }
+            | BourneParameterExpansion::Operation { reference, .. }
+            | BourneParameterExpansion::Transformation { reference, .. } => {
+                reference.subscript.is_none() && reference.name == name
+            }
+            BourneParameterExpansion::PrefixMatch { prefix, .. } => prefix == name,
+        },
+        ParameterExpansionSyntax::Zsh(syntax) => match &syntax.target {
+            ZshExpansionTarget::Reference(reference) => {
+                reference.subscript.is_none() && reference.name == name
+            }
+            ZshExpansionTarget::Nested(parameter) => {
+                parameter_expansion_references_name(parameter, name)
+            }
+            ZshExpansionTarget::Word(word) => word_references_name(word, name),
+            ZshExpansionTarget::Empty => false,
+        },
+    }
+}
+
+fn strip_positive_zsh_guard_parentheses(mut expression: &ConditionalExpr) -> &ConditionalExpr {
+    while let ConditionalExpr::Parenthesized(parenthesized) = expression {
+        expression = &parenthesized.expr;
+    }
+
+    expression
+}
 fn build_command_substitution_parameter_operation_fragments(
     word_nodes: &[WordNode<'_>],
     word_occurrences: &[WordOccurrence],
