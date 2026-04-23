@@ -39,7 +39,7 @@ use crate::rules::common::{
     query::{self, CommandSubstitutionKind, CommandVisit, CommandWalkOptions},
 };
 use crate::suppression::shellcheck_directive_can_apply_to_following_command;
-use crate::{AmbientShellOptions, FileContext};
+use crate::{AmbientShellOptions, FileContext, ShellDialect};
 use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{
     ArithmeticExpansionSyntax, ArithmeticExpr, ArithmeticExprNode, ArithmeticLvalue,
@@ -57,7 +57,8 @@ use shuck_ast::{
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
 use shuck_semantic::{
-    BindingAttributes, BindingId, BindingKind, OptionValue, ScopeId, SemanticModel, ZshOptionState,
+    Binding, BindingAttributes, BindingId, BindingKind, DeclarationBuiltin, OptionValue, ScopeId,
+    SemanticModel, ZshOptionState,
 };
 use smallvec::SmallVec;
 use std::{borrow::Cow, cell::OnceCell, ops::ControlFlow};

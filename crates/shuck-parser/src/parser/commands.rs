@@ -3846,8 +3846,10 @@ impl<'a> Parser<'a> {
         }
 
         let expr_span = Self::optional_span(left_paren_span.end, right_paren_span.start);
-        let expr_ast =
-            self.parse_explicit_arithmetic_span(expr_span, "invalid arithmetic command")?;
+        let expr_ast = self
+            .parse_explicit_arithmetic_span(expr_span, "invalid arithmetic command")
+            .ok()
+            .flatten();
         Ok(CompoundCommand::Arithmetic(ArithmeticCommand {
             span: left_paren_span.merge(right_paren_span),
             left_paren_span,
