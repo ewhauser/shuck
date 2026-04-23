@@ -193,6 +193,19 @@ fi
 }
 
 #[test]
+fn test_extra_right_paren_after_process_substitution_is_not_swallowed() {
+    let input = "echo <(true))\n";
+    let error = Parser::with_dialect(input, ShellDialect::Bash)
+        .parse()
+        .unwrap_err();
+
+    assert!(
+        error.to_string().contains("expected command"),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
 fn test_redirect_only_command_parses() {
     let input = ">myfile\n";
     let script = Parser::new(input).parse().unwrap().file;

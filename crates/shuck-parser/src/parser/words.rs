@@ -2872,14 +2872,15 @@ impl<'a> Parser<'a> {
                             self.advance();
                         }
                         Some(TokenKind::DoubleRightParen) => {
-                            let (first_span, second_span) =
+                            if depth == 1 {
+                                self.split_current_double_right_paren();
+                                continue;
+                            }
+
+                            let (_, second_span) =
                                 Self::split_double_right_paren(self.current_span);
                             match depth {
                                 0 => unreachable!("process substitution depth cannot underflow"),
-                                1 => {
-                                    self.advance();
-                                    break first_span;
-                                }
                                 2 => {
                                     self.advance();
                                     break second_span;

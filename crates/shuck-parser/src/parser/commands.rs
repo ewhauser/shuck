@@ -702,7 +702,7 @@ impl<'a> Parser<'a> {
             ));
     }
 
-    fn split_current_double_right_paren(&mut self) {
+    pub(super) fn split_current_double_right_paren(&mut self) {
         let (left_span, right_span) = Self::split_double_right_paren(self.current_span);
         self.set_current_kind(TokenKind::RightParen, left_span);
         self.synthetic_tokens
