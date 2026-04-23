@@ -127,7 +127,7 @@ test large_corpus_conforms_with_shellcheck ... FAILED
 
             html = output_path.read_text(encoding="utf-8")
 
-        self.assertIn("3\n        mapping issues, 4 reviewed divergences,", html)
+        self.assertIn("3\n        mapping issues, 4 reviewed divergences overall,", html)
         self.assertIn("6 main harness warnings,", html)
 
     def test_rendered_fixture_card_uses_progress_total(self) -> None:
@@ -228,12 +228,14 @@ test large_corpus_conforms_with_shellcheck ... ok
 
             html = output_path.read_text(encoding="utf-8")
 
-        self.assertIn("Top 5 rules account for 100.0% of all rule-coded records.", html)
+        self.assertIn("Top 5 rules account for 100.0% of the rule activity shown here.", html)
         self.assertIn('<span class="badge">C001</span>', html)
         self.assertIn("Known Failure", html)
         self.assertIn("known large-corpus rule allowlist", html)
 
-    def test_metadata_backed_reviewed_divergence_stays_out_of_detailed_tables(self) -> None:
+    def test_metadata_backed_reviewed_divergence_is_counted_without_detail_rows(
+        self,
+    ) -> None:
         log = """large corpus compatibility summary: blocking=0 warnings=1 fixtures=1 unsupported_shells=0 implementation_diffs=0 mapping_issues=0 reviewed_divergences=1 harness_warnings=0 harness_failures=0
 Reviewed Divergence:
 /tmp/main-fixture.sh
@@ -260,7 +262,10 @@ test large_corpus_conforms_with_shellcheck ... ok
 
             html = output_path.read_text(encoding="utf-8")
 
-        self.assertNotIn('<span class="badge">C003</span>', html)
+        self.assertIn('<th>Metadata Skips</th>', html)
+        self.assertIn('<span class="badge">C003</span>', html)
+        self.assertIn("reviewed records skipped by metadata", html)
+        self.assertIn("No displayed mismatch records; this rule only appears via metadata skips.", html)
         self.assertNotIn("metadata-backed reviewed divergence", html)
         self.assertIn("1 reviewed divergences", html)
 

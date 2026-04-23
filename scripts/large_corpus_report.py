@@ -7,7 +7,7 @@ from __future__ import annotations
 import argparse
 import html
 import re
-from collections import Counter, defaultdict
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -59,6 +59,8 @@ class RuleSummary:
     mismatches: int = 0
     fixtures: set[str] = field(default_factory=set)
     grouped_reasons: Counter[str] = field(default_factory=Counter)
+    metadata_skips: int = 0
+    metadata_skip_fixtures: set[str] = field(default_factory=set)
 
     def top_reason_groups(self, limit: int = 3) -> list[tuple[str, int]]:
         return self.grouped_reasons.most_common(limit)
@@ -202,12 +204,41 @@ def parse_rule_metadata(repo_root: Path, rule_code: str) -> tuple[str, str]:
     return description, shellcheck_code
 
 
-def parse_rule_summaries(section: str | None, repo_root: Path) -> list[RuleSummary]:
-    if not section:
-        return []
-    summaries: dict[str, RuleSummary] = {}
-    current_fixture: str | None = None
+def diagnostic_reason(line: str) -> str | None:
+    stripped = line.strip()
+    if " reason=" not in stripped:
+        return None
+    return stripped.split(" reason=", 1)[1].strip()
 
+
+def summary_for_match(
+    summaries: dict[str, RuleSummary],
+    repo_root: Path,
+    match: re.Match[str],
+) -> RuleSummary:
+    rule_code = match.group("rule")
+    summary = summaries.get(rule_code)
+    if summary is None:
+        description, rule_shellcheck_code = parse_rule_metadata(repo_root, rule_code)
+        summary = summaries[rule_code] = RuleSummary(
+            rule_code=rule_code,
+            shellcheck_code=rule_shellcheck_code or match.group("shellcheck"),
+            description=description,
+        )
+    elif not summary.shellcheck_code:
+        summary.shellcheck_code = match.group("shellcheck")
+    return summary
+
+
+def accumulate_rule_mismatches(
+    summaries: dict[str, RuleSummary],
+    section: str | None,
+    repo_root: Path,
+) -> None:
+    if not section:
+        return
+
+    current_fixture: str | None = None
     for line in section.splitlines():
         if FIXTURE_LINE_RE.match(line):
             current_fixture = line
@@ -217,22 +248,57 @@ def parse_rule_summaries(section: str | None, repo_root: Path) -> list[RuleSumma
         if not match:
             continue
 
-        rule_code = match.group("rule")
-        summary = summaries.get(rule_code)
-        if summary is None:
-            description, rule_shellcheck_code = parse_rule_metadata(repo_root, rule_code)
-            summary = summaries[rule_code] = RuleSummary(
-                rule_code=rule_code,
-                shellcheck_code=rule_shellcheck_code or match.group("shellcheck"),
-                description=description,
-            )
-
+        summary = summary_for_match(summaries, repo_root, match)
         summary.mismatches += 1
         if current_fixture is not None:
             summary.fixtures.add(current_fixture)
         summary.grouped_reasons[match.group("side")] += 1
 
-    return sorted(summaries.values(), key=lambda summary: summary.mismatches, reverse=True)
+
+def accumulate_metadata_skips(
+    summaries: dict[str, RuleSummary],
+    reviewed_section: str | None,
+    repo_root: Path,
+) -> None:
+    if not reviewed_section:
+        return
+
+    current_fixture: str | None = None
+    for line in reviewed_section.splitlines():
+        if FIXTURE_LINE_RE.match(line):
+            current_fixture = line
+            continue
+
+        match = DIAGNOSTIC_LINE_RE.match(line)
+        if not match:
+            continue
+
+        if diagnostic_reason(line) == KNOWN_LARGE_CORPUS_RULE_ALLOWLIST_REASON:
+            continue
+
+        summary = summary_for_match(summaries, repo_root, match)
+        summary.metadata_skips += 1
+        if current_fixture is not None:
+            summary.metadata_skip_fixtures.add(current_fixture)
+
+
+def parse_rule_summaries(
+    rule_section: str | None,
+    reviewed_section: str | None,
+    repo_root: Path,
+) -> list[RuleSummary]:
+    summaries: dict[str, RuleSummary] = {}
+    accumulate_rule_mismatches(summaries, rule_section, repo_root)
+    accumulate_metadata_skips(summaries, reviewed_section, repo_root)
+    return sorted(
+        summaries.values(),
+        key=lambda summary: (
+            -(summary.mismatches + summary.metadata_skips),
+            -summary.mismatches,
+            -summary.metadata_skips,
+            summary.rule_code,
+        ),
+    )
 
 
 def combine_sections(*sections: str | None) -> str | None:
@@ -250,10 +316,9 @@ def filter_reviewed_divergence_section_for_known_failures(section: str | None) -
     for fixture_path, lines in parse_fixture_entries(section):
         kept_lines: list[str] = []
         for line in lines:
-            stripped = line.strip()
-            if not stripped:
+            if not line.strip():
                 continue
-            if f" reason={KNOWN_LARGE_CORPUS_RULE_ALLOWLIST_REASON}" not in stripped:
+            if diagnostic_reason(line) != KNOWN_LARGE_CORPUS_RULE_ALLOWLIST_REASON:
                 continue
             kept_lines.append(line)
 
@@ -404,6 +469,11 @@ def rendered_reason_items(summary: RuleSummary) -> str:
             "</li>"
         )
 
+    if not items:
+        items.append(
+            "<li>No displayed mismatch records; this rule only appears via metadata skips.</li>"
+        )
+
     return "\n".join(items)
 
 
@@ -421,18 +491,38 @@ def worker_panic(text: str) -> tuple[str, str] | None:
     return match.group("location"), match.group("message")
 
 
+def rule_activity(summary: RuleSummary) -> int:
+    return summary.mismatches + summary.metadata_skips
+
+
 def top_rule_share(rule_summaries: Iterable[RuleSummary], top_n: int = 5) -> float:
     rules = list(rule_summaries)
-    total = sum(summary.mismatches for summary in rules)
+    total = sum(rule_activity(summary) for summary in rules)
     if total == 0:
         return 0.0
-    top_total = sum(summary.mismatches for summary in rules[:top_n])
+    top_total = sum(rule_activity(summary) for summary in rules[:top_n])
     return (top_total / total) * 100.0
 
 
 def render_detail_list(items: tuple[str, ...], class_name: str) -> str:
     return "\n".join(
         f'<li class="{class_name}">{html.escape(item)}</li>' for item in items
+    )
+
+
+def rendered_metadata_skip_cell(summary: RuleSummary) -> str:
+    if summary.metadata_skips == 0:
+        return (
+            '<p class="metric">0</p>'
+            '<p class="metric-label">no metadata-backed reviewed skips</p>'
+        )
+
+    fixture_count = len(summary.metadata_skip_fixtures)
+    fixture_label = "fixture" if fixture_count == 1 else "fixtures"
+    return (
+        f'<p class="metric">{format_number(summary.metadata_skips)}</p>'
+        '<p class="metric-label">reviewed records skipped by metadata</p>'
+        f'<p class="metric-label">across {format_number(fixture_count)} {fixture_label}</p>'
     )
 
 
@@ -446,6 +536,7 @@ def render_html(
     unsupported_shells: int,
     main_processed_fixtures: int,
     rule_records: int,
+    metadata_skip_records: int,
     shellcheck_only: int,
     shuck_only: int,
     mapping_issues: int,
@@ -471,6 +562,7 @@ def render_html(
         )
     else:
         panic_text = "no worker-thread panic was detected in the parsed log"
+    metadata_skip_record_label = "record" if metadata_skip_records == 1 else "records"
     timeout_note_html = (
         f'\n      <p class="note">{html.escape(main_timeout_note)}</p>'
         if main_timeout_note
@@ -486,6 +578,7 @@ def render_html(
               </td>
               <td><p class="metric">{mismatches}</p><p class="metric-label">rule-coded records</p></td>
               <td><p class="metric">{fixtures}</p><p class="metric-label">{fixture_label}</p></td>
+              <td>{metadata_skip_cell}</td>
               <td>
                 <ul class="reason-list">
                   {reason_items}
@@ -499,6 +592,7 @@ def render_html(
             mismatches=format_number(summary.mismatches),
             fixtures=format_number(len(summary.fixtures)),
             fixture_label="fixture" if len(summary.fixtures) == 1 else "fixtures",
+            metadata_skip_cell=rendered_metadata_skip_cell(summary),
             reason_items=rendered_reason_items(summary),
         ).strip()
         for summary in rule_summaries
@@ -993,12 +1087,13 @@ def render_html(
   <main class="page">
     <section class="hero">
       <div class="eyebrow">Large Corpus Conformance Snapshot</div>
-      <h1>Rule Record Counts With Grouped Failure Reasons</h1>
+      <h1>Rule Records With Metadata-Skip Counts</h1>
       <p class="lede">
         This page summarizes a large-corpus run for Shuck and folds the raw compatibility log into a
         per-rule table. Counts below cover implementation-diff records plus allowlisted known
         failures, not failing fixtures, so a single fixture can contribute more than one displayed
-        record to the same rule.
+        record to the same rule. The metadata-skips column separately tracks reviewed divergences
+        that were omitted from mismatch totals because corpus metadata already marked them reviewed.
       </p>
       <div class="meta">
         <div class="pill">Generated: <code>{html.escape(generated_label)}</code></div>
@@ -1014,7 +1109,7 @@ def render_html(
         <article class="card">
           <p class="kicker">Rule-coded records</p>
           <p class="value">{format_number(rule_records)}</p>
-          <p class="note">{len(rule_summaries)} distinct rules appeared across implementation diffs and allowlisted known failures.</p>
+          <p class="note">{len(rule_summaries)} distinct rules appear in the table, with {format_number(metadata_skip_records)} metadata-backed reviewed {metadata_skip_record_label} tracked separately.</p>
         </article>
         <article class="card">
           <p class="kicker">SC-only records</p>
@@ -1043,12 +1138,14 @@ def render_html(
       <h2>How To Read This</h2>
       <p>
         The grouped-reason bullets show whether a rule's mismatches skew toward ShellCheck-only
-        or Shuck-only records.
+        or Shuck-only records, while metadata skips count reviewed divergences that stay out of the
+        mismatch totals.
       </p>
       <div class="legend">
         <div class="legend-item"><span class="sc-only">SC-only</span> = ShellCheck reported it, Shuck did not.</div>
         <div class="legend-item"><span class="shuck-only">Shuck-only</span> = Shuck reported it, ShellCheck did not.</div>
-        <div class="legend-item">Top 5 rules account for {top_five_share:.1f}% of all rule-coded records.</div>
+        <div class="legend-item">Metadata skips = reviewed divergences hidden from mismatch counts because corpus metadata marked them reviewed.</div>
+        <div class="legend-item">Top 5 rules account for {top_five_share:.1f}% of the rule activity shown here.</div>
         <div class="legend-item">Only hard-coded allowlisted known failures are pulled in from reviewed divergences.</div>
       </div>
       <div class="table-wrap">
@@ -1058,6 +1155,7 @@ def render_html(
               <th>Rule</th>
               <th>Mismatches</th>
               <th>Fixtures</th>
+              <th>Metadata Skips</th>
               <th>Grouped Reasons</th>
             </tr>
           </thead>
@@ -1071,16 +1169,18 @@ def render_html(
     <section class="section">
       <h2>Other Issue Buckets</h2>
       <p>
-        The rule table above covers implementation diffs plus allowlisted known failures. This log also reported {format_number(mapping_issues)}
-        mapping issues, {format_number(reviewed_divergences)} reviewed divergences,
+        The rule table above covers implementation diffs plus allowlisted known failures and separately tracks {format_number(metadata_skip_records)}
+        metadata-backed reviewed records. This log also reported {format_number(mapping_issues)}
+        mapping issues, {format_number(reviewed_divergences)} reviewed divergences overall,
         {format_number(main_harness_warnings)} main harness warnings,
         {format_number(main_harness_failures)} main harness failures, and {panic_text}.
       </p>
       <p class="note">
         The table below stays fixture-focused on main-run issue entries. When the log includes
         fixture-level detail, it includes implementation diffs, allowlisted known failures,
-        mapping issues, harness warnings, and harness failures. Other reviewed divergences stay in
-        the aggregate counts above but are intentionally omitted from the detailed tables.
+        mapping issues, harness warnings, and harness failures. Metadata-backed reviewed
+        divergences are counted in the rule table's metadata-skips column but are intentionally
+        omitted from the detailed fixture table.
       </p>
       {timeout_note_html}
       <div class="table-wrap">
@@ -1144,7 +1244,7 @@ def main() -> int:
         raise SystemExit("could not determine the main compatibility counts from the log")
 
     rule_record_section = combine_sections(implementation_section, known_failure_section)
-    rule_summaries = parse_rule_summaries(rule_record_section, repo_root)
+    rule_summaries = parse_rule_summaries(rule_record_section, reviewed_section, repo_root)
     blocker_entries = (
         parse_blocker_entries("Implementation Diff", implementation_section)
         + parse_blocker_entries("Known Failure", known_failure_section)
@@ -1153,6 +1253,7 @@ def main() -> int:
         + parse_blocker_entries("Harness Failure", main_harness_section)
     )
     rule_records = sum(summary.mismatches for summary in rule_summaries)
+    metadata_skip_records = sum(summary.metadata_skips for summary in rule_summaries)
     shellcheck_only = sum(
         count
         for summary in rule_summaries
@@ -1196,6 +1297,7 @@ def main() -> int:
             text, main_fixture_entries, unsupported_shells
         ),
         rule_records=rule_records,
+        metadata_skip_records=metadata_skip_records,
         shellcheck_only=shellcheck_only,
         shuck_only=shuck_only,
         mapping_issues=mapping_issue_count,
