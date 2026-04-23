@@ -87,6 +87,7 @@ export CARGO_TARGET_\"${env_host}\"_RUSTFLAGS+=\" -C link-arg=$($CC -print-libgc
 mkdir -p \"$TERMUX_GODIR\"/{bin,src,doc,lib,\"pkg/tool/$TERMUX_GOLANG_DIRNAME\",pkg/include}
 curl \"${gotifywebhook}/message\"?token=\"${gotifytoken}\"
 java_home=\"$(find \"$java_library_base/\"*1.\"$version\"* -type d -name 'Home*')\"
+printf '%s\\n' \"foo\"user@host\"bar\" \"foo\"a+b\"bar\"
 print \"\\
 export EASYRSA_REQ_SERIAL=\\\"$EASYRSA_REQ_SERIAL\\\"\\
 \" | sed -e s/a/b/
@@ -132,6 +133,10 @@ lt_cv_sys_global_symbol_pipe=\"$AWK '\"\\
 \"     {last_section=section};\"\\
 \"     /^COFF SYMBOL TABLE/{next};\"\\
 \"     ' prfx=^$ac_symprfx\"
+nested=\"$AWK '\"\\
+\"     {value=$(printf \"%s\" x);};\"\\
+\"     /^COFF SYMBOL TABLE/{next};\"\\
+\"     ' prfx=^$ac_symprfx\"
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::MixedQuoteWord));
 
@@ -140,7 +145,7 @@ lt_cv_sys_global_symbol_pipe=\"$AWK '\"\\
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["\\\n", "\\\n", "\\\n"]
+            vec!["\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n"]
         );
     }
 

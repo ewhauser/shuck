@@ -2131,7 +2131,7 @@ printf '%s\\n' \"foo\"bar\"baz\" \"foo\"-\"bar\" \"foo\"$(printf '%s' x)\"bar\" 
 fn builds_word_facts_skip_shellcheck_skipped_mixed_quote_literals() {
     let source = "\
 #!/bin/bash
-printf '%s\\n' \"foo\"*bar\"baz\" \"foo\"?bar\"baz\" \"foo\"a[b]\"baz\" \"foo\"a{b}\"baz\" \"foo\"a+b\"baz\" \"foo\"a@b\"baz\"
+printf '%s\\n' \"foo\"*bar\"baz\" \"foo\"?bar\"baz\" \"foo\"a[b]\"baz\" \"foo\"a{b}\"baz\" \"foo\"a+b\"baz\" \"foo\"a@b\"baz\" \"foo\"user@host\"bar\"
 export CARGO_TARGET_\"${env_host}\"_RUSTFLAGS+=\" -C\"
 print \"\\
 export EASYRSA_REQ_SERIAL=\\\"$EASYRSA_REQ_SERIAL\\\"\\
@@ -2162,6 +2162,10 @@ lt_cv_sys_global_symbol_pipe=\"$AWK '\"\\
 \"     {last_section=section};\"\\
 \"     /^COFF SYMBOL TABLE/{next};\"\\
 \"     ' prfx=^$ac_symprfx\"
+nested=\"$AWK '\"\\
+\"     {value=$(printf \"%s\" x);};\"\\
+\"     /^COFF SYMBOL TABLE/{next};\"\\
+\"     ' prfx=^$ac_symprfx\"
 ";
 
     with_facts(source, None, |_, facts| {
@@ -2176,7 +2180,7 @@ lt_cv_sys_global_symbol_pipe=\"$AWK '\"\\
             })
             .collect::<Vec<_>>();
 
-        assert_eq!(spans, vec!["\\\n", "\\\n", "\\\n"]);
+        assert_eq!(spans, vec!["\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n"]);
     });
 }
 

@@ -1390,7 +1390,7 @@ fn mixed_quote_literal_is_warnable_between_double_quotes(text: &str) -> bool {
             return false;
         }
 
-        if text.contains('+') || text.contains('@') {
+        if mixed_quote_literal_has_shellcheck_skipped_word_operator(text) {
             return false;
         }
 
@@ -1404,6 +1404,10 @@ fn mixed_quote_literal_is_warnable_between_double_quotes(text: &str) -> bool {
     text.chars().all(|ch| {
         ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.' | '@' | '+' | '-' | '%' | ':')
     })
+}
+
+fn mixed_quote_literal_has_shellcheck_skipped_word_operator(text: &str) -> bool {
+    text.contains('+') || text.contains('@')
 }
 
 fn mixed_quote_word_parts_inside_nested_shell_fragments(word: &Word, source: &str) -> Vec<bool> {
@@ -1697,24 +1701,104 @@ fn mixed_quote_chained_line_join_between_double_quotes_spans(
 }
 
 fn mixed_quote_closing_double_quote_offset(text: &str) -> Option<usize> {
-    let mut chars = text.char_indices();
+    let mut chars = text.char_indices().peekable();
     let (_, first) = chars.next()?;
     if first != '"' {
         return None;
     }
 
     let mut escaped = false;
-    for (offset, ch) in chars {
-        if escaped {
-            escaped = false;
+    let mut command_depth = 0i32;
+    let mut parameter_depth = 0i32;
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+    let mut in_comment = false;
+    let mut previous_char = Some('"');
+
+    while let Some((offset, ch)) = chars.next() {
+        let nested_depth = command_depth > 0 || parameter_depth > 0;
+
+        if in_comment {
+            if ch == '\n' {
+                in_comment = false;
+                previous_char = Some(ch);
+            }
             continue;
         }
 
-        match ch {
-            '\\' => escaped = true,
-            '"' => return Some(offset),
-            _ => {}
+        if in_single_quotes {
+            if ch == '\'' {
+                in_single_quotes = false;
+            }
+            previous_char = Some(ch);
+            continue;
         }
+
+        if escaped {
+            escaped = false;
+            previous_char = Some(ch);
+            continue;
+        }
+
+        if ch == '\\' {
+            escaped = true;
+            previous_char = Some(ch);
+            continue;
+        }
+
+        if nested_depth && ch == '\'' && !in_double_quotes {
+            in_single_quotes = true;
+            previous_char = Some(ch);
+            continue;
+        }
+
+        if ch == '"' {
+            if !nested_depth {
+                return Some(offset);
+            }
+            in_double_quotes = !in_double_quotes;
+            previous_char = Some(ch);
+            continue;
+        }
+
+        if nested_depth
+            && ch == '#'
+            && !in_double_quotes
+            && mixed_quote_shell_comment_can_start(command_depth, true, previous_char)
+        {
+            in_comment = true;
+            continue;
+        }
+
+        if ch == '$' {
+            match chars.peek().copied() {
+                Some((_, '(')) => {
+                    command_depth += 1;
+                    chars.next();
+                    previous_char = Some('(');
+                    continue;
+                }
+                Some((_, '{')) => {
+                    parameter_depth += 1;
+                    chars.next();
+                    previous_char = Some('{');
+                    continue;
+                }
+                _ => {}
+            }
+        }
+
+        if nested_depth && !in_double_quotes {
+            match ch {
+                ')' => command_depth -= 1,
+                '}' => parameter_depth -= 1,
+                _ => {}
+            }
+            command_depth = command_depth.max(0);
+            parameter_depth = parameter_depth.max(0);
+        }
+
+        previous_char = Some(ch);
     }
 
     None
