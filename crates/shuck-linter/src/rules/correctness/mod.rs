@@ -28,7 +28,6 @@ pub mod comma_array_elements;
 pub mod commented_continuation_line;
 pub mod constant_case_subject;
 pub mod constant_comparison_test;
-pub mod constant_in_test_assignment;
 pub mod continue_outside_loop_in_function;
 pub mod dangling_else;
 pub mod dollar_question_after_command;
@@ -160,7 +159,6 @@ mod tests {
     #[test_case(Rule::LocalTopLevel, Path::new("C014.sh"))]
     #[test_case(Rule::SudoRedirectionOrder, Path::new("C015.sh"))]
     #[test_case(Rule::ConstantComparisonTest, Path::new("C017.sh"))]
-    #[test_case(Rule::ConstantInTestAssignment, Path::new("C110.sh"))]
     #[test_case(Rule::StringComparedWithEq, Path::new("C121.sh"))]
     #[test_case(Rule::AFlagInDoubleBracket, Path::new("C122.sh"))]
     #[test_case(Rule::MalformedArithmeticInCondition, Path::new("C118.sh"))]
