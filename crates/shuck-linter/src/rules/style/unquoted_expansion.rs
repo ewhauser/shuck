@@ -1382,6 +1382,23 @@ printf '%s\\n' \"${template/IMG_OFFSET/$(( $(cat file) $1 step ))}\"
     }
 
     #[test]
+    fn reports_dynamic_values_inside_parameter_default_arithmetic_expansions() {
+        let source = "\
+#!/bin/bash
+printf '%s\\n' \"${value:-$(( $(cat file) $1 step ))}\" \"${value:=$(( $2 + 1 ))}\" \"${value:+$(( $3 + 1 ))}\" \"${value:?$(( $4 + 1 ))}\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$1", "$2", "$3", "$4"]
+        );
+    }
+
+    #[test]
     fn reports_dynamic_values_inside_arithmetic_shell_words() {
         let source = "\
 #!/bin/sh

@@ -2845,12 +2845,18 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                         enclosing_expansion_context,
                         host_kind,
                     ),
-                WordPart::ParameterExpansion { operator, .. }
+                WordPart::ParameterExpansion {
+                    operator,
+                    operand_word_ast,
+                    ..
+                }
                 | WordPart::IndirectExpansion {
                     operator: Some(operator),
+                    operand_word_ast,
                     ..
                 } => self.collect_pending_arithmetic_word_occurrences_in_parameter_operator(
                     operator,
+                    operand_word_ast.as_ref(),
                     enclosing_expansion_context,
                     host_kind,
                 ),
@@ -2881,13 +2887,19 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
     ) {
         match &parameter.syntax {
             ParameterExpansionSyntax::Bourne(
-                BourneParameterExpansion::Operation { operator, .. }
+                BourneParameterExpansion::Operation {
+                    operator,
+                    operand_word_ast,
+                    ..
+                }
                 | BourneParameterExpansion::Indirect {
                     operator: Some(operator),
+                    operand_word_ast,
                     ..
                 },
             ) => self.collect_pending_arithmetic_word_occurrences_in_parameter_operator(
                 operator,
+                operand_word_ast.as_ref(),
                 enclosing_expansion_context,
                 host_kind,
             ),
@@ -2917,6 +2929,16 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 }
 
                 if let Some(operation) = syntax.operation.as_ref()
+                    && let Some(operand_word) = operation.operand_word_ast()
+                {
+                    self.collect_pending_arithmetic_word_occurrences(
+                        operand_word,
+                        enclosing_expansion_context,
+                        host_kind,
+                    );
+                }
+
+                if let Some(operation) = syntax.operation.as_ref()
                     && let Some(replacement_word) = operation.replacement_word_ast()
                 {
                     self.collect_pending_arithmetic_word_occurrences(
@@ -2932,9 +2954,25 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
     fn collect_pending_arithmetic_word_occurrences_in_parameter_operator(
         &mut self,
         operator: &'a ParameterOp,
+        operand_word_ast: Option<&'a Word>,
         enclosing_expansion_context: ExpansionContext,
         host_kind: WordFactHostKind,
     ) {
+        if matches!(
+            operator,
+            ParameterOp::UseDefault
+                | ParameterOp::AssignDefault
+                | ParameterOp::UseReplacement
+                | ParameterOp::Error
+        ) && let Some(operand_word) = operand_word_ast
+        {
+            self.collect_pending_arithmetic_word_occurrences(
+                operand_word,
+                enclosing_expansion_context,
+                host_kind,
+            );
+        }
+
         if let Some(replacement_word) = operator.replacement_word_ast() {
             self.collect_pending_arithmetic_word_occurrences(
                 replacement_word,
