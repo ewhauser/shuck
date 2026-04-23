@@ -5780,6 +5780,63 @@ exit_script() {
     }
 
     #[test]
+    fn transitive_calls_before_parent_definitions_keep_later_code_reachable() {
+        let source = "\
+main() {
+  helper
+}
+helper() {
+  inner
+}
+inner() {
+  exit_script
+  printf '%s\\n' maybe
+}
+if should_run; then
+  main
+fi
+exit_script() {
+  exit 0
+}
+main
+";
+        let model = model(source);
+
+        assert!(
+            model.analysis().dead_code().is_empty(),
+            "dead code: {:?}",
+            model.analysis().dead_code()
+        );
+    }
+
+    #[test]
+    fn later_redefinitions_do_not_fall_back_to_stale_terminating_helpers() {
+        let source = "\
+exit_script() {
+  exit 0
+}
+main() {
+  exit_script
+  printf '%s\\n' maybe
+}
+if should_run; then
+  main
+fi
+exit_script() {
+  :
+}
+main
+";
+        let model = model(source);
+
+        assert!(
+            model.analysis().dead_code().is_empty(),
+            "dead code: {:?}",
+            model.analysis().dead_code()
+        );
+    }
+
+    #[test]
     fn conditional_function_definitions_do_not_make_calls_terminating() {
         let source = "\
 if false; then

@@ -925,15 +925,26 @@ impl FunctionCallResolver<'_> {
 
             for binding in candidates.iter().rev().copied() {
                 let candidate = &self.bindings[binding.index()];
-                if matches!(candidate.kind, BindingKind::FunctionDefinition)
-                    && self.unconditional_function_bindings.contains(&binding)
-                    && (scope_id == scope && candidate.span.start.offset <= offset
-                        || scope_id != scope
-                            && self
-                                .parent_scope_binding_available_before_scope_runs(candidate, scope))
-                {
-                    return Some(binding);
+                if !matches!(candidate.kind, BindingKind::FunctionDefinition) {
+                    continue;
                 }
+
+                if scope_id == scope {
+                    if candidate.span.start.offset <= offset
+                        && self.unconditional_function_bindings.contains(&binding)
+                    {
+                        return Some(binding);
+                    }
+                    continue;
+                }
+
+                if !self.unconditional_function_bindings.contains(&binding) {
+                    return None;
+                }
+
+                return self
+                    .parent_scope_binding_available_before_scope_runs(candidate, scope)
+                    .then_some(binding);
             }
         }
 
@@ -945,43 +956,98 @@ impl FunctionCallResolver<'_> {
         candidate: &Binding,
         scope: ScopeId,
     ) -> bool {
-        candidate.span.start.offset <= self.scopes[scope.index()].span.start.offset
-            || !self.scope_has_known_call_before_offset(
-                scope,
-                candidate.scope,
-                candidate.span.start.offset,
-            )
+        if candidate.span.start.offset <= self.scopes[scope.index()].span.start.offset {
+            return true;
+        }
+
+        let mut visiting = FxHashSet::default();
+        !self.scope_has_known_entry_before_offset(
+            scope,
+            candidate.scope,
+            candidate.span.start.offset,
+            &mut visiting,
+        )
     }
 
-    fn scope_has_known_call_before_offset(
+    fn scope_has_known_entry_before_offset(
         &self,
         scope: ScopeId,
         call_scope: ScopeId,
         offset: usize,
+        visiting: &mut FxHashSet<ScopeId>,
     ) -> bool {
-        let Some(function_bindings) = self.function_bindings_by_scope.get(&scope) else {
+        if !visiting.insert(scope) {
             return false;
+        }
+
+        let has_entry =
+            self.function_bindings_by_scope
+                .get(&scope)
+                .is_some_and(|function_bindings| {
+                    function_bindings.iter().copied().any(|binding| {
+                        let function = &self.bindings[binding.index()];
+                        let Some(sites) = self.call_sites.get(&function.name) else {
+                            return false;
+                        };
+                        sites.iter().any(|site| {
+                            self.call_site_may_reference_binding(site, binding, offset)
+                                && self.call_site_can_run_before_offset(
+                                    site, call_scope, offset, visiting,
+                                )
+                        })
+                    })
+                });
+
+        visiting.remove(&scope);
+        has_entry
+    }
+
+    fn call_site_can_run_before_offset(
+        &self,
+        site: &CallSite,
+        call_scope: ScopeId,
+        offset: usize,
+        visiting: &mut FxHashSet<ScopeId>,
+    ) -> bool {
+        let command_start = recorded_command_span_for_call_site(self.program, site)
+            .start
+            .offset;
+        let Some(enclosing_function) = self.enclosing_function_scope(site.scope) else {
+            return command_start < offset && self.scope_has_ancestor(site.scope, call_scope);
         };
 
-        function_bindings.iter().copied().any(|binding| {
-            let function = &self.bindings[binding.index()];
-            let Some(sites) = self.call_sites.get(&function.name) else {
-                return false;
-            };
-            sites.iter().any(|site| {
-                site.scope == call_scope
-                    && site.span.start.offset < offset
-                    && self.lexically_visible_function_binding_in_scope(
-                        &function.name,
-                        call_scope,
-                        site.span.start.offset,
-                    ) == Some(binding)
-                    && recorded_command_span_for_call_site(self.program, site)
-                        .start
-                        .offset
-                        < offset
-            })
-        })
+        self.scope_has_known_entry_before_offset(enclosing_function, call_scope, offset, visiting)
+    }
+
+    fn call_site_may_reference_binding(
+        &self,
+        site: &CallSite,
+        binding: BindingId,
+        offset: usize,
+    ) -> bool {
+        let target = &self.bindings[binding.index()];
+        if !self.scope_has_ancestor(site.scope, target.scope) {
+            return false;
+        }
+
+        if target.scope == site.scope {
+            return self.lexically_visible_function_binding_in_scope(
+                &target.name,
+                site.scope,
+                site.span.start.offset,
+            ) == Some(binding);
+        }
+
+        target.span.start.offset < offset
+    }
+
+    fn enclosing_function_scope(&self, scope: ScopeId) -> Option<ScopeId> {
+        ancestor_scopes(self.scopes, scope)
+            .find(|scope_id| self.function_bindings_by_scope.contains_key(scope_id))
+    }
+
+    fn scope_has_ancestor(&self, scope: ScopeId, ancestor: ScopeId) -> bool {
+        ancestor_scopes(self.scopes, scope).any(|scope_id| scope_id == ancestor)
     }
 
     fn lexically_visible_function_binding_in_scope(

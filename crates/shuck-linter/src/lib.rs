@@ -3885,6 +3885,57 @@ exit_script() {
     }
 
     #[test]
+    fn unreachable_after_exit_ignores_transitive_calls_before_parent_definitions() {
+        let source = "\
+#!/bin/bash
+main() {
+  helper
+}
+helper() {
+  inner
+}
+inner() {
+  exit_script
+  printf '%s\\n' maybe
+}
+if should_run; then
+  main
+fi
+exit_script() {
+  exit 0
+}
+main
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn unreachable_after_exit_ignores_stale_terminating_helper_redefinitions() {
+        let source = "\
+#!/bin/bash
+exit_script() {
+  exit 0
+}
+main() {
+  exit_script
+  printf '%s\\n' maybe
+}
+if should_run; then
+  main
+fi
+exit_script() {
+  :
+}
+main
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn unreachable_after_exit_ignores_conditionally_defined_exit_helpers() {
         let source = "\
 #!/bin/bash
