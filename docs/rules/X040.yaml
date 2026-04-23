@@ -10,7 +10,7 @@ shells:
   - bash
   - dash
   - ksh
-description: Uses array-style subscripting in a POSIX shell test
+description: Uses bare array-style subscripting in a POSIX shell test
 rationale: Use a portable test or a shell that actually supports arrays.
 safe_fix: false
 fix_description: null

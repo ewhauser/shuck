@@ -12,7 +12,7 @@ use crate::rules::common::span::{
 };
 use crate::{
     conditional_array_subscript_span, conditional_extglob_span, facts::occurrence_word,
-    static_word_text, word_array_subscript_span, word_extglob_span,
+    static_word_text, word_extglob_span, word_unbraced_array_subscript_span,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -137,7 +137,7 @@ pub(super) fn build_conditional_portability_facts<'a>(
                 simple_test
                     .operands()
                     .iter()
-                    .filter_map(|word| word_array_subscript_span(word, source)),
+                    .filter_map(|word| word_unbraced_array_subscript_span(word, source)),
             );
             facts.extglob_in_test.extend(
                 simple_test
