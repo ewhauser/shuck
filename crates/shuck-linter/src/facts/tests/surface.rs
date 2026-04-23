@@ -2170,6 +2170,10 @@ legacy=\"$AWK '\"\\
 \"     {value=`printf \"%s\" x`;};\"\\
 \"     /^COFF SYMBOL TABLE/{next};\"\\
 \"     ' prfx=^$ac_symprfx\"
+grouped=\"$AWK '\"\\
+\"     {value=$( (printf x); printf \"%s\" y );};\"\\
+\"     /^COFF SYMBOL TABLE/{next};\"\\
+\"     ' prfx=^$ac_symprfx\"
 ";
 
     with_facts(source, None, |_, facts| {
@@ -2187,7 +2191,8 @@ legacy=\"$AWK '\"\\
         assert_eq!(
             spans,
             vec![
-                "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n"
+                "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n",
+                "\\\n", "\\\n"
             ]
         );
     });

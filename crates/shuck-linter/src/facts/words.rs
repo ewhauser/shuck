@@ -1463,6 +1463,7 @@ fn mixed_quote_shell_fragment_balance_delta(
     let mut in_single_quotes = false;
     let mut in_double_quotes = false;
     let mut in_comment = false;
+    let mut shell_parenthesis_depth = 0i32;
     let mut previous_char = None;
 
     while let Some(ch) = chars.next() {
@@ -1537,6 +1538,8 @@ fn mixed_quote_shell_fragment_balance_delta(
         }
 
         match ch {
+            '(' if command_delta > 0 => shell_parenthesis_depth += 1,
+            ')' if shell_parenthesis_depth > 0 => shell_parenthesis_depth -= 1,
             ')' => command_delta -= 1,
             '}' => parameter_delta -= 1,
             _ => {}
@@ -1710,6 +1713,7 @@ fn mixed_quote_closing_double_quote_offset(text: &str) -> Option<usize> {
     let mut escaped = false;
     let mut command_depth = 0i32;
     let mut parameter_depth = 0i32;
+    let mut shell_parenthesis_depth = 0i32;
     let mut in_backtick_command = false;
     let mut in_single_quotes = false;
     let mut in_double_quotes = false;
@@ -1797,6 +1801,8 @@ fn mixed_quote_closing_double_quote_offset(text: &str) -> Option<usize> {
 
         if nested_depth && !in_double_quotes {
             match ch {
+                '(' if command_depth > 0 => shell_parenthesis_depth += 1,
+                ')' if shell_parenthesis_depth > 0 => shell_parenthesis_depth -= 1,
                 ')' => command_depth -= 1,
                 '}' => parameter_depth -= 1,
                 _ => {}

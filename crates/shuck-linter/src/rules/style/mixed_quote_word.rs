@@ -141,6 +141,10 @@ legacy=\"$AWK '\"\\
 \"     {value=`printf \"%s\" x`;};\"\\
 \"     /^COFF SYMBOL TABLE/{next};\"\\
 \"     ' prfx=^$ac_symprfx\"
+grouped=\"$AWK '\"\\
+\"     {value=$( (printf x); printf \"%s\" y );};\"\\
+\"     /^COFF SYMBOL TABLE/{next};\"\\
+\"     ' prfx=^$ac_symprfx\"
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::MixedQuoteWord));
 
@@ -150,7 +154,8 @@ legacy=\"$AWK '\"\\
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec![
-                "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n"
+                "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n",
+                "\\\n", "\\\n"
             ]
         );
     }
