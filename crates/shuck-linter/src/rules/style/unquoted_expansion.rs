@@ -252,6 +252,28 @@ echo x >> ${OPENBSD_CONTENTS}
     }
 
     #[test]
+    fn reports_literal_bindings_after_extra_arg_exit_like_function_calls() {
+        let source = "\
+#!/bin/sh
+OPTION_BINARY_FILE=\"../lynis\"
+Exit() { exit 0 1; }
+Exit
+OPENBSD_CONTENTS=\"openbsd/+CONTENTS\"
+FIND=$(sh -n ${OPTION_BINARY_FILE} ; echo $?)
+echo x >> ${OPENBSD_CONTENTS}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${OPTION_BINARY_FILE}", "${OPENBSD_CONTENTS}"]
+        );
+    }
+
+    #[test]
     fn ignores_pre_definition_exit_like_calls_before_function_definitions() {
         let source = "\
 #!/bin/sh

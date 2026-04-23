@@ -1291,13 +1291,7 @@ fn stmt_terminal_flow_kind(stmt: &Stmt) -> TerminalFlowKind {
 
 fn command_terminal_flow_kind(command: &Command) -> TerminalFlowKind {
     match command {
-        Command::Builtin(BuiltinCommand::Exit(exit)) => {
-            if exit.extra_args.is_empty() {
-                TerminalFlowKind::Exit
-            } else {
-                TerminalFlowKind::None
-            }
-        }
+        Command::Builtin(BuiltinCommand::Exit(_)) => TerminalFlowKind::Exit,
         Command::Builtin(BuiltinCommand::Return(_)) => TerminalFlowKind::Stop,
         Command::Compound(CompoundCommand::BraceGroup(body)) => stmt_seq_terminal_flow_kind(body),
         Command::Simple(_)
@@ -2976,6 +2970,32 @@ helper() {
 #!/bin/sh
 helper() {
   ! exit 1
+}
+";
+        let output = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &output);
+        let semantic = SemanticModel::build(&output.file, source, &indexer);
+        let file_context = classify_file_context(source, None, ShellDialect::Sh);
+        let facts = LinterFacts::build(&output.file, source, &semantic, &indexer, &file_context);
+        let helper_header = facts
+            .function_headers()
+            .iter()
+            .find(|header| {
+                header
+                    .static_name_entry()
+                    .is_some_and(|(name, _)| name.as_str() == "helper")
+            })
+            .expect("expected helper function header");
+
+        assert!(function_has_terminal_exit(helper_header.function()));
+    }
+
+    #[test]
+    fn extra_arg_exit_makes_function_terminal() {
+        let source = "\
+#!/bin/sh
+helper() {
+  exit 1 2
 }
 ";
         let output = Parser::new(source).parse().unwrap();
