@@ -1,1 +1,22 @@
-reviewed_divergences: []
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__helpers.sh"
+    reason: "This helper only reproduces the remaining C133 warning inside the large-corpus source-closure harness. Direct ShellCheck and direct Shuck checks on the file stay quiet, so we track it as closure-sensitive harness noise rather than a stable rule mismatch."
+  - side: shuck-only
+    path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__supplementary__configedit.sh"
+    reason: "This configedit helper only reproduces the remaining C133 warnings inside the large-corpus source-closure harness. Direct ShellCheck and direct Shuck checks on the file stay quiet, so we track it as closure-sensitive harness noise rather than a stable rule mismatch."
+  - side: shuck-only
+    path_suffix: "RetroPie__RetroPie-Setup__scriptmodules__supplementary__scraper.sh"
+    reason: "This scraper helper only reproduces the remaining C133 warnings inside the large-corpus source-closure harness. Direct ShellCheck and direct Shuck checks on the file stay quiet, so we track it as closure-sensitive harness noise rather than a stable rule mismatch."
+  - side: shuck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__system__xen__openvswitch__openvswitch-clean.sh"
+    reason: "This Xen openvswitch cleanup helper only reproduces the remaining C133 warnings inside the large-corpus source-closure harness. Direct ShellCheck and direct Shuck checks on the file stay quiet, so we track it as closure-sensitive harness noise rather than a stable rule mismatch."
+  - side: shuck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__system__xen__openvswitch__vif-openvswitch-extended"
+    reason: "This Xen vif helper only reproduces the remaining C133 warnings inside the large-corpus source-closure harness. Direct ShellCheck and direct Shuck checks on the file stay quiet, so we track it as closure-sensitive harness noise rather than a stable rule mismatch."
+  - side: shuck-only
+    path_suffix: "dokku__dokku__plugins__scheduler-docker-local__scheduler-logs-failed"
+    reason: "This Dokku scheduler helper only reproduces the remaining C133 warnings inside the large-corpus source-closure harness. Direct ShellCheck and direct Shuck checks on the file stay quiet, so we track it as closure-sensitive harness noise rather than a stable rule mismatch."
+  - side: shuck-only
+    path_suffix: "pyenv__pyenv__libexec__pyenv-rehash"
+    reason: "This pyenv rehash helper only reproduces the remaining C133 warnings inside the large-corpus source-closure harness. Direct ShellCheck and direct Shuck checks on the file stay quiet, so we track it as closure-sensitive harness noise rather than a stable rule mismatch."
