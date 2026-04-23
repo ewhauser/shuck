@@ -6405,7 +6405,7 @@ fn mapfile_option_takes_argument(flag: char) -> bool {
 fn parse_xargs_command(args: &[&Word], source: &str) -> XargsCommandFacts {
     let mut uses_null_input = false;
     let mut max_procs = None;
-    let mut inline_replace_option_spans = Vec::new();
+    let mut inline_replace_options = Vec::new();
     let mut index = 0usize;
 
     while let Some(word) = args.get(index) {
@@ -6450,7 +6450,10 @@ fn parse_xargs_command(args: &[&Word], source: &str) -> XargsCommandFacts {
                 uses_null_input = true;
             }
             if flag == 'i' {
-                inline_replace_option_spans.push(word.span);
+                inline_replace_options.push(XargsInlineReplaceOption {
+                    span: word.span,
+                    uses_default_replacement: chars.peek().is_none(),
+                });
             }
             if flag == 'P' {
                 let remainder = chars.collect::<String>();
@@ -6485,11 +6488,62 @@ fn parse_xargs_command(args: &[&Word], source: &str) -> XargsCommandFacts {
         }
     }
 
+    let suppress_default_replacement_diagnostic =
+        xargs_suppresses_default_inline_replace_diagnostic(&args[index..], source);
+    let inline_replace_option_spans = inline_replace_options
+        .into_iter()
+        .filter(|option| {
+            !option.uses_default_replacement || !suppress_default_replacement_diagnostic
+        })
+        .map(|option| option.span)
+        .collect::<Vec<_>>();
+
     XargsCommandFacts {
         uses_null_input,
         max_procs,
         inline_replace_option_spans: inline_replace_option_spans.into_boxed_slice(),
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct XargsInlineReplaceOption {
+    span: Span,
+    uses_default_replacement: bool,
+}
+
+fn xargs_suppresses_default_inline_replace_diagnostic(args: &[&Word], source: &str) -> bool {
+    let Some(command_name) = args.first().and_then(|word| static_word_text(word, source)) else {
+        return false;
+    };
+
+    if matches!(command_name.as_ref(), "sh" | "bash" | "dash" | "ksh" | "zsh")
+        && args
+            .get(1)
+            .and_then(|word| static_word_text(word, source))
+            .as_deref()
+            == Some("-c")
+    {
+        return true;
+    }
+
+    if command_name.as_ref() == "echo" {
+        for operand in args.iter().skip(1) {
+            if static_word_text(operand, source).as_deref() == Some("--") {
+                return false;
+            }
+            if static_word_text(operand, source).is_some_and(|text| is_echo_option_text(&text)) {
+                continue;
+            }
+            let literal_prefix = leading_literal_word_prefix(operand, source);
+            return literal_prefix.starts_with('-') && literal_prefix != "-";
+        }
+    }
+
+    false
+}
+
+fn is_echo_option_text(text: &str) -> bool {
+    text != "-" && text.starts_with('-') && text[1..].chars().all(|ch| matches!(ch, 'n' | 'e' | 'E'))
 }
 
 fn xargs_long_option_argument(

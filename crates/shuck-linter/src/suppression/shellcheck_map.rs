@@ -152,7 +152,7 @@ mod tests {
         assert_eq!(map.resolve_all("SC2362"), vec![Rule::LocalDeclareCombined]);
         assert_eq!(map.resolve_all("SC2250"), vec![Rule::PatternWithVariable]);
         assert_eq!(
-            map.resolve_all("SC2350"),
+            map.resolve_all("SC2267"),
             vec![Rule::XargsWithInlineReplace]
         );
         assert_eq!(
