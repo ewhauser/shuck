@@ -1,7 +1,7 @@
 use rustc_hash::FxHashMap;
 use shuck_ast::{RedirectKind, Span};
 
-use crate::{Checker, ComparablePathKey, ExpansionContext, Rule, Violation};
+use crate::{Checker, ComparablePathKey, ExpansionContext, PathNameKind, Rule, Violation};
 
 pub struct RedirectClobbersInput;
 
@@ -33,6 +33,8 @@ fn clobber_spans_for_command(fact: &crate::CommandFact<'_>) -> Vec<Span> {
     let mut read_paths: FxHashMap<ComparablePathKey, Vec<Span>> = FxHashMap::default();
     let mut write_paths: FxHashMap<ComparablePathKey, Vec<Span>> = FxHashMap::default();
     let mut readwrite_paths: FxHashMap<ComparablePathKey, Vec<Span>> = FxHashMap::default();
+    let mut read_names: FxHashMap<Box<str>, Vec<(PathNameKind, Span)>> = FxHashMap::default();
+    let mut write_names: FxHashMap<Box<str>, Vec<(PathNameKind, Span)>> = FxHashMap::default();
     let own_readwrite_spans = fact
         .redirect_facts()
         .iter()
@@ -87,6 +89,20 @@ fn clobber_spans_for_command(fact: &crate::CommandFact<'_>) -> Vec<Span> {
             .push(comparable.span());
     }
 
+    for source_name in fact.scope_read_source_names() {
+        read_names
+            .entry(source_name.name().into())
+            .or_default()
+            .push((source_name.kind(), source_name.span()));
+    }
+
+    for target_name in fact.scope_write_target_names() {
+        write_names
+            .entry(target_name.name().into())
+            .or_default()
+            .push((target_name.kind(), target_name.span()));
+    }
+
     let mut spans = Vec::new();
     for (key, read_spans) in &read_paths {
         let Some(write_spans) = write_paths.get(key) else {
@@ -103,7 +119,61 @@ fn clobber_spans_for_command(fact: &crate::CommandFact<'_>) -> Vec<Span> {
         }
     }
 
+    for (name, read_spans) in &read_names {
+        let Some(write_spans) = write_names.get(name) else {
+            continue;
+        };
+        if !name_spans_overlap_shellcheck_style(read_spans, write_spans) {
+            continue;
+        }
+
+        spans.extend(read_spans.iter().map(|(_, span)| *span));
+        spans.extend(write_spans.iter().map(|(_, span)| *span));
+    }
+
     spans
+}
+
+fn name_spans_overlap_shellcheck_style(
+    read_spans: &[(PathNameKind, Span)],
+    write_spans: &[(PathNameKind, Span)],
+) -> bool {
+    read_spans.iter().any(|(read_kind, read_span)| {
+        write_spans.iter().any(|(write_kind, write_span)| {
+            read_span != write_span && path_name_kinds_match(*read_kind, *write_kind)
+        })
+    })
+}
+
+fn path_name_kinds_match(read_kind: PathNameKind, write_kind: PathNameKind) -> bool {
+    match write_kind {
+        PathNameKind::Literal => matches!(
+            read_kind,
+            PathNameKind::Literal
+                | PathNameKind::Parameter
+                | PathNameKind::RedirectLiteral
+                | PathNameKind::RedirectParameter
+                | PathNameKind::HeredocParameter
+        ),
+        PathNameKind::Parameter => {
+            matches!(
+                read_kind,
+                PathNameKind::Parameter | PathNameKind::RedirectParameter
+            )
+        }
+        PathNameKind::RedirectLiteral
+        | PathNameKind::QuotedRedirectLiteral
+        | PathNameKind::RedirectParameter
+        | PathNameKind::HeredocParameter => false,
+        PathNameKind::GeneratedLiteral => matches!(read_kind, PathNameKind::RedirectLiteral),
+        PathNameKind::GeneratedParameter => {
+            matches!(
+                read_kind,
+                PathNameKind::RedirectLiteral | PathNameKind::RedirectParameter
+            )
+        }
+        PathNameKind::BindingTarget => matches!(read_kind, PathNameKind::RedirectLiteral),
+    }
 }
 
 #[cfg(test)]
@@ -176,5 +246,52 @@ jq -nc '.x=1' \"$cfg\" >\"$cfg\"
         );
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_shellcheck_compatible_name_collisions() {
+        let source = "\
+#!/bin/bash
+gzip -9c < \"$src\" > \"$pkg/usr/man/man1/$(basename \"$src\").gz\"
+sort <<< \"$OUT\" > \"$OUT\"
+while read iplist; do
+  cat <<EOF >> json2
+\"$iplist/32\"
+EOF
+done < iplist
+(
+  cat <<EOF
+$SGINGRESS1
+EOF
+) > SGINGRESS1
+{ [ \"$OUT\" -lt \"$crit_border\" ] && :; } | sort >> \"$OUT\"
+{ case \"$MODE\" in on) :;; esac; } | sort > \"$MODE\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::RedirectClobbersInput),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "\"$src\"",
+                "\"$src\"",
+                "\"$OUT\"",
+                "\"$OUT\"",
+                "iplist",
+                "iplist",
+                "iplist",
+                "SGINGRESS1",
+                "SGINGRESS1",
+                "\"$OUT\"",
+                "\"$OUT\"",
+                "\"$MODE\"",
+                "\"$MODE\"",
+            ]
+        );
     }
 }

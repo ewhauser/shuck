@@ -32,6 +32,48 @@ impl<'a> PathWordFact<'a> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PathNameKind {
+    Literal,
+    Parameter,
+    RedirectLiteral,
+    QuotedRedirectLiteral,
+    RedirectParameter,
+    HeredocParameter,
+    GeneratedLiteral,
+    GeneratedParameter,
+    BindingTarget,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PathNameFact {
+    name: Box<str>,
+    kind: PathNameKind,
+    span: Span,
+}
+
+impl PathNameFact {
+    pub fn new(name: impl Into<Box<str>>, kind: PathNameKind, span: Span) -> Self {
+        Self {
+            name: name.into(),
+            kind,
+            span,
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn kind(&self) -> PathNameKind {
+        self.kind
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct ReadCommandFacts {
     pub uses_raw_input: bool,
@@ -1955,6 +1997,9 @@ fn same_command_file_operand_words<'a>(
                 _ => None,
             })
             .into_boxed_slice()
+        }
+        Some("basename" | "dirname") => {
+            collect_file_operand_words_after_prefix(args, source, 0, |_| None).into_boxed_slice()
         }
         Some("jq") => jq_file_operand_words(args, source).into_boxed_slice(),
         Some("bsdtar") | Some("tar") => {

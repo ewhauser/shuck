@@ -10,6 +10,8 @@ pub struct CommandFact<'a> {
     substitution_facts: Box<[SubstitutionFact]>,
     options: CommandOptionFacts<'a>,
     scope_read_source_words: Box<[PathWordFact<'a>]>,
+    scope_read_source_names: Box<[PathNameFact]>,
+    scope_write_target_names: Box<[PathNameFact]>,
     declaration_assignment_probes: Box<[DeclarationAssignmentProbe]>,
     glued_closing_bracket_operand_span: Option<Span>,
     glued_closing_bracket_insert_offset: Option<usize>,
@@ -74,6 +76,14 @@ impl<'a> CommandFact<'a> {
 
     pub fn scope_read_source_words(&self) -> &[PathWordFact<'a>] {
         &self.scope_read_source_words
+    }
+
+    pub fn scope_read_source_names(&self) -> &[PathNameFact] {
+        &self.scope_read_source_names
+    }
+
+    pub fn scope_write_target_names(&self) -> &[PathNameFact] {
+        &self.scope_write_target_names
     }
 
     pub fn declaration_assignment_probes(&self) -> &[DeclarationAssignmentProbe] {
@@ -493,17 +503,20 @@ fn build_scope_read_source_words<'a>(
     commands: &[CommandFact<'a>],
     pipelines: &[PipelineFact<'a>],
     if_condition_command_ids: &FxHashSet<CommandId>,
+    semantic: &SemanticModel,
     source: &str,
 ) -> Vec<Box<[PathWordFact<'a>]>> {
     let mut words_by_command = vec![Vec::new(); commands.len()];
 
     for command in commands {
-        let mut scope_words = own_scope_read_source_words(command, if_condition_command_ids, source);
+        let mut scope_words =
+            own_scope_read_source_words_filtered(command, if_condition_command_ids, semantic, source);
         if command_has_file_output_redirect(command) {
             scope_words.extend(nested_scope_read_source_words(
                 commands,
                 command,
                 if_condition_command_ids,
+                semantic,
                 source,
             ));
         }
@@ -529,7 +542,14 @@ fn build_scope_read_source_words<'a>(
         let mut pipeline_words = commands
             .iter()
             .filter(|command| contains_span(pipeline.span(), command.span()))
-            .flat_map(|command| own_scope_read_source_words(command, if_condition_command_ids, source))
+            .flat_map(|command| {
+                own_scope_read_source_words_filtered(
+                    command,
+                    if_condition_command_ids,
+                    semantic,
+                    source,
+                )
+            })
             .collect::<Vec<_>>();
         dedup_path_words(&mut pipeline_words);
 
@@ -543,6 +563,340 @@ fn build_scope_read_source_words<'a>(
         .into_iter()
         .map(Vec::into_boxed_slice)
         .collect()
+}
+
+fn build_scope_read_source_names(
+    commands: &[CommandFact<'_>],
+    pipelines: &[PipelineFact<'_>],
+    semantic: &SemanticModel,
+    source: &str,
+) -> Vec<Box<[PathNameFact]>> {
+    let mut names_by_command = vec![Vec::new(); commands.len()];
+
+    for command in commands {
+        let mut names = scope_read_source_name_facts(command, commands, semantic, source);
+        dedup_path_names(&mut names);
+        names_by_command[command.id().index()] = names;
+    }
+
+    for pipeline in pipelines {
+        let writer_ids = pipeline
+            .segments()
+            .iter()
+            .map(|segment| segment.command_id())
+            .filter(|id| {
+                commands
+                    .get(id.index())
+                    .is_some_and(command_has_file_output_redirect)
+            })
+            .collect::<Vec<_>>();
+        if writer_ids.is_empty() {
+            continue;
+        }
+
+        for writer_id in writer_ids {
+            let Some(writer) = commands.get(writer_id.index()) else {
+                continue;
+            };
+            let mut scoped_names = commands
+                .iter()
+                .filter(|command| contains_span(pipeline.span(), command.span()))
+                .flat_map(|command| own_read_source_name_facts(command, semantic, source))
+                .collect::<Vec<_>>();
+            remove_names_inside_spans(
+                &mut scoped_names,
+                &command_file_output_redirect_target_spans(writer),
+            );
+            names_by_command[writer_id.index()].extend(scoped_names);
+            dedup_path_names(&mut names_by_command[writer_id.index()]);
+        }
+    }
+
+    names_by_command
+        .into_iter()
+        .map(Vec::into_boxed_slice)
+        .collect()
+}
+
+fn build_scope_write_target_names(
+    commands: &[CommandFact<'_>],
+    semantic: &SemanticModel,
+    source: &str,
+) -> Vec<Box<[PathNameFact]>> {
+    commands
+        .iter()
+        .map(|command| {
+            let mut names = direct_output_target_name_facts(command, source);
+            names.extend(generated_output_target_name_facts(command, commands, source));
+            names.extend(binding_target_name_facts(command, semantic));
+            if command_has_file_input_redirect(command) {
+                names.extend(scope_heredoc_reference_name_facts(
+                    command, commands, semantic, source,
+                ));
+            }
+            if command_is_multiline_if(command, source) {
+                names.retain(|name| !path_name_write_hidden_by_prior_assignment(name, semantic));
+            }
+            dedup_path_names(&mut names);
+            names.into_boxed_slice()
+        })
+        .collect()
+}
+
+fn scope_read_source_name_facts(
+    command: &CommandFact<'_>,
+    commands: &[CommandFact<'_>],
+    semantic: &SemanticModel,
+    source: &str,
+) -> Vec<PathNameFact> {
+    let mut names = own_read_source_name_facts(command, semantic, source);
+    if command_has_file_output_redirect(command) {
+        names.extend(
+            commands
+                .iter()
+                .filter(|other| {
+                    other.id() != command.id() && contains_span(command.span(), other.span())
+                })
+                .flat_map(|other| own_read_source_name_facts(other, semantic, source)),
+        );
+    }
+    remove_names_inside_spans(&mut names, &command_file_output_redirect_target_spans(command));
+    names
+}
+
+fn own_read_source_name_facts(
+    command: &CommandFact<'_>,
+    semantic: &SemanticModel,
+    source: &str,
+) -> Vec<PathNameFact> {
+    let mut names = own_scope_read_source_words_filtered(
+        command,
+        &FxHashSet::default(),
+        semantic,
+        source,
+    )
+        .into_iter()
+        .filter_map(|path_word| {
+            let (literal_kind, parameter_kind) = path_word_name_kinds(path_word.context());
+            path_name_fact_from_word(
+                path_word.word(),
+                source,
+                path_word.context(),
+                command.zsh_options(),
+                literal_kind,
+                parameter_kind,
+            )
+        })
+        .collect::<Vec<_>>();
+    names.extend(heredoc_reference_name_facts(
+        command,
+        semantic,
+        source,
+        PathNameKind::HeredocParameter,
+    ));
+    remove_names_inside_spans(&mut names, &command_file_output_redirect_target_spans(command));
+    names.retain(|name| !path_name_hidden_by_initialized_local(name, semantic));
+    dedup_path_names(&mut names);
+    names
+}
+
+fn direct_output_target_name_facts(command: &CommandFact<'_>, source: &str) -> Vec<PathNameFact> {
+    command
+        .redirect_facts()
+        .iter()
+        .filter(|redirect| redirect_is_file_output(redirect.redirect().kind))
+        .filter_map(|redirect| {
+            let target = redirect.redirect().word_target()?;
+            let context = ExpansionContext::from_redirect_kind(redirect.redirect().kind)?;
+            path_name_fact_from_word(
+                target,
+                source,
+                context,
+                command.zsh_options(),
+                PathNameKind::Literal,
+                PathNameKind::Parameter,
+            )
+        })
+        .collect()
+}
+
+fn generated_output_target_name_facts(
+    command: &CommandFact<'_>,
+    commands: &[CommandFact<'_>],
+    source: &str,
+) -> Vec<PathNameFact> {
+    let target_spans = command_file_output_redirect_target_spans(command);
+    if target_spans.is_empty() {
+        return Vec::new();
+    }
+
+    target_spans
+        .iter()
+        .flat_map(|target_span| {
+            let target_is_fully_quoted = span_is_fully_double_quoted(*target_span, source);
+            commands
+                .iter()
+                .filter(move |other| {
+                    other.id() != command.id() && contains_span(*target_span, other.span())
+                })
+                .map(move |other| (target_is_fully_quoted, other))
+        })
+        .flat_map(|(target_is_fully_quoted, other)| {
+            other.file_operand_words().iter().filter_map(move |word| {
+                if !target_is_fully_quoted && word_is_fully_quoted(word, source) {
+                    return None;
+                }
+                path_name_fact_from_word(
+                    word,
+                    source,
+                    ExpansionContext::CommandArgument,
+                    other.zsh_options(),
+                    PathNameKind::GeneratedLiteral,
+                    PathNameKind::GeneratedParameter,
+                )
+            })
+        })
+        .collect()
+}
+
+fn binding_target_name_facts(
+    command: &CommandFact<'_>,
+    semantic: &SemanticModel,
+) -> Vec<PathNameFact> {
+    semantic
+        .bindings()
+        .iter()
+        .filter(|binding| {
+            matches!(binding.kind, BindingKind::ReadTarget | BindingKind::GetoptsTarget)
+                && contains_span(command.span(), binding.span)
+        })
+        .map(|binding| {
+            PathNameFact::new(
+                binding.name.as_str(),
+                PathNameKind::BindingTarget,
+                binding.span,
+            )
+        })
+        .collect()
+}
+
+fn scope_heredoc_reference_name_facts(
+    command: &CommandFact<'_>,
+    commands: &[CommandFact<'_>],
+    semantic: &SemanticModel,
+    source: &str,
+) -> Vec<PathNameFact> {
+    commands
+        .iter()
+        .filter(|other| contains_span(command.span(), other.span()))
+        .flat_map(|other| {
+            heredoc_reference_name_facts(other, semantic, source, PathNameKind::GeneratedParameter)
+        })
+        .collect()
+}
+
+fn heredoc_reference_name_facts(
+    command: &CommandFact<'_>,
+    semantic: &SemanticModel,
+    source: &str,
+    kind: PathNameKind,
+) -> Vec<PathNameFact> {
+    let heredoc_spans = command
+        .redirects()
+        .iter()
+        .filter_map(|redirect| {
+            let heredoc = redirect.heredoc()?;
+            heredoc.delimiter.expands_body.then_some(heredoc.body.span)
+        })
+        .collect::<Vec<_>>();
+    if heredoc_spans.is_empty() {
+        return Vec::new();
+    }
+
+    semantic
+        .references()
+        .iter()
+        .filter(|reference| {
+            heredoc_spans
+                .iter()
+                .any(|span| contains_span(*span, reference.span))
+        })
+        .map(|reference| {
+            PathNameFact::new(
+                reference.name.as_str(),
+                kind,
+                trim_to_parameter_name_span(reference.span, source, reference.name.as_str()),
+            )
+        })
+        .collect()
+}
+
+fn path_name_fact_from_word(
+    word: &Word,
+    source: &str,
+    context: ExpansionContext,
+    options: Option<&ZshOptionState>,
+    literal_kind: PathNameKind,
+    parameter_kind: PathNameKind,
+) -> Option<PathNameFact> {
+    let comparable = comparable_path(word, source, context, options)?;
+    let literal_kind =
+        if literal_kind == PathNameKind::RedirectLiteral && word_is_fully_quoted(word, source) {
+            PathNameKind::QuotedRedirectLiteral
+        } else {
+            literal_kind
+        };
+    path_name_fact_from_key(
+        comparable.key(),
+        literal_kind,
+        parameter_kind,
+        comparable.span(),
+    )
+}
+
+fn path_name_fact_from_key(
+    key: &ComparablePathKey,
+    literal_kind: PathNameKind,
+    parameter_kind: PathNameKind,
+    span: Span,
+) -> Option<PathNameFact> {
+    match key {
+        ComparablePathKey::Literal(name) if is_shell_identifier_like(name) => {
+            Some(PathNameFact::new(name.as_ref(), literal_kind, span))
+        }
+        ComparablePathKey::Parameter(name) => {
+            Some(PathNameFact::new(name.as_ref(), parameter_kind, span))
+        }
+        ComparablePathKey::Literal(_) | ComparablePathKey::Template(_) => None,
+    }
+}
+
+fn command_file_output_redirect_target_spans(command: &CommandFact<'_>) -> Vec<Span> {
+    command
+        .redirect_facts()
+        .iter()
+        .filter(|redirect| redirect_is_file_output(redirect.redirect().kind))
+        .filter_map(|redirect| redirect.redirect().word_target().map(|word| word.span))
+        .collect()
+}
+
+fn remove_names_inside_spans(names: &mut Vec<PathNameFact>, spans: &[Span]) {
+    if spans.is_empty() {
+        return;
+    }
+
+    names.retain(|name| !spans.iter().any(|span| contains_span(*span, name.span())));
+}
+
+fn dedup_path_names(names: &mut Vec<PathNameFact>) {
+    let mut seen = FxHashSet::<(Box<str>, PathNameKind, FactSpan)>::default();
+    names.retain(|name| {
+        seen.insert((
+            name.name().into(),
+            name.kind(),
+            FactSpan::new(name.span()),
+        ))
+    });
 }
 
 fn own_scope_read_source_words<'a>(
@@ -572,13 +926,34 @@ fn nested_scope_read_source_words<'a>(
     commands: &[CommandFact<'a>],
     command: &CommandFact<'a>,
     if_condition_command_ids: &FxHashSet<CommandId>,
+    semantic: &SemanticModel,
     source: &str,
 ) -> Vec<PathWordFact<'a>> {
     commands
         .iter()
-        .filter(|other| other.id() != command.id() && contains_span(command.span(), other.span()))
-        .flat_map(|other| own_scope_read_source_words(other, if_condition_command_ids, source))
+        .filter(|other| {
+            other.id() != command.id() && contains_span(command.span(), other.span())
+        })
+        .flat_map(|other| {
+            own_scope_read_source_words_filtered(
+                other,
+                if_condition_command_ids,
+                semantic,
+                source,
+            )
+        })
         .collect()
+}
+
+fn own_scope_read_source_words_filtered<'a>(
+    command: &CommandFact<'a>,
+    if_condition_command_ids: &FxHashSet<CommandId>,
+    semantic: &SemanticModel,
+    source: &str,
+) -> Vec<PathWordFact<'a>> {
+    let mut words = own_scope_read_source_words(command, if_condition_command_ids, source);
+    words.retain(|word| !path_word_hidden_by_initialized_local(word, semantic));
+    words
 }
 
 fn dedup_path_words(words: &mut Vec<PathWordFact<'_>>) {
@@ -588,16 +963,189 @@ fn dedup_path_words(words: &mut Vec<PathWordFact<'_>>) {
 
 fn command_has_file_output_redirect(command: &CommandFact<'_>) -> bool {
     command.redirect_facts().iter().any(|redirect| {
+        redirect_is_file_output(redirect.redirect().kind)
+            && redirect
+            .analysis()
+            .is_some_and(|analysis| analysis.is_file_target())
+    })
+}
+
+fn command_has_file_input_redirect(command: &CommandFact<'_>) -> bool {
+    command.redirect_facts().iter().any(|redirect| {
         matches!(
             redirect.redirect().kind,
-            RedirectKind::Output
-                | RedirectKind::Clobber
-                | RedirectKind::Append
-                | RedirectKind::OutputBoth
+            RedirectKind::Input | RedirectKind::ReadWrite
         ) && redirect
             .analysis()
             .is_some_and(|analysis| analysis.is_file_target())
     })
+}
+
+fn redirect_is_file_output(kind: RedirectKind) -> bool {
+    matches!(
+        kind,
+        RedirectKind::Output
+            | RedirectKind::Clobber
+            | RedirectKind::Append
+            | RedirectKind::OutputBoth
+    )
+}
+
+fn is_shell_identifier_like(value: &str) -> bool {
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+
+    (first == '_' || first.is_ascii_alphabetic())
+        && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+}
+
+fn path_word_hidden_by_initialized_local(
+    path_word: &PathWordFact<'_>,
+    semantic: &SemanticModel,
+) -> bool {
+    let Some(comparable) = path_word.comparable_path() else {
+        return false;
+    };
+    let ComparablePathKey::Parameter(name) = comparable.key() else {
+        return false;
+    };
+
+    parameter_hidden_by_initialized_local(semantic, name.as_ref(), comparable.span().start.offset)
+}
+
+fn path_name_hidden_by_initialized_local(name: &PathNameFact, semantic: &SemanticModel) -> bool {
+    if !matches!(
+        name.kind(),
+        PathNameKind::Parameter
+            | PathNameKind::RedirectParameter
+            | PathNameKind::HeredocParameter
+            | PathNameKind::GeneratedParameter
+    ) {
+        return false;
+    }
+
+    parameter_hidden_by_initialized_local(semantic, name.name(), name.span().start.offset)
+}
+
+fn path_name_write_hidden_by_prior_assignment(
+    name: &PathNameFact,
+    semantic: &SemanticModel,
+) -> bool {
+    if !matches!(
+        name.kind(),
+        PathNameKind::Parameter | PathNameKind::RedirectParameter
+    ) {
+        return false;
+    }
+
+    let Some(function_scope) = enclosing_function_scope(semantic, name.span().start.offset) else {
+        return false;
+    };
+
+    semantic.bindings().iter().any(|binding| {
+        binding.name.as_str() == name.name()
+            && binding.scope == function_scope
+            && binding.span.start.offset <= name.span().start.offset
+            && matches!(
+                &binding.origin,
+                shuck_semantic::BindingOrigin::Assignment { .. }
+            )
+    })
+}
+
+fn parameter_hidden_by_initialized_local(
+    semantic: &SemanticModel,
+    name: &str,
+    offset: usize,
+) -> bool {
+    let Some(function_scope) = enclosing_function_scope(semantic, offset) else {
+        return false;
+    };
+
+    semantic.bindings().iter().any(|binding| {
+        let local_initialized_declaration = binding
+            .attributes
+            .contains(BindingAttributes::LOCAL | BindingAttributes::DECLARATION_INITIALIZED);
+        let local_parameter_default_assignment = binding.attributes.contains(BindingAttributes::LOCAL)
+            && matches!(
+                &binding.origin,
+                shuck_semantic::BindingOrigin::Assignment {
+                    value: shuck_semantic::AssignmentValueOrigin::ParameterOperator,
+                    ..
+                }
+            );
+
+        binding.name.as_str() == name
+            && binding.scope == function_scope
+            && binding.span.start.offset <= offset
+            && (local_initialized_declaration || local_parameter_default_assignment)
+    })
+}
+
+fn command_is_multiline_if(command: &CommandFact<'_>, source: &str) -> bool {
+    if !matches!(command.command(), Command::Compound(CompoundCommand::If(_))) {
+        return false;
+    }
+
+    let text = command.span().slice(source).trim_start();
+    let Some(rest) = text.strip_prefix("if") else {
+        return false;
+    };
+    let rest = rest.trim_start_matches([' ', '\t']);
+    rest.starts_with('\n') || rest.starts_with("\r\n")
+}
+
+fn path_word_name_kinds(context: ExpansionContext) -> (PathNameKind, PathNameKind) {
+    match context {
+        ExpansionContext::RedirectTarget(RedirectKind::Input | RedirectKind::ReadWrite)
+        | ExpansionContext::HereString => {
+            (PathNameKind::RedirectLiteral, PathNameKind::RedirectParameter)
+        }
+        ExpansionContext::CommandName
+        | ExpansionContext::CommandArgument
+        | ExpansionContext::AssignmentValue
+        | ExpansionContext::DeclarationAssignmentValue
+        | ExpansionContext::RedirectTarget(_)
+        | ExpansionContext::DescriptorDupTarget(_)
+        | ExpansionContext::ForList
+        | ExpansionContext::SelectList
+        | ExpansionContext::CasePattern
+        | ExpansionContext::ConditionalPattern
+        | ExpansionContext::StringTestOperand
+        | ExpansionContext::RegexOperand
+        | ExpansionContext::ConditionalVarRefSubscript
+        | ExpansionContext::ParameterPattern
+        | ExpansionContext::TrapAction => (PathNameKind::Literal, PathNameKind::Parameter),
+    }
+}
+
+fn span_is_fully_double_quoted(span: Span, source: &str) -> bool {
+    let text = span.slice(source).trim();
+    text.len() >= 2 && text.starts_with('"') && text.ends_with('"')
+}
+
+fn word_is_fully_quoted(word: &Word, source: &str) -> bool {
+    let text = word.span.slice(source).trim();
+    text.len() >= 2
+        && matches!(
+            (text.as_bytes().first(), text.as_bytes().last()),
+            (Some(b'"'), Some(b'"')) | (Some(b'\''), Some(b'\''))
+        )
+}
+
+fn trim_to_parameter_name_span(span: Span, source: &str, name: &str) -> Span {
+    let text = span.slice(source);
+    let Some(relative_start) = text.find(name) else {
+        return span;
+    };
+
+    let relative_end = relative_start + name.len();
+    Span::from_positions(
+        span.start.advanced_by(&text[..relative_start]),
+        span.start.advanced_by(&text[..relative_end]),
+    )
 }
 
 fn command_file_operand_words<'a>(command: &CommandFact<'a>) -> Vec<&'a Word> {
@@ -614,7 +1162,7 @@ fn command_redirect_read_source_words<'a>(
         .filter_map(|redirect| {
             if !matches!(
                 redirect.redirect().kind,
-                RedirectKind::Input | RedirectKind::ReadWrite
+                RedirectKind::Input | RedirectKind::ReadWrite | RedirectKind::HereString
             ) {
                 return None;
             }
@@ -640,11 +1188,39 @@ fn command_conditional_path_words<'a>(
 ) -> Vec<PathWordFact<'a>> {
     let mut words = Vec::new();
 
+    if let Some(simple_test) = command.simple_test() {
+        words.extend(simple_test_read_source_words(
+            simple_test,
+            source,
+            command.zsh_options(),
+        ));
+    }
+
     if let Some(conditional) = command.conditional() {
         for node in conditional.nodes() {
             match node {
+                ConditionalNodeFact::BareWord(bare) => {
+                    if let Some(word) = bare.operand().word() {
+                        words.push(PathWordFact::new(
+                            word,
+                            ExpansionContext::StringTestOperand,
+                            source,
+                            command.zsh_options(),
+                        ));
+                    }
+                }
+                ConditionalNodeFact::Unary(unary) => {
+                    if let Some(word) = unary.operand().word() {
+                        words.push(PathWordFact::new(
+                            word,
+                            ExpansionContext::StringTestOperand,
+                            source,
+                            command.zsh_options(),
+                        ));
+                    }
+                }
                 ConditionalNodeFact::Binary(binary)
-                    if binary.operator_family() == ConditionalOperatorFamily::StringBinary =>
+                    if binary.operator_family() != ConditionalOperatorFamily::Logical =>
                 {
                     if let Some(word) = binary.left().word() {
                         words.push(PathWordFact::new(
@@ -664,13 +1240,64 @@ fn command_conditional_path_words<'a>(
                     }
                 }
                 ConditionalNodeFact::Binary(_) => {}
-                ConditionalNodeFact::BareWord(_) | ConditionalNodeFact::Other(_) => {}
-                ConditionalNodeFact::Unary(_) => {}
+                ConditionalNodeFact::Other(_) => {}
             }
         }
     }
 
+    if let Command::Compound(CompoundCommand::Case(case)) = command.command() {
+        words.push(PathWordFact::new(
+            &case.word,
+            ExpansionContext::StringTestOperand,
+            source,
+            command.zsh_options(),
+        ));
+    }
+
     words
+}
+
+fn simple_test_read_source_words<'a>(
+    simple_test: &SimpleTestFact<'a>,
+    source: &str,
+    zsh_options: Option<&ZshOptionState>,
+) -> Vec<PathWordFact<'a>> {
+    let operands = simple_test.effective_operands();
+    let mut words = Vec::new();
+
+    match simple_test.effective_shape() {
+        SimpleTestShape::Truthy => {
+            if let Some(word) = operands.first() {
+                words.push(*word);
+            }
+        }
+        SimpleTestShape::Unary => {
+            if let Some(word) = operands.get(1) {
+                words.push(*word);
+            }
+        }
+        SimpleTestShape::Binary => {
+            if let Some(word) = operands.first() {
+                words.push(*word);
+            }
+            if let Some(word) = operands.get(2) {
+                words.push(*word);
+            }
+        }
+        SimpleTestShape::Empty | SimpleTestShape::Other => {}
+    }
+
+    words
+        .into_iter()
+        .map(|word| {
+            PathWordFact::new(
+            word,
+            ExpansionContext::StringTestOperand,
+            source,
+            zsh_options,
+        )
+        })
+        .collect()
 }
 
 fn contains_span(outer: Span, inner: Span) -> bool {
