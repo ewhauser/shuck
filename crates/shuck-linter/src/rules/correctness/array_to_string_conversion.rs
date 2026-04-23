@@ -107,6 +107,8 @@ fn binding_uses_builtin_array_history(checker: &Checker<'_>, binding: &Binding) 
 
 fn read_target_is_array_like(checker: &Checker<'_>, binding: &Binding) -> bool {
     binding_command(checker, binding)
+        .filter(|command| command.effective_name_is("read"))
+        .filter(|command| !command_is_shadowed_function(checker, command))
         .and_then(|command| command.options().read())
         .is_some_and(|read| {
             read.array_target_name_uses()
@@ -127,20 +129,7 @@ fn mapfile_target_is_array_like(checker: &Checker<'_>, binding: &Binding) -> boo
         return false;
     }
 
-    let Some(name_span) = command.body_word_span() else {
-        return false;
-    };
-    let Some(command_name) = command.effective_or_literal_name() else {
-        return false;
-    };
-
-    !matches!(
-        checker
-            .semantic()
-            .visible_binding(&command_name.into(), name_span)
-            .map(|binding| binding.kind),
-        Some(BindingKind::FunctionDefinition)
-    )
+    !command_is_shadowed_function(checker, command)
 }
 
 fn binding_command<'a>(
@@ -160,8 +149,32 @@ fn binding_command<'a>(
         })
 }
 
+fn command_is_shadowed_function(
+    checker: &Checker<'_>,
+    command: &crate::facts::commands::CommandFact<'_>,
+) -> bool {
+    let Some(name_span) = command.body_word_span() else {
+        return false;
+    };
+    let Some(command_name) = command.effective_or_literal_name() else {
+        return false;
+    };
+
+    checker
+        .semantic()
+        .visible_binding(&command_name.into(), name_span)
+        .is_some_and(binding_is_function_like)
+}
+
 fn contains_span(outer: shuck_ast::Span, inner: shuck_ast::Span) -> bool {
     outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
+}
+
+fn binding_is_function_like(binding: &Binding) -> bool {
+    matches!(binding.kind, BindingKind::FunctionDefinition)
+        || binding
+            .attributes
+            .contains(BindingAttributes::IMPORTED_FUNCTION)
 }
 
 fn binding_is_array_like(binding: &Binding) -> bool {
@@ -173,7 +186,11 @@ fn binding_is_array_like(binding: &Binding) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::test::test_snippet;
+    use std::fs;
+
+    use tempfile::tempdir;
+
+    use crate::test::{test_snippet, test_snippet_at_path};
     use crate::{LinterSettings, Rule};
 
     #[test]
@@ -408,6 +425,49 @@ entries=value
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_read_targets_from_shadowing_functions() {
+        let source = "\
+#!/bin/bash
+read() {
+  :
+}
+read -a entries
+entries=value
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_mapfile_targets_from_imported_shadowing_functions() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.sh");
+        let helper = temp.path().join("helper.sh");
+        let source = "\
+#!/bin/bash
+source ./helper.sh
+mapfile entries
+entries=value
+";
+
+        fs::write(&main, source).unwrap();
+        fs::write(&helper, "mapfile() { :; }\n").unwrap();
+
+        let diagnostics = test_snippet_at_path(
+            &main,
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion)
+                .with_analyzed_paths([main.clone(), helper.clone()]),
         );
 
         assert!(diagnostics.is_empty(), "{diagnostics:#?}");
