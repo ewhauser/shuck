@@ -3988,6 +3988,12 @@ mod tests {
     }
 
     #[test]
+    fn x028_has_no_rule_corpus_metadata_file() {
+        assert!(!rule_corpus_metadata_path("X028").exists());
+        assert!(!load_all_rule_corpus_metadata().contains_key("X028"));
+    }
+
+    #[test]
     fn reviewed_divergence_classification_matches_exact_shellcheck_record() {
         let metadata = HashMap::from([(
             "C999".to_string(),
