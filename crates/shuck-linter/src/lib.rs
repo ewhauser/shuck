@@ -18,6 +18,8 @@ mod facts;
 #[allow(missing_docs)]
 mod fix;
 #[allow(missing_docs)]
+mod fix_helpers;
+#[allow(missing_docs)]
 mod parse_diagnostics;
 #[allow(missing_docs)]
 mod registry;
@@ -72,6 +74,7 @@ pub use facts::{
 pub use facts::{CommandId, FactSpan, LinterFacts};
 /// Autofix types and fix application helpers.
 pub use fix::{Applicability, AppliedFixes, Edit, Fix, FixAvailability, apply_fixes};
+pub(crate) use fix_helpers::leading_static_word_prefix_fix_in_source;
 /// Rule identifiers, categories, and registry lookup helpers.
 pub use registry::{Category, Rule, code_to_rule};
 /// Rule metadata lookup utilities.

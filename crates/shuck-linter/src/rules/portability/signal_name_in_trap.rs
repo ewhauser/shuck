@@ -1,8 +1,10 @@
 use shuck_ast::{Span, Word};
 
 use super::trap_common::parse_trap_args;
-use crate::rules::common::word::leading_static_word_prefix_fix_in_source;
-use crate::{Checker, Fix, FixAvailability, Rule, ShellDialect, Violation, static_word_text};
+use crate::{
+    Checker, Fix, FixAvailability, Rule, ShellDialect, Violation,
+    leading_static_word_prefix_fix_in_source, static_word_text,
+};
 
 const SIG_PREFIX_LEN: usize = 3;
 const FIX_TITLE: &str = "remove the leading `SIG` prefix from the trap signal name";
