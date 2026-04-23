@@ -1003,7 +1003,7 @@ fn substitution_body_processed_ls_pipeline_spans<'a>(
     for visit in iter_commands(
         body,
         CommandWalkOptions {
-            descend_nested_word_commands: false,
+            descend_nested_word_commands: true,
         },
     ) {
         collect_processed_ls_pipeline_spans_in_stmt(
