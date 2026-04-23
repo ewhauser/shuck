@@ -822,10 +822,10 @@ fn assignment_value_target_for_span<'a>(
     command: &'a CommandFact<'a>,
     span: Span,
 ) -> Option<(&'a Name, Span)> {
-    query::command_assignments(command.command())
+    crate::rules::common::query::command_assignments(command.command())
         .iter()
         .chain(
-            query::declaration_operands(command.command())
+            crate::rules::common::query::declaration_operands(command.command())
                 .iter()
                 .filter_map(|operand| match operand {
                     DeclOperand::Assignment(assignment) => Some(assignment),
