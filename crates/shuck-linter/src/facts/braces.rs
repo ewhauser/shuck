@@ -71,6 +71,8 @@ fn build_literal_brace_spans(
     ));
     spans.retain(|span| !span_is_plain_parameter_expansion_edge_in_source(*span, source));
     spans.retain(|span| !span_is_active_brace_expansion_edge_in_source(*span, source));
+    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    spans.dedup_by_key(|span| (span.start.offset, span.end.offset));
     spans
 }
 
@@ -1047,7 +1049,6 @@ struct LiteralBraceCandidate {
     open_offset: usize,
     after_escaped_dollar: bool,
     has_excluded_content_inside: bool,
-    has_nested_parameter_inside: bool,
     has_runtime_shell_sigil_inside: bool,
     has_brace_expansion_delimiter: bool,
 }
@@ -1159,17 +1160,10 @@ fn escaped_parameter_expansion_brace_edge_spans(word: &Word, source: &str) -> Ve
         }
 
         if ch == '{' {
-            if previous_char == Some('$')
-                && !previous_char_escaped
-                && let Some(candidate) = literal_stack.last_mut()
-            {
-                candidate.has_nested_parameter_inside = true;
-            }
             literal_stack.push(LiteralBraceCandidate {
                 open_offset: index,
                 after_escaped_dollar: previous_char == Some('$') && previous_char_escaped,
                 has_excluded_content_inside: false,
-                has_nested_parameter_inside: false,
                 has_runtime_shell_sigil_inside: false,
                 has_brace_expansion_delimiter: false,
             });
@@ -1189,7 +1183,6 @@ fn escaped_parameter_expansion_brace_edge_spans(word: &Word, source: &str) -> Ve
             && (candidate.after_escaped_dollar
                 || candidate.has_excluded_content_inside
                 || candidate.has_runtime_shell_sigil_inside)
-            && !(candidate.after_escaped_dollar && candidate.has_nested_parameter_inside)
             && !candidate.has_brace_expansion_delimiter
             && !brace_pair_matches_nonliteral_syntax(word, candidate.open_offset, index)
         {
@@ -1403,7 +1396,7 @@ fn raw_escaped_parameter_brace_edge_spans(word: &Word, source: &str) -> Vec<Span
     let mut index = 0usize;
     let mut previous_char = None;
     let mut previous_char_escaped = false;
-    let mut escaped_parameter_stack: Vec<(usize, bool)> = Vec::new();
+    let mut escaped_parameter_stack: Vec<usize> = Vec::new();
     let mut parameter_depth = 0usize;
 
     while index < text.len() {
@@ -1446,19 +1439,14 @@ fn raw_escaped_parameter_brace_edge_spans(word: &Word, source: &str) -> Vec<Span
 
         if ch == '{' {
             if previous_char == Some('$') && previous_char_escaped {
-                escaped_parameter_stack.push((index, false));
+                escaped_parameter_stack.push(index);
             } else if previous_char == Some('$') && !previous_char_escaped {
-                if let Some((_, has_nested_parameter_inside)) = escaped_parameter_stack.last_mut() {
-                    *has_nested_parameter_inside = true;
-                }
                 parameter_depth += 1;
             }
         } else if ch == '}' {
             if parameter_depth > 0 {
                 parameter_depth -= 1;
-            } else if let Some((open_offset, has_nested_parameter_inside)) =
-                escaped_parameter_stack.pop()
-                && !has_nested_parameter_inside
+            } else if let Some(open_offset) = escaped_parameter_stack.pop()
                 && !brace_pair_matches_nonliteral_syntax(word, open_offset, index)
             {
                 let open = span.start.advanced_by(&text[..open_offset]);

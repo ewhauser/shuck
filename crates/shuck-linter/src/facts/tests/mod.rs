@@ -20,6 +20,7 @@ use crate::rules::common::expansion::{ExpansionContext, SubstitutionOutputIntent
 use crate::{LinterFacts, ShellDialect, classify_file_context};
 
 mod assignments;
+mod braces;
 mod commands;
 mod comments;
 mod conditions;
