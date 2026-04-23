@@ -62,6 +62,7 @@ const LARGE_CORPUS_STATIC_ZSH_OVERRIDE_SUFFIXES: &[&str] = &[
     "ohmyzsh__ohmyzsh__oh-my-zsh.sh",
     "ohmyzsh__ohmyzsh__tools__check_for_upgrade.sh",
 ];
+const LARGE_CORPUS_SHELLCHECK_UNSUPPORTED_REPO_PREFIXES: &[&str] = &["ohmyzsh__ohmyzsh__"];
 const LARGE_CORPUS_REVIEWED_SHELLCHECK_PARSE_ABORT_SUFFIXES: &[&str] = &[
     "SlackBuildsOrg__slackbuilds__network__modemu2k__modemu2k.SlackBuild",
     "SlackBuildsOrg__slackbuilds__system__firmware-gobi-2000__firmware-gobi-2000.SlackBuild",
@@ -1922,6 +1923,7 @@ fn fixture_supported_for_large_corpus(
     shellcheck_supported_shells: Option<&HashMap<&'static str, ()>>,
 ) -> bool {
     if path_is_statically_ignored_large_corpus_fixture(&fixture.path)
+        || path_is_shellcheck_unsupported_large_corpus_fixture(&fixture.path)
         || path_is_sample_file(&fixture.path)
         || path_is_fish_file(&fixture.path)
         || path_is_patch_file(&fixture.path)
@@ -2001,6 +2003,19 @@ fn path_is_statically_ignored_large_corpus_fixture(path: &Path) -> bool {
 
 fn path_has_large_corpus_static_zsh_override(path: &Path) -> bool {
     path_matches_large_corpus_suffix(path, LARGE_CORPUS_STATIC_ZSH_OVERRIDE_SUFFIXES)
+}
+
+fn path_is_shellcheck_unsupported_large_corpus_fixture(path: &Path) -> bool {
+    path.components().any(|component| {
+        let std::path::Component::Normal(part) = component else {
+            return false;
+        };
+
+        let part = part.to_string_lossy();
+        LARGE_CORPUS_SHELLCHECK_UNSUPPORTED_REPO_PREFIXES
+            .iter()
+            .any(|prefix| part.starts_with(prefix))
+    })
 }
 
 fn path_has_reviewed_shellcheck_parse_abort(path: &Path) -> bool {
@@ -3394,6 +3409,22 @@ mod tests {
     }
 
     #[test]
+    fn ohmyzsh_repo_fixtures_are_skipped_for_shellcheck_conformance() {
+        let fixture = LargeCorpusFixture {
+            path: PathBuf::from("ohmyzsh__ohmyzsh__plugins__wd__wd.sh"),
+            cache_rel_path: PathBuf::from("ohmyzsh__ohmyzsh__plugins__wd__wd.sh"),
+            shell: "sh".into(),
+            source_hash: String::new(),
+        };
+
+        assert!(path_is_shellcheck_unsupported_large_corpus_fixture(
+            &fixture.path
+        ));
+        assert!(!fixture_supported_for_large_corpus(&fixture, None));
+        assert!(!fixture_selected_for_large_corpus_zsh_parse(&fixture));
+    }
+
+    #[test]
     fn zsh_shebangs_are_selected_for_large_corpus_zsh_parse() {
         let fixture = LargeCorpusFixture {
             path: PathBuf::from("bin/plugin"),
@@ -4719,6 +4750,30 @@ mod tests {
             .collect();
 
         assert_eq!(collected_paths, vec![PathBuf::from("keep.sh")]);
+    }
+
+    #[test]
+    fn collect_fixtures_keeps_ohmyzsh_entries_for_non_conformance_harnesses() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let scripts_dir = tempdir.path().join("scripts");
+        fs::create_dir_all(&scripts_dir).unwrap();
+
+        fs::write(
+            scripts_dir.join("ohmyzsh__ohmyzsh__plugins__wd__wd.sh"),
+            "#!/bin/sh\necho keep\n",
+        )
+        .unwrap();
+
+        let fixtures = collect_fixtures(tempdir.path());
+        let collected_paths: Vec<_> = fixtures
+            .into_iter()
+            .map(|fixture| fixture.cache_rel_path)
+            .collect();
+
+        assert_eq!(
+            collected_paths,
+            vec![PathBuf::from("ohmyzsh__ohmyzsh__plugins__wd__wd.sh")]
+        );
     }
 
     fn fixture(path: &str) -> LargeCorpusFixture {
