@@ -1000,9 +1000,14 @@ fn substitution_body_processed_ls_pipeline_spans<'a>(
     source: &str,
 ) -> Vec<Span> {
     let mut spans = Vec::new();
-    for stmt in &body.stmts {
+    for visit in iter_commands(
+        body,
+        CommandWalkOptions {
+            descend_nested_word_commands: false,
+        },
+    ) {
         collect_processed_ls_pipeline_spans_in_stmt(
-            stmt,
+            visit.stmt,
             commands,
             command_ids_by_span,
             source,
@@ -1019,69 +1024,42 @@ fn collect_processed_ls_pipeline_spans_in_stmt<'a>(
     source: &str,
     spans: &mut Vec<Span>,
 ) {
-    match &stmt.command {
-        Command::Binary(binary) if matches!(binary.op, BinaryOp::Pipe | BinaryOp::PipeAll) => {
-            let mut segments = Vec::new();
-            let mut operators = Vec::new();
-            collect_pipeline_parts(binary, &mut segments, &mut operators);
+    let Command::Binary(binary) = &stmt.command else {
+        return;
+    };
+    if !matches!(binary.op, BinaryOp::Pipe | BinaryOp::PipeAll) {
+        return;
+    }
 
-            for (index, pair) in segments.windows(2).enumerate() {
-                if stmt_is_raw_ls(pair[0], commands, command_ids_by_span, source)
-                    && !stmt_static_utility_name_is(
-                        pair[1],
-                        commands,
-                        command_ids_by_span,
-                        source,
-                        "grep",
-                    )
-                    && !stmt_static_utility_name_is(
-                        pair[1],
-                        commands,
-                        command_ids_by_span,
-                        source,
-                        "xargs",
-                    )
-                {
-                    spans.push(ls_command_span_before_pipe(
-                        pair[0],
-                        operators[index],
-                        commands,
-                        command_ids_by_span,
-                        source,
-                    ));
-                }
-            }
+    let mut segments = Vec::new();
+    let mut operators = Vec::new();
+    collect_pipeline_parts(binary, &mut segments, &mut operators);
+
+    for (index, pair) in segments.windows(2).enumerate() {
+        if stmt_is_raw_ls(pair[0], commands, command_ids_by_span, source)
+            && !stmt_static_utility_name_is(
+                pair[1],
+                commands,
+                command_ids_by_span,
+                source,
+                "grep",
+            )
+            && !stmt_static_utility_name_is(
+                pair[1],
+                commands,
+                command_ids_by_span,
+                source,
+                "xargs",
+            )
+        {
+            spans.push(ls_command_span_before_pipe(
+                pair[0],
+                operators[index],
+                commands,
+                command_ids_by_span,
+                source,
+            ));
         }
-        Command::Compound(CompoundCommand::Subshell(body))
-        | Command::Compound(CompoundCommand::BraceGroup(body)) => {
-            for stmt in &body.stmts {
-                collect_processed_ls_pipeline_spans_in_stmt(
-                    stmt,
-                    commands,
-                    command_ids_by_span,
-                    source,
-                    spans,
-                );
-            }
-        }
-        Command::Compound(CompoundCommand::Time(command)) => {
-            if let Some(stmt) = command.command.as_deref() {
-                collect_processed_ls_pipeline_spans_in_stmt(
-                    stmt,
-                    commands,
-                    command_ids_by_span,
-                    source,
-                    spans,
-                );
-            }
-        }
-        Command::Simple(_)
-        | Command::Builtin(_)
-        | Command::Decl(_)
-        | Command::Binary(_)
-        | Command::Compound(_)
-        | Command::Function(_)
-        | Command::AnonymousFunction(_) => {}
     }
 }
 
