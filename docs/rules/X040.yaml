@@ -10,8 +10,8 @@ shells:
   - bash
   - dash
   - ksh
-description: Uses array-style subscripting in a POSIX shell test
-rationale: Use a portable test or a shell that actually supports arrays.
+description: Uses a glob operand in a POSIX shell `[ ... ]` test
+rationale: In `[ ... ]`, unquoted glob operands are not matched the way shell users usually expect. Quote literal brackets or rewrite the check as a loop, `case`, or another form that actually performs matching.
 safe_fix: false
 fix_description: null
 source:
