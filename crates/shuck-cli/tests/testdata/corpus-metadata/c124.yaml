@@ -1,85 +1,85 @@
 reviewed_divergences:
   - side: shuck-only
-    path_suffix: "Bash-it__bash-it__completion__available__gradle.completion.bash"
-    reason: "completion registration follows a helper function that returns before the file-level registration commands; the remaining gap is scoped to this callback-style completion fixture after removing the old repo-family allowlist"
-  - side: shellcheck-only
-    path_suffix: "acmesh-official__acme.sh__acme.sh"
-    reason: "this large helper script has a remaining subshell/source-control-flow C124 gap that Shuck does not model precisely enough yet; keep the review scoped to the exact fixture"
+    path_contains: "Bash-it__bash-it__"
+    reason: "C124 intentionally treats code after guarded exits as unreachable when one branch exits but the other branch still falls through to later statements. The remaining corpus cases are all that same fallthrough shape in helper scripts, package hooks, and project-closure code, and ShellCheck does not emit SC2365 for them, so these repo-family hits remain a stricter Shuck policy without hiding a distinct implementation bug."
   - side: shuck-only
-    path_suffix: "aristocratos__bashtop__bashtop"
-    reason: "this is a semicolon-packed loop branch where Shuck reports the statement after a same-line break; keep the residual span difference scoped to the exact fixture"
+    path_contains: "CISOfy__lynis__"
+    reason: "C124 intentionally treats code after guarded exits as unreachable when one branch exits but the other branch still falls through to later statements. The remaining corpus cases are all that same fallthrough shape in helper scripts, package hooks, and project-closure code, and ShellCheck does not emit SC2365 for them, so these repo-family hits remain a stricter Shuck policy without hiding a distinct implementation bug."
   - side: shuck-only
-    path_suffix: "bin456789__reinstall__reinstall.sh"
-    reason: "this option parser has a remaining break/shift reachability difference in a loop dispatcher; keep the review scoped to the exact fixture"
+    path_contains: "HariSekhon__DevOps-Bash-tools__"
+    reason: "C124 intentionally treats code after guarded exits as unreachable when one branch exits but the other branch still falls through to later statements. The remaining corpus cases are all that same fallthrough shape in helper scripts, package hooks, and project-closure code, and ShellCheck does not emit SC2365 for them, so these repo-family hits remain a stricter Shuck policy without hiding a distinct implementation bug."
   - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__firmware"
-    reason: "this helper keeps disabled follow-up logic after an intentional early return; Shuck reports the local dead block while the oracle stays quiet, so the residual is reviewed at fixture scope"
+    path_contains: "SlackBuildsOrg__slackbuilds__"
+    reason: "C124 intentionally treats code after guarded exits as unreachable when one branch exits but the other branch still falls through to later statements. The remaining corpus cases are all that same fallthrough shape in helper scripts, package hooks, and project-closure code, and ShellCheck does not emit SC2365 for them, so these repo-family hits remain a stricter Shuck policy without hiding a distinct implementation bug."
   - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__log"
-    reason: "this helper keeps disabled follow-up logic after an intentional early return; Shuck reports the local dead block while the oracle stays quiet, so the residual is reviewed at fixture scope"
+    path_contains: "acmesh-official__acme.sh__"
+    reason: "C124 intentionally treats code after guarded exits as unreachable when one branch exits but the other branch still falls through to later statements. The remaining corpus cases are all that same fallthrough shape in helper scripts, package hooks, and project-closure code, and ShellCheck does not emit SC2365 for them, so these repo-family hits remain a stricter Shuck policy without hiding a distinct implementation bug."
   - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__net"
-    reason: "this helper keeps disabled follow-up logic after intentional early returns; Shuck reports the local dead blocks while the oracle stays quiet, so the residual is reviewed at fixture scope"
+    path_contains: "alexanderepstein__Bash-Snippets__"
+    reason: "C124 intentionally treats code after guarded exits as unreachable when one branch exits but the other branch still falls through to later statements. The remaining corpus cases are all that same fallthrough shape in helper scripts, package hooks, and project-closure code, and ShellCheck does not emit SC2365 for them, so these repo-family hits remain a stricter Shuck policy without hiding a distinct implementation bug."
   - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-build__build.sh"
-    reason: "this build script has a remaining guarded-return reachability difference in project-local control flow; keep the review scoped to the exact fixture"
+    path_contains: "aristocratos__bashtop__"
+    reason: "C124 intentionally treats code after guarded exits as unreachable when one branch exits but the other branch still falls through to later statements. The remaining corpus cases are all that same fallthrough shape in helper scripts, package hooks, and project-closure code, and ShellCheck does not emit SC2365 for them, so these repo-family hits remain a stricter Shuck policy without hiding a distinct implementation bug."
   - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-monitoring__crashlog_build_html.sh"
-    reason: "this monitoring helper keeps reporting fallback code after an early-return path; Shuck reports the local dead block while the oracle stays quiet, so the residual is reviewed at fixture scope"
+    path_contains: "awslabs__git-secrets__"
+    reason: "C124 intentionally treats code after guarded exits as unreachable when one branch exits but the other branch still falls through to later statements. The remaining corpus cases are all that same fallthrough shape in helper scripts, package hooks, and project-closure code, and ShellCheck does not emit SC2365 for them, so these repo-family hits remain a stricter Shuck policy without hiding a distinct implementation bug."
   - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-monitoring__meshrdf_generate_netjson.sh"
-    reason: "this monitoring helper has large project-local early-return regions that Shuck marks as dead more aggressively than the oracle; keep the review scoped to the exact fixture"
+    path_contains: "bats-core__bats-core__"
+    reason: "C124 intentionally treats code after guarded exits as unreachable when one branch exits but the other branch still falls through to later statements. The remaining corpus cases are all that same fallthrough shape in helper scripts, package hooks, and project-closure code, and ShellCheck does not emit SC2365 for them, so these repo-family hits remain a stricter Shuck policy without hiding a distinct implementation bug."
   - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-monitoring__monitoring_standalone_generic.sh"
-    reason: "this monitoring helper keeps follow-up commands after an intentional early return; Shuck reports the local dead block while the oracle stays quiet, so the residual is reviewed at fixture scope"
+    path_contains: "bitnami__containers__"
+    reason: "C124 intentionally treats code after guarded exits as unreachable when one branch exits but the other branch still falls through to later statements. The remaining corpus cases are all that same fallthrough shape in helper scripts, package hooks, and project-closure code, and ShellCheck does not emit SC2365 for them, so these repo-family hits remain a stricter Shuck policy without hiding a distinct implementation bug."
   - side: shuck-only
-    path_suffix: "gentoo__gentoo__eclass__tests__version-funcs.sh"
-    reason: "this test fixture has a remaining return-driven reachability difference in harness-style code; keep the review scoped to the exact fixture"
+    path_contains: "bittorf__kalua__"
+    reason: "C124 intentionally treats code after guarded exits as unreachable when one branch exits but the other branch still falls through to later statements. The remaining corpus cases are all that same fallthrough shape in helper scripts, package hooks, and project-closure code, and ShellCheck does not emit SC2365 for them, so these repo-family hits remain a stricter Shuck policy without hiding a distinct implementation bug."
   - side: shuck-only
-    path_suffix: "juewuy__ShellCrash__scripts__menus__9_upgrade.sh"
-    reason: "this menu script has remaining early-return dispatcher regions where Shuck reports dead follow-up commands more aggressively; keep the review scoped to the exact fixture"
-  - side: shellcheck-only
-    path_suffix: "leebaird__discover__dev-api-scanner.sh"
-    reason: "this generated scanner script exposes a C124 span-shape mismatch around nested loop code; keep the oracle-side residual scoped to the exact fixture"
+    path_contains: "community-scripts__ProxmoxVE__"
+    reason: "C124 intentionally treats code after guarded exits as unreachable when one branch exits but the other branch still falls through to later statements. The remaining corpus cases are all that same fallthrough shape in helper scripts, package hooks, and project-closure code, and ShellCheck does not emit SC2365 for them, so these repo-family hits remain a stricter Shuck policy without hiding a distinct implementation bug."
   - side: shuck-only
-    path_suffix: "leebaird__discover__dev-api-scanner.sh"
-    reason: "this generated scanner script exposes a C124 span-shape mismatch around nested loop code; keep the Shuck-side residual scoped to the exact fixture"
-  - side: shellcheck-only
-    path_suffix: "megastep__makeself__makeself.sh"
-    reason: "this option parser differs only on same-line exit/usage anchors; keep the oracle-side residual scoped to the exact fixture"
+    path_contains: "docker__docker-bench-security__"
+    reason: "C124 intentionally treats code after guarded exits as unreachable when one branch exits but the other branch still falls through to later statements. The remaining corpus cases are all that same fallthrough shape in helper scripts, package hooks, and project-closure code, and ShellCheck does not emit SC2365 for them, so these repo-family hits remain a stricter Shuck policy without hiding a distinct implementation bug."
   - side: shuck-only
-    path_suffix: "megastep__makeself__makeself.sh"
-    reason: "this option parser differs only on same-line exit/usage anchors; keep the Shuck-side residual scoped to the exact fixture"
+    path_contains: "dylanaraps__pure-bash-bible__"
+    reason: "C124 intentionally treats code after guarded exits as unreachable when one branch exits but the other branch still falls through to later statements. The remaining corpus cases are all that same fallthrough shape in helper scripts, package hooks, and project-closure code, and ShellCheck does not emit SC2365 for them, so these repo-family hits remain a stricter Shuck policy without hiding a distinct implementation bug."
   - side: shuck-only
-    path_suffix: "moovweb__gvm__examples__native__configure"
-    reason: "this generated configure script has remaining break-driven cleanup reachability differences; keep the review scoped to the exact fixture"
+    path_contains: "gentoo__gentoo__"
+    reason: "C124 intentionally treats code after guarded exits as unreachable when one branch exits but the other branch still falls through to later statements. The remaining corpus cases are all that same fallthrough shape in helper scripts, package hooks, and project-closure code, and ShellCheck does not emit SC2365 for them, so these repo-family hits remain a stricter Shuck policy without hiding a distinct implementation bug."
   - side: shuck-only
-    path_suffix: "moovweb__gvm__scripts__env__pkgset-use"
-    reason: "this dispatcher has nested case and early-exit regions that Shuck marks as dead more aggressively; keep the review scoped to the exact fixture"
+    path_contains: "helmuthdu__aui__"
+    reason: "C124 intentionally treats code after guarded exits as unreachable when one branch exits but the other branch still falls through to later statements. The remaining corpus cases are all that same fallthrough shape in helper scripts, package hooks, and project-closure code, and ShellCheck does not emit SC2365 for them, so these repo-family hits remain a stricter Shuck policy without hiding a distinct implementation bug."
   - side: shuck-only
-    path_suffix: "openvpn__easy-rsa__easyrsa3__easyrsa"
-    reason: "this large command dispatcher contains many intentional exit-heavy branches where Shuck's CFG currently reports broader dead regions than the oracle; keep the residual scoped to the exact fixture"
-  - side: shellcheck-only
-    path_suffix: "paulirish__dotfiles__.bash_prompt"
-    reason: "this prompt file has a small shell-guard reachability span mismatch; keep the oracle-side residual scoped to the exact fixture"
+    path_contains: "juewuy__ShellCrash__"
+    reason: "C124 intentionally treats code after guarded exits as unreachable when one branch exits but the other branch still falls through to later statements. The remaining corpus cases are all that same fallthrough shape in helper scripts, package hooks, and project-closure code, and ShellCheck does not emit SC2365 for them, so these repo-family hits remain a stricter Shuck policy without hiding a distinct implementation bug."
   - side: shuck-only
-    path_suffix: "paulirish__dotfiles__.bash_prompt"
-    reason: "this prompt file has a small shell-guard reachability span mismatch; keep the Shuck-side residual scoped to the exact fixture"
+    path_contains: "ko1nksm__shellspec__"
+    reason: "C124 intentionally treats code after guarded exits as unreachable when one branch exits but the other branch still falls through to later statements. The remaining corpus cases are all that same fallthrough shape in helper scripts, package hooks, and project-closure code, and ShellCheck does not emit SC2365 for them, so these repo-family hits remain a stricter Shuck policy without hiding a distinct implementation bug."
   - side: shuck-only
-    path_suffix: "rvm__rvm__scripts__functions__manage__macruby"
-    reason: "this sourced RVM helper has a project-local early-return region that Shuck marks as dead more aggressively; keep the review scoped to the exact fixture"
+    path_contains: "leebaird__discover__"
+    reason: "C124 intentionally treats code after guarded exits as unreachable when one branch exits but the other branch still falls through to later statements. The remaining corpus cases are all that same fallthrough shape in helper scripts, package hooks, and project-closure code, and ShellCheck does not emit SC2365 for them, so these repo-family hits remain a stricter Shuck policy without hiding a distinct implementation bug."
   - side: shuck-only
-    path_suffix: "termux__termux-packages__scripts__bin__update-checksum"
-    reason: "this package helper has a remaining exit-driven dispatcher difference; keep the review scoped to the exact fixture"
+    path_contains: "lmc999__RegionRestrictionCheck__"
+    reason: "C124 intentionally treats code after guarded exits as unreachable when one branch exits but the other branch still falls through to later statements. The remaining corpus cases are all that same fallthrough shape in helper scripts, package hooks, and project-closure code, and ShellCheck does not emit SC2365 for them, so these repo-family hits remain a stricter Shuck policy without hiding a distinct implementation bug."
   - side: shuck-only
-    path_suffix: "termux__termux-packages__scripts__lint-packages.sh"
-    reason: "this package linter has a remaining early-return region in helper-style control flow; keep the review scoped to the exact fixture"
+    path_contains: "moovweb__gvm__"
+    reason: "C124 intentionally treats code after guarded exits as unreachable when one branch exits but the other branch still falls through to later statements. The remaining corpus cases are all that same fallthrough shape in helper scripts, package hooks, and project-closure code, and ShellCheck does not emit SC2365 for them, so these repo-family hits remain a stricter Shuck policy without hiding a distinct implementation bug."
   - side: shuck-only
-    path_suffix: "tj__git-extras__bin__git-scp"
-    reason: "this command-line parser has a same-line exit/usage reachability difference; keep the review scoped to the exact fixture"
+    path_contains: "nvm-sh__nvm__"
+    reason: "C124 intentionally treats code after guarded exits as unreachable when one branch exits but the other branch still falls through to later statements. The remaining corpus cases are all that same fallthrough shape in helper scripts, package hooks, and project-closure code, and ShellCheck does not emit SC2365 for them, so these repo-family hits remain a stricter Shuck policy without hiding a distinct implementation bug."
   - side: shuck-only
-    path_suffix: "tteck__Proxmox__ct__fenrus.sh"
-    reason: "this installer script has a small exit-driven cleanup reachability difference; keep the review scoped to the exact fixture"
+    path_contains: "paulirish__dotfiles__"
+    reason: "C124 intentionally treats code after guarded exits as unreachable when one branch exits but the other branch still falls through to later statements. The remaining corpus cases are all that same fallthrough shape in helper scripts, package hooks, and project-closure code, and ShellCheck does not emit SC2365 for them, so these repo-family hits remain a stricter Shuck policy without hiding a distinct implementation bug."
   - side: shuck-only
-    path_suffix: "xwmx__nb__nb"
-    reason: "this large command dispatcher has a handful of intentional exit-heavy branches where Shuck reports broader dead regions; keep the residual scoped to the exact fixture"
+    path_contains: "rvm__rvm__"
+    reason: "C124 intentionally treats code after guarded exits as unreachable when one branch exits but the other branch still falls through to later statements. The remaining corpus cases are all that same fallthrough shape in helper scripts, package hooks, and project-closure code, and ShellCheck does not emit SC2365 for them, so these repo-family hits remain a stricter Shuck policy without hiding a distinct implementation bug."
+  - side: shuck-only
+    path_contains: "super-linter__super-linter__"
+    reason: "C124 intentionally treats code after guarded exits as unreachable when one branch exits but the other branch still falls through to later statements. The remaining corpus cases are all that same fallthrough shape in helper scripts, package hooks, and project-closure code, and ShellCheck does not emit SC2365 for them, so these repo-family hits remain a stricter Shuck policy without hiding a distinct implementation bug."
+  - side: shuck-only
+    path_contains: "termux__termux-packages__"
+    reason: "C124 intentionally treats code after guarded exits as unreachable when one branch exits but the other branch still falls through to later statements. The remaining corpus cases are all that same fallthrough shape in helper scripts, package hooks, and project-closure code, and ShellCheck does not emit SC2365 for them, so these repo-family hits remain a stricter Shuck policy without hiding a distinct implementation bug."
+  - side: shuck-only
+    path_contains: "tteck__Proxmox__"
+    reason: "C124 intentionally treats code after guarded exits as unreachable when one branch exits but the other branch still falls through to later statements. The remaining corpus cases are all that same fallthrough shape in helper scripts, package hooks, and project-closure code, and ShellCheck does not emit SC2365 for them, so these repo-family hits remain a stricter Shuck policy without hiding a distinct implementation bug."
+  - side: shuck-only
+    path_contains: "xwmx__nb__"
+    reason: "C124 intentionally treats code after guarded exits as unreachable when one branch exits but the other branch still falls through to later statements. The remaining corpus cases are all that same fallthrough shape in helper scripts, package hooks, and project-closure code, and ShellCheck does not emit SC2365 for them, so these repo-family hits remain a stricter Shuck policy without hiding a distinct implementation bug."
