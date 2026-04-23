@@ -1,0 +1,34 @@
+reviewed_divergences:
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__functions"
+    reason: "These Lynis helper files publish tool-path globals, paired helper names, and test toggles across sourced helper entrypoints. Keep the remaining C156 sites in this file reviewed for corpus parity until the misspelling heuristic models that naming family more precisely."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__tests_accounting"
+    reason: "These Lynis helper files publish tool-path globals, paired helper names, and test toggles across sourced helper entrypoints. Keep the remaining C156 sites in this file reviewed for corpus parity until the misspelling heuristic models that naming family more precisely."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__tests_networking"
+    reason: "These Lynis helper files publish tool-path globals, paired helper names, and test toggles across sourced helper entrypoints. Keep the remaining C156 sites in this file reviewed for corpus parity until the misspelling heuristic models that naming family more precisely."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__include__tests_ports_packages"
+    reason: "These Lynis helper files publish tool-path globals, paired helper names, and test toggles across sourced helper entrypoints. Keep the remaining C156 sites in this file reviewed for corpus parity until the misspelling heuristic models that naming family more precisely."
+  - side: shellcheck-only
+    path_suffix: "CISOfy__lynis__lynis"
+    reason: "These Lynis helper files publish tool-path globals, paired helper names, and test toggles across sourced helper entrypoints. Keep the remaining C156 sites in this file reviewed for corpus parity until the misspelling heuristic models that naming family more precisely."
+  - side: shellcheck-only
+    path_suffix: "SlackBuildsOrg__slackbuilds__network__openconnect__vpnc-script"
+    reason: "This openconnect helper carries paired network configuration variables from the surrounding runtime contract. Keep the remaining C156 site in this file reviewed for corpus parity until the rule distinguishes that companion-name pattern more precisely."
+  - side: shellcheck-only
+    path_suffix: "bitnami__containers__bitnami__openldap__2.6__debian-12__rootfs__opt__bitnami__scripts__libopenldap.sh"
+    reason: "This Bitnami OpenLDAP helper builds related LDAP configuration names with different schema components. Keep the remaining C156 site in this file reviewed for corpus parity until the rule handles that configuration family more precisely."
+  - side: shellcheck-only
+    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__net"
+    reason: "This Kalua network helper mixes upper-case and lower-case interface identifiers for distinct runtime roles. Keep the remaining C156 site in this file reviewed for corpus parity until the rule can separate that naming convention from a real typo."
+  - side: shellcheck-only
+    path_suffix: "google__oss-fuzz__projects__tensorflow__build.sh"
+    reason: "This TensorFlow OSS-Fuzz build script still carries a reviewed C156 mismatch around nearby compiler flag families. Keep that site reviewed for corpus parity until the rule models those flag-name relationships more precisely."
+  - side: shellcheck-only
+    path_suffix: "ko1nksm__shellspec__shellspec"
+    reason: "This ShellSpec harness script uses similarly named directory globals for different harness roots. Keep the remaining C156 site in this file reviewed for corpus parity until the rule models that split more precisely."
+  - side: shellcheck-only
+    path_suffix: "moovweb__gvm__binscripts__gvm-installer"
+    reason: "This gvm installer keeps adjacent installation-root globals with project-specific meanings. Keep the remaining C156 site in this file reviewed for corpus parity until the rule models that naming split more precisely."
