@@ -522,4 +522,27 @@ read \"path\" < path
             vec!["\"path\"", "path"]
         );
     }
+
+    #[test]
+    fn reports_quoted_literal_redirect_targets_that_match_heredoc_names() {
+        let source = "\
+#!/bin/bash
+{ cat <<EOF
+$SGINGRESS1
+EOF
+} > \"SGINGRESS1\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::RedirectClobbersInput),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["SGINGRESS1", "\"SGINGRESS1\""]
+        );
+    }
 }

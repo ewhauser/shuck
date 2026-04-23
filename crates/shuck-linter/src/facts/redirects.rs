@@ -189,20 +189,6 @@ pub(crate) fn comparable_name_uses(word: &Word, source: &str) -> Box<[Comparable
     uses.into_boxed_slice()
 }
 
-pub(crate) fn comparable_read_target_name_uses(
-    word: &Word,
-    source: &str,
-) -> Box<[ComparableNameUse]> {
-    let mut uses = comparable_name_uses(word, source).into_vec();
-    if let Some(text) = static_word_text(word, source)
-        && comparable_name_text(text.as_ref())
-    {
-        uses.push(literal_comparable_name_use(word.span, text.as_ref()));
-    }
-    dedup_comparable_name_uses(&mut uses);
-    uses.into_boxed_slice()
-}
-
 pub(crate) fn comparable_heredoc_name_uses(
     heredoc: &shuck_ast::HeredocBody,
     source: &str,
@@ -359,7 +345,6 @@ fn collect_command_substitution_comparable_name_uses(
 fn standalone_comparable_name_use(word: &Word, source: &str) -> Option<ComparableNameUse> {
     if let Some(text) = static_word_text(word, source)
         && comparable_name_text(text.as_ref())
-        && analyze_word(word, source, None).quote == WordQuote::Unquoted
     {
         return Some(literal_comparable_name_use(word.span, text.as_ref()));
     }

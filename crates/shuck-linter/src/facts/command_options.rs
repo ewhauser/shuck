@@ -792,21 +792,21 @@ fn read_target_name_uses(args: &[&Word], source: &str) -> Box<[ComparableNameUse
             }
 
             for target in &args[index..] {
-                targets.extend(comparable_read_target_name_uses(target, source));
+                targets.extend(comparable_name_uses(target, source));
             }
             break;
         };
 
         if text == "--" {
             for target in &args[index + 1..] {
-                targets.extend(comparable_read_target_name_uses(target, source));
+                targets.extend(comparable_name_uses(target, source));
             }
             break;
         }
 
         if !text.starts_with('-') || text == "-" {
             for target in &args[index..] {
-                targets.extend(comparable_read_target_name_uses(target, source));
+                targets.extend(comparable_name_uses(target, source));
             }
             break;
         }
@@ -823,7 +823,7 @@ fn read_target_name_uses(args: &[&Word], source: &str) -> Box<[ComparableNameUse
                         targets.push(target);
                     }
                 } else if let Some(target) = args.get(index + 1) {
-                    targets.extend(comparable_read_target_name_uses(target, source));
+                    targets.extend(comparable_name_uses(target, source));
                     index += 1;
                 }
                 saw_array_target = true;
