@@ -2231,23 +2231,31 @@ fn exec_wrapper_target_index<'a>(
             return next_word_index(word_count, index);
         }
 
-        if arg == "-a" {
-            let name_index = index + 1;
-            if name_index >= word_count {
-                return None;
+        if let Some(options) = arg.strip_prefix('-') {
+            if options.is_empty() {
+                return Some(index);
             }
-            static_text_at(name_index)?;
-            index += 2;
-            continue;
-        }
 
-        if matches!(arg.as_ref(), "-c" | "-l") {
-            index += 1;
-            continue;
-        }
+            let mut consumed_words = 1;
+            for (offset, option) in options.char_indices() {
+                match option {
+                    'c' | 'l' => {}
+                    'a' => {
+                        let has_attached_name = offset + option.len_utf8() < options.len();
+                        if !has_attached_name {
+                            if index + consumed_words >= word_count {
+                                return None;
+                            }
+                            consumed_words += 1;
+                        }
+                        break;
+                    }
+                    _ => return None,
+                }
+            }
 
-        if arg.starts_with('-') && arg != "-" {
-            return None;
+            index += consumed_words;
+            continue;
         }
 
         return Some(index);

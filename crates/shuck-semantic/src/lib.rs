@@ -7739,6 +7739,31 @@ print *
     }
 
     #[test]
+    fn zsh_option_analysis_tracks_exec_bundled_option_wrappers() {
+        for source in [
+            "\
+exec -cl setopt no_glob
+print *
+",
+            "\
+exec -lc setopt no_glob
+print *
+",
+            "\
+exec -la shuck setopt no_glob
+print *
+",
+        ] {
+            let model = model_with_profile(source, ShellProfile::native(ShellDialect::Zsh));
+            let options = model
+                .zsh_options_at(source.find("print").unwrap())
+                .expect("expected wrapped zsh option effects");
+
+            assert_eq!(options.glob, OptionValue::Off, "{source}");
+        }
+    }
+
+    #[test]
     fn zsh_option_analysis_ignores_command_lookup_modes() {
         let source = "\
 command -v setopt no_glob

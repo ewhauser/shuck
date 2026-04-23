@@ -558,6 +558,27 @@ mod tests {
                 ("printf", Some("'%s\\n'")),
             ),
             (
+                "exec -cl printf '%s\\n' hi\n",
+                Some("exec"),
+                Some("printf"),
+                vec![WrapperKind::Exec],
+                ("printf", Some("'%s\\n'")),
+            ),
+            (
+                "exec -lc printf '%s\\n' hi\n",
+                Some("exec"),
+                Some("printf"),
+                vec![WrapperKind::Exec],
+                ("printf", Some("'%s\\n'")),
+            ),
+            (
+                "exec -la shuck printf '%s\\n' hi\n",
+                Some("exec"),
+                Some("printf"),
+                vec![WrapperKind::Exec],
+                ("printf", Some("'%s\\n'")),
+            ),
+            (
                 "busybox awk '{print $1}'\n",
                 Some("busybox"),
                 Some("awk"),
