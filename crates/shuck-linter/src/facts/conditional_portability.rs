@@ -101,6 +101,7 @@ pub(super) struct ConditionalPortabilityInputs<'a> {
     pub word_occurrences: &'a [WordOccurrence],
     pub pattern_exactly_one_extglob_spans: &'a [Span],
     pub pattern_charclass_spans: &'a [Span],
+    pub parameter_pattern_spans: &'a [Span],
     pub nested_pattern_charclass_spans: &'a FxHashSet<FactSpan>,
 }
 
@@ -156,6 +157,7 @@ pub(super) fn build_conditional_portability_facts<'a>(
         inputs
             .pattern_charclass_spans
             .iter()
+            .filter(|span| !span_is_within_any(**span, inputs.parameter_pattern_spans))
             .filter(|span| {
                 !inputs
                     .nested_pattern_charclass_spans
@@ -185,6 +187,12 @@ pub(super) fn build_conditional_portability_facts<'a>(
     }
 
     facts
+}
+
+fn span_is_within_any(span: Span, containers: &[Span]) -> bool {
+    containers.iter().any(|container| {
+        container.start.offset <= span.start.offset && span.end.offset <= container.end.offset
+    })
 }
 
 fn collect_conditional_portability_spans(
