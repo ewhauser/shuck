@@ -1691,6 +1691,7 @@ pub(crate) fn benchmark_collect_word_facts(
     let mut word_nodes = Vec::new();
     let mut word_node_ids_by_span = FxHashMap::default();
     let mut word_occurrences = Vec::new();
+    let mut pending_arithmetic_word_occurrences = Vec::new();
     let mut compound_assignment_value_word_spans = FxHashSet::default();
     let mut array_assignment_split_word_ids = Vec::new();
     let mut assoc_binding_visibility_memo = FxHashMap::default();
@@ -1728,6 +1729,7 @@ pub(crate) fn benchmark_collect_word_facts(
                 word_nodes: &mut word_nodes,
                 word_node_ids_by_span: &mut word_node_ids_by_span,
                 word_occurrences: &mut word_occurrences,
+                pending_arithmetic_word_occurrences: &mut pending_arithmetic_word_occurrences,
                 compound_assignment_value_word_spans: &mut compound_assignment_value_word_spans,
                 array_assignment_split_word_ids: &mut array_assignment_split_word_ids,
                 assoc_binding_visibility_memo: &mut assoc_binding_visibility_memo,
@@ -1742,6 +1744,7 @@ pub(crate) fn benchmark_collect_word_facts(
     let surface_fragments = surface_fragments.finish();
 
     word_occurrences.len()
+        + pending_arithmetic_word_occurrences.len()
         + word_nodes.len()
         + compound_assignment_value_word_spans.len()
         + array_assignment_split_word_ids.len()
