@@ -4,6 +4,7 @@ struct LinterFactsBuilder<'a> {
     semantic: &'a SemanticModel,
     _indexer: &'a Indexer,
     _file_context: &'a FileContext,
+    shell: ShellDialect,
     ambient_shell_options: AmbientShellOptions,
 }
 
@@ -33,6 +34,7 @@ impl<'a> LinterFactsBuilder<'a> {
         semantic: &'a SemanticModel,
         indexer: &'a Indexer,
         file_context: &'a FileContext,
+        shell: ShellDialect,
         ambient_shell_options: AmbientShellOptions,
     ) -> Self {
         Self {
@@ -41,6 +43,7 @@ impl<'a> LinterFactsBuilder<'a> {
             semantic,
             _indexer: indexer,
             _file_context: file_context,
+            shell,
             ambient_shell_options,
         }
     }
@@ -412,6 +415,11 @@ impl<'a> LinterFactsBuilder<'a> {
                 .iter()
                 .filter_map(|fact| fact.options().set())
                 .any(|set| set.errexit_change == Some(true));
+        let pipefail_enabled_anywhere = self.ambient_shell_options.pipefail
+            || commands
+                .iter()
+                .filter_map(|fact| fact.options().set())
+                .any(|set| set.pipefail_change == Some(true));
         let commented_continuation_comment_spans =
             build_commented_continuation_comment_spans(self.source, self._indexer);
         let trailing_directive_comment_spans = build_trailing_directive_comment_spans(
@@ -423,8 +431,12 @@ impl<'a> LinterFactsBuilder<'a> {
         let backtick_command_name_spans = build_backtick_command_name_spans(&commands);
         let dollar_question_after_command_spans =
             build_dollar_question_after_command_spans(&self.file.body, self.source);
-        let nonpersistent_assignment_spans =
-            build_nonpersistent_assignment_spans(self.semantic, &commands);
+        let nonpersistent_assignment_spans = build_nonpersistent_assignment_spans(
+            self.semantic,
+            &commands,
+            self.source,
+            matches!(self.shell, ShellDialect::Bash) && pipefail_enabled_anywhere,
+        );
         let heredoc_summary =
             build_heredoc_fact_summary(&commands, self.source, self.file.span.end.offset);
         let plus_equals_assignment_spans = build_plus_equals_assignment_spans(&commands);

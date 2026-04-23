@@ -1055,6 +1055,26 @@ fn test_parse_empty_arithmetic_command_keeps_span_without_typed_ast() {
 }
 
 #[test]
+fn test_parse_dynamic_arithmetic_command_keeps_compound_shape_without_typed_ast() {
+    let input = "((proc[selected]==(1${filter:++1})-proc[start]))\n";
+    let script = Parser::new(input).parse().unwrap().file;
+
+    let (compound, redirects) = expect_compound(&script.body[0]);
+    let AstCompoundCommand::Arithmetic(command) = compound else {
+        panic!("expected arithmetic compound command");
+    };
+
+    assert!(redirects.is_empty());
+    assert_eq!(command.left_paren_span.slice(input), "((");
+    assert_eq!(command.right_paren_span.slice(input), "))");
+    assert_eq!(
+        command.expr_span.unwrap().slice(input),
+        "proc[selected]==(1${filter:++1})-proc[start]"
+    );
+    assert!(command.expr_ast.is_none());
+}
+
+#[test]
 fn test_parse_arithmetic_command_with_nested_parens_and_double_right_paren() {
     let input = "(( (previous_pipe_index > 0) && (previous_pipe_index == ($# - 1)) ))\n";
     let script = Parser::new(input).parse().unwrap().file;

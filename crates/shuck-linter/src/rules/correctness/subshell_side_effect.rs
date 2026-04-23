@@ -77,6 +77,40 @@ echo \"$count\"
     }
 
     #[test]
+    fn ignores_bash_pipeline_assignments_when_pipefail_is_enabled() {
+        let source = "\
+#!/usr/bin/env bash
+set -o pipefail
+count=0
+printf '%s\\n' x | while read -r _; do count=1; done
+echo \"$count\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_command_substitution_assignments_even_when_pipefail_is_enabled() {
+        let source = "\
+#!/usr/bin/env bash
+set -o pipefail
+value=outer
+snapshot=\"$(value=inner | cat)\"
+echo \"$value\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$value"]
+        );
+    }
+
+    #[test]
     fn reports_parameter_default_assignments_inside_pipeline_children() {
         let source = "\
 #!/bin/sh
@@ -163,6 +197,138 @@ demo() {
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_later_reads_after_uninitialized_declarations() {
+        let source = "\
+#!/bin/bash
+demo() {
+  (value=inner)
+  local value
+  printf '%s\\n' \"${value:-}\"
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["${value:-}"]
+        );
+    }
+
+    #[test]
+    fn reports_bare_export_as_a_later_use_after_subshell_assignment() {
+        let source = "\
+#!/bin/bash
+(value=inner)
+export value
+printf '%s\\n' \"${value:-}\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["value", "${value:-}"]
+        );
+    }
+
+    #[test]
+    fn reports_local_declarations_inside_pipeline_defined_functions_when_parent_has_value() {
+        let source = "\
+#!/usr/bin/env bash
+NETWORK=outer
+printf '%s\\n' x | while read -r _; do
+  f() { local NETWORK=\"$1\"; }
+done
+echo \"$NETWORK\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$NETWORK"]
+        );
+    }
+
+    #[test]
+    fn ignores_effectively_local_function_assignments_without_parent_value() {
+        let source = "\
+#!/usr/bin/env bash
+printf '%s\\n' x | while read -r _; do
+  f() {
+    local LOAD=\"$1\"
+    LOAD=\"$( echo ${LOAD:=0} | sed -ne 's/x/y/p' )\"
+    [ ${LOAD:=0} -gt 60 ] && echo high
+  }
+  echo \"$LOAD\"
+  f \"$LOAD\"
+done | sort
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_prompt_runtime_references_on_ps4_assignment_targets() {
+        let source = "\
+#!/usr/bin/env bash
+(rvm_path=inner)
+export PS4=\"+ \\${rvm_path:-} \"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["PS4"]
+        );
+    }
+
+    #[test]
+    fn ignores_dynamic_arithmetic_commands_that_read_arrays() {
+        let source = "\
+#!/usr/bin/env bash
+declare -A proc
+filter=x
+if ((proc[selected]==(1${filter:++1})-proc[start])); then :; fi
+echo \"${proc[start]}\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignores_future_bindings_when_matching_later_reads() {
+        let source = "\
+#!/usr/bin/env bash
+rvm_ruby_string=outer
+(rvm_ruby_string=inner)
+echo \"$rvm_ruby_string\"
+for rvm_ruby_string in a; do :; done
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::SubshellSideEffect));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$rvm_ruby_string"]
+        );
     }
 
     #[test]
