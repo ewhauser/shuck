@@ -1,13 +1,16 @@
 #!/bin/sh
 
-# Should trigger: longest suffix removal on $*
+# Should trigger: pattern trimming on $*
 echo "${*%%dBm*}"
-
-# Should not trigger: short suffix removal is a different form
 echo "${*%dBm*}"
+echo "${*##dBm*}"
+echo "${*#dBm*}"
 
-# Should not trigger: longest suffix removal on $@ is outside this rule
+# Should trigger: pattern trimming on $@
 echo "${@%%dBm*}"
-
-# Should not trigger: long prefix removal on $@ is outside this rule
+echo "${@%dBm*}"
 echo "${@##*.}"
+echo "${@#*.}"
+
+# Should not trigger: named parameters are outside this rule
+echo "${name%%dBm*}"

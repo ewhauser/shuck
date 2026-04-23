@@ -264,11 +264,11 @@ impl ReplacementExpansionFragmentFact {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct StarGlobRemovalFragmentFact {
+pub struct PositionalParameterTrimFragmentFact {
     span: Span,
 }
 
-impl StarGlobRemovalFragmentFact {
+impl PositionalParameterTrimFragmentFact {
     pub fn span(&self) -> Span {
         self.span
     }
@@ -297,7 +297,7 @@ pub(super) struct SurfaceFragmentFacts {
     pub(super) substring_expansions: Vec<SubstringExpansionFragmentFact>,
     pub(super) case_modifications: Vec<CaseModificationFragmentFact>,
     pub(super) replacement_expansions: Vec<ReplacementExpansionFragmentFact>,
-    pub(super) star_glob_removals: Vec<StarGlobRemovalFragmentFact>,
+    pub(super) positional_parameter_trims: Vec<PositionalParameterTrimFragmentFact>,
     pub(super) subscript_spans: Vec<Span>,
 }
 
@@ -514,18 +514,18 @@ impl<'a> SurfaceFragmentSink<'a> {
         self.facts.parameter_pattern_spans.push(span);
     }
 
-    fn record_star_glob_removal(&mut self, span: Span) {
+    fn record_positional_parameter_trim(&mut self, span: Span) {
         if self
             .facts
-            .star_glob_removals
+            .positional_parameter_trims
             .iter()
             .any(|fragment| fragment.span() == span)
         {
             return;
         }
         self.facts
-            .star_glob_removals
-            .push(StarGlobRemovalFragmentFact { span });
+            .positional_parameter_trims
+            .push(PositionalParameterTrimFragmentFact { span });
     }
 
     pub(super) fn collect_word(&mut self, word: &Word, context: SurfaceScanContext<'_>) -> bool {
@@ -764,10 +764,8 @@ impl<'a> SurfaceFragmentSink<'a> {
                     ) {
                         self.record_replacement_expansion(part.span);
                     }
-                    if matches!(operator, ParameterOp::RemoveSuffixLong { .. })
-                        && reference.name.as_str() == "*"
-                    {
-                        self.record_star_glob_removal(part.span);
+                    if reference_is_positional_parameter_trim(reference, operator) {
+                        self.record_positional_parameter_trim(part.span);
                     }
                     self.record_var_ref_subscript(reference);
                     self.collect_parameter_operator_patterns(
@@ -1075,8 +1073,8 @@ impl<'a> SurfaceFragmentSink<'a> {
         if parameter_has_replacement_expansion(parameter) {
             self.record_replacement_expansion(span);
         }
-        if parameter_has_star_glob_removal(parameter) {
-            self.record_star_glob_removal(span);
+        if parameter_has_positional_parameter_trim(parameter) {
+            self.record_positional_parameter_trim(span);
         }
         self.record_parameter_subscripts(parameter);
         if let ParameterExpansionSyntax::Bourne(syntax) = &parameter.syntax {
@@ -1760,6 +1758,16 @@ fn parameter_operator_has_pattern(operator: &ParameterOp) -> bool {
     )
 }
 
+fn parameter_operator_is_trim(operator: &ParameterOp) -> bool {
+    matches!(
+        operator,
+        ParameterOp::RemovePrefixShort { .. }
+            | ParameterOp::RemovePrefixLong { .. }
+            | ParameterOp::RemoveSuffixShort { .. }
+            | ParameterOp::RemoveSuffixLong { .. }
+    )
+}
+
 fn parameter_operator_special_target_word_spans(operator: &ParameterOp) -> Vec<Span> {
     match operator {
         ParameterOp::RemovePrefixShort { pattern }
@@ -1805,6 +1813,10 @@ fn collect_pattern_special_target_word_spans(pattern: &Pattern, spans: &mut Vec<
 fn parameter_pattern_target_is_special(reference: &VarRef, operator: &ParameterOp) -> bool {
     parameter_operator_has_pattern(operator)
         && (reference_has_array_subscript(reference) || reference.name.as_str() == "0")
+}
+
+fn reference_is_positional_parameter_trim(reference: &VarRef, operator: &ParameterOp) -> bool {
+    parameter_operator_is_trim(operator) && matches!(reference.name.as_str(), "*" | "@")
 }
 
 fn parameter_has_substring_expansion(parameter: &shuck_ast::ParameterExpansion) -> bool {
@@ -1889,14 +1901,14 @@ fn parameter_has_replacement_expansion(parameter: &shuck_ast::ParameterExpansion
     }
 }
 
-fn parameter_has_star_glob_removal(parameter: &shuck_ast::ParameterExpansion) -> bool {
+fn parameter_has_positional_parameter_trim(parameter: &shuck_ast::ParameterExpansion) -> bool {
     matches!(
         &parameter.syntax,
         ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
             reference,
-            operator: ParameterOp::RemoveSuffixLong { .. },
+            operator,
             ..
-        }) if reference.name.as_str() == "*"
+        }) if reference_is_positional_parameter_trim(reference, operator)
     )
 }
 

@@ -111,7 +111,7 @@ pub struct LinterFacts<'a> {
     substring_expansion_fragments: Vec<SubstringExpansionFragmentFact>,
     case_modification_fragments: Vec<CaseModificationFragmentFact>,
     replacement_expansion_fragments: Vec<ReplacementExpansionFragmentFact>,
-    star_glob_removal_fragments: Vec<StarGlobRemovalFragmentFact>,
+    positional_parameter_trim_fragments: Vec<PositionalParameterTrimFragmentFact>,
     conditional_portability: ConditionalPortabilityFacts,
 }
 
@@ -823,8 +823,8 @@ impl<'a> LinterFacts<'a> {
         &self.replacement_expansion_fragments
     }
 
-    pub fn star_glob_removal_fragments(&self) -> &[StarGlobRemovalFragmentFact] {
-        &self.star_glob_removal_fragments
+    pub fn positional_parameter_trim_fragments(&self) -> &[PositionalParameterTrimFragmentFact] {
+        &self.positional_parameter_trim_fragments
     }
 
     pub fn conditional_portability(&self) -> &ConditionalPortabilityFacts {

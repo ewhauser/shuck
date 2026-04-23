@@ -483,7 +483,7 @@ impl<'a> LinterFactsBuilder<'a> {
             substring_expansions,
             case_modifications,
             replacement_expansions,
-            star_glob_removals,
+            positional_parameter_trims,
             subscript_spans,
         } = surface_fragments.finish();
         let function_positional_parameter_facts = build_function_positional_parameter_facts(
@@ -721,7 +721,7 @@ impl<'a> LinterFactsBuilder<'a> {
             substring_expansion_fragments: substring_expansions,
             case_modification_fragments: case_modifications,
             replacement_expansion_fragments: replacement_expansions,
-            star_glob_removal_fragments: star_glob_removals,
+            positional_parameter_trim_fragments: positional_parameter_trims,
             conditional_portability,
         }
     }

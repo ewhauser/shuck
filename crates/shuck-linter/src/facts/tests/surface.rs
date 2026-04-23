@@ -2789,6 +2789,36 @@ nested=${items[i]%${name%$suffix}}
 }
 
 #[test]
+fn positional_parameter_trim_fragments_cover_all_pattern_trim_forms() {
+    let source = "\
+#!/bin/sh
+printf '%s\\n' \"${*%%dBm*}\" \"${*%dBm*}\" \"${*##dBm*}\" \"${*#dBm*}\"
+printf '%s\\n' \"${@%%dBm*}\" \"${@%dBm*}\" \"${@##dBm*}\" \"${@#dBm*}\"
+printf '%s\\n' \"${name%%dBm*}\"
+";
+
+    with_facts(source, None, |_, facts| {
+        assert_eq!(
+            facts
+                .positional_parameter_trim_fragments()
+                .iter()
+                .map(|fragment| fragment.span().slice(source))
+                .collect::<Vec<_>>(),
+            vec![
+                "${*%%dBm*}",
+                "${*%dBm*}",
+                "${*##dBm*}",
+                "${*#dBm*}",
+                "${@%%dBm*}",
+                "${@%dBm*}",
+                "${@##dBm*}",
+                "${@#dBm*}",
+            ]
+        );
+    });
+}
+
+#[test]
 fn backtick_fragments_remember_when_the_substitution_body_is_empty() {
     let source = "\
 #!/bin/sh
