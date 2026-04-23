@@ -41,12 +41,13 @@ use shuck_ast::{
     LiteralText, Name, ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern,
     PatternGroupKind, PatternPart, PatternPartNode, Position, PrefixMatchKind, Redirect,
     RedirectKind, RedirectTarget, RepeatCommand, RepeatSyntax, ReturnCommand as AstReturnCommand,
-    SelectCommand, SimpleCommand as AstSimpleCommand, SourceText, Span, Stmt, StmtSeq,
-    StmtTerminator, Subscript, SubscriptInterpretation, SubscriptKind, SubscriptSelector, TextSize,
-    TimeCommand, TokenKind, UntilCommand, VarRef, WhileCommand, Word, WordPart, WordPartNode,
-    ZshDefaultingOp, ZshExpansionOperation, ZshExpansionTarget, ZshGlobQualifier,
-    ZshGlobQualifierGroup, ZshGlobQualifierKind, ZshGlobSegment, ZshInlineGlobControl, ZshModifier,
-    ZshParameterExpansion, ZshPatternOp, ZshQualifiedGlob, ZshReplacementOp, ZshTrimOp,
+    SelectCommand, SimpleCommand as AstSimpleCommand, SourceText, Span, StaticCommandWrapperTarget,
+    Stmt, StmtSeq, StmtTerminator, Subscript, SubscriptInterpretation, SubscriptKind,
+    SubscriptSelector, TextSize, TimeCommand, TokenKind, UntilCommand, VarRef, WhileCommand, Word,
+    WordPart, WordPartNode, ZshDefaultingOp, ZshExpansionOperation, ZshExpansionTarget,
+    ZshGlobQualifier, ZshGlobQualifierGroup, ZshGlobQualifierKind, ZshGlobSegment,
+    ZshInlineGlobControl, ZshModifier, ZshParameterExpansion, ZshPatternOp, ZshQualifiedGlob,
+    ZshReplacementOp, ZshTrimOp, static_command_wrapper_target_index,
 };
 
 use crate::error::{Error, Result};
@@ -1333,84 +1334,22 @@ fn normalize_prescan_command(words: &[String]) -> Option<(&str, usize)> {
             index += 1;
             continue;
         }
-        match word.as_str() {
-            "noglob" => {
-                index += 1;
+        match static_command_wrapper_target_index(words.len(), index, word, |word_index| {
+            Some(Cow::Borrowed(words[word_index].as_str()))
+        }) {
+            StaticCommandWrapperTarget::NotWrapper => {}
+            StaticCommandWrapperTarget::Wrapper {
+                target_index: Some(target_index),
+            } => {
+                index = target_index;
                 continue;
             }
-            "command" => {
-                index = skip_prescan_command_wrapper_options(words, index + 1)?;
-                continue;
-            }
-            "builtin" => {
-                index = skip_prescan_wrapper_options(words, index + 1);
-                continue;
-            }
-            "exec" => {
-                index = skip_prescan_exec_wrapper_options(words, index + 1);
-                continue;
-            }
-            _ => {}
+            StaticCommandWrapperTarget::Wrapper { target_index: None } => return None,
         }
         return Some((word.as_str(), index + 1));
     }
 
     None
-}
-
-fn skip_prescan_command_wrapper_options(words: &[String], mut index: usize) -> Option<usize> {
-    while let Some(word) = words.get(index) {
-        if word == "--" {
-            index += 1;
-            break;
-        }
-        if word.starts_with('-') && word != "-" {
-            if word
-                .strip_prefix('-')
-                .is_some_and(|flags| flags.chars().any(|flag| matches!(flag, 'v' | 'V')))
-            {
-                return None;
-            }
-            index += 1;
-            continue;
-        }
-        break;
-    }
-    Some(index)
-}
-
-fn skip_prescan_wrapper_options(words: &[String], mut index: usize) -> usize {
-    while let Some(word) = words.get(index) {
-        if word == "--" {
-            index += 1;
-            break;
-        }
-        if word.starts_with('-') && word != "-" {
-            index += 1;
-            continue;
-        }
-        break;
-    }
-    index
-}
-
-fn skip_prescan_exec_wrapper_options(words: &[String], mut index: usize) -> usize {
-    while let Some(word) = words.get(index) {
-        if word == "--" {
-            index += 1;
-            break;
-        }
-        if word == "-a" {
-            index = (index + 2).min(words.len());
-            continue;
-        }
-        if word.starts_with('-') && word != "-" {
-            index += 1;
-            continue;
-        }
-        break;
-    }
-    index
 }
 
 fn is_prescan_assignment_word(word: &str) -> bool {

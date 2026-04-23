@@ -9,6 +9,7 @@
 
 mod conditional_portability;
 mod escape_scan;
+mod normalized_commands;
 mod presence;
 pub(crate) mod surface;
 #[cfg(test)]
@@ -20,6 +21,7 @@ use self::word_spans::{expansion_part_spans, word_unbraced_variable_before_brack
 use self::{
     conditional_portability::{ConditionalPortabilityInputs, build_conditional_portability_facts},
     escape_scan::{EscapeScanContext, EscapeScanInputs, build_escape_scan_matches},
+    normalized_commands as command,
     presence::build_presence_tested_names,
     surface::{
         CaseModificationFragmentFact, CasePatternExpansionFact, DollarDoubleQuotedFragmentFact,
@@ -34,9 +36,8 @@ use self::{
     },
 };
 use crate::context::ContextRegionKind;
-use crate::rules::common::{
-    command::{self, DeclarationKind, NormalizedCommand, NormalizedDeclaration, WrapperKind},
-    query::{self, CommandSubstitutionKind, CommandVisit, CommandWalkOptions},
+use crate::rules::common::query::{
+    self, CommandSubstitutionKind, CommandVisit, CommandWalkOptions,
 };
 use crate::suppression::shellcheck_directive_can_apply_to_following_command;
 use crate::{AmbientShellOptions, FileContext};
@@ -64,6 +65,11 @@ use std::{borrow::Cow, cell::OnceCell, ops::ControlFlow};
 
 pub use self::conditional_portability::ConditionalPortabilityFacts;
 pub(crate) use self::escape_scan::{EscapeScanMatch, EscapeScanSourceKind};
+#[cfg(feature = "benchmarking")]
+pub(crate) use self::normalized_commands::normalize_command;
+pub use self::normalized_commands::{
+    DeclarationKind, NormalizedCommand, NormalizedDeclaration, WrapperKind,
+};
 pub use self::surface::{
     BacktickFragmentFact, LegacyArithmeticFragmentFact, PositionalParameterFragmentFact,
     SingleQuotedFragmentFact,

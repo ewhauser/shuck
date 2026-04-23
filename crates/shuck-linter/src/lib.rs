@@ -76,7 +76,10 @@ pub use facts::{
     WordQuote, WordSubstitutionShape, XargsCommandFacts, leading_literal_word_prefix,
 };
 /// Fact collection types and stable identifiers into those collections.
-pub use facts::{CommandId, FactSpan, LinterFacts};
+pub use facts::{
+    CommandId, DeclarationKind, FactSpan, LinterFacts, NormalizedCommand, NormalizedDeclaration,
+    WrapperKind,
+};
 /// Autofix types and fix application helpers.
 pub use fix::{Applicability, AppliedFixes, Edit, Fix, FixAvailability, apply_fixes};
 pub(crate) use fix_helpers::leading_static_word_prefix_fix_in_source;
@@ -88,10 +91,6 @@ pub use rule_metadata::{RuleMetadata, ShellCheckLevel, rule_metadata, rule_metad
 pub use rule_selector::{RuleSelector, SelectorParseError};
 /// Sets of enabled or disabled rules.
 pub use rule_set::RuleSet;
-/// Command normalization helper types exposed by fact APIs.
-pub use rules::common::command::{
-    DeclarationKind, NormalizedCommand, NormalizedDeclaration, WrapperKind,
-};
 /// Command-substitution classification exposed by fact APIs.
 pub use rules::common::query::CommandSubstitutionKind;
 #[allow(unused_imports)]
@@ -161,10 +160,8 @@ pub fn analyze_file(
 #[doc(hidden)]
 #[must_use]
 pub fn benchmark_normalize_commands(file: &File, source: &str) -> usize {
-    use crate::rules::common::{
-        command::normalize_command,
-        query::{self, CommandWalkOptions},
-    };
+    use crate::facts::normalize_command;
+    use crate::rules::common::query::{self, CommandWalkOptions};
 
     query::iter_commands_with_context(
         &file.body,
