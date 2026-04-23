@@ -100,6 +100,23 @@ mod tests {
     }
 
     #[test]
+    fn reports_literal_system_prefix_globs_that_shellcheck_flags() {
+        let source = "#!/bin/bash\nrm -rf /usr/*\nrm -rf /usr/share/*\n";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::RmGlobOnVariablePath),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["/usr/*", "/usr/share/*"]
+        );
+    }
+
+    #[test]
     fn reports_variable_roots_with_explicit_trailing_separators() {
         let source =
             "#!/bin/bash\nPKG=/pkg\nPACKAGE=/archive\nrm -rf $PKG/\nrm -rf \"${PACKAGE}/\"\n";

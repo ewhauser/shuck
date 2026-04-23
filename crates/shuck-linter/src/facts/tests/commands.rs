@@ -2897,6 +2897,27 @@ rm -rf ${DESTDIR}/${SYSROOT}/{sbin,etc,var,libexec}
 }
 
 #[test]
+fn rm_command_facts_flag_literal_system_prefix_globs() {
+    let source = "\
+#!/bin/bash
+rm -rf /usr/*
+rm -rf /usr/share/*
+";
+
+    with_facts(source, None, |_, facts| {
+        let rm_spans = facts
+            .commands()
+            .iter()
+            .filter_map(|fact| fact.options().rm())
+            .flat_map(|rm| rm.dangerous_path_spans().iter().copied())
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(rm_spans, vec!["/usr/*", "/usr/share/*"]);
+    });
+}
+
+#[test]
 fn builds_redirect_facts_with_cached_target_analysis() {
     let source = "#!/bin/bash\necho hi 2>&3 >/dev/null >> \"$((i++))\"\necho hi > \"$((i + 1))\"\n";
 
