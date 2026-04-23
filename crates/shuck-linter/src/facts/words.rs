@@ -1312,6 +1312,24 @@ fn build_unquoted_literal_between_double_quoted_segments_spans(
         })
         .collect::<Vec<_>>();
 
+    for span in mixed_quote_line_join_between_double_quotes_spans(word, source) {
+        if !spans.contains(&span) {
+            spans.push(span);
+        }
+    }
+
+    if let Some(span) = mixed_quote_following_line_join_between_double_quotes_span(word, source)
+        && !spans.contains(&span)
+    {
+        spans.push(span);
+    }
+
+    for span in mixed_quote_chained_line_join_between_double_quotes_spans(word, source) {
+        if !spans.contains(&span) {
+            spans.push(span);
+        }
+    }
+
     if let Some(span) = mixed_quote_trailing_line_join_between_double_quotes_span(word, source)
         && !spans.contains(&span)
     {
@@ -1368,6 +1386,14 @@ fn mixed_quote_literal_is_warnable_between_double_quotes(text: &str) -> bool {
     }
 
     if text.chars().any(|ch| ch.is_ascii_alphanumeric()) {
+        if text.chars().any(|ch| matches!(ch, '*' | '?' | '[' | '{' | '}')) {
+            return false;
+        }
+
+        if text.contains('+') || text.contains('@') {
+            return false;
+        }
+
         return !text.chars().any(char::is_whitespace);
     }
 
@@ -1549,12 +1575,162 @@ fn mixed_quote_trailing_line_join_between_double_quotes_span(
         return None;
     };
 
-    if !source[word.span.end.offset..].starts_with('"') {
+    if !mixed_quote_text_ends_with_unescaped_double_quote(prefix)
+        || !source[word.span.end.offset..].starts_with('"')
+    {
         return None;
     }
 
     let start = word.span.start.advanced_by(prefix);
     Some(Span::from_positions(start, start.advanced_by(suffix)))
+}
+
+fn mixed_quote_line_join_between_double_quotes_spans(word: &Word, source: &str) -> Vec<Span> {
+    if !matches!(
+        word.parts.first().map(|part| &part.kind),
+        Some(WordPart::DoubleQuoted { .. })
+    ) {
+        return Vec::new();
+    }
+
+    let text = word.span.slice(source);
+    let mut spans = Vec::new();
+    let mut byte_offset = 0;
+
+    while byte_offset < text.len() {
+        let Some(relative_offset) = text[byte_offset..].find('\\') else {
+            break;
+        };
+        let start_offset = byte_offset + relative_offset;
+        let Some(suffix) = text[start_offset..]
+            .strip_prefix("\\\r\n\"")
+            .map(|_| "\\\r\n")
+            .or_else(|| text[start_offset..].strip_prefix("\\\n\"").map(|_| "\\\n"))
+        else {
+            byte_offset = start_offset + 1;
+            continue;
+        };
+
+        if mixed_quote_text_ends_with_unescaped_double_quote(&text[..start_offset]) {
+            let start = word.span.start.advanced_by(&text[..start_offset]);
+            spans.push(Span::from_positions(start, start.advanced_by(suffix)));
+        }
+
+        byte_offset = start_offset + suffix.len();
+    }
+
+    spans
+}
+
+fn mixed_quote_following_line_join_between_double_quotes_span(
+    word: &Word,
+    source: &str,
+) -> Option<Span> {
+    if !matches!(
+        word.parts.first().map(|part| &part.kind),
+        Some(WordPart::DoubleQuoted { .. })
+    ) {
+        return None;
+    }
+
+    if !mixed_quote_text_ends_with_unescaped_double_quote(word.span.slice(source)) {
+        return None;
+    }
+
+    let suffix = source[word.span.end.offset..]
+        .strip_prefix("\\\r\n\"")
+        .map(|_| "\\\r\n")
+        .or_else(|| {
+            source[word.span.end.offset..]
+                .strip_prefix("\\\n\"")
+                .map(|_| "\\\n")
+        })?;
+    Some(Span::from_positions(
+        word.span.end,
+        word.span.end.advanced_by(suffix),
+    ))
+}
+
+fn mixed_quote_chained_line_join_between_double_quotes_spans(
+    word: &Word,
+    source: &str,
+) -> Vec<Span> {
+    if !matches!(
+        word.parts.first().map(|part| &part.kind),
+        Some(WordPart::DoubleQuoted { .. })
+    ) {
+        return Vec::new();
+    }
+
+    let text = word.span.slice(source);
+    if !(text.ends_with("\\\n") || text.ends_with("\\\r\n")) {
+        return Vec::new();
+    }
+
+    let mut spans = Vec::new();
+    let mut cursor = word.span.end.offset;
+    while source[cursor..].starts_with('"') {
+        let Some(closing_quote_relative) =
+            mixed_quote_closing_double_quote_offset(&source[cursor..])
+        else {
+            break;
+        };
+        let after_closing_quote = cursor + closing_quote_relative + 1;
+        let Some(suffix) = source[after_closing_quote..]
+            .strip_prefix("\\\r\n\"")
+            .map(|_| "\\\r\n")
+            .or_else(|| {
+                source[after_closing_quote..]
+                    .strip_prefix("\\\n\"")
+                    .map(|_| "\\\n")
+            })
+        else {
+            break;
+        };
+
+        let start = Position::new().advanced_by(&source[..after_closing_quote]);
+        spans.push(Span::from_positions(start, start.advanced_by(suffix)));
+        cursor = after_closing_quote + suffix.len();
+    }
+
+    spans
+}
+
+fn mixed_quote_closing_double_quote_offset(text: &str) -> Option<usize> {
+    let mut chars = text.char_indices();
+    let (_, first) = chars.next()?;
+    if first != '"' {
+        return None;
+    }
+
+    let mut escaped = false;
+    for (offset, ch) in chars {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+
+        match ch {
+            '\\' => escaped = true,
+            '"' => return Some(offset),
+            _ => {}
+        }
+    }
+
+    None
+}
+
+fn mixed_quote_text_ends_with_unescaped_double_quote(text: &str) -> bool {
+    let Some(prefix) = text.strip_suffix('"') else {
+        return false;
+    };
+
+    let backslash_count = prefix
+        .chars()
+        .rev()
+        .take_while(|ch| *ch == '\\')
+        .count();
+    backslash_count % 2 == 0
 }
 
 pub(crate) fn word_occurrence_is_double_quoted_command_substitution_only(
