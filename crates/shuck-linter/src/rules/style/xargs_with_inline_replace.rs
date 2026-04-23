@@ -61,6 +61,24 @@ sudo xargs -i echo {}
     }
 
     #[test]
+    fn follows_shellcheck_silent_wrapper_cases() {
+        let source = "\
+#!/bin/sh
+find . -type f | xargs -i bash -c 'echo {}'
+find . -type f | xargs -0i sh -c 'echo {}'
+xargs -i echo '-----> Configuring {}'
+xargs -0i echo '-----> Configuring {}'
+xargs -i echo \"-----> Configuring {} with $template\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::XargsWithInlineReplace),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn ignores_modern_xargs_replace_flags() {
         let source = "\
 #!/bin/sh

@@ -2718,6 +2718,9 @@ fn keeps_parsing_xargs_flags_after_optional_argument_forms() {
 find . -print0 | xargs -l -0 rm
 find . -print0 | xargs --eof --null rm
 xargs -i0 echo
+xargs -i bash -c 'echo {}'
+xargs -0i echo '-----> Configuring {}'
+xargs -i echo \"-----> Configuring {} with $template\"
 ";
     let output = Parser::new(source).parse().unwrap();
     let indexer = Indexer::new(source, &output);
@@ -2732,7 +2735,7 @@ xargs -i0 echo
         .filter_map(|fact| fact.options().xargs())
         .collect::<Vec<_>>();
 
-    assert_eq!(xargs_facts.len(), 3);
+    assert_eq!(xargs_facts.len(), 6);
     assert!(xargs_facts[0].uses_null_input);
     assert!(xargs_facts[1].uses_null_input);
     assert!(!xargs_facts[2].uses_null_input);
@@ -2744,6 +2747,9 @@ xargs -i0 echo
             .collect::<Vec<_>>(),
         vec!["-i0"]
     );
+    assert!(xargs_facts[3].inline_replace_option_spans().is_empty());
+    assert!(xargs_facts[4].inline_replace_option_spans().is_empty());
+    assert!(xargs_facts[5].inline_replace_option_spans().is_empty());
 }
 
 #[test]
