@@ -1,5 +1,86 @@
 # Changelog
 
+## [0.0.19](https://github.com/ewhauser/shuck/compare/v0.0.18...v0.0.19) (2026-04-23)
+
+
+### Bug Fixes
+
+* **linter:** align C061 command-name conformance ([#442](https://github.com/ewhauser/shuck/issues/442)) ([a342790](https://github.com/ewhauser/shuck/commit/a3427901ddd2f5fd433007d6db1146837711735c))
+* **linter:** align C077 with ShellCheck oracle ([#478](https://github.com/ewhauser/shuck/issues/478)) ([f6fb010](https://github.com/ewhauser/shuck/commit/f6fb01051843c0faf9499b9bf085026b2ccd7dcd))
+* **linter:** align C092 with shellcheck ([#499](https://github.com/ewhauser/shuck/issues/499)) ([efc90e2](https://github.com/ewhauser/shuck/commit/efc90e201f532cdafe7525a508eb39b8c9922b8e))
+* **linter:** align C094 with ShellCheck ([#470](https://github.com/ewhauser/shuck/issues/470)) ([75c41fc](https://github.com/ewhauser/shuck/commit/75c41fcdf123413d103505c7fea471a064848a48))
+* **linter:** align C094 with ShellCheck oracle ([#484](https://github.com/ewhauser/shuck/issues/484)) ([ac996a6](https://github.com/ewhauser/shuck/commit/ac996a6e5003258de2a4c5caf577f84d087942bf))
+* **linter:** align C095 with ShellCheck ([#474](https://github.com/ewhauser/shuck/issues/474)) ([126e55e](https://github.com/ewhauser/shuck/commit/126e55e1ded20e2c30531e8941902f6bbf317497))
+* **linter:** align C105 with shellcheck ([#495](https://github.com/ewhauser/shuck/issues/495)) ([9732a6b](https://github.com/ewhauser/shuck/commit/9732a6b77d076dfd4d42437480ad6bdb395a1d20))
+* **linter:** align C121 variable-name suppression with shellcheck ([#451](https://github.com/ewhauser/shuck/issues/451)) ([6f1e384](https://github.com/ewhauser/shuck/commit/6f1e384a56f27a9353ac108ead24cadb3837ba5a))
+* **linter:** align C124 unreachable parity ([#463](https://github.com/ewhauser/shuck/issues/463)) ([0e0c4e2](https://github.com/ewhauser/shuck/commit/0e0c4e27f4c4e371030d9ad21f1650789f0e3258))
+* **linter:** align C133 with shellcheck rebinding semantics ([#489](https://github.com/ewhauser/shuck/issues/489)) ([7d9d97f](https://github.com/ewhauser/shuck/commit/7d9d97fe193c92c33edf838aec99fa6dc3498703))
+* **linter:** align C150 loop spans with ShellCheck ([#507](https://github.com/ewhauser/shuck/issues/507)) ([f0c662a](https://github.com/ewhauser/shuck/commit/f0c662ad4032c3e2335d8abcbc34324a6546d8e3))
+* **linter:** align C155 subshell side effects ([#485](https://github.com/ewhauser/shuck/issues/485)) ([b7520fa](https://github.com/ewhauser/shuck/commit/b7520fa32c46852b6678b85b147f46ca9835ca9a))
+* **linter:** align C156 with oracle ([#482](https://github.com/ewhauser/shuck/issues/482)) ([17a5f90](https://github.com/ewhauser/shuck/commit/17a5f90d8321573889622bafaaa899b23263e47e))
+* **linter:** align K001 with ShellCheck behavior ([#496](https://github.com/ewhauser/shuck/issues/496)) ([31cabc6](https://github.com/ewhauser/shuck/commit/31cabc616e419e4126405eba6919ae384021ac16))
+* **linter:** align S004 subscript handling with shellcheck ([#450](https://github.com/ewhauser/shuck/issues/450)) ([cbe1840](https://github.com/ewhauser/shuck/commit/cbe184016ab143df5dd0a98b9b9feefa4dde0535))
+* **linter:** align S008 with shellcheck oracle ([#475](https://github.com/ewhauser/shuck/issues/475)) ([ba3d4d1](https://github.com/ewhauser/shuck/commit/ba3d4d1309696e20cafaac9ea26b29a4994fb613))
+* **linter:** align S015 and restore large-corpus parity ([#494](https://github.com/ewhauser/shuck/issues/494)) ([91f9683](https://github.com/ewhauser/shuck/commit/91f9683e275b3f8796612694b0f23e353f47c975))
+* **linter:** align S019 with shellcheck ([#490](https://github.com/ewhauser/shuck/issues/490)) ([0cc3fd9](https://github.com/ewhauser/shuck/commit/0cc3fd9e64bf932c0d314e58a406c5d7717ee8a4))
+* **linter:** align S020 with shellcheck ([#459](https://github.com/ewhauser/shuck/issues/459)) ([9a1927d](https://github.com/ewhauser/shuck/commit/9a1927daf0b337c2bcefeed4289317e16f39ccd2))
+* **linter:** align S029 escaped template braces ([#471](https://github.com/ewhauser/shuck/issues/471)) ([ee74249](https://github.com/ewhauser/shuck/commit/ee74249c97b9a33a7c19cb1a3d5c783a458466f2))
+* **linter:** align S038 with ShellCheck behavior ([#467](https://github.com/ewhauser/shuck/issues/467)) ([6cf6a25](https://github.com/ewhauser/shuck/commit/6cf6a2566021960d40b6b4b7edbe3a4d564a93ec))
+* **linter:** align S041 function body checks with ShellCheck ([#481](https://github.com/ewhauser/shuck/issues/481)) ([b0bf89e](https://github.com/ewhauser/shuck/commit/b0bf89e3dc2bf14c7af260e716798929f0ad7c50))
+* **linter:** align S044 with shellcheck ([#497](https://github.com/ewhauser/shuck/issues/497)) ([25adc28](https://github.com/ewhauser/shuck/commit/25adc2864244fa74f0041c864815be5710cae5d5))
+* **linter:** align S047 with ShellCheck ([#503](https://github.com/ewhauser/shuck/issues/503)) ([1cf1d7f](https://github.com/ewhauser/shuck/commit/1cf1d7f5810705315bfcd088b74769a95240b5e9))
+* **linter:** align S054 with shellcheck behavior ([#492](https://github.com/ewhauser/shuck/issues/492)) ([d905ffa](https://github.com/ewhauser/shuck/commit/d905ffaa153c61c227cdf31ed801267a1944aaef))
+* **linter:** align S064 with ShellCheck ([#500](https://github.com/ewhauser/shuck/issues/500)) ([369a11b](https://github.com/ewhauser/shuck/commit/369a11b7211ea58c48edce9398dc65203cab85b3))
+* **linter:** align S068 trap signal rule with oracle ([#479](https://github.com/ewhauser/shuck/issues/479)) ([956ed86](https://github.com/ewhauser/shuck/commit/956ed86251723f35bd7d6980aee167f7b4ebfbee))
+* **linter:** align S076 with ShellCheck ([#476](https://github.com/ewhauser/shuck/issues/476)) ([6adc3b0](https://github.com/ewhauser/shuck/commit/6adc3b0ca7362e26161e1e1595b3c0d566a7c1c6))
+* **linter:** align X004 spans with ShellCheck ([#498](https://github.com/ewhauser/shuck/issues/498)) ([005ddde](https://github.com/ewhauser/shuck/commit/005dddeb3899f60c74dc1ebec7d4a13215c0fbf8))
+* **linter:** align X005 case fallthrough spans ([#510](https://github.com/ewhauser/shuck/issues/510)) ([0a0e73c](https://github.com/ewhauser/shuck/commit/0a0e73c33aedf21c51d8e1b8ab0c1c7e0f66eca7))
+* **linter:** align X010 with ShellCheck ([#488](https://github.com/ewhauser/shuck/issues/488)) ([28145b2](https://github.com/ewhauser/shuck/commit/28145b27a7334c38b793f86aa0308321a9460692))
+* **linter:** align X031 source scope with ShellCheck ([#502](https://github.com/ewhauser/shuck/issues/502)) ([f5582ad](https://github.com/ewhauser/shuck/commit/f5582ade098f292612b4e104f6936aed022001bf))
+* **linter:** align X040 with shellcheck ([#487](https://github.com/ewhauser/shuck/issues/487)) ([a5e2292](https://github.com/ewhauser/shuck/commit/a5e2292996cec4de385dec71ff2329b8d7f95e21))
+* **linter:** align X043 split modifiers with ShellCheck ([#473](https://github.com/ewhauser/shuck/issues/473)) ([b96b493](https://github.com/ewhauser/shuck/commit/b96b493a9294b52b1c020d62507f7184c3604de3))
+* **linter:** align X080 with ShellCheck source directives ([#511](https://github.com/ewhauser/shuck/issues/511)) ([ff09fb9](https://github.com/ewhauser/shuck/commit/ff09fb932b685d13e7d8bba29d7263ff39d76cda))
+* **linter:** align X081 with shellcheck ([#491](https://github.com/ewhauser/shuck/issues/491)) ([7aea68d](https://github.com/ewhauser/shuck/commit/7aea68da4f6e6c1012989bbd31ce0316945ff568))
+* **linter:** avoid repeated scope scans in subshell facts ([#493](https://github.com/ewhauser/shuck/issues/493)) ([947961d](https://github.com/ewhauser/shuck/commit/947961d8054eb03f83cd68ec30e9fb78181fca65))
+* **linter:** broaden C099 scalar array assignment detection ([#468](https://github.com/ewhauser/shuck/issues/468)) ([832bf91](https://github.com/ewhauser/shuck/commit/832bf918b62fa321ca229d40038472a891352098))
+* **linter:** broaden X016 for non-portable sh builtins ([#458](https://github.com/ewhauser/shuck/issues/458)) ([aa2a4db](https://github.com/ewhauser/shuck/commit/aa2a4db2f2c9101a5e5bf21d22e601aea22fde77))
+* **linter:** broaden X021 set -o portability ([#506](https://github.com/ewhauser/shuck/issues/506)) ([c2dca4b](https://github.com/ewhauser/shuck/commit/c2dca4bd39928ceea1dbfd55dc3e2e2d36e2db5b))
+* **linter:** broaden X062 arithmetic operator coverage ([#457](https://github.com/ewhauser/shuck/issues/457)) ([8cf4621](https://github.com/ewhauser/shuck/commit/8cf46215f9134a420a6d8b65d6608e21ed79d636))
+* **linter:** drop X065 for parameter expansion patterns ([#448](https://github.com/ewhauser/shuck/issues/448)) ([32c8033](https://github.com/ewhauser/shuck/commit/32c803352e984c65cac75d563d50ccccef5d5162))
+* **linter:** eliminate S001 shellcheck divergences ([#464](https://github.com/ewhauser/shuck/issues/464)) ([96beb9d](https://github.com/ewhauser/shuck/commit/96beb9dd4cef46d08bef154721c5fdfca30c7850))
+* **linter:** expand C100 array reference parity ([#480](https://github.com/ewhauser/shuck/issues/480)) ([c65d98d](https://github.com/ewhauser/shuck/commit/c65d98db94dc2af61bad37cdc5c899e669684e0e))
+* **linter:** ignore continued echo spacing in S037 ([#449](https://github.com/ewhauser/shuck/issues/449)) ([9ce3a9c](https://github.com/ewhauser/shuck/commit/9ce3a9cbbe4a72061ea78abdf48da1d9b6ae47c1))
+* **linter:** match ShellCheck S021 array splat handling ([#504](https://github.com/ewhauser/shuck/issues/504)) ([41c5c78](https://github.com/ewhauser/shuck/commit/41c5c78d108cfaeb017cd231194772d9ce08b9b3))
+* **linter:** restore C124 parity without perf regression ([#508](https://github.com/ewhauser/shuck/issues/508)) ([c21ceb4](https://github.com/ewhauser/shuck/commit/c21ceb4219ff8f6f35a3564458a6d200432c4e8b))
+* **linter:** skip X007 in regex operands ([#447](https://github.com/ewhauser/shuck/issues/447)) ([4f010ea](https://github.com/ewhauser/shuck/commit/4f010eaf68ebec62643bd929828bd04650d5c78d))
+* **linter:** stop misclassifying arithmetic trims as X070 ([#455](https://github.com/ewhauser/shuck/issues/455)) ([d7cc148](https://github.com/ewhauser/shuck/commit/d7cc1486b029faad04e5510c6052bc1a62b9d17b))
+* **linter:** tighten S001 nested substitution parity ([#439](https://github.com/ewhauser/shuck/issues/439)) ([71d588a](https://github.com/ewhauser/shuck/commit/71d588a61bae4300b46c7bb96ae5a14439feb86a))
+* **report:** show metadata skips in large corpus HTML report ([#444](https://github.com/ewhauser/shuck/issues/444)) ([ed20544](https://github.com/ewhauser/shuck/commit/ed20544eb2b6e8f981d0d87ad787a72497b4cdd2))
+
+
+### Performance
+
+* **ast:** speed up static command name decoding ([#486](https://github.com/ewhauser/shuck/issues/486)) ([269ee84](https://github.com/ewhauser/shuck/commit/269ee84105f8daf96ab76b6ca6fa7ffea7cda2b1))
+
+
+### Reverts
+
+* **linter:** restore C124 macro benchmark performance ([#505](https://github.com/ewhauser/shuck/issues/505)) ([1e34593](https://github.com/ewhauser/shuck/commit/1e34593e515b06e34adcda2abaa73353adb953aa))
+
+
+### Refactor
+
+* **ast:** centralize static word text helper ([#462](https://github.com/ewhauser/shuck/issues/462)) ([61df36a](https://github.com/ewhauser/shuck/commit/61df36a023d9548389d1e76df220467ac93954b8))
+* **linter:** clarify C087 dotted version policy ([#452](https://github.com/ewhauser/shuck/issues/452)) ([44ce6ac](https://github.com/ewhauser/shuck/commit/44ce6ac501be87a76039865eda75aa06ca626e7d))
+* **linter:** move command normalization into facts ([#477](https://github.com/ewhauser/shuck/issues/477)) ([701c9eb](https://github.com/ewhauser/shuck/commit/701c9eb6d5c718372cc27781875eae357b013830))
+* **linter:** move expansion analysis into facts ([#472](https://github.com/ewhauser/shuck/issues/472)) ([02c0ab4](https://github.com/ewhauser/shuck/commit/02c0ab488a85fb6d01e2cc7f57a73dde182facc9))
+* **linter:** move traversal helpers into facts ([#483](https://github.com/ewhauser/shuck/issues/483)) ([85c9125](https://github.com/ewhauser/shuck/commit/85c91256566e1fdbdf18b838e5ee53107666fcd6))
+* **linter:** move word classification into facts ([#469](https://github.com/ewhauser/shuck/issues/469)) ([8acf103](https://github.com/ewhauser/shuck/commit/8acf103940c0e665a7ea4cd13e24ab0fd84b40ef))
+* **linter:** remove C110 ([#453](https://github.com/ewhauser/shuck/issues/453)) ([46c7c2b](https://github.com/ewhauser/shuck/commit/46c7c2b65b01fb7b2a3695cbabe91cb7c93217b6))
+* **linter:** remove S063 ([#466](https://github.com/ewhauser/shuck/issues/466)) ([222f325](https://github.com/ewhauser/shuck/commit/222f3251826fec1ceb747459d1e9d87b62ec30ea))
+* **linter:** split span helpers by owner ([#454](https://github.com/ewhauser/shuck/issues/454)) ([3d10446](https://github.com/ewhauser/shuck/commit/3d10446c59cdd34b7fc8134e9ba0d35c771a2f64))
+* **linter:** split word helpers by layer ([#465](https://github.com/ewhauser/shuck/issues/465)) ([4b8371a](https://github.com/ewhauser/shuck/commit/4b8371ae5f9b4f6b6f8dd43a37e221d1544d5894))
+
 ## [0.0.18](https://github.com/ewhauser/shuck/compare/v0.0.17...v0.0.18) (2026-04-22)
 
 
