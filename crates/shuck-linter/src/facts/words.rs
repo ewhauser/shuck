@@ -169,10 +169,7 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
     }
 
     pub fn has_suspicious_quoted_command_trailer(self, source: &str) -> bool {
-        quoted_command_name_has_suspicious_ending_in_word(
-            self.span().slice(source),
-            self.trailing_literal_char(),
-        )
+        quoted_command_name_has_suspicious_ending(self.span().slice(source), self.trailing_literal_char())
     }
 
     pub fn has_hash_suffix(self, source: &str) -> bool {
@@ -423,104 +420,6 @@ fn contains_template_placeholder_text_in_word(text: &str) -> bool {
         return false;
     };
     text[start + 2..].contains("}}")
-}
-
-fn quoted_command_name_has_suspicious_ending_in_word(
-    text: &str,
-    trailing_literal_char: Option<char>,
-) -> bool {
-    let Some(inner) = strip_matching_quotes_in_word(text) else {
-        return false;
-    };
-
-    let Some(ch) = trailing_literal_char.or_else(|| inner.chars().next_back()) else {
-        return false;
-    };
-    if !is_suspicious_command_trailer_in_word(ch) {
-        return false;
-    }
-    if trailing_literal_char.is_some() {
-        return true;
-    }
-
-    match ch {
-        '}' => !inner_ends_with_parameter_expansion_in_word(inner),
-        ')' => !inner_ends_with_command_substitution_in_word(inner),
-        _ => true,
-    }
-}
-
-fn strip_matching_quotes_in_word(text: &str) -> Option<&str> {
-    if text.len() < 2 {
-        return None;
-    }
-
-    match (
-        text.as_bytes().first().copied(),
-        text.as_bytes().last().copied(),
-    ) {
-        (Some(b'"'), Some(b'"')) | (Some(b'\''), Some(b'\'')) => Some(&text[1..text.len() - 1]),
-        _ => None,
-    }
-}
-
-fn is_suspicious_command_trailer_in_word(ch: char) -> bool {
-    matches!(
-        ch,
-        '.' | ',' | '#' | '[' | ']' | '(' | ')' | '{' | '}' | '\''
-    )
-}
-
-fn inner_ends_with_parameter_expansion_in_word(inner: &str) -> bool {
-    if !inner.ends_with('}') {
-        return false;
-    }
-
-    let bytes = inner.as_bytes();
-    let mut depth = 1usize;
-    let mut index = bytes.len() - 1;
-
-    while index > 0 {
-        index -= 1;
-        match bytes[index] {
-            b'}' => depth += 1,
-            b'{' => {
-                depth -= 1;
-                if depth == 0 {
-                    return index > 0 && bytes[index - 1] == b'$';
-                }
-            }
-            _ => {}
-        }
-    }
-
-    false
-}
-
-fn inner_ends_with_command_substitution_in_word(inner: &str) -> bool {
-    if !inner.ends_with(')') {
-        return false;
-    }
-
-    let bytes = inner.as_bytes();
-    let mut depth = 1usize;
-    let mut index = bytes.len() - 1;
-
-    while index > 0 {
-        index -= 1;
-        match bytes[index] {
-            b')' => depth += 1,
-            b'(' => {
-                depth -= 1;
-                if depth == 0 {
-                    return index > 0 && bytes[index - 1] == b'$';
-                }
-            }
-            _ => {}
-        }
-    }
-
-    false
 }
 
 pub(crate) fn occurrence_word<'a>(nodes: &[WordNode<'a>], occurrence: &WordOccurrence) -> &'a Word {

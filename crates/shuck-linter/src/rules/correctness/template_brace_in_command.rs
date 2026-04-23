@@ -109,9 +109,12 @@ printf# hi
 \"${loader:?}\"
 \"/usr/bin/qemu-${machine}\"
 \"$(printf cmd)\"
+\"$(printf ')')\"
+\"${cmd:-\\}}\"
 command [ x = y ]
 env FOO=1 [ x = y ]
 >out command [ x = y ]
+>out [ x = y ]
 >out printf '%s\\n' hi
 local_cmd() { :; }
 local_cmd

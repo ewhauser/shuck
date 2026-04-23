@@ -187,7 +187,7 @@ impl<'a> CommandFact<'a> {
             return false;
         };
         let raw = span.slice(source);
-        raw != "[" || self.span().start.offset < span.start.offset
+        raw != "[" || !query::command_assignments(self.command()).is_empty()
     }
 
     pub fn body_args(&self) -> &[&'a Word] {
@@ -315,55 +315,76 @@ fn is_suspicious_command_trailer(ch: char) -> bool {
 }
 
 fn inner_ends_with_parameter_expansion(inner: &str) -> bool {
-    if !inner.ends_with('}') {
-        return false;
-    }
-
-    let bytes = inner.as_bytes();
-    let mut depth = 1usize;
-    let mut index = bytes.len() - 1;
-
-    while index > 0 {
-        index -= 1;
-        match bytes[index] {
-            b'}' => depth += 1,
-            b'{' => {
-                depth -= 1;
-                if depth == 0 {
-                    return index > 0 && bytes[index - 1] == b'$';
-                }
-            }
-            _ => {}
-        }
-    }
-
-    false
+    matching_shell_delimiter_start(inner, b'{', b'}')
+        .is_some_and(|index| index > 0 && inner.as_bytes()[index - 1] == b'$')
 }
 
 fn inner_ends_with_command_substitution(inner: &str) -> bool {
-    if !inner.ends_with(')') {
-        return false;
+    matching_shell_delimiter_start(inner, b'(', b')')
+        .is_some_and(|index| index > 0 && inner.as_bytes()[index - 1] == b'$')
+}
+
+fn matching_shell_delimiter_start(inner: &str, open: u8, close: u8) -> Option<usize> {
+    let bytes = inner.as_bytes();
+    if bytes.last().copied() != Some(close) {
+        return None;
     }
 
-    let bytes = inner.as_bytes();
     let mut depth = 1usize;
+    let mut quote_state = None;
     let mut index = bytes.len() - 1;
 
     while index > 0 {
         index -= 1;
-        match bytes[index] {
-            b')' => depth += 1,
-            b'(' => {
-                depth -= 1;
-                if depth == 0 {
-                    return index > 0 && bytes[index - 1] == b'$';
+        match quote_state {
+            Some(QuoteState::Single) => {
+                if bytes[index] == b'\'' {
+                    quote_state = None;
                 }
             }
-            _ => {}
+            Some(QuoteState::Double) => {
+                if bytes[index] == b'"' && !byte_is_shell_escaped(bytes, index) {
+                    quote_state = None;
+                }
+            }
+            None => match bytes[index] {
+                b'\'' if !byte_is_shell_escaped(bytes, index) => {
+                    quote_state = Some(QuoteState::Single);
+                }
+                b'"' if !byte_is_shell_escaped(bytes, index) => {
+                    quote_state = Some(QuoteState::Double);
+                }
+                byte if byte == close && !byte_is_shell_escaped(bytes, index) => depth += 1,
+                byte if byte == open && !byte_is_shell_escaped(bytes, index) => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(index);
+                    }
+                }
+                _ => {}
+            },
         }
     }
 
-    false
+    None
+}
+
+fn byte_is_shell_escaped(bytes: &[u8], index: usize) -> bool {
+    let mut slash_count = 0usize;
+    let mut cursor = index;
+
+    while cursor > 0 && bytes[cursor - 1] == b'\\' {
+        slash_count += 1;
+        cursor -= 1;
+    }
+
+    slash_count % 2 == 1
+}
+
+#[derive(Clone, Copy)]
+enum QuoteState {
+    Single,
+    Double,
 }
 
 fn extend_over_shellcheck_trailing_inline_space(end: Position, source: &str) -> Position {
