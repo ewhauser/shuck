@@ -614,6 +614,21 @@ echo \"$TMPDIR\"
     }
 
     #[test]
+    fn ignores_defaulting_parameter_operands() {
+        let source = "\
+#!/bin/sh
+: \"${GENERIC_PACKS:=${GENERIC_PACK}}\"
+EMAIL=${EMAIL:=$GMAIL}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn ignores_transposed_common_build_settings() {
         let source = "\
 #!/bin/sh

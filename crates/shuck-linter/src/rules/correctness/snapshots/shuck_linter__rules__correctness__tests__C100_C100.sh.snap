@@ -1,44 +1,105 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
+assertion_line: 283
 ---
-C100 quoted BASH_SOURCE expansions should use an explicit array index
- --> <source>:6:4
-  |
-6 | x="$BASH_SOURCE"
-  |
-
-C100 quoted BASH_SOURCE expansions should use an explicit array index
- --> <source>:7:4
-  |
-7 | y="${BASH_SOURCE}"
-  |
-
-C100 quoted BASH_SOURCE expansions should use an explicit array index
- --> <source>:8:16
-  |
-8 | printf '%s\n' "$BASH_SOURCE" "${BASH_SOURCE}"
-  |
-
-C100 quoted BASH_SOURCE expansions should use an explicit array index
- --> <source>:8:31
-  |
-8 | printf '%s\n' "$BASH_SOURCE" "${BASH_SOURCE}"
-  |
-
-C100 quoted BASH_SOURCE expansions should use an explicit array index
- --> <source>:9:20
-  |
-9 | source "$(dirname "$BASH_SOURCE")/helper.bash"
-  |
-
-C100 quoted BASH_SOURCE expansions should use an explicit array index
-  --> <source>:10:8
+C100 array references should choose an explicit element or selector
+  --> <source>:10:4
    |
-10 | if [[ "$BASH_SOURCE" == "main.bash" ]]; then :; fi
+10 | x="$BASH_SOURCE"
    |
 
-C100 quoted BASH_SOURCE expansions should use an explicit array index
-  --> <source>:11:14
+C100 array references should choose an explicit element or selector
+  --> <source>:11:4
    |
-11 | for item in "$BASH_SOURCE"; do
+11 | y="${BASH_SOURCE}"
+   |
+
+C100 array references should choose an explicit element or selector
+  --> <source>:12:15
+   |
+12 | printf '%s\n' $arr "${arr}" pre${arr}post "$map" "$read_items" "$map_items"
+   |
+
+C100 array references should choose an explicit element or selector
+  --> <source>:12:21
+   |
+12 | printf '%s\n' $arr "${arr}" pre${arr}post "$map" "$read_items" "$map_items"
+   |
+
+C100 array references should choose an explicit element or selector
+  --> <source>:12:32
+   |
+12 | printf '%s\n' $arr "${arr}" pre${arr}post "$map" "$read_items" "$map_items"
+   |
+
+C100 array references should choose an explicit element or selector
+  --> <source>:12:44
+   |
+12 | printf '%s\n' $arr "${arr}" pre${arr}post "$map" "$read_items" "$map_items"
+   |
+
+C100 array references should choose an explicit element or selector
+  --> <source>:12:51
+   |
+12 | printf '%s\n' $arr "${arr}" pre${arr}post "$map" "$read_items" "$map_items"
+   |
+
+C100 array references should choose an explicit element or selector
+  --> <source>:12:65
+   |
+12 | printf '%s\n' $arr "${arr}" pre${arr}post "$map" "$read_items" "$map_items"
+   |
+
+C100 array references should choose an explicit element or selector
+  --> <source>:13:16
+   |
+13 | printf '%s\n' "$BASH_SOURCE" "${BASH_SOURCE}"
+   |
+
+C100 array references should choose an explicit element or selector
+  --> <source>:13:31
+   |
+13 | printf '%s\n' "$BASH_SOURCE" "${BASH_SOURCE}"
+   |
+
+C100 array references should choose an explicit element or selector
+  --> <source>:14:20
+   |
+14 | source "$(dirname "$BASH_SOURCE")/helper.bash"
+   |
+
+C100 array references should choose an explicit element or selector
+  --> <source>:15:8
+   |
+15 | if [[ "$BASH_SOURCE" == "main.bash" ]]; then :; fi
+   |
+
+C100 array references should choose an explicit element or selector
+  --> <source>:16:14
+   |
+16 | for item in "$BASH_SOURCE"; do
+   |
+
+C100 array references should choose an explicit element or selector
+  --> <source>:20:1
+   |
+20 | $arr
+   |
+
+C100 array references should choose an explicit element or selector
+  --> <source>:21:1
+   |
+21 | ${arr}
+   |
+
+C100 array references should choose an explicit element or selector
+  --> <source>:25:3
+   |
+25 | x=$BASH_SOURCE
+   |
+
+C100 array references should choose an explicit element or selector
+  --> <source>:26:3
+   |
+26 | y=${BASH_SOURCE}
    |

@@ -109,7 +109,10 @@ pub(crate) fn is_array_like_binding(binding: &Binding) -> bool {
     binding
         .attributes
         .intersects(BindingAttributes::ARRAY | BindingAttributes::ASSOC)
-        || matches!(binding.kind, BindingKind::ArrayAssignment)
+        || matches!(
+            binding.kind,
+            BindingKind::ArrayAssignment | BindingKind::MapfileTarget
+        )
 }
 
 bitflags! {

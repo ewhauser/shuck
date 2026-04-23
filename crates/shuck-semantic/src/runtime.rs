@@ -18,6 +18,10 @@ const COMMON_PREINITIALIZED: &[&str] = &[
 ];
 
 const BASH_PREINITIALIZED: &[&str] = &[
+    "BASH_ALIASES",
+    "BASH_ARGC",
+    "BASH_ARGV",
+    "BASH_CMDS",
     "LINENO",
     "FUNCNAME",
     "BASH_SOURCE",
@@ -34,6 +38,10 @@ const BASH_PREINITIALIZED: &[&str] = &[
     "HISTIGNORE",
     "HISTSIZE",
     "HISTTIMEFORMAT",
+    "PIPESTATUS",
+    "DIRSTACK",
+    "GROUPS",
+    "MAPFILE",
     "COLUMNS",
     "PROMPT_COMMAND",
     "PS1",
@@ -44,6 +52,27 @@ const BASH_PREINITIALIZED: &[&str] = &[
     "COMP_WORDBREAKS",
     "COMP_WORDS",
     "COMP_CWORD",
+    "COMPREPLY",
+    "COPROC",
+];
+
+const BASH_PREINITIALIZED_ARRAYS: &[&str] = &[
+    "BASH_ALIASES",
+    "BASH_ARGC",
+    "BASH_ARGV",
+    "BASH_CMDS",
+    "BASH_LINENO",
+    "BASH_REMATCH",
+    "BASH_SOURCE",
+    "BASH_VERSINFO",
+    "COMP_WORDS",
+    "COMPREPLY",
+    "COPROC",
+    "DIRSTACK",
+    "FUNCNAME",
+    "GROUPS",
+    "MAPFILE",
+    "PIPESTATUS",
 ];
 
 const ALWAYS_USED_BINDINGS: &[&str] = &["IFS", "PATH", "CDPATH"];
@@ -79,6 +108,10 @@ impl RuntimePrelude {
         contains_name(self.common_preinitialized, name)
             || is_locale_binding(name)
             || (self.bash_enabled && contains_name(self.bash_preinitialized, name))
+    }
+
+    pub(crate) fn is_preinitialized_array(&self, name: &Name) -> bool {
+        self.bash_enabled && contains_name(BASH_PREINITIALIZED_ARRAYS, name)
     }
 
     pub(crate) fn is_always_used_binding(&self, name: &Name) -> bool {

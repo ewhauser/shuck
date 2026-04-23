@@ -22,7 +22,7 @@ use self::{
     conditional_portability::{ConditionalPortabilityInputs, build_conditional_portability_facts},
     escape_scan::{EscapeScanContext, EscapeScanInputs, build_escape_scan_matches},
     normalized_commands as command,
-    presence::build_presence_tested_names,
+    presence::{PresenceTestNameFact, PresenceTestReferenceFact, build_presence_tested_names},
     surface::{
         CaseModificationFragmentFact, CasePatternExpansionFact, DollarDoubleQuotedFragmentFact,
         IndexedArrayReferenceFragmentFact, IndirectExpansionFragmentFact,
@@ -56,8 +56,8 @@ use shuck_ast::{
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
 use shuck_semantic::{
-    Binding, BindingAttributes, BindingId, BindingKind, DeclarationBuiltin, OptionValue, ScopeId,
-    SemanticModel, ZshOptionState,
+    Binding, BindingAttributes, BindingId, BindingKind, DeclarationBuiltin, OptionValue, Reference,
+    ReferenceId, ReferenceKind, ScopeId, SemanticModel, ZshOptionState,
 };
 use smallvec::SmallVec;
 use std::{borrow::Cow, cell::OnceCell, ops::ControlFlow};

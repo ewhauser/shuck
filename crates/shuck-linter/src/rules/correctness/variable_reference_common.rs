@@ -38,6 +38,9 @@ pub(super) fn is_reportable_variable_reference(
     if checker
         .semantic()
         .is_guarded_parameter_reference(reference.id)
+        || checker
+            .semantic()
+            .is_defaulting_parameter_operand_reference(reference.id)
     {
         return false;
     }

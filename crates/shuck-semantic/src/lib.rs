@@ -435,6 +435,7 @@ pub struct SemanticModel {
     reference_index: FxHashMap<Name, SmallVec<[ReferenceId; 2]>>,
     predefined_runtime_refs: FxHashSet<ReferenceId>,
     guarded_parameter_refs: FxHashSet<ReferenceId>,
+    defaulting_parameter_operand_refs: FxHashSet<ReferenceId>,
     binding_index: FxHashMap<Name, SmallVec<[BindingId; 2]>>,
     resolved: FxHashMap<ReferenceId, BindingId>,
     unresolved: Vec<ReferenceId>,
@@ -453,6 +454,7 @@ pub struct SemanticModel {
     recorded_program: RecordedProgram,
     command_bindings: FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
     command_references: FxHashMap<SpanKey, SmallVec<[ReferenceId; 4]>>,
+    cleared_variables: FxHashMap<(ScopeId, Name), SmallVec<[usize; 2]>>,
     import_origins_by_binding: FxHashMap<BindingId, Vec<PathBuf>>,
     heuristic_unused_assignments: Vec<BindingId>,
     zsh_option_analysis: Option<ZshOptionAnalysis>,
@@ -535,6 +537,7 @@ impl SemanticModel {
             reference_index,
             predefined_runtime_refs: built.predefined_runtime_refs,
             guarded_parameter_refs: built.guarded_parameter_refs,
+            defaulting_parameter_operand_refs: built.defaulting_parameter_operand_refs,
             binding_index: built.binding_index,
             resolved: built.resolved,
             unresolved: built.unresolved,
@@ -553,6 +556,7 @@ impl SemanticModel {
             recorded_program: built.recorded_program,
             command_bindings: built.command_bindings,
             command_references: built.command_references,
+            cleared_variables: built.cleared_variables,
             import_origins_by_binding: FxHashMap::default(),
             heuristic_unused_assignments: built.heuristic_unused_assignments,
             zsh_option_analysis,
@@ -604,8 +608,20 @@ impl SemanticModel {
             .map(|binding| &self.bindings[binding.index()])
     }
 
+    pub fn reference_is_predefined_runtime_array(&self, id: ReferenceId) -> bool {
+        self.predefined_runtime_refs.contains(&id)
+            && self
+                .references
+                .get(id.index())
+                .is_some_and(|reference| self.runtime.is_preinitialized_array(&reference.name))
+    }
+
     pub fn is_guarded_parameter_reference(&self, id: ReferenceId) -> bool {
         self.guarded_parameter_refs.contains(&id)
+    }
+
+    pub fn is_defaulting_parameter_operand_reference(&self, id: ReferenceId) -> bool {
+        self.defaulting_parameter_operand_refs.contains(&id)
     }
 
     pub fn indirect_targets_for_binding(&self, id: BindingId) -> &[BindingId] {
@@ -640,6 +656,33 @@ impl SemanticModel {
             && self
                 .ancestor_scopes(self.scope_at(at.start.offset))
                 .any(|scope| scope == binding.scope)
+    }
+
+    #[doc(hidden)]
+    pub fn binding_cleared_before(&self, binding_id: BindingId, at: Span) -> bool {
+        let binding = self.binding(binding_id);
+        self.cleared_variables
+            .get(&(binding.scope, binding.name.clone()))
+            .is_some_and(|cleared_offsets| {
+                cleared_offsets.iter().any(|cleared_offset| {
+                    *cleared_offset > binding.span.start.offset && *cleared_offset < at.start.offset
+                })
+            })
+    }
+
+    #[doc(hidden)]
+    pub fn binding_and_reference_share_command(
+        &self,
+        binding_id: BindingId,
+        reference_id: ReferenceId,
+    ) -> bool {
+        self.command_bindings.iter().any(|(command, bindings)| {
+            bindings.contains(&binding_id)
+                && self
+                    .command_references
+                    .get(command)
+                    .is_some_and(|references| references.contains(&reference_id))
+        })
     }
 
     #[doc(hidden)]
@@ -4856,6 +4899,7 @@ main() {
     fn special_command_targets_store_name_only_spans() {
         let source = "\
 read -r read_target
+read -ra read_array_target read_array_remainder
 mapfile mapfile_target
 readarray readarray_target
 printf -v printf_target '%s' value
@@ -4871,6 +4915,40 @@ getopts 'ab' getopts_target
             })
             .unwrap();
         assert_eq!(read_target.span.slice(source), "read_target");
+        assert!(!read_target.attributes.contains(BindingAttributes::ARRAY));
+
+        let read_array_target = model
+            .bindings()
+            .iter()
+            .find(|binding| {
+                binding.name == "read_array_target"
+                    && matches!(binding.kind, BindingKind::ReadTarget)
+            })
+            .unwrap();
+        assert_eq!(read_array_target.span.slice(source), "read_array_target");
+        assert!(
+            read_array_target
+                .attributes
+                .contains(BindingAttributes::ARRAY)
+        );
+
+        let read_array_remainder = model
+            .bindings()
+            .iter()
+            .find(|binding| {
+                binding.name == "read_array_remainder"
+                    && matches!(binding.kind, BindingKind::ReadTarget)
+            })
+            .unwrap();
+        assert_eq!(
+            read_array_remainder.span.slice(source),
+            "read_array_remainder"
+        );
+        assert!(
+            !read_array_remainder
+                .attributes
+                .contains(BindingAttributes::ARRAY)
+        );
 
         let mapfile_target = model
             .bindings()
@@ -4881,6 +4959,7 @@ getopts 'ab' getopts_target
             })
             .unwrap();
         assert_eq!(mapfile_target.span.slice(source), "mapfile_target");
+        assert!(mapfile_target.attributes.contains(BindingAttributes::ARRAY));
 
         let readarray_target = model
             .bindings()
@@ -4891,6 +4970,11 @@ getopts 'ab' getopts_target
             })
             .unwrap();
         assert_eq!(readarray_target.span.slice(source), "readarray_target");
+        assert!(
+            readarray_target
+                .attributes
+                .contains(BindingAttributes::ARRAY)
+        );
 
         let printf_target = model
             .bindings()
@@ -4910,6 +4994,66 @@ getopts 'ab' getopts_target
             })
             .unwrap();
         assert_eq!(getopts_target.span.slice(source), "getopts_target");
+    }
+
+    #[test]
+    fn special_command_target_parsing_skips_option_operands_and_tracks_implicit_mapfile() {
+        let source = "\
+delimiter=:
+callback=cb
+read -d delimiter -a read_array_target read_array_remainder <<<\":\"
+mapfile -C callback -c 1 mapfile_target < <(printf '%s\\n' value)
+mapfile
+";
+        let model = model(source);
+
+        let read_targets = model
+            .bindings()
+            .iter()
+            .filter(|binding| matches!(binding.kind, BindingKind::ReadTarget))
+            .collect::<Vec<_>>();
+        assert!(
+            read_targets
+                .iter()
+                .any(|binding| binding.name == "read_array_target")
+        );
+        assert!(
+            read_targets
+                .iter()
+                .any(|binding| binding.name == "read_array_remainder")
+        );
+        assert!(
+            !read_targets
+                .iter()
+                .any(|binding| binding.name == "delimiter")
+        );
+
+        let mapfile_targets = model
+            .bindings()
+            .iter()
+            .filter(|binding| matches!(binding.kind, BindingKind::MapfileTarget))
+            .collect::<Vec<_>>();
+        assert!(
+            mapfile_targets
+                .iter()
+                .any(|binding| binding.name == "mapfile_target")
+        );
+        assert!(mapfile_targets.iter().any(|binding| {
+            binding.name == "MAPFILE"
+                && binding.attributes.contains(BindingAttributes::ARRAY)
+                && matches!(
+                    binding.origin,
+                    BindingOrigin::BuiltinTarget {
+                        definition_span,
+                        kind: BuiltinBindingTargetKind::Mapfile,
+                    } if definition_span == binding.span
+                )
+        }));
+        assert!(
+            !mapfile_targets
+                .iter()
+                .any(|binding| binding.name == "callback")
+        );
     }
 
     #[test]
@@ -5469,11 +5613,11 @@ printf '%s\\n' \
     }
 
     #[test]
-    fn guarded_parameter_operands_are_not_marked_uninitialized() {
+    fn assign_default_and_error_operands_are_marked_uninitialized() {
         let source = "\
 printf '%s\\n' \
   \"${missing_default:-$fallback_name}\" \
-  \"${missing_assign:=${seed_name:-value}}\" \
+  \"${missing_assign:=$seed_name}\" \
   \"${missing_replace:+$replacement_name}\" \
   \"${missing_error:?$hint_name}\"
 ";
@@ -5490,14 +5634,35 @@ printf '%s\\n' \
             ],
             &unresolved,
         );
-        assert_names_absent(
-            &[
+        assert_names_absent(&["fallback_name", "replacement_name"], &uninitialized);
+        assert_names_present(&["seed_name", "hint_name"], &uninitialized);
+    }
+
+    #[test]
+    fn defaulting_parameter_operand_references_are_marked_for_sc2154_suppression() {
+        let source = "\
+printf '%s\\n' \
+  \"${missing_default:-$fallback_name}\" \
+  \"${missing_assign:=$seed_name}\" \
+  \"${missing_replace:+$replacement_name}\" \
+  \"${missing_error:?$hint_name}\"
+";
+        let model = model(source);
+        let suppressed = model
+            .references()
+            .iter()
+            .filter(|reference| model.is_defaulting_parameter_operand_reference(reference.id))
+            .map(|reference| reference.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            suppressed,
+            vec![
                 "fallback_name",
                 "seed_name",
                 "replacement_name",
                 "hint_name",
-            ],
-            &uninitialized,
+            ]
         );
     }
 
@@ -5963,6 +6128,28 @@ printf '%s\\n' still_reachable
 
         assert_names_absent(&names, &unresolved);
         assert_names_absent(&names, &uninitialized);
+    }
+
+    #[test]
+    fn bash_runtime_array_references_are_classified() {
+        let source = "#!/bin/bash\nprintf '%s\\n' \"$BASH_SOURCE\" \"$FUNCNAME\" \"$RANDOM\"\n";
+        let model = model(source);
+
+        for name in ["BASH_SOURCE", "FUNCNAME"] {
+            let reference = model
+                .references()
+                .iter()
+                .find(|reference| reference.name == name)
+                .unwrap();
+            assert!(model.reference_is_predefined_runtime_array(reference.id));
+        }
+
+        let random = model
+            .references()
+            .iter()
+            .find(|reference| reference.name == "RANDOM")
+            .unwrap();
+        assert!(!model.reference_is_predefined_runtime_array(random.id));
     }
 
     #[test]

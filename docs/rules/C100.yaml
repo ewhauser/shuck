@@ -10,10 +10,10 @@ shells:
   - bash
   - dash
   - ksh
-description: "`$BASH_SOURCE` is quoted without array syntax."
-rationale: "Use `${BASH_SOURCE[0]}` for the current script path."
+description: "An array is referenced without an explicit element or all-elements selector."
+rationale: "Use an indexed form such as `${name[0]}` for one element, or `${name[@]}` / `${name[*]}` when all elements are intended."
 safe_fix: false
-fix_description: "Replace the reported quoted `$BASH_SOURCE` or `${BASH_SOURCE}` expansion with `${BASH_SOURCE[0]}`."
+fix_description: null
 source:
   shell_checks_rule: rules/SH-232.yaml
   shell_checks_example: examples/232.sh
@@ -24,3 +24,9 @@ examples:
       #!/bin/bash
       # shellcheck disable=2034
       dir="$(dirname "$BASH_SOURCE")"
+  - kind: invalid
+    source: custom
+    code: |
+      #!/bin/bash
+      paths=(src test)
+      printf '%s\n' "$paths"

@@ -292,6 +292,7 @@ pub(super) struct SurfaceFragmentFacts {
     pub(super) nested_parameter_expansions: Vec<NestedParameterExpansionFragmentFact>,
     pub(super) indirect_expansions: Vec<IndirectExpansionFragmentFact>,
     pub(super) indexed_array_references: Vec<IndexedArrayReferenceFragmentFact>,
+    pub(super) plain_unindexed_references: Vec<Span>,
     pub(super) parameter_pattern_special_targets: Vec<ParameterPatternSpecialTargetFragmentFact>,
     pub(super) zsh_parameter_index_flags: Vec<ZshParameterIndexFlagFragmentFact>,
     pub(super) substring_expansions: Vec<SubstringExpansionFragmentFact>,
@@ -435,6 +436,12 @@ impl<'a> SurfaceFragmentSink<'a> {
         self.facts
             .indexed_array_references
             .push(IndexedArrayReferenceFragmentFact { span, plain });
+    }
+
+    fn record_plain_unindexed_reference(&mut self, span: Span) {
+        if !self.facts.plain_unindexed_references.contains(&span) {
+            self.facts.plain_unindexed_references.push(span);
+        }
     }
 
     fn record_parameter_pattern_special_target(&mut self, operand_span: Span) {
@@ -724,15 +731,22 @@ impl<'a> SurfaceFragmentSink<'a> {
                 }
                 WordPart::CommandSubstitution { .. } | WordPart::ProcessSubstitution { .. } => {}
                 WordPart::Parameter(parameter) => {
+                    if parameter_is_plain_unindexed_reference(parameter) {
+                        self.record_plain_unindexed_reference(part.span);
+                    }
                     self.collect_parameter_expansion(parameter, part.span, context);
                 }
-                WordPart::Variable(name)
+                WordPart::Variable(name) => {
+                    if name_is_plain_reference_candidate(name) {
+                        self.record_plain_unindexed_reference(part.span);
+                    }
                     if name.as_str() == "$"
-                        && contains_nested_parameter_marker(part.span.slice(self.source)) =>
-                {
-                    self.facts
-                        .nested_parameter_expansions
-                        .push(NestedParameterExpansionFragmentFact { span: part.span });
+                        && contains_nested_parameter_marker(part.span.slice(self.source))
+                    {
+                        self.facts
+                            .nested_parameter_expansions
+                            .push(NestedParameterExpansionFragmentFact { span: part.span });
+                    }
                 }
                 WordPart::ParameterExpansion {
                     reference,
@@ -854,7 +868,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                             array_keys: false,
                         });
                 }
-                WordPart::Literal(_) | WordPart::Variable(_) => {}
+                WordPart::Literal(_) => {}
             }
         }
     }
@@ -887,7 +901,12 @@ impl<'a> SurfaceFragmentSink<'a> {
             }
 
             match &part.kind {
-                HeredocBodyPart::Literal(_) | HeredocBodyPart::Variable(_) => {}
+                HeredocBodyPart::Literal(_) => {}
+                HeredocBodyPart::Variable(name) => {
+                    if name_is_plain_reference_candidate(name) {
+                        self.record_plain_unindexed_reference(part.span);
+                    }
+                }
                 HeredocBodyPart::CommandSubstitution {
                     syntax: CommandSubstitutionSyntax::Backtick,
                     body,
@@ -949,6 +968,9 @@ impl<'a> SurfaceFragmentSink<'a> {
                     }
                 }
                 HeredocBodyPart::Parameter(parameter) => {
+                    if parameter_is_plain_unindexed_reference(parameter) {
+                        self.record_plain_unindexed_reference(part.span);
+                    }
                     self.collect_parameter_expansion(parameter, part.span, context);
                 }
             }
@@ -1744,6 +1766,35 @@ fn parameter_is_plain_array_reference(parameter: &shuck_ast::ParameterExpansion)
         }
         _ => false,
     }
+}
+
+fn parameter_is_plain_unindexed_reference(parameter: &shuck_ast::ParameterExpansion) -> bool {
+    match &parameter.syntax {
+        ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Access { reference }) => {
+            reference.subscript.is_none() && name_is_plain_reference_candidate(&reference.name)
+        }
+        ParameterExpansionSyntax::Zsh(syntax)
+            if syntax.length_prefix.is_none()
+                && syntax.operation.is_none()
+                && syntax.modifiers.is_empty() =>
+        {
+            match &syntax.target {
+                ZshExpansionTarget::Reference(reference) => {
+                    reference.subscript.is_none()
+                        && name_is_plain_reference_candidate(&reference.name)
+                }
+                ZshExpansionTarget::Nested(parameter) => {
+                    parameter_is_plain_unindexed_reference(parameter)
+                }
+                ZshExpansionTarget::Word(_) | ZshExpansionTarget::Empty => false,
+            }
+        }
+        _ => false,
+    }
+}
+
+fn name_is_plain_reference_candidate(name: &Name) -> bool {
+    !matches!(name.as_str(), "@" | "*")
 }
 
 fn parameter_operator_has_pattern(operator: &ParameterOp) -> bool {

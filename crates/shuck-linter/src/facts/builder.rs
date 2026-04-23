@@ -346,7 +346,8 @@ impl<'a> LinterFactsBuilder<'a> {
             fact.substitution_facts = substitutions;
         }
 
-        let presence_tested_names = build_presence_tested_names(&commands, self.source);
+        let presence_tested_names =
+            build_presence_tested_names(&commands, self.source, self.semantic);
         let function_headers =
             build_function_header_facts(self.semantic, &functions, &commands, self.source);
         let function_cli_dispatch_facts = build_function_cli_dispatch_facts(
@@ -478,6 +479,7 @@ impl<'a> LinterFactsBuilder<'a> {
             nested_parameter_expansions,
             indirect_expansions,
             indexed_array_references,
+            plain_unindexed_references,
             parameter_pattern_special_targets,
             zsh_parameter_index_flags,
             substring_expansions,
@@ -624,6 +626,8 @@ impl<'a> LinterFactsBuilder<'a> {
             env_prefix_expansion_scope_spans,
             presence_tested_names: presence_tested_names.global_names,
             nested_presence_test_spans: presence_tested_names.nested_command_spans_by_name,
+            presence_test_references_by_name: presence_tested_names.references_by_name,
+            presence_test_names_by_name: presence_tested_names.names_by_name,
             subscript_index_reference_spans,
             compound_assignment_value_word_spans,
             word_nodes,
@@ -716,6 +720,7 @@ impl<'a> LinterFactsBuilder<'a> {
             nested_parameter_expansion_fragments: nested_parameter_expansions,
             indirect_expansion_fragments: indirect_expansions,
             indexed_array_reference_fragments: indexed_array_references,
+            plain_unindexed_reference_spans: plain_unindexed_references,
             parameter_pattern_special_target_fragments: parameter_pattern_special_targets,
             zsh_parameter_index_flag_fragments: zsh_parameter_index_flags,
             substring_expansion_fragments: substring_expansions,
