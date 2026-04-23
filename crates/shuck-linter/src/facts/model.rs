@@ -262,10 +262,6 @@ impl<'a> LinterFacts<'a> {
         self.binding_target_spans.get(&binding_id).copied()
     }
 
-    pub(crate) fn binding_values(&self) -> &FxHashMap<BindingId, BindingValueFact<'a>> {
-        &self.binding_values
-    }
-
     pub fn broken_assoc_key_spans(&self) -> &[Span] {
         &self.broken_assoc_key_spans
     }

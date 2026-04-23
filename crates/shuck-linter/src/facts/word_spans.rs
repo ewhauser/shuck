@@ -1078,7 +1078,7 @@ fn normalize_all_elements_array_expansion_span(span: Span, source: &str) -> Opti
     while let Some(found) = text[search_from..].find('$') {
         let relative_start = search_from + found;
         let absolute_start = base_offset + relative_start;
-        if absolute_start > 0 && source.as_bytes()[absolute_start - 1] == b'\\' {
+        if offset_is_backslash_escaped(absolute_start, source) {
             search_from = relative_start + 1;
             continue;
         }
@@ -1121,7 +1121,7 @@ fn normalize_direct_all_elements_array_expansion_span(span: Span, source: &str) 
     while let Some(found) = text[search_from..].find('$') {
         let relative_start = search_from + found;
         let absolute_start = base_offset + relative_start;
-        if absolute_start > 0 && source.as_bytes()[absolute_start - 1] == b'\\' {
+        if offset_is_backslash_escaped(absolute_start, source) {
             search_from = relative_start + 1;
             continue;
         }
@@ -1234,7 +1234,7 @@ fn normalize_nested_direct_all_elements_array_expansion_span(
             continue;
         }
 
-        if absolute_start > 0 && source.as_bytes()[absolute_start - 1] == b'\\' {
+        if offset_is_backslash_escaped(absolute_start, source) {
             index += 1;
             continue;
         }
@@ -1788,6 +1788,9 @@ fn widen_all_elements_array_expansion_span(span: Span, source: &str) -> Option<S
     if source.as_bytes().get(start_offset..span.start.offset)? != b"${" {
         return None;
     }
+    if offset_is_backslash_escaped(start_offset, source) {
+        return None;
+    }
 
     let start = position_at_offset(source, start_offset)?;
     let remainder = &source[start_offset..];
@@ -1809,6 +1812,9 @@ fn widen_direct_all_elements_array_expansion_span(span: Span, source: &str) -> O
 
     let start_offset = span.start.offset.checked_sub(2)?;
     if source.as_bytes().get(start_offset..span.start.offset)? != b"${" {
+        return None;
+    }
+    if offset_is_backslash_escaped(start_offset, source) {
         return None;
     }
 
@@ -3879,11 +3885,23 @@ fn positional_at_splat_is_standalone_expansion(word: &Word, source: &str) -> boo
 }
 
 fn span_is_backslash_escaped(span: Span, source: &str) -> bool {
-    if span.start.offset == 0 {
+    offset_is_backslash_escaped(span.start.offset, source)
+}
+
+fn offset_is_backslash_escaped(offset: usize, source: &str) -> bool {
+    if offset == 0 {
         return false;
     }
 
-    source.as_bytes()[span.start.offset - 1] == b'\\'
+    let bytes = source.as_bytes();
+    let mut index = offset;
+    let mut backslash_count = 0usize;
+    while index > 0 && bytes[index - 1] == b'\\' {
+        backslash_count += 1;
+        index -= 1;
+    }
+
+    backslash_count % 2 == 1
 }
 
 fn span_is_escaped(span: Span, source: &str) -> bool {
@@ -4615,6 +4633,26 @@ printf '%s\\n' \"$@\" \"${arr[@]}\" \"${arr[@]:1}\" \"${arr[@]:-fallback}\" \"${
             matches,
             vec![true, true, true, true, false, false, false, false, false]
         );
+    }
+
+    #[test]
+    fn word_has_direct_all_elements_array_expansion_handles_backslash_parity() {
+        let source = "\
+printf '%s\\n' \"\\$@\" \"\\\\$@\" \"\\${@:2}\" \"\\\\${@:2}\" \"\\${arr[@]}\" \"\\\\${arr[@]}\"\n";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let matches = command
+            .args
+            .iter()
+            .skip(1)
+            .map(|word| word_has_direct_all_elements_array_expansion_in_source(word, source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(matches, vec![false, true, false, true, false, true]);
     }
 
     #[test]
