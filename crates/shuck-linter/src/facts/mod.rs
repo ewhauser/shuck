@@ -56,7 +56,7 @@ use shuck_ast::{
     BackgroundOperator, BinaryCommand, BinaryOp, BourneParameterExpansion, BraceQuoteContext,
     BraceSyntaxKind, BuiltinCommand, CaseCommand, CaseItem, CaseTerminator, Command,
     CommandSubstitutionSyntax, CompoundCommand, ConditionalBinaryOp, ConditionalExpr,
-    ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, FunctionDef, IfCommand, Name,
+    ConditionalUnaryOp, DeclClause, DeclOperand, File, ForCommand, FunctionDef, Name,
     ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternPart, Position,
     Redirect, RedirectKind, SelectCommand, SimpleCommand, SourceText, Span, Stmt, StmtSeq,
     StmtTerminator, Subscript, TextRange, VarRef, WhileCommand, Word, WordPart, WordPartNode,

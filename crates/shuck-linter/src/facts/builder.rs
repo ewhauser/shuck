@@ -71,7 +71,7 @@ impl<'a> LinterFactsBuilder<'a> {
         let mut surface_fragments = SurfaceFragmentSink::new(self.source);
         let mut functions = Vec::new();
         let mut function_body_without_braces_spans = Vec::new();
-        let mut redundant_return_status_spans = Vec::new();
+        let redundant_return_status_spans = Vec::new();
         let mut getopts_cases = Vec::new();
         let mut condition_status_capture_spans = Vec::new();
         let mut condition_command_substitution_spans = Vec::new();
@@ -194,10 +194,6 @@ impl<'a> LinterFactsBuilder<'a> {
                 if let Some(span) = function_body_without_braces_span(function) {
                     function_body_without_braces_spans.push(span);
                 }
-                collect_terminal_redundant_return_status_spans(
-                    function,
-                    &mut redundant_return_status_spans,
-                );
             }
 
             if !nested_word_command {

@@ -370,7 +370,7 @@ o() {
                 .iter()
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$?", "$?", "$?"]
+            Vec::<&str>::new()
         );
     });
 }

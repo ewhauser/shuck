@@ -25,7 +25,7 @@ mod tests {
     use crate::{LinterSettings, Rule};
 
     #[test]
-    fn reports_returning_the_previous_status_inside_functions() {
+    fn ignores_returning_the_previous_status_inside_functions() {
         let source = "\
 #!/bin/sh
 f() {
@@ -38,8 +38,7 @@ f() {
             &LinterSettings::for_rule(Rule::RedundantReturnStatus),
         );
 
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].rule, Rule::RedundantReturnStatus);
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
     #[test]
@@ -80,7 +79,7 @@ f() {
     }
 
     #[test]
-    fn reports_terminal_returns_inside_final_if_branches() {
+    fn ignores_terminal_returns_inside_final_if_branches() {
         let source = "\
 #!/bin/sh
 f() {
@@ -95,12 +94,11 @@ f() {
             &LinterSettings::for_rule(Rule::RedundantReturnStatus),
         );
 
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].span.slice(source), "$?");
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
     #[test]
-    fn reports_returns_after_terminal_compound_commands() {
+    fn ignores_returns_after_terminal_compound_commands() {
         let source = "\
 #!/bin/sh
 f() {
@@ -119,14 +117,7 @@ g() {
             &LinterSettings::for_rule(Rule::RedundantReturnStatus),
         );
 
-        assert_eq!(diagnostics.len(), 2);
-        assert_eq!(
-            diagnostics
-                .iter()
-                .map(|diagnostic| diagnostic.span.slice(source))
-                .collect::<Vec<_>>(),
-            vec!["$?", "$?"]
-        );
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
     }
 
     #[test]
