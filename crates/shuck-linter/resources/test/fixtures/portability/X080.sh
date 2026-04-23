@@ -1,6 +1,7 @@
 #!/bin/sh
 
 top_level() {
+  # shellcheck source=/dev/null
   source ./inside.sh
 }
 
