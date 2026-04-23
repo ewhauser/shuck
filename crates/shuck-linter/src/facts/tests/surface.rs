@@ -2185,6 +2185,10 @@ grouped=\"$AWK '\"\\
 \"     {value=$( (printf x); printf \"%s\" y );};\"\\
 \"     /^COFF SYMBOL TABLE/{next};\"\\
 \"     ' prfx=^$ac_symprfx\"
+param_hash=\"$AWK '\"\\
+\"     {value=${value:- # fallback};\"\\
+\"     /^COFF SYMBOL TABLE/{next};\"\\
+\"     ' prfx=^$ac_symprfx\"
 ";
 
     with_facts(source, None, |_, facts| {
@@ -2203,7 +2207,7 @@ grouped=\"$AWK '\"\\
             spans,
             vec![
                 "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n",
-                "\\\n", "\\\n"
+                "\\\n", "\\\n", "\\\n", "\\\n", "\\\n"
             ]
         );
     });

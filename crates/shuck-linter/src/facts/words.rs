@@ -1524,11 +1524,13 @@ fn mixed_quote_shell_fragment_balance_delta(
             continue;
         }
 
+        let allow_top_level_command_comment =
+            allow_top_level_command_comments && parameter_delta == 0;
         if ch == '#'
             && !in_double_quotes
             && mixed_quote_shell_comment_can_start(
                 command_delta,
-                allow_top_level_command_comments,
+                allow_top_level_command_comment,
                 previous_char,
             )
         {
@@ -1821,10 +1823,15 @@ fn mixed_quote_closing_double_quote_offset(text: &str) -> Option<usize> {
             continue;
         }
 
+        let allow_top_level_command_comment = in_backtick_command && parameter_depth == 0;
         if nested_depth
             && ch == '#'
             && !in_double_quotes
-            && mixed_quote_shell_comment_can_start(command_depth, true, previous_char)
+            && mixed_quote_shell_comment_can_start(
+                command_depth,
+                allow_top_level_command_comment,
+                previous_char,
+            )
         {
             in_comment = true;
             continue;

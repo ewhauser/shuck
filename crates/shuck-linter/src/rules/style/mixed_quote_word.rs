@@ -145,6 +145,10 @@ grouped=\"$AWK '\"\\
 \"     {value=$( (printf x); printf \"%s\" y );};\"\\
 \"     /^COFF SYMBOL TABLE/{next};\"\\
 \"     ' prfx=^$ac_symprfx\"
+param_hash=\"$AWK '\"\\
+\"     {value=${value:- # fallback};\"\\
+\"     /^COFF SYMBOL TABLE/{next};\"\\
+\"     ' prfx=^$ac_symprfx\"
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::MixedQuoteWord));
 
@@ -155,7 +159,7 @@ grouped=\"$AWK '\"\\
                 .collect::<Vec<_>>(),
             vec![
                 "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n", "\\\n",
-                "\\\n", "\\\n"
+                "\\\n", "\\\n", "\\\n", "\\\n", "\\\n"
             ]
         );
     }
