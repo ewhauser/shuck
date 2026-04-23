@@ -92,6 +92,10 @@ fn should_report_unquoted_command_substitution(
             ExpansionContext::DeclarationAssignmentValue,
             WordFactHostKind::DeclarationNameSubscript,
         ) => true,
+        (
+            ExpansionContext::DeclarationAssignmentValue,
+            WordFactHostKind::ArrayKeySubscript,
+        ) => checker.shell() == ShellDialect::Sh,
         (ExpansionContext::DeclarationAssignmentValue, WordFactHostKind::Direct) => {
             checker.shell() == ShellDialect::Sh
         }
@@ -184,6 +188,28 @@ declare -A map=([$(printf key)]=1)
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$(printf decl-name)"]
+        );
+    }
+
+    #[test]
+    fn reports_array_key_subscript_in_sh_mode() {
+        let source = "\
+#!/bin/sh
+declare arr[$(printf decl-name)]
+declare -A map=([$(printf key)]=1)
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::UnquotedCommandSubstitution)
+                .with_shell(ShellDialect::Sh),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$(printf decl-name)", "$(printf key)"]
         );
     }
 
