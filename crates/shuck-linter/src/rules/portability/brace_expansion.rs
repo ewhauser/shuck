@@ -60,6 +60,40 @@ echo prefix{a,b}suffix file{1..3}.txt
     }
 
     #[test]
+    fn reports_nested_brace_expansions_individually() {
+        let source = "\
+#!/bin/sh
+echo {EGL,GLES{,2,3}}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::BraceExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["{EGL,GLES{,2,3}}", "{,2,3}"]
+        );
+    }
+
+    #[test]
+    fn reports_brace_expansions_with_quoted_members() {
+        let source = "\
+#!/bin/sh
+mkdir -p \"$TERMUX_GODIR\"/{bin,src,doc,lib,\"pkg/tool/$TERMUX_GOLANG_DIRNAME\",pkg/include}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::BraceExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["{bin,src,doc,lib,\"pkg/tool/$TERMUX_GOLANG_DIRNAME\",pkg/include}"]
+        );
+    }
+
+    #[test]
     fn ignores_quoted_and_pattern_only_brace_syntax() {
         let source = "\
 #!/bin/sh

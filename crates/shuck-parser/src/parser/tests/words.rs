@@ -2178,6 +2178,62 @@ fn test_brace_syntax_marks_template_placeholders_inside_quotes() {
 }
 
 #[test]
+fn test_brace_syntax_marks_nested_expansions_separately() {
+    let input = "{EGL,GLES{,2,3}}";
+    let word = Parser::parse_word_string(input);
+
+    assert_eq!(
+        brace_slices(&word, input),
+        vec!["{EGL,GLES{,2,3}}", "{,2,3}"]
+    );
+    assert!(word.brace_syntax().iter().all(|brace| brace.expands()));
+}
+
+#[test]
+fn test_brace_syntax_marks_all_nested_comma_lists() {
+    let input =
+        "usr/include/{sys/{capability,shm,sem},{glob,iconv,spawn,zlib,zconf},KHR/khrplatform}.h";
+    let word = Parser::parse_word_string(input);
+
+    assert_eq!(
+        brace_slices(&word, input),
+        vec![
+            "{sys/{capability,shm,sem},{glob,iconv,spawn,zlib,zconf},KHR/khrplatform}",
+            "{capability,shm,sem}",
+            "{glob,iconv,spawn,zlib,zconf}",
+        ]
+    );
+}
+
+#[test]
+fn test_brace_syntax_spans_quoted_members_inside_unquoted_lists() {
+    let input =
+        "\"$TERMUX_GODIR\"/{bin,src,doc,lib,\"pkg/tool/$TERMUX_GOLANG_DIRNAME\",pkg/include}";
+    let word = Parser::parse_word_string(input);
+
+    assert_eq!(
+        brace_slices(&word, input),
+        vec!["{bin,src,doc,lib,\"pkg/tool/$TERMUX_GOLANG_DIRNAME\",pkg/include}"]
+    );
+    assert!(word.has_active_brace_expansion());
+}
+
+#[test]
+fn test_brace_syntax_does_not_treat_double_open_braces_as_template_placeholders_when_they_expand() {
+    let input = "lib{{pthread,resolv,ffi_pic}.a,rt.so}";
+    let word = Parser::parse_word_string(input);
+
+    assert_eq!(
+        brace_slices(&word, input),
+        vec![
+            "{{pthread,resolv,ffi_pic}.a,rt.so}",
+            "{pthread,resolv,ffi_pic}"
+        ]
+    );
+    assert!(word.brace_syntax().iter().all(|brace| brace.expands()));
+}
+
+#[test]
 fn test_brace_syntax_ignores_escaped_unquoted_braces() {
     let word = Parser::parse_word_string("\\{a,b\\}");
     assert!(word.brace_syntax().is_empty());
