@@ -4705,7 +4705,7 @@ check() {
 
     #[test]
     fn unreachable_after_exit_reports_shadowed_condition_wrapper_names() {
-        for wrapper in ["command", "builtin"] {
+        for wrapper in ["command", "builtin", "sudo", "doas", "run0"] {
             let source = format!(
                 "\
 #!/bin/bash

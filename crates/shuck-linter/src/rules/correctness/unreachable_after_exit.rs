@@ -124,13 +124,11 @@ fn wrapper_name_resolves_to_function(
     command: &CommandFact<'_>,
     semantic_analysis: &SemanticAnalysis<'_>,
 ) -> bool {
-    let Some(wrapper) = command.wrappers().first() else {
+    if command.wrappers().is_empty() {
         return false;
-    };
-    let name = match wrapper {
-        WrapperKind::Command => "command",
-        WrapperKind::Builtin => "builtin",
-        _ => return false,
+    }
+    let Some(name) = command.literal_name() else {
+        return false;
     };
     let AstCommand::Simple(simple) = command.command() else {
         return false;
