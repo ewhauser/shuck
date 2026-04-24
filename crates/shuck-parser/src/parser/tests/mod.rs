@@ -196,7 +196,7 @@ fn expect_compound(stmt: &Stmt) -> (&AstCompoundCommand, &[Redirect]) {
     let AstCommand::Compound(compound) = &stmt.command else {
         panic!("expected compound command");
     };
-    (compound, stmt.redirects.as_slice())
+    (compound, &stmt.redirects)
 }
 
 fn expect_variable(expr: &ArithmeticExprNode, expected: &str) {
