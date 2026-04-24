@@ -235,7 +235,11 @@ where
 #[allow(missing_docs)]
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct FileCacheKey {
-    pub file_last_modified_ms: u128,
+    pub file_last_modified_ns: u128,
+    pub file_created_ns: Option<u128>,
+    pub file_status_changed_ns: Option<u128>,
+    pub file_device_id: Option<u64>,
+    pub file_id: Option<u64>,
     pub file_permissions_mode: u32,
     pub file_size_bytes: u64,
 }
@@ -244,14 +248,13 @@ pub struct FileCacheKey {
 impl FileCacheKey {
     pub fn from_path(path: &Path) -> io::Result<Self> {
         let metadata = path.metadata()?;
-        let file_last_modified_ms = metadata
-            .modified()
-            .and_then(|modified| {
-                modified
-                    .duration_since(UNIX_EPOCH)
-                    .map_err(io::Error::other)
-            })?
-            .as_millis();
+        let file_last_modified_ns = system_time_ns(metadata.modified()?)?;
+        let file_created_ns = metadata
+            .created()
+            .ok()
+            .and_then(|created| system_time_ns(created).ok());
+        let (file_status_changed_ns, file_device_id, file_id) =
+            platform_metadata_identity(&metadata);
 
         #[cfg(unix)]
         let file_permissions_mode = {
@@ -263,11 +266,47 @@ impl FileCacheKey {
         let file_permissions_mode: u32 = u32::from(metadata.permissions().readonly());
 
         Ok(Self {
-            file_last_modified_ms,
+            file_last_modified_ns,
+            file_created_ns,
+            file_status_changed_ns,
+            file_device_id,
+            file_id,
             file_permissions_mode,
             file_size_bytes: metadata.len(),
         })
     }
+}
+
+fn system_time_ns(time: SystemTime) -> io::Result<u128> {
+    Ok(time
+        .duration_since(UNIX_EPOCH)
+        .map_err(io::Error::other)?
+        .as_nanos())
+}
+
+#[cfg(unix)]
+fn platform_metadata_identity(metadata: &fs::Metadata) -> (Option<u128>, Option<u64>, Option<u64>) {
+    use std::os::unix::fs::MetadataExt;
+
+    (
+        unix_timestamp_ns(metadata.ctime(), metadata.ctime_nsec()),
+        Some(metadata.dev()),
+        Some(metadata.ino()),
+    )
+}
+
+#[cfg(not(unix))]
+fn platform_metadata_identity(_: &fs::Metadata) -> (Option<u128>, Option<u64>, Option<u64>) {
+    (None, None, None)
+}
+
+#[cfg(unix)]
+fn unix_timestamp_ns(seconds: i64, nanoseconds: i64) -> Option<u128> {
+    if seconds < 0 || nanoseconds < 0 {
+        return None;
+    }
+
+    Some((seconds as u128) * 1_000_000_000 + nanoseconds as u128)
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -463,6 +502,18 @@ mod tests {
         }
     }
 
+    fn test_file_key(file_last_modified_ns: u128, file_size_bytes: u64) -> FileCacheKey {
+        FileCacheKey {
+            file_last_modified_ns,
+            file_created_ns: Some(100),
+            file_status_changed_ns: Some(200),
+            file_device_id: Some(300),
+            file_id: Some(400),
+            file_permissions_mode: 0o644,
+            file_size_bytes,
+        }
+    }
+
     #[test]
     fn cache_key_hashing_is_deterministic() {
         let settings = TestSettings {
@@ -508,11 +559,7 @@ mod tests {
                 .unwrap();
         cache.insert(
             PathBuf::from("script.sh"),
-            FileCacheKey {
-                file_last_modified_ms: 1,
-                file_permissions_mode: 0o644,
-                file_size_bytes: 2,
-            },
+            test_file_key(1, 2),
             "ok".to_string(),
         );
         let cache_path = cache.path().to_path_buf();
@@ -522,14 +569,7 @@ mod tests {
 
         let mut reopened =
             PackageCache::<String>::open(&cache_root, canonical_root, "0.1.0", &settings).unwrap();
-        let value = reopened.get(
-            Path::new("script.sh"),
-            &FileCacheKey {
-                file_last_modified_ms: 1,
-                file_permissions_mode: 0o644,
-                file_size_bytes: 2,
-            },
-        );
+        let value = reopened.get(Path::new("script.sh"), &test_file_key(1, 2));
 
         assert_eq!(value.as_deref(), Some("ok"));
     }
@@ -551,11 +591,7 @@ mod tests {
                 .unwrap();
         cache.insert(
             PathBuf::from("stale.sh"),
-            FileCacheKey {
-                file_last_modified_ms: 1,
-                file_permissions_mode: 0o644,
-                file_size_bytes: 5,
-            },
+            test_file_key(1, 5),
             "stale".to_string(),
         );
         let cache_path = cache.path().to_path_buf();
@@ -577,11 +613,7 @@ mod tests {
             PackageCache::<String>::open(&cache_root, canonical_root, "0.1.0", &settings).unwrap();
         reopened.insert(
             PathBuf::from("fresh.sh"),
-            FileCacheKey {
-                file_last_modified_ms: 2,
-                file_permissions_mode: 0o644,
-                file_size_bytes: 5,
-            },
+            test_file_key(2, 5),
             "fresh".to_string(),
         );
         reopened.persist().unwrap();
@@ -611,25 +643,43 @@ mod tests {
                 .unwrap();
         cache.insert(
             PathBuf::from("script.sh"),
-            FileCacheKey {
-                file_last_modified_ms: 1,
-                file_permissions_mode: 0o644,
-                file_size_bytes: 2,
-            },
+            test_file_key(1, 2),
             "ok".to_string(),
         );
         cache.persist().unwrap();
 
         let mut reopened =
             PackageCache::<String>::open(&cache_root, canonical_root, "0.1.0", &settings).unwrap();
-        let value = reopened.get(
-            Path::new("script.sh"),
-            &FileCacheKey {
-                file_last_modified_ms: 1,
-                file_permissions_mode: 0o644,
-                file_size_bytes: 3,
-            },
+        let value = reopened.get(Path::new("script.sh"), &test_file_key(1, 3));
+
+        assert!(value.is_none());
+    }
+
+    #[test]
+    fn cache_key_miss_when_only_submillisecond_mtime_changes() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let cache_root = tempdir.path().join("cache");
+        let storage_root = tempdir.path().join("project");
+        fs::create_dir_all(&storage_root).unwrap();
+        let canonical_root = fs::canonicalize(&storage_root).unwrap();
+        let settings = TestSettings {
+            strict: true,
+            label: "alpha".to_string(),
+        };
+
+        let mut cache =
+            PackageCache::<String>::open(&cache_root, canonical_root.clone(), "0.1.0", &settings)
+                .unwrap();
+        cache.insert(
+            PathBuf::from("script.sh"),
+            test_file_key(1_000_000, 2),
+            "ok".to_string(),
         );
+        cache.persist().unwrap();
+
+        let mut reopened =
+            PackageCache::<String>::open(&cache_root, canonical_root, "0.1.0", &settings).unwrap();
+        let value = reopened.get(Path::new("script.sh"), &test_file_key(1_000_001, 2));
 
         assert!(value.is_none());
     }
@@ -651,11 +701,7 @@ mod tests {
                 .unwrap();
         cache.insert(
             PathBuf::from("script.sh"),
-            FileCacheKey {
-                file_last_modified_ms: 1,
-                file_permissions_mode: 0o644,
-                file_size_bytes: 2,
-            },
+            test_file_key(1, 2),
             "ok".to_string(),
         );
         let cache_path = cache.path().to_path_buf();
