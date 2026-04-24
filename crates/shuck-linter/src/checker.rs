@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use rustc_hash::FxHashSet;
 use shuck_ast::{File, Span};
 use shuck_indexer::Indexer;
@@ -14,9 +16,10 @@ pub struct Checker<'a> {
     indexer: &'a Indexer,
     file: &'a File,
     source: &'a str,
-    facts: LinterFacts<'a>,
+    facts: OnceLock<LinterFacts<'a>>,
     rules: &'a RuleSet,
     shell: ShellDialect,
+    ambient_shell_options: AmbientShellOptions,
     report_environment_style_names: bool,
     rule_options: LinterRuleOptions,
     file_context: &'a FileContext,
@@ -65,17 +68,10 @@ impl<'a> Checker<'a> {
             indexer,
             file,
             source,
-            facts: LinterFacts::build_with_shell_and_ambient_shell_options(
-                file,
-                source,
-                semantic,
-                indexer,
-                file_context,
-                shell,
-                ambient_shell_options,
-            ),
+            facts: OnceLock::new(),
             rules,
             shell,
+            ambient_shell_options,
             report_environment_style_names,
             rule_options,
             file_context,
@@ -107,7 +103,17 @@ impl<'a> Checker<'a> {
     }
 
     pub fn facts(&self) -> &LinterFacts<'a> {
-        &self.facts
+        self.facts.get_or_init(|| {
+            LinterFacts::build_with_shell_and_ambient_shell_options(
+                self.file,
+                self.source,
+                self.semantic,
+                self.indexer,
+                self.file_context,
+                self.shell,
+                self.ambient_shell_options,
+            )
+        })
     }
 
     pub fn is_rule_enabled(&self, rule: Rule) -> bool {

@@ -30,6 +30,10 @@ impl Violation for UnusedAssignment {
 
 pub fn unused_assignment(checker: &mut Checker) {
     let semantic = checker.semantic();
+    if all_reportable_assignment_spans_suppressed(checker, semantic) {
+        return;
+    }
+
     let unused_bindings = checker
         .semantic_analysis()
         .unused_assignments_with_options(checker.rule_options().c001.semantic_options());
@@ -167,6 +171,38 @@ pub fn unused_assignment(checker: &mut Checker) {
                 .with_fix(Fix::unsafe_edit(Edit::replacement("_", fix_span))),
         );
     }
+}
+
+fn all_reportable_assignment_spans_suppressed(
+    checker: &Checker<'_>,
+    semantic: &shuck_semantic::SemanticModel,
+) -> bool {
+    let mut saw_reportable_binding = false;
+    for binding in semantic.bindings() {
+        if is_intentionally_unused_binding(binding) {
+            continue;
+        }
+
+        if !is_reportable_unused_assignment(binding.kind, binding.attributes) {
+            continue;
+        }
+
+        if binding.attributes.contains(BindingAttributes::EXPORTED)
+            || matches!(binding.kind, BindingKind::Nameref)
+        {
+            continue;
+        }
+
+        saw_reportable_binding = true;
+        if !checker.is_suppressed_at(
+            Rule::UnusedAssignment,
+            report_span_for_binding(checker, binding),
+        ) {
+            return false;
+        }
+    }
+
+    saw_reportable_binding
 }
 
 fn is_intentionally_unused_binding(binding: &Binding) -> bool {
@@ -661,6 +697,18 @@ eval "echo \\\$foo"
     }
 
     #[test]
+    fn eval_comment_payloads_do_not_keep_assignments_live() {
+        let source = r#"#!/bin/bash
+foo=1
+eval "echo ok # \$foo"
+"#;
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "foo");
+    }
+
+    #[test]
     fn variable_set_array_tests_keep_target_family_live() {
         let source = "\
 #!/bin/bash
@@ -671,6 +719,32 @@ f() {
     seen[${key}]=1
   fi
 }
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn invalid_variable_set_test_operands_do_not_keep_assignments_live() {
+        let source = "\
+#!/bin/bash
+foo=1
+[[ -v '$foo' ]]
+[[ -v 1foo ]]
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "foo");
+    }
+
+    #[test]
+    fn quoted_variable_set_test_operands_keep_assignments_live() {
+        let source = "\
+#!/bin/bash
+foo=1
+[[ -v 'foo' ]]
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
 

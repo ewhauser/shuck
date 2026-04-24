@@ -3653,36 +3653,61 @@ fn variable_set_test_operand_name(
 }
 
 fn variable_name_operand_from_source(text: &str, span: Span) -> Option<(Name, Span)> {
-    let (start, _) = text
-        .char_indices()
-        .find(|(_, ch)| is_name_start_character(*ch))?;
-    let mut end = start;
-    for (index, ch) in text[start..].char_indices() {
-        if !is_name_character(ch) {
-            break;
-        }
-        end = start + index + ch.len_utf8();
-    }
-
-    if end == start {
+    let leading_whitespace = text.len() - text.trim_start().len();
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
         return None;
     }
 
-    let trailing = text[end..].trim_start();
-    if !(trailing.is_empty()
-        || trailing.starts_with('"')
-        || trailing.starts_with('\'')
-        || trailing.starts_with('['))
-    {
-        return None;
-    }
-
-    let name = &text[start..end];
-    let start_position = span.start.advanced_by(&text[..start]);
+    let (operand, operand_start) = unquote_variable_test_operand(trimmed, leading_whitespace)?;
+    let name_end = direct_variable_test_name_end(operand)?;
+    let name = &operand[..name_end];
+    let start_position = span.start.advanced_by(&text[..operand_start]);
     Some((
         Name::from(name),
         Span::from_positions(start_position, start_position.advanced_by(name)),
     ))
+}
+
+fn unquote_variable_test_operand(text: &str, base_offset: usize) -> Option<(&str, usize)> {
+    let Some(quote) = text.chars().next().filter(|ch| matches!(ch, '"' | '\'')) else {
+        return Some((text, base_offset));
+    };
+    let quote_width = quote.len_utf8();
+    if text.len() <= quote_width || !text.ends_with(quote) {
+        return None;
+    }
+    Some((
+        &text[quote_width..text.len() - quote_width],
+        base_offset + quote_width,
+    ))
+}
+
+fn direct_variable_test_name_end(text: &str) -> Option<usize> {
+    let mut chars = text.char_indices();
+    let (_, first) = chars.next()?;
+    if !is_name_start_character(first) {
+        return None;
+    }
+
+    let mut end = first.len_utf8();
+    for (index, ch) in chars {
+        if !is_name_character(ch) {
+            break;
+        }
+        end = index + ch.len_utf8();
+    }
+
+    let trailing = &text[end..];
+    if trailing.is_empty() || valid_direct_variable_subscript(trailing) {
+        Some(end)
+    } else {
+        None
+    }
+}
+
+fn valid_direct_variable_subscript(text: &str) -> bool {
+    text.starts_with('[') && text.ends_with(']') && text.len() > 2
 }
 
 fn eval_argument_reference_names(word: &Word, source: &str) -> Vec<(Name, Span)> {
@@ -3692,12 +3717,23 @@ fn eval_argument_reference_names(word: &Word, source: &str) -> Vec<(Name, Span)>
 fn scan_parameter_reference_names(text: &str, span: Span) -> Vec<(Name, Span)> {
     let mut references = Vec::new();
     let mut in_single_quotes = false;
+    let mut in_comment = false;
     for (index, ch) in text.char_indices() {
+        if in_comment {
+            if ch == '\n' {
+                in_comment = false;
+            }
+            continue;
+        }
         if ch == '\'' {
             in_single_quotes = !in_single_quotes;
             continue;
         }
         if in_single_quotes {
+            continue;
+        }
+        if ch == '#' && hash_starts_eval_comment(text, index) {
+            in_comment = true;
             continue;
         }
         if ch != '$' {
@@ -3720,6 +3756,16 @@ fn scan_parameter_reference_names(text: &str, span: Span) -> Vec<(Name, Span)> {
         ));
     }
     references
+}
+
+fn hash_starts_eval_comment(text: &str, hash_offset: usize) -> bool {
+    for ch in text[..hash_offset].chars().rev() {
+        if ch == '"' {
+            continue;
+        }
+        return ch == '\n' || ch.is_whitespace() || matches!(ch, ';' | '&' | '|');
+    }
+    true
 }
 
 fn dollar_stays_escaped_after_eval_decode(text: &str, dollar_offset: usize) -> bool {
