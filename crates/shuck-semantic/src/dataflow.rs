@@ -8,7 +8,7 @@ use crate::{
     Binding, BindingAttributes, BindingId, BindingKind, BlockId, CallSite, ContractCertainty,
     ControlFlowGraph, EdgeKind, FunctionScopeKind, ProvidedBinding, ProvidedBindingKind, Reference,
     ReferenceId, ReferenceKind, Scope, ScopeId, ScopeKind, SpanKey, SyntheticRead,
-    UnusedAssignmentAnalysisOptions,
+    UnreachableCauseKind, UnusedAssignmentAnalysisOptions,
 };
 use std::sync::OnceLock;
 
@@ -46,6 +46,7 @@ pub enum UninitializedCertainty {
 pub struct DeadCode {
     pub unreachable: Vec<Span>,
     pub cause: Span,
+    pub cause_kind: UnreachableCauseKind,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -339,17 +340,23 @@ fn reference_resolves_to_file_entry_contract_variable(
 }
 
 fn build_dead_code(cfg: &ControlFlowGraph) -> Vec<DeadCode> {
-    let mut dead_code_by_cause: FxHashMap<(usize, usize), (Span, Vec<Span>)> = FxHashMap::default();
+    let mut dead_code_by_cause: FxHashMap<
+        (usize, usize, UnreachableCauseKind),
+        (crate::cfg::UnreachableCause, Vec<Span>),
+    > = FxHashMap::default();
     for block_id in cfg.unreachable() {
         let block = cfg.block(*block_id);
         if block.commands.is_empty() {
             continue;
         }
-        let cause = cfg
-            .unreachable_cause(*block_id)
-            .unwrap_or_else(|| block.commands[0]);
+        let cause =
+            cfg.unreachable_cause(*block_id)
+                .unwrap_or_else(|| crate::cfg::UnreachableCause {
+                    span: block.commands[0],
+                    kind: UnreachableCauseKind::ShellTerminator,
+                });
         dead_code_by_cause
-            .entry((cause.start.offset, cause.end.offset))
+            .entry((cause.span.start.offset, cause.span.end.offset, cause.kind))
             .or_insert_with(|| (cause, Vec::new()))
             .1
             .extend(block.commands.iter().copied());
@@ -358,7 +365,8 @@ fn build_dead_code(cfg: &ControlFlowGraph) -> Vec<DeadCode> {
         .into_iter()
         .map(|(_, (cause, unreachable))| DeadCode {
             unreachable: outermost_unreachable_spans(unreachable),
-            cause,
+            cause: cause.span,
+            cause_kind: cause.kind,
         })
         .collect::<Vec<_>>();
     dead_code.sort_by_key(|dead| (dead.cause.start.offset, dead.cause.end.offset));

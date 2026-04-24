@@ -56,7 +56,7 @@ pub struct ControlFlowGraph {
     pub(crate) scope_entries: FxHashMap<ScopeId, BlockId>,
     pub(crate) scope_exits: FxHashMap<ScopeId, Vec<BlockId>>,
     pub(crate) command_blocks: FxHashMap<SpanKey, Vec<BlockId>>,
-    pub(crate) unreachable_causes: FxHashMap<BlockId, Span>,
+    pub(crate) unreachable_causes: FxHashMap<BlockId, UnreachableCause>,
 }
 
 impl ControlFlowGraph {
@@ -103,8 +103,36 @@ impl ControlFlowGraph {
             .unwrap_or(&[])
     }
 
-    pub(crate) fn unreachable_cause(&self, id: BlockId) -> Option<Span> {
+    pub(crate) fn unreachable_cause(&self, id: BlockId) -> Option<UnreachableCause> {
         self.unreachable_causes.get(&id).copied()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum UnreachableCauseKind {
+    ShellTerminator,
+    LoopControl,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct UnreachableCause {
+    pub(crate) span: Span,
+    pub(crate) kind: UnreachableCauseKind,
+}
+
+impl UnreachableCause {
+    fn shell_terminator(span: Span) -> Self {
+        Self {
+            span,
+            kind: UnreachableCauseKind::ShellTerminator,
+        }
+    }
+
+    fn loop_control(span: Span) -> Self {
+        Self {
+            span,
+            kind: UnreachableCauseKind::LoopControl,
+        }
     }
 }
 
@@ -798,14 +826,21 @@ fn command_exit_effect(
         RecordedCommandKind::BraceGroup { body } => {
             sequence_exit_effect(program, body, terminating_call_spans)
         }
-        RecordedCommandKind::While { .. }
-        | RecordedCommandKind::Until { .. }
-        | RecordedCommandKind::For { .. }
-        | RecordedCommandKind::Select { .. }
-        | RecordedCommandKind::ArithmeticFor { .. }
-        | RecordedCommandKind::Case { .. }
-        | RecordedCommandKind::Subshell { .. }
-        | RecordedCommandKind::Pipeline { .. } => ExitEffect::continuing(),
+        RecordedCommandKind::While { condition, body }
+        | RecordedCommandKind::Until { condition, body } => {
+            loop_exit_effect(program, condition, body, terminating_call_spans)
+        }
+        RecordedCommandKind::For { body }
+        | RecordedCommandKind::Select { body }
+        | RecordedCommandKind::ArithmeticFor { body } => {
+            counted_loop_exit_effect(program, body, terminating_call_spans)
+        }
+        RecordedCommandKind::Case { arms } => {
+            case_exit_effect(program, arms, terminating_call_spans)
+        }
+        RecordedCommandKind::Subshell { .. } | RecordedCommandKind::Pipeline { .. } => {
+            ExitEffect::continuing()
+        }
     }
 }
 
@@ -902,6 +937,55 @@ fn elif_chain_exit_effect(
     }
 
     false_path
+}
+
+fn loop_exit_effect(
+    program: &RecordedProgram,
+    condition: RecordedCommandRange,
+    body: RecordedCommandRange,
+    terminating_call_spans: &FxHashSet<SpanKey>,
+) -> ExitEffect {
+    let mut effect = ExitEffect::continuing();
+    let condition_effect = sequence_exit_effect(program, condition, terminating_call_spans);
+    let body_effect = sequence_exit_effect(program, body, terminating_call_spans);
+    effect.may_return |= condition_effect.may_return || body_effect.may_return;
+    effect.may_exit |= condition_effect.may_exit || body_effect.may_exit;
+    effect
+}
+
+fn counted_loop_exit_effect(
+    program: &RecordedProgram,
+    body: RecordedCommandRange,
+    terminating_call_spans: &FxHashSet<SpanKey>,
+) -> ExitEffect {
+    let mut effect = ExitEffect::continuing();
+    let body_effect = sequence_exit_effect(program, body, terminating_call_spans);
+    effect.may_return |= body_effect.may_return;
+    effect.may_exit |= body_effect.may_exit;
+    effect
+}
+
+fn case_exit_effect(
+    program: &RecordedProgram,
+    arms: RecordedCaseArmRange,
+    terminating_call_spans: &FxHashSet<SpanKey>,
+) -> ExitEffect {
+    let arms = program.case_arms(arms);
+    let mut effect = if arms.iter().any(|arm| arm.matches_anything) {
+        ExitEffect::default()
+    } else {
+        ExitEffect::continuing()
+    };
+
+    for arm in arms {
+        effect.combine_alternative(sequence_exit_effect(
+            program,
+            arm.commands,
+            terminating_call_spans,
+        ));
+    }
+
+    effect
 }
 
 impl FunctionCallResolver<'_> {
@@ -1087,6 +1171,27 @@ fn ancestor_scopes(scopes: &[Scope], start: ScopeId) -> impl Iterator<Item = Sco
 struct SequenceResult {
     entry: Option<BlockId>,
     exits: Vec<BlockId>,
+    terminal_cause: Option<UnreachableCause>,
+}
+
+fn merge_terminal_causes<const N: usize>(
+    fallback_span: Span,
+    causes: [Option<UnreachableCause>; N],
+) -> Option<UnreachableCause> {
+    let mut merged: Option<UnreachableCause> = None;
+    for cause in causes.into_iter().flatten() {
+        merged = Some(match merged {
+            None => cause,
+            Some(existing)
+                if existing.kind == UnreachableCauseKind::LoopControl
+                    && cause.kind == UnreachableCauseKind::LoopControl =>
+            {
+                existing
+            }
+            Some(_) => UnreachableCause::shell_terminator(fallback_span),
+        });
+    }
+    merged
 }
 
 #[derive(Clone, Copy)]
@@ -1111,7 +1216,7 @@ struct GraphBuilder<'a> {
     blocks: Vec<BasicBlock>,
     successors: FxHashMap<BlockId, Vec<(BlockId, EdgeKind)>>,
     command_blocks: FxHashMap<SpanKey, Vec<BlockId>>,
-    unreachable_causes: FxHashMap<BlockId, Span>,
+    unreachable_causes: FxHashMap<BlockId, UnreachableCause>,
     scope_entries: FxHashMap<ScopeId, BlockId>,
 }
 
@@ -1217,15 +1322,26 @@ impl<'a> GraphBuilder<'a> {
 
             if sequence.exits.is_empty() {
                 pending.clear();
-                unreachable_cause.get_or_insert(command.span);
+                unreachable_cause.get_or_insert_with(|| {
+                    sequence
+                        .terminal_cause
+                        .unwrap_or_else(|| UnreachableCause::shell_terminator(command.span))
+                });
             } else {
                 pending = sequence.exits;
             }
         }
 
+        let terminal_cause = if pending.is_empty() {
+            unreachable_cause
+        } else {
+            None
+        };
+
         SequenceResult {
             entry,
             exits: pending,
+            terminal_cause,
         }
     }
 
@@ -1251,6 +1367,14 @@ impl<'a> GraphBuilder<'a> {
                 SequenceResult {
                     entry: Some(block),
                     exits,
+                    terminal_cause: if self
+                        .script_terminating_calls
+                        .contains(&SpanKey::new(command.span))
+                    {
+                        Some(UnreachableCause::shell_terminator(command.span))
+                    } else {
+                        None
+                    },
                 }
             }
             RecordedCommandKind::Break { depth } => {
@@ -1261,6 +1385,7 @@ impl<'a> GraphBuilder<'a> {
                 SequenceResult {
                     entry: Some(block),
                     exits: Vec::new(),
+                    terminal_cause: Some(UnreachableCause::loop_control(command.span)),
                 }
             }
             RecordedCommandKind::Continue { depth } => {
@@ -1271,6 +1396,7 @@ impl<'a> GraphBuilder<'a> {
                 SequenceResult {
                     entry: Some(block),
                     exits: Vec::new(),
+                    terminal_cause: Some(UnreachableCause::loop_control(command.span)),
                 }
             }
             RecordedCommandKind::Return | RecordedCommandKind::Exit => {
@@ -1278,6 +1404,7 @@ impl<'a> GraphBuilder<'a> {
                 SequenceResult {
                     entry: Some(block),
                     exits: Vec::new(),
+                    terminal_cause: Some(UnreachableCause::shell_terminator(command.span)),
                 }
             }
             RecordedCommandKind::List { first, rest } => {
@@ -1340,6 +1467,7 @@ impl<'a> GraphBuilder<'a> {
                 SequenceResult {
                     entry: Some(block),
                     exits: vec![block],
+                    terminal_cause: None,
                 }
             }
             RecordedCommandKind::Pipeline { segments } => {
@@ -1357,6 +1485,7 @@ impl<'a> GraphBuilder<'a> {
                 SequenceResult {
                     entry: Some(block),
                     exits: vec![block],
+                    terminal_cause: None,
                 }
             }
         }
@@ -1380,6 +1509,7 @@ impl<'a> GraphBuilder<'a> {
             self.add_edge(header, entry, EdgeKind::Sequential);
         } else {
             sequence.exits = vec![header];
+            sequence.terminal_cause = None;
         }
         sequence.entry = Some(header);
         sequence
@@ -1396,48 +1526,112 @@ impl<'a> GraphBuilder<'a> {
         let current = self.build_command(first, loops, false);
         let entry = current.entry;
         let mut success_exits = current.exits.clone();
-        let mut failure_exits = current.exits;
+        let mut failure_exits = current.exits.clone();
+        let mut success_cause = current
+            .exits
+            .is_empty()
+            .then_some(current.terminal_cause)
+            .flatten();
+        let mut failure_cause = success_cause;
 
         for item in self.program.list_items(rest) {
+            let next_start = self.blocks.len();
             let next = self.build_command(item.command, loops, false);
-            let (triggering_exits, edge_kind) = match item.operator {
-                RecordedListOperator::And => (&success_exits, EdgeKind::ConditionalTrue),
-                RecordedListOperator::Or => (&failure_exits, EdgeKind::ConditionalFalse),
+            let (triggering_exits, triggering_cause, edge_kind) = match item.operator {
+                RecordedListOperator::And => {
+                    (&success_exits, success_cause, EdgeKind::ConditionalTrue)
+                }
+                RecordedListOperator::Or => {
+                    (&failure_exits, failure_cause, EdgeKind::ConditionalFalse)
+                }
             };
 
             if let Some(next_entry) = next.entry {
-                for exit in triggering_exits {
-                    self.add_edge(*exit, next_entry, edge_kind);
+                if triggering_exits.is_empty() {
+                    if let Some(cause) = triggering_cause {
+                        self.mark_unreachable_blocks_since(next_start, cause);
+                    }
+                } else {
+                    for exit in triggering_exits {
+                        self.add_edge(*exit, next_entry, edge_kind);
+                    }
                 }
             }
 
             let next_reachable = next.entry.is_some() && !triggering_exits.is_empty();
-            let (next_success_exits, mut next_failure_exits) = if next_reachable {
-                (next.exits.clone(), next.exits)
-            } else {
-                (Vec::new(), Vec::new())
-            };
+            let (next_success_exits, mut next_failure_exits, next_terminal_cause) =
+                if next_reachable {
+                    (next.exits.clone(), next.exits, next.terminal_cause)
+                } else {
+                    (Vec::new(), Vec::new(), triggering_cause)
+                };
+            let next_success_cause = next_success_exits
+                .is_empty()
+                .then_some(next_terminal_cause)
+                .flatten();
+            let next_failure_cause = next_failure_exits
+                .is_empty()
+                .then_some(next_terminal_cause)
+                .flatten();
 
             match item.operator {
                 RecordedListOperator::And => {
+                    let existing_failure_cause = failure_exits.is_empty().then_some(failure_cause);
                     append_unique_block_ids(&mut failure_exits, &next_failure_exits);
+                    failure_cause = if failure_exits.is_empty() {
+                        merge_terminal_causes(
+                            self.program.command(command).span,
+                            [existing_failure_cause.flatten(), next_failure_cause],
+                        )
+                    } else {
+                        None
+                    };
                     success_exits = next_success_exits;
+                    success_cause = next_success_cause;
                 }
                 RecordedListOperator::Or => {
+                    let existing_success_cause = success_exits.is_empty().then_some(success_cause);
                     append_unique_block_ids(&mut success_exits, &next_success_exits);
+                    success_cause = if success_exits.is_empty() {
+                        merge_terminal_causes(
+                            self.program.command(command).span,
+                            [existing_success_cause.flatten(), next_success_cause],
+                        )
+                    } else {
+                        None
+                    };
                     failure_exits = std::mem::take(&mut next_failure_exits);
+                    failure_cause = next_failure_cause;
                 }
             }
         }
 
         let mut exits = success_exits;
         append_unique_block_ids(&mut exits, &failure_exits);
+        let terminal_cause = if exits.is_empty() {
+            merge_terminal_causes(
+                self.program.command(command).span,
+                [success_cause, failure_cause],
+            )
+        } else {
+            None
+        };
         self.wrap_sequence_with_command_header(
             command,
-            SequenceResult { entry, exits },
+            SequenceResult {
+                entry,
+                exits,
+                terminal_cause,
+            },
             loops,
             force_command_header,
         )
+    }
+
+    fn mark_unreachable_blocks_since(&mut self, start: usize, cause: UnreachableCause) {
+        for block in &self.blocks[start..] {
+            self.unreachable_causes.insert(block.id, cause);
+        }
     }
 
     fn build_if(
@@ -1450,46 +1644,150 @@ impl<'a> GraphBuilder<'a> {
         let condition_seq = self.build_sequence(ranges.condition, loops);
         let entry = condition_seq.entry.or_else(|| Some(self.empty_block()));
         let mut false_exits = condition_seq.exits.clone();
+        let mut false_cause = false_exits
+            .is_empty()
+            .then_some(condition_seq.terminal_cause)
+            .flatten();
 
+        let then_start = self.blocks.len();
         let then_seq = self.build_sequence(ranges.then_branch, loops);
-        if let (Some(cond_entry), Some(then_entry)) = (entry, then_seq.entry) {
+        if false_exits.is_empty()
+            && let Some(cause) = false_cause
+        {
+            self.mark_unreachable_blocks_since(then_start, cause);
+        }
+        if let (Some(_cond_entry), Some(then_entry)) = (entry, then_seq.entry) {
             for exit in &condition_seq.exits {
                 self.add_edge(*exit, then_entry, EdgeKind::ConditionalTrue);
             }
-            if condition_seq.exits.is_empty() {
-                self.add_edge(cond_entry, then_entry, EdgeKind::ConditionalTrue);
-            }
         }
 
-        let mut branch_exits = then_seq.exits;
+        let then_reachable = !condition_seq.exits.is_empty();
+        let mut branch_exits = if then_reachable {
+            then_seq.exits
+        } else {
+            Vec::new()
+        };
+        let mut branch_cause = if then_reachable && branch_exits.is_empty() {
+            then_seq.terminal_cause
+        } else {
+            None
+        };
 
         for elif_branch in self.program.elif_branches(ranges.elif_branches) {
+            let elif_reachable = !false_exits.is_empty();
+            let elif_start = self.blocks.len();
             let elif_cond = self.build_sequence(elif_branch.condition, loops);
+            if false_exits.is_empty()
+                && let Some(cause) = false_cause
+            {
+                self.mark_unreachable_blocks_since(elif_start, cause);
+            }
             if let Some(elif_entry) = elif_cond.entry {
                 for exit in &false_exits {
                     self.add_edge(*exit, elif_entry, EdgeKind::ConditionalFalse);
                 }
             }
 
+            let elif_body_start = self.blocks.len();
             let elif_body_seq = self.build_sequence(elif_branch.body, loops);
+            let elif_body_reachable = elif_reachable && !elif_cond.exits.is_empty();
+            let elif_cond_cause = elif_cond
+                .exits
+                .is_empty()
+                .then_some(elif_cond.terminal_cause)
+                .flatten();
+            let elif_body_unreachable_cause = if elif_reachable {
+                elif_cond_cause
+            } else {
+                false_cause
+            };
+            if !elif_body_reachable && let Some(cause) = elif_body_unreachable_cause {
+                self.mark_unreachable_blocks_since(elif_body_start, cause);
+            }
             if let Some(body_entry) = elif_body_seq.entry {
                 for exit in &elif_cond.exits {
                     self.add_edge(*exit, body_entry, EdgeKind::ConditionalTrue);
                 }
             }
 
-            false_exits = elif_cond.exits;
-            branch_exits.extend(elif_body_seq.exits);
+            false_exits = if elif_reachable {
+                elif_cond.exits
+            } else {
+                Vec::new()
+            };
+            false_cause = if false_exits.is_empty() {
+                if elif_reachable {
+                    elif_cond_cause
+                } else {
+                    false_cause
+                }
+            } else {
+                None
+            };
+            let elif_body_cause = elif_body_seq
+                .exits
+                .is_empty()
+                .then_some(elif_body_seq.terminal_cause)
+                .flatten();
+            if elif_body_reachable {
+                append_unique_block_ids(&mut branch_exits, &elif_body_seq.exits);
+                branch_cause = if branch_exits.is_empty() {
+                    merge_terminal_causes(
+                        self.program.command(command).span,
+                        [branch_cause, elif_body_cause],
+                    )
+                } else {
+                    None
+                };
+            }
         }
 
+        let else_reachable = !false_exits.is_empty();
+        let else_start = self.blocks.len();
         let else_seq = self.build_sequence(ranges.else_branch, loops);
+        if false_exits.is_empty()
+            && let Some(cause) = false_cause
+        {
+            self.mark_unreachable_blocks_since(else_start, cause);
+        }
         if let Some(else_entry) = else_seq.entry {
             for exit in &false_exits {
                 self.add_edge(*exit, else_entry, EdgeKind::ConditionalFalse);
             }
-            branch_exits.extend(else_seq.exits);
+            if else_reachable {
+                let else_cause = else_seq
+                    .exits
+                    .is_empty()
+                    .then_some(else_seq.terminal_cause)
+                    .flatten();
+                append_unique_block_ids(&mut branch_exits, &else_seq.exits);
+                branch_cause = if branch_exits.is_empty() {
+                    merge_terminal_causes(
+                        self.program.command(command).span,
+                        [branch_cause, else_cause],
+                    )
+                } else {
+                    None
+                };
+            } else if branch_exits.is_empty() {
+                branch_cause = merge_terminal_causes(
+                    self.program.command(command).span,
+                    [branch_cause, false_cause],
+                );
+            } else {
+                branch_cause = None;
+            }
         } else {
             branch_exits.extend(false_exits);
+            if branch_exits.is_empty() {
+                branch_cause = merge_terminal_causes(
+                    self.program.command(command).span,
+                    [branch_cause, false_cause],
+                );
+            } else {
+                branch_cause = None;
+            }
         }
 
         self.wrap_sequence_with_command_header(
@@ -1497,6 +1795,7 @@ impl<'a> GraphBuilder<'a> {
             SequenceResult {
                 entry,
                 exits: branch_exits,
+                terminal_cause: branch_cause,
             },
             loops,
             force_command_header,
@@ -1558,6 +1857,7 @@ impl<'a> GraphBuilder<'a> {
             SequenceResult {
                 entry,
                 exits: vec![exit_block],
+                terminal_cause: None,
             },
             loops,
             force_command_header,
@@ -1592,6 +1892,7 @@ impl<'a> GraphBuilder<'a> {
         SequenceResult {
             entry: Some(header),
             exits: vec![exit_block],
+            terminal_cause: None,
         }
     }
 
@@ -1687,6 +1988,7 @@ impl<'a> GraphBuilder<'a> {
         SequenceResult {
             entry: Some(head),
             exits: vec![exit_block],
+            terminal_cause: None,
         }
     }
 

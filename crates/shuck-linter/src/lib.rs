@@ -3903,6 +3903,69 @@ main() {
     }
 
     #[test]
+    fn unreachable_after_exit_reports_condition_body_after_terminating_condition() {
+        let source = "\
+#!/bin/bash
+if exit 0; then
+  printf '%s\\n' never
+fi
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "printf '%s\\n' never");
+    }
+
+    #[test]
+    fn unreachable_after_exit_includes_redirects_but_not_statement_terminators() {
+        let source = "\
+#!/bin/bash
+exit 0
+while read -r item; do
+  printf '%s\\n' \"$item\"
+done < input.txt;
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "while read -r item; do\n  printf '%s\\n' \"$item\"\ndone < input.txt"
+        );
+    }
+
+    #[test]
+    fn unreachable_after_exit_ignores_loop_control_only_dead_code() {
+        let source = "\
+#!/bin/bash
+while true; do
+  break; printf '%s\\n' after_break
+done
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn unreachable_after_exit_ignores_loop_control_if_branches_and_following_code() {
+        let source = "\
+#!/bin/bash
+while true; do
+  if break; then
+    printf '%s\\n' after_true
+  else
+    printf '%s\\n' after_false
+  fi
+  printf '%s\\n' after_if
+done
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn unreachable_after_exit_reports_after_brace_group_defined_exit_helpers() {
         let source = "\
 #!/bin/bash

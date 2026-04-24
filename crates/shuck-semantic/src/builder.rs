@@ -102,6 +102,21 @@ pub(crate) struct SemanticModelBuilder<'a, 'observer> {
     defaulting_parameter_operand_depth: u32,
 }
 
+fn semantic_statement_span(stmt: &Stmt) -> Span {
+    let mut end = stmt
+        .terminator_span
+        .filter(|terminator| terminator.end.offset == stmt.span.end.offset)
+        .map_or(stmt.span.end, |terminator| terminator.start);
+
+    for redirect in stmt.redirects.iter() {
+        if redirect.span.end.offset > end.offset {
+            end = redirect.span.end;
+        }
+    }
+
+    Span::from_positions(stmt.span.start, end)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 struct FlowState {
     in_function: bool,
@@ -276,7 +291,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     }
 
     fn visit_stmt(&mut self, stmt: &'a Stmt, flow: FlowState) -> RecordedCommandId {
-        let span = stmt.span;
+        let span = semantic_statement_span(stmt);
         let scope = self.current_scope();
         let context = Self::flow_context(flow);
         self.flow_contexts.push((span, context.clone()));
