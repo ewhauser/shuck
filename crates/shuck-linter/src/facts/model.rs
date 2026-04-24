@@ -1,5 +1,6 @@
 pub struct LinterFacts<'a> {
     source: &'a str,
+    shell: ShellDialect,
     commands: Vec<CommandFact<'a>>,
     structural_command_ids: Vec<CommandId>,
     #[cfg_attr(not(test), allow(dead_code))]
@@ -484,6 +485,7 @@ impl<'a> LinterFacts<'a> {
             .brace_syntax()
             .iter()
             .copied()
+            .filter(|_| shell_has_brace_expansion(self.shell))
             .filter(|brace| brace.expands())
             .map(|brace| brace.span)
             .collect::<Vec<_>>();
@@ -865,6 +867,13 @@ impl<'a> LinterFacts<'a> {
     pub fn conditional_portability(&self) -> &ConditionalPortabilityFacts {
         &self.conditional_portability
     }
+}
+
+fn shell_has_brace_expansion(shell: ShellDialect) -> bool {
+    matches!(
+        shell,
+        ShellDialect::Bash | ShellDialect::Ksh | ShellDialect::Mksh | ShellDialect::Zsh
+    )
 }
 
 fn assignment_value_span(value: &AssignmentValue) -> Option<Span> {
