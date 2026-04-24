@@ -1108,6 +1108,34 @@ set_flag() {
     }
 
     #[test]
+    fn sourced_zsh_helper_imports_bindings_after_zsh_only_syntax() {
+        let temp = tempdir().unwrap();
+        let main = temp.path().join("main.zsh");
+        let helper = temp.path().join("helper.zsh");
+        fs::write(
+            &main,
+            "\
+#!/bin/zsh
+. ./helper.zsh
+print \"$helper_value\"
+",
+        )
+        .unwrap();
+        fs::write(
+            &helper,
+            "\
+#!/bin/zsh
+repeat 1; do print loaded; done
+helper_value=ready
+",
+        )
+        .unwrap();
+
+        let diagnostics = lint_path_for_rule(&main, Rule::UndefinedVariable);
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
     fn sourced_helper_reads_keep_c150_live_for_subshell_assignments() {
         let temp = tempdir().unwrap();
         let main = temp.path().join("main.sh");

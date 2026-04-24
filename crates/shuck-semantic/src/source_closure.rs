@@ -9,12 +9,13 @@ use shuck_ast::{
 };
 use shuck_indexer::Indexer;
 use shuck_parser::parser::Parser;
+use shuck_parser::{ShellDialect as ParseShellDialect, ShellProfile, ZshOptionState};
 
 use crate::{
     Binding, BindingId, BindingKind, ContractCertainty, FileContract, FunctionContract,
     FunctionScopeKind, ProvidedBinding, ProvidedBindingKind, ScopeId, ScopeKind, SemanticModel,
     SourcePathResolver, SourceRefDiagnosticClass, SourceRefKind, SourceRefResolution, SpanKey,
-    SyntheticRead, build_semantic_model_base,
+    SyntheticRead, build_semantic_model_base, infer_explicit_parse_dialect_from_source,
 };
 
 #[derive(Debug, Clone)]
@@ -35,10 +36,32 @@ type SourceClosureContractResult = (
     Vec<SourceRefDiagnosticClass>,
 );
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct SourceClosureLookupContext<'a> {
     source_path_resolver: Option<&'a (dyn SourcePathResolver + Send + Sync)>,
     analyzed_paths: Option<&'a FxHashSet<PathBuf>>,
+    shell_profile: ShellProfile,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct HelperSummaryKey {
+    path: PathBuf,
+    shell_profile: ShellProfileKey,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct ShellProfileKey {
+    dialect: ParseShellDialect,
+    options: Option<ZshOptionState>,
+}
+
+impl ShellProfileKey {
+    fn from_profile(profile: &ShellProfile) -> Self {
+        Self {
+            dialect: profile.dialect,
+            options: profile.options.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -71,6 +94,7 @@ pub(crate) fn collect_source_closure_contracts(
     let context = SourceClosureLookupContext {
         source_path_resolver,
         analyzed_paths,
+        shell_profile: model.shell_profile().clone(),
     };
     let contracts = collect_source_closure_contracts_with_cache(
         model,
@@ -79,7 +103,7 @@ pub(crate) fn collect_source_closure_contracts(
         source_path,
         &mut summaries,
         &mut active,
-        context,
+        &context,
     );
     (
         contracts.synthetic_reads,
@@ -95,9 +119,9 @@ fn collect_source_closure_contracts_with_cache(
     _file: &File,
     _source: &str,
     source_path: &Path,
-    summaries: &mut FxHashMap<PathBuf, FileContract>,
-    active: &mut FxHashSet<PathBuf>,
-    context: SourceClosureLookupContext<'_>,
+    summaries: &mut FxHashMap<HelperSummaryKey, FileContract>,
+    active: &mut FxHashSet<HelperSummaryKey>,
+    context: &SourceClosureLookupContext<'_>,
 ) -> SourceClosureContracts {
     let facts = collect_ast_facts(model);
     let call_args_by_scope = resolve_literal_call_args_by_scope(model, &facts.calls);
@@ -208,9 +232,9 @@ fn collect_source_closure_contracts_with_cache(
 fn merge_contracts_for_candidates(
     source_path: &Path,
     candidates: impl IntoIterator<Item = String>,
-    summaries: &mut FxHashMap<PathBuf, FileContract>,
-    active: &mut FxHashSet<PathBuf>,
-    context: SourceClosureLookupContext<'_>,
+    summaries: &mut FxHashMap<HelperSummaryKey, FileContract>,
+    active: &mut FxHashSet<HelperSummaryKey>,
+    context: &SourceClosureLookupContext<'_>,
 ) -> (FileContract, bool, bool) {
     let mut contracts = Vec::new();
     let mut resolved = false;
@@ -226,12 +250,7 @@ fn merge_contracts_for_candidates(
             })
         });
         for resolved_path in resolved_paths {
-            contracts.push(summarize_helper(
-                &resolved_path,
-                summaries,
-                active,
-                context.source_path_resolver,
-            ));
+            contracts.push(summarize_helper(&resolved_path, summaries, active, context));
         }
     }
     (
@@ -1086,11 +1105,19 @@ fn candidate_path_variants(candidate: &str) -> Vec<PathBuf> {
 
 fn summarize_helper(
     path: &Path,
-    summaries: &mut FxHashMap<PathBuf, FileContract>,
-    active: &mut FxHashSet<PathBuf>,
-    source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
+    summaries: &mut FxHashMap<HelperSummaryKey, FileContract>,
+    active: &mut FxHashSet<HelperSummaryKey>,
+    context: &SourceClosureLookupContext<'_>,
 ) -> FileContract {
-    let key = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let canonical_path = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let Ok(source) = fs::read_to_string(&canonical_path) else {
+        return FileContract::default();
+    };
+    let shell_profile = helper_shell_profile(&source, &canonical_path, &context.shell_profile);
+    let key = HelperSummaryKey {
+        path: canonical_path.clone(),
+        shell_profile: ShellProfileKey::from_profile(&shell_profile),
+    };
     if let Some(summary) = summaries.get(&key) {
         return summary.clone();
     }
@@ -1098,7 +1125,14 @@ fn summarize_helper(
         return FileContract::default();
     }
 
-    let summary = summarize_helper_uncached(&key, summaries, active, source_path_resolver);
+    let summary = summarize_helper_uncached(
+        &canonical_path,
+        &source,
+        shell_profile,
+        summaries,
+        active,
+        context.source_path_resolver,
+    );
     active.remove(&key);
     summaries.insert(key, summary.clone());
     summary
@@ -1106,37 +1140,37 @@ fn summarize_helper(
 
 fn summarize_helper_uncached(
     path: &Path,
-    summaries: &mut FxHashMap<PathBuf, FileContract>,
-    active: &mut FxHashSet<PathBuf>,
+    source: &str,
+    shell_profile: ShellProfile,
+    summaries: &mut FxHashMap<HelperSummaryKey, FileContract>,
+    active: &mut FxHashSet<HelperSummaryKey>,
     source_path_resolver: Option<&(dyn SourcePathResolver + Send + Sync)>,
 ) -> FileContract {
-    let Ok(source) = fs::read_to_string(path) else {
-        return FileContract::default();
-    };
-    let output = Parser::new(&source).parse();
+    let output = Parser::with_profile(source, shell_profile.clone()).parse();
     if output.is_err() {
         return FileContract::default();
     }
-    let indexer = Indexer::new(&source, &output);
+    let indexer = Indexer::new(source, &output);
     let mut observer = crate::NoopTraversalObserver;
     let mut semantic = build_semantic_model_base(
         &output.file,
-        &source,
+        source,
         &indexer,
         &mut observer,
         Some(path),
-        None,
+        Some(shell_profile.clone()),
     );
     let collected = collect_source_closure_contracts_with_cache(
         &semantic,
         &output.file,
-        &source,
+        source,
         path,
         summaries,
         active,
-        SourceClosureLookupContext {
+        &SourceClosureLookupContext {
             source_path_resolver,
             analyzed_paths: None,
+            shell_profile,
         },
     );
     semantic.apply_source_contracts(
@@ -1166,6 +1200,12 @@ fn summarize_helper_uncached(
         contract.add_provided_function(function);
     }
     contract
+}
+
+fn helper_shell_profile(source: &str, path: &Path, inherited: &ShellProfile) -> ShellProfile {
+    infer_explicit_parse_dialect_from_source(source, Some(path))
+        .map(ShellProfile::native)
+        .unwrap_or_else(|| inherited.clone())
 }
 
 fn summarize_scope_body_contract(
