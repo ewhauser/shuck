@@ -1737,7 +1737,9 @@ fn contains_positional_parameter_reference(value: &str) -> bool {
 
     while let Some(byte) = bytes.get(index).copied() {
         match byte {
-            b'\'' if !in_double_quotes => {
+            b'\'' if !in_double_quotes
+                && (in_single_quotes || !is_escaped_dollar(value, index)) =>
+            {
                 in_single_quotes = !in_single_quotes;
                 index += 1;
                 continue;
@@ -6895,6 +6897,18 @@ mod word_classification_tests {
 
     fn parse_commands(source: &str) -> StmtSeq {
         Parser::new(source).parse().unwrap().file.body
+    }
+
+    #[test]
+    fn detects_alias_positional_parameters_with_runtime_quote_state() {
+        assert!(contains_positional_parameter_reference("echo $1"));
+        assert!(contains_positional_parameter_reference("echo \"${1}\""));
+        assert!(contains_positional_parameter_reference(r"echo \$$1"));
+        assert!(contains_positional_parameter_reference(r"echo \'$1"));
+        assert!(!contains_positional_parameter_reference(r"echo \$1"));
+        assert!(!contains_positional_parameter_reference(r"echo \${1}"));
+        assert!(!contains_positional_parameter_reference("echo '$1'"));
+        assert!(!contains_positional_parameter_reference("echo $$1"));
     }
 
     #[test]
