@@ -621,6 +621,18 @@ done
     }
 
     #[test]
+    fn eval_escaped_dollar_payloads_do_not_keep_assignments_live() {
+        let source = r#"#!/bin/bash
+foo=1
+eval "echo \\\$foo"
+"#;
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnusedAssignment));
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "foo");
+    }
+
+    #[test]
     fn variable_set_array_tests_keep_target_family_live() {
         let source = "\
 #!/bin/bash

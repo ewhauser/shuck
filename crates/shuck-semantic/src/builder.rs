@@ -3702,6 +3702,9 @@ fn scan_parameter_reference_names(text: &str, span: Span) -> Vec<(Name, Span)> {
         if ch != '$' {
             continue;
         }
+        if dollar_stays_escaped_after_eval_decode(text, index) {
+            continue;
+        }
 
         let after_dollar = index + ch.len_utf8();
         let Some((name_start, name_end)) = parameter_name_bounds_after_dollar(text, after_dollar)
@@ -3716,6 +3719,16 @@ fn scan_parameter_reference_names(text: &str, span: Span) -> Vec<(Name, Span)> {
         ));
     }
     references
+}
+
+fn dollar_stays_escaped_after_eval_decode(text: &str, dollar_offset: usize) -> bool {
+    let preceding_backslashes = text[..dollar_offset]
+        .chars()
+        .rev()
+        .take_while(|ch| *ch == '\\')
+        .count();
+
+    preceding_backslashes % 4 == 3
 }
 
 fn parameter_name_bounds_after_dollar(text: &str, after_dollar: usize) -> Option<(usize, usize)> {
