@@ -2171,10 +2171,7 @@ impl<'a> Parser<'a> {
             WordPart::Literal(text) => HeredocBodyPart::Literal(text),
             WordPart::Variable(name) => HeredocBodyPart::Variable(name),
             WordPart::CommandSubstitution { body, syntax } => {
-                HeredocBodyPart::CommandSubstitution {
-                    body: *body,
-                    syntax,
-                }
+                HeredocBodyPart::CommandSubstitution { body, syntax }
             }
             WordPart::ArithmeticExpansion {
                 expression,
@@ -2183,8 +2180,8 @@ impl<'a> Parser<'a> {
                 syntax,
             } => HeredocBodyPart::ArithmeticExpansion {
                 expression,
-                expression_ast: expression_ast.map(|expression| *expression),
-                expression_word_ast: *expression_word_ast,
+                expression_ast,
+                expression_word_ast,
                 syntax,
             },
             WordPart::Parameter(parameter) => HeredocBodyPart::Parameter(parameter),

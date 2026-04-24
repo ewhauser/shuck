@@ -766,7 +766,7 @@ fn analyze_parameter_part(
                     ),
                     runtime_pattern: operator
                         .as_ref()
-                        .is_some_and(|operator| parameter_operator_uses_pattern(operator)),
+                        .is_some_and(parameter_operator_uses_pattern),
                     ..ExpansionHazards::default()
                 },
                 command_substitution: false,

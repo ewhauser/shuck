@@ -2267,10 +2267,10 @@ impl<'a> Parser<'a> {
         let value_word = self.split_word_at(word, value_start);
 
         let value = if value_word.parts.is_empty() {
-            AssignmentValue::Scalar(Word::literal_with_span(
+            AssignmentValue::Scalar(Box::new(Word::literal_with_span(
                 "",
                 Span::from_positions(value_start, assignment_span.end),
-            ))
+            )))
         } else if let Some((inner, inner_start)) = self
             .compound_array_inner_text(&value_word)
             .map(|(inner, inner_start)| (inner.into_owned(), inner_start))
@@ -2281,7 +2281,7 @@ impl<'a> Parser<'a> {
                 explicit_array_kind,
             ))
         } else {
-            AssignmentValue::Scalar(value_word)
+            AssignmentValue::Scalar(Box::new(value_word))
         };
 
         Some(Assignment {
@@ -2736,7 +2736,9 @@ impl<'a> Parser<'a> {
             return Some((
                 Assignment {
                     target,
-                    value: AssignmentValue::Scalar(Word::literal_with_span("", value_span)),
+                    value: AssignmentValue::Scalar(Box::new(Word::literal_with_span(
+                        "", value_span,
+                    ))),
                     append: is_append,
                     span: assignment_span,
                 },

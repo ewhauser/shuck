@@ -2391,13 +2391,13 @@ pub enum HeredocBodyPart {
     Literal(LiteralText),
     Variable(Name),
     CommandSubstitution {
-        body: StmtSeq,
+        body: Box<StmtSeq>,
         syntax: CommandSubstitutionSyntax,
     },
     ArithmeticExpansion {
         expression: SourceText,
-        expression_ast: Option<ArithmeticExprNode>,
-        expression_word_ast: Word,
+        expression_ast: Option<Box<ArithmeticExprNode>>,
+        expression_word_ast: Box<Word>,
         syntax: ArithmeticExpansionSyntax,
     },
     Parameter(Box<ParameterExpansion>),
@@ -3853,7 +3853,7 @@ pub struct Assignment {
 #[derive(Debug, Clone)]
 pub enum AssignmentValue {
     /// Scalar value: VAR=value
-    Scalar(Word),
+    Scalar(Box<Word>),
     /// Array value: VAR=(a b c)
     Compound(ArrayExpr),
 }
@@ -4829,7 +4829,7 @@ mod tests {
         let cmd = SimpleCommand {
             assignments: vec![assignment(
                 plain_ref("FOO"),
-                AssignmentValue::Scalar(Word::literal("bar")),
+                AssignmentValue::Scalar(Box::new(Word::literal("bar"))),
             )],
             ..simple_command("env", vec![])
         };
@@ -4866,7 +4866,7 @@ mod tests {
                 extra_args: vec![],
                 assignments: vec![assignment(
                     plain_ref("FOO"),
-                    AssignmentValue::Scalar(Word::literal("bar")),
+                    AssignmentValue::Scalar(Box::new(Word::literal("bar"))),
                 )],
                 span: Span::new(),
             })),
@@ -5021,7 +5021,10 @@ mod tests {
 
     #[test]
     fn assignment_scalar() {
-        let a = assignment(plain_ref("X"), AssignmentValue::Scalar(Word::literal("1")));
+        let a = assignment(
+            plain_ref("X"),
+            AssignmentValue::Scalar(Box::new(Word::literal("1"))),
+        );
         assert_eq!(a.target.name, "X");
         assert!(a.target.subscript.is_none());
         assert!(!a.append);
@@ -5052,7 +5055,7 @@ mod tests {
     fn assignment_append() {
         let mut a = assignment(
             plain_ref("PATH"),
-            AssignmentValue::Scalar(Word::literal("/usr/bin")),
+            AssignmentValue::Scalar(Box::new(Word::literal("/usr/bin"))),
         );
         a.append = true;
         assert!(a.append);
@@ -5062,7 +5065,7 @@ mod tests {
     fn assignment_indexed() {
         let a = assignment(
             indexed_ref("arr", "0"),
-            AssignmentValue::Scalar(Word::literal("val")),
+            AssignmentValue::Scalar(Box::new(Word::literal("val"))),
         );
         assert_eq!(
             a.target

@@ -401,7 +401,7 @@ fn collect_heredoc_body_substitution_occurrences<'a>(
     for part in parts {
         match &part.kind {
             shuck_ast::HeredocBodyPart::ArithmeticExpansion { expression_ast, .. } => {
-                visit_arithmetic_words_in_expression(expression_ast.as_ref(), false, occurrences);
+                visit_arithmetic_words_in_expression(expression_ast.as_deref(), false, occurrences);
             }
             shuck_ast::HeredocBodyPart::CommandSubstitution { body, syntax } => {
                 occurrences.push(SubstitutionOccurrence {

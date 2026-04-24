@@ -1653,7 +1653,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             }
             HeredocBodyPart::ArithmeticExpansion { expression_ast, .. } => {
                 self.visit_optional_arithmetic_expr_into(
-                    expression_ast.as_ref(),
+                    expression_ast.as_deref(),
                     flow,
                     nested_regions,
                 );

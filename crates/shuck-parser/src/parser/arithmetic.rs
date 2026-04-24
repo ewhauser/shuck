@@ -53,7 +53,7 @@ enum TokenKind {
     Tilde,
     Ident(Name),
     Number(SourceText),
-    ShellWord(Word),
+    ShellWord(Box<Word>),
 }
 
 #[derive(Debug, Clone)]
@@ -403,7 +403,7 @@ impl<'a> ArithmeticParser<'a> {
                 token.span,
             )),
             TokenKind::ShellWord(word) => Ok(ArithmeticExprNode::new(
-                ArithmeticExpr::ShellWord(Box::new(word)),
+                ArithmeticExpr::ShellWord(word),
                 token.span,
             )),
             TokenKind::End => {
@@ -731,7 +731,7 @@ impl<'a> ArithmeticParser<'a> {
         Parser::rebase_word(&mut word, self.position_at(start));
         self.index = end;
         Ok(Token {
-            kind: TokenKind::ShellWord(word),
+            kind: TokenKind::ShellWord(Box::new(word)),
             span: self.span_for(start, end),
         })
     }

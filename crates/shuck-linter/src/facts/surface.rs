@@ -933,7 +933,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                         .push(LegacyArithmeticFragmentFact { span: part.span });
                     collect_positional_parameter_operator_spans_in_arithmetic(
                         part.span,
-                        expression_ast.as_ref(),
+                        expression_ast.as_deref(),
                         expression,
                         self.source,
                         &mut self.facts.positional_parameter_operator_spans,
@@ -954,7 +954,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                 } => {
                     collect_positional_parameter_operator_spans_in_arithmetic(
                         part.span,
-                        expression_ast.as_ref(),
+                        expression_ast.as_deref(),
                         expression,
                         self.source,
                         &mut self.facts.positional_parameter_operator_spans,
