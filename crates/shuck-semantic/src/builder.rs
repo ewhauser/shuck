@@ -3711,35 +3711,143 @@ fn valid_direct_variable_subscript(text: &str) -> bool {
 }
 
 fn eval_argument_reference_names(word: &Word, source: &str) -> Vec<(Name, Span)> {
-    scan_parameter_reference_names(word.span.slice(source), word.span)
+    let source_text = word.span.slice(source);
+    let decoded = decode_eval_word_text(source_text);
+    scan_parameter_reference_names(
+        &decoded.text,
+        source_text,
+        &decoded.source_offsets,
+        word.span,
+    )
 }
 
-fn scan_parameter_reference_names(text: &str, span: Span) -> Vec<(Name, Span)> {
+struct DecodedEvalText {
+    text: String,
+    source_offsets: Vec<usize>,
+}
+
+impl DecodedEvalText {
+    fn push(&mut self, ch: char, source_offset: usize) {
+        self.text.push(ch);
+        self.source_offsets
+            .extend(std::iter::repeat_n(source_offset, ch.len_utf8()));
+    }
+}
+
+fn decode_eval_word_text(source_text: &str) -> DecodedEvalText {
+    let mut decoded = DecodedEvalText {
+        text: String::new(),
+        source_offsets: Vec::new(),
+    };
+    let mut chars = source_text.char_indices().peekable();
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+
+    while let Some((index, ch)) = chars.next() {
+        if in_single_quotes {
+            if ch == '\'' {
+                in_single_quotes = false;
+            }
+            continue;
+        }
+
+        if in_double_quotes {
+            match ch {
+                '"' => in_double_quotes = false,
+                '\\' => {
+                    if let Some(&(next_index, next_ch)) = chars.peek()
+                        && matches!(next_ch, '$' | '`' | '"' | '\\' | '\n')
+                    {
+                        chars.next();
+                        if next_ch != '\n' {
+                            decoded.push(next_ch, next_index);
+                        }
+                    } else {
+                        decoded.push(ch, index);
+                    }
+                }
+                _ => decoded.push(ch, index),
+            }
+            continue;
+        }
+
+        match ch {
+            '\'' => in_single_quotes = true,
+            '"' => in_double_quotes = true,
+            '\\' => {
+                if let Some((next_index, next_ch)) = chars.next() {
+                    if next_ch != '\n' {
+                        decoded.push(next_ch, next_index);
+                    }
+                } else {
+                    decoded.push(ch, index);
+                }
+            }
+            _ => decoded.push(ch, index),
+        }
+    }
+
+    decoded
+}
+
+fn scan_parameter_reference_names(
+    text: &str,
+    source_text: &str,
+    source_offsets: &[usize],
+    span: Span,
+) -> Vec<(Name, Span)> {
     let mut references = Vec::new();
     let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
     let mut in_comment = false;
-    for (index, ch) in text.char_indices() {
+    let mut escaped = false;
+    let mut chars = text.char_indices().peekable();
+    while let Some((index, ch)) = chars.next() {
         if in_comment {
             if ch == '\n' {
                 in_comment = false;
             }
             continue;
         }
-        if ch == '\'' {
-            in_single_quotes = !in_single_quotes;
+
+        if escaped {
+            escaped = false;
             continue;
         }
+
         if in_single_quotes {
+            if ch == '\'' {
+                in_single_quotes = false;
+            }
             continue;
         }
-        if ch == '#' && hash_starts_eval_comment(text, index) {
+
+        if ch == '\'' && !in_double_quotes {
+            in_single_quotes = true;
+            continue;
+        }
+        if ch == '"' {
+            in_double_quotes = !in_double_quotes;
+            continue;
+        }
+        if ch == '\\' {
+            if in_double_quotes {
+                if chars
+                    .peek()
+                    .is_some_and(|(_, next_ch)| matches!(next_ch, '$' | '`' | '"' | '\\' | '\n'))
+                {
+                    escaped = true;
+                }
+            } else {
+                escaped = true;
+            }
+            continue;
+        }
+        if !in_double_quotes && ch == '#' && hash_starts_eval_comment(text, index) {
             in_comment = true;
             continue;
         }
         if ch != '$' {
-            continue;
-        }
-        if dollar_stays_escaped_after_eval_decode(text, index) {
             continue;
         }
 
@@ -3749,33 +3857,25 @@ fn scan_parameter_reference_names(text: &str, span: Span) -> Vec<(Name, Span)> {
             continue;
         };
         let name = &text[name_start..name_end];
-        let start = span.start.advanced_by(&text[..name_start]);
+        let source_name_start = source_offsets[name_start];
+        let source_name_end = source_name_start + name.len();
+        let start = span.start.advanced_by(&source_text[..source_name_start]);
         references.push((
             Name::from(name),
-            Span::from_positions(start, start.advanced_by(name)),
+            Span::from_positions(
+                start,
+                start.advanced_by(&source_text[source_name_start..source_name_end]),
+            ),
         ));
     }
     references
 }
 
 fn hash_starts_eval_comment(text: &str, hash_offset: usize) -> bool {
-    for ch in text[..hash_offset].chars().rev() {
-        if ch == '"' {
-            continue;
-        }
+    if let Some(ch) = text[..hash_offset].chars().next_back() {
         return ch == '\n' || ch.is_whitespace() || matches!(ch, ';' | '&' | '|');
     }
     true
-}
-
-fn dollar_stays_escaped_after_eval_decode(text: &str, dollar_offset: usize) -> bool {
-    let preceding_backslashes = text[..dollar_offset]
-        .chars()
-        .rev()
-        .take_while(|ch| *ch == '\\')
-        .count();
-
-    preceding_backslashes % 4 == 3
 }
 
 fn parameter_name_bounds_after_dollar(text: &str, after_dollar: usize) -> Option<(usize, usize)> {

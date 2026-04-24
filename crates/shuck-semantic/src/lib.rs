@@ -7146,6 +7146,58 @@ eval \"$build\"
     }
 
     #[test]
+    fn eval_scan_keeps_apostrophe_inside_double_quotes_from_hiding_reads() {
+        let source = "foo=1\neval \"echo \\\"it's \\$foo\\\"\"\n";
+        let model = model(source);
+
+        let unused = reportable_unused_names(&model);
+        assert!(
+            !unused.contains(&Name::from("foo")),
+            "unused bindings: {:?}",
+            unused
+        );
+    }
+
+    #[test]
+    fn eval_scan_keeps_quoted_hash_from_starting_comment() {
+        let source = "foo=1\neval \"echo \\\"# \\$foo\\\"\"\n";
+        let model = model(source);
+
+        let unused = reportable_unused_names(&model);
+        assert!(
+            !unused.contains(&Name::from("foo")),
+            "unused bindings: {:?}",
+            unused
+        );
+    }
+
+    #[test]
+    fn eval_scan_treats_unquoted_hash_after_space_as_comment() {
+        let source = "foo=1\neval \"echo # \\$foo\"\n";
+        let model = model(source);
+
+        let unused = reportable_unused_names(&model);
+        assert!(
+            unused.contains(&Name::from("foo")),
+            "unused bindings: {:?}",
+            unused
+        );
+    }
+
+    #[test]
+    fn eval_scan_keeps_source_single_quoted_fragments_inert_for_c001() {
+        let source = "foo=1\neval 'echo \"$foo\"'\n";
+        let model = model(source);
+
+        let unused = reportable_unused_names(&model);
+        assert!(
+            unused.contains(&Name::from("foo")),
+            "unused bindings: {:?}",
+            unused
+        );
+    }
+
+    #[test]
     fn escaped_dollar_heredoc_body_stays_inert_with_source_closure_enabled() {
         let temp = tempdir().unwrap();
         let main = temp.path().join("main.sh");
