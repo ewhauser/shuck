@@ -1055,7 +1055,7 @@ fn test_parse_empty_arithmetic_command_keeps_span_without_typed_ast() {
 }
 
 #[test]
-fn test_parse_dynamic_arithmetic_command_keeps_compound_shape_without_typed_ast() {
+fn test_parse_dynamic_arithmetic_command_keeps_compound_shape_with_typed_ast() {
     let input = "((proc[selected]==(1${filter:++1})-proc[start]))\n";
     let script = Parser::new(input).parse().unwrap().file;
 
@@ -1071,7 +1071,42 @@ fn test_parse_dynamic_arithmetic_command_keeps_compound_shape_without_typed_ast(
         command.expr_span.unwrap().slice(input),
         "proc[selected]==(1${filter:++1})-proc[start]"
     );
-    assert!(command.expr_ast.is_none());
+
+    let expr = command
+        .expr_ast
+        .as_ref()
+        .expect("expected typed arithmetic AST");
+    let ArithmeticExpr::Binary { left, op, right } = &expr.kind else {
+        panic!("expected comparison expression");
+    };
+    assert_eq!(*op, ArithmeticBinaryOp::Equal);
+
+    let ArithmeticExpr::Indexed { name, index } = &left.kind else {
+        panic!("expected indexed left operand");
+    };
+    assert_eq!(name, "proc");
+    expect_variable(index, "selected");
+
+    let ArithmeticExpr::Binary {
+        left: subtract_left,
+        op: subtract_op,
+        right: subtract_right,
+    } = &right.kind
+    else {
+        panic!("expected subtraction on comparison right-hand side");
+    };
+    assert_eq!(*subtract_op, ArithmeticBinaryOp::Subtract);
+
+    let ArithmeticExpr::Parenthesized { expression } = &subtract_left.kind else {
+        panic!("expected grouped dynamic numeric literal");
+    };
+    expect_shell_word(expression, input, "1${filter:++1}");
+
+    let ArithmeticExpr::Indexed { name, index } = &subtract_right.kind else {
+        panic!("expected indexed right operand");
+    };
+    assert_eq!(name, "proc");
+    expect_variable(index, "start");
 }
 
 #[test]
