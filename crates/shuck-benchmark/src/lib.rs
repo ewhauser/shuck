@@ -6,6 +6,9 @@
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
+/// Allocation measurement helpers used by benchmark examples.
+pub mod memory;
+
 use shuck_parser::parser::{ParseResult, Parser};
 #[cfg(feature = "parser-benchmarking")]
 use shuck_parser::parser::{ParseStatus, ParserBenchmarkCounters};

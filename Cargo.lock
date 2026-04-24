@@ -1522,6 +1522,7 @@ dependencies = [
  "criterion",
  "serde",
  "serde_json",
+ "shuck-ast",
  "shuck-cli",
  "shuck-formatter",
  "shuck-indexer",

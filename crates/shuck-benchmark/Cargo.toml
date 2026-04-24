@@ -15,6 +15,7 @@ publish = false
 parser-benchmarking = ["shuck-parser/benchmarking"]
 
 [dependencies]
+shuck-ast = { workspace = true }
 shuck-formatter = { workspace = true, features = ["benchmarking"] }
 shuck-indexer = { workspace = true }
 shuck-linter = { workspace = true, features = ["benchmarking"] }
