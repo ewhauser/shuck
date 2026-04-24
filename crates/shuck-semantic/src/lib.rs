@@ -7363,6 +7363,28 @@ main() {
     }
 
     #[test]
+    fn sourceable_file_return_keeps_helper_exit_calls_non_terminating() {
+        let source = "\
+[ -n \"$loaded\" ] && return
+loaded=1
+exit_script() {
+  exit 0
+}
+main() {
+  exit_script
+  printf '%s\\n' still_reachable
+}
+";
+        let model = model(source);
+
+        assert!(
+            model.analysis().dead_code().is_empty(),
+            "dead code: {:?}",
+            model.analysis().dead_code()
+        );
+    }
+
+    #[test]
     fn brace_group_function_definitions_can_make_later_calls_terminating() {
         let source = "\
 {

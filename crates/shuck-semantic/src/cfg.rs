@@ -514,7 +514,10 @@ fn compute_script_terminating_call_spans(
     bindings: &[Binding],
     call_sites: &FxHashMap<Name, SmallVec<[CallSite; 2]>>,
 ) -> FxHashSet<SpanKey> {
-    if program.function_body_scopes.is_empty() || call_sites.is_empty() {
+    if program.function_body_scopes.is_empty()
+        || call_sites.is_empty()
+        || file_entry_can_return_before_function_definitions(program, bindings)
+    {
         return FxHashSet::default();
     }
 
@@ -557,6 +560,100 @@ fn compute_script_terminating_call_spans(
     }
 
     terminating_call_spans
+}
+
+fn file_entry_can_return_before_function_definitions(
+    program: &RecordedProgram,
+    bindings: &[Binding],
+) -> bool {
+    let Some(first_function_offset) = bindings
+        .iter()
+        .filter(|binding| matches!(binding.kind, BindingKind::FunctionDefinition))
+        .map(|binding| binding.span.start.offset)
+        .min()
+    else {
+        return false;
+    };
+
+    command_range_can_return_before(program, program.file_commands(), first_function_offset)
+}
+
+fn command_range_can_return_before(
+    program: &RecordedProgram,
+    commands: RecordedCommandRange,
+    before_offset: usize,
+) -> bool {
+    program
+        .commands_in(commands)
+        .iter()
+        .copied()
+        .any(|command| command_can_return_before(program, command, before_offset))
+}
+
+fn command_range_can_return(program: &RecordedProgram, commands: RecordedCommandRange) -> bool {
+    program
+        .commands_in(commands)
+        .iter()
+        .copied()
+        .any(|command| command_can_return(program, command))
+}
+
+fn command_can_return_before(
+    program: &RecordedProgram,
+    command_id: RecordedCommandId,
+    before_offset: usize,
+) -> bool {
+    let command = program.command(command_id);
+    if command.span.start.offset >= before_offset {
+        return false;
+    }
+
+    command_can_return(program, command_id)
+}
+
+fn command_can_return(program: &RecordedProgram, command_id: RecordedCommandId) -> bool {
+    match program.command(command_id).kind {
+        RecordedCommandKind::Return => true,
+        RecordedCommandKind::List { first, rest } => {
+            command_can_return(program, first)
+                || program
+                    .list_items(rest)
+                    .iter()
+                    .any(|item| command_can_return(program, item.command))
+        }
+        RecordedCommandKind::If {
+            condition,
+            then_branch,
+            elif_branches,
+            else_branch,
+        } => {
+            command_range_can_return(program, condition)
+                || command_range_can_return(program, then_branch)
+                || program.elif_branches(elif_branches).iter().any(|branch| {
+                    command_range_can_return(program, branch.condition)
+                        || command_range_can_return(program, branch.body)
+                })
+                || command_range_can_return(program, else_branch)
+        }
+        RecordedCommandKind::BraceGroup { body }
+        | RecordedCommandKind::For { body }
+        | RecordedCommandKind::Select { body }
+        | RecordedCommandKind::ArithmeticFor { body } => command_range_can_return(program, body),
+        RecordedCommandKind::While { condition, body }
+        | RecordedCommandKind::Until { condition, body } => {
+            command_range_can_return(program, condition) || command_range_can_return(program, body)
+        }
+        RecordedCommandKind::Case { arms } => program
+            .case_arms(arms)
+            .iter()
+            .any(|arm| command_range_can_return(program, arm.commands)),
+        RecordedCommandKind::Linear
+        | RecordedCommandKind::Break { .. }
+        | RecordedCommandKind::Continue { .. }
+        | RecordedCommandKind::Exit
+        | RecordedCommandKind::Subshell { .. }
+        | RecordedCommandKind::Pipeline { .. } => false,
+    }
 }
 
 fn resolve_script_terminating_call_spans(
