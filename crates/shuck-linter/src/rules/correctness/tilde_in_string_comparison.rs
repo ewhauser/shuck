@@ -129,6 +129,21 @@ mod tests {
     }
 
     #[test]
+    fn ignores_dollar_quoted_home_literals_to_match_oracle() {
+        let source = "\
+#!/bin/bash
+profile=$'~/.bashrc'
+fallback=$\"~/.profile\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::TildeInStringComparison),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn reports_quoted_tilde_literals_in_expanded_words() {
         let source = "\
 #!/bin/bash
