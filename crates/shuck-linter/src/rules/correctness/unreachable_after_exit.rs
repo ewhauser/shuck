@@ -1,6 +1,9 @@
 use crate::{Checker, CommandFact, ListFact, Rule, Violation, WrapperKind};
+use rustc_hash::{FxHashMap, FxHashSet};
 use shuck_ast::{Command as AstCommand, Name, Span};
-use shuck_semantic::{SemanticAnalysis, UnreachableCauseKind};
+use shuck_semantic::{
+    BindingId, BindingOrigin, ScopeId, ScopeKind, SemanticAnalysis, UnreachableCauseKind,
+};
 
 pub struct UnreachableAfterExit;
 
@@ -19,6 +22,7 @@ pub fn unreachable_after_exit(checker: &mut Checker) {
     let short_circuit_lists = checker.facts().lists();
     let commands = checker.facts().commands();
     let semantic_analysis = checker.semantic_analysis();
+    let unreached_function_spans = unreached_function_definition_spans(checker);
     let unreachable_spans = outermost_unreachable_spans(
         semantic_analysis
             .dead_code()
@@ -31,7 +35,7 @@ pub fn unreachable_after_exit(checker: &mut Checker) {
                     short_circuit_lists,
                     commands,
                     semantic_analysis,
-                )
+                ) && !span_is_inside_unreached_function(*span, &unreached_function_spans)
             })
             .collect::<Vec<_>>(),
     );
@@ -42,6 +46,201 @@ pub fn unreachable_after_exit(checker: &mut Checker) {
     {
         checker.report(UnreachableAfterExit, span);
     }
+}
+
+fn unreached_function_definition_spans(checker: &Checker<'_>) -> Vec<Span> {
+    let mut spans = Vec::new();
+
+    if file_has_file_scope_exit(checker) {
+        spans.extend(
+            checker
+                .semantic_analysis()
+                .unreached_functions()
+                .iter()
+                .filter_map(|unreached| function_definition_span(checker, unreached.binding)),
+        );
+    }
+
+    if file_has_top_level_exit_command(checker) {
+        spans.extend(statically_unreached_function_definition_spans(checker));
+    }
+
+    spans.sort_by_key(|span| (span.start.offset, span.end.offset));
+    spans.dedup();
+    spans
+}
+
+fn statically_unreached_function_definition_spans(checker: &Checker<'_>) -> Vec<Span> {
+    let scope_bindings = function_bindings_by_scope(checker);
+    let reachable = statically_reachable_function_bindings(checker, &scope_bindings);
+
+    checker
+        .facts()
+        .function_headers()
+        .iter()
+        .filter_map(|header| {
+            let binding = header.binding_id()?;
+            if !function_definition_is_in_file_scope(checker, binding) {
+                return None;
+            }
+            if reachable.contains(&binding) {
+                return None;
+            }
+            function_definition_span(checker, binding)
+        })
+        .collect()
+}
+
+fn statically_reachable_function_bindings(
+    checker: &Checker<'_>,
+    scope_bindings: &FxHashMap<ScopeId, BindingId>,
+) -> FxHashSet<BindingId> {
+    let mut calls_by_caller = FxHashMap::<Option<BindingId>, Vec<StaticFunctionCall>>::default();
+
+    for command in checker.facts().commands() {
+        let Some(name) = command.effective_or_literal_name() else {
+            continue;
+        };
+        let Some(name_span) = command.body_word_span() else {
+            continue;
+        };
+        let name = Name::from(name);
+        let Some(callee) = checker
+            .semantic_analysis()
+            .visible_function_binding_at_call(&name, name_span)
+        else {
+            continue;
+        };
+        let caller = enclosing_function_binding(checker, scope_bindings, name_span);
+        calls_by_caller
+            .entry(caller)
+            .or_default()
+            .push(StaticFunctionCall { callee, name_span });
+    }
+
+    let mut reachable = FxHashSet::default();
+    let mut latest_entry_offsets = FxHashMap::<BindingId, usize>::default();
+    let mut worklist = calls_by_caller
+        .remove(&None)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|call| {
+            static_call_can_resolve_at_entry(
+                checker,
+                call.callee,
+                call.name_span,
+                call.name_span.start.offset,
+            )
+            .then_some((call.callee, call.name_span.start.offset))
+        })
+        .collect::<Vec<_>>();
+
+    while let Some((binding, entry_offset)) = worklist.pop() {
+        if latest_entry_offsets
+            .get(&binding)
+            .is_some_and(|latest_entry| *latest_entry >= entry_offset)
+        {
+            continue;
+        }
+        latest_entry_offsets.insert(binding, entry_offset);
+        reachable.insert(binding);
+
+        if let Some(callees) = calls_by_caller.get(&Some(binding)) {
+            worklist.extend(callees.iter().filter_map(|call| {
+                static_call_can_resolve_at_entry(checker, call.callee, call.name_span, entry_offset)
+                    .then_some((call.callee, entry_offset))
+            }));
+        }
+    }
+
+    reachable
+}
+
+#[derive(Clone, Copy)]
+struct StaticFunctionCall {
+    callee: BindingId,
+    name_span: Span,
+}
+
+fn static_call_can_resolve_at_entry(
+    checker: &Checker<'_>,
+    callee: BindingId,
+    name_span: Span,
+    entry_offset: usize,
+) -> bool {
+    let callee_binding = checker.semantic().binding(callee);
+    name_span.start.offset >= callee_binding.span.start.offset
+        || (matches!(
+            checker.semantic().scope(callee_binding.scope).kind,
+            ScopeKind::File
+        ) && entry_offset >= callee_binding.span.start.offset)
+}
+
+fn function_bindings_by_scope(checker: &Checker<'_>) -> FxHashMap<ScopeId, BindingId> {
+    checker
+        .facts()
+        .function_headers()
+        .iter()
+        .filter_map(|header| Some((header.function_scope()?, header.binding_id()?)))
+        .collect()
+}
+
+fn enclosing_function_binding(
+    checker: &Checker<'_>,
+    scope_bindings: &FxHashMap<ScopeId, BindingId>,
+    span: Span,
+) -> Option<BindingId> {
+    let scope = checker.semantic().scope_at(span.start.offset);
+    checker
+        .semantic()
+        .ancestor_scopes(scope)
+        .find_map(|scope| scope_bindings.get(&scope).copied())
+}
+
+fn function_definition_span(
+    checker: &Checker<'_>,
+    binding: shuck_semantic::BindingId,
+) -> Option<Span> {
+    let binding = checker.semantic().binding(binding);
+    match binding.origin {
+        BindingOrigin::FunctionDefinition { definition_span } => Some(definition_span),
+        _ => None,
+    }
+}
+
+fn function_definition_is_in_file_scope(checker: &Checker<'_>, binding: BindingId) -> bool {
+    let binding = checker.semantic().binding(binding);
+    matches!(
+        checker.semantic().scope(binding.scope).kind,
+        ScopeKind::File
+    )
+}
+
+fn file_has_file_scope_exit(checker: &Checker<'_>) -> bool {
+    checker.facts().commands().iter().any(|command| {
+        command.effective_or_literal_name() == Some("exit")
+            && checker
+                .semantic()
+                .flow_context_at(&command.stmt().span)
+                .is_some_and(|context| !context.in_function && !context.in_subshell)
+    })
+}
+
+fn file_has_top_level_exit_command(checker: &Checker<'_>) -> bool {
+    checker.facts().commands().iter().any(|command| {
+        command.effective_or_literal_name() == Some("exit")
+            && checker.facts().command_parent_id(command.id()).is_none()
+            && checker
+                .semantic()
+                .flow_context_at(&command.stmt().span)
+                .is_some_and(|context| !context.in_function && !context.in_subshell)
+    })
+}
+
+fn span_is_inside_unreached_function(span: Span, function_spans: &[Span]) -> bool {
+    function_spans.iter().any(|function| {
+        function.start.offset < span.start.offset && span.end.offset <= function.end.offset
+    })
 }
 
 fn span_matches_short_circuit_skip(

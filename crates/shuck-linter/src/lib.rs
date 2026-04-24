@@ -4463,6 +4463,167 @@ main() {
     }
 
     #[test]
+    fn unreachable_after_exit_ignores_helper_exit_calls_in_sourceable_files() {
+        let source = "\
+#!/bin/sh
+[ -n \"$loaded\" ] && return
+loaded=1
+exit_script() {
+  exit 0
+}
+main() {
+  exit_script
+  printf '%s\\n' still_reachable
+}
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn unreachable_after_exit_ignores_statements_inside_unreached_functions() {
+        let source = "\
+#!/bin/bash
+helper() {
+  return 0
+  printf '%s\\n' unreachable_inside_unreached_function
+}
+exit 0
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn unreachable_after_exit_ignores_dynamic_dispatch_only_functions_before_exit() {
+        let source = "\
+#!/bin/bash
+dispatch() {
+  \"$command\"
+}
+helper() {
+  return 0
+  printf '%s\\n' unreachable_inside_dynamic_target
+}
+dispatch
+exit 0
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn unreachable_after_exit_reports_inside_transitively_called_functions_before_exit() {
+        let source = "\
+#!/bin/bash
+helper() {
+  return 0
+  printf '%s\\n' still_reported
+}
+main() {
+  helper
+}
+main
+exit 0
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "printf '%s\\n' still_reported"
+        );
+    }
+
+    #[test]
+    fn unreachable_after_exit_reports_inside_later_defined_transitive_functions() {
+        let source = "\
+#!/bin/bash
+main() {
+  helper
+}
+helper() {
+  return 0
+  printf '%s\\n' still_reported
+}
+main
+exit 0
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "printf '%s\\n' still_reported"
+        );
+    }
+
+    #[test]
+    fn unreachable_after_exit_reports_inside_called_nested_functions_before_exit() {
+        let source = "\
+#!/bin/bash
+outer() {
+  helper() {
+    return 0
+    printf '%s\\n' still_reported_nested
+  }
+  helper
+}
+outer
+exit 0
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "printf '%s\\n' still_reported_nested"
+        );
+    }
+
+    #[test]
+    fn unreachable_after_exit_reports_before_sourceable_footer_return() {
+        let source = "\
+#!/bin/bash
+finish() {
+  exit \"$1\"
+}
+terminal() {
+  finish 34 && return 34
+}
+return 0
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "return 34");
+    }
+
+    #[test]
+    fn unreachable_after_exit_reports_uncalled_function_when_exit_is_conditional() {
+        let source = "\
+#!/bin/bash
+helper() {
+  return 0
+  printf '%s\\n' still_reported
+}
+if maybe; then
+  exit 0
+fi
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].span.slice(source),
+            "printf '%s\\n' still_reported"
+        );
+    }
+
+    #[test]
     fn unreachable_after_exit_reports_after_redirected_exit_helpers() {
         let source = "\
 #!/bin/bash
