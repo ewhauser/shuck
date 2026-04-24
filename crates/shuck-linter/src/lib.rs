@@ -4686,6 +4686,24 @@ check() {
     }
 
     #[test]
+    fn unreachable_after_exit_reports_shadowed_condition_names_in_short_circuit_lists() {
+        let source = "\
+#!/bin/bash
+true() {
+  exit 0
+}
+check() {
+  true && echo a && echo b
+}
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.slice(source), "echo a");
+        assert_eq!(diagnostics[1].span.slice(source), "echo b");
+    }
+
+    #[test]
     fn unreachable_after_exit_keeps_dead_two_segment_short_circuit_tail() {
         let source = "\
 #!/bin/bash
