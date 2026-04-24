@@ -30,21 +30,18 @@ fn env_interpreter_name<'a>(parts: &mut impl Iterator<Item = &'a str>) -> Option
         }
 
         if part == "-S" || part == "--split-string" {
-            return parts.next().and_then(token_basename);
+            return env_interpreter_name(parts);
         }
 
         if let Some(split_string) = part
             .strip_prefix("-S")
             .filter(|split_string| !split_string.is_empty())
         {
-            return token_basename(split_string);
+            return split_string_interpreter_name(split_string);
         }
 
         if let Some(split_string) = part.strip_prefix("--split-string=") {
-            return split_string
-                .split_whitespace()
-                .next()
-                .and_then(token_basename);
+            return split_string_interpreter_name(split_string);
         }
 
         if looks_like_env_assignment(part) {
@@ -64,6 +61,10 @@ fn env_interpreter_name<'a>(parts: &mut impl Iterator<Item = &'a str>) -> Option
     }
 
     None
+}
+
+fn split_string_interpreter_name(split_string: &str) -> Option<&str> {
+    env_interpreter_name(&mut split_string.split_whitespace())
 }
 
 fn env_option_consumes_value(token: &str) -> bool {
@@ -121,6 +122,10 @@ mod tests {
     fn skips_env_options_and_assignments() {
         assert_eq!(
             interpreter_name("#!/usr/bin/env -i FOO=1 -u BAR bash"),
+            Some("bash")
+        );
+        assert_eq!(
+            interpreter_name("#!/usr/bin/env -S FOO=1 bash -e"),
             Some("bash")
         );
     }

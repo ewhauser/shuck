@@ -1829,26 +1829,51 @@ fn infer_parse_dialect_from_source(
     source: &str,
     path: Option<&Path>,
 ) -> shuck_parser::ShellDialect {
-    if let Some(line) = source.lines().next().map(str::trim)
-        && let Some(interpreter) = shuck_parser::shebang::interpreter_name(line)
-    {
-        return match interpreter.to_ascii_lowercase().as_str() {
-            "sh" | "dash" | "ksh" | "posix" => shuck_parser::ShellDialect::Posix,
-            "mksh" => shuck_parser::ShellDialect::Mksh,
-            "zsh" => shuck_parser::ShellDialect::Zsh,
-            _ => shuck_parser::ShellDialect::Bash,
-        };
+    if let Some(interpreter) = shebang_interpreter(source) {
+        return parse_dialect_from_name(interpreter).unwrap_or(shuck_parser::ShellDialect::Bash);
     }
 
+    infer_parse_dialect_from_path(path).unwrap_or(shuck_parser::ShellDialect::Bash)
+}
+
+pub(crate) fn infer_explicit_parse_dialect_from_source(
+    source: &str,
+    path: Option<&Path>,
+) -> Option<shuck_parser::ShellDialect> {
+    if let Some(interpreter) = shebang_interpreter(source)
+        && let Some(dialect) = parse_dialect_from_name(interpreter)
+    {
+        return Some(dialect);
+    }
+
+    infer_parse_dialect_from_path(path)
+}
+
+fn shebang_interpreter(source: &str) -> Option<&str> {
+    shuck_parser::shebang::interpreter_name(source.lines().next()?)
+}
+
+fn infer_parse_dialect_from_path(path: Option<&Path>) -> Option<shuck_parser::ShellDialect> {
     match path
         .and_then(|path| path.extension().and_then(|ext| ext.to_str()))
         .map(|ext| ext.to_ascii_lowercase())
         .as_deref()
     {
-        Some("sh" | "dash" | "ksh") => shuck_parser::ShellDialect::Posix,
-        Some("mksh") => shuck_parser::ShellDialect::Mksh,
-        Some("zsh") => shuck_parser::ShellDialect::Zsh,
-        _ => shuck_parser::ShellDialect::Bash,
+        Some("sh" | "dash" | "ksh") => Some(shuck_parser::ShellDialect::Posix),
+        Some("mksh") => Some(shuck_parser::ShellDialect::Mksh),
+        Some("bash") => Some(shuck_parser::ShellDialect::Bash),
+        Some("zsh") => Some(shuck_parser::ShellDialect::Zsh),
+        _ => None,
+    }
+}
+
+fn parse_dialect_from_name(name: &str) -> Option<shuck_parser::ShellDialect> {
+    match name.to_ascii_lowercase().as_str() {
+        "sh" | "dash" | "ksh" | "posix" => Some(shuck_parser::ShellDialect::Posix),
+        "mksh" => Some(shuck_parser::ShellDialect::Mksh),
+        "bash" => Some(shuck_parser::ShellDialect::Bash),
+        "zsh" => Some(shuck_parser::ShellDialect::Zsh),
+        _ => None,
     }
 }
 
@@ -1860,8 +1885,7 @@ fn bash_runtime_vars_enabled(source: &str, path: Option<&Path>) -> bool {
 }
 
 fn infer_bash_from_shebang(source: &str) -> Option<bool> {
-    let interpreter = shuck_parser::shebang::interpreter_name(source.lines().next()?)?;
-    Some(interpreter.eq_ignore_ascii_case("bash"))
+    shebang_interpreter(source).map(|interpreter| interpreter.eq_ignore_ascii_case("bash"))
 }
 
 fn contains_offset(span: Span, offset: usize) -> bool {
