@@ -4138,7 +4138,7 @@ foo=1
             &output.file,
             first_statement_line(&output.file).unwrap_or(u32::MAX),
         );
-        let diagnostics = lint_file_at_path_with_parse_result(
+        let diagnostics = lint_file(
             &output,
             source,
             &indexer,
@@ -4172,11 +4172,12 @@ foo=2
             first_statement_line(&output.file).unwrap_or(u32::MAX),
         );
         let diagnostics = lint_file(
-            &output.file,
+            &output,
             source,
             &indexer,
             &LinterSettings::default(),
             Some(&suppressions),
+            None,
         );
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].span.start.line, 5);
