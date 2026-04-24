@@ -391,6 +391,9 @@ fn reference_resolves_to_file_entry_contract_variable(
         && binding
             .attributes
             .contains(BindingAttributes::IMPORTED_FILE_ENTRY)
+        && !binding
+            .attributes
+            .contains(BindingAttributes::IMPORTED_FILE_ENTRY_INITIALIZED)
 }
 
 fn build_dead_code(cfg: &ControlFlowGraph) -> Vec<DeadCode> {
@@ -523,6 +526,9 @@ fn analyze_unused_assignments_exact(
             || binding
                 .attributes
                 .contains(BindingAttributes::SELF_REFERENTIAL_READ)
+            || binding
+                .attributes
+                .contains(BindingAttributes::EXTERNALLY_CONSUMED)
             || context.runtime.is_always_used_binding(&binding.name)
         {
             used_bindings.insert(binding.id.index());

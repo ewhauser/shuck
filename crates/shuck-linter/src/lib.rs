@@ -1044,6 +1044,308 @@ esac
     }
 
     #[test]
+    fn sourced_theme_contract_suppresses_runtime_color_reads() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/bash-it/themes/minimal/minimal.theme.bash"),
+            "\
+prompt_command() {
+  PS1=\"${green?} ${green} ${reset_color?}\"
+}
+PROMPT_COMMAND=prompt_command
+",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn generic_theme_directory_does_not_suppress_palette_reads() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/project/themes/minimal.theme.bash"),
+            "\
+render_prompt() {
+  printf '%s\\n' \"$green\" \"$reset_color\"
+}
+",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("green"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("reset_color"))
+        );
+    }
+
+    #[test]
+    fn generic_completion_directory_does_not_suppress_helper_reads() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/project/completions/example.sh"),
+            "\
+complete_example() {
+  printf '%s\\n' \"$cur\" \"$cword\"
+}
+",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("cur"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("cword"))
+        );
+    }
+
+    #[test]
+    fn generic_completion_directory_with_compreply_does_not_suppress_helper_reads() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/project/completions/example.sh"),
+            "\
+complete_example() {
+  COMPREPLY=()
+  printf '%s\\n' \"$cur\" \"$cword\"
+}
+",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("cur"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("cword"))
+        );
+    }
+
+    #[test]
+    fn bash_completion_directory_without_initializer_does_not_suppress_helper_reads() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/bash-completion/completions/example.bash"),
+            "\
+complete_example() {
+  COMPREPLY=()
+  printf '%s\\n' \"$cur\" \"$cword\"
+}
+",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("cur"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("cword"))
+        );
+    }
+
+    #[test]
+    fn bash_completion_directory_with_initializer_suppresses_helper_reads() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/bash-completion/completions/example.bash"),
+            "\
+complete_example() {
+  _init_completion || return
+  printf '%s\\n' \"$cur\" \"$cword\" \"$comp_args\"
+}
+",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn bash_completion_directory_with_commented_initializer_does_not_suppress_helper_reads() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/bash-completion/completions/example.bash"),
+            "\
+# TODO: call _init_completion later
+complete_example() {
+  printf '%s\\n' \"$cur\" \"$cword\"
+}
+",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("cur"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("cword"))
+        );
+    }
+
+    #[test]
+    fn bash_completion_directory_with_wrapper_identifier_does_not_suppress_helper_reads() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/bash-completion/completions/example.bash"),
+            "\
+complete_example() {
+  my_init_completion_wrapper || return
+  printf '%s\\n' \"$cur\" \"$cword\"
+}
+",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("cur"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("cword"))
+        );
+    }
+
+    #[test]
+    fn bash_completion_directory_with_initializer_definition_does_not_suppress_helper_reads() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/bash-completion/completions/example.bash"),
+            "\
+_init_completion() {
+  :
+}
+complete_example() {
+  printf '%s\\n' \"$cur\" \"$cword\"
+}
+",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("cur"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("cword"))
+        );
+    }
+
+    #[test]
+    fn bash_completion_directory_with_separator_comment_does_not_suppress_helper_reads() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/bash-completion/completions/example.bash"),
+            "\
+noop;# _init_completion later
+complete_example() {
+  printf '%s\\n' \"$cur\" \"$cword\"
+}
+",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("cur"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("cword"))
+        );
+    }
+
+    #[test]
+    fn bash_completion_directory_with_heredoc_initializer_does_not_suppress_helper_reads() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/bash-completion/completions/example.bash"),
+            "\
+cat <<EOF
+_init_completion
+EOF
+complete_example() {
+  printf '%s\\n' \"$cur\" \"$cword\"
+}
+",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("cur"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("cword"))
+        );
+    }
+
+    #[test]
+    fn sourced_runtime_contract_does_not_mark_arbitrary_assignments_used() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/rvm/scripts/cleanup"),
+            "\
+rvm_base_except=\"selector\"
+cleanup() { :; }
+",
+            &LinterSettings::for_rule(Rule::UnusedAssignment),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UnusedAssignment);
+    }
+
+    #[test]
+    fn sourced_module_contract_does_not_suppress_arbitrary_runtime_state_reads() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/LinuxGSM/lgsm/modules/command_backup.sh"),
+            "\
+commandname=\"BACKUP\"
+backup_run() {
+  printf '%s\\n' \"$lockdir\" \"$commandname\"
+}
+",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].rule, Rule::UndefinedVariable);
+    }
+
+    #[test]
+    fn prefix_name_expansions_do_not_trigger_c006() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/project/plain.sh"),
+            "unset \"${!completion_prefix@}\"\n",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn project_closure_context_without_a_provider_still_reports_c006() {
         let diagnostics = lint_named_source(
             Path::new("/tmp/project/scripts/helper.sh"),

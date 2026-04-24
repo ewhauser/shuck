@@ -117,7 +117,7 @@ pub(crate) fn is_array_like_binding(binding: &Binding) -> bool {
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    pub struct BindingAttributes: u16 {
+    pub struct BindingAttributes: u32 {
         const EXPORTED               = 0b0000_0001;
         const READONLY               = 0b0000_0010;
         const LOCAL                  = 0b0000_0100;
@@ -133,5 +133,7 @@ bitflags! {
         const EMPTY_INITIALIZER      = 0b0001_0000_0000_0000;
         const IMPORTED_FILE_ENTRY    = 0b0010_0000_0000_0000;
         const SELF_REFERENTIAL_READ  = 0b0100_0000_0000_0000;
+        const IMPORTED_FILE_ENTRY_INITIALIZED = 0b1000_0000_0000_0000;
+        const EXTERNALLY_CONSUMED    = 0b0001_0000_0000_0000_0000;
     }
 }
