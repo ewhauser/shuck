@@ -193,14 +193,22 @@ impl LinterSettings {
         self
     }
 
-    pub fn with_analyzed_paths(mut self, paths: impl IntoIterator<Item = PathBuf>) -> Self {
-        self.analyzed_paths = Some(Arc::new(
+    pub fn analyzed_path_set(paths: impl IntoIterator<Item = PathBuf>) -> Arc<FxHashSet<PathBuf>> {
+        Arc::new(
             paths
                 .into_iter()
                 .map(|path| std::fs::canonicalize(&path).unwrap_or(path))
                 .collect(),
-        ));
+        )
+    }
+
+    pub fn with_analyzed_path_set(mut self, paths: Arc<FxHashSet<PathBuf>>) -> Self {
+        self.analyzed_paths = Some(paths);
         self
+    }
+
+    pub fn with_analyzed_paths(self, paths: impl IntoIterator<Item = PathBuf>) -> Self {
+        self.with_analyzed_path_set(Self::analyzed_path_set(paths))
     }
 
     pub fn with_per_file_ignores(mut self, per_file_ignores: CompiledPerFileIgnoreList) -> Self {
@@ -361,6 +369,21 @@ mod tests {
                 "{rule:?} must stay in the non-style default-disabled set"
             );
         }
+    }
+
+    #[test]
+    fn with_analyzed_path_set_reuses_shared_set() {
+        let tempdir = tempdir().unwrap();
+        let script_path = tempdir.path().join("script.sh");
+        std::fs::write(&script_path, "echo hi\n").unwrap();
+
+        let analyzed_paths = LinterSettings::analyzed_path_set([script_path.clone()]);
+        let settings =
+            LinterSettings::default().with_analyzed_path_set(Arc::clone(&analyzed_paths));
+
+        let stored = settings.analyzed_paths.as_ref().unwrap();
+        assert!(Arc::ptr_eq(stored, &analyzed_paths));
+        assert!(stored.contains(&std::fs::canonicalize(script_path).unwrap()));
     }
 
     #[test]

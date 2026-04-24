@@ -1149,13 +1149,17 @@ fn run_check_with_cwd(
     }
 
     for mut run in runs {
-        let analyzed_paths = run
-            .files
-            .iter()
-            .filter(|file| file.kind == FileKind::Shell)
-            .map(|file| file.absolute_path.clone())
-            .collect::<Vec<_>>();
         let project_settings = run.settings.clone();
+        let analyzed_paths = LinterSettings::analyzed_path_set(
+            run.files
+                .iter()
+                .filter(|file| file.kind == FileKind::Shell)
+                .map(|file| file.absolute_path.clone()),
+        );
+        let linter_settings = project_settings
+            .linter_settings
+            .clone()
+            .with_analyzed_path_set(analyzed_paths);
         let pending = run.take_pending_files(|file, cached| {
             report.cache_hits += 1;
             report.parse_failed |= cached.parse_failed;
@@ -1178,10 +1182,7 @@ fn run_check_with_cwd(
             .map(|pending| {
                 analyze_file(
                     pending,
-                    &project_settings
-                        .linter_settings
-                        .clone()
-                        .with_analyzed_paths(analyzed_paths.clone()),
+                    &linter_settings,
                     &shellcheck_map,
                     include_source,
                     fix_applicability,
