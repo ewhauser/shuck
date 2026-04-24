@@ -12,6 +12,11 @@
 # Invalid: single quotes still prevent tilde expansion.
 [ "$profile" != '~/.config/fish/config.fish' ]
 
+# Invalid: assignments and command arguments have the same quoted-tilde issue.
+profile='~/.bash_profile'
+printf '%s\n' "~/.config/powershell/profile.ps1"
+[ -e "~/.cache/app" ]
+
 # Valid: an unquoted tilde expands before the comparison.
 [ "$profile" = ~/.bashrc ]
 

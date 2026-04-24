@@ -1,27 +1,45 @@
 ---
 source: crates/shuck-linter/src/rules/correctness/mod.rs
-assertion_line: 215
+assertion_line: 283
 ---
-C091 quoted `~/...` stays literal in string comparisons; use `$HOME` or an unquoted tilde
+C091 quoted `~/...` stays literal; use `$HOME` or an unquoted tilde
  --> <source>:4:17
   |
 4 | [ "$profile" = "~/.bashrc" ]
   |
 
-C091 quoted `~/...` stays literal in string comparisons; use `$HOME` or an unquoted tilde
+C091 quoted `~/...` stays literal; use `$HOME` or an unquoted tilde
  --> <source>:7:4
   |
 7 | [ "~/.bash_profile" = "$profile" ]
   |
 
-C091 quoted `~/...` stays literal in string comparisons; use `$HOME` or an unquoted tilde
+C091 quoted `~/...` stays literal; use `$HOME` or an unquoted tilde
   --> <source>:10:19
    |
 10 | [[ "$profile" == "~/.zshrc" ]]
    |
 
-C091 quoted `~/...` stays literal in string comparisons; use `$HOME` or an unquoted tilde
-  --> <source>:13:18
+C091 quoted `~/...` stays literal; use `$HOME` or an unquoted tilde
+  --> <source>:13:17
    |
 13 | [ "$profile" != '~/.config/fish/config.fish' ]
+   |
+
+C091 quoted `~/...` stays literal; use `$HOME` or an unquoted tilde
+  --> <source>:16:9
+   |
+16 | profile='~/.bash_profile'
+   |
+
+C091 quoted `~/...` stays literal; use `$HOME` or an unquoted tilde
+  --> <source>:17:16
+   |
+17 | printf '%s\n' "~/.config/powershell/profile.ps1"
+   |
+
+C091 quoted `~/...` stays literal; use `$HOME` or an unquoted tilde
+  --> <source>:18:7
+   |
+18 | [ -e "~/.cache/app" ]
    |
