@@ -20,6 +20,7 @@ pub struct Declaration {
 pub enum DeclarationOperand {
     Flag {
         flag: char,
+        flags: String,
         span: Span,
     },
     Name {

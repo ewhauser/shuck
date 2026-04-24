@@ -1,7 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use shuck_ast::Name;
-use shuck_semantic::{Binding, BindingAttributes, BindingKind, DeclarationBuiltin};
+use shuck_semantic::{
+    Binding, BindingAttributes, BindingKind, Declaration, DeclarationBuiltin, DeclarationOperand,
+};
 
 use crate::{Checker, ComparableNameUseKind, Rule, ShellDialect, Violation, WrapperKind};
 
@@ -20,20 +22,21 @@ impl Violation for ArrayToStringConversion {
 pub fn array_to_string_conversion(checker: &mut Checker) {
     let semantic = checker.semantic();
     let mut array_history = HashMap::new();
-    let builtin_array_history = builtin_array_history_events(checker);
-    let mut next_builtin_array_history = 0usize;
     let mut bindings = semantic.bindings().iter().collect::<Vec<_>>();
     bindings.sort_by_key(|binding| (binding.span.start.offset, binding.span.end.offset));
+    let history_events = array_history_events(checker, &bindings);
+    let mut next_history_event = 0usize;
+    let append_declaration_assignments = append_declaration_assignment_name_spans(checker);
 
     let spans = bindings
         .into_iter()
         .filter_map(|binding| {
-            while let Some((offset, name)) = builtin_array_history.get(next_builtin_array_history) {
-                if *offset > binding.span.start.offset {
+            while let Some(event) = history_events.get(next_history_event) {
+                if event.offset > binding.span.start.offset {
                     break;
                 }
-                array_history.insert(name.clone(), true);
-                next_builtin_array_history += 1;
+                array_history.insert(event.name.clone(), event.array_like);
+                next_history_event += 1;
             }
 
             let name = binding.name.clone();
@@ -46,9 +49,14 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
                 array_history.insert(name, false);
                 return None;
             }
-            if !binding_can_trigger_array_to_string_conversion(binding) {
+            if !binding_can_trigger_array_to_string_conversion(
+                binding,
+                &append_declaration_assignments,
+            ) {
                 if binding_establishes_array_history(checker, binding) {
                     array_history.insert(name, true);
+                } else if binding_resets_array_history(checker, binding) {
+                    array_history.insert(name, false);
                 }
                 return None;
             }
@@ -72,21 +80,36 @@ pub fn array_to_string_conversion(checker: &mut Checker) {
     checker.report_all_dedup(spans, || ArrayToStringConversion);
 }
 
-fn builtin_array_history_events(checker: &Checker<'_>) -> Vec<(usize, Name)> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ArrayHistoryEvent {
+    offset: usize,
+    name: Name,
+    array_like: bool,
+}
+
+fn array_history_events(checker: &Checker<'_>, bindings: &[&Binding]) -> Vec<ArrayHistoryEvent> {
+    let mut events = builtin_array_history_events(checker);
+    events.extend(presence_test_reset_events(checker, bindings));
+    events.extend(name_only_declaration_history_events(checker));
+    events.sort_by_key(|event| (event.offset, !event.array_like));
+    events
+}
+
+fn builtin_array_history_events(checker: &Checker<'_>) -> Vec<ArrayHistoryEvent> {
     let mut events = checker
         .facts()
         .commands()
         .iter()
         .flat_map(|command| command_array_history_events(checker, command))
         .collect::<Vec<_>>();
-    events.sort_by_key(|(offset, _)| *offset);
+    events.sort_by_key(|event| event.offset);
     events
 }
 
 fn command_array_history_events(
     checker: &Checker<'_>,
     command: &crate::facts::commands::CommandFact<'_>,
-) -> Vec<(usize, Name)> {
+) -> Vec<ArrayHistoryEvent> {
     if matches!(checker.shell(), ShellDialect::Bash) && command.effective_name_is("read") {
         return command
             .options()
@@ -96,11 +119,10 @@ fn command_array_history_events(
                 read.array_target_name_uses()
                     .iter()
                     .filter(|target| matches!(target.kind(), ComparableNameUseKind::Literal))
-                    .map(|target| {
-                        (
-                            target.span().start.offset,
-                            Name::from(target.key().as_str()),
-                        )
+                    .map(|target| ArrayHistoryEvent {
+                        offset: target.span().start.offset,
+                        name: Name::from(target.key().as_str()),
+                        array_like: true,
                     })
                     .collect()
             })
@@ -119,11 +141,10 @@ fn command_array_history_events(
                     .target_name_uses()
                     .iter()
                     .filter(|target| matches!(target.kind(), ComparableNameUseKind::Literal))
-                    .map(|target| {
-                        (
-                            target.span().start.offset,
-                            Name::from(target.key().as_str()),
-                        )
+                    .map(|target| ArrayHistoryEvent {
+                        offset: target.span().start.offset,
+                        name: Name::from(target.key().as_str()),
+                        array_like: true,
                     })
                     .collect()
             })
@@ -133,7 +154,154 @@ fn command_array_history_events(
     Vec::new()
 }
 
-fn binding_can_trigger_array_to_string_conversion(binding: &Binding) -> bool {
+fn presence_test_reset_events(
+    checker: &Checker<'_>,
+    bindings: &[&Binding],
+) -> Vec<ArrayHistoryEvent> {
+    let mut names = HashSet::<Name>::new();
+    for binding in bindings {
+        names.insert(binding.name.clone());
+    }
+
+    let mut seen = HashSet::<(usize, Name)>::new();
+    let mut events = Vec::new();
+    for name in names {
+        for fact in checker.facts().presence_test_references(&name) {
+            push_reset_event(
+                &mut events,
+                &mut seen,
+                fact.command_span().start.offset,
+                &name,
+            );
+        }
+        for fact in checker.facts().presence_test_names(&name) {
+            push_reset_event(
+                &mut events,
+                &mut seen,
+                fact.command_span().start.offset,
+                &name,
+            );
+        }
+    }
+    events
+}
+
+fn name_only_declaration_history_events(checker: &Checker<'_>) -> Vec<ArrayHistoryEvent> {
+    let mut events = Vec::new();
+
+    for declaration in checker.semantic().declarations() {
+        let flags = declaration_flag_state(declaration);
+        for operand in &declaration.operands {
+            let DeclarationOperand::Name { name, span } = operand else {
+                continue;
+            };
+            if name_only_declaration_resets_array_history(declaration.builtin, flags) {
+                events.push(ArrayHistoryEvent {
+                    offset: span.start.offset,
+                    name: name.clone(),
+                    array_like: false,
+                });
+            }
+        }
+    }
+
+    events
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct DeclarationFlagState {
+    indexed_array: bool,
+    associative_array: bool,
+    query: bool,
+}
+
+impl DeclarationFlagState {
+    fn array_enabled(self) -> bool {
+        self.indexed_array || self.associative_array
+    }
+}
+
+fn declaration_flag_state(declaration: &Declaration) -> DeclarationFlagState {
+    let mut state = DeclarationFlagState::default();
+
+    for operand in &declaration.operands {
+        let DeclarationOperand::Flag { flags, .. } = operand else {
+            continue;
+        };
+
+        let Some((enabled, flags)) = flags
+            .strip_prefix('-')
+            .map(|flags| (true, flags))
+            .or_else(|| flags.strip_prefix('+').map(|flags| (false, flags)))
+        else {
+            continue;
+        };
+
+        for flag in flags.chars() {
+            match flag {
+                'a' => state.indexed_array = enabled,
+                'A' => state.associative_array = enabled,
+                'p' => state.query = enabled,
+                _ => {}
+            }
+        }
+    }
+
+    state
+}
+
+fn push_reset_event(
+    events: &mut Vec<ArrayHistoryEvent>,
+    seen: &mut HashSet<(usize, Name)>,
+    offset: usize,
+    name: &Name,
+) {
+    if seen.insert((offset, name.clone())) {
+        events.push(ArrayHistoryEvent {
+            offset,
+            name: name.clone(),
+            array_like: false,
+        });
+    }
+}
+
+fn name_only_declaration_resets_array_history(
+    builtin: DeclarationBuiltin,
+    flags: DeclarationFlagState,
+) -> bool {
+    match builtin {
+        DeclarationBuiltin::Local => true,
+        DeclarationBuiltin::Declare | DeclarationBuiltin::Typeset if flags.query => false,
+        DeclarationBuiltin::Declare | DeclarationBuiltin::Typeset => !flags.array_enabled(),
+        DeclarationBuiltin::Export | DeclarationBuiltin::Readonly => false,
+    }
+}
+
+fn append_declaration_assignment_name_spans(checker: &Checker<'_>) -> HashSet<(usize, usize)> {
+    checker
+        .semantic()
+        .declarations()
+        .iter()
+        .flat_map(|declaration| declaration.operands.iter())
+        .filter_map(|operand| match operand {
+            DeclarationOperand::Assignment {
+                name_span, append, ..
+            } if *append => Some((name_span.start.offset, name_span.end.offset)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn binding_can_trigger_array_to_string_conversion(
+    binding: &Binding,
+    append_declaration_assignments: &HashSet<(usize, usize)>,
+) -> bool {
+    if append_declaration_assignments
+        .contains(&(binding.span.start.offset, binding.span.end.offset))
+    {
+        return false;
+    }
+
     matches!(
         binding.kind,
         BindingKind::Assignment
@@ -155,6 +323,25 @@ fn binding_establishes_array_history(checker: &Checker<'_>, binding: &Binding) -
             false
         }
         _ => binding_is_array_like(binding),
+    }
+}
+
+fn binding_resets_array_history(checker: &Checker<'_>, binding: &Binding) -> bool {
+    match binding.kind {
+        BindingKind::LoopVariable
+        | BindingKind::PrintfTarget
+        | BindingKind::GetoptsTarget
+        | BindingKind::ArithmeticAssignment => true,
+        BindingKind::ReadTarget => !read_target_is_array_like(checker, binding),
+        BindingKind::MapfileTarget => !mapfile_target_is_array_like(checker, binding),
+        BindingKind::Assignment
+        | BindingKind::ParameterDefaultAssignment
+        | BindingKind::AppendAssignment
+        | BindingKind::ArrayAssignment
+        | BindingKind::Declaration(_)
+        | BindingKind::FunctionDefinition
+        | BindingKind::Nameref
+        | BindingKind::Imported => false,
     }
 }
 
@@ -430,6 +617,102 @@ f() {
     }
 
     #[test]
+    fn combined_declaration_array_flags_keep_array_history() {
+        let source = "\
+#!/bin/bash
+declare -a indexed=(one)
+declare -ga indexed
+indexed=value
+declare -A assoc=([key]=value)
+declare -gA assoc
+assoc=value
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["indexed", "assoc"],
+            "{diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn declaration_array_flag_removals_keep_the_other_array_kind() {
+        let source = "\
+#!/bin/bash
+declare -a indexed=(one)
+declare -a +A indexed
+indexed=value
+declare -A assoc=([key]=value)
+declare -A +a assoc
+assoc=value
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["indexed", "assoc"],
+            "{diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn declare_and_typeset_query_only_forms_keep_array_history() {
+        let source = "\
+#!/bin/bash
+declare -a declared=(one)
+declare -p declared >/dev/null
+declared=value
+typeset -a typed=(one)
+typeset -p typed >/dev/null
+typed=value
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["declared", "typed"],
+            "{diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn local_query_only_forms_clear_array_history() {
+        let source = "\
+#!/bin/bash
+f() {
+  local -a local_arr=(one)
+  local -p local_arr >/dev/null
+  local_arr=value
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn ignores_assignments_after_bare_local_resets() {
         let source = "\
 #!/bin/bash
@@ -455,6 +738,76 @@ f() {
   local -a cmd
   local cmd=\"curl\"
 }
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn ignores_same_scope_bare_local_resets() {
+        let source = "\
+#!/bin/bash
+f() {
+  local res=(
+    320x240
+    640x480
+  )
+  local res
+  res=$(choose_resolution)
+  res=\"${res[0]}\"
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn presence_tests_clear_array_history() {
+        let source = "\
+#!/bin/bash
+declare -A rate ipv4 ipv6
+name=guest
+if [ -n \"${rate[$name]}\" ]; then
+  rate=${rate[$name]}
+elif [ -n \"${rate[::default]}\" ]; then
+  rate=${rate[::default]}
+else
+  rate=0
+fi
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn presence_tests_inside_functions_clear_array_history() {
+        let source = "\
+#!/bin/bash
+if ((${BASH_VERSINFO[0]} > 3)); then
+  declare -A registered_shims
+  remove_stale_shims() {
+    if [[ ! ${registered_shims[\"${shim##*/}\"]} ]]; then
+      :
+    fi
+  }
+else
+  registered_shims=\" \"
+  register_shim() {
+    registered_shims=\"${registered_shims}${1} \"
+  }
+fi
 ";
         let diagnostics = test_snippet(
             source,
@@ -512,6 +865,45 @@ f() {
             vec!["resolution", "r"],
             "{diagnostics:#?}"
         );
+    }
+
+    #[test]
+    fn scalar_binding_targets_clear_array_history() {
+        let source = "\
+#!/bin/bash
+f() {
+  local option
+  read -ra option <<< \"$option\"
+  for option in \"${params[@]}\"; do
+    :
+  done
+}
+g() {
+  local option=\"$1\"
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn plain_read_targets_clear_array_history() {
+        let source = "\
+#!/bin/bash
+arr=()
+read arr
+arr=value
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
     }
 
     #[test]
@@ -839,6 +1231,53 @@ exts+=\" ${exts^^}\"
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["exts"],
+            "{diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn ignores_declaration_appends_as_scalar_conversion_triggers() {
+        let source = "\
+#!/bin/bash
+f() {
+  local logs=() running=()
+  logs+=\"cmd\"
+  if [[ $i != \"$max\" ]]; then
+    local logs+=\"& \"
+  else
+    local logs+=\"; \"
+  fi
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn keeps_array_history_after_declaration_appends() {
+        let source = "\
+#!/bin/bash
+f() {
+  local logs=()
+  local logs+=\"& \"
+  logs=\"done\"
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["logs"],
             "{diagnostics:#?}"
         );
     }
