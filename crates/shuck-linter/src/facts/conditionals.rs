@@ -1938,8 +1938,8 @@ fn collect_status_parameter_spans_in_word_part(
             }
             collect_status_parameter_spans_in_var_ref(reference, source, spans);
             collect_status_parameter_spans_in_fragment(
-                operand_word_ast.as_ref(),
-                operand.as_ref(),
+                operand_word_ast.as_deref(),
+                operand.as_deref(),
                 source,
                 spans,
             );
@@ -1981,7 +1981,7 @@ fn collect_status_parameter_spans_in_word_part(
             } else {
                 collect_status_parameter_spans_in_word(offset_word_ast, source, spans);
             }
-            match (length_ast.as_ref(), length_word_ast.as_ref()) {
+            match (length_ast.as_deref(), length_word_ast.as_ref()) {
                 (Some(length_ast), _) => {
                     visit_arithmetic_words(length_ast, &mut |word| {
                         collect_status_parameter_spans_in_word(word, source, spans);
@@ -2024,7 +2024,7 @@ fn collect_status_parameter_spans_in_parameter_expansion(
             } => {
                 collect_status_parameter_spans_in_var_ref(reference, source, spans);
                 collect_status_parameter_spans_in_fragment(
-                    operand_word_ast.as_ref(),
+                    operand_word_ast.as_deref(),
                     operand.as_ref(),
                     source,
                     spans,
@@ -2047,7 +2047,7 @@ fn collect_status_parameter_spans_in_parameter_expansion(
                     collect_status_parameter_spans_in_word(offset_word_ast, source, spans);
                 }
 
-                match (length_ast.as_ref(), length_word_ast.as_ref()) {
+                match (length_ast.as_deref(), length_word_ast.as_ref()) {
                     (Some(length_ast), _) => {
                         visit_arithmetic_words(length_ast, &mut |word| {
                             collect_status_parameter_spans_in_word(word, source, spans);
@@ -2103,7 +2103,7 @@ fn collect_status_parameter_spans_in_parameter_expansion(
                         );
                         collect_status_parameter_spans_in_fragment(
                             operation.length_word_ast(),
-                            length.as_ref(),
+                            length.as_deref(),
                             source,
                             spans,
                         );

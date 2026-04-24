@@ -432,8 +432,8 @@ fn render_word_part(
         } => render_parameter_expansion(
             rendered,
             reference,
-            operator.clone(),
-            operand.as_ref(),
+            *operator.clone(),
+            operand.as_deref(),
             *colon_variant,
             source,
             options,
@@ -477,10 +477,16 @@ fn render_word_part(
             rendered.push_str("${");
             push_var_ref(rendered, reference, source, options);
             rendered.push(':');
-            push_arithmetic_source_text(rendered, offset, offset_ast.as_ref(), source, options);
+            push_arithmetic_source_text(rendered, offset, offset_ast.as_deref(), source, options);
             if let Some(length) = length {
                 rendered.push(':');
-                push_arithmetic_source_text(rendered, length, length_ast.as_ref(), source, options);
+                push_arithmetic_source_text(
+                    rendered,
+                    length,
+                    length_ast.as_deref(),
+                    source,
+                    options,
+                );
             }
             rendered.push('}');
         }
@@ -497,7 +503,7 @@ fn render_word_part(
                 if *colon_variant {
                     rendered.push(':');
                 }
-                rendered.push_str(parameter_defaulting_operator(operator.clone()));
+                rendered.push_str(parameter_defaulting_operator(*operator.clone()));
                 if let Some(operand) = operand {
                     rendered.push_str(operand.slice(source));
                 }
@@ -1236,10 +1242,16 @@ fn push_parameter_word(
             rendered.push_str("${");
             push_var_ref(rendered, reference, source, options);
             rendered.push(':');
-            push_arithmetic_source_text(rendered, offset, offset_ast.as_ref(), source, options);
+            push_arithmetic_source_text(rendered, offset, offset_ast.as_deref(), source, options);
             if let Some(length) = length {
                 rendered.push(':');
-                push_arithmetic_source_text(rendered, length, length_ast.as_ref(), source, options);
+                push_arithmetic_source_text(
+                    rendered,
+                    length,
+                    length_ast.as_deref(),
+                    source,
+                    options,
+                );
             }
             rendered.push('}');
         }

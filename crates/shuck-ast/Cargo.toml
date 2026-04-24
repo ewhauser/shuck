@@ -15,5 +15,6 @@ readme = "README.md"
 
 [dependencies]
 compact_str = { workspace = true }
+smallvec = { workspace = true }
 
 [dev-dependencies]

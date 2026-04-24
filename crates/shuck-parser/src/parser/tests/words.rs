@@ -945,31 +945,31 @@ fn test_parameter_forms_preserve_selector_kinds() {
 
     let reference = expect_array_access(&command.args[0]);
     assert_eq!(
-        reference.subscript.as_ref().and_then(Subscript::selector),
+        reference.subscript.as_deref().and_then(Subscript::selector),
         Some(SubscriptSelector::At)
     );
 
     let reference = expect_array_access(&command.args[1]);
     assert_eq!(
-        reference.subscript.as_ref().and_then(Subscript::selector),
+        reference.subscript.as_deref().and_then(Subscript::selector),
         Some(SubscriptSelector::Star)
     );
 
     let reference = expect_array_length_part(&command.args[2].parts[0].kind);
     assert_eq!(
-        reference.subscript.as_ref().and_then(Subscript::selector),
+        reference.subscript.as_deref().and_then(Subscript::selector),
         Some(SubscriptSelector::At)
     );
 
     let reference = expect_array_indices_part(&command.args[3].parts[0].kind);
     assert_eq!(
-        reference.subscript.as_ref().and_then(Subscript::selector),
+        reference.subscript.as_deref().and_then(Subscript::selector),
         Some(SubscriptSelector::Star)
     );
 
     let (reference, _, _) = expect_array_slice_part(&command.args[4].parts[0].kind);
     assert_eq!(
-        reference.subscript.as_ref().and_then(Subscript::selector),
+        reference.subscript.as_deref().and_then(Subscript::selector),
         Some(SubscriptSelector::At)
     );
 }

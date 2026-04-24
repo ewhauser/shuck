@@ -1927,7 +1927,7 @@ fn strip_redundant_conditional_quotes(expression: &mut ConditionalExpr, source: 
     };
     let parts = parts.clone();
     *word = Word {
-        parts,
+        parts: parts.into(),
         span: word.span,
         brace_syntax: Vec::new(),
     };
@@ -1971,7 +1971,8 @@ fn tighten_literal_quotes(word: &mut Word, source: &str) -> usize {
                 dollar: false,
             },
             word.span,
-        )],
+        )]
+        .into(),
         span: word.span,
         brace_syntax: Vec::new(),
     };

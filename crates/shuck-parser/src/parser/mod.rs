@@ -22,7 +22,7 @@ pub use lexer::{
     LexerErrorKind,
 };
 use memchr::{memchr, memchr2, memchr3};
-use smallvec::SmallVec;
+use smallvec::{SmallVec, smallvec};
 
 use shuck_ast::{
     AlwaysCommand, AnonymousFunctionCommand, AnonymousFunctionSurface, ArithmeticCommand,
@@ -44,7 +44,7 @@ use shuck_ast::{
     SelectCommand, SimpleCommand as AstSimpleCommand, SourceText, Span, StaticCommandWrapperTarget,
     Stmt, StmtSeq, StmtTerminator, Subscript, SubscriptInterpretation, SubscriptKind,
     SubscriptSelector, TextSize, TimeCommand, TokenKind, UntilCommand, VarRef, WhileCommand, Word,
-    WordPart, WordPartNode, ZshDefaultingOp, ZshExpansionOperation, ZshExpansionTarget,
+    WordPart, WordPartNode, WordParts, ZshDefaultingOp, ZshExpansionOperation, ZshExpansionTarget,
     ZshGlobQualifier, ZshGlobQualifierGroup, ZshGlobQualifierKind, ZshGlobSegment,
     ZshInlineGlobControl, ZshModifier, ZshParameterExpansion, ZshPatternOp, ZshQualifiedGlob,
     ZshReplacementOp, ZshTrimOp, static_command_wrapper_target_index,
@@ -2142,7 +2142,7 @@ impl<'a> Parser<'a> {
         memchr3(b'$', b'`', b'\0', text.as_bytes()).is_some()
     }
 
-    fn word_with_parts(&self, parts: Vec<WordPartNode>, span: Span) -> Word {
+    fn word_with_parts(&self, parts: WordParts, span: Span) -> Word {
         let brace_syntax = self.brace_syntax_from_parts(&parts, span.start.offset);
         Word {
             parts,
@@ -2171,7 +2171,10 @@ impl<'a> Parser<'a> {
             WordPart::Literal(text) => HeredocBodyPart::Literal(text),
             WordPart::Variable(name) => HeredocBodyPart::Variable(name),
             WordPart::CommandSubstitution { body, syntax } => {
-                HeredocBodyPart::CommandSubstitution { body, syntax }
+                HeredocBodyPart::CommandSubstitution {
+                    body: *body,
+                    syntax,
+                }
             }
             WordPart::ArithmeticExpansion {
                 expression,
@@ -2180,11 +2183,11 @@ impl<'a> Parser<'a> {
                 syntax,
             } => HeredocBodyPart::ArithmeticExpansion {
                 expression,
-                expression_ast,
-                expression_word_ast,
+                expression_ast: expression_ast.map(|expression| *expression),
+                expression_word_ast: *expression_word_ast,
                 syntax,
             },
-            WordPart::Parameter(parameter) => HeredocBodyPart::Parameter(Box::new(parameter)),
+            WordPart::Parameter(parameter) => HeredocBodyPart::Parameter(parameter),
             other => panic!("unsupported heredoc body part: {other:?}"),
         };
 
@@ -3050,12 +3053,12 @@ impl<'a> Parser<'a> {
         }
 
         Some(self.word_with_parts(
-            vec![WordPartNode::new(
-                WordPart::ZshQualifiedGlob(ZshQualifiedGlob {
+            smallvec![WordPartNode::new(
+                WordPart::ZshQualifiedGlob(Box::new(ZshQualifiedGlob {
                     span,
                     segments,
                     qualifiers,
-                }),
+                })),
                 span,
             )],
             span,
@@ -3426,7 +3429,7 @@ impl<'a> Parser<'a> {
         {
             return Some(word);
         }
-        let mut parts = Vec::new();
+        let mut parts = WordParts::new();
 
         for segment in word.segments() {
             let source_backed = segment.span().is_some() && !token.flags.is_synthetic();
@@ -3601,7 +3604,7 @@ impl<'a> Parser<'a> {
 
             return match segment.kind() {
                 LexedWordSegmentKind::SingleQuoted => Some(self.word_with_parts(
-                    vec![self.single_quoted_part_from_text(
+                    smallvec![self.single_quoted_part_from_text(
                         text,
                         content_span,
                         wrapper_span,
@@ -3610,7 +3613,12 @@ impl<'a> Parser<'a> {
                     span,
                 )),
                 LexedWordSegmentKind::DollarSingleQuoted => Some(self.word_with_parts(
-                    vec![self.single_quoted_part_from_text(text, content_span, wrapper_span, true)],
+                    smallvec![self.single_quoted_part_from_text(
+                        text,
+                        content_span,
+                        wrapper_span,
+                        true,
+                    )],
                     span,
                 )),
                 LexedWordSegmentKind::Plain if Self::word_text_needs_parse(text) => Some(
@@ -3632,9 +3640,9 @@ impl<'a> Parser<'a> {
                         source_backed,
                     );
                     Some(self.word_with_parts(
-                        vec![WordPartNode::new(
+                        smallvec![WordPartNode::new(
                             WordPart::DoubleQuoted {
-                                parts: inner.parts,
+                                parts: inner.parts.into_vec(),
                                 dollar: matches!(
                                     segment.kind(),
                                     LexedWordSegmentKind::DollarDoubleQuoted
@@ -3646,11 +3654,11 @@ impl<'a> Parser<'a> {
                     ))
                 }
                 LexedWordSegmentKind::Plain => Some(self.word_with_parts(
-                    vec![self.literal_part_from_text(text, content_span, source_backed)],
+                    smallvec![self.literal_part_from_text(text, content_span, source_backed)],
                     span,
                 )),
                 LexedWordSegmentKind::DoubleQuoted => Some(self.word_with_parts(
-                    vec![self.double_quoted_literal_part_from_text(
+                    smallvec![self.double_quoted_literal_part_from_text(
                         text,
                         content_span,
                         wrapper_span,
@@ -3660,7 +3668,7 @@ impl<'a> Parser<'a> {
                     span,
                 )),
                 LexedWordSegmentKind::DollarDoubleQuoted => Some(self.word_with_parts(
-                    vec![self.double_quoted_literal_part_from_text(
+                    smallvec![self.double_quoted_literal_part_from_text(
                         text,
                         content_span,
                         wrapper_span,
@@ -3673,7 +3681,7 @@ impl<'a> Parser<'a> {
             };
         }
 
-        let mut parts = Vec::new();
+        let mut parts = WordParts::new();
         let mut cursor = span.start;
 
         for segment in word.segments() {
@@ -3738,7 +3746,7 @@ impl<'a> Parser<'a> {
                         );
                         parts.push(WordPartNode::new(
                             WordPart::DoubleQuoted {
-                                parts: inner.parts,
+                                parts: inner.parts.into_vec(),
                                 dollar: matches!(
                                     segment.kind(),
                                     LexedWordSegmentKind::DollarDoubleQuoted
@@ -5198,7 +5206,7 @@ impl<'a> Parser<'a> {
                 ..
             } => {
                 Self::rebase_var_ref(reference, base);
-                match operator {
+                match operator.as_mut() {
                     ParameterOp::RemovePrefixShort { pattern }
                     | ParameterOp::RemovePrefixLong { pattern }
                     | ParameterOp::RemoveSuffixShort { pattern }
@@ -5616,18 +5624,13 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn push_word_part(
-        parts: &mut Vec<WordPartNode>,
-        part: WordPart,
-        start: Position,
-        end: Position,
-    ) {
+    fn push_word_part(parts: &mut WordParts, part: WordPart, start: Position, end: Position) {
         parts.push(WordPartNode::new(part, Span::from_positions(start, end)));
     }
 
     fn flush_literal_part(
         &self,
-        parts: &mut Vec<WordPartNode>,
+        parts: &mut WordParts,
         current: &mut String,
         current_start: Position,
         end: Position,
@@ -5793,8 +5796,8 @@ impl<'a> Parser<'a> {
             raw,
             kind,
             interpretation,
-            word_ast,
-            arithmetic_ast,
+            word_ast: word_ast.map(Box::new),
+            arithmetic_ast: arithmetic_ast.map(Box::new),
         }
     }
 
@@ -5846,7 +5849,7 @@ impl<'a> Parser<'a> {
         VarRef {
             name: name.into(),
             name_span,
-            subscript,
+            subscript: subscript.map(Box::new),
             span,
         }
     }
@@ -5888,21 +5891,23 @@ impl<'a> Parser<'a> {
                 operand_word_ast,
                 colon_variant,
             } => Some(BourneParameterExpansion::Operation {
-                reference,
-                operator: self.enrich_parameter_operator(operator),
-                operand,
+                reference: *reference,
+                operator: self.enrich_parameter_operator(*operator),
+                operand: operand.map(|operand| *operand),
                 operand_word_ast,
                 colon_variant,
             }),
             WordPart::Length(reference) | WordPart::ArrayLength(reference) => {
-                Some(BourneParameterExpansion::Length { reference })
+                Some(BourneParameterExpansion::Length {
+                    reference: *reference,
+                })
             }
-            WordPart::ArrayAccess(reference) => {
-                Some(BourneParameterExpansion::Access { reference })
-            }
-            WordPart::ArrayIndices(reference) => {
-                Some(BourneParameterExpansion::Indices { reference })
-            }
+            WordPart::ArrayAccess(reference) => Some(BourneParameterExpansion::Access {
+                reference: *reference,
+            }),
+            WordPart::ArrayIndices(reference) => Some(BourneParameterExpansion::Indices {
+                reference: *reference,
+            }),
             WordPart::Substring {
                 reference,
                 offset,
@@ -5921,7 +5926,7 @@ impl<'a> Parser<'a> {
                 length_ast,
                 length_word_ast,
             } => Some(BourneParameterExpansion::Slice {
-                reference,
+                reference: *reference,
                 offset,
                 offset_ast,
                 offset_word_ast,
@@ -5936,9 +5941,9 @@ impl<'a> Parser<'a> {
                 operand_word_ast,
                 colon_variant,
             } => Some(BourneParameterExpansion::Indirect {
-                reference,
-                operator: operator.map(|operator| self.enrich_parameter_operator(operator)),
-                operand,
+                reference: *reference,
+                operator: operator.map(|operator| self.enrich_parameter_operator(*operator)),
+                operand: operand.map(|operand| *operand),
                 operand_word_ast,
                 colon_variant,
             }),
@@ -5949,7 +5954,7 @@ impl<'a> Parser<'a> {
                 reference,
                 operator,
             } => Some(BourneParameterExpansion::Transformation {
-                reference,
+                reference: *reference,
                 operator,
             }),
             WordPart::Variable(name) if raw_body_text == name.as_str() => {
@@ -5969,11 +5974,11 @@ impl<'a> Parser<'a> {
         let Some(syntax) = syntax else {
             unreachable!("matched Some above");
         };
-        WordPart::Parameter(ParameterExpansion {
+        WordPart::Parameter(Box::new(ParameterExpansion {
             syntax: ParameterExpansionSyntax::Bourne(syntax),
             span,
             raw_body,
-        })
+        }))
     }
 
     fn enrich_parameter_operator(&self, operator: ParameterOp) -> ParameterOp {
@@ -5984,7 +5989,7 @@ impl<'a> Parser<'a> {
                 ..
             } => ParameterOp::ReplaceFirst {
                 pattern,
-                replacement_word_ast: self.parse_source_text_as_word(&replacement),
+                replacement_word_ast: Box::new(self.parse_source_text_as_word(&replacement)),
                 replacement,
             },
             ParameterOp::ReplaceAll {
@@ -5993,7 +5998,7 @@ impl<'a> Parser<'a> {
                 ..
             } => ParameterOp::ReplaceAll {
                 pattern,
-                replacement_word_ast: self.parse_source_text_as_word(&replacement),
+                replacement_word_ast: Box::new(self.parse_source_text_as_word(&replacement)),
                 replacement,
             },
             ParameterOp::UseDefault
@@ -6046,11 +6051,11 @@ impl<'a> Parser<'a> {
         part_end: Position,
     ) -> WordPart {
         let syntax = self.parse_zsh_parameter_syntax(&raw_body, raw_body.span().start);
-        WordPart::Parameter(ParameterExpansion {
+        WordPart::Parameter(Box::new(ParameterExpansion {
             syntax: ParameterExpansionSyntax::Zsh(syntax),
             span: Span::from_positions(part_start, part_end),
             raw_body,
-        })
+        }))
     }
 
     fn parse_zsh_modifier_group(
@@ -6106,7 +6111,7 @@ impl<'a> Parser<'a> {
 
             let argument_word_ast = argument
                 .as_ref()
-                .map(|argument| self.parse_source_text_as_word(argument));
+                .map(|argument| Box::new(self.parse_source_text_as_word(argument)));
 
             modifiers.push(ZshModifier {
                 name,
@@ -6241,7 +6246,7 @@ impl<'a> Parser<'a> {
         {
             ZshExpansionTarget::Reference(reference)
         } else {
-            ZshExpansionTarget::Word(word)
+            ZshExpansionTarget::Word(Box::new(word))
         }
     }
 
@@ -6334,7 +6339,7 @@ impl<'a> Parser<'a> {
             return VarRef {
                 name: Name::from(name),
                 name_span: Span::new(),
-                subscript: Some(subscript),
+                subscript: Some(Box::new(subscript)),
                 span: Span::new(),
             };
         }
@@ -6519,7 +6524,7 @@ impl<'a> Parser<'a> {
             );
             return ZshExpansionOperation::PatternOperation {
                 kind: ZshPatternOp::Filter,
-                operand_word_ast: self.parse_source_text_as_word(&operand),
+                operand_word_ast: Box::new(self.parse_source_text_as_word(&operand)),
                 operand,
             };
         }
@@ -6547,7 +6552,7 @@ impl<'a> Parser<'a> {
             );
             return ZshExpansionOperation::Defaulting {
                 kind,
-                operand_word_ast: self.parse_source_text_as_word(&operand),
+                operand_word_ast: Box::new(self.parse_source_text_as_word(&operand)),
                 operand,
                 colon_variant: true,
             };
@@ -6565,7 +6570,7 @@ impl<'a> Parser<'a> {
             let operand = self.zsh_operation_source_text(text, base, prefix_len, text.len());
             return ZshExpansionOperation::TrimOperation {
                 kind,
-                operand_word_ast: self.parse_source_text_as_word(&operand),
+                operand_word_ast: Box::new(self.parse_source_text_as_word(&operand)),
                 operand,
             };
         }
@@ -6589,8 +6594,10 @@ impl<'a> Parser<'a> {
             });
             return ZshExpansionOperation::ReplacementOperation {
                 kind,
-                pattern_word_ast: self.parse_source_text_as_word(&pattern),
-                replacement_word_ast: self.parse_optional_source_text_as_word(replacement.as_ref()),
+                pattern_word_ast: Box::new(self.parse_source_text_as_word(&pattern)),
+                replacement_word_ast: self
+                    .parse_optional_source_text_as_word(replacement.as_ref())
+                    .map(Box::new),
                 pattern,
                 replacement,
             };
@@ -6600,7 +6607,7 @@ impl<'a> Parser<'a> {
             if Self::zsh_modifier_suffix_candidate(rest) {
                 let text = self.source_text(text.to_string(), base, base.advanced_by(text));
                 return ZshExpansionOperation::Unknown {
-                    word_ast: self.parse_source_text_as_word(&text),
+                    word_ast: Box::new(self.parse_source_text_as_word(&text)),
                     text,
                 };
             }
@@ -6613,17 +6620,19 @@ impl<'a> Parser<'a> {
                     self.zsh_operation_source_text(text, base, 1 + separator + 1, text.len())
                 });
                 return ZshExpansionOperation::Slice {
-                    offset_word_ast: self.parse_source_text_as_word(&offset),
-                    length_word_ast: self.parse_optional_source_text_as_word(length.as_ref()),
-                    offset,
-                    length,
+                    offset_word_ast: Box::new(self.parse_source_text_as_word(&offset)),
+                    length_word_ast: self
+                        .parse_optional_source_text_as_word(length.as_ref())
+                        .map(Box::new),
+                    offset: Box::new(offset),
+                    length: length.map(Box::new),
                 };
             }
         }
 
         let text = self.source_text(text.to_string(), base, base.advanced_by(text));
         ZshExpansionOperation::Unknown {
-            word_ast: self.parse_source_text_as_word(&text),
+            word_ast: Box::new(self.parse_source_text_as_word(&text)),
             text,
         }
     }

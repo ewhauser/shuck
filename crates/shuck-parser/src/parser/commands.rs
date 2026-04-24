@@ -3828,7 +3828,7 @@ impl<'a> Parser<'a> {
             _ => return Err(self.error("expected conditional operand")),
         };
 
-        Ok(self.word_with_parts(parts, Span::from_positions(start, end)))
+        Ok(self.word_with_parts(parts.into(), Span::from_positions(start, end)))
     }
 
     fn parse_arithmetic_command(&mut self) -> Result<CompoundCommand> {

@@ -115,7 +115,7 @@ fn visit_var_ref_subscript_words_with_source<'a>(
     _source: &'a str,
     visitor: &mut impl FnMut(&'a Word),
 ) {
-    visit_subscript_words(reference.subscript.as_ref(), _source, visitor);
+    visit_subscript_words(reference.subscript.as_deref(), _source, visitor);
 }
 
 fn visit_subscript_words<'a>(
@@ -129,7 +129,7 @@ fn visit_subscript_words<'a>(
     if subscript.selector().is_some() {
         return;
     }
-    if let Some(expression) = subscript.arithmetic_ast.as_ref() {
+    if let Some(expression) = subscript.arithmetic_ast.as_deref() {
         visit_arithmetic_words_in_expr(expression, visitor);
         return;
     }
@@ -193,7 +193,7 @@ fn collect_var_ref_subscript_words<'a>(reference: &'a VarRef, words: &mut Vec<&'
         reference
             .subscript
             .as_ref()
-            .and_then(|subscript| subscript.arithmetic_ast.as_ref()),
+            .and_then(|subscript| subscript.arithmetic_ast.as_deref()),
         words,
     );
 }
@@ -613,7 +613,7 @@ fn collect_word_part_visits<'a, F>(
                 ..
             } => {
                 collect_var_ref_word_visits(reference, options, context, visitor);
-                if let Some(word) = operand_word_ast.as_ref() {
+                if let Some(word) = operand_word_ast.as_deref() {
                     collect_word_visits(word, options, context, visitor);
                 }
             }
@@ -641,7 +641,7 @@ fn collect_word_part_visits<'a, F>(
                 ..
             } => {
                 collect_var_ref_word_visits(reference, options, context, visitor);
-                if let Some(expression) = offset_ast.as_ref() {
+                if let Some(expression) = offset_ast.as_deref() {
                     let mut arithmetic_words = Vec::new();
                     collect_optional_arithmetic_words(Some(expression), &mut arithmetic_words);
                     for word in arithmetic_words {
@@ -650,7 +650,7 @@ fn collect_word_part_visits<'a, F>(
                 } else {
                     collect_word_visits(offset_word_ast, options, context, visitor);
                 }
-                if let Some(expression) = length_ast.as_ref() {
+                if let Some(expression) = length_ast.as_deref() {
                     let mut arithmetic_words = Vec::new();
                     collect_optional_arithmetic_words(Some(expression), &mut arithmetic_words);
                     for word in arithmetic_words {
@@ -709,7 +709,7 @@ fn collect_parameter_expansion_visits<'a, F>(
                 ..
             } => {
                 collect_var_ref_word_visits(reference, options, context, visitor);
-                if let Some(word) = operand_word_ast.as_ref() {
+                if let Some(word) = operand_word_ast.as_deref() {
                     collect_word_visits(word, options, context, visitor);
                 }
             }
@@ -720,7 +720,7 @@ fn collect_parameter_expansion_visits<'a, F>(
                 ..
             } => {
                 collect_var_ref_word_visits(reference, options, context, visitor);
-                if let Some(word) = operand_word_ast.as_ref() {
+                if let Some(word) = operand_word_ast.as_deref() {
                     collect_word_visits(word, options, context, visitor);
                 }
                 if let Some(word) = operator.replacement_word_ast() {
@@ -736,7 +736,7 @@ fn collect_parameter_expansion_visits<'a, F>(
                 ..
             } => {
                 collect_var_ref_word_visits(reference, options, context, visitor);
-                if let Some(expression) = offset_ast.as_ref() {
+                if let Some(expression) = offset_ast.as_deref() {
                     let mut arithmetic_words = Vec::new();
                     collect_optional_arithmetic_words(Some(expression), &mut arithmetic_words);
                     for word in arithmetic_words {
@@ -745,7 +745,7 @@ fn collect_parameter_expansion_visits<'a, F>(
                 } else {
                     collect_word_visits(offset_word_ast, options, context, visitor);
                 }
-                if let Some(expression) = length_ast.as_ref() {
+                if let Some(expression) = length_ast.as_deref() {
                     let mut arithmetic_words = Vec::new();
                     collect_optional_arithmetic_words(Some(expression), &mut arithmetic_words);
                     for word in arithmetic_words {

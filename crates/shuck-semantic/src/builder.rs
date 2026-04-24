@@ -488,7 +488,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 DeclOperand::Name(name) => {
                     self.visit_var_ref_subscript_words(
                         Some(&name.name),
-                        name.subscript.as_ref(),
+                        name.subscript.as_deref(),
                         WordVisitKind::Expansion,
                         flow,
                         &mut nested_regions,
@@ -1021,7 +1021,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         let reference_start = self.references.len();
         self.visit_var_ref_subscript_words(
             Some(&assignment.target.name),
-            assignment.target.subscript.as_ref(),
+            assignment.target.subscript.as_deref(),
             WordVisitKind::Expansion,
             flow,
             nested_regions,
@@ -1294,7 +1294,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         let id = self.add_reference(&reference.name, reference_kind, span);
         self.visit_var_ref_subscript_words(
             Some(&reference.name),
-            reference.subscript.as_ref(),
+            reference.subscript.as_deref(),
             if matches!(reference_kind, ReferenceKind::ConditionalOperand) {
                 WordVisitKind::Conditional
             } else {
@@ -1410,7 +1410,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             }
             WordPart::ArithmeticExpansion { expression_ast, .. } => {
                 self.visit_optional_arithmetic_expr_into(
-                    expression_ast.as_ref(),
+                    expression_ast.as_deref(),
                     flow,
                     nested_regions,
                 );
@@ -1433,7 +1433,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             } => {
                 let reference_id = self.visit_var_ref_reference(
                     reference,
-                    if matches!(operator, ParameterOp::Error) {
+                    if matches!(operator.as_ref(), ParameterOp::Error) {
                         ReferenceKind::RequiredRead
                     } else if matches!(kind, WordVisitKind::Conditional) {
                         ReferenceKind::ConditionalOperand
@@ -1447,13 +1447,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 if parameter_operator_guards_unset_reference(operator) {
                     self.guarded_parameter_refs.insert(reference_id);
                 }
-                if matches!(operator, ParameterOp::AssignDefault) {
+                if matches!(operator.as_ref(), ParameterOp::AssignDefault) {
                     self.add_parameter_default_binding(reference);
                 }
                 self.visit_parameter_operator_operand(
                     operator,
-                    operand.as_ref(),
-                    operand_word_ast.as_ref(),
+                    operand.as_deref(),
+                    operand_word_ast.as_deref(),
                     kind,
                     flow,
                     nested_regions,
@@ -1531,8 +1531,8 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                 if let Some(operator) = operator {
                     self.visit_parameter_operator_operand(
                         operator,
-                        operand.as_ref(),
-                        operand_word_ast.as_ref(),
+                        operand.as_deref(),
+                        operand_word_ast.as_deref(),
                         kind,
                         flow,
                         nested_regions,
@@ -1556,8 +1556,16 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     nested_regions,
                     reference.span,
                 );
-                self.visit_optional_arithmetic_expr_into(offset_ast.as_ref(), flow, nested_regions);
-                self.visit_optional_arithmetic_expr_into(length_ast.as_ref(), flow, nested_regions);
+                self.visit_optional_arithmetic_expr_into(
+                    offset_ast.as_deref(),
+                    flow,
+                    nested_regions,
+                );
+                self.visit_optional_arithmetic_expr_into(
+                    length_ast.as_deref(),
+                    flow,
+                    nested_regions,
+                );
             }
             WordPart::ArraySlice {
                 reference,
@@ -1576,8 +1584,16 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     nested_regions,
                     reference.span,
                 );
-                self.visit_optional_arithmetic_expr_into(offset_ast.as_ref(), flow, nested_regions);
-                self.visit_optional_arithmetic_expr_into(length_ast.as_ref(), flow, nested_regions);
+                self.visit_optional_arithmetic_expr_into(
+                    offset_ast.as_deref(),
+                    flow,
+                    nested_regions,
+                );
+                self.visit_optional_arithmetic_expr_into(
+                    length_ast.as_deref(),
+                    flow,
+                    nested_regions,
+                );
             }
             WordPart::Transformation { reference, .. } => {
                 self.visit_var_ref_reference(
@@ -1720,7 +1736,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         self.visit_parameter_operator_operand(
                             operator,
                             operand.as_ref(),
-                            operand_word_ast.as_ref(),
+                            operand_word_ast.as_deref(),
                             kind,
                             flow,
                             nested_regions,
@@ -1756,12 +1772,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         span,
                     );
                     self.visit_optional_arithmetic_expr_into(
-                        offset_ast.as_ref(),
+                        offset_ast.as_deref(),
                         flow,
                         nested_regions,
                     );
                     self.visit_optional_arithmetic_expr_into(
-                        length_ast.as_ref(),
+                        length_ast.as_deref(),
                         flow,
                         nested_regions,
                     );
@@ -1795,7 +1811,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     self.visit_parameter_operator_operand(
                         operator,
                         operand.as_ref(),
-                        operand_word_ast.as_ref(),
+                        operand_word_ast.as_deref(),
                         kind,
                         flow,
                         nested_regions,
@@ -1903,7 +1919,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                             );
                             self.visit_fragment_word(
                                 operation.length_word_ast(),
-                                length.as_ref(),
+                                length.as_deref(),
                                 kind,
                                 flow,
                                 nested_regions,
@@ -4637,12 +4653,12 @@ mod tests {
         let word = word(vec![WordPart::DoubleQuoted {
             parts: vec![WordPartNode::new(
                 WordPart::CommandSubstitution {
-                    body: StmtSeq {
+                    body: Box::new(StmtSeq {
                         leading_comments: Vec::new(),
                         stmts: Vec::new(),
                         trailing_comments: Vec::new(),
                         span: Span::new(),
-                    },
+                    }),
                     syntax: shuck_ast::CommandSubstitutionSyntax::DollarParen,
                 },
                 Span::new(),
@@ -4655,7 +4671,7 @@ mod tests {
 
     #[test]
     fn inert_zsh_qualified_glob_short_circuits() {
-        let word = word(vec![WordPart::ZshQualifiedGlob(
+        let word = word(vec![WordPart::ZshQualifiedGlob(Box::new(
             shuck_ast::ZshQualifiedGlob {
                 span: Span::new(),
                 segments: vec![
@@ -4675,27 +4691,27 @@ mod tests {
                 ],
                 qualifiers: None,
             },
-        )]);
+        ))]);
 
         assert!(word_is_semantically_inert(&word));
     }
 
     #[test]
     fn pattern_with_expanding_word_is_not_inert() {
-        let pattern = pattern(vec![PatternPart::Word(word(vec![
+        let pattern = pattern(vec![PatternPart::Word(Box::new(word(vec![
             WordPart::ParameterExpansion {
-                reference: VarRef {
+                reference: Box::new(VarRef {
                     name: "name".into(),
                     name_span: Span::new(),
                     subscript: None,
                     span: Span::new(),
-                },
-                operator: ParameterOp::UseDefault,
-                operand: Some(SourceText::from("fallback")),
-                operand_word_ast: Some(Word::literal("fallback")),
+                }),
+                operator: Box::new(ParameterOp::UseDefault),
+                operand: Some(Box::new(SourceText::from("fallback"))),
+                operand_word_ast: Some(Box::new(Word::literal("fallback"))),
                 colon_variant: true,
             },
-        ]))]);
+        ])))]);
 
         assert!(!pattern_is_semantically_inert(&pattern));
     }

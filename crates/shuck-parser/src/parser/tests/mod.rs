@@ -324,8 +324,8 @@ fn expect_substring_part(
     part: &WordPart,
 ) -> (
     &VarRef,
-    &Option<ArithmeticExprNode>,
-    &Option<ArithmeticExprNode>,
+    &Option<Box<ArithmeticExprNode>>,
+    &Option<Box<ArithmeticExprNode>>,
 ) {
     match part {
         WordPart::Substring {
@@ -351,8 +351,8 @@ fn expect_array_slice_part(
     part: &WordPart,
 ) -> (
     &VarRef,
-    &Option<ArithmeticExprNode>,
-    &Option<ArithmeticExprNode>,
+    &Option<Box<ArithmeticExprNode>>,
+    &Option<Box<ArithmeticExprNode>>,
 ) {
     match part {
         WordPart::ArraySlice {
@@ -383,7 +383,7 @@ fn expect_parameter_operation_part(
             operator,
             operand,
             ..
-        } => (reference, operator, operand.as_ref()),
+        } => (reference, operator, operand.as_deref()),
         WordPart::Parameter(parameter) => match &parameter.syntax {
             ParameterExpansionSyntax::Bourne(BourneParameterExpansion::Operation {
                 reference,
@@ -423,8 +423,8 @@ fn expect_indirect_expansion_part(
             ..
         } => (
             reference,
-            operator.as_ref(),
-            operand.as_ref(),
+            operator.as_ref().map(|operator| operator.as_ref()),
+            operand.as_deref(),
             *colon_variant,
         ),
         WordPart::Parameter(parameter) => match &parameter.syntax {

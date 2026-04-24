@@ -692,7 +692,7 @@ fn analyze_part(
                 pathname_matching: substitution_pathname_matching_hazard(in_double_quotes, options),
                 runtime_pattern: operator
                     .as_ref()
-                    .is_some_and(parameter_operator_uses_pattern),
+                    .is_some_and(|operator| parameter_operator_uses_pattern(operator)),
                 ..ExpansionHazards::default()
             },
             command_substitution: false,
@@ -766,7 +766,7 @@ fn analyze_parameter_part(
                     ),
                     runtime_pattern: operator
                         .as_ref()
-                        .is_some_and(parameter_operator_uses_pattern),
+                        .is_some_and(|operator| parameter_operator_uses_pattern(operator)),
                     ..ExpansionHazards::default()
                 },
                 command_substitution: false,
@@ -1004,7 +1004,7 @@ fn array_part(
 
 fn parameter_operator_uses_pattern(operator: &shuck_ast::ParameterOp) -> bool {
     matches!(
-        operator,
+                        operator,
         shuck_ast::ParameterOp::RemovePrefixShort { .. }
             | shuck_ast::ParameterOp::RemovePrefixLong { .. }
             | shuck_ast::ParameterOp::RemoveSuffixShort { .. }
@@ -3735,7 +3735,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                     let indexed_semantics = self.subscript_uses_index_arithmetic_semantics(
                         Some(&reference.name),
                         Some(reference.name_span),
-                        reference.subscript.as_ref(),
+                        reference.subscript.as_deref(),
                     );
                     visit_var_ref_subscript_words_with_source(
                         reference,
@@ -3785,7 +3785,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         let indexed_semantics = self.subscript_uses_index_arithmetic_semantics(
             Some(&assignment.target.name),
             Some(assignment.target.name_span),
-            assignment.target.subscript.as_ref(),
+            assignment.target.subscript.as_deref(),
         );
         visit_var_ref_subscript_words_with_source(
             &assignment.target,
@@ -4268,7 +4268,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                     expression_word_ast,
                     ..
                 } => {
-                    if let Some(expression) = expression_ast.as_ref() {
+                    if let Some(expression) = expression_ast.as_deref() {
                         visit_arithmetic_words(expression, &mut |word| {
                             self.push_pending_arithmetic_word_occurrence(
                                 word,
@@ -4301,7 +4301,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                     ..
                 } => self.collect_pending_arithmetic_word_occurrences_in_parameter_operator(
                     operator,
-                    operand_word_ast.as_ref(),
+                    operand_word_ast.as_deref(),
                     enclosing_expansion_context,
                     host_kind,
                 ),
@@ -4344,7 +4344,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                 },
             ) => self.collect_pending_arithmetic_word_occurrences_in_parameter_operator(
                 operator,
-                operand_word_ast.as_ref(),
+                operand_word_ast.as_deref(),
                 enclosing_expansion_context,
                 host_kind,
             ),
@@ -4404,7 +4404,7 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         host_kind: WordFactHostKind,
     ) {
         if matches!(
-            operator,
+                        operator,
             ParameterOp::UseDefault
                 | ParameterOp::AssignDefault
                 | ParameterOp::UseReplacement
@@ -4818,7 +4818,7 @@ fn is_simple_arithmetic_reference_subscript(subscript: &Subscript, source: &str)
     subscript.selector().is_none()
         && !subscript.syntax_text(source).contains('$')
         && matches!(
-            subscript.arithmetic_ast.as_ref().map(|expr| &expr.kind),
+            subscript.arithmetic_ast.as_deref().map(|expr| &expr.kind),
             Some(ArithmeticExpr::Variable(_) | ArithmeticExpr::Number(_))
         )
 }
@@ -5918,7 +5918,7 @@ fn collect_arithmetic_update_operator_spans_in_var_ref_impl(
 ) {
     if !var_ref_subscript_has_assoc_semantics(reference, semantic) {
         collect_arithmetic_update_operator_spans_in_subscript(
-            reference.subscript.as_ref(),
+            reference.subscript.as_deref(),
             source,
             spans,
         );
@@ -5988,7 +5988,7 @@ fn collect_arithmetic_update_operator_spans_in_parameter_expansion_impl(
                         include_nested_commands,
                     );
                 }
-                if let Some(operand_word_ast) = operand_word_ast.as_ref() {
+                if let Some(operand_word_ast) = operand_word_ast.as_deref() {
                     collect_arithmetic_update_operator_spans_from_parts_impl(
                         &operand_word_ast.parts,
                         semantic,
@@ -6018,7 +6018,7 @@ fn collect_arithmetic_update_operator_spans_in_parameter_expansion_impl(
                     spans,
                     include_nested_commands,
                 );
-                if let Some(operand_word_ast) = operand_word_ast.as_ref() {
+                if let Some(operand_word_ast) = operand_word_ast.as_deref() {
                     collect_arithmetic_update_operator_spans_from_parts_impl(
                         &operand_word_ast.parts,
                         semantic,
@@ -6196,7 +6196,7 @@ fn collect_arithmetic_spans_in_parameter_expansion(
                     command_substitution_spans,
                 );
                 collect_arithmetic_spans_in_fragment(
-                    operand_word_ast.as_ref(),
+                    operand_word_ast.as_deref(),
                     operand.as_ref(),
                     source,
                     collect_dollar_spans,
@@ -6219,7 +6219,7 @@ fn collect_arithmetic_spans_in_parameter_expansion(
                     command_substitution_spans,
                 );
                 collect_arithmetic_spans_in_fragment(
-                    operand_word_ast.as_ref(),
+                    operand_word_ast.as_deref(),
                     operand.as_ref(),
                     source,
                     collect_dollar_spans,

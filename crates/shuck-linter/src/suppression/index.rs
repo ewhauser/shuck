@@ -478,7 +478,7 @@ fn visit_var_ref_subscript_words<'a>(reference: &'a VarRef, visitor: &mut impl F
     if let Some(expression) = reference
         .subscript
         .as_ref()
-        .and_then(|subscript| subscript.arithmetic_ast.as_ref())
+        .and_then(|subscript| subscript.arithmetic_ast.as_deref())
     {
         visit_arithmetic_words(expression, visitor);
     }

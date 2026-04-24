@@ -403,7 +403,7 @@ impl<'a> ArithmeticParser<'a> {
                 token.span,
             )),
             TokenKind::ShellWord(word) => Ok(ArithmeticExprNode::new(
-                ArithmeticExpr::ShellWord(word),
+                ArithmeticExpr::ShellWord(Box::new(word)),
                 token.span,
             )),
             TokenKind::End => {

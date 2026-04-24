@@ -1,6 +1,6 @@
 use super::*;
 use shuck_ast::ArrayValueWord;
-use smallvec::SmallVec;
+use smallvec::{SmallVec, smallvec};
 #[derive(Debug, Clone, Copy)]
 struct PatternCursor {
     segment_index: usize,
@@ -130,11 +130,11 @@ impl<'a> PatternParser<'a> {
                 PatternSegment::Word(part) => {
                     self.flush_literal(&mut parts, &mut literal, &mut literal_start, literal_end);
                     parts.push(PatternPartNode::new(
-                        PatternPart::Word(Word {
-                            parts: vec![(*part).clone()],
+                        PatternPart::Word(Box::new(Word {
+                            parts: smallvec![(*part).clone()],
                             span: part.span,
                             brace_syntax: Vec::new(),
-                        }),
+                        })),
                         part.span,
                     ));
                     self.advance_to_next_segment(cursor);
@@ -547,7 +547,7 @@ impl<'a> Parser<'a> {
 
     pub(super) fn pattern_from_source_text(&mut self, text: &SourceText) -> Pattern {
         let span = text.span();
-        let mut parts = Vec::new();
+        let mut parts = WordParts::new();
         self.decode_word_parts_into_with_quote_fragments(
             text.slice(self.input),
             span.start,
@@ -1716,7 +1716,7 @@ impl<'a> Parser<'a> {
 
     pub(super) fn split_word_at(&self, word: Word, start: Position) -> Word {
         let value_span = Span::from_positions(start, word.span.end);
-        let mut parts = Vec::new();
+        let mut parts = WordParts::new();
 
         for part in word.parts {
             if let Some((kind, span)) = self.trim_word_part_prefix(part.kind, part.span, start) {
@@ -1773,7 +1773,7 @@ impl<'a> Parser<'a> {
                 } => {
                     reference.is_source_backed()
                         && self.parameter_operator_is_source_backed(operator)
-                        && operand.as_ref().is_none_or(SourceText::is_source_backed)
+                        && operand.as_deref().is_none_or(SourceText::is_source_backed)
                 }
                 WordPart::Length(reference)
                 | WordPart::ArrayAccess(reference)
@@ -1794,7 +1794,7 @@ impl<'a> Parser<'a> {
                 } => {
                     reference.is_source_backed()
                         && offset.is_source_backed()
-                        && length.as_ref().is_none_or(SourceText::is_source_backed)
+                        && length.as_deref().is_none_or(SourceText::is_source_backed)
                 }
                 WordPart::IndirectExpansion {
                     reference,
@@ -1804,7 +1804,7 @@ impl<'a> Parser<'a> {
                 } => {
                     reference.is_source_backed()
                         && operator.is_none()
-                        && operand.as_ref().is_none_or(SourceText::is_source_backed)
+                        && operand.as_deref().is_none_or(SourceText::is_source_backed)
                 }
             }
     }
@@ -1982,7 +1982,7 @@ impl<'a> Parser<'a> {
                 self.push_parameter_operator_syntax(
                     out,
                     operator,
-                    operand.as_ref(),
+                    operand.as_deref(),
                     *colon_variant,
                 );
                 out.push('}');
@@ -2042,7 +2042,7 @@ impl<'a> Parser<'a> {
                     self.push_parameter_operator_syntax(
                         out,
                         operator,
-                        operand.as_ref(),
+                        operand.as_deref(),
                         *colon_variant,
                     );
                 }
@@ -2904,8 +2904,11 @@ impl<'a> Parser<'a> {
                 let body = self.nested_stmt_seq_from_current_input(inner_start, close_span.start);
 
                 Ok(self.word_with_parts(
-                    vec![WordPartNode::new(
-                        WordPart::ProcessSubstitution { body, is_input },
+                    smallvec![WordPartNode::new(
+                        WordPart::ProcessSubstitution {
+                            body: Box::new(body),
+                            is_input,
+                        },
                         process_span.merge(close_span),
                     )],
                     process_span.merge(close_span),
@@ -2926,7 +2929,7 @@ impl<'a> Parser<'a> {
         base: Position,
         source_backed: bool,
         preserve_escaped_expansion_literals: bool,
-        parts: &mut Vec<WordPartNode>,
+        parts: &mut WordParts,
     ) {
         self.decode_word_parts_into_with_quote_fragments(
             s,
@@ -2947,7 +2950,7 @@ impl<'a> Parser<'a> {
         base: Position,
         source_backed: bool,
         options: DecodeWordPartsOptions,
-        parts: &mut Vec<WordPartNode>,
+        parts: &mut WordParts,
     ) {
         let mut chars = s.chars().peekable();
         let mut current = String::new();
@@ -3258,7 +3261,7 @@ impl<'a> Parser<'a> {
                 Self::push_word_part(
                     parts,
                     WordPart::DoubleQuoted {
-                        parts: inner.parts,
+                        parts: inner.parts.into_vec(),
                         dollar: false,
                     },
                     part_start,
@@ -3323,7 +3326,7 @@ impl<'a> Parser<'a> {
                 Self::push_word_part(
                     parts,
                     WordPart::CommandSubstitution {
-                        body,
+                        body: Box::new(body),
                         syntax: CommandSubstitutionSyntax::Backtick,
                     },
                     part_start,
@@ -3403,7 +3406,10 @@ impl<'a> Parser<'a> {
 
                 Self::push_word_part(
                     parts,
-                    WordPart::ProcessSubstitution { body, is_input },
+                    WordPart::ProcessSubstitution {
+                        body: Box::new(body),
+                        is_input,
+                    },
                     part_start,
                     cursor,
                 );
@@ -3542,7 +3548,7 @@ impl<'a> Parser<'a> {
                 Self::push_word_part(
                     parts,
                     WordPart::DoubleQuoted {
-                        parts: inner.parts,
+                        parts: inner.parts.into_vec(),
                         dollar: true,
                     },
                     part_start,
@@ -3702,7 +3708,7 @@ impl<'a> Parser<'a> {
                     Self::push_word_part(
                         parts,
                         WordPart::CommandSubstitution {
-                            body,
+                            body: Box::new(body),
                             syntax: CommandSubstitutionSyntax::DollarParen,
                         },
                         part_start,
@@ -3877,12 +3883,12 @@ impl<'a> Parser<'a> {
                         let part = if reference
                             .subscript
                             .as_ref()
-                            .and_then(Subscript::selector)
+                            .and_then(|subscript| subscript.selector())
                             .is_some()
                         {
-                            WordPart::ArrayLength(reference)
+                            WordPart::ArrayLength(Box::new(reference))
                         } else {
-                            WordPart::Length(reference)
+                            WordPart::Length(Box::new(reference))
                         };
                         let part = self.parameter_word_part_from_legacy(
                             part,
@@ -3894,9 +3900,9 @@ impl<'a> Parser<'a> {
                     } else {
                         Self::consume_word_char_if(&mut chars, &mut cursor, '}');
                         let part = self.parameter_word_part_from_legacy(
-                            WordPart::Length(
+                            WordPart::Length(Box::new(
                                 self.parameter_var_ref(part_start, "${#", &var_name, None, cursor),
-                            ),
+                            )),
                             part_start,
                             cursor,
                             source_backed,
@@ -3967,10 +3973,10 @@ impl<'a> Parser<'a> {
                             if reference
                                 .subscript
                                 .as_ref()
-                                .and_then(Subscript::selector)
+                                .and_then(|subscript| subscript.selector())
                                 .is_some()
                             {
-                                WordPart::ArrayIndices(reference)
+                                WordPart::ArrayIndices(Box::new(reference))
                             } else {
                                 self.indirect_expansion_word_part(reference, None, None, false)
                             },
@@ -4137,15 +4143,17 @@ impl<'a> Parser<'a> {
                                 let operator = if replace_all {
                                     ParameterOp::ReplaceAll {
                                         pattern,
-                                        replacement_word_ast: self
-                                            .parse_source_text_as_word(&replacement),
+                                        replacement_word_ast: Box::new(
+                                            self.parse_source_text_as_word(&replacement),
+                                        ),
                                         replacement,
                                     }
                                 } else {
                                     ParameterOp::ReplaceFirst {
                                         pattern,
-                                        replacement_word_ast: self
-                                            .parse_source_text_as_word(&replacement),
+                                        replacement_word_ast: Box::new(
+                                            self.parse_source_text_as_word(&replacement),
+                                        ),
                                         replacement,
                                     }
                                 };
@@ -4405,15 +4413,17 @@ impl<'a> Parser<'a> {
                             let operator = if replace_all {
                                 ParameterOp::ReplaceAll {
                                     pattern,
-                                    replacement_word_ast: self
-                                        .parse_source_text_as_word(&replacement),
+                                    replacement_word_ast: Box::new(
+                                        self.parse_source_text_as_word(&replacement),
+                                    ),
                                     replacement,
                                 }
                             } else {
                                 ParameterOp::ReplaceFirst {
                                     pattern,
-                                    replacement_word_ast: self
-                                        .parse_source_text_as_word(&replacement),
+                                    replacement_word_ast: Box::new(
+                                        self.parse_source_text_as_word(&replacement),
+                                    ),
                                     replacement,
                                 }
                             };
@@ -4495,43 +4505,43 @@ impl<'a> Parser<'a> {
                                 let operator = Self::next_word_char_unwrap(&mut chars, &mut cursor);
                                 Self::consume_word_char_if(&mut chars, &mut cursor, '}');
                                 WordPart::Transformation {
-                                    reference: self.parameter_var_ref(
+                                    reference: Box::new(self.parameter_var_ref(
                                         part_start,
                                         "${",
                                         &var_name,
                                         Some(subscript),
                                         cursor,
-                                    ),
+                                    )),
                                     operator,
                                 }
                             } else {
                                 Self::consume_word_char_if(&mut chars, &mut cursor, '}');
-                                WordPart::ArrayAccess(self.parameter_var_ref(
+                                WordPart::ArrayAccess(Box::new(self.parameter_var_ref(
                                     part_start,
                                     "${",
                                     &var_name,
                                     Some(subscript),
                                     cursor,
-                                ))
+                                )))
                             }
                         } else {
                             Self::consume_word_char_if(&mut chars, &mut cursor, '}');
-                            WordPart::ArrayAccess(self.parameter_var_ref(
+                            WordPart::ArrayAccess(Box::new(self.parameter_var_ref(
                                 part_start,
                                 "${",
                                 &var_name,
                                 Some(subscript),
                                 cursor,
-                            ))
+                            )))
                         }
                     } else {
-                        WordPart::ArrayAccess(self.parameter_var_ref(
+                        WordPart::ArrayAccess(Box::new(self.parameter_var_ref(
                             part_start,
                             "${",
                             &var_name,
                             Some(subscript),
                             cursor,
-                        ))
+                        )))
                     };
 
                     let part = self.parameter_word_part_from_legacy(
@@ -4909,7 +4919,7 @@ impl<'a> Parser<'a> {
         source_backed: bool,
         preserve_escaped_expansion_literals: bool,
     ) -> Word {
-        let mut parts = Vec::new();
+        let mut parts = WordParts::new();
         self.decode_word_parts_into_with_escape_mode(
             s,
             base,
@@ -4928,7 +4938,7 @@ impl<'a> Parser<'a> {
         source_backed: bool,
         options: DecodeWordPartsOptions,
     ) -> Word {
-        let mut parts = Vec::new();
+        let mut parts = WordParts::new();
         self.decode_word_parts_into_with_quote_fragments(
             s,
             base,
@@ -4957,7 +4967,7 @@ impl<'a> Parser<'a> {
         source_backed: bool,
         preserve_escaped_expansion_literals: bool,
     ) -> Word {
-        let mut parts = Vec::new();
+        let mut parts = WordParts::new();
         self.decode_word_parts_into_with_quote_fragments(
             s,
             base,
@@ -5003,7 +5013,7 @@ impl<'a> Parser<'a> {
         span: Span,
         source_backed: bool,
     ) -> HeredocBody {
-        let mut parts = Vec::new();
+        let mut parts = WordParts::new();
         self.decode_word_parts_into_with_quote_fragments(
             s,
             span.start,
@@ -5044,8 +5054,11 @@ impl<'a> Parser<'a> {
         syntax: ArithmeticExpansionSyntax,
     ) -> WordPart {
         WordPart::ArithmeticExpansion {
-            expression_ast: self.parse_source_text_as_arithmetic(&expression).ok(),
-            expression_word_ast: self.parse_source_text_as_word(&expression),
+            expression_ast: self
+                .parse_source_text_as_arithmetic(&expression)
+                .ok()
+                .map(Box::new),
+            expression_word_ast: Box::new(self.parse_source_text_as_word(&expression)),
             expression,
             syntax,
         }
@@ -5058,11 +5071,13 @@ impl<'a> Parser<'a> {
         operand: Option<SourceText>,
         colon_variant: bool,
     ) -> WordPart {
-        let operand_word_ast = self.parse_optional_source_text_as_word(operand.as_ref());
+        let operand_word_ast = self
+            .parse_optional_source_text_as_word(operand.as_ref())
+            .map(Box::new);
         WordPart::ParameterExpansion {
-            reference,
-            operator,
-            operand,
+            reference: Box::new(reference),
+            operator: Box::new(operator),
+            operand: operand.map(Box::new),
             operand_word_ast,
             colon_variant,
         }
@@ -5075,11 +5090,13 @@ impl<'a> Parser<'a> {
         operand: Option<SourceText>,
         colon_variant: bool,
     ) -> WordPart {
-        let operand_word_ast = self.parse_optional_source_text_as_word(operand.as_ref());
+        let operand_word_ast = self
+            .parse_optional_source_text_as_word(operand.as_ref())
+            .map(Box::new);
         WordPart::IndirectExpansion {
-            reference,
-            operator,
-            operand,
+            reference: Box::new(reference),
+            operator: operator.map(Box::new),
+            operand: operand.map(Box::new),
             operand_word_ast,
             colon_variant,
         }
@@ -5091,18 +5108,23 @@ impl<'a> Parser<'a> {
         offset: SourceText,
         length: Option<SourceText>,
     ) -> WordPart {
-        let offset_ast = self.maybe_parse_source_text_as_arithmetic(&offset);
-        let offset_word_ast = self.parse_source_text_as_word(&offset);
+        let offset_ast = self
+            .maybe_parse_source_text_as_arithmetic(&offset)
+            .map(Box::new);
+        let offset_word_ast = Box::new(self.parse_source_text_as_word(&offset));
         let length_ast = length
             .as_ref()
-            .and_then(|length| self.maybe_parse_source_text_as_arithmetic(length));
-        let length_word_ast = self.parse_optional_source_text_as_word(length.as_ref());
+            .and_then(|length| self.maybe_parse_source_text_as_arithmetic(length))
+            .map(Box::new);
+        let length_word_ast = self
+            .parse_optional_source_text_as_word(length.as_ref())
+            .map(Box::new);
         WordPart::Substring {
-            reference,
-            offset,
+            reference: Box::new(reference),
+            offset: Box::new(offset),
             offset_ast,
             offset_word_ast,
-            length,
+            length: length.map(Box::new),
             length_ast,
             length_word_ast,
         }
@@ -5240,13 +5262,17 @@ impl<'a> Parser<'a> {
                     let operator = if replace_all {
                         ParameterOp::ReplaceAll {
                             pattern,
-                            replacement_word_ast: self.parse_source_text_as_word(&replacement),
+                            replacement_word_ast: Box::new(
+                                self.parse_source_text_as_word(&replacement),
+                            ),
                             replacement,
                         }
                     } else {
                         ParameterOp::ReplaceFirst {
                             pattern,
-                            replacement_word_ast: self.parse_source_text_as_word(&replacement),
+                            replacement_word_ast: Box::new(
+                                self.parse_source_text_as_word(&replacement),
+                            ),
                             replacement,
                         }
                     };
@@ -5301,8 +5327,9 @@ impl<'a> Parser<'a> {
                         let operator = Self::next_word_char_unwrap(chars, cursor);
                         Self::consume_word_char_if(chars, cursor, '}');
                         WordPart::Transformation {
-                            reference: self
-                                .parameter_var_ref(part_start, "${", var_name, None, *cursor),
+                            reference: Box::new(
+                                self.parameter_var_ref(part_start, "${", var_name, None, *cursor),
+                            ),
                             operator,
                         }
                     } else {
@@ -5335,18 +5362,23 @@ impl<'a> Parser<'a> {
         offset: SourceText,
         length: Option<SourceText>,
     ) -> WordPart {
-        let offset_ast = self.maybe_parse_source_text_as_arithmetic(&offset);
-        let offset_word_ast = self.parse_source_text_as_word(&offset);
+        let offset_ast = self
+            .maybe_parse_source_text_as_arithmetic(&offset)
+            .map(Box::new);
+        let offset_word_ast = Box::new(self.parse_source_text_as_word(&offset));
         let length_ast = length
             .as_ref()
-            .and_then(|length| self.maybe_parse_source_text_as_arithmetic(length));
-        let length_word_ast = self.parse_optional_source_text_as_word(length.as_ref());
+            .and_then(|length| self.maybe_parse_source_text_as_arithmetic(length))
+            .map(Box::new);
+        let length_word_ast = self
+            .parse_optional_source_text_as_word(length.as_ref())
+            .map(Box::new);
         WordPart::ArraySlice {
-            reference,
-            offset,
+            reference: Box::new(reference),
+            offset: Box::new(offset),
             offset_ast,
             offset_word_ast,
-            length,
+            length: length.map(Box::new),
             length_ast,
             length_word_ast,
         }

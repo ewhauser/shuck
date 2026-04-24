@@ -252,7 +252,7 @@ fn anchored_assignment_command_span(
 }
 
 fn assignment_target_span(assignment: &Assignment) -> Span {
-    assignment.target.subscript.as_ref().map_or_else(
+    assignment.target.subscript.as_deref().map_or_else(
         || assignment.target.name_span,
         |subscript| {
             Span::from_positions(
@@ -650,7 +650,7 @@ fn visit_assignment_reference_spans_outside_nested_commands(
     visit: &mut EnvPrefixReferenceSpanVisitor<'_>,
 ) -> ControlFlow<()> {
     visit_subscript_reference_spans_outside_nested_commands(
-        assignment.target.subscript.as_ref(),
+        assignment.target.subscript.as_deref(),
         name,
         visit,
     )?;
@@ -834,7 +834,7 @@ fn visit_subscript_reference_spans_outside_nested_commands(
     if let Some(word) = subscript.word_ast() {
         visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
     }
-    if let Some(expr) = subscript.arithmetic_ast.as_ref() {
+    if let Some(expr) = subscript.arithmetic_ast.as_deref() {
         visit_arithmetic_reference_spans_outside_nested_commands(expr, name, visit)?;
     }
 
@@ -879,7 +879,7 @@ fn visit_word_part_reference_spans_outside_nested_commands(
             expression_word_ast,
             ..
         } => {
-            if let Some(expr) = expression_ast.as_ref() {
+            if let Some(expr) = expression_ast.as_deref() {
                 visit_arithmetic_reference_spans_outside_nested_commands(expr, name, visit)?;
             }
             visit_word_reference_spans_outside_nested_commands(expression_word_ast, name, visit)?;
@@ -897,7 +897,7 @@ fn visit_word_part_reference_spans_outside_nested_commands(
             visit_var_ref_reference_spans_outside_nested_commands(
                 reference, part.span, name, visit,
             )?;
-            if let Some(word) = operand_word_ast.as_ref() {
+            if let Some(word) = operand_word_ast.as_deref() {
                 visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
             }
         }
@@ -929,11 +929,11 @@ fn visit_word_part_reference_spans_outside_nested_commands(
             visit_var_ref_reference_spans_outside_nested_commands(
                 reference, part.span, name, visit,
             )?;
-            if let Some(expr) = offset_ast.as_ref() {
+            if let Some(expr) = offset_ast.as_deref() {
                 visit_arithmetic_reference_spans_outside_nested_commands(expr, name, visit)?;
             }
             visit_word_reference_spans_outside_nested_commands(offset_word_ast, name, visit)?;
-            if let Some(expr) = length_ast.as_ref() {
+            if let Some(expr) = length_ast.as_deref() {
                 visit_arithmetic_reference_spans_outside_nested_commands(expr, name, visit)?;
             }
             if let Some(word) = length_word_ast.as_ref() {
@@ -948,7 +948,7 @@ fn visit_word_part_reference_spans_outside_nested_commands(
             visit_var_ref_reference_spans_outside_nested_commands(
                 reference, part.span, name, visit,
             )?;
-            if let Some(word) = operand_word_ast.as_ref() {
+            if let Some(word) = operand_word_ast.as_deref() {
                 visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
             }
         }
@@ -986,7 +986,7 @@ fn visit_parameter_reference_spans_outside_nested_commands(
                 visit_var_ref_reference_spans_outside_nested_commands(
                     reference, span, name, visit,
                 )?;
-                if let Some(word) = operand_word_ast.as_ref() {
+                if let Some(word) = operand_word_ast.as_deref() {
                     visit_word_reference_spans_outside_nested_commands(word, name, visit)?;
                 }
             }
@@ -999,10 +999,10 @@ fn visit_parameter_reference_spans_outside_nested_commands(
                 visit_var_ref_reference_spans_outside_nested_commands(
                     reference, span, name, visit,
                 )?;
-                if let Some(expr) = offset_ast.as_ref() {
+                if let Some(expr) = offset_ast.as_deref() {
                     visit_arithmetic_reference_spans_outside_nested_commands(expr, name, visit)?;
                 }
-                if let Some(expr) = length_ast.as_ref() {
+                if let Some(expr) = length_ast.as_deref() {
                     visit_arithmetic_reference_spans_outside_nested_commands(expr, name, visit)?;
                 }
             }
@@ -1054,7 +1054,7 @@ fn visit_var_ref_reference_spans_outside_nested_commands(
     }
 
     visit_subscript_reference_spans_outside_nested_commands(
-        reference.subscript.as_ref(),
+        reference.subscript.as_deref(),
         name,
         visit,
     )

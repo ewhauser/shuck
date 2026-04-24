@@ -151,7 +151,7 @@ impl<'a> SafeValueIndex<'a> {
                         self.parameter_operator_is_safe(
                             &reference.name,
                             operator,
-                            operand.as_ref(),
+                            operand.as_deref(),
                             span,
                             query,
                         )
@@ -167,9 +167,13 @@ impl<'a> SafeValueIndex<'a> {
                 operator,
                 operand,
                 ..
-            } => {
-                self.parameter_expansion_is_safe(reference, operator, operand.as_ref(), span, query)
-            }
+            } => self.parameter_expansion_is_safe(
+                reference,
+                operator,
+                operand.as_deref(),
+                span,
+                query,
+            ),
         }
     }
 
@@ -215,7 +219,7 @@ impl<'a> SafeValueIndex<'a> {
 
     fn literal_part_is_safe(&self, part: &WordPart, span: Span, query: SafeValueQuery) -> bool {
         let word = Word {
-            parts: vec![WordPartNode::new(part.clone(), span)],
+            parts: vec![WordPartNode::new(part.clone(), span)].into(),
             span,
             brace_syntax: Vec::new(),
         };

@@ -1513,6 +1513,7 @@ name = "shuck-ast"
 version = "0.0.19"
 dependencies = [
  "compact_str",
+ "smallvec",
 ]
 
 [[package]]

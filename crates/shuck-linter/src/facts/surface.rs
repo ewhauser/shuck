@@ -682,12 +682,12 @@ impl<'a> SurfaceFragmentSink<'a> {
                         .push(LegacyArithmeticFragmentFact { span: part.span });
                     collect_positional_parameter_operator_spans_in_arithmetic(
                         part.span,
-                        expression_ast.as_ref(),
+                        expression_ast.as_deref(),
                         expression,
                         self.source,
                         &mut self.facts.positional_parameter_operator_spans,
                     );
-                    if let Some(expression_ast) = expression_ast.as_ref() {
+                    if let Some(expression_ast) = expression_ast.as_deref() {
                         visit_arithmetic_words(expression_ast, &mut |word| {
                             self.collect_word(word, context);
                         });
@@ -703,7 +703,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                 } => {
                     collect_positional_parameter_operator_spans_in_arithmetic(
                         part.span,
-                        expression_ast.as_ref(),
+                        expression_ast.as_deref(),
                         expression,
                         self.source,
                         &mut self.facts.positional_parameter_operator_spans,
@@ -764,7 +764,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                         }
                     }
                     if matches!(
-                        operator,
+                        operator.as_ref(),
                         ParameterOp::UpperFirst
                             | ParameterOp::UpperAll
                             | ParameterOp::LowerFirst
@@ -773,7 +773,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                         self.record_case_modification(part.span);
                     }
                     if matches!(
-                        operator,
+                        operator.as_ref(),
                         ParameterOp::ReplaceFirst { .. } | ParameterOp::ReplaceAll { .. }
                     ) {
                         self.record_replacement_expansion(part.span);
@@ -784,8 +784,8 @@ impl<'a> SurfaceFragmentSink<'a> {
                     self.record_var_ref_subscript(reference);
                     self.collect_parameter_operator_patterns(
                         operator,
-                        operand.as_ref(),
-                        operand_word_ast.as_ref(),
+                        operand.as_deref(),
+                        operand_word_ast.as_deref(),
                         context,
                     );
                 }
@@ -842,8 +842,8 @@ impl<'a> SurfaceFragmentSink<'a> {
                         });
                     self.collect_parameter_operator_patterns(
                         operator,
-                        operand.as_ref(),
-                        operand_word_ast.as_ref(),
+                        operand.as_deref(),
+                        operand_word_ast.as_deref(),
                         context,
                     );
                 }
@@ -1136,7 +1136,7 @@ impl<'a> SurfaceFragmentSink<'a> {
                     self.collect_parameter_operator_patterns(
                         operator,
                         operand.as_ref(),
-                        operand_word_ast.as_ref(),
+                        operand_word_ast.as_deref(),
                         context,
                     );
                 }
@@ -1261,7 +1261,7 @@ impl<'a> SurfaceFragmentSink<'a> {
     }
 
     pub(super) fn record_var_ref_subscript(&mut self, reference: &VarRef) {
-        self.record_subscript(reference.subscript.as_ref());
+        self.record_subscript(reference.subscript.as_deref());
     }
 
     pub(super) fn record_subscript(&mut self, subscript: Option<&Subscript>) {
@@ -2459,7 +2459,7 @@ fn push_cooked_unquoted_literal_inside_double_quotes(rendered: &mut String, text
 
 fn word_part_syntax(part: &WordPartNode, source: &str) -> String {
     Word {
-        parts: vec![part.clone()],
+        parts: vec![part.clone()].into(),
         span: part.span,
         brace_syntax: Vec::new(),
     }

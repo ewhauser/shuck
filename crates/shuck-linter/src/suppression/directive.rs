@@ -702,7 +702,7 @@ fn collect_word_part_visits<'a>(
                 ..
             } => {
                 collect_var_ref_word_visits(reference, visits);
-                if let Some(word) = operand_word_ast.as_ref() {
+                if let Some(word) = operand_word_ast.as_deref() {
                     collect_word_visits(word, visits);
                 }
             }
@@ -730,14 +730,14 @@ fn collect_word_part_visits<'a>(
                 ..
             } => {
                 collect_var_ref_word_visits(reference, visits);
-                if let Some(expression) = offset_ast.as_ref() {
+                if let Some(expression) = offset_ast.as_deref() {
                     visit_arithmetic_words(expression, &mut |word| {
                         collect_word_visits(word, visits);
                     });
                 } else {
                     collect_word_visits(offset_word_ast, visits);
                 }
-                if let Some(expression) = length_ast.as_ref() {
+                if let Some(expression) = length_ast.as_deref() {
                     visit_arithmetic_words(expression, &mut |word| {
                         collect_word_visits(word, visits);
                     });
@@ -764,13 +764,13 @@ fn collect_var_ref_word_visits<'a>(
     reference: &'a VarRef,
     visits: &mut Vec<DirectiveCommandVisit<'a>>,
 ) {
-    let Some(subscript) = reference.subscript.as_ref() else {
+    let Some(subscript) = reference.subscript.as_deref() else {
         return;
     };
     if subscript.selector().is_some() {
         return;
     }
-    if let Some(expression) = subscript.arithmetic_ast.as_ref() {
+    if let Some(expression) = subscript.arithmetic_ast.as_deref() {
         visit_arithmetic_words(expression, &mut |word| {
             collect_word_visits(word, visits);
         });
@@ -797,7 +797,7 @@ fn collect_parameter_expansion_visits<'a>(
                 ..
             } => {
                 collect_var_ref_word_visits(reference, visits);
-                if let Some(word) = operand_word_ast.as_ref() {
+                if let Some(word) = operand_word_ast.as_deref() {
                     collect_word_visits(word, visits);
                 }
             }
@@ -808,7 +808,7 @@ fn collect_parameter_expansion_visits<'a>(
                 ..
             } => {
                 collect_var_ref_word_visits(reference, visits);
-                if let Some(word) = operand_word_ast.as_ref() {
+                if let Some(word) = operand_word_ast.as_deref() {
                     collect_word_visits(word, visits);
                 }
                 if let Some(word) = operator.replacement_word_ast() {
@@ -824,14 +824,14 @@ fn collect_parameter_expansion_visits<'a>(
                 ..
             } => {
                 collect_var_ref_word_visits(reference, visits);
-                if let Some(expression) = offset_ast.as_ref() {
+                if let Some(expression) = offset_ast.as_deref() {
                     visit_arithmetic_words(expression, &mut |word| {
                         collect_word_visits(word, visits);
                     });
                 } else {
                     collect_word_visits(offset_word_ast, visits);
                 }
-                if let Some(expression) = length_ast.as_ref() {
+                if let Some(expression) = length_ast.as_deref() {
                     visit_arithmetic_words(expression, &mut |word| {
                         collect_word_visits(word, visits);
                     });

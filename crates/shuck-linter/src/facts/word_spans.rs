@@ -2109,7 +2109,7 @@ fn collect_use_replacement_spans(parts: &[WordPartNode], spans: &mut Vec<Span>) 
             | WordPart::IndirectExpansion {
                 operator: Some(operator),
                 ..
-            } if matches!(operator, ParameterOp::UseReplacement) => spans.push(part.span),
+            } if matches!(operator.as_ref(), ParameterOp::UseReplacement) => spans.push(part.span),
             WordPart::Literal(_)
             | WordPart::SingleQuoted { .. }
             | WordPart::Variable(_)
@@ -3588,7 +3588,7 @@ fn part_uses_assign_default_operator(part: &WordPart) -> bool {
         | WordPart::IndirectExpansion {
             operator: Some(operator),
             ..
-        } => matches!(operator, ParameterOp::AssignDefault),
+        } => matches!(operator.as_ref(), ParameterOp::AssignDefault),
         _ => false,
     }
 }
