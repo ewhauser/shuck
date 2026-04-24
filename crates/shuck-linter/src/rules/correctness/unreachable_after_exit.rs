@@ -1,5 +1,6 @@
 use crate::{Checker, Rule, Violation};
 use shuck_ast::Span;
+use shuck_semantic::UnreachableCauseKind;
 
 pub struct UnreachableAfterExit;
 
@@ -20,13 +21,14 @@ pub fn unreachable_after_exit(checker: &mut Checker) {
             .semantic_analysis()
             .dead_code()
             .iter()
+            .filter(|dead_code| dead_code.cause_kind != UnreachableCauseKind::LoopControl)
             .flat_map(|dead_code| dead_code.unreachable.iter().copied())
             .collect::<Vec<_>>(),
     );
 
     for span in unreachable_spans
         .into_iter()
-        .map(|span| trim_trailing_whitespace(span, source))
+        .map(|span| trim_trailing_terminator(span, source))
     {
         checker.report(UnreachableAfterExit, span);
     }
@@ -60,7 +62,11 @@ fn span_contained_by(inner: shuck_ast::Span, outer: shuck_ast::Span) -> bool {
     outer.start.offset <= inner.start.offset && inner.end.offset <= outer.end.offset
 }
 
-fn trim_trailing_whitespace(span: Span, source: &str) -> Span {
-    let trimmed = span.slice(source).trim_end_matches(char::is_whitespace);
+fn trim_trailing_terminator(span: Span, source: &str) -> Span {
+    let trimmed = span
+        .slice(source)
+        .trim_end_matches(char::is_whitespace)
+        .trim_end_matches(';')
+        .trim_end_matches(char::is_whitespace);
     Span::from_positions(span.start, span.start.advanced_by(trimmed))
 }

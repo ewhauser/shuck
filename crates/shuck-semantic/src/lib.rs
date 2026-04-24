@@ -40,7 +40,7 @@ pub use binding::{
 /// Call-graph structures derived from the analyzed script.
 pub use call_graph::{CallGraph, CallSite, OverwrittenFunction};
 /// Control-flow graph types and flow-context annotations.
-pub use cfg::{BasicBlock, BlockId, ControlFlowGraph, EdgeKind, FlowContext};
+pub use cfg::{BasicBlock, BlockId, ControlFlowGraph, EdgeKind, FlowContext, UnreachableCauseKind};
 /// Contract and build-option types used when constructing semantic models.
 pub use contract::{
     ContractCertainty, FileContract, FunctionContract, ProvidedBinding, ProvidedBindingKind,
@@ -5836,6 +5836,82 @@ main() {
             .collect::<Vec<_>>();
 
         assert!(unreachable.contains(&"printf '%s\\n' never".to_owned()));
+    }
+
+    #[test]
+    fn condition_body_after_script_terminating_condition_is_dead() {
+        let source = "\
+if exit 0; then
+  printf '%s\\n' never
+fi
+";
+        let model = model(source);
+        let unreachable = model
+            .analysis()
+            .dead_code()
+            .iter()
+            .flat_map(|entry| entry.unreachable.iter())
+            .map(|span| span.slice(source).trim_end().to_owned())
+            .collect::<Vec<_>>();
+
+        assert!(
+            unreachable.contains(&"printf '%s\\n' never".to_owned()),
+            "unreachable spans: {unreachable:?}"
+        );
+    }
+
+    #[test]
+    fn case_return_paths_keep_helper_from_being_script_terminating() {
+        let source = "\
+die() {
+  exit 1
+}
+helper() {
+  case \"$1\" in
+    ok)
+      return
+      ;;
+  esac
+  die
+}
+main() {
+  helper ok
+  printf '%s\\n' still_reachable
+}
+";
+        let model = model(source);
+
+        assert!(
+            model.analysis().dead_code().is_empty(),
+            "dead code: {:?}",
+            model.analysis().dead_code()
+        );
+    }
+
+    #[test]
+    fn loop_return_paths_keep_helper_from_being_script_terminating() {
+        let source = "\
+die() {
+  exit 1
+}
+helper() {
+  for item in 1; do
+    return
+  done
+  die
+}
+main() {
+  helper
+  printf '%s\\n' still_reachable
+}
+";
+        let model = model(source);
+
+        assert!(
+            model.analysis().dead_code().is_empty(),
+            "dead code: {:?}",
+            model.analysis().dead_code()
+        );
     }
 
     #[test]
