@@ -1782,11 +1782,199 @@ fn backtick_command_segment_start(source: &str, start: usize, end: usize) -> usi
 }
 
 fn command_prefix_is_empty_or_assignments(prefix: &str) -> bool {
-    let mut words = prefix.split_whitespace().peekable();
-    if words.peek().is_none() {
-        return true;
+    let mut index = 0;
+    while index < prefix.len() {
+        skip_shell_whitespace(prefix.as_bytes(), &mut index);
+        if index >= prefix.len() {
+            return true;
+        }
+
+        let Some(end) = shell_word_end(prefix, index) else {
+            return false;
+        };
+        if !simple_assignment_word(&prefix[index..end]) {
+            return false;
+        }
+        index = end;
     }
-    words.all(simple_assignment_word)
+    true
+}
+
+fn skip_shell_whitespace(bytes: &[u8], index: &mut usize) {
+    while *index < bytes.len() && bytes[*index].is_ascii_whitespace() {
+        *index += 1;
+    }
+}
+
+fn shell_word_end(text: &str, start: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut index = start;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if in_single_quote {
+            if byte == b'\'' {
+                in_single_quote = false;
+            }
+            index += 1;
+            continue;
+        }
+
+        if byte == b'\\' {
+            index = advance_escaped_shell_char(text, index);
+            continue;
+        }
+
+        if !in_double_quote && byte.is_ascii_whitespace() {
+            break;
+        }
+
+        match byte {
+            b'\'' if !in_double_quote => {
+                in_single_quote = true;
+                index += 1;
+            }
+            b'"' => {
+                in_double_quote = !in_double_quote;
+                index += 1;
+            }
+            b'$' if bytes.get(index + 1) == Some(&b'(') => {
+                index = skip_balanced_shell_construct(text, index + 2, b'(', b')')?;
+            }
+            b'$' if bytes.get(index + 1) == Some(&b'{') => {
+                index = skip_balanced_shell_construct(text, index + 2, b'{', b'}')?;
+            }
+            b'<' | b'>' if !in_double_quote && bytes.get(index + 1) == Some(&b'(') => {
+                index = skip_balanced_shell_construct(text, index + 2, b'(', b')')?;
+            }
+            b'`' => {
+                index = skip_legacy_backtick_construct(text, index + 1)?;
+            }
+            _ => index = advance_shell_char(text, index),
+        }
+    }
+
+    (!in_single_quote && !in_double_quote).then_some(index)
+}
+
+fn skip_balanced_shell_construct(
+    text: &str,
+    mut index: usize,
+    open: u8,
+    close: u8,
+) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut depth = 1usize;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if in_single_quote {
+            if byte == b'\'' {
+                in_single_quote = false;
+            }
+            index += 1;
+            continue;
+        }
+
+        if byte == b'\\' {
+            index = advance_escaped_shell_char(text, index);
+            continue;
+        }
+
+        match byte {
+            b'\'' if !in_double_quote => {
+                in_single_quote = true;
+                index += 1;
+            }
+            b'"' => {
+                in_double_quote = !in_double_quote;
+                index += 1;
+            }
+            b'$' if bytes.get(index + 1) == Some(&b'(') => {
+                index = skip_balanced_shell_construct(text, index + 2, b'(', b')')?;
+            }
+            b'$' if bytes.get(index + 1) == Some(&b'{') => {
+                index = skip_balanced_shell_construct(text, index + 2, b'{', b'}')?;
+            }
+            b'<' | b'>' if !in_double_quote && bytes.get(index + 1) == Some(&b'(') => {
+                index = skip_balanced_shell_construct(text, index + 2, b'(', b')')?;
+            }
+            b'`' => {
+                index = skip_legacy_backtick_construct(text, index + 1)?;
+            }
+            _ if byte == open && !in_double_quote => {
+                depth += 1;
+                index += 1;
+            }
+            _ if byte == close && !in_double_quote => {
+                depth -= 1;
+                index += 1;
+                if depth == 0 {
+                    return Some(index);
+                }
+            }
+            _ => index = advance_shell_char(text, index),
+        }
+    }
+
+    None
+}
+
+fn skip_legacy_backtick_construct(text: &str, mut index: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+
+    while index < bytes.len() {
+        let byte = bytes[index];
+        if in_single_quote {
+            if byte == b'\'' {
+                in_single_quote = false;
+            }
+            index += 1;
+            continue;
+        }
+
+        if byte == b'\\' {
+            index = advance_escaped_shell_char(text, index);
+            continue;
+        }
+
+        match byte {
+            b'\'' if !in_double_quote => {
+                in_single_quote = true;
+                index += 1;
+            }
+            b'"' => {
+                in_double_quote = !in_double_quote;
+                index += 1;
+            }
+            b'`' if !in_double_quote => return Some(index + 1),
+            _ => index = advance_shell_char(text, index),
+        }
+    }
+
+    None
+}
+
+fn advance_escaped_shell_char(text: &str, index: usize) -> usize {
+    let next = advance_shell_char(text, index);
+    if next < text.len() {
+        advance_shell_char(text, next)
+    } else {
+        next
+    }
+}
+
+fn advance_shell_char(text: &str, index: usize) -> usize {
+    text[index..]
+        .chars()
+        .next()
+        .map_or(index + 1, |ch| index + ch.len_utf8())
 }
 
 fn simple_assignment_word(word: &str) -> bool {
@@ -4417,9 +4605,9 @@ mod tests {
 
     use super::{
         all_elements_array_expansion_part_spans, array_expansion_part_spans,
-        command_substitution_part_spans, find_extglob_bounds,
-        line_has_escaped_newline_continuation, position_at_offset, scalar_expansion_part_spans,
-        shellcheck_collapsed_backtick_part_span_in_source,
+        backtick_escaped_parameters, backtick_substitution_spans, command_substitution_part_spans,
+        find_extglob_bounds, line_has_escaped_newline_continuation, position_at_offset,
+        scalar_expansion_part_spans, shellcheck_collapsed_backtick_part_span_in_source,
         unquoted_all_elements_array_expansion_part_spans,
         unquoted_command_substitution_part_spans_in_source,
         unquoted_dollar_paren_command_substitution_part_spans_in_source,
@@ -5729,6 +5917,16 @@ printf '%s\\n' \"${arr[@]}\" \"x${arr[@]}\" \"x${!arr[@]}\" \"x${arr[@]:1}\" \"x
             shellcheck_collapsed_backtick_part_span_in_source(span, source),
             span
         );
+    }
+
+    #[test]
+    fn backtick_escaped_parameters_keep_quoted_assignment_prefixes_together() {
+        let source = "`VAR=\"a b\" OTHER=$(printf '%s\\n' value) \\$cmd arg`";
+        let backtick_spans = backtick_substitution_spans(source);
+        let escaped = backtick_escaped_parameters(source, &backtick_spans);
+
+        assert_eq!(escaped.len(), 1);
+        assert!(escaped[0].standalone_command_name);
     }
 
     #[test]

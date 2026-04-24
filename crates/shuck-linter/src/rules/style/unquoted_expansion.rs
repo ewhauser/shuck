@@ -1688,6 +1688,17 @@ printf '%s\\n' `echo \\${SAFE:-$fallback} \\${SAFE:+$fallback}`
     }
 
     #[test]
+    fn skips_escaped_backtick_command_names_after_quoted_assignment_prefixes() {
+        let source = "\
+#!/bin/sh
+`VAR=\"a b\" OTHER=$(printf '%s\\n' value) \\$cmd arg`
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn reports_escaped_backtick_command_arguments() {
         let source = "\
 #!/bin/sh
