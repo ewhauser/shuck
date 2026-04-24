@@ -446,15 +446,130 @@ fn completion_runtime_path_shape(lower: &str) -> bool {
 }
 
 fn completion_runtime_source_shape(source: &str) -> bool {
-    source_contains_any(
-        source,
-        &[
-            "_init_completion",
-            "_get_comp_words_by_ref",
-            "_comp_initialize",
-            "about-completion",
-        ],
+    source
+        .lines()
+        .any(line_invokes_completion_initializer_command)
+}
+
+fn line_invokes_completion_initializer_command(line: &str) -> bool {
+    let mut command_position = true;
+    let mut escaped = false;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut previous = None;
+    let mut token_start = None;
+
+    for (index, ch) in line.char_indices() {
+        if in_single_quote {
+            in_single_quote = ch != '\'';
+            previous = Some(ch);
+            continue;
+        }
+
+        if in_double_quote {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_double_quote = false;
+            }
+            previous = Some(ch);
+            continue;
+        }
+
+        if escaped {
+            escaped = false;
+            previous = Some(ch);
+            continue;
+        }
+
+        if ch == '#' && previous.is_none_or(char::is_whitespace) {
+            if let Some(start) = token_start.take()
+                && completion_initializer_token(&line[start..index], &mut command_position)
+            {
+                return true;
+            }
+            break;
+        }
+
+        if is_completion_runtime_token_char(ch) {
+            token_start.get_or_insert(index);
+            previous = Some(ch);
+            continue;
+        }
+
+        if let Some(start) = token_start.take()
+            && completion_initializer_token(&line[start..index], &mut command_position)
+        {
+            return true;
+        }
+
+        match ch {
+            '\\' => escaped = true,
+            '\'' => in_single_quote = true,
+            '"' => in_double_quote = true,
+            ';' | '&' | '|' | '(' | '{' | '!' => command_position = true,
+            _ => {}
+        }
+        previous = Some(ch);
+    }
+
+    token_start
+        .is_some_and(|start| completion_initializer_token(&line[start..], &mut command_position))
+}
+
+fn completion_initializer_token(token: &str, command_position: &mut bool) -> bool {
+    if *command_position && is_completion_initializer_command(token) {
+        return true;
+    }
+
+    if shell_assignment_token(token) {
+        return false;
+    }
+
+    *command_position = shell_control_token_keeps_command_position(token);
+    false
+}
+
+fn is_completion_initializer_command(token: &str) -> bool {
+    matches!(
+        token,
+        "_init_completion" | "_get_comp_words_by_ref" | "_comp_initialize" | "about-completion"
     )
+}
+
+fn shell_assignment_token(token: &str) -> bool {
+    let Some((name, _value)) = token.split_once('=') else {
+        return false;
+    };
+
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    (first == '_' || first.is_ascii_alphabetic())
+        && chars.all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+}
+
+fn shell_control_token_keeps_command_position(token: &str) -> bool {
+    matches!(
+        token,
+        "if" | "then"
+            | "do"
+            | "else"
+            | "elif"
+            | "while"
+            | "until"
+            | "time"
+            | "command"
+            | "builtin"
+            | "env"
+    )
+}
+
+fn is_completion_runtime_token_char(ch: char) -> bool {
+    ch == '_' || ch == '-' || ch == '=' || ch.is_ascii_alphanumeric()
 }
 
 fn lower_path(path: &Path) -> String {
@@ -463,10 +578,6 @@ fn lower_path(path: &Path) -> String {
 
 fn path_matches_any(lower_path: &str, patterns: &[&str]) -> bool {
     patterns.iter().any(|pattern| lower_path.contains(pattern))
-}
-
-fn source_contains_any(source: &str, needles: &[&str]) -> bool {
-    needles.iter().any(|needle| source.contains(needle))
 }
 
 fn has_probable_function_definition(source: &str) -> bool {
@@ -756,6 +867,40 @@ _example() {
         assert!(has_initialized_binding(&contract, "cur"));
         assert!(has_initialized_binding(&contract, "cword"));
         assert!(has_initialized_binding(&contract, "comp_args"));
+        assert!(!contract.externally_consumed_bindings);
+    }
+
+    #[test]
+    fn bash_completion_paths_with_commented_initializer_do_not_initialize_contracts() {
+        let path = Path::new("/tmp/bash-completion/completions/example.bash");
+        let source = "\
+# TODO: call _init_completion later
+_example() {
+  printf '%s\\n' \"$cur\" \"$cword\"
+}
+";
+
+        let contract = contract_for(path, source).unwrap();
+
+        assert!(!has_initialized_binding(&contract, "cur"));
+        assert!(!has_initialized_binding(&contract, "cword"));
+        assert!(!contract.externally_consumed_bindings);
+    }
+
+    #[test]
+    fn bash_completion_paths_with_wrapper_identifier_do_not_initialize_contracts() {
+        let path = Path::new("/tmp/bash-completion/completions/example.bash");
+        let source = "\
+_example() {
+  my_init_completion_wrapper || return
+  printf '%s\\n' \"$cur\" \"$cword\"
+}
+";
+
+        let contract = contract_for(path, source).unwrap();
+
+        assert!(!has_initialized_binding(&contract, "cur"));
+        assert!(!has_initialized_binding(&contract, "cword"));
         assert!(!contract.externally_consumed_bindings);
     }
 
