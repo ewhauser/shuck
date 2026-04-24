@@ -1453,8 +1453,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     reference.span,
                 );
                 if parameter_operator_guards_unset_reference(operator) {
-                    self.guarded_parameter_refs.insert(reference_id);
-                    self.parameter_guard_flow_refs.insert(reference_id);
+                    self.record_guarded_parameter_reference(reference_id);
                 }
                 if matches!(operator, ParameterOp::AssignDefault) {
                     self.add_parameter_default_binding(reference);
@@ -1796,8 +1795,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                         span,
                     );
                     if parameter_operator_guards_unset_reference(operator) {
-                        self.guarded_parameter_refs.insert(reference_id);
-                        self.parameter_guard_flow_refs.insert(reference_id);
+                        self.record_guarded_parameter_reference(reference_id);
                     }
                     if matches!(operator, ParameterOp::AssignDefault) {
                         self.add_parameter_default_binding(reference);
@@ -2001,6 +1999,13 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             | ParameterOp::UpperAll
             | ParameterOp::LowerFirst
             | ParameterOp::LowerAll => {}
+        }
+    }
+
+    fn record_guarded_parameter_reference(&mut self, reference_id: ReferenceId) {
+        self.guarded_parameter_refs.insert(reference_id);
+        if self.defaulting_parameter_operand_depth == 0 {
+            self.parameter_guard_flow_refs.insert(reference_id);
         }
     }
 

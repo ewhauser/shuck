@@ -3240,7 +3240,7 @@ printf '%s\\n' \"$fallback_name\" \"$seed_name\" \"$replacement_name\" \"$hint_n
 ";
         let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
 
-        assert_eq!(diagnostics.len(), 4);
+        assert_eq!(diagnostics.len(), 5);
         assert!(
             diagnostics
                 .iter()
@@ -3251,7 +3251,7 @@ printf '%s\\n' \"$fallback_name\" \"$seed_name\" \"$replacement_name\" \"$hint_n
                 .iter()
                 .any(|d| d.message.contains("fallback_name"))
         );
-        assert!(diagnostics.iter().all(|d| !d.message.contains("seed_name")));
+        assert!(diagnostics.iter().any(|d| d.message.contains("seed_name")));
         assert!(
             diagnostics
                 .iter()

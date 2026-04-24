@@ -140,4 +140,22 @@ printf '%s\\n' \"$before_default\" \"${before_default:-fallback}\" \"$plain_miss
             vec!["$before_default", "$plain_missing"]
         );
     }
+
+    #[test]
+    fn parameter_guard_flow_does_not_escape_conditional_operands() {
+        let source = "\
+#!/bin/sh
+printf '%s\\n' \"${outer:+${nested_default:-fallback}}\" \"$outer\" \"$nested_default\"
+printf '%s\\n' \"${other:+${nested_replacement:+alt}}\" \"$other\" \"$nested_replacement\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$nested_default", "$nested_replacement"]
+        );
+    }
 }

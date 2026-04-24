@@ -6565,6 +6565,19 @@ printf '%s\\n' \
     }
 
     #[test]
+    fn parameter_guard_flow_does_not_escape_conditional_operands() {
+        let source = "\
+printf '%s\\n' \"${outer:+${nested_default:-fallback}}\" \"$outer\" \"$nested_default\"
+printf '%s\\n' \"${other:+${nested_replacement:+alt}}\" \"$other\" \"$nested_replacement\"
+";
+        let model = model(source);
+        let uninitialized = uninitialized_names(&model);
+
+        assert_names_absent(&["outer", "other"], &uninitialized);
+        assert_names_present(&["nested_default", "nested_replacement"], &uninitialized);
+    }
+
+    #[test]
     fn non_assigning_parameter_guard_flow_does_not_create_bindings() {
         let source = "\
 : \"${defaulted:-fallback}\" \"${replacement:+alt}\"
