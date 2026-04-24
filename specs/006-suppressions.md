@@ -252,19 +252,26 @@ This is equivalent to the Go `NextCommandLineRange()` function. It walks all sta
 Following ruff's post-hoc pattern, suppressions are applied **after** the checker runs:
 
 ```rust
-/// Lint a single parsed file and return diagnostics.
+/// Lint an existing parse result and return diagnostics.
 pub fn lint_file(
-    script: &Script,
+    parse_result: &ParseResult,
     source: &str,
-    semantic: &SemanticModel,
     indexer: &Indexer,
     settings: &LinterSettings,
     suppression_index: Option<&SuppressionIndex>,
+    source_path: Option<&Path>,
 ) -> Vec<Diagnostic> {
-    let checker = Checker::new(script, source, semantic, indexer, &settings.rules);
-    let mut diagnostics = checker.check();
+    let analysis = analyze_file_at_path(
+        &parse_result.file,
+        source,
+        indexer,
+        settings,
+        source_path,
+    );
+    let mut diagnostics = analysis.diagnostics;
 
-    // Apply severity overrides
+    // Add parse-aware rule diagnostics, then apply severity overrides.
+    diagnostics.extend(collect_parse_rule_diagnostics(parse_result, source, settings));
     for diag in &mut diagnostics {
         if let Some(&severity) = settings.severity_overrides.get(&diag.rule) {
             diag.severity = severity;
@@ -279,12 +286,12 @@ pub fn lint_file(
         });
     }
 
-    diagnostics.sort_by_key(|d| (d.span.start(), d.span.end()));
+    diagnostics.sort_by_key(|d| (d.span.start.offset, d.span.end.offset));
     diagnostics
 }
 ```
 
-The `SuppressionIndex` is built **before** `lint_file` is called — the caller (CLI pipeline) constructs it from the comment index and passes it in. This keeps the linter crate's dependency on suppression parsing explicit and optional.
+The `SuppressionIndex` is built **before** the linter entry point is called — the caller (CLI pipeline) constructs it from the comment index and passes it in. This keeps the linter crate's dependency on suppression parsing explicit and optional.
 
 ### Data Flow
 
@@ -297,7 +304,8 @@ Source text
     → parse_directives()                   → Vec<SuppressionDirective>
     → SuppressionIndex::new()              → SuppressionIndex
     → shuck-semantic::SemanticModel::new() → SemanticModel
-    → shuck-linter::lint_file()            → Vec<Diagnostic>  (filtered by suppressions)
+    → shuck-linter::lint_file()
+                                             → Vec<Diagnostic>  (filtered by suppressions)
     → CLI formats and prints diagnostics
 ```
 
@@ -358,7 +366,7 @@ Once implemented, verify with:
 - **Shuck whole-file detection**: `# shuck: disable=C001` before the first statement suppresses the rule for all lines.
 - **ShellCheck next-command scope**: `# shellcheck disable=SC2086` on line 5 (after first statement) suppresses only the lines spanned by the next `Stmt` node. A diagnostic on a subsequent statement is not suppressed.
 - **ShellCheck whole-file detection**: `# shellcheck disable=SC2086` before the first statement suppresses the rule for all lines.
-- **Post-hoc filtering**: `lint_file()` with a suppression index filters out diagnostics on suppressed lines while preserving diagnostics on non-suppressed lines.
+- **Post-hoc filtering**: the linter entry point with a suppression index filters out diagnostics on suppressed lines while preserving diagnostics on non-suppressed lines.
 - **Multiple codes**: `# shuck: disable=C001,C002,C003` suppresses all three rules.
 - **Reason stripping**: `# shuck: disable=C001 # legacy code` parses correctly, ignoring the reason.
 - **Unknown codes**: `# shellcheck disable=SC7777` (unmapped) is silently ignored and produces no suppression entries.

@@ -11,7 +11,7 @@ use shuck_parser::{
     parser::{ParseResult, Parser},
 };
 
-use crate::{Diagnostic, LinterSettings, Rule, ShellDialect, lint_file_at_path_with_parse_result};
+use crate::{Diagnostic, LinterSettings, Rule, ShellDialect, lint_file};
 
 use super::{
     ShellCheckCodeMap, SuppressionAction, SuppressionDirective, SuppressionIndex,
@@ -126,7 +126,7 @@ fn analyze_source(
             first_statement_line(&parse_result.file).unwrap_or(u32::MAX),
         )
     });
-    let diagnostics = lint_file_at_path_with_parse_result(
+    let diagnostics = lint_file(
         &parse_result,
         source,
         &indexer,
