@@ -319,16 +319,25 @@ impl<'a> SafeValueIndex<'a> {
         let unset_covers_reference = needs_arg_path_coverage
             && !bindings.is_empty()
             && self.unset_command_covers_reference(name, at);
-        let direct_bindings_cover_all_paths =
-            needs_arg_path_coverage && !helper_bindings.is_empty() && {
-                let direct_bindings = bindings
-                    .iter()
-                    .copied()
-                    .filter(|binding_id| !helper_bindings.contains(binding_id))
-                    .collect::<Vec<_>>();
-                !direct_bindings.is_empty()
-                    && self.bindings_cover_all_paths_to_reference(&direct_bindings, name, at)
-            };
+        let direct_bindings = if helper_bindings.is_empty() {
+            Vec::new()
+        } else {
+            bindings
+                .iter()
+                .copied()
+                .filter(|binding_id| !helper_bindings.contains(binding_id))
+                .collect::<Vec<_>>()
+        };
+        let direct_bindings_cover_all_paths = needs_arg_path_coverage
+            && !direct_bindings.is_empty()
+            && self.bindings_cover_all_paths_to_reference(&direct_bindings, name, at);
+        let direct_bindings_are_status_captures =
+            direct_bindings.iter().copied().all(|binding_id| {
+                self.binding_is_standalone_status_capture(binding_id, case_cli_scope)
+            });
+        if direct_bindings_cover_all_paths && direct_bindings_are_status_captures {
+            bindings.retain(|binding_id| !helper_bindings.contains(binding_id));
+        }
         let outer_bindings_cover_callers = !needs_arg_path_coverage
             || self.helper_outer_bindings_cover_all_caller_paths(name, at, &bindings);
         let reference_is_inside_function =
@@ -798,6 +807,28 @@ impl<'a> SafeValueIndex<'a> {
             && self.bindings_cover_all_paths_to_reference(&status_bindings, name, at)
     }
 
+    fn binding_is_standalone_status_capture(
+        &self,
+        binding_id: BindingId,
+        case_cli_scope: Option<ScopeId>,
+    ) -> bool {
+        let binding = self.semantic.binding(binding_id);
+        matches!(
+            binding.origin,
+            BindingOrigin::Assignment {
+                value: AssignmentValueOrigin::PlainScalarAccess
+                    | AssignmentValueOrigin::StaticLiteral,
+                ..
+            } | BindingOrigin::Declaration { .. }
+        ) && case_cli_scope != Some(binding.scope)
+            && self
+                .facts
+                .binding_value(binding_id)
+                .filter(|value| !value.conditional_assignment_shortcut())
+                .and_then(|value| value.scalar_word())
+                .is_some_and(word_is_standalone_status_capture)
+    }
+
     fn status_capture_declaration_probe_covers_reference(
         &self,
         name: &Name,
@@ -1173,10 +1204,14 @@ impl<'a> SafeValueIndex<'a> {
     }
 
     fn binding_can_supply_parameter_value(&self, binding_id: BindingId) -> bool {
-        !matches!(
-            self.semantic.binding(binding_id).origin,
-            BindingOrigin::FunctionDefinition { .. }
-        )
+        let binding = self.semantic.binding(binding_id);
+        match binding.origin {
+            BindingOrigin::FunctionDefinition { .. } => false,
+            BindingOrigin::Declaration { .. } => binding.attributes.intersects(
+                BindingAttributes::DECLARATION_INITIALIZED | BindingAttributes::INTEGER,
+            ),
+            _ => true,
+        }
     }
 
     fn latest_visible_value_binding_for_name(&self, name: &Name, at: Span) -> Option<BindingId> {

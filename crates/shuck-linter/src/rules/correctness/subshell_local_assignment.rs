@@ -61,6 +61,29 @@ printf '%s\\n' \"$items\"
     }
 
     #[test]
+    fn escaped_name_only_declarations_do_not_hide_subshell_assignments() {
+        let source = "\
+#!/bin/bash
+demo() {
+  ( \\typeset value; value=inner )
+  echo \"$value\"
+}
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::SubshellLocalAssignment),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["value"]
+        );
+    }
+
+    #[test]
     fn reports_pipeline_child_reads_that_happen_after_the_pipeline_finishes() {
         let source = "\
 #!/bin/sh

@@ -3653,7 +3653,7 @@ printf '%s\\n' \"$pkgname\"
         let model = model(source);
         let unused = model.analysis().unused_assignments().to_vec();
 
-        assert!(binding_for_name(&model, "result").references.len() > 0);
+        assert!(!binding_for_name(&model, "result").references.is_empty());
         assert_eq!(binding_names(&model, &unused), vec!["temp_flags"]);
         assert!(matches!(
             binding_for_name(&model, "temp_flags").kind,
@@ -4041,6 +4041,19 @@ source \"$d\"
             model.source_refs()[0].diagnostic_class,
             SourceRefDiagnosticClass::DynamicPath
         );
+    }
+
+    #[test]
+    fn command_wrappers_do_not_create_source_refs() {
+        let source = "\
+#!/bin/bash
+command . \"$file\"
+builtin source \"$file\"
+noglob . \"$file\"
+";
+        let model = model(source);
+
+        assert!(model.source_refs().is_empty());
     }
 
     #[test]

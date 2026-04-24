@@ -2520,7 +2520,9 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             }
             "eval" => self.record_eval_argument_references(args),
             "source" | "." => {
-                if let Some(argument) = args.first().copied() {
+                if normalized.wrappers.is_empty()
+                    && let Some(argument) = args.first().copied()
+                {
                     let source_span = self.command_stack.last().copied().unwrap_or(command_span);
                     let kind = self.classify_source_ref(command_span.line(), argument);
                     self.source_refs.push(SourceRef {
@@ -2539,7 +2541,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             }
             "unset" => self.record_unset_variable_targets(args, flow),
             "export" | "local" | "declare" | "typeset" | "readonly" => {
-                self.visit_simple_declaration_command(name.as_str(), args, command_span);
+                self.visit_simple_declaration_command(name.as_str(), args, command_span, flow);
             }
             _ if name.as_str().starts_with("DEFINE_") => {
                 self.visit_command_defined_variable(args);
@@ -2553,6 +2555,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
         command_name: &str,
         args: &[&'a Word],
         command_span: Span,
+        flow: FlowState,
     ) {
         let Some(builtin) = declaration_builtin_name(command_name) else {
             return;
@@ -2604,8 +2607,12 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             if let Some(assignment) =
                 parse_simple_declaration_assignment(argument, text.as_ref(), self.source)
             {
-                let (scope, mut attributes) =
-                    self.declaration_scope_and_attributes(builtin, &flags, global_flag_enabled);
+                let (scope, mut attributes) = self.simple_declaration_scope_and_attributes(
+                    builtin,
+                    &flags,
+                    global_flag_enabled,
+                    flow,
+                );
                 attributes |= BindingAttributes::DECLARATION_INITIALIZED;
                 if assignment.array_like {
                     attributes |= BindingAttributes::ARRAY;
@@ -2640,10 +2647,11 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             }
 
             if let Some((name, span)) = named_target_word(argument, self.source) {
-                self.visit_name_only_declaration_operand(
+                self.visit_simple_name_only_declaration_operand(
                     builtin,
                     &flags,
                     global_flag_enabled,
+                    flow,
                     &name,
                     span,
                 );
@@ -2868,6 +2876,55 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             },
             attributes,
         )
+    }
+
+    fn simple_declaration_scope_and_attributes(
+        &self,
+        builtin: DeclarationBuiltin,
+        flags: &FxHashSet<char>,
+        global_flag_enabled: bool,
+        flow: FlowState,
+    ) -> (ScopeId, BindingAttributes) {
+        let (scope, mut attributes) =
+            self.declaration_scope_and_attributes(builtin, flags, global_flag_enabled);
+        if flow.in_subshell && attributes.contains(BindingAttributes::LOCAL) {
+            attributes.remove(BindingAttributes::LOCAL);
+            return (self.current_scope(), attributes);
+        }
+
+        (scope, attributes)
+    }
+
+    fn visit_simple_name_only_declaration_operand(
+        &mut self,
+        builtin: DeclarationBuiltin,
+        flags: &FxHashSet<char>,
+        global_flag_enabled: bool,
+        flow: FlowState,
+        name: &Name,
+        span: Span,
+    ) {
+        if flow.in_subshell {
+            let (scope, attributes) = self.simple_declaration_scope_and_attributes(
+                builtin,
+                flags,
+                global_flag_enabled,
+                flow,
+            );
+            self.add_binding(
+                name,
+                BindingKind::Declaration(builtin),
+                scope,
+                span,
+                BindingOrigin::Declaration {
+                    definition_span: span,
+                },
+                attributes,
+            );
+            return;
+        }
+
+        self.visit_name_only_declaration_operand(builtin, flags, global_flag_enabled, name, span);
     }
 
     fn visit_name_only_declaration_operand(
@@ -3894,8 +3951,8 @@ fn mapfile_flag_takes_value(flag: char) -> bool {
 
 fn printf_v_target(args: &[&Word], source: &str) -> Option<(Name, Span)> {
     args.windows(2).find_map(|window| {
-        (static_word_text(&window[0], source).as_deref() == Some("-v"))
-            .then_some(&window[1])
+        (static_word_text(window[0], source).as_deref() == Some("-v"))
+            .then_some(window[1])
             .and_then(|word| named_target_word(word, source))
     })
 }
@@ -4001,8 +4058,7 @@ fn prompt_assignment_reference_names(word: &Word, source: &str) -> Vec<(Name, Sp
 
 fn scan_prompt_parameter_reference_names(text: &str, span: Span) -> Vec<(Name, Span)> {
     let mut references = Vec::new();
-    let mut chars = text.char_indices().peekable();
-    while let Some((index, ch)) = chars.next() {
+    for (index, ch) in text.char_indices() {
         if ch != '$' {
             continue;
         }
