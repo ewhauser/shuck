@@ -33,17 +33,8 @@ struct CommandVisit<'a> {
     redirects: &'a [Redirect],
 }
 
-#[derive(Debug, Clone, Copy)]
-struct TraversedCommandVisit<'a> {
-    visit: CommandVisit<'a>,
-    context: CommandTraversalContext,
-}
-
-fn walk_commands<'a, F>(
-    commands: &'a StmtSeq,
-    options: CommandWalkOptions,
-    visitor: &mut F,
-) where
+fn walk_commands<'a, F>(commands: &'a StmtSeq, options: CommandWalkOptions, visitor: &mut F)
+where
     F: FnMut(CommandVisit<'a>, CommandTraversalContext),
 {
     collect_command_visits(
@@ -54,22 +45,15 @@ fn walk_commands<'a, F>(
     );
 }
 
-fn iter_commands_with_context<'a>(
-    commands: &'a StmtSeq,
-    options: CommandWalkOptions,
-) -> impl Iterator<Item = TraversedCommandVisit<'a>> {
-    let mut visits = Vec::new();
-    walk_commands(commands, options, &mut |visit, context| {
-        visits.push(TraversedCommandVisit { visit, context });
-    });
-    visits.into_iter()
-}
-
 fn iter_commands<'a>(
     commands: &'a StmtSeq,
     options: CommandWalkOptions,
 ) -> impl Iterator<Item = CommandVisit<'a>> {
-    iter_commands_with_context(commands, options).map(|visit| visit.visit)
+    let mut visits = Vec::new();
+    walk_commands(commands, options, &mut |visit, _| {
+        visits.push(visit);
+    });
+    visits.into_iter()
 }
 
 fn zsh_glob_patterns(glob: &shuck_ast::ZshQualifiedGlob) -> impl Iterator<Item = &Pattern> + '_ {
@@ -947,8 +931,8 @@ mod traversal_tests {
     use shuck_parser::parser::Parser;
 
     use super::{
-        CommandWalkOptions, ConditionKind, iter_commands, visit_var_ref_subscript_words_with_source,
-        walk_commands,
+        CommandWalkOptions, ConditionKind, iter_commands,
+        visit_var_ref_subscript_words_with_source, walk_commands,
     };
 
     fn parse_commands(source: &str) -> StmtSeq {

@@ -1,23 +1,3 @@
-fn build_base_prefix_arithmetic_spans(body: &StmtSeq, source: &str) -> Vec<Span> {
-    let mut spans = Vec::new();
-
-    for visit in iter_commands(
-        body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-    ) {
-        collect_base_prefix_spans_in_command(visit.command, source, &mut spans);
-        for redirect in visit.redirects {
-            if let Some(word) = redirect.word_target() {
-                collect_base_prefix_spans_in_word(word, source, &mut spans);
-            }
-        }
-    }
-
-    spans
-}
-
 fn collect_base_prefix_spans_in_command(command: &Command, source: &str, spans: &mut Vec<Span>) {
     match command {
         Command::Simple(command) => {
@@ -728,7 +708,6 @@ fn collect_base_prefix_spans_in_text(span: Span, source: &str, spans: &mut Vec<S
     }
 }
 
-
 fn build_double_paren_grouping_spans(commands: &[CommandFact<'_>], source: &str) -> Vec<Span> {
     commands
         .iter()
@@ -739,48 +718,6 @@ fn build_double_paren_grouping_spans(commands: &[CommandFact<'_>], source: &str)
             _ => None,
         })
         .collect()
-}
-
-fn build_arithmetic_update_operator_spans(
-    body: &StmtSeq,
-    semantic: &SemanticModel,
-    source: &str,
-) -> Vec<Span> {
-    let mut spans = Vec::new();
-
-    for visit in iter_commands(
-        body,
-        CommandWalkOptions {
-            descend_nested_word_commands: true,
-        },
-    ) {
-        collect_arithmetic_update_operator_spans_in_command(
-            visit.command,
-            semantic,
-            source,
-            &mut spans,
-        );
-        for redirect in visit.redirects {
-            if let Some(word) = redirect.word_target() {
-                collect_arithmetic_update_operator_spans_in_word(
-                    word, semantic, source, &mut spans,
-                );
-            } else if let Some(heredoc) = redirect.heredoc()
-                && heredoc.delimiter.expands_body
-            {
-                collect_arithmetic_update_operator_spans_in_heredoc_body(
-                    &heredoc.body.parts,
-                    semantic,
-                    source,
-                    &mut spans,
-                );
-            }
-        }
-    }
-
-    spans.sort_unstable_by_key(|span| (span.start.offset, span.end.offset));
-    spans.dedup();
-    spans
 }
 
 fn collect_arithmetic_update_operator_spans_in_command(
@@ -796,7 +733,12 @@ fn collect_arithmetic_update_operator_spans_in_command(
                     assignment, semantic, source, spans,
                 );
             }
-            collect_arithmetic_update_operator_spans_in_word(&command.name, semantic, source, spans);
+            collect_arithmetic_update_operator_spans_in_word(
+                &command.name,
+                semantic,
+                source,
+                spans,
+            );
             for word in &command.args {
                 collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
             }
@@ -809,14 +751,10 @@ fn collect_arithmetic_update_operator_spans_in_command(
                     );
                 }
                 if let Some(word) = &command.depth {
-                    collect_arithmetic_update_operator_spans_in_word(
-                        word, semantic, source, spans,
-                    );
+                    collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
                 }
                 for word in &command.extra_args {
-                    collect_arithmetic_update_operator_spans_in_word(
-                        word, semantic, source, spans,
-                    );
+                    collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
                 }
             }
             BuiltinCommand::Continue(command) => {
@@ -826,14 +764,10 @@ fn collect_arithmetic_update_operator_spans_in_command(
                     );
                 }
                 if let Some(word) = &command.depth {
-                    collect_arithmetic_update_operator_spans_in_word(
-                        word, semantic, source, spans,
-                    );
+                    collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
                 }
                 for word in &command.extra_args {
-                    collect_arithmetic_update_operator_spans_in_word(
-                        word, semantic, source, spans,
-                    );
+                    collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
                 }
             }
             BuiltinCommand::Return(command) => {
@@ -843,14 +777,10 @@ fn collect_arithmetic_update_operator_spans_in_command(
                     );
                 }
                 if let Some(word) = &command.code {
-                    collect_arithmetic_update_operator_spans_in_word(
-                        word, semantic, source, spans,
-                    );
+                    collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
                 }
                 for word in &command.extra_args {
-                    collect_arithmetic_update_operator_spans_in_word(
-                        word, semantic, source, spans,
-                    );
+                    collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
                 }
             }
             BuiltinCommand::Exit(command) => {
@@ -860,14 +790,10 @@ fn collect_arithmetic_update_operator_spans_in_command(
                     );
                 }
                 if let Some(word) = &command.code {
-                    collect_arithmetic_update_operator_spans_in_word(
-                        word, semantic, source, spans,
-                    );
+                    collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
                 }
                 for word in &command.extra_args {
-                    collect_arithmetic_update_operator_spans_in_word(
-                        word, semantic, source, spans,
-                    );
+                    collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
                 }
             }
         },
@@ -913,9 +839,7 @@ fn collect_arithmetic_update_operator_spans_in_command(
             }
             CompoundCommand::Foreach(command) => {
                 for word in &command.words {
-                    collect_arithmetic_update_operator_spans_in_word(
-                        word, semantic, source, spans,
-                    );
+                    collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
                 }
             }
             CompoundCommand::Arithmetic(command) => {
@@ -955,9 +879,7 @@ fn collect_arithmetic_update_operator_spans_in_command(
             }
             CompoundCommand::Select(command) => {
                 for word in &command.words {
-                    collect_arithmetic_update_operator_spans_in_word(
-                        word, semantic, source, spans,
-                    );
+                    collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
                 }
             }
             CompoundCommand::If(_)
@@ -1117,7 +1039,9 @@ fn var_ref_name_has_visible_assoc_binding_from_named_callers(
                 continue;
             }
 
-            if let Some(caller_names) = named_function_scope_names(semantic, call_site.name_span.start.offset) {
+            if let Some(caller_names) =
+                named_function_scope_names(semantic, call_site.name_span.start.offset)
+            {
                 worklist.extend(caller_names.iter().cloned());
             }
         }
@@ -1182,10 +1106,7 @@ fn collect_arithmetic_update_operator_spans_in_conditional_expr(
     match expression {
         ConditionalExpr::Binary(expr) => {
             collect_arithmetic_update_operator_spans_in_conditional_expr(
-                &expr.left,
-                semantic,
-                source,
-                spans,
+                &expr.left, semantic, source, spans,
             );
             collect_arithmetic_update_operator_spans_in_conditional_expr(
                 &expr.right,
@@ -1196,32 +1117,22 @@ fn collect_arithmetic_update_operator_spans_in_conditional_expr(
         }
         ConditionalExpr::Unary(expr) => {
             collect_arithmetic_update_operator_spans_in_conditional_expr(
-                &expr.expr,
-                semantic,
-                source,
-                spans,
+                &expr.expr, semantic, source, spans,
             );
         }
         ConditionalExpr::Parenthesized(expr) => {
             collect_arithmetic_update_operator_spans_in_conditional_expr(
-                &expr.expr,
-                semantic,
-                source,
-                spans,
+                &expr.expr, semantic, source, spans,
             );
         }
         ConditionalExpr::Word(word) | ConditionalExpr::Regex(word) => {
             collect_arithmetic_update_operator_spans_in_word(word, semantic, source, spans);
         }
         ConditionalExpr::Pattern(pattern) => {
-            collect_arithmetic_update_operator_spans_in_pattern(
-                pattern, semantic, source, spans,
-            );
+            collect_arithmetic_update_operator_spans_in_pattern(pattern, semantic, source, spans);
         }
         ConditionalExpr::VarRef(reference) => {
-            collect_arithmetic_update_operator_spans_in_var_ref(
-                reference, semantic, source, spans,
-            );
+            collect_arithmetic_update_operator_spans_in_var_ref(reference, semantic, source, spans);
         }
     }
 }

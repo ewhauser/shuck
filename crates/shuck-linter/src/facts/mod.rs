@@ -101,21 +101,22 @@ include!("words.rs");
 
 #[cfg(feature = "benchmarking")]
 pub(crate) fn benchmark_normalize_commands(file: &File, source: &str) -> usize {
-    iter_commands_with_context(
+    let mut total = 0;
+    walk_commands(
         &file.body,
         CommandWalkOptions {
             descend_nested_word_commands: true,
         },
-    )
-    .map(|traversed| {
-        let normalized = normalize_command(traversed.visit.command, source);
-        normalized.wrappers.len()
-            + normalized.body_words.len()
-            + usize::from(normalized.literal_name.is_some())
-            + usize::from(normalized.effective_name.is_some())
-            + usize::from(normalized.declaration.is_some())
-    })
-    .sum()
+        &mut |visit, _| {
+            let normalized = normalize_command(visit.command, source);
+            total += normalized.wrappers.len()
+                + normalized.body_words.len()
+                + usize::from(normalized.literal_name.is_some())
+                + usize::from(normalized.effective_name.is_some())
+                + usize::from(normalized.declaration.is_some());
+        },
+    );
+    total
 }
 
 #[allow(unused_imports)]

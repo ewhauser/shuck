@@ -1215,7 +1215,10 @@ impl<'facts, 'a> WordOccurrenceRef<'facts, 'a> {
     }
 
     pub fn has_suspicious_quoted_command_trailer(self, source: &str) -> bool {
-        quoted_command_name_has_suspicious_ending(self.span().slice(source), self.trailing_literal_char())
+        quoted_command_name_has_suspicious_ending(
+            self.span().slice(source),
+            self.trailing_literal_char(),
+        )
     }
 
     pub fn has_hash_suffix(self, source: &str) -> bool {
@@ -1745,8 +1748,8 @@ fn contains_positional_parameter_reference(value: &str) -> bool {
 
     while let Some(byte) = bytes.get(index).copied() {
         match byte {
-            b'\'' if !in_double_quotes
-                && (in_single_quotes || !is_escaped_dollar(value, index)) =>
+            b'\''
+                if !in_double_quotes && (in_single_quotes || !is_escaped_dollar(value, index)) =>
             {
                 in_single_quotes = !in_single_quotes;
                 index += 1;
@@ -2106,7 +2109,9 @@ fn sc2001_like_pipeline_span<'a>(
         return sc2001_like_backtick_pipeline_span(commands, pipeline, right, source);
     }
 
-    Some(pipeline_span_with_shellcheck_tail(commands, pipeline, source))
+    Some(pipeline_span_with_shellcheck_tail(
+        commands, pipeline, source,
+    ))
 }
 
 fn sc2001_like_here_string_span(
@@ -2168,7 +2173,10 @@ fn sc2001_like_backtick_sed_script_end(args: &[&Word], source: &str) -> Option<P
     };
 
     let raw_script_end = match script_words {
-        [script] => backtick_sed_script_content_end_offset(script.span.slice(source), script.span.end.offset)?,
+        [script] => backtick_sed_script_content_end_offset(
+            script.span.slice(source),
+            script.span.end.offset,
+        )?,
         [first, .., last]
             if first.span.slice(source).starts_with("\\\"")
                 && last.span.slice(source).ends_with("\\\"") =>
@@ -2250,7 +2258,8 @@ fn backtick_sed_script_uses_escaped_double_quotes(script_words: &[&Word], source
             text.len() >= 4 && text.starts_with("\\\"") && text.ends_with("\\\"")
         }
         [first, .., last] => {
-            first.span.slice(source).starts_with("\\\"") && last.span.slice(source).ends_with("\\\"")
+            first.span.slice(source).starts_with("\\\"")
+                && last.span.slice(source).ends_with("\\\"")
         }
         _ => false,
     }
@@ -2456,7 +2465,10 @@ fn mixed_quote_literal_is_warnable_between_double_quotes(text: &str) -> bool {
     }
 
     if text.chars().any(|ch| ch.is_ascii_alphanumeric()) {
-        if text.chars().any(|ch| matches!(ch, '*' | '?' | '[' | '{' | '}')) {
+        if text
+            .chars()
+            .any(|ch| matches!(ch, '*' | '?' | '[' | '{' | '}'))
+        {
             return false;
         }
 
@@ -2532,9 +2544,7 @@ fn mixed_quote_shell_fragment_balance_delta_for_part(
 
 #[derive(Clone, Copy)]
 enum MixedQuoteShellParenFrame {
-    Command {
-        opened_in_double_quotes: bool,
-    },
+    Command { opened_in_double_quotes: bool },
     Group,
 }
 
@@ -2980,11 +2990,7 @@ fn mixed_quote_text_ends_with_unescaped_double_quote(text: &str) -> bool {
         return false;
     };
 
-    let backslash_count = prefix
-        .chars()
-        .rev()
-        .take_while(|ch| *ch == '\\')
-        .count();
+    let backslash_count = prefix.chars().rev().take_while(|ch| *ch == '\\').count();
     backslash_count % 2 == 0
 }
 
@@ -3131,46 +3137,46 @@ pub(crate) fn benchmark_collect_word_facts(
     let mut arithmetic_summary = ArithmeticFactSummary::default();
     let mut surface_fragments = SurfaceFragmentSink::new(source);
 
-    for (next_command_id, traversed) in iter_commands_with_context(
+    let mut next_command_id = 0;
+    walk_commands(
         &file.body,
         CommandWalkOptions {
             descend_nested_word_commands: true,
         },
-    )
-    .enumerate()
-    {
-        let visit = traversed.visit;
-        let normalized = command::normalize_command(visit.command, source);
-        let command_zsh_options = effective_command_zsh_options(
-            semantic,
-            command_span(visit.command).start.offset,
-            &normalized,
-        );
-        build_word_facts_for_command(
-            visit,
-            source,
-            semantic,
-            WordFactCommandContext {
-                command_id: CommandId::new(next_command_id),
-                nested_word_command: traversed.context.nested_word_command,
-            },
-            &normalized,
-            command_zsh_options,
-            WordFactOutputs {
-                word_nodes: &mut word_nodes,
-                word_node_ids_by_span: &mut word_node_ids_by_span,
-                word_occurrences: &mut word_occurrences,
-                pending_arithmetic_word_occurrences: &mut pending_arithmetic_word_occurrences,
-                compound_assignment_value_word_spans: &mut compound_assignment_value_word_spans,
-                array_assignment_split_word_ids: &mut array_assignment_split_word_ids,
-                assoc_binding_visibility_memo: &mut assoc_binding_visibility_memo,
-                case_pattern_expansions: &mut case_pattern_expansions,
-                pattern_literal_spans: &mut pattern_literal_spans,
-                arithmetic: &mut arithmetic_summary,
-                surface: &mut surface_fragments,
-            },
-        );
-    }
+        &mut |visit, context| {
+            let normalized = command::normalize_command(visit.command, source);
+            let command_zsh_options = effective_command_zsh_options(
+                semantic,
+                command_span(visit.command).start.offset,
+                &normalized,
+            );
+            build_word_facts_for_command(
+                visit,
+                source,
+                semantic,
+                WordFactCommandContext {
+                    command_id: CommandId::new(next_command_id),
+                    nested_word_command: context.nested_word_command,
+                },
+                &normalized,
+                command_zsh_options,
+                WordFactOutputs {
+                    word_nodes: &mut word_nodes,
+                    word_node_ids_by_span: &mut word_node_ids_by_span,
+                    word_occurrences: &mut word_occurrences,
+                    pending_arithmetic_word_occurrences: &mut pending_arithmetic_word_occurrences,
+                    compound_assignment_value_word_spans: &mut compound_assignment_value_word_spans,
+                    array_assignment_split_word_ids: &mut array_assignment_split_word_ids,
+                    assoc_binding_visibility_memo: &mut assoc_binding_visibility_memo,
+                    case_pattern_expansions: &mut case_pattern_expansions,
+                    pattern_literal_spans: &mut pattern_literal_spans,
+                    arithmetic: &mut arithmetic_summary,
+                    surface: &mut surface_fragments,
+                },
+            );
+            next_command_id += 1;
+        },
+    );
 
     let surface_fragments = surface_fragments.finish();
 
@@ -3232,26 +3238,32 @@ fn derive_word_fact_data(word: &Word, source: &str) -> WordNodeDerived {
         contains_shell_quoting_literals: word_contains_shell_quoting_literals(word, source),
         active_expansion_spans: word_spans::active_expansion_spans_in_source(word, source)
             .into_boxed_slice(),
-        scalar_expansion_spans:
-            word_spans::scalar_expansion_part_spans(word, source).into_boxed_slice(),
-        unquoted_scalar_expansion_spans:
-            word_spans::unquoted_scalar_expansion_part_spans(word, source).into_boxed_slice(),
-        array_expansion_spans:
-            word_spans::array_expansion_part_spans(word, source).into_boxed_slice(),
+        scalar_expansion_spans: word_spans::scalar_expansion_part_spans(word, source)
+            .into_boxed_slice(),
+        unquoted_scalar_expansion_spans: word_spans::unquoted_scalar_expansion_part_spans(
+            word, source,
+        )
+        .into_boxed_slice(),
+        array_expansion_spans: word_spans::array_expansion_part_spans(word, source)
+            .into_boxed_slice(),
         all_elements_array_expansion_spans: word_spans::all_elements_array_expansion_part_spans(
             word, source,
         )
         .into_boxed_slice(),
         direct_all_elements_array_expansion_spans:
             word_spans::direct_all_elements_array_expansion_part_spans(word, source)
-            .into_boxed_slice(),
+                .into_boxed_slice(),
         unquoted_all_elements_array_expansion_spans:
             word_spans::unquoted_all_elements_array_expansion_part_spans(word, source)
                 .into_boxed_slice(),
-        unquoted_array_expansion_spans: word_spans::unquoted_array_expansion_part_spans(word, source)
-            .into_boxed_slice(),
-        command_substitution_spans: word_spans::command_substitution_part_spans_in_source(word, source)
-            .into_boxed_slice(),
+        unquoted_array_expansion_spans: word_spans::unquoted_array_expansion_part_spans(
+            word, source,
+        )
+        .into_boxed_slice(),
+        command_substitution_spans: word_spans::command_substitution_part_spans_in_source(
+            word, source,
+        )
+        .into_boxed_slice(),
         unquoted_command_substitution_spans:
             word_spans::unquoted_command_substitution_part_spans_in_source(word, source)
                 .into_boxed_slice(),
@@ -3542,7 +3554,8 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
         let surface_context = self.surface_context();
         match command {
             Command::Simple(command) => {
-                if let Some(target_index) = simple_command_wrapper_target_index(command, self.source)
+                if let Some(target_index) =
+                    simple_command_wrapper_target_index(command, self.source)
                 {
                     let target_word = simple_command_word_at(command, target_index);
                     self.push_word_with_surface(
@@ -3774,10 +3787,9 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                         reference.subscript.as_ref(),
                     );
                     if !indexed_semantics {
-                        self.surface
-                            .record_arithmetic_only_suppressed_subscript(
-                                reference.subscript.as_ref(),
-                            );
+                        self.surface.record_arithmetic_only_suppressed_subscript(
+                            reference.subscript.as_ref(),
+                        );
                     }
                     visit_var_ref_subscript_words_with_source(
                         reference,
@@ -3832,27 +3844,23 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             self.surface
                 .record_arithmetic_only_suppressed_subscript(assignment.target.subscript.as_ref());
         }
-        visit_var_ref_subscript_words_with_source(
-            &assignment.target,
-            self.source,
-            &mut |word| {
-                collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
-                    &word.parts,
-                    self.source,
-                    &mut self.arithmetic.dollar_in_arithmetic_spans,
-                );
-                if indexed_semantics {
-                    self.collect_array_index_arithmetic_spans(word);
-                    self.collect_dollar_prefixed_indexed_subscript_spans(word);
-                }
-                self.push_word_with_surface(
-                    word,
-                    context,
-                    WordFactHostKind::AssignmentTargetSubscript,
-                    surface_context,
-                );
-            },
-        );
+        visit_var_ref_subscript_words_with_source(&assignment.target, self.source, &mut |word| {
+            collect_dollar_spans_in_nested_arithmetic_expansions_from_parts(
+                &word.parts,
+                self.source,
+                &mut self.arithmetic.dollar_in_arithmetic_spans,
+            );
+            if indexed_semantics {
+                self.collect_array_index_arithmetic_spans(word);
+                self.collect_dollar_prefixed_indexed_subscript_spans(word);
+            }
+            self.push_word_with_surface(
+                word,
+                context,
+                WordFactHostKind::AssignmentTargetSubscript,
+                surface_context,
+            );
+        });
 
         match &assignment.value {
             AssignmentValue::Scalar(word) => {
@@ -4083,20 +4091,14 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
             ConditionalExpr::VarRef(reference) => {
                 self.surface
                     .record_arithmetic_only_suppressed_subscript(reference.subscript.as_ref());
-                visit_var_ref_subscript_words_with_source(
-                    reference,
-                    self.source,
-                    &mut |word| {
-                        self.push_word_with_surface(
-                            word,
-                            WordFactContext::Expansion(
-                                ExpansionContext::ConditionalVarRefSubscript,
-                            ),
-                            WordFactHostKind::ConditionalVarRefSubscript,
-                            surface_context,
-                        );
-                    },
-                );
+                visit_var_ref_subscript_words_with_source(reference, self.source, &mut |word| {
+                    self.push_word_with_surface(
+                        word,
+                        WordFactContext::Expansion(ExpansionContext::ConditionalVarRefSubscript),
+                        WordFactHostKind::ConditionalVarRefSubscript,
+                        surface_context,
+                    );
+                });
             }
         }
     }
@@ -4414,11 +4416,12 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                             enclosing_expansion_context,
                             host_kind,
                         ),
-                    ZshExpansionTarget::Word(word) => self.collect_pending_arithmetic_word_occurrences(
-                        word,
-                        enclosing_expansion_context,
-                        host_kind,
-                    ),
+                    ZshExpansionTarget::Word(word) => self
+                        .collect_pending_arithmetic_word_occurrences(
+                            word,
+                            enclosing_expansion_context,
+                            host_kind,
+                        ),
                     ZshExpansionTarget::Reference(_) | ZshExpansionTarget::Empty => {}
                 }
 
@@ -4519,9 +4522,9 @@ impl<'out, 'a, 'norm> WordFactCollector<'out, 'a, 'norm> {
                     | WordFactContext::Expansion(ExpansionContext::DeclarationAssignmentValue)
             )
         {
-            self.arithmetic
-                .arithmetic_score_line_spans
-                .extend(word_spans::parenthesized_arithmetic_expansion_part_spans(word));
+            self.arithmetic.arithmetic_score_line_spans.extend(
+                word_spans::parenthesized_arithmetic_expansion_part_spans(word),
+            );
         }
 
         collect_arithmetic_expansion_spans_from_parts(
@@ -5104,7 +5107,9 @@ fn collect_wrapped_arithmetic_spans_in_word(
     let mut index = 0usize;
 
     while index + 2 < bytes.len() {
-        if !is_unescaped_dollar(bytes, index) || bytes[index + 1] != b'(' || bytes[index + 2] != b'('
+        if !is_unescaped_dollar(bytes, index)
+            || bytes[index + 1] != b'('
+            || bytes[index + 2] != b'('
         {
             index += 1;
             continue;
@@ -5801,9 +5806,7 @@ fn collect_arithmetic_update_operator_spans_from_parts(
     source: &str,
     spans: &mut Vec<Span>,
 ) {
-    collect_arithmetic_update_operator_spans_from_parts_impl(
-        parts, semantic, source, spans, false,
-    );
+    collect_arithmetic_update_operator_spans_from_parts_impl(parts, semantic, source, spans, false);
 }
 
 fn collect_arithmetic_update_operator_spans_from_parts_impl(
@@ -6746,12 +6749,14 @@ fn xargs_suppresses_default_inline_replace_diagnostic(args: &[&Word], source: &s
         return false;
     };
 
-    if matches!(command_name.as_ref(), "sh" | "bash" | "dash" | "ksh" | "zsh")
-        && args
-            .get(1)
-            .and_then(|word| static_word_text(word, source))
-            .as_deref()
-            == Some("-c")
+    if matches!(
+        command_name.as_ref(),
+        "sh" | "bash" | "dash" | "ksh" | "zsh"
+    ) && args
+        .get(1)
+        .and_then(|word| static_word_text(word, source))
+        .as_deref()
+        == Some("-c")
     {
         return true;
     }
@@ -6773,7 +6778,9 @@ fn xargs_suppresses_default_inline_replace_diagnostic(args: &[&Word], source: &s
 }
 
 fn is_echo_option_text(text: &str) -> bool {
-    text != "-" && text.starts_with('-') && text[1..].chars().all(|ch| matches!(ch, 'n' | 'e' | 'E'))
+    text != "-"
+        && text.starts_with('-')
+        && text[1..].chars().all(|ch| matches!(ch, 'n' | 'e' | 'E'))
 }
 
 fn xargs_long_option_argument(
@@ -7107,8 +7114,8 @@ ${@:2} ${arr[0]} ${arr[@]} ${!name} ${name:-fallback} \"$@$@\" \"prefix$name\"\n
         assert_eq!(
             plain,
             vec![
-                true, true, true, true, true, true, true, true, false, false, false, false,
-                false, false, false
+                true, true, true, true, true, true, true, true, false, false, false, false, false,
+                false, false
             ]
         );
     }

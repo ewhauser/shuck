@@ -250,4 +250,3 @@ fn collect_statement_sequence_facts_in_stmt<'a>(
     );
 }
 
-
