@@ -38,7 +38,9 @@ pub use binding::{
     BuiltinBindingTargetKind, LoopValueOrigin,
 };
 /// Call-graph structures derived from the analyzed script.
-pub use call_graph::{CallGraph, CallSite, OverwrittenFunction};
+pub use call_graph::{
+    CallGraph, CallSite, OverwrittenFunction, UnreachedFunction, UnreachedFunctionReason,
+};
 /// Control-flow graph types and flow-context annotations.
 pub use cfg::{BasicBlock, BlockId, ControlFlowGraph, EdgeKind, FlowContext, UnreachableCauseKind};
 /// Contract and build-option types used when constructing semantic models.
@@ -75,6 +77,8 @@ use crate::dataflow::{DataflowContext, DataflowResult, ExactVariableDataflow};
 use crate::runtime::RuntimePrelude;
 use crate::source_closure::ImportedBindingContractSite;
 use crate::zsh_options::ZshOptionAnalysis;
+
+const MAX_FUNCTIONS_FOR_TERMINATION_REACHABILITY: usize = 200;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct SpanKey {
@@ -465,6 +469,7 @@ pub struct SemanticAnalysis<'model> {
     uninitialized_references: OnceLock<Vec<UninitializedReference>>,
     dead_code: OnceLock<Vec<DeadCode>>,
     overwritten_functions: OnceLock<Vec<OverwrittenFunction>>,
+    unreached_functions: OnceLock<Vec<UnreachedFunction>>,
     scope_provided_binding_index: OnceLock<ScopeProvidedBindingIndex>,
 }
 
@@ -474,6 +479,15 @@ struct OverwriteWindow<'a> {
     second_blocks: &'a [BlockId],
     cfg: &'a ControlFlowGraph,
     unreachable: &'a FxHashSet<BlockId>,
+}
+
+struct FunctionReachWindow<'a> {
+    binding: BindingId,
+    binding_blocks: &'a [BlockId],
+    shadow_blocks: &'a FxHashSet<BlockId>,
+    cfg: &'a ControlFlowGraph,
+    unreachable: &'a FxHashSet<BlockId>,
+    script_terminators: &'a FxHashSet<BlockId>,
 }
 
 #[allow(missing_docs)]
@@ -1207,6 +1221,7 @@ impl<'model> SemanticAnalysis<'model> {
             uninitialized_references: OnceLock::new(),
             dead_code: OnceLock::new(),
             overwritten_functions: OnceLock::new(),
+            unreached_functions: OnceLock::new(),
             scope_provided_binding_index: OnceLock::new(),
         }
     }
@@ -1419,6 +1434,12 @@ impl<'model> SemanticAnalysis<'model> {
             .as_slice()
     }
 
+    pub fn unreached_functions(&self) -> &[UnreachedFunction] {
+        self.unreached_functions
+            .get_or_init(|| self.compute_unreached_functions())
+            .as_slice()
+    }
+
     #[doc(hidden)]
     pub fn scope_provided_bindings(&self, scope: ScopeId) -> &[ProvidedBinding] {
         self.scope_provided_binding_index()
@@ -1525,12 +1546,26 @@ impl<'model> SemanticAnalysis<'model> {
         window: &OverwriteWindow<'_>,
         site: &CallSite,
     ) -> Vec<BlockId> {
-        window
-            .cfg
-            .block_ids_for_span(site.span)
+        self.reachable_call_site_blocks_in_cfg(window.cfg, site, window.unreachable)
+    }
+
+    fn reachable_call_site_blocks_in_cfg(
+        &self,
+        cfg: &ControlFlowGraph,
+        site: &CallSite,
+        unreachable: &FxHashSet<BlockId>,
+    ) -> Vec<BlockId> {
+        let command_span = self
+            .model
+            .recorded_program
+            .call_command_spans
+            .get(&SpanKey::new(site.span))
+            .copied()
+            .unwrap_or(site.span);
+        cfg.block_ids_for_span(command_span)
             .iter()
             .copied()
-            .filter(|block| !window.unreachable.contains(block))
+            .filter(|block| !unreachable.contains(block))
             .collect()
     }
 
@@ -1612,6 +1647,421 @@ impl<'model> SemanticAnalysis<'model> {
 
         visiting_scopes.remove(&site.scope);
         executed
+    }
+
+    fn compute_unreached_functions(&self) -> Vec<UnreachedFunction> {
+        if self.model.functions.is_empty() {
+            return Vec::new();
+        }
+
+        let function_count = self
+            .model
+            .functions
+            .values()
+            .map(|bindings| bindings.len())
+            .sum::<usize>();
+        let skip_termination_reachability =
+            function_count > MAX_FUNCTIONS_FOR_TERMINATION_REACHABILITY;
+
+        let cfg = self.cfg();
+        let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
+        let script_terminators = cfg
+            .script_terminators()
+            .iter()
+            .copied()
+            .collect::<FxHashSet<_>>();
+        if unreachable.is_empty() && script_terminators.is_empty() {
+            return Vec::new();
+        }
+
+        let binding_blocks = build_binding_block_index(cfg.blocks(), self.model.bindings.len());
+        let natural_exits = cfg
+            .natural_exits()
+            .iter()
+            .copied()
+            .collect::<FxHashSet<_>>();
+        let mut unreached = Vec::new();
+        let mut empty_shadow_termination_cache = FxHashMap::default();
+        let mut scope_execution_cache = FxHashMap::default();
+
+        for (name, bindings) in &self.model.functions {
+            for &binding_id in bindings {
+                let binding = self.model.binding(binding_id);
+                if !matches!(binding.kind, BindingKind::FunctionDefinition) {
+                    continue;
+                }
+
+                let reachable_blocks =
+                    reachable_binding_blocks(binding_id, &binding_blocks, &unreachable);
+                let Some(reachable_blocks) = reachable_blocks else {
+                    if !self.binding_execution_scope_can_run_before_termination(
+                        binding_id,
+                        cfg,
+                        &unreachable,
+                        &script_terminators,
+                        &mut scope_execution_cache,
+                    ) {
+                        continue;
+                    }
+                    unreached.push(UnreachedFunction {
+                        name: name.clone(),
+                        binding: binding_id,
+                        reason: UnreachedFunctionReason::UnreachableDefinition,
+                    });
+                    continue;
+                };
+                if skip_termination_reachability
+                    || !self.binding_execution_scope_can_run_before_termination(
+                        binding_id,
+                        cfg,
+                        &unreachable,
+                        &script_terminators,
+                        &mut scope_execution_cache,
+                    )
+                {
+                    continue;
+                }
+
+                let shadow_blocks =
+                    self.shadow_function_blocks(name, binding_id, &binding_blocks, &unreachable);
+                let window = FunctionReachWindow {
+                    binding: binding_id,
+                    binding_blocks: &reachable_blocks,
+                    shadow_blocks: &shadow_blocks,
+                    cfg,
+                    unreachable: &unreachable,
+                    script_terminators: &script_terminators,
+                };
+                let mut visiting_scopes = FxHashSet::default();
+                if self.function_binding_has_direct_call_before_termination(
+                    name,
+                    &window,
+                    &mut visiting_scopes,
+                ) {
+                    continue;
+                }
+
+                if !script_terminators.is_empty()
+                    && all_paths_terminate_before_natural_exit(
+                        &reachable_blocks,
+                        cfg,
+                        &script_terminators,
+                        &natural_exits,
+                        &unreachable,
+                        &shadow_blocks,
+                        &mut empty_shadow_termination_cache,
+                    )
+                {
+                    unreached.push(UnreachedFunction {
+                        name: name.clone(),
+                        binding: binding_id,
+                        reason: UnreachedFunctionReason::ScriptTerminates,
+                    });
+                }
+            }
+        }
+
+        unreached.sort_by_key(|unreached| self.model.binding(unreached.binding).span.start.offset);
+        unreached
+    }
+
+    fn binding_execution_scope_can_run_before_termination(
+        &self,
+        binding_id: BindingId,
+        cfg: &ControlFlowGraph,
+        unreachable: &FxHashSet<BlockId>,
+        script_terminators: &FxHashSet<BlockId>,
+        scope_execution_cache: &mut FxHashMap<ScopeId, bool>,
+    ) -> bool {
+        let binding = self.model.binding(binding_id);
+        let Some(function_scope) = self.enclosing_function_scope(binding.scope) else {
+            return true;
+        };
+
+        let mut visiting_scopes = FxHashSet::default();
+        self.function_scope_can_run_before_termination(
+            function_scope,
+            cfg,
+            unreachable,
+            script_terminators,
+            &mut visiting_scopes,
+            scope_execution_cache,
+        )
+    }
+
+    fn function_scope_can_run_before_termination(
+        &self,
+        function_scope: ScopeId,
+        cfg: &ControlFlowGraph,
+        unreachable: &FxHashSet<BlockId>,
+        script_terminators: &FxHashSet<BlockId>,
+        visiting_scopes: &mut FxHashSet<ScopeId>,
+        scope_execution_cache: &mut FxHashMap<ScopeId, bool>,
+    ) -> bool {
+        if !visiting_scopes.contains(&function_scope)
+            && let Some(cached) = scope_execution_cache.get(&function_scope)
+        {
+            return *cached;
+        }
+        if !visiting_scopes.insert(function_scope) {
+            return false;
+        }
+
+        let can_run = self
+            .model
+            .recorded_program
+            .function_body_scopes
+            .iter()
+            .filter_map(|(binding, body_scope)| (*body_scope == function_scope).then_some(*binding))
+            .any(|function_binding| {
+                let function = self.model.binding(function_binding);
+                self.model
+                    .call_sites_for(&function.name)
+                    .iter()
+                    .any(|site| {
+                        self.overwrite_call_site_resolves_to_binding(
+                            &function.name,
+                            site,
+                            function_binding,
+                        ) && self.call_site_context_can_run_before_termination(
+                            site,
+                            cfg,
+                            unreachable,
+                            script_terminators,
+                            visiting_scopes,
+                            scope_execution_cache,
+                        )
+                    })
+            });
+
+        visiting_scopes.remove(&function_scope);
+        scope_execution_cache.insert(function_scope, can_run);
+        can_run
+    }
+
+    fn call_site_context_can_run_before_termination(
+        &self,
+        site: &CallSite,
+        cfg: &ControlFlowGraph,
+        unreachable: &FxHashSet<BlockId>,
+        script_terminators: &FxHashSet<BlockId>,
+        visiting_scopes: &mut FxHashSet<ScopeId>,
+        scope_execution_cache: &mut FxHashMap<ScopeId, bool>,
+    ) -> bool {
+        let site_blocks = self.reachable_call_site_blocks_in_cfg(cfg, site, unreachable);
+        if site_blocks.is_empty() {
+            return false;
+        }
+
+        let Some(function_scope) = self.enclosing_function_scope(site.scope) else {
+            return blocks_have_path_avoiding(
+                cfg,
+                &[cfg.entry()],
+                &site_blocks,
+                script_terminators,
+            );
+        };
+        let Some(scope_entry) = cfg.scope_entry(function_scope) else {
+            return false;
+        };
+        if !blocks_have_path_avoiding(cfg, &[scope_entry], &site_blocks, script_terminators) {
+            return false;
+        }
+
+        self.function_scope_can_run_before_termination(
+            function_scope,
+            cfg,
+            unreachable,
+            script_terminators,
+            visiting_scopes,
+            scope_execution_cache,
+        )
+    }
+
+    fn function_binding_has_direct_call_before_termination(
+        &self,
+        name: &Name,
+        window: &FunctionReachWindow<'_>,
+        visiting_scopes: &mut FxHashSet<ScopeId>,
+    ) -> bool {
+        self.model.call_sites_for(name).iter().any(|site| {
+            self.call_site_can_resolve_to_binding_on_reachable_path(name, site, window)
+                && self.call_site_executes_before_termination(site, window, visiting_scopes)
+        })
+    }
+
+    fn call_site_can_resolve_to_binding_on_reachable_path(
+        &self,
+        name: &Name,
+        site: &CallSite,
+        window: &FunctionReachWindow<'_>,
+    ) -> bool {
+        let binding = self.model.binding(window.binding);
+        if site.scope == binding.scope {
+            let site_blocks =
+                self.reachable_call_site_blocks_in_cfg(window.cfg, site, window.unreachable);
+            return !site_blocks.is_empty()
+                && blocks_have_path_avoiding_many(
+                    window.cfg,
+                    window.binding_blocks,
+                    &site_blocks,
+                    window.shadow_blocks,
+                    window.script_terminators,
+                );
+        }
+
+        if self.overwrite_call_site_resolves_to_binding(name, site, window.binding) {
+            return true;
+        }
+
+        if !self
+            .model
+            .ancestor_scopes(site.scope)
+            .any(|scope| scope == binding.scope)
+        {
+            return false;
+        }
+        let Some(function_scope) = self.enclosing_function_scope(site.scope) else {
+            return false;
+        };
+
+        self.model
+            .recorded_program
+            .function_body_scopes
+            .iter()
+            .filter_map(|(function_binding, body_scope)| {
+                (*body_scope == function_scope).then_some(*function_binding)
+            })
+            .map(|function_binding| {
+                reachable_blocks_for_binding(window.cfg, function_binding, window.unreachable)
+            })
+            .any(|function_blocks| {
+                !function_blocks.is_empty()
+                    && blocks_have_path_avoiding_many(
+                        window.cfg,
+                        window.binding_blocks,
+                        &function_blocks,
+                        window.shadow_blocks,
+                        window.script_terminators,
+                    )
+            })
+    }
+
+    fn call_site_executes_before_termination(
+        &self,
+        site: &CallSite,
+        window: &FunctionReachWindow<'_>,
+        visiting_scopes: &mut FxHashSet<ScopeId>,
+    ) -> bool {
+        let site_blocks =
+            self.reachable_call_site_blocks_in_cfg(window.cfg, site, window.unreachable);
+        if site_blocks.is_empty() {
+            return false;
+        }
+
+        let binding = self.model.binding(window.binding);
+        if site.scope == binding.scope {
+            return blocks_have_path_avoiding_many(
+                window.cfg,
+                window.binding_blocks,
+                &site_blocks,
+                window.shadow_blocks,
+                window.script_terminators,
+            );
+        }
+
+        let Some(function_scope) = self.enclosing_function_scope(site.scope) else {
+            return blocks_have_path_avoiding_many(
+                window.cfg,
+                window.binding_blocks,
+                &site_blocks,
+                window.shadow_blocks,
+                window.script_terminators,
+            );
+        };
+
+        let Some(scope_entry) = window.cfg.scope_entry(function_scope) else {
+            return false;
+        };
+        if !blocks_have_path_avoiding(
+            window.cfg,
+            &[scope_entry],
+            &site_blocks,
+            window.script_terminators,
+        ) {
+            return false;
+        }
+
+        if !visiting_scopes.insert(function_scope) {
+            return false;
+        }
+
+        let executed = self
+            .model
+            .recorded_program
+            .function_body_scopes
+            .iter()
+            .filter_map(|(binding_id, body_scope)| {
+                (*body_scope == function_scope).then_some(*binding_id)
+            })
+            .any(|function_binding| {
+                let function_name = self.model.binding(function_binding).name.clone();
+                self.model
+                    .call_sites_for(&function_name)
+                    .iter()
+                    .any(|caller| {
+                        self.overwrite_call_site_resolves_to_binding(
+                            &function_name,
+                            caller,
+                            function_binding,
+                        ) && self.call_site_executes_before_termination(
+                            caller,
+                            window,
+                            visiting_scopes,
+                        )
+                    })
+            });
+
+        visiting_scopes.remove(&function_scope);
+        executed
+    }
+
+    fn shadow_function_blocks(
+        &self,
+        name: &Name,
+        binding_id: BindingId,
+        binding_blocks: &[Vec<BlockId>],
+        unreachable: &FxHashSet<BlockId>,
+    ) -> FxHashSet<BlockId> {
+        let binding = self.model.binding(binding_id);
+        self.model
+            .function_definitions(name)
+            .iter()
+            .copied()
+            .filter(|other| *other != binding_id)
+            .filter(|other| {
+                let other_binding = self.model.binding(*other);
+                other_binding.scope == binding.scope
+                    && other_binding.span.start.offset > binding.span.start.offset
+            })
+            .flat_map(|other| {
+                binding_blocks
+                    .get(other.index())
+                    .into_iter()
+                    .flat_map(|blocks| blocks.iter())
+                    .copied()
+                    .filter(|block| !unreachable.contains(block))
+            })
+            .collect()
+    }
+
+    fn enclosing_function_scope(&self, scope: ScopeId) -> Option<ScopeId> {
+        self.model.ancestor_scopes(scope).find(|scope_id| {
+            matches!(
+                self.model.scope_kind(*scope_id),
+                ScopeKind::Function(function) if !function.is_anonymous()
+            )
+        })
     }
 
     fn compute_overwritten_functions(&self) -> Vec<OverwrittenFunction> {
@@ -1993,6 +2443,171 @@ fn blocks_have_path(
             .copied()
             .any(|end| reachability.reaches(start, end))
     })
+}
+
+fn reachable_blocks_for_binding(
+    cfg: &ControlFlowGraph,
+    binding: BindingId,
+    unreachable: &FxHashSet<BlockId>,
+) -> Vec<BlockId> {
+    cfg.blocks()
+        .iter()
+        .filter(|block| block.bindings.contains(&binding) && !unreachable.contains(&block.id))
+        .map(|block| block.id)
+        .collect()
+}
+
+fn blocks_have_path_avoiding(
+    cfg: &ControlFlowGraph,
+    starts: &[BlockId],
+    ends: &[BlockId],
+    avoid: &FxHashSet<BlockId>,
+) -> bool {
+    starts.iter().copied().any(|start| {
+        ends.iter()
+            .copied()
+            .any(|end| block_reaches_avoiding(cfg, start, end, avoid))
+    })
+}
+
+fn blocks_have_path_avoiding_many(
+    cfg: &ControlFlowGraph,
+    starts: &[BlockId],
+    ends: &[BlockId],
+    first_avoid: &FxHashSet<BlockId>,
+    second_avoid: &FxHashSet<BlockId>,
+) -> bool {
+    starts.iter().copied().any(|start| {
+        ends.iter()
+            .copied()
+            .any(|end| block_reaches_avoiding_many(cfg, start, end, first_avoid, second_avoid))
+    })
+}
+
+fn block_reaches_avoiding(
+    cfg: &ControlFlowGraph,
+    start: BlockId,
+    end: BlockId,
+    avoid: &FxHashSet<BlockId>,
+) -> bool {
+    let empty = FxHashSet::default();
+    block_reaches_avoiding_many(cfg, start, end, avoid, &empty)
+}
+
+fn block_reaches_avoiding_many(
+    cfg: &ControlFlowGraph,
+    start: BlockId,
+    end: BlockId,
+    first_avoid: &FxHashSet<BlockId>,
+    second_avoid: &FxHashSet<BlockId>,
+) -> bool {
+    let mut visited = FxHashSet::default();
+    let mut stack = vec![start];
+    while let Some(block) = stack.pop() {
+        if !visited.insert(block) {
+            continue;
+        }
+        if block == end {
+            return true;
+        }
+        if first_avoid.contains(&block) || second_avoid.contains(&block) {
+            continue;
+        }
+        for (successor, _) in cfg.successors(block) {
+            stack.push(*successor);
+        }
+    }
+
+    false
+}
+
+fn all_paths_terminate_before_natural_exit(
+    starts: &[BlockId],
+    cfg: &ControlFlowGraph,
+    script_terminators: &FxHashSet<BlockId>,
+    natural_exits: &FxHashSet<BlockId>,
+    unreachable: &FxHashSet<BlockId>,
+    shadow_blocks: &FxHashSet<BlockId>,
+    empty_shadow_cache: &mut FxHashMap<BlockId, bool>,
+) -> bool {
+    let mut saw_termination = false;
+    let cacheable = shadow_blocks.is_empty();
+    starts.iter().copied().all(|start| {
+        path_terminates_before_natural_exit(
+            start,
+            cfg,
+            script_terminators,
+            natural_exits,
+            unreachable,
+            shadow_blocks,
+            &mut FxHashSet::default(),
+            &mut saw_termination,
+            empty_shadow_cache,
+            cacheable,
+        )
+    }) && saw_termination
+}
+
+fn path_terminates_before_natural_exit(
+    block: BlockId,
+    cfg: &ControlFlowGraph,
+    script_terminators: &FxHashSet<BlockId>,
+    natural_exits: &FxHashSet<BlockId>,
+    unreachable: &FxHashSet<BlockId>,
+    shadow_blocks: &FxHashSet<BlockId>,
+    visiting: &mut FxHashSet<BlockId>,
+    saw_termination: &mut bool,
+    empty_shadow_cache: &mut FxHashMap<BlockId, bool>,
+    cacheable: bool,
+) -> bool {
+    if cacheable && let Some(cached) = empty_shadow_cache.get(&block) {
+        if *cached {
+            *saw_termination = true;
+        }
+        return *cached;
+    }
+    if unreachable.contains(&block) || shadow_blocks.contains(&block) {
+        return false;
+    }
+    if script_terminators.contains(&block) {
+        *saw_termination = true;
+        if cacheable {
+            empty_shadow_cache.insert(block, true);
+        }
+        return true;
+    }
+    if natural_exits.contains(&block) {
+        if cacheable {
+            empty_shadow_cache.insert(block, false);
+        }
+        return false;
+    }
+    if !visiting.insert(block) {
+        return false;
+    }
+
+    let successors = cfg.successors(block);
+    let terminates = !successors.is_empty()
+        && successors.iter().all(|(successor, _)| {
+            path_terminates_before_natural_exit(
+                *successor,
+                cfg,
+                script_terminators,
+                natural_exits,
+                unreachable,
+                shadow_blocks,
+                visiting,
+                saw_termination,
+                empty_shadow_cache,
+                cacheable,
+            )
+        });
+
+    visiting.remove(&block);
+    if cacheable {
+        empty_shadow_cache.insert(block, terminates);
+    }
+    terminates
 }
 
 fn block_reaches_without(
@@ -3280,6 +3895,141 @@ factory_two
         let model = model(source);
 
         assert!(model.analysis().overwritten_functions().is_empty());
+    }
+
+    #[test]
+    fn unreached_functions_report_definitions_before_script_termination() {
+        let source = "f() { echo hi; }\nexit 0\n";
+        let model = model(source);
+        let analysis = model.analysis();
+        let unreached = analysis.unreached_functions();
+
+        assert_eq!(unreached.len(), 1);
+        assert_eq!(unreached[0].name, "f");
+        assert_eq!(
+            unreached[0].reason,
+            UnreachedFunctionReason::ScriptTerminates
+        );
+    }
+
+    #[test]
+    fn unreached_functions_ignore_definitions_at_plain_eof() {
+        let source = "f() { echo hi; }\n";
+        let model = model(source);
+
+        assert!(model.analysis().unreached_functions().is_empty());
+    }
+
+    #[test]
+    fn unreached_functions_ignore_direct_calls_before_termination() {
+        let source = "f() { echo hi; }\nf\nexit 0\n";
+        let model = model(source);
+
+        assert!(model.analysis().unreached_functions().is_empty());
+    }
+
+    #[test]
+    fn unreached_functions_count_direct_calls_that_terminate() {
+        let source = "f() { exit 1; }\nf\n";
+        let model = model(source);
+
+        assert!(model.analysis().unreached_functions().is_empty());
+    }
+
+    #[test]
+    fn unreached_functions_report_unreachable_definitions() {
+        let source = "exit 0\nf() { echo hi; }\n";
+        let model = model(source);
+        let analysis = model.analysis();
+        let unreached = analysis.unreached_functions();
+
+        assert_eq!(unreached.len(), 1);
+        assert_eq!(unreached[0].name, "f");
+        assert_eq!(
+            unreached[0].reason,
+            UnreachedFunctionReason::UnreachableDefinition
+        );
+    }
+
+    #[test]
+    fn unreached_functions_ignore_non_guaranteed_termination() {
+        let source = "f() { echo hi; }\nif cond; then exit 0; fi\n";
+        let model = model(source);
+
+        assert!(model.analysis().unreached_functions().is_empty());
+    }
+
+    #[test]
+    fn unreached_functions_count_transitive_direct_calls_before_termination() {
+        let source = "\
+run_case() {
+  helper
+}
+helper() { echo hi; }
+run_case
+exit 0
+";
+        let model = model(source);
+
+        assert!(model.analysis().unreached_functions().is_empty());
+    }
+
+    #[test]
+    fn unreached_functions_count_nested_substitution_calls_before_termination() {
+        let source = "\
+run_case() {
+  output=\"$(echo value | helper)\"
+}
+helper() { echo hi; }
+run_case
+exit 0
+";
+        let model = model(source);
+
+        assert!(model.analysis().unreached_functions().is_empty());
+    }
+
+    #[test]
+    fn unreached_functions_count_negated_condition_calls_before_termination() {
+        let source = "\
+die() { exit 1; }
+check() { :; }
+validate() {
+  if ! check \"$value\"; then
+    die
+  fi
+}
+validate
+exit 0
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let unreached_names = analysis
+            .unreached_functions()
+            .iter()
+            .map(|unreached| unreached.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(!unreached_names.contains(&"check"));
+    }
+
+    #[test]
+    fn unreached_functions_count_calls_to_branch_selected_definitions() {
+        let source = "\
+if use_first; then
+  helper() { echo first; }
+else
+  helper() { echo second; }
+fi
+run_case() {
+  helper
+}
+run_case
+exit 0
+";
+        let model = model(source);
+
+        assert!(model.analysis().unreached_functions().is_empty());
     }
 
     #[test]

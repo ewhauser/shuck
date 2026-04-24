@@ -26,3 +26,16 @@ pub struct OverwrittenFunction {
     pub second: BindingId,
     pub first_called: bool,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnreachedFunctionReason {
+    UnreachableDefinition,
+    ScriptTerminates,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnreachedFunction {
+    pub name: Name,
+    pub binding: BindingId,
+    pub reason: UnreachedFunctionReason,
+}

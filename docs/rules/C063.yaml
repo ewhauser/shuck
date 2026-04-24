@@ -10,10 +10,10 @@ shells:
   - bash
   - dash
   - ksh
-description: A local function definition is overwritten before any reachable direct call can resolve to it.
-rationale: Remove the dead definition, rename one version, or call it before the later local definition replaces it.
+description: A local function definition is overwritten or cut off by script termination before any reachable direct call can resolve to it.
+rationale: Remove the dead definition, rename one version, or call it before the later local definition or terminating command makes it unreachable.
 safe_fix: false
-fix_description: "Delete the earlier function definition that is overwritten before any direct call reaches it."
+fix_description: "Delete the function definition that no reachable direct call can use."
 source:
   shell_checks_rule: rules/SH-171.yaml
   shell_checks_example: examples/171.sh
@@ -25,3 +25,8 @@ examples:
       myfunc() { return 1; }
       myfunc() { return 0; }
       myfunc
+  - kind: invalid
+    code: |
+      #!/bin/sh
+      myfunc() { echo hi; }
+      exit 0
