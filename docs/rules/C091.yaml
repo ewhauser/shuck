@@ -10,10 +10,10 @@ shells:
   - bash
   - dash
   - ksh
-description: A literal tilde inside quotes is compared instead of the expanded home path.
+description: A quoted home-relative path keeps the tilde literal instead of expanding it.
 rationale: "Expand the tilde outside quotes or use `$HOME`."
 safe_fix: false
-fix_description: "Rewrite the reported quoted `~/...` operand as a double-quoted `$HOME/...` operand."
+fix_description: "Rewrite the reported quoted `~/...` word as a double-quoted `$HOME/...` word."
 source:
   shell_checks_rule: rules/SH-219.yaml
   shell_checks_example: examples/219.sh
@@ -23,4 +23,4 @@ examples:
     code: |
       #!/bin/sh
       # shellcheck disable=2154
-      [ "$profile" = "~/.bashrc" ] && echo match
+      profile="~/.bashrc"

@@ -1,6 +1,7 @@
 use std::sync::OnceLock;
 
 use rustc_hash::FxHashSet;
+use shuck_ast::TextSize;
 use shuck_ast::{File, Span};
 use shuck_indexer::Indexer;
 use shuck_semantic::{SemanticAnalysis, SemanticModel};
@@ -147,6 +148,21 @@ impl<'a> Checker<'a> {
 
     pub fn first_parse_error(&self) -> Option<(usize, usize)> {
         self.first_parse_error
+    }
+
+    pub fn is_suppressed_at(&self, rule: Rule, span: Span) -> bool {
+        let Some(suppression_index) = self.suppression_index else {
+            return false;
+        };
+        let line = self
+            .indexer
+            .line_index()
+            .line_number(TextSize::new(span.start.offset as u32));
+        let Ok(line) = u32::try_from(line) else {
+            return false;
+        };
+
+        suppression_index.is_suppressed(rule, line)
     }
 
     pub fn report<V: Violation>(&mut self, violation: V, span: Span) {

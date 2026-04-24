@@ -388,6 +388,8 @@ impl<'a> LinterFactsBuilder<'a> {
                 .any(|set| set.pipefail_change == Some(true));
         let commented_continuation_comment_spans =
             build_commented_continuation_comment_spans(self.source, self._indexer);
+        let comment_double_quote_nesting_spans =
+            build_comment_double_quote_nesting_spans(self.source, self._indexer);
         let trailing_directive_comment_spans = build_trailing_directive_comment_spans(
             self.file,
             &case_items,
@@ -623,6 +625,7 @@ impl<'a> LinterFactsBuilder<'a> {
             non_absolute_shebang_span: shebang_header_facts.non_absolute_shebang_span,
             errexit_enabled_anywhere,
             commented_continuation_comment_spans,
+            comment_double_quote_nesting_spans,
             trailing_directive_comment_spans,
             condition_status_capture_spans,
             command_substitution_command_spans,

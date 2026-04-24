@@ -58,6 +58,7 @@ pub struct FunctionCallArityFacts {
     min_arg_count: usize,
     max_arg_count: usize,
     zero_arg_call_spans: Vec<Span>,
+    zero_arg_diagnostic_spans: Vec<Span>,
 }
 
 impl FunctionCallArityFacts {
@@ -81,7 +82,11 @@ impl FunctionCallArityFacts {
         &self.zero_arg_call_spans
     }
 
-    fn record_call(&mut self, arg_count: usize, span: Span) {
+    pub fn zero_arg_diagnostic_spans(&self) -> &[Span] {
+        &self.zero_arg_diagnostic_spans
+    }
+
+    fn record_call(&mut self, arg_count: usize, name_span: Span, diagnostic_span: Span) {
         if self.call_count == 0 {
             self.min_arg_count = arg_count;
             self.max_arg_count = arg_count;
@@ -90,7 +95,8 @@ impl FunctionCallArityFacts {
             self.max_arg_count = self.max_arg_count.max(arg_count);
         }
         if arg_count == 0 {
-            self.zero_arg_call_spans.push(span);
+            self.zero_arg_call_spans.push(name_span);
+            self.zero_arg_diagnostic_spans.push(diagnostic_span);
         }
         self.call_count += 1;
     }
@@ -445,11 +451,27 @@ fn build_function_call_arity_facts<'a>(
             facts
                 .entry(binding_id)
                 .or_default()
-                .record_call(function_call_arg_count(command, source), name_word.span);
+                .record_call(
+                    function_call_arg_count(command, source),
+                    name_word.span,
+                    function_call_diagnostic_span(command, name_word.span, source),
+                );
         }
     }
 
     facts
+}
+
+fn function_call_diagnostic_span(
+    command: &CommandFact<'_>,
+    name_span: Span,
+    source: &str,
+) -> Span {
+    if command.redirects().is_empty() {
+        return name_span;
+    }
+
+    trim_trailing_whitespace_span(command.stmt().span, source)
 }
 
 fn function_call_arg_count(command: &CommandFact<'_>, source: &str) -> usize {

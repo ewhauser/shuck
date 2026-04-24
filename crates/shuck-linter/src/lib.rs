@@ -370,7 +370,7 @@ pub fn lint_file_at_path_with_resolver(
         source,
         indexer,
         settings,
-        None,
+        suppression_index,
         source_path,
         source_path_resolver,
         shell,

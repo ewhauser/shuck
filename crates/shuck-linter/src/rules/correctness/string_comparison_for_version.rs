@@ -68,32 +68,19 @@ fn version_operand_span(binary: &ConditionalBinaryFact<'_>, source: &str) -> Opt
     }
 }
 
-// Treat any all-digit dotted literal (for example `1.27` or `2.5.1`) as
-// version-like here, since lexical `[[ ... < ... ]]` / `[[ ... > ... ]]`
-// comparisons are not version-aware for either shape.
+// Match the SC2072 oracle's decimal-like shape: one dot with digits on both
+// sides. Multi-segment versions are intentionally outside C087 unless the
+// other operand has this decimal form.
 fn is_dotted_numeric_version_like(text: &str) -> bool {
-    let mut saw_dot = false;
-    let mut saw_digit = false;
-    let mut segment_has_digit = false;
+    let Some((left, right)) = text.split_once('.') else {
+        return false;
+    };
 
-    for ch in text.chars() {
-        match ch {
-            '0'..='9' => {
-                saw_digit = true;
-                segment_has_digit = true;
-            }
-            '.' => {
-                if !segment_has_digit {
-                    return false;
-                }
-                saw_dot = true;
-                segment_has_digit = false;
-            }
-            _ => return false,
-        }
-    }
-
-    saw_digit && saw_dot && segment_has_digit
+    !left.is_empty()
+        && !right.is_empty()
+        && !right.contains('.')
+        && left.bytes().all(|byte| byte.is_ascii_digit())
+        && right.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 #[cfg(test)]
@@ -132,7 +119,7 @@ mod tests {
 #!/bin/bash
 [[ \"$actual\" > \"0.8\" ]]
 [[ \"1.2\" < $ver ]]
-[[ $(cat version.txt) < 2.5.1 ]]
+[[ $(cat version.txt) < 2.5 ]]
 ";
         let diagnostics = test_snippet(
             source,
@@ -144,7 +131,7 @@ mod tests {
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["\"0.8\"", "\"1.2\"", "2.5.1"]
+            vec!["\"0.8\"", "\"1.2\"", "2.5"]
         );
     }
 
@@ -170,6 +157,9 @@ mod tests {
 [[ $count < 10 ]]
 [[ foo < bar ]]
 [[ $tag < v1.2 ]]
+[[ 1.2.3 < $ver ]]
+[[ $ver < 1.2.3 ]]
+[[ 1.2.3 < 2.3.4 ]]
 [ \"$ver\" \\< 1.27 ]
 ";
         let diagnostics = test_snippet(

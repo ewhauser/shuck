@@ -6,7 +6,7 @@
 # Invalid: the same issue applies when the dotted version is on the left.
 [[ 1.2 < $ver ]]
 
-# Invalid: comparing two dotted numeric literals still uses lexical ordering.
+# Invalid: comparing a dotted decimal literal to another dotted value still uses lexical ordering.
 [[ 1.2.3 < 2.0 ]]
 
 # Invalid: lexical `>` still compares version-like values as strings.
@@ -18,6 +18,7 @@
 # Valid: integer-only comparisons belong to the generic numeric/string rule family.
 [[ $count < 10 ]]
 
-# Valid: plain string ordering is outside this version-specific rule.
+# Valid: plain string ordering and multi-segment versions are outside the SC2072-shaped rule.
 [[ foo < bar ]]
 [[ $tag < v1.2 ]]
+[[ $ver < 2.5.1 ]]

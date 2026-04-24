@@ -2390,9 +2390,15 @@ $cmd[0] arg
 fn builds_function_in_alias_spans_from_static_alias_definitions() {
     let source = "\
 #!/bin/sh
-alias gtl='gtl(){ git tag --sort=-v:refname -n -l \"${1}*\" }; noglob gtl'
-alias hello='function hello { echo hi; }'
-alias positional='${1+\"$@\"}'
+alias first='echo $1'
+alias rest='printf \"%s\\n\" \"$@\"'
+alias conditional='${1+\"$@\"}'
+alias escaped_then_pos='echo \\$$1'
+alias func='helper() { echo hi; }'
+alias literal='echo \\$1'
+alias literal_braced='echo \\${1}'
+alias quoted='echo '\"'\"'$1'\"'\"''
+alias pid='echo $$1'
 alias runtime=$BAR
 ";
 
@@ -2404,8 +2410,10 @@ alias runtime=$BAR
                 .map(|span| span.slice(source))
                 .collect::<Vec<_>>(),
             vec![
-                "gtl='gtl(){ git tag --sort=-v:refname -n -l \"${1}*\" }; noglob gtl'",
-                "hello='function hello { echo hi; }'",
+                "first='echo $1'",
+                "rest='printf \"%s\\n\" \"$@\"'",
+                "conditional='${1+\"$@\"}'",
+                "escaped_then_pos='echo \\$$1'",
             ]
         );
     });

@@ -10,10 +10,10 @@ shells:
   - bash
   - dash
   - ksh
-description: A function definition is embedded inside an alias string.
-rationale: Define the function separately and alias only the call.
+description: An alias definition contains a positional parameter reference.
+rationale: Aliases are expanded before positional parameters are resolved for the invoked command. Use a function when the replacement text needs arguments.
 safe_fix: false
-fix_description: "Replace the alias definition with its literal alias body so the embedded function definition becomes real shell code."
+fix_description: "Replace the alias with a function that accepts positional parameters directly."
 source:
   shell_checks_rule: rules/SH-235.yaml
   shell_checks_example: examples/235.sh
@@ -23,4 +23,4 @@ examples:
     code: |
       #!/bin/sh
       # shellcheck disable=2034
-      alias gtl='gtl(){ git tag --sort=-v:refname -n -l "${1}*" }; noglob gtl'
+      alias greet='printf "%s\n" "$1"'

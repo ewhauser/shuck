@@ -46,7 +46,11 @@ pub fn double_quote_nesting(checker: &mut Checker) {
                 .copied()
                 .filter(|span| !span.slice(source).starts_with("$(("))
                 .collect::<Vec<_>>();
-            candidate_spans.extend(fact.unquoted_command_substitution_spans().iter().copied());
+            candidate_spans.extend(
+                fact.unquoted_dollar_paren_command_substitution_spans()
+                    .iter()
+                    .copied(),
+            );
 
             let host_substitution_spans = fact.command_substitution_spans();
 
@@ -59,6 +63,13 @@ pub fn double_quote_nesting(checker: &mut Checker) {
                         .any(|host| span_is_strictly_inside(span, host))
                 })
         })
+        .chain(
+            checker
+                .facts()
+                .comment_double_quote_nesting_spans()
+                .iter()
+                .copied(),
+        )
         .collect::<Vec<_>>();
 
     checker.report_all_dedup(spans, || DoubleQuoteNesting);
@@ -99,6 +110,67 @@ value=\"\n-DLZ4_HOME=\"${TERMUX_PREFIX}\"\n-DPROTOBUF_HOME=\"$(printf '%s' proto
                 "$(printf '%s' proto)"
             ]
         );
+    }
+
+    #[test]
+    fn ignores_legacy_backticks_between_double_quoted_segments() {
+        let source = "\
+#!/bin/bash
+echo \"left \"`printf '%s' value`\" right\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DoubleQuoteNesting));
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_oracle_comment_quote_nesting_pattern() {
+        let source = "\
+#!/bin/sh
+# script's $0 value, followed by \"$@\".
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DoubleQuoteNesting));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$@"]
+        );
+    }
+
+    #[test]
+    fn reports_multiline_quoted_comment_like_quote_nesting_pattern() {
+        let source = "\
+#!/bin/sh
+text=\"
+# script's $0 value, followed by \"$@\".
+\"
+printf '%s\\n' \"$text\"
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DoubleQuoteNesting));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$@"]
+        );
+    }
+
+    #[test]
+    fn ignores_heredoc_payload_comment_like_quote_nesting_pattern() {
+        let source = "\
+#!/bin/sh
+cat <<'EOF'
+# script's $0 value, followed by \"$@\".
+EOF
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::DoubleQuoteNesting));
+
+        assert!(diagnostics.is_empty());
     }
 
     #[test]

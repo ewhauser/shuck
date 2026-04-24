@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.0.20](https://github.com/ewhauser/shuck/compare/v0.0.19...v0.0.20) (2026-04-24)
+
+
+### Bug Fixes
+
+* **linter:** align C087 with SC2072 ([#526](https://github.com/ewhauser/shuck/issues/526)) ([6ad0b33](https://github.com/ewhauser/shuck/commit/6ad0b33a466c84a95d9ea1bfa560f2921c976e82))
+* **linter:** align C091 with ShellCheck oracle ([#527](https://github.com/ewhauser/shuck/issues/527)) ([40eeb03](https://github.com/ewhauser/shuck/commit/40eeb038b93dec25d7e168efaeb51911c0064227))
+* **linter:** align C123 with shellcheck ([#528](https://github.com/ewhauser/shuck/issues/528)) ([301f548](https://github.com/ewhauser/shuck/commit/301f548397d1d34a5ef31f7ce7ab8a2c714a85f1))
+* **linter:** align C125 with ShellCheck ([#519](https://github.com/ewhauser/shuck/issues/519)) ([d5cfbec](https://github.com/ewhauser/shuck/commit/d5cfbecb387cf9fb2d414909cfa2afb66718fb0f))
+* **linter:** align C133 with ShellCheck ([#514](https://github.com/ewhauser/shuck/issues/514)) ([df83710](https://github.com/ewhauser/shuck/commit/df83710ea8ade3b8f20eded17be73aa376fbced4))
+* **linter:** align C156 with ShellCheck oracle ([#509](https://github.com/ewhauser/shuck/issues/509)) ([f72f33f](https://github.com/ewhauser/shuck/commit/f72f33fb71bf65eab2da8024b60b9c4b91297d5d))
+* **linter:** align S016 echo substitution checks ([#518](https://github.com/ewhauser/shuck/issues/518)) ([f3fb209](https://github.com/ewhauser/shuck/commit/f3fb209b0795a95fb5dc1afad3ad2ccb45c3b712))
+* **linter:** align S017 brace fanout behavior ([#516](https://github.com/ewhauser/shuck/issues/516)) ([544db2c](https://github.com/ewhauser/shuck/commit/544db2c278ae8f62347858627c6ab70507360988))
+* **linter:** align S045 with shellcheck ([#512](https://github.com/ewhauser/shuck/issues/512)) ([7527115](https://github.com/ewhauser/shuck/commit/7527115604c2c4e13d7d6e87f840546ea39cc269))
+* **linter:** align S057 with alias parameter oracle ([#520](https://github.com/ewhauser/shuck/issues/520)) ([2c2bb08](https://github.com/ewhauser/shuck/commit/2c2bb0885fd8a4210af94528dad4d4ceedb45a3e))
+* **linter:** align S067 with ShellCheck ([#515](https://github.com/ewhauser/shuck/issues/515)) ([1ae864e](https://github.com/ewhauser/shuck/commit/1ae864e5624536dfb10c3a1e254247d4c5ddd53f))
+* **linter:** align S070 with ShellCheck oracle ([#529](https://github.com/ewhauser/shuck/issues/529)) ([4ff3e76](https://github.com/ewhauser/shuck/commit/4ff3e7699032761082334e762c3cf7ef7b222a42))
+* **linter:** align X035 named coproc parity ([#517](https://github.com/ewhauser/shuck/issues/517)) ([a1cc9c3](https://github.com/ewhauser/shuck/commit/a1cc9c30cfd43b6c09590e3edfab4d56ee10b2e7))
+
+
+### Performance
+
+* **parser:** retain compact AST command containers ([#525](https://github.com/ewhauser/shuck/issues/525)) ([d896a8c](https://github.com/ewhauser/shuck/commit/d896a8c12c06c336165e408bd17e2b535efb10b3))
+* **parser:** stop over-reserving compound lists ([#524](https://github.com/ewhauser/shuck/issues/524)) ([c9ed99c](https://github.com/ewhauser/shuck/commit/c9ed99cd97ea46fe6404c868b6e84ba50b4750a0))
+
+
+### Refactor
+
+* **linter:** rename parse-result lint entrypoint ([#522](https://github.com/ewhauser/shuck/issues/522)) ([9088809](https://github.com/ewhauser/shuck/commit/908880943d766cda68889a5ae90c6ee6fba11b0d))
+
 ## [0.0.19](https://github.com/ewhauser/shuck/compare/v0.0.18...v0.0.19) (2026-04-23)
 
 

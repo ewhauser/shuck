@@ -1,7 +1,9 @@
 #!/bin/sh
 # shellcheck disable=2034
-alias gtl='gtl(){ git tag --sort=-v:refname -n -l "${1}*" }; noglob gtl'
-alias hello='function hello { echo hi; }'
+alias first='echo $1'
+alias rest='printf "%s\n" "$@"'
+alias conditional='${1+"$@"}'
 alias foo=$BAR
 alias bar='$(printf hi)'
 alias baz='noglob gtl'
+alias func='helper() { echo hi; }'
