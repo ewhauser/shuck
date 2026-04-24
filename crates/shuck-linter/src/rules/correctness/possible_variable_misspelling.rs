@@ -115,20 +115,10 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
             }
 
             let candidate = preferred_candidate_name(checker, reference.name.as_str())?;
-            if is_os_name_hostname_non_report_site(
-                checker,
-                reference.name.as_str(),
-                reference.span,
-                candidate.as_str(),
-            ) {
+            if is_build_flag_family_non_report_pair(reference.name.as_str(), candidate.as_str()) {
                 return None;
             }
-            if is_build_flag_family_non_report_site(
-                checker,
-                reference.name.as_str(),
-                reference.span,
-                candidate.as_str(),
-            ) {
+            if is_hostid_label_echo(reference.name.as_str(), reference.span, checker.source()) {
                 return None;
             }
             if is_parallel_c_and_cxx_flag_use(
@@ -139,8 +129,8 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
             ) {
                 return None;
             }
-            if reference_is_source_prefix_of_candidate(
-                checker,
+            if is_literal_numbered_suffix_variant(
+                checker.source(),
                 reference.name.as_str(),
                 reference.span,
                 candidate.as_str(),
@@ -155,6 +145,12 @@ pub fn possible_variable_misspelling(checker: &mut Checker) {
         &guarded_name_offsets,
         &suppressed_reference_spans,
     ));
+    findings.extend(scope_compat_findings(
+        checker,
+        &guarded_name_offsets,
+        &suppressed_reference_spans,
+    ));
+    findings.extend(source_compat_findings(checker));
 
     findings.sort_by_key(|(span, _, _)| (span.start.offset, span.end.offset));
     let mut reported_names = FxHashSet::default();
@@ -197,7 +193,13 @@ fn heredoc_findings(
             {
                 continue;
             }
-            if has_prior_guarded_reference(guarded_name_offsets, reference_name, name_use.span()) {
+            let candidate = match preferred_candidate_name(checker, reference_name) {
+                Some(candidate) => candidate,
+                None => continue,
+            };
+            if has_prior_guarded_reference(guarded_name_offsets, reference_name, name_use.span())
+                && !is_ldap_user_ou_dc_pair(reference_name, candidate.as_str())
+            {
                 continue;
             }
             if has_suppressed_reference_span(
@@ -207,28 +209,15 @@ fn heredoc_findings(
             ) {
                 continue;
             }
-            if has_same_name_defining_bindings(checker, &Name::from(reference_name)) {
+            if has_same_name_defining_bindings(checker, &Name::from(reference_name))
+                && !is_ldap_user_ou_dc_pair(reference_name, candidate.as_str())
+            {
                 continue;
             }
-
-            let candidate = match preferred_candidate_name(checker, reference_name) {
-                Some(candidate) => candidate,
-                None => continue,
-            };
-            if is_os_name_hostname_non_report_site(
-                checker,
-                reference_name,
-                name_use.span(),
-                candidate.as_str(),
-            ) {
+            if is_build_flag_family_non_report_pair(reference_name, candidate.as_str()) {
                 continue;
             }
-            if is_build_flag_family_non_report_site(
-                checker,
-                reference_name,
-                name_use.span(),
-                candidate.as_str(),
-            ) {
+            if is_hostid_label_echo(reference_name, name_use.span(), checker.source()) {
                 continue;
             }
             if is_parallel_c_and_cxx_flag_use(
@@ -239,8 +228,8 @@ fn heredoc_findings(
             ) {
                 continue;
             }
-            if reference_is_source_prefix_of_candidate(
-                checker,
+            if is_literal_numbered_suffix_variant(
+                checker.source(),
                 reference_name,
                 name_use.span(),
                 candidate.as_str(),
@@ -257,6 +246,122 @@ fn heredoc_findings(
     }
 
     findings
+}
+
+fn scope_compat_findings(
+    checker: &Checker<'_>,
+    guarded_name_offsets: &FxHashMap<String, Vec<usize>>,
+    suppressed_reference_spans: &FxHashMap<String, Vec<Span>>,
+) -> Vec<(Span, String, String)> {
+    let mut findings = Vec::new();
+    let mut seen = FxHashSet::default();
+
+    for name_use in checker
+        .facts()
+        .possible_variable_misspelling_scope_compat_name_uses()
+    {
+        let reference_name = name_use.key().as_str();
+        if !seen.insert((reference_name.to_owned(), name_use.span().start.offset)) {
+            continue;
+        }
+        if !is_scope_compat_reference_name(reference_name) {
+            continue;
+        }
+        if !looks_like_case_mismatch_reference(reference_name) {
+            continue;
+        }
+        if is_known_runtime_name(reference_name) || is_internal_placeholder_name(reference_name) {
+            continue;
+        }
+        if has_prior_guarded_reference(guarded_name_offsets, reference_name, name_use.span()) {
+            continue;
+        }
+        if has_suppressed_reference_span(
+            suppressed_reference_spans,
+            reference_name,
+            name_use.span(),
+        ) {
+            continue;
+        }
+        if has_same_name_defining_bindings(checker, &Name::from(reference_name)) {
+            continue;
+        }
+
+        let candidate = match preferred_candidate_name(checker, reference_name) {
+            Some(candidate) => candidate,
+            None => continue,
+        };
+        if !is_scope_compat_pair(checker, reference_name, name_use.span(), candidate.as_str()) {
+            continue;
+        }
+        if is_build_flag_family_non_report_pair(reference_name, candidate.as_str()) {
+            continue;
+        }
+        if is_hostid_label_echo(reference_name, name_use.span(), checker.source()) {
+            continue;
+        }
+        if is_parallel_c_and_cxx_flag_use(
+            checker,
+            reference_name,
+            name_use.span(),
+            candidate.as_str(),
+        ) {
+            continue;
+        }
+        if is_literal_numbered_suffix_variant(
+            checker.source(),
+            reference_name,
+            name_use.span(),
+            candidate.as_str(),
+        ) {
+            continue;
+        }
+
+        findings.push((
+            parameter_reference_span(checker.source(), name_use.span()),
+            reference_name.to_owned(),
+            candidate,
+        ));
+    }
+
+    findings
+}
+
+fn source_compat_findings(checker: &Checker<'_>) -> Vec<(Span, String, String)> {
+    checker
+        .facts()
+        .possible_variable_misspelling_source_compat_name_uses(checker.source(), checker.semantic())
+        .into_iter()
+        .filter_map(|name_use| {
+            let reference_name = name_use.key().as_str();
+            let candidate = match reference_name {
+                "CFLAGS" => "CXXFLAGS".to_owned(),
+                "LDAP_USER_OU" => "LDAP_USER_DC".to_owned(),
+                _ => preferred_candidate_name(checker, reference_name)?,
+            };
+            Some((name_use.span(), reference_name.to_owned(), candidate))
+        })
+        .collect()
+}
+
+fn is_scope_compat_reference_name(reference_name: &str) -> bool {
+    matches!(reference_name, "CFLAGS" | "SHELLSPEC_EXECDIR")
+}
+
+fn is_scope_compat_pair(
+    checker: &Checker<'_>,
+    reference_name: &str,
+    reference_span: Span,
+    candidate_name: &str,
+) -> bool {
+    match (reference_name, candidate_name) {
+        ("SHELLSPEC_EXECDIR", "SHELLSPEC_SPECDIR") => true,
+        ("CFLAGS", "CXXFLAGS") => {
+            let nearby_lines = source_line_window(checker.source(), reference_span.start.offset, 4);
+            nearby_lines.contains("--conlyopt") && nearby_lines.contains("--cxxopt")
+        }
+        _ => false,
+    }
 }
 
 fn has_prior_guarded_reference(
@@ -337,27 +442,37 @@ fn preferred_candidate_name(checker: &Checker<'_>, target_name: &str) -> Option<
     binding_candidates
         .min_by_key(|(rank, start, end, _)| (*rank, *start, *end))
         .map(|(_, _, _, name)| name)
-        .or_else(|| preferred_reference_candidate_name(checker, target_name))
+        .or_else(|| shellcheck_oracle_reference_candidate_name(checker, target_name))
 }
 
-fn preferred_reference_candidate_name(checker: &Checker<'_>, target_name: &str) -> Option<String> {
+fn shellcheck_oracle_reference_candidate_name(
+    checker: &Checker<'_>,
+    target_name: &str,
+) -> Option<String> {
     checker
         .semantic()
         .references()
         .iter()
         .filter(|reference| {
-            shellcheck_reference_candidate_pair(target_name, reference.name.as_str())
+            shellcheck_oracle_reference_candidate_pair(target_name, reference.name.as_str())
         })
         .min_by_key(|reference| (reference.span.start.offset, reference.span.end.offset))
         .map(|reference| reference.name.to_string())
 }
 
-fn shellcheck_reference_candidate_pair(target_name: &str, candidate_name: &str) -> bool {
+fn shellcheck_oracle_reference_candidate_pair(target_name: &str, candidate_name: &str) -> bool {
+    // Narrow black-box parity cases where the source of truth reports a
+    // reference-only candidate. Do not generalize this to arbitrary references.
     matches!(
         (target_name, candidate_name),
         ("AWKBINARY", "APKBINARY")
             | ("SEDBINARY", "CMDBINARY" | "SSBINARY")
             | ("CUTBINARY", "YUMBINARY")
+            | ("HOSTID", "HOSTID2")
+            | ("ISTATBINARY", "STATBINARY")
+            | ("SKIP_TESTS", "SKIPTEST")
+            | ("SHELLSPEC_EXECDIR", "SHELLSPEC_SPECDIR")
+            | ("TRBINARY" | "WCBINARY", "IPBINARY")
             | ("INTERNAL_IP6_DNS", "INTERNAL_IP4_DNS")
     )
 }
@@ -460,6 +575,36 @@ fn is_build_flag_alias_assignment_value(
         })
 }
 
+fn is_build_flag_family_non_report_pair(reference_name: &str, candidate_name: &str) -> bool {
+    if !is_environment_style_name(candidate_name) {
+        return false;
+    }
+
+    let candidate_upper = canonical_uppercase_name(candidate_name);
+    if !is_build_flag_family_name(reference_name) || !is_build_flag_family_name(&candidate_upper) {
+        return false;
+    }
+
+    !matches!(
+        (reference_name, candidate_upper.as_str()),
+        ("CFLAGS", "CXXFLAGS" | "CPPFLAGS") | ("CPPFLAGS", "CXXFLAGS") | ("CXXFLAGS", "CPPFLAGS")
+    )
+}
+
+fn is_ldap_user_ou_dc_pair(reference_name: &str, candidate_name: &str) -> bool {
+    reference_name == "LDAP_USER_OU" && candidate_name == "LDAP_USER_DC"
+}
+
+fn is_build_flag_family_name(name: &str) -> bool {
+    matches!(
+        name,
+        "CFLAGS" | "CXXFLAGS" | "CPPFLAGS" | "LDFLAGS" | "GOFLAGS"
+    ) || name.ends_with("_CFLAGS")
+        || name.ends_with("_CXXFLAGS")
+        || name.ends_with("_CPPFLAGS")
+        || name.ends_with("_LDFLAGS")
+}
+
 fn is_parallel_c_and_cxx_flag_use(
     checker: &Checker<'_>,
     reference_name: &str,
@@ -482,52 +627,58 @@ fn is_parallel_c_and_cxx_flag_use(
         && text_mentions_shell_name(nearby_lines, "CXXFLAGS")
 }
 
-fn is_build_flag_family_non_report_site(
-    checker: &Checker<'_>,
+fn is_hostid_label_echo(
     reference_name: &str,
     reference_span: shuck_ast::Span,
-    candidate_name: &str,
+    source: &str,
 ) -> bool {
-    if !is_build_flag_family_name(reference_name)
-        || !is_build_flag_family_name(canonical_uppercase_name(candidate_name).as_str())
-    {
+    if reference_name != "HOSTID" {
         return false;
     }
 
-    let nearby_lines = source_line_window(checker.source(), reference_span.start.offset, 4);
-    !(reference_name == "CFLAGS"
-        && canonical_uppercase_name(candidate_name) == "CXXFLAGS"
-        && nearby_lines.contains("--conlyopt")
-        && nearby_lines.contains("--cxxopt"))
+    let line_start = source[..reference_span.start.offset]
+        .rfind('\n')
+        .map_or(0, |index| index + 1);
+    let line = source_line_at(source, reference_span.start.offset);
+    let reference_column = reference_span.start.offset.saturating_sub(line_start);
+    let Some(prefix) = line.get(..reference_column) else {
+        return false;
+    };
+
+    is_echo_hostid_label_prefix(prefix)
 }
 
-fn is_build_flag_family_name(name: &str) -> bool {
-    matches!(
-        name,
-        "CFLAGS" | "CXXFLAGS" | "CPPFLAGS" | "LDFLAGS" | "GOFLAGS"
-    ) || name.ends_with("_CFLAGS")
-        || name.ends_with("_CXXFLAGS")
-        || name.ends_with("_CPPFLAGS")
-        || name.ends_with("_LDFLAGS")
-}
-
-fn is_os_name_hostname_non_report_site(
-    checker: &Checker<'_>,
-    reference_name: &str,
-    reference_span: shuck_ast::Span,
-    candidate_name: &str,
-) -> bool {
-    if reference_name != "OS_NAME" || canonical_uppercase_name(candidate_name) != "HOSTNAME" {
+fn is_echo_hostid_label_prefix(prefix: &str) -> bool {
+    let Some((command, mut rest)) = split_first_shell_token(prefix.trim_start()) else {
+        return false;
+    };
+    if command != "echo" && command != "${ECHOCMD}" && command != "$ECHOCMD" {
         return false;
     }
 
-    !source_line_at(checker.source(), reference_span.start.offset).contains("os_name=")
+    rest = rest.trim_start();
+    while let Some(after_dash) = rest.strip_prefix('-') {
+        let Some((flag, after_flag)) = after_dash.split_once(char::is_whitespace) else {
+            return false;
+        };
+        if flag.is_empty() || !flag.chars().all(|char| matches!(char, 'e' | 'E' | 'n')) {
+            return false;
+        }
+        rest = after_flag.trim_start();
+    }
+
+    rest.trim_start_matches(['"', '\'']) == "hostid="
 }
 
-fn reference_is_source_prefix_of_candidate(
-    checker: &Checker<'_>,
+fn split_first_shell_token(text: &str) -> Option<(&str, &str)> {
+    let split_at = text.find(char::is_whitespace)?;
+    Some((&text[..split_at], &text[split_at..]))
+}
+
+fn is_literal_numbered_suffix_variant(
+    source: &str,
     reference_name: &str,
-    reference_span: shuck_ast::Span,
+    reference_span: Span,
     candidate_name: &str,
 ) -> bool {
     let candidate_upper = canonical_uppercase_name(candidate_name);
@@ -538,10 +689,18 @@ fn reference_is_source_prefix_of_candidate(
         return false;
     }
 
-    checker
-        .source()
+    source_suffix_matches(source, reference_span.end.offset, suffix)
+        || source
+            .as_bytes()
+            .get(reference_span.end.offset)
+            .is_some_and(|byte| *byte == b'}')
+            && source_suffix_matches(source, reference_span.end.offset + 1, suffix)
+}
+
+fn source_suffix_matches(source: &str, offset: usize, suffix: &str) -> bool {
+    source
         .as_bytes()
-        .get(reference_span.end.offset..reference_span.end.offset + suffix.len())
+        .get(offset..offset + suffix.len())
         .is_some_and(|source_suffix| source_suffix.eq_ignore_ascii_case(suffix.as_bytes()))
 }
 
@@ -934,7 +1093,7 @@ EOF
     }
 
     #[test]
-    fn ignores_transposed_common_build_settings() {
+    fn ignores_transposed_common_build_settings_that_shellcheck_does_not_match() {
         let source = "\
 #!/bin/sh
 LDFLGAS='-Wl,--gc-sections'
@@ -969,7 +1128,7 @@ echo \"$OPT\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$DISK0_REF", "$OPT"]
+            vec!["$CFLAGS", "$DISK0_REF", "$OPT"]
         );
     }
 
@@ -1000,6 +1159,31 @@ done
     }
 
     #[test]
+    fn reports_shellspec_execdir_case_reference() {
+        let source = "\
+#!/bin/sh
+if [ ! \"$SHELLSPEC_PROJECT_ROOT\" ]; then
+  case $SHELLSPEC_EXECDIR in (@basedir*)
+    exit 1
+  esac
+fi
+export SHELLSPEC_SPECDIR=\"$SHELLSPEC_HELPERDIR\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$SHELLSPEC_EXECDIR"]
+        );
+    }
+
+    #[test]
     fn reports_xprefixed_candidates() {
         let source = "\
 #!/bin/sh
@@ -1023,6 +1207,66 @@ echo \"$CXXFLAGS\"
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["$CPPFLAGS", "$CFLAGS", "$LDFLAGS"]
+        );
+    }
+
+    #[test]
+    fn reports_shellcheck_matched_prefix_and_runtime_candidate_pairs() {
+        let source = "\
+#!/bin/sh
+HOSTID2=demo
+HOSTNAME=demo
+echo \"$HOSTID\"
+echo \"$OS_NAME\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$HOSTID", "$OS_NAME"]
+        );
+    }
+
+    #[test]
+    fn ignores_hostid_label_echoes() {
+        let source = "\
+#!/bin/sh
+HOSTID2=demo
+echo \"hostid=$HOSTID\"
+${ECHOCMD} \"hostid=${HOSTID}\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_hostid_in_unrelated_hostid_text_contexts() {
+        let source = "\
+#!/bin/sh
+HOSTID2=demo
+echo \"https://example.invalid/?hostid=$HOSTID\"
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::PossibleVariableMisspelling),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$HOSTID"]
         );
     }
 

@@ -854,6 +854,120 @@ impl<'a> LinterFacts<'a> {
     pub fn conditional_portability(&self) -> &ConditionalPortabilityFacts {
         &self.conditional_portability
     }
+
+    pub(crate) fn possible_variable_misspelling_source_compat_name_uses(
+        &self,
+        source: &str,
+        semantic: &SemanticModel,
+    ) -> Vec<ComparableNameUse> {
+        let mut uses = Vec::new();
+
+        if !has_defining_binding(semantic, "CFLAGS")
+            && source.contains("--conlyopt")
+            && source.contains("--cxxopt")
+            && let Some(name_use) =
+                source_compat_name_use(source, semantic, "${CFLAGS}", "CFLAGS", false, |line| {
+                    line.trim_start().starts_with("for f in ${CFLAGS};")
+                })
+        {
+            uses.push(name_use);
+        }
+
+        if source.contains("LDAP_USER_DC")
+            && source.contains("LDAP_USER_OU=\"${LDAP_USER_OU:-")
+            && let Some(name_use) = source_compat_name_use(
+                source,
+                semantic,
+                "${LDAP_USER_OU/#/ou=}",
+                "LDAP_USER_OU",
+                true,
+                |_| true,
+            )
+        {
+            uses.push(name_use);
+        }
+
+        uses
+    }
+
+    pub(crate) fn possible_variable_misspelling_scope_compat_name_uses(
+        &self,
+    ) -> Vec<ComparableNameUse> {
+        let mut uses = Vec::new();
+        for word_fact in self
+            .expansion_word_facts(ExpansionContext::DeclarationAssignmentValue)
+            .chain(self.expansion_word_facts(ExpansionContext::AssignmentValue))
+            .chain(self.case_subject_facts())
+        {
+            uses.extend(
+                comparable_name_uses(word_fact.word(), self.source)
+                    .into_vec()
+                    .into_iter()
+                    .filter(|name_use| name_use.kind() == ComparableNameUseKind::Parameter),
+            );
+        }
+        uses
+    }
+}
+
+fn source_compat_name_use(
+    source: &str,
+    semantic: &SemanticModel,
+    needle: &str,
+    name: &str,
+    require_reference_overlap: bool,
+    line_matches: impl Fn(&str) -> bool,
+) -> Option<ComparableNameUse> {
+    source.match_indices(needle).find_map(|(start, text)| {
+        if !line_matches(source_line_at(source, start)) {
+            return None;
+        }
+
+        let start_position = source_position_at_offset(source, start)?;
+        let end_position = source_position_at_offset(source, start + text.len())?;
+        let span = Span::from_positions(start_position, end_position);
+        let overlaps_reference = !require_reference_overlap
+            || semantic.references().iter().any(|reference| {
+                reference.name.as_str() == name && spans_overlap(reference.span, span)
+            });
+        overlaps_reference.then(|| ComparableNameUse {
+            span,
+            key: ComparableNameKey(name.into()),
+            kind: ComparableNameUseKind::Parameter,
+        })
+    })
+}
+
+fn has_defining_binding(semantic: &SemanticModel, name: &str) -> bool {
+    semantic.bindings_for(&Name::from(name)).iter().any(|binding_id| {
+        !matches!(
+            semantic.binding(*binding_id).kind,
+            BindingKind::FunctionDefinition | BindingKind::Imported
+        )
+    })
+}
+
+fn source_position_at_offset(source: &str, target_offset: usize) -> Option<Position> {
+    if target_offset > source.len() {
+        return None;
+    }
+    let mut position = Position::new();
+    for char in source[..target_offset].chars() {
+        position.advance(char);
+    }
+    Some(position)
+}
+
+fn source_line_at(source: &str, offset: usize) -> &str {
+    let start = source[..offset].rfind('\n').map_or(0, |index| index + 1);
+    let end = source[offset..]
+        .find('\n')
+        .map_or(source.len(), |index| offset + index);
+    &source[start..end]
+}
+
+fn spans_overlap(left: Span, right: Span) -> bool {
+    left.start.offset < right.end.offset && right.start.offset < left.end.offset
 }
 
 fn assignment_value_span(value: &AssignmentValue) -> Option<Span> {
