@@ -1,0 +1,43 @@
+reviewed_divergences:
+  - side: shuck-only
+    path_suffix: "bats-core__bats-core__lib__bats-core__tracing.bash"
+    line: 292
+    end_line: 292
+    column: 7
+    end_column: 76
+    reason: "Exact S017 large-corpus residual; kept reviewed while array-assignment splitting parity is handled separately."
+  - side: shuck-only
+    path_suffix: "bats-core__bats-core__lib__bats-core__tracing.bash"
+    line: 295
+    end_line: 295
+    column: 29
+    end_column: 66
+    reason: "Exact S017 large-corpus residual; kept reviewed while array-assignment splitting parity is handled separately."
+  - side: shuck-only
+    path_suffix: "bats-core__bats-core__lib__bats-core__tracing.bash"
+    line: 296
+    end_line: 296
+    column: 29
+    end_column: 66
+    reason: "Exact S017 large-corpus residual; kept reviewed while array-assignment splitting parity is handled separately."
+  - side: shuck-only
+    path_suffix: "bats-core__bats-core__lib__bats-core__tracing.bash"
+    line: 404
+    end_line: 404
+    column: 7
+    end_column: 84
+    reason: "Exact S017 large-corpus residual; kept reviewed while array-assignment splitting parity is handled separately."
+  - side: shuck-only
+    path_suffix: "scop__bash-completion__bash_completion.d__000_bash_completion_compat.bash"
+    line: 338
+    end_line: 338
+    column: 27
+    end_column: 48
+    reason: "Exact S017 large-corpus residual; kept reviewed while array-assignment splitting parity is handled separately."
+  - side: shuck-only
+    path_suffix: "scop__bash-completion__bash_completion.d__000_bash_completion_compat.bash"
+    line: 362
+    end_line: 362
+    column: 27
+    end_column: 48
+    reason: "Exact S017 large-corpus residual; kept reviewed while array-assignment splitting parity is handled separately."

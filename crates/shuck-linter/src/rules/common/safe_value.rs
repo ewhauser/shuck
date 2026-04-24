@@ -892,12 +892,33 @@ impl<'a> SafeValueIndex<'a> {
     fn unset_command_covers_reference(&self, name: &Name, at: Span) -> bool {
         self.facts.structural_commands().any(|command| {
             command.span().end.offset <= at.start.offset
+                && self.command_runs_in_persistent_shell_context(command.id())
+                && self.command_runs_in_unconditional_flow(command.id(), at)
                 && command
                     .options()
                     .unset()
                     .is_some_and(|unset| self.unset_targets_variable_name(unset, name))
                 && self.command_blocks_cover_all_paths_to_reference(command, name, at)
         })
+    }
+
+    fn command_runs_in_persistent_shell_context(
+        &self,
+        command_id: crate::facts::CommandId,
+    ) -> bool {
+        let command = self.facts.command(command_id);
+        let scope = self.semantic.scope_at(command.span().start.offset);
+
+        for scope in self.semantic.ancestor_scopes(scope) {
+            match self.semantic.scope(scope).kind {
+                ScopeKind::Subshell | ScopeKind::CommandSubstitution | ScopeKind::Pipeline => {
+                    return false;
+                }
+                ScopeKind::Function(_) | ScopeKind::File => return true,
+            }
+        }
+
+        true
     }
 
     fn unset_targets_variable_name(
