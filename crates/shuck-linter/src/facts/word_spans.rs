@@ -1,8 +1,8 @@
 use shuck_ast::{
-    ArithmeticExpr, BourneParameterExpansion, CaseItem, ConditionalExpr, ParameterExpansion,
-    ParameterExpansionSyntax, ParameterOp, Pattern, PatternGroupKind, PatternPart, Position,
-    PrefixMatchKind, Span, SubscriptSelector, VarRef, Word, WordPart, WordPartNode,
-    ZshExpansionTarget,
+    ArithmeticExpr, BourneParameterExpansion, CaseItem, CommandSubstitutionSyntax, ConditionalExpr,
+    ParameterExpansion, ParameterExpansionSyntax, ParameterOp, Pattern, PatternGroupKind,
+    PatternPart, Position, PrefixMatchKind, Span, SubscriptSelector, VarRef, Word, WordPart,
+    WordPartNode, ZshExpansionTarget,
 };
 
 pub fn command_substitution_part_spans(word: &Word) -> Vec<Span> {
@@ -38,6 +38,18 @@ pub fn unquoted_command_substitution_part_spans(word: &Word) -> Vec<Span> {
 
 pub fn unquoted_command_substitution_part_spans_in_source(word: &Word, source: &str) -> Vec<Span> {
     unquoted_command_substitution_part_spans(word)
+        .into_iter()
+        .map(|span| normalize_command_substitution_span(span, source))
+        .collect()
+}
+
+pub fn unquoted_dollar_paren_command_substitution_part_spans_in_source(
+    word: &Word,
+    source: &str,
+) -> Vec<Span> {
+    let mut spans = Vec::new();
+    collect_unquoted_dollar_paren_command_substitution_spans(&word.parts, false, &mut spans);
+    spans
         .into_iter()
         .map(|span| normalize_command_substitution_span(span, source))
         .collect()
@@ -925,6 +937,26 @@ fn collect_unquoted_command_substitution_spans(
                 collect_unquoted_command_substitution_spans(parts, true, spans)
             }
             WordPart::CommandSubstitution { .. } if !quoted => spans.push(part.span),
+            _ => {}
+        }
+    }
+}
+
+fn collect_unquoted_dollar_paren_command_substitution_spans(
+    parts: &[WordPartNode],
+    quoted: bool,
+    spans: &mut Vec<Span>,
+) {
+    for part in parts {
+        match &part.kind {
+            WordPart::SingleQuoted { .. } => {}
+            WordPart::DoubleQuoted { parts, .. } => {
+                collect_unquoted_dollar_paren_command_substitution_spans(parts, true, spans)
+            }
+            WordPart::CommandSubstitution {
+                syntax: CommandSubstitutionSyntax::DollarParen,
+                ..
+            } if !quoted => spans.push(part.span),
             _ => {}
         }
     }
@@ -4092,11 +4124,13 @@ mod tests {
         line_has_escaped_newline_continuation, position_at_offset, scalar_expansion_part_spans,
         shellcheck_collapsed_backtick_part_span_in_source,
         unquoted_all_elements_array_expansion_part_spans,
-        unquoted_command_substitution_part_spans_in_source, unquoted_scalar_expansion_part_spans,
-        word_all_elements_array_slice_span_in_source, word_all_elements_array_slice_spans,
-        word_caret_negated_bracket_spans, word_double_quoted_scalar_only_expansion_spans,
-        word_exactly_one_extglob_span, word_folded_all_elements_array_span_in_source,
-        word_folded_positional_at_splat_span, word_folded_positional_at_splat_span_in_source,
+        unquoted_command_substitution_part_spans_in_source,
+        unquoted_dollar_paren_command_substitution_part_spans_in_source,
+        unquoted_scalar_expansion_part_spans, word_all_elements_array_slice_span_in_source,
+        word_all_elements_array_slice_spans, word_caret_negated_bracket_spans,
+        word_double_quoted_scalar_only_expansion_spans, word_exactly_one_extglob_span,
+        word_folded_all_elements_array_span_in_source, word_folded_positional_at_splat_span,
+        word_folded_positional_at_splat_span_in_source,
         word_has_direct_all_elements_array_expansion_in_source,
         word_has_folded_positional_at_splat, word_has_quoted_all_elements_array_slice,
         word_has_unquoted_brace_expansion, word_is_pure_positional_at_splat,
@@ -4424,7 +4458,7 @@ echo [appname] [1,2,3] [foo-bar] foo[aba]bar [start\\|stop\\|restart] \"$dir\"/[
             .args
             .iter()
             .flat_map(|word| word_suspicious_bracket_glob_spans(word, source))
-            .map(|span| span.slice(source))
+            .map(|span: Span| span.slice(source))
             .collect::<Vec<_>>();
 
         assert_eq!(
@@ -5109,6 +5143,29 @@ printf '%s\\n' \"$a\"$b\"$c\" \"left \"$d\"\" \"\"$e\" right\" \"left \"$(printf
             .collect::<Vec<_>>();
 
         assert_eq!(spans, vec!["$b", "$d", "$e", "$(printf '%s' ok)"]);
+    }
+
+    #[test]
+    fn unquoted_dollar_paren_command_substitution_spans_skip_legacy_backticks() {
+        let source = "\
+printf '%s\\n' \"left \"$(printf '%s' dollar)\" right\" \"left \"`printf '%s' tick`\" right\"
+";
+        let output = Parser::new(source).parse().unwrap();
+        let command = &output.file.body[0].command;
+        let shuck_ast::Command::Simple(command) = command else {
+            panic!("expected simple command");
+        };
+
+        let spans = command
+            .args
+            .iter()
+            .flat_map(|word| {
+                unquoted_dollar_paren_command_substitution_part_spans_in_source(word, source)
+            })
+            .map(|span| span.slice(source))
+            .collect::<Vec<_>>();
+
+        assert_eq!(spans, vec!["$(printf '%s' dollar)"]);
     }
 
     #[test]
