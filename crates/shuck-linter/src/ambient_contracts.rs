@@ -421,28 +421,37 @@ fn bash_it_theme_runtime_shape(source: &str, lower: &str) -> bool {
 }
 
 fn completion_runtime_shape(source: &str, lower: &str) -> bool {
+    completion_runtime_path_shape(lower) && completion_runtime_source_shape(source)
+}
+
+fn completion_runtime_path_shape(lower: &str) -> bool {
     path_matches_any(
         lower,
         &[
-            "/completion/",
-            "/completions/",
-            ".completion.",
+            "/bash-completion/",
+            "/bash_completion/",
+            "bash-completion__",
+            "bash_completion__",
+            "__bash-completion__",
+            "__bash_completion__",
+            "/bash-it/completion/",
+            "/bash-it/completions/",
+            "__bash-it__completion__",
+            "__bash-it__completions__",
+            "/bash-progcomp/",
+            "__bash-progcomp__",
             "bash_autocomplete",
-            "__completion__",
-            "__completions-",
-            "__completions__",
         ],
-    ) && source_contains_any(
+    )
+}
+
+fn completion_runtime_source_shape(source: &str) -> bool {
+    source_contains_any(
         source,
         &[
-            "COMPREPLY",
-            "COMP_WORDS",
-            "COMP_CWORD",
             "_init_completion",
             "_get_comp_words_by_ref",
-            "compgen ",
-            "compgen\t",
-            "complete -F",
+            "_comp_initialize",
             "about-completion",
         ],
     )
@@ -695,6 +704,58 @@ helper() {
 
         assert!(!has_initialized_binding(&contract, "cur"));
         assert!(!has_initialized_binding(&contract, "cword"));
+        assert!(!contract.externally_consumed_bindings);
+    }
+
+    #[test]
+    fn generic_completion_paths_with_compreply_do_not_initialize_completion_contracts() {
+        let path = Path::new("/tmp/project/completions/example.sh");
+        let source = "\
+helper() {
+  COMPREPLY=()
+  printf '%s\\n' \"$cur\" \"$cword\"
+}
+";
+
+        let contract = contract_for(path, source).unwrap();
+
+        assert!(!has_initialized_binding(&contract, "cur"));
+        assert!(!has_initialized_binding(&contract, "cword"));
+        assert!(!contract.externally_consumed_bindings);
+    }
+
+    #[test]
+    fn bash_completion_paths_without_initializer_do_not_initialize_completion_contracts() {
+        let path = Path::new("/tmp/bash-completion/completions/example.bash");
+        let source = "\
+_example() {
+  COMPREPLY=()
+  printf '%s\\n' \"$cur\" \"$cword\"
+}
+";
+
+        let contract = contract_for(path, source).unwrap();
+
+        assert!(!has_initialized_binding(&contract, "cur"));
+        assert!(!has_initialized_binding(&contract, "cword"));
+        assert!(!contract.externally_consumed_bindings);
+    }
+
+    #[test]
+    fn bash_completion_paths_with_initializer_get_completion_contracts() {
+        let path = Path::new("/tmp/bash-completion/completions/example.bash");
+        let source = "\
+_example() {
+  _init_completion || return
+  printf '%s\\n' \"$cur\" \"$cword\" \"$comp_args\"
+}
+";
+
+        let contract = contract_for(path, source).unwrap();
+
+        assert!(has_initialized_binding(&contract, "cur"));
+        assert!(has_initialized_binding(&contract, "cword"));
+        assert!(has_initialized_binding(&contract, "comp_args"));
         assert!(!contract.externally_consumed_bindings);
     }
 

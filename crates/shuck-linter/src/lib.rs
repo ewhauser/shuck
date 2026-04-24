@@ -1108,6 +1108,72 @@ complete_example() {
     }
 
     #[test]
+    fn generic_completion_directory_with_compreply_does_not_suppress_helper_reads() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/project/completions/example.sh"),
+            "\
+complete_example() {
+  COMPREPLY=()
+  printf '%s\\n' \"$cur\" \"$cword\"
+}
+",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("cur"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("cword"))
+        );
+    }
+
+    #[test]
+    fn bash_completion_directory_without_initializer_does_not_suppress_helper_reads() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/bash-completion/completions/example.bash"),
+            "\
+complete_example() {
+  COMPREPLY=()
+  printf '%s\\n' \"$cur\" \"$cword\"
+}
+",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("cur"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("cword"))
+        );
+    }
+
+    #[test]
+    fn bash_completion_directory_with_initializer_suppresses_helper_reads() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/bash-completion/completions/example.bash"),
+            "\
+complete_example() {
+  _init_completion || return
+  printf '%s\\n' \"$cur\" \"$cword\" \"$comp_args\"
+}
+",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
     fn sourced_runtime_contract_does_not_mark_arbitrary_assignments_used() {
         let diagnostics = lint_named_source(
             Path::new("/tmp/rvm/scripts/cleanup"),
