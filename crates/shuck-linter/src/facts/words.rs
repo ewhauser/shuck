@@ -1715,9 +1715,10 @@ fn word_chars_outside_expansions<'a>(
 
 fn function_in_alias_definition_span(words: &[&Word], source: &str) -> Option<Span> {
     let definition = static_alias_definition_text(words, source)?;
-    let (_, value) = definition.split_once('=')?;
+    let (_, value) = definition.split_once('=').unwrap_or(("", &definition));
     let end = words.last()?.span.end;
-    contains_function_definition(value).then(|| Span::from_positions(words[0].span.start, end))
+    contains_positional_parameter_reference(value)
+        .then(|| Span::from_positions(words[0].span.start, end))
 }
 
 fn static_alias_definition_text(words: &[&Word], source: &str) -> Option<String> {
@@ -1728,119 +1729,106 @@ fn static_alias_definition_text(words: &[&Word], source: &str) -> Option<String>
     Some(text)
 }
 
-fn contains_function_definition(value: &str) -> bool {
+fn contains_positional_parameter_reference(value: &str) -> bool {
     let bytes = value.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        if starts_with_keyword(value, index, "function")
-            && precedes_definition_start(value, index)
-            && is_definition_after_function_keyword(value, index + "function".len())
-        {
-            return true;
+    let mut index = 0usize;
+    let mut in_single_quotes = false;
+    let mut in_double_quotes = false;
+
+    while let Some(byte) = bytes.get(index).copied() {
+        match byte {
+            b'\'' if !in_double_quotes
+                && (in_single_quotes || !is_escaped_dollar(value, index)) =>
+            {
+                in_single_quotes = !in_single_quotes;
+                index += 1;
+                continue;
+            }
+            b'"' if !in_single_quotes && !is_escaped_dollar(value, index) => {
+                in_double_quotes = !in_double_quotes;
+                index += 1;
+                continue;
+            }
+            b'#' if !in_single_quotes
+                && !in_double_quotes
+                && !is_escaped_dollar(value, index)
+                && starts_comment(value, index) =>
+            {
+                return false;
+            }
+            b'$' if !in_single_quotes && !is_escaped_dollar(value, index) => {}
+            _ => {
+                index += 1;
+                continue;
+            }
         }
-        if is_identifier_start(bytes[index])
-            && precedes_definition_start(value, index)
-            && is_definition_after_name(value, index, bytes.len())
-        {
-            return true;
-        }
+
         index += 1;
+        let Some(next) = bytes.get(index).copied() else {
+            return false;
+        };
+
+        if next == b'$' {
+            index += 1;
+            continue;
+        }
+
+        if is_positional_parameter_start(next) {
+            return true;
+        }
+
+        if next == b'{' && braced_parameter_starts_with_positional(value, index + 1) {
+            return true;
+        }
+
+        if next == b'{' {
+            index += 1;
+        }
     }
     false
 }
 
-fn starts_with_keyword(text: &str, index: usize, keyword: &str) -> bool {
-    let tail = &text[index..];
-    if !tail.starts_with(keyword) {
-        return false;
-    }
-    let before_ok = index == 0 || !is_identifier_char(text.as_bytes()[index - 1]);
-    let after_index = index + keyword.len();
-    let after_ok = after_index >= text.len() || !is_identifier_char(text.as_bytes()[after_index]);
-    before_ok && after_ok
+fn starts_comment(value: &str, hash: usize) -> bool {
+    hash == 0
+        || value.as_bytes()[hash - 1].is_ascii_whitespace()
+        || matches!(
+            value.as_bytes()[hash - 1],
+            b';' | b'&' | b'|' | b'(' | b')' | b'{' | b'}'
+        )
 }
 
-fn precedes_definition_start(text: &str, index: usize) -> bool {
-    if index == 0 {
-        return true;
-    }
+fn is_escaped_dollar(value: &str, dollar: usize) -> bool {
+    let bytes = value.as_bytes();
+    let mut cursor = dollar;
+    let mut backslashes = 0usize;
 
-    let bytes = text.as_bytes();
-    let mut cursor = index;
-    while cursor > 0 && bytes[cursor - 1].is_ascii_whitespace() {
+    while cursor > 0 && bytes[cursor - 1] == b'\\' {
+        backslashes += 1;
         cursor -= 1;
     }
 
-    cursor == 0 || matches!(bytes[cursor - 1], b';' | b'|' | b'&' | b'(' | b'{' | b'\n')
+    backslashes % 2 == 1
 }
 
-fn is_definition_after_function_keyword(text: &str, mut index: usize) -> bool {
-    let bytes = text.as_bytes();
-    while index < bytes.len() && bytes[index].is_ascii_whitespace() {
-        index += 1;
-    }
-
-    let Some(end) = parse_identifier(text, index) else {
+fn braced_parameter_starts_with_positional(value: &str, index: usize) -> bool {
+    let bytes = value.as_bytes();
+    let Some(first) = bytes.get(index).copied() else {
         return false;
     };
-    is_definition_suffix(text, end, false)
+
+    if is_positional_parameter_start(first) {
+        return true;
+    }
+
+    matches!(first, b'#' | b'!')
+        && bytes
+            .get(index + 1)
+            .copied()
+            .is_some_and(is_positional_parameter_start)
 }
 
-fn is_definition_after_name(text: &str, index: usize, len: usize) -> bool {
-    let Some(end) = parse_identifier(text, index) else {
-        return false;
-    };
-    if end >= len {
-        return false;
-    }
-    is_definition_suffix(text, end, true)
-}
-
-fn is_definition_suffix(text: &str, mut index: usize, require_parens: bool) -> bool {
-    let bytes = text.as_bytes();
-    while index < bytes.len() && bytes[index].is_ascii_whitespace() {
-        index += 1;
-    }
-
-    let has_parens = bytes
-        .get(index..)
-        .is_some_and(|rest| rest.starts_with(b"()"));
-    if require_parens && !has_parens {
-        return false;
-    }
-
-    if has_parens {
-        index += 2;
-        while index < bytes.len() && bytes[index].is_ascii_whitespace() {
-            index += 1;
-        }
-    }
-
-    bytes.get(index) == Some(&b'{')
-}
-
-fn parse_identifier(text: &str, index: usize) -> Option<usize> {
-    let bytes = text.as_bytes();
-    let first = bytes.get(index).copied()?;
-    if !is_identifier_start(first) {
-        return None;
-    }
-    let mut end = index + 1;
-    while let Some(byte) = bytes.get(end) {
-        if !is_identifier_char(*byte) {
-            break;
-        }
-        end += 1;
-    }
-    Some(end)
-}
-
-fn is_identifier_start(byte: u8) -> bool {
-    byte.is_ascii_alphabetic() || byte == b'_'
-}
-
-fn is_identifier_char(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || byte == b'_'
+fn is_positional_parameter_start(byte: u8) -> bool {
+    byte.is_ascii_digit() || matches!(byte, b'@' | b'*')
 }
 
 fn build_echo_backslash_escape_word_spans(commands: &[CommandFact<'_>], source: &str) -> Vec<Span> {
@@ -6934,6 +6922,25 @@ mod word_classification_tests {
 
     fn parse_commands(source: &str) -> StmtSeq {
         Parser::new(source).parse().unwrap().file.body
+    }
+
+    #[test]
+    fn detects_alias_positional_parameters_with_runtime_quote_state() {
+        assert!(contains_positional_parameter_reference("echo $1"));
+        assert!(contains_positional_parameter_reference("echo \"${1}\""));
+        assert!(contains_positional_parameter_reference("echo ${#1}"));
+        assert!(contains_positional_parameter_reference("echo ${!1}"));
+        assert!(contains_positional_parameter_reference(r"echo \$$1"));
+        assert!(contains_positional_parameter_reference(r"echo \'$1"));
+        assert!(contains_positional_parameter_reference("echo hi# $1"));
+        assert!(!contains_positional_parameter_reference(r"echo \$1"));
+        assert!(!contains_positional_parameter_reference(r"echo \${1}"));
+        assert!(!contains_positional_parameter_reference("echo '$1'"));
+        assert!(!contains_positional_parameter_reference("echo hi # $1"));
+        assert!(!contains_positional_parameter_reference("echo hi; # $1"));
+        assert!(!contains_positional_parameter_reference("echo hi;# $1"));
+        assert!(!contains_positional_parameter_reference("echo hi &&# $1"));
+        assert!(!contains_positional_parameter_reference("echo $$1"));
     }
 
     #[test]

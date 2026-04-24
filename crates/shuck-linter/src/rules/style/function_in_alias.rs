@@ -8,7 +8,7 @@ impl Violation for FunctionInAlias {
     }
 
     fn message(&self) -> String {
-        "avoid defining functions inside alias strings".to_owned()
+        "avoid positional parameters in alias definitions".to_owned()
     }
 }
 
@@ -23,11 +23,13 @@ mod tests {
     use crate::{LinterSettings, Rule};
 
     #[test]
-    fn reports_function_definitions_embedded_in_alias_strings() {
+    fn reports_positional_parameters_embedded_in_alias_definitions() {
         let source = "\
 #!/bin/sh
-alias gtl='gtl(){ git tag --sort=-v:refname -n -l \"${1}*\" }; noglob gtl'
-alias h='function h { echo hi; }'
+alias first='echo $1'
+alias rest='printf \"%s\\n\" \"$@\"'
+alias conditional='echo ${1+\"$@\"}'
+alias escaped_then_pos='echo \\$$1'
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FunctionInAlias));
 
@@ -37,22 +39,28 @@ alias h='function h { echo hi; }'
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec![
-                "gtl='gtl(){ git tag --sort=-v:refname -n -l \"${1}*\" }; noglob gtl'",
-                "h='function h { echo hi; }'",
+                "first='echo $1'",
+                "rest='printf \"%s\\n\" \"$@\"'",
+                "conditional='echo ${1+\"$@\"}'",
+                "escaped_then_pos='echo \\$$1'",
             ]
         );
     }
 
     #[test]
-    fn ignores_non_definition_alias_expansions() {
+    fn ignores_aliases_without_static_positional_parameters() {
         let source = "\
 #!/bin/sh
 alias foo=$BAR
 alias bar='$(printf hi)'
 alias baz='noglob gtl'
 alias brace='echo {a,b}'
-alias not_fn='helper { echo hi; }'
-alias positional='${1+\"$@\"}'
+alias func='helper() { echo hi; }'
+alias literal='echo \\$1'
+alias literal_braced='echo \\${1}'
+alias quoted='echo '\"'\"'$1'\"'\"''
+alias pid='echo $$1'
+alias double=\"echo $1\"
 alias -p
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::FunctionInAlias));
