@@ -1710,6 +1710,18 @@ printf '%s\\n' `echo \\${SAFE:-$fallback} \\${SAFE:+$fallback}`
     }
 
     #[test]
+    fn skips_escaped_backtick_command_names_after_redirection_prefixes() {
+        let source = "\
+#!/bin/sh
+`>/tmp/out \\$cmd arg`
+`2>/tmp/err FOO=bar \\$other arg`
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
     fn reports_escaped_backtick_command_arguments() {
         let source = "\
 #!/bin/sh

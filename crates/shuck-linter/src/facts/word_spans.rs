@@ -1792,10 +1792,15 @@ fn command_prefix_is_empty_or_assignments(prefix: &str) -> bool {
         let Some(end) = shell_word_end(prefix, index) else {
             return false;
         };
-        if !simple_assignment_word(&prefix[index..end]) {
-            return false;
+        if simple_assignment_word(&prefix[index..end]) {
+            index = end;
+            continue;
         }
-        index = end;
+        if let Some(redirection_end) = redirection_prefix_end(prefix, index) {
+            index = redirection_end;
+            continue;
+        }
+        return false;
     }
     true
 }
@@ -1987,6 +1992,32 @@ fn simple_assignment_word(word: &str) -> bool {
         .next()
         .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '_')
         && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+}
+
+fn redirection_prefix_end(text: &str, start: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut operator_start = start;
+    while operator_start < bytes.len() && bytes[operator_start].is_ascii_digit() {
+        operator_start += 1;
+    }
+
+    let operator_len = redirection_operator_len(text.get(operator_start..)?)?;
+    let mut target_start = operator_start + operator_len;
+    skip_shell_whitespace(bytes, &mut target_start);
+    if target_start >= text.len() {
+        return None;
+    }
+
+    shell_word_end(text, target_start)
+}
+
+fn redirection_operator_len(text: &str) -> Option<usize> {
+    [
+        "&>>", "<<<", "<>", ">>", "<<", "<&", ">&", ">|", "&>", "<", ">",
+    ]
+    .into_iter()
+    .find(|operator| text.starts_with(operator))
+    .map(str::len)
 }
 
 fn escaped_reference_ends_standalone_word(source: &str, start: usize, limit: usize) -> bool {
@@ -5932,6 +5963,16 @@ printf '%s\\n' \"${arr[@]}\" \"x${arr[@]}\" \"x${!arr[@]}\" \"x${arr[@]:1}\" \"x
     #[test]
     fn backtick_escaped_parameters_accept_append_assignment_prefixes() {
         let source = "`VAR+=x \\$cmd arg`";
+        let backtick_spans = backtick_substitution_spans(source);
+        let escaped = backtick_escaped_parameters(source, &backtick_spans);
+
+        assert_eq!(escaped.len(), 1);
+        assert!(escaped[0].standalone_command_name);
+    }
+
+    #[test]
+    fn backtick_escaped_parameters_accept_redirection_prefixes() {
+        let source = "`>/tmp/out 2>\"/tmp err\" FOO=bar \\$cmd arg`";
         let backtick_spans = backtick_substitution_spans(source);
         let escaped = backtick_escaped_parameters(source, &backtick_spans);
 
