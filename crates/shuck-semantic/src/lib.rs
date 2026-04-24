@@ -1935,18 +1935,9 @@ impl<'model> SemanticAnalysis<'model> {
             .filter_map(|(function_binding, body_scope)| {
                 (*body_scope == function_scope).then_some(*function_binding)
             })
-            .map(|function_binding| {
-                reachable_blocks_for_binding(window.cfg, function_binding, window.unreachable)
-            })
-            .any(|function_blocks| {
-                !function_blocks.is_empty()
-                    && blocks_have_path_avoiding_many(
-                        window.cfg,
-                        window.binding_blocks,
-                        &function_blocks,
-                        window.shadow_blocks,
-                        window.script_terminators,
-                    )
+            .any(|function_binding| {
+                !reachable_blocks_for_binding(window.cfg, function_binding, window.unreachable)
+                    .is_empty()
             })
     }
 
@@ -4027,6 +4018,28 @@ exit 0
         let model = model(source);
 
         assert!(model.analysis().unreached_functions().is_empty());
+    }
+
+    #[test]
+    fn unreached_functions_count_late_bound_wrapper_calls_newer_definition() {
+        let source = "\
+helper() { echo old; }
+run_case() {
+  helper
+}
+helper() { echo new; }
+run_case
+exit 0
+";
+        let model = model(source);
+        let analysis = model.analysis();
+        let unreached_names = analysis
+            .unreached_functions()
+            .iter()
+            .map(|unreached| unreached.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(!unreached_names.contains(&"helper"));
     }
 
     #[test]
