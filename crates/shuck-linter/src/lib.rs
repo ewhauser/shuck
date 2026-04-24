@@ -3599,7 +3599,7 @@ printf '%s %s\\n' \"${map[swift-cmark]}\" \"${map[$dynamic_key]}\"
     }
 
     #[test]
-    fn undefined_variable_suppresses_later_subscript_writes_after_read_subscripts() {
+    fn undefined_variable_reports_later_subscript_writes_after_read_subscripts() {
         let source = "\
 #!/bin/bash
 declare -a args
@@ -3612,11 +3612,17 @@ tools[$target]=ok
 ";
         let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
 
-        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$__array_start", "$target"]
+        );
     }
 
     #[test]
-    fn undefined_variable_suppresses_later_plain_uses_after_subscript_only_uses() {
+    fn undefined_variable_reports_later_plain_uses_after_subscript_only_uses() {
         let source = "\
 #!/bin/bash
 declare -a args
@@ -3626,7 +3632,13 @@ printf '%s %s\\n' \"$idx\" \"$target\"
 ";
         let diagnostics = lint_for_rule(source, Rule::UndefinedVariable);
 
-        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$idx", "$target"]
+        );
     }
 
     #[test]

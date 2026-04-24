@@ -879,12 +879,6 @@ write_target
     assert!(!facts.is_suppressed_subscript_reference(reference_span("assoc_target_id")));
     assert!(!facts.is_suppressed_subscript_reference(reference_span("assoc_dynamic_key")));
     assert!(!facts.is_suppressed_subscript_reference(reference_span("free")));
-
-    assert!(facts.is_name_suppressing_subscript_reference(reference_span("read_idx")));
-    assert!(facts.is_name_suppressing_subscript_reference(reference_span("assoc_read_idx")));
-    assert!(!facts.is_name_suppressing_subscript_reference(reference_span("bare_check")));
-    assert!(!facts.is_name_suppressing_subscript_reference(reference_span("assoc_target_bare")));
-    assert!(!facts.is_name_suppressing_subscript_reference(reference_span("assoc_bare_key")));
 }
 
 #[test]
