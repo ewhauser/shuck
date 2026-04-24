@@ -120,7 +120,7 @@ pub struct NamedSpan {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BacktickEscapedParameter {
-    pub name: Name,
+    pub name: Option<Name>,
     pub diagnostic_span: Span,
     pub reference_span: Span,
 }

@@ -54,11 +54,9 @@ pub fn unquoted_expansion(checker: &mut Checker) {
         );
     }
     for escaped in checker.facts().backtick_escaped_parameters() {
-        if !safe_values.name_reference_is_safe(
-            &escaped.name,
-            escaped.reference_span,
-            SafeValueQuery::Argv,
-        ) {
+        if !escaped.name.as_ref().is_some_and(|name| {
+            safe_values.name_reference_is_safe(name, escaped.reference_span, SafeValueQuery::Argv)
+        }) {
             spans.push(escaped.diagnostic_span);
         }
     }
@@ -1522,6 +1520,30 @@ printf '%s\\n' `echo \\$value`
     }
 
     #[test]
+    fn reports_complex_escaped_parameters_in_legacy_backticks() {
+        let source = "\
+#!/bin/sh
+printf '%s\\n' `echo \\${SAFE:-$fallback} \\${SAFE:+$fallback}`
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| {
+                    (
+                        diagnostic.span.start.line,
+                        diagnostic.span.start.column,
+                        diagnostic.span.end.line,
+                        diagnostic.span.end.column,
+                    )
+                })
+                .collect::<Vec<_>>(),
+            vec![(2, 21, 2, 39)]
+        );
+    }
+
+    #[test]
     fn skips_use_replacement_expansions() {
         let source = "\
 #!/bin/bash
@@ -1831,6 +1853,27 @@ cleanup() {
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
 
         assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+    }
+
+    #[test]
+    fn reports_status_capture_declarations_after_unsafe_reassignments() {
+        let source = "\
+#!/bin/bash
+demo() {
+  local ret=$?
+  ret=$user_input
+  echo $ret
+}
+";
+        let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UnquotedExpansion));
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["$ret"]
+        );
     }
 
     #[test]

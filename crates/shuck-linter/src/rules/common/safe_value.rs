@@ -250,7 +250,14 @@ impl<'a> SafeValueIndex<'a> {
         let case_cli_scope = matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
             .then(|| self.case_cli_dispatch_scope_at(at.start.offset))
             .flatten();
-        if self.status_capture_declaration_probe_covers_reference(name, at, query, case_cli_scope) {
+        if bindings.is_empty()
+            && self.status_capture_declaration_probe_covers_reference(
+                name,
+                at,
+                query,
+                case_cli_scope,
+            )
+        {
             return true;
         }
         if bindings.is_empty() {

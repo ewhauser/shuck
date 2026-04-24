@@ -1651,9 +1651,10 @@ pub(crate) fn backtick_escaped_parameters(
                         .expect("index should remain on UTF-8 boundaries");
                     if escaped == '$'
                         && !in_double_quote
-                        && let Some((name, expansion_len)) =
-                            escaped_backtick_parameter_syntax_len(source, index, end)
+                        && let Some(parameter) =
+                            escaped_backtick_parameter_syntax(source, index, end)
                     {
+                        let expansion_len = parameter.expansion_len();
                         let diagnostic_start_offset = slash_offset.saturating_sub(removed_escapes);
                         let Some(diagnostic_start) =
                             position_at_offset(source, diagnostic_start_offset)
@@ -1677,7 +1678,7 @@ pub(crate) fn backtick_escaped_parameters(
                             continue;
                         };
                         spans.push(BacktickEscapedParameter {
-                            name,
+                            name: parameter.name().cloned(),
                             diagnostic_span: Span::from_positions(diagnostic_start, diagnostic_end),
                             reference_span: Span::from_positions(reference_start, reference_end),
                         });
@@ -1706,11 +1707,38 @@ pub(crate) fn backtick_escaped_parameters(
     spans
 }
 
-fn escaped_backtick_parameter_syntax_len(
+enum EscapedBacktickParameterSyntax {
+    Simple {
+        name: shuck_ast::Name,
+        expansion_len: usize,
+    },
+    ComplexUnsafe {
+        expansion_len: usize,
+    },
+}
+
+impl EscapedBacktickParameterSyntax {
+    fn name(&self) -> Option<&shuck_ast::Name> {
+        match self {
+            Self::Simple { name, .. } => Some(name),
+            Self::ComplexUnsafe { .. } => None,
+        }
+    }
+
+    fn expansion_len(&self) -> usize {
+        match self {
+            Self::Simple { expansion_len, .. } | Self::ComplexUnsafe { expansion_len } => {
+                *expansion_len
+            }
+        }
+    }
+}
+
+fn escaped_backtick_parameter_syntax(
     source: &str,
     dollar_offset: usize,
     end: usize,
-) -> Option<(shuck_ast::Name, usize)> {
+) -> Option<EscapedBacktickParameterSyntax> {
     let next_offset = dollar_offset + '$'.len_utf8();
     let next = source.get(next_offset..end)?.chars().next()?;
 
@@ -1718,7 +1746,10 @@ fn escaped_backtick_parameter_syntax_len(
         return None;
     }
     if next.is_ascii_digit() {
-        return Some((shuck_ast::Name::new(next.to_string()), "$0".len()));
+        return Some(EscapedBacktickParameterSyntax::Simple {
+            name: shuck_ast::Name::new(next.to_string()),
+            expansion_len: "$0".len(),
+        });
     }
     if next == '{' {
         let close_relative = source.get(next_offset + '{'.len_utf8()..end)?.find('}')?;
@@ -1728,17 +1759,25 @@ fn escaped_backtick_parameter_syntax_len(
         if matches!(first, '?' | '#' | '@' | '*' | '!' | '$' | '-') {
             return None;
         }
-        let name = inner
+        let name_text = inner
             .chars()
             .take_while(|ch| ch.is_ascii_alphanumeric() || *ch == '_')
             .collect::<String>();
-        if name.is_empty() {
+        if name_text.is_empty() {
             return None;
         }
-        return Some((
-            shuck_ast::Name::new(name),
-            close_offset + '}'.len_utf8() - dollar_offset,
-        ));
+        let expansion_len = close_offset + '}'.len_utf8() - dollar_offset;
+        if name_text.len() == inner.len() {
+            return Some(EscapedBacktickParameterSyntax::Simple {
+                name: shuck_ast::Name::new(name_text),
+                expansion_len,
+            });
+        }
+        let operator = &inner[name_text.len()..];
+        if operator.starts_with(":+") || operator.starts_with('+') {
+            return None;
+        }
+        return Some(EscapedBacktickParameterSyntax::ComplexUnsafe { expansion_len });
     }
     if next.is_ascii_alphabetic() || next == '_' {
         let mut cursor = next_offset;
@@ -1753,7 +1792,10 @@ fn escaped_backtick_parameter_syntax_len(
             cursor += ch.len_utf8();
         }
         let name = source.get(next_offset..cursor)?;
-        return Some((shuck_ast::Name::new(name), cursor - dollar_offset));
+        return Some(EscapedBacktickParameterSyntax::Simple {
+            name: shuck_ast::Name::new(name),
+            expansion_len: cursor - dollar_offset,
+        });
     }
 
     None
