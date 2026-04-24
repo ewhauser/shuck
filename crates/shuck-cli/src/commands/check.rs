@@ -50,11 +50,15 @@ pub(crate) struct CheckReport {
     cache_hits: usize,
     cache_misses: usize,
     fixes_applied: usize,
+    parse_failed: bool,
 }
 
 impl CheckReport {
     fn exit_status(&self, exit_zero: bool, exit_non_zero_on_fix: bool) -> ExitStatus {
         if exit_non_zero_on_fix && self.fixes_applied > 0 {
+            return ExitStatus::Failure;
+        }
+        if self.parse_failed {
             return ExitStatus::Failure;
         }
         diagnostics_exit_status(&self.diagnostics, exit_zero)
@@ -268,15 +272,18 @@ impl PerFileIgnoreSpec {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct CheckCacheData {
     diagnostics: Vec<CachedDisplayedDiagnostic>,
+    #[serde(default)]
+    parse_failed: bool,
 }
 
 impl CheckCacheData {
-    fn from_displayed(diagnostics: &[DisplayedDiagnostic]) -> Self {
+    fn from_displayed(diagnostics: &[DisplayedDiagnostic], parse_failed: bool) -> Self {
         Self {
             diagnostics: diagnostics
                 .iter()
                 .map(CachedDisplayedDiagnostic::from_displayed)
                 .collect(),
+            parse_failed,
         }
     }
 }
@@ -416,6 +423,7 @@ struct FileCheckResult {
     cache_data: CheckCacheData,
     diagnostics: Vec<DisplayedDiagnostic>,
     fixes_applied: usize,
+    parse_failed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1150,6 +1158,7 @@ fn run_check_with_cwd(
         let project_settings = run.settings.clone();
         let pending = run.take_pending_files(|file, cached| {
             report.cache_hits += 1;
+            report.parse_failed |= cached.parse_failed;
             let source = (include_source && !cached.diagnostics.is_empty())
                 .then(|| read_shared_source(&file.absolute_path))
                 .transpose()?;
@@ -1184,6 +1193,7 @@ fn run_check_with_cwd(
         for result in results {
             let result = result?;
             report.fixes_applied += result.fixes_applied;
+            report.parse_failed |= result.parse_failed;
             report.diagnostics.extend(result.diagnostics);
             if let Some(cache) = run.cache.as_mut() {
                 cache.insert(
@@ -1405,7 +1415,8 @@ fn analyze_shell_file(
         }
     }
 
-    let diagnostics = if parse_result.is_err() && diagnostics.is_empty() {
+    let parse_failed = parse_result.is_err();
+    let diagnostics = if parse_failed && diagnostics.is_empty() {
         let ParseError::Parse {
             message,
             line,
@@ -1423,7 +1434,7 @@ fn analyze_shell_file(
     } else {
         display_lint_diagnostics(&pending, &source, &diagnostics, include_source)
     };
-    let cache_data = CheckCacheData::from_displayed(&diagnostics);
+    let cache_data = CheckCacheData::from_displayed(&diagnostics, parse_failed);
 
     Ok(FileCheckResult {
         file: pending.file,
@@ -1431,6 +1442,7 @@ fn analyze_shell_file(
         cache_data,
         diagnostics,
         fixes_applied,
+        parse_failed,
     })
 }
 
@@ -1457,14 +1469,16 @@ fn analyze_embedded_file(
             return Ok(FileCheckResult {
                 file: pending.file,
                 file_key: pending.file_key,
-                cache_data: CheckCacheData::from_displayed(&diagnostics),
+                cache_data: CheckCacheData::from_displayed(&diagnostics, true),
                 diagnostics,
                 fixes_applied: 0,
+                parse_failed: true,
             });
         }
     };
 
     let mut displayed = Vec::new();
+    let mut parse_failed = false;
 
     for embedded in extracted.into_iter().filter(embedded_supported_dialect) {
         let Some((shell_dialect, parse_dialect)) = embedded_dialects(embedded.dialect) else {
@@ -1473,6 +1487,8 @@ fn analyze_embedded_file(
 
         let snippet_source: Arc<str> = Arc::from(embedded.source.clone());
         let parse_result = Parser::with_dialect(&snippet_source, parse_dialect).parse();
+        let snippet_parse_failed = parse_result.is_err();
+        parse_failed |= snippet_parse_failed;
         let linter_settings = base_linter_settings
             .clone()
             .with_shell(shell_dialect)
@@ -1492,7 +1508,7 @@ fn analyze_embedded_file(
         .filter(|diagnostic| embedded_rule_allowed(diagnostic.rule))
         .collect::<Vec<_>>();
 
-        if parse_result.is_err() && diagnostics.is_empty() {
+        if snippet_parse_failed && diagnostics.is_empty() {
             let ParseError::Parse {
                 message,
                 line,
@@ -1520,9 +1536,10 @@ fn analyze_embedded_file(
     Ok(FileCheckResult {
         file: pending.file,
         file_key: pending.file_key,
-        cache_data: CheckCacheData::from_displayed(&displayed),
+        cache_data: CheckCacheData::from_displayed(&displayed, parse_failed),
         diagnostics: displayed,
         fixes_applied: 0,
+        parse_failed,
     })
 }
 
@@ -2477,6 +2494,43 @@ jobs:
     }
 
     #[test]
+    fn parse_failure_with_warning_lint_stays_fatal_under_exit_zero() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("broken.sh"),
+            "#!/bin/sh\nif true\n  echo hi\nfi\n",
+        )
+        .unwrap();
+
+        let mut args = check_args(false);
+        args.exit_zero = true;
+
+        let first = run_check_with_cwd(
+            &args,
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+        let second = run_check_with_cwd(
+            &args,
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+
+        assert_eq!(first.exit_status(true, false), ExitStatus::Failure);
+        assert_eq!(second.exit_status(true, false), ExitStatus::Failure);
+        assert_eq!(first.cache_misses, 1);
+        assert_eq!(second.cache_hits, 1);
+        assert_eq!(diagnostic_codes(&first), vec!["C064".to_owned()]);
+        assert_eq!(diagnostic_codes(&second), vec!["C064".to_owned()]);
+        assert!(first.parse_failed);
+        assert!(second.parse_failed);
+    }
+
+    #[test]
     fn select_replaces_default_rules() {
         let tempdir = tempdir().unwrap();
         fs::write(
@@ -3158,6 +3212,7 @@ jobs:
             cache_hits: 0,
             cache_misses: 0,
             fixes_applied: 0,
+            parse_failed: false,
         };
 
         let mut output = Vec::new();
@@ -3188,6 +3243,7 @@ jobs:
             cache_hits: 0,
             cache_misses: 0,
             fixes_applied: 0,
+            parse_failed: false,
         };
 
         let mut output = Vec::new();
