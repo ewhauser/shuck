@@ -12,3 +12,9 @@ X035 function definitions cannot take parameters in `sh` scripts
   |
 3 | function g(y) { :; }
   |
+
+X035 function definitions cannot take parameters in `sh` scripts
+ --> <source>:4:18
+  |
+4 | coproc pycoproc (python3 "$pywrapper")
+  |

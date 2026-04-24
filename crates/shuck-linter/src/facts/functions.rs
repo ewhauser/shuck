@@ -241,6 +241,11 @@ fn build_function_parameter_fallback_spans(
     structural_commands
         .windows(2)
         .filter_map(|pair| function_parameter_fallback_span(pair, source))
+        .chain(
+            commands
+                .iter()
+                .filter_map(named_coproc_subshell_fallback_span),
+        )
         .collect()
 }
 
@@ -385,6 +390,24 @@ fn function_parameter_fallback_span(pair: &[&CommandFact<'_>], source: &str) -> 
     let relative = text.find('(')?;
     let start = first.span().start.advanced_by(&text[..relative]);
     Some(Span::from_positions(start, start.advanced_by("(")))
+}
+
+fn named_coproc_subshell_fallback_span(command: &CommandFact<'_>) -> Option<Span> {
+    let Command::Compound(CompoundCommand::Coproc(coproc)) = command.command() else {
+        return None;
+    };
+    coproc.name_span?;
+    let Command::Compound(CompoundCommand::Subshell(commands)) = &coproc.body.command else {
+        return None;
+    };
+    if commands.is_empty() {
+        return None;
+    }
+    let body_start = coproc.body.span.start;
+    if coproc.span.start.line != body_start.line {
+        return None;
+    }
+    Some(Span::from_positions(body_start, body_start))
 }
 fn build_function_call_arity_facts<'a>(
     semantic: &SemanticModel,
