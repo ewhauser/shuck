@@ -2679,6 +2679,57 @@ arr=(${flag:+-f} ${flag:+$fallback} ${name:+\"$name\" \"$regex\"} ${items[@]+\"$
 }
 
 #[test]
+fn array_assignment_split_facts_ignore_expansions_inside_brace_fanout() {
+    let source = "\
+#!/bin/bash
+arr=({$XDG_CONFIG_HOME,$HOME}/{alacritty,}/{.,}alacritty.ym?)
+arr=($prefix{a,b} {a,b}$suffix {pre$inside,other})
+";
+
+    with_facts(source, None, |_, facts| {
+        let split_sensitive = facts
+            .array_assignment_split_word_facts()
+            .flat_map(|fact| {
+                fact.array_assignment_split_scalar_expansion_spans()
+                    .iter()
+                    .map(|span| span.slice(source).to_owned())
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(split_sensitive, vec!["$prefix", "$suffix"]);
+    });
+}
+
+#[test]
+fn array_assignment_split_facts_keep_brace_literal_expansions_for_sh() {
+    let source = "\
+# shellcheck shell=sh
+arr=({pre$inside,other})
+";
+
+    with_facts_dialect(
+        source,
+        None,
+        ParseShellDialect::Bash,
+        ShellDialect::Sh,
+        |_, facts| {
+            let split_sensitive = facts
+                .array_assignment_split_word_facts()
+                .flat_map(|fact| {
+                    fact.array_assignment_split_scalar_expansion_spans()
+                        .iter()
+                        .map(|span| span.slice(source).to_owned())
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(split_sensitive, vec!["$inside"]);
+        },
+    );
+}
+
+#[test]
 fn surface_facts_track_parameter_operations_in_expanding_heredocs() {
     let source = "\
 cat <<EOF

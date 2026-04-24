@@ -576,6 +576,7 @@ impl<'a> LinterFactsBuilder<'a> {
 
         LinterFacts {
             source,
+            shell: self.shell,
             commands,
             structural_command_ids,
             command_ids_by_span,
