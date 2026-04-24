@@ -599,7 +599,44 @@ fn resolve_script_terminating_call_spans(
     changed
 }
 
-fn function_bindings_by_scope(
+pub(crate) struct FunctionBindingLookup<'a> {
+    pub(crate) program: &'a RecordedProgram,
+    pub(crate) scopes: &'a [Scope],
+    pub(crate) bindings: &'a [Binding],
+    pub(crate) call_sites: &'a FxHashMap<Name, SmallVec<[CallSite; 2]>>,
+    pub(crate) unconditional_function_bindings: &'a FxHashSet<BindingId>,
+    pub(crate) function_bindings_by_scope: &'a FxHashMap<ScopeId, SmallVec<[BindingId; 2]>>,
+}
+
+impl FunctionBindingLookup<'_> {
+    pub(crate) fn visible_function_call_bindings(&self) -> FxHashMap<SpanKey, BindingId> {
+        let mut resolver = FunctionCallResolver {
+            program: self.program,
+            scopes: self.scopes,
+            bindings: self.bindings,
+            call_sites: self.call_sites,
+            unconditional_function_bindings: self.unconditional_function_bindings,
+            function_bindings_by_scope: self.function_bindings_by_scope,
+            entry_before_offset_cache: FxHashMap::default(),
+        };
+        let mut call_bindings = FxHashMap::default();
+
+        for (name, sites) in self.call_sites {
+            for site in sites {
+                let Some(binding) =
+                    resolver.visible_function_binding(name, site.scope, site.span.start.offset)
+                else {
+                    continue;
+                };
+                call_bindings.insert(SpanKey::new(site.name_span), binding);
+            }
+        }
+
+        call_bindings
+    }
+}
+
+pub(crate) fn function_bindings_by_scope(
     program: &RecordedProgram,
 ) -> FxHashMap<ScopeId, SmallVec<[BindingId; 2]>> {
     let mut bindings_by_scope: FxHashMap<ScopeId, SmallVec<[BindingId; 2]>> = FxHashMap::default();
@@ -657,7 +694,7 @@ fn recorded_command_span_for_call_site(program: &RecordedProgram, site: &CallSit
         .unwrap_or(site.span)
 }
 
-fn collect_unconditional_function_bindings(
+pub(crate) fn collect_unconditional_function_bindings(
     program: &RecordedProgram,
     command_bindings: &FxHashMap<SpanKey, SmallVec<[BindingId; 2]>>,
     bindings: &[Binding],

@@ -1,6 +1,6 @@
-use crate::{Checker, CommandFact, ListFact, Rule, Violation};
-use shuck_ast::{BinaryOp, Span};
-use shuck_semantic::UnreachableCauseKind;
+use crate::{Checker, CommandFact, ListFact, Rule, Violation, WrapperKind};
+use shuck_ast::{Command as AstCommand, Name, Span};
+use shuck_semantic::{SemanticAnalysis, UnreachableCauseKind};
 
 pub struct UnreachableAfterExit;
 
@@ -16,15 +16,23 @@ impl Violation for UnreachableAfterExit {
 
 pub fn unreachable_after_exit(checker: &mut Checker) {
     let source = checker.source();
-    let short_circuit_guard_spans = short_circuit_exit_guard_spans(checker);
+    let short_circuit_lists = checker.facts().lists();
+    let commands = checker.facts().commands();
+    let semantic_analysis = checker.semantic_analysis();
     let unreachable_spans = outermost_unreachable_spans(
-        checker
-            .semantic_analysis()
+        semantic_analysis
             .dead_code()
             .iter()
             .filter(|dead_code| dead_code.cause_kind != UnreachableCauseKind::LoopControl)
             .flat_map(|dead_code| dead_code.unreachable.iter().copied())
-            .filter(|span| !short_circuit_guard_spans.contains(span))
+            .filter(|span| {
+                !span_matches_short_circuit_skip(
+                    *span,
+                    short_circuit_lists,
+                    commands,
+                    semantic_analysis,
+                )
+            })
             .collect::<Vec<_>>(),
     );
 
@@ -36,37 +44,99 @@ pub fn unreachable_after_exit(checker: &mut Checker) {
     }
 }
 
-fn short_circuit_exit_guard_spans(checker: &Checker) -> Vec<Span> {
-    let commands = checker.facts().commands();
-    checker
-        .facts()
-        .lists()
-        .iter()
-        .filter(|list| list_is_exit_guard(list, commands))
-        .map(ListFact::span)
-        .collect()
+fn span_matches_short_circuit_skip(
+    span: Span,
+    short_circuit_lists: &[ListFact<'_>],
+    commands: &[CommandFact<'_>],
+    semantic_analysis: &SemanticAnalysis<'_>,
+) -> bool {
+    short_circuit_lists.iter().any(|list| {
+        if span == list.span() {
+            return true;
+        }
+
+        if list.segments().len() < 3 || !span_contained_by(span, list.span()) {
+            return false;
+        }
+
+        if !list_starts_with_condition(list, commands, semantic_analysis) {
+            return false;
+        }
+
+        list.segments()
+            .iter()
+            .enumerate()
+            .any(|(index, segment)| index > 0 && span.start == segment.span().start)
+    })
 }
 
-fn list_is_exit_guard(list: &ListFact<'_>, commands: &[CommandFact<'_>]) -> bool {
-    if list
-        .operators()
-        .last()
-        .is_none_or(|operator| operator.op() != BinaryOp::Or)
-    {
-        return false;
-    }
-
-    let Some(terminator_id) = list.segments().last().map(|segment| segment.command_id()) else {
+fn list_starts_with_condition(
+    list: &ListFact<'_>,
+    commands: &[CommandFact<'_>],
+    semantic_analysis: &SemanticAnalysis<'_>,
+) -> bool {
+    let Some(first_segment) = list.segments().first() else {
         return false;
     };
-    let Some(terminator) = commands
+    let Some(command) = commands
         .iter()
-        .find(|command| command.id() == terminator_id)
+        .find(|command| command.id() == first_segment.command_id())
     else {
         return false;
     };
 
-    matches!(terminator.static_utility_name(), Some("exit" | "return"))
+    let starts_like_condition = command.simple_test().is_some()
+        || command.conditional().is_some()
+        || matches!(
+            command.effective_or_literal_name(),
+            Some("[" | "test" | "true" | "false")
+        );
+
+    starts_like_condition && !command_name_resolves_to_function(command, semantic_analysis)
+}
+
+fn command_name_resolves_to_function(
+    command: &CommandFact<'_>,
+    semantic_analysis: &SemanticAnalysis<'_>,
+) -> bool {
+    if wrapper_name_resolves_to_function(command, semantic_analysis) {
+        return true;
+    }
+
+    if command.has_wrapper(WrapperKind::Command) || command.has_wrapper(WrapperKind::Builtin) {
+        return false;
+    }
+
+    let Some(name) = command.effective_or_literal_name() else {
+        return false;
+    };
+    let Some(name_span) = command.body_word_span() else {
+        return false;
+    };
+    let name = Name::from(name);
+
+    semantic_analysis
+        .visible_function_binding_at_call(&name, name_span)
+        .is_some()
+}
+
+fn wrapper_name_resolves_to_function(
+    command: &CommandFact<'_>,
+    semantic_analysis: &SemanticAnalysis<'_>,
+) -> bool {
+    if command.wrappers().is_empty() {
+        return false;
+    }
+    let Some(name) = command.literal_name() else {
+        return false;
+    };
+    let AstCommand::Simple(simple) = command.command() else {
+        return false;
+    };
+
+    semantic_analysis
+        .visible_function_binding_at_call(&Name::from(name), simple.name.span)
+        .is_some()
 }
 
 fn outermost_unreachable_spans(mut spans: Vec<shuck_ast::Span>) -> Vec<shuck_ast::Span> {
@@ -98,8 +168,12 @@ fn span_contained_by(inner: shuck_ast::Span, outer: shuck_ast::Span) -> bool {
 }
 
 fn trim_trailing_terminator(span: Span, source: &str) -> Span {
-    let trimmed = span
-        .slice(source)
+    let trimmed = span.slice(source).trim_end_matches(char::is_whitespace);
+    let trimmed = trimmed
+        .strip_suffix("&&")
+        .or_else(|| trimmed.strip_suffix("||"))
+        .unwrap_or(trimmed);
+    let trimmed = trimmed
         .trim_end_matches(char::is_whitespace)
         .trim_end_matches(';')
         .trim_end_matches(char::is_whitespace);

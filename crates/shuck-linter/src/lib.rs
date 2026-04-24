@@ -4645,6 +4645,20 @@ run && exit 0 || sleep 15
     }
 
     #[test]
+    fn unreachable_after_exit_skips_dead_short_circuit_lists() {
+        let source = "\
+#!/bin/bash
+exit 0
+echo one && echo two
+echo after
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "echo after");
+    }
+
+    #[test]
     fn unreachable_after_exit_skips_dead_short_circuit_exit_guards() {
         let source = "\
 #!/bin/bash
@@ -4658,6 +4672,109 @@ printf '%s\\n' later
         assert_eq!(diagnostics.len(), 2);
         assert_eq!(diagnostics[0].span.slice(source), "echo after");
         assert_eq!(diagnostics[1].span.slice(source), "printf '%s\\n' later");
+    }
+
+    #[test]
+    fn unreachable_after_exit_skips_dead_short_circuit_segments() {
+        let source = "\
+#!/bin/bash
+usage() { exit 0; }
+error() {
+  [ $# -eq 0 ] && usage && exit 0
+  echo after
+}
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn unreachable_after_exit_reports_nested_dead_code_in_skipped_short_circuit_segments() {
+        let source = "\
+#!/bin/bash
+check() {
+  [ \"$1\" = stop ] && { return 0; echo inner; } && echo tail
+}
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "echo inner");
+    }
+
+    #[test]
+    fn unreachable_after_exit_reports_shadowed_condition_names_in_short_circuit_lists() {
+        let source = "\
+#!/bin/bash
+true() {
+  exit 0
+}
+check() {
+  true && echo a && echo b
+}
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].span.slice(source), "echo a");
+        assert_eq!(diagnostics[1].span.slice(source), "echo b");
+    }
+
+    #[test]
+    fn unreachable_after_exit_reports_shadowed_condition_wrapper_names() {
+        for wrapper in ["command", "builtin", "sudo", "doas", "run0"] {
+            let source = format!(
+                "\
+#!/bin/bash
+{wrapper}() {{
+  exit 0
+}}
+check() {{
+  {wrapper} true && echo a && echo b
+}}
+"
+            );
+            let diagnostics = lint_for_rule(&source, Rule::UnreachableAfterExit);
+
+            assert_eq!(diagnostics.len(), 2, "{wrapper}: {diagnostics:?}");
+            assert_eq!(diagnostics[0].span.slice(&source), "echo a", "{wrapper}");
+            assert_eq!(diagnostics[1].span.slice(&source), "echo b", "{wrapper}");
+        }
+    }
+
+    #[test]
+    fn unreachable_after_exit_ignores_conditionally_defined_condition_names() {
+        let source = "\
+#!/bin/bash
+die() {
+  exit 1
+}
+check() {
+  if maybe; then
+    true() { exit 0; }
+  fi
+  true && die && exit 1
+}
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn unreachable_after_exit_keeps_dead_two_segment_short_circuit_tail() {
+        let source = "\
+#!/bin/bash
+finish() { exit \"$1\"; }
+terminal() {
+  finish 34 && return 34
+}
+";
+        let diagnostics = lint_for_rule(source, Rule::UnreachableAfterExit);
+
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].span.slice(source), "return 34");
     }
 
     #[test]
