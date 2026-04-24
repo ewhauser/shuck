@@ -7198,6 +7198,19 @@ eval \"$build\"
     }
 
     #[test]
+    fn eval_scan_treats_pid_prefix_as_special_parameter() {
+        let source = "foo=1\neval \"echo $$foo\"\n";
+        let model = model(source);
+
+        let unused = reportable_unused_names(&model);
+        assert!(
+            unused.contains(&Name::from("foo")),
+            "unused bindings: {:?}",
+            unused
+        );
+    }
+
+    #[test]
     fn escaped_dollar_heredoc_body_stays_inert_with_source_closure_enabled() {
         let temp = tempdir().unwrap();
         let main = temp.path().join("main.sh");

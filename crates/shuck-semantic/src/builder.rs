@@ -3850,6 +3850,10 @@ fn scan_parameter_reference_names(
         if ch != '$' {
             continue;
         }
+        if chars.peek().is_some_and(|(_, next_ch)| *next_ch == '$') {
+            chars.next();
+            continue;
+        }
 
         let after_dollar = index + ch.len_utf8();
         let Some((name_start, name_end)) = parameter_name_bounds_after_dollar(text, after_dollar)
