@@ -1994,3 +1994,150 @@ reviewed_divergences:
     column: 57
     end_column: 59
     reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__disabled-packages__protobuf-static__build.sh"
+    line: 29
+    end_line: 29
+    column: 72
+    end_column: 96
+    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__apt__build.sh"
+    line: 71
+    end_line: 71
+    column: 86
+    end_column: 105
+    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__asciidoctor__build.sh"
+    line: 13
+    end_line: 13
+    column: 66
+    end_column: 85
+    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__exiftool__build.sh"
+    line: 13
+    end_line: 13
+    column: 80
+    end_column: 99
+    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__gnupg__build.sh"
+    line: 27
+    end_line: 27
+    column: 82
+    end_column: 101
+    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__gnupg__build.sh"
+    line: 28
+    end_line: 28
+    column: 81
+    end_column: 99
+    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__gnupg__build.sh"
+    line: 29
+    end_line: 29
+    column: 81
+    end_column: 99
+    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__irssi__build.sh"
+    line: 29
+    end_line: 29
+    column: 72
+    end_column: 91
+    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__libapt-pkg-perl__build.sh"
+    line: 14
+    end_line: 14
+    column: 72
+    end_column: 91
+    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__libapt-pkg-perl__build.sh"
+    line: 26
+    end_line: 26
+    column: 72
+    end_column: 91
+    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__libregexp-assemble-perl__build.sh"
+    line: 19
+    end_line: 19
+    column: 72
+    end_column: 91
+    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__matplotlib__build.sh"
+    line: 23
+    end_line: 23
+    column: 75
+    end_column: 94
+    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__pypy3__build.sh"
+    line: 17
+    end_line: 17
+    column: 79
+    end_column: 98
+    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__python-contourpy__build.sh"
+    line: 11
+    end_line: 11
+    column: 75
+    end_column: 94
+    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__python-scipy__build.sh"
+    line: 11
+    end_line: 11
+    column: 75
+    end_column: 94
+    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__subversion__build.sh"
+    line: 44
+    end_line: 44
+    column: 72
+    end_column: 91
+    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__packages__weechat__build.sh"
+    line: 46
+    end_line: 46
+    column: 16
+    end_column: 35
+    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__x11-packages__chromium__build.sh"
+    line: 22
+    end_line: 22
+    column: 94
+    end_column: 115
+    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__x11-packages__chromium__build.sh"
+    line: 61
+    end_line: 61
+    column: 92
+    end_column: 113
+    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__x11-packages__code-oss__build.sh"
+    line: 45
+    end_line: 45
+    column: 108
+    end_column: 127
+    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
+  - side: shuck-only
+    path_suffix: "termux__termux-packages__x11-packages__qt5-qtwebengine__build.sh"
+    line: 117
+    end_line: 117
+    column: 86
+    end_column: 105
+    reason: "Exact S001 large-corpus residual from the ShellCheck oracle run; kept reviewed while the remaining safe-value parity work is handled separately."
