@@ -36,6 +36,12 @@ pub fn function_references_unset_param(checker: &mut Checker) {
         let Some(function_scope) = header.function_scope() else {
             continue;
         };
+        if checker.is_suppressed_at(
+            Rule::FunctionCalledWithoutArgs,
+            header.function_span_in_source(checker.source()),
+        ) {
+            continue;
+        }
 
         let positional = checker
             .facts()
@@ -50,7 +56,7 @@ pub fn function_references_unset_param(checker: &mut Checker) {
 
         violations.extend(
             call_arity
-                .zero_arg_call_spans()
+                .zero_arg_diagnostic_spans()
                 .iter()
                 .copied()
                 .map(|span| (span, name.to_string())),
@@ -64,8 +70,14 @@ pub fn function_references_unset_param(checker: &mut Checker) {
 
 #[cfg(test)]
 mod tests {
+    use shuck_indexer::Indexer;
+    use shuck_parser::parser::Parser;
+
     use crate::test::test_snippet;
-    use crate::{LinterSettings, Rule};
+    use crate::{
+        LinterSettings, Rule, ShellCheckCodeMap, SuppressionIndex, first_statement_line, lint_file,
+        parse_directives,
+    };
 
     #[test]
     fn reports_zero_argument_call_sites_for_functions_that_read_positional_parameters() {
@@ -540,6 +552,39 @@ BUILD_VERSION=\"${BUILD_VERSION:-\"$(GetBuildVersion \"${BUILD_REVISION}\")\"}\"
         let diagnostics = test_snippet(
             source,
             &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
+        );
+
+        assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
+    }
+
+    #[test]
+    fn respects_suppressed_paired_function_argument_warning() {
+        let source = "\
+#!/bin/sh
+# shellcheck disable=SC2120
+greet() { echo \"$1\"; }
+greet
+";
+        let parse_result = Parser::new(source).parse().unwrap();
+        let indexer = Indexer::new(source, &parse_result);
+        let directives = parse_directives(
+            source,
+            &parse_result.file,
+            indexer.comment_index(),
+            &ShellCheckCodeMap::default(),
+        );
+        let suppressions = SuppressionIndex::new(
+            &directives,
+            &parse_result.file,
+            first_statement_line(&parse_result.file).unwrap_or(u32::MAX),
+        );
+        let diagnostics = lint_file(
+            &parse_result,
+            source,
+            &indexer,
+            &LinterSettings::for_rule(Rule::FunctionReferencesUnsetParam),
+            Some(&suppressions),
+            None,
         );
 
         assert!(diagnostics.is_empty(), "diagnostics: {diagnostics:?}");

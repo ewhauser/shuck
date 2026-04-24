@@ -266,6 +266,7 @@ fn analyze_file_at_path_with_resolver_and_shell(
         settings.report_environment_style_names,
         settings.rule_options.clone(),
         &file_context,
+        suppression_index,
         first_parse_error,
     );
     let mut diagnostics = observer.into_diagnostics();
@@ -369,7 +370,7 @@ pub fn lint_file_at_path_with_resolver(
         source,
         indexer,
         settings,
-        None,
+        suppression_index,
         source_path,
         source_path_resolver,
         shell,
@@ -420,7 +421,7 @@ pub fn lint_file_at_path_with_resolver_and_parse_result(
         source,
         indexer,
         settings,
-        None,
+        suppression_index,
         source_path,
         source_path_resolver,
         shell,
