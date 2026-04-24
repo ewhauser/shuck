@@ -3227,6 +3227,7 @@ fn declaration_operands(operands: &[DeclOperand], source: &str) -> Vec<Declarati
                 let flag = text.chars().nth(1).unwrap_or('-');
                 DeclarationOperand::Flag {
                     flag,
+                    flags: text.into_owned(),
                     span: word.span,
                 }
             }

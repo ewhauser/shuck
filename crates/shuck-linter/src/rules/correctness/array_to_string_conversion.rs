@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use shuck_ast::Name;
 use shuck_semantic::{
-    Binding, BindingAttributes, BindingKind, DeclarationBuiltin, DeclarationOperand,
+    Binding, BindingAttributes, BindingKind, Declaration, DeclarationBuiltin, DeclarationOperand,
 };
 
 use crate::{Checker, ComparableNameUseKind, Rule, ShellDialect, Violation, WrapperKind};
@@ -190,16 +190,7 @@ fn name_only_declaration_history_events(checker: &Checker<'_>) -> Vec<ArrayHisto
     let mut events = Vec::new();
 
     for declaration in checker.semantic().declarations() {
-        let array_flag = declaration.operands.iter().any(|operand| {
-            matches!(
-                operand,
-                DeclarationOperand::Flag {
-                    flag: 'a' | 'A',
-                    ..
-                }
-            )
-        });
-
+        let array_flag = declaration_array_flag_enabled(declaration);
         for operand in &declaration.operands {
             let DeclarationOperand::Name { name, span } = operand else {
                 continue;
@@ -215,6 +206,28 @@ fn name_only_declaration_history_events(checker: &Checker<'_>) -> Vec<ArrayHisto
     }
 
     events
+}
+
+fn declaration_array_flag_enabled(declaration: &Declaration) -> bool {
+    let mut array_flag = false;
+
+    for operand in &declaration.operands {
+        let DeclarationOperand::Flag { flags, .. } = operand else {
+            continue;
+        };
+
+        if let Some(flags) = flags.strip_prefix('-') {
+            if flags.chars().any(|flag| matches!(flag, 'a' | 'A')) {
+                array_flag = true;
+            }
+        } else if let Some(flags) = flags.strip_prefix('+')
+            && flags.chars().any(|flag| matches!(flag, 'a' | 'A'))
+        {
+            array_flag = false;
+        }
+    }
+
+    array_flag
 }
 
 fn push_reset_event(
@@ -578,6 +591,32 @@ f() {
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
             vec!["cmd"],
+            "{diagnostics:#?}"
+        );
+    }
+
+    #[test]
+    fn combined_declaration_array_flags_keep_array_history() {
+        let source = "\
+#!/bin/bash
+declare -a indexed=(one)
+declare -ga indexed
+indexed=value
+declare -A assoc=([key]=value)
+declare -gA assoc
+assoc=value
+";
+        let diagnostics = test_snippet(
+            source,
+            &LinterSettings::for_rule(Rule::ArrayToStringConversion),
+        );
+
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.span.slice(source))
+                .collect::<Vec<_>>(),
+            vec!["indexed", "assoc"],
             "{diagnostics:#?}"
         );
     }
