@@ -68,7 +68,7 @@ pub fn unused_assignment(checker: &mut Checker) {
         }
 
         let family = binding_family_key(&family_keys, binding.id);
-        let report_span = report_span_for_binding(binding);
+        let report_span = report_span_for_binding(checker, binding);
         if checker.is_suppressed_at(Rule::UnusedAssignment, report_span) {
             suppressed_binding_offsets_by_family
                 .entry(family.clone())
@@ -127,7 +127,7 @@ pub fn unused_assignment(checker: &mut Checker) {
 
         if let Some(binding_id) = last_unused_binding_by_family.get(family).copied() {
             let binding = semantic.binding(binding_id);
-            let report_offset = report_span_for_binding(binding).start.offset;
+            let report_offset = report_span_for_binding(checker, binding).start.offset;
             if suppressed_binding_offsets_by_family
                 .get(family)
                 .is_some_and(|offsets| offsets.iter().any(|offset| *offset >= report_offset))
@@ -159,7 +159,7 @@ pub fn unused_assignment(checker: &mut Checker) {
         }
 
         let name = binding.name.to_string();
-        let report_span = report_span_for_binding(binding);
+        let report_span = report_span_for_binding(checker, binding);
         let fix_span = binding.span;
 
         checker.report_diagnostic(
@@ -248,22 +248,50 @@ fn binding_counts_as_used_family_member(
     true
 }
 
-fn report_span_for_binding(binding: &Binding) -> shuck_ast::Span {
-    if let BindingOrigin::LoopVariable {
-        definition_span, ..
-    } = binding.origin
-    {
-        return definition_span;
+fn report_span_for_binding(checker: &Checker<'_>, binding: &Binding) -> shuck_ast::Span {
+    match binding.origin {
+        BindingOrigin::LoopVariable {
+            definition_span, ..
+        } => loop_keyword_report_span(checker, definition_span).unwrap_or(definition_span),
+        BindingOrigin::Assignment {
+            definition_span, ..
+        }
+        | BindingOrigin::ParameterDefaultAssignment { definition_span }
+        | BindingOrigin::Imported { definition_span }
+        | BindingOrigin::FunctionDefinition { definition_span }
+        | BindingOrigin::BuiltinTarget {
+            definition_span, ..
+        }
+        | BindingOrigin::Declaration { definition_span }
+        | BindingOrigin::Nameref { definition_span } => definition_span,
+        BindingOrigin::ArithmeticAssignment { target_span, .. } => target_span,
+    }
+}
+
+fn loop_keyword_report_span(
+    checker: &Checker<'_>,
+    definition_span: shuck_ast::Span,
+) -> Option<shuck_ast::Span> {
+    if let Some(header) = checker.facts().for_headers().iter().find(|header| {
+        header
+            .command()
+            .targets
+            .iter()
+            .any(|target| target.span == definition_span)
+    }) {
+        return Some(keyword_span(header.command().span, "for"));
     }
 
-    if let BindingOrigin::Assignment {
-        definition_span, ..
-    } = binding.origin
-    {
-        return definition_span;
-    }
+    checker
+        .facts()
+        .select_headers()
+        .iter()
+        .find(|header| header.command().variable_span == definition_span)
+        .map(|header| keyword_span(header.command().span, "select"))
+}
 
-    binding.span
+fn keyword_span(command_span: shuck_ast::Span, keyword: &str) -> shuck_ast::Span {
+    shuck_ast::Span::from_positions(command_span.start, command_span.start.advanced_by(keyword))
 }
 
 fn binding_follows_in_source(

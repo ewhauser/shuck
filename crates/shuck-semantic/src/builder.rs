@@ -651,7 +651,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                             self.current_scope(),
                             target.span,
                             BindingOrigin::LoopVariable {
-                                definition_span: keyword_span(command.span, "for"),
+                                definition_span: target.span,
                                 items: loop_binding_origin_for_words(command.words.as_deref()),
                             },
                             BindingAttributes::empty(),
@@ -697,7 +697,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     self.current_scope(),
                     command.variable_span,
                     BindingOrigin::LoopVariable {
-                        definition_span: keyword_span(command.span, "foreach"),
+                        definition_span: command.variable_span,
                         items: loop_binding_origin_for_words(Some(&command.words)),
                     },
                     BindingAttributes::empty(),
@@ -834,7 +834,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
                     self.current_scope(),
                     command.variable_span,
                     BindingOrigin::LoopVariable {
-                        definition_span: keyword_span(command.span, "select"),
+                        definition_span: command.variable_span,
                         items: loop_binding_origin_for_words(Some(&command.words)),
                     },
                     BindingAttributes::empty(),
@@ -4351,10 +4351,6 @@ fn loop_binding_origin_for_words(words: Option<&[Word]>) -> LoopValueOrigin {
     } else {
         LoopValueOrigin::ExpandedWords
     }
-}
-
-fn keyword_span(command_span: Span, keyword: &str) -> Span {
-    Span::from_positions(command_span.start, command_span.start.advanced_by(keyword))
 }
 
 fn assignment_value_origin_for_word(word: &Word) -> AssignmentValueOrigin {

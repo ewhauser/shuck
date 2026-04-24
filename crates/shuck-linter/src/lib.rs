@@ -2576,7 +2576,7 @@ fi
     }
 
     #[test]
-    fn partially_used_branch_assignments_still_report_each_dead_arm() {
+    fn branch_local_reads_suppress_unused_assignment_family() {
         let source = "\
 #!/bin/sh
 if a; then
@@ -2590,9 +2590,7 @@ fi
 ";
         let diagnostics = lint_for_rule(source, Rule::UnusedAssignment);
 
-        assert_eq!(diagnostics.len(), 2);
-        assert_eq!(diagnostics[0].span.start.line, 3);
-        assert_eq!(diagnostics[1].span.start.line, 5);
+        assert!(diagnostics.is_empty());
     }
 
     #[test]
