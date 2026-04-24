@@ -31,13 +31,18 @@ use crate::commands::check_output::{
     DisplayPosition, DisplaySpan, DisplayedApplicability, DisplayedDiagnostic,
     DisplayedDiagnosticKind, DisplayedEdit, DisplayedFix, print_report_to,
 };
-use crate::commands::project_runner::{PendingProjectFile, prepare_project_runs};
+use crate::commands::project_runner::{
+    PendingProjectFile, ProjectRunRequest, prepare_project_runs,
+    prepare_project_runs_with_cache_key,
+};
 use crate::config::{
     ConfigArguments, LintConfig, discovered_config_path_for_root, load_project_config,
     resolve_project_root_for_input,
 };
-use crate::discover::FileKind;
-use crate::discover::{DEFAULT_IGNORED_DIR_NAMES, DiscoveryOptions, ProjectRoot, normalize_path};
+use crate::discover::{
+    DEFAULT_IGNORED_DIR_NAMES, DiscoveredFile, DiscoveryOptions, FileKind, ProjectRoot,
+    normalize_path,
+};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct CheckReport {
@@ -188,6 +193,40 @@ impl CacheKey for ResolvedCheckSettings {
     fn cache_key(&self, state: &mut CacheKeyHasher) {
         self.effective.cache_key(state);
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CheckCacheSettings {
+    effective: EffectiveCheckSettings,
+    analyzed_paths: Vec<PathBuf>,
+}
+
+impl CheckCacheSettings {
+    fn new(settings: &ResolvedCheckSettings, files: &[DiscoveredFile]) -> Self {
+        Self {
+            effective: settings.effective.clone(),
+            analyzed_paths: analyzed_shell_relative_paths(files),
+        }
+    }
+}
+
+impl CacheKey for CheckCacheSettings {
+    fn cache_key(&self, state: &mut CacheKeyHasher) {
+        state.write_tag(b"check-cache-settings");
+        self.effective.cache_key(state);
+        self.analyzed_paths.cache_key(state);
+    }
+}
+
+fn analyzed_shell_relative_paths(files: &[DiscoveredFile]) -> Vec<PathBuf> {
+    let mut paths = files
+        .iter()
+        .filter(|file| file.kind == FileKind::Shell)
+        .map(|file| file.relative_path.clone())
+        .collect::<Vec<_>>();
+    paths.sort();
+    paths.dedup();
+    paths
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1049,24 +1088,33 @@ fn run_check_with_cwd(
 ) -> Result<CheckReport> {
     let include_source = matches!(args.output_format, crate::args::CheckOutputFormatArg::Full);
     let fix_applicability = requested_fix_applicability(args);
-    let mut runs = prepare_project_runs::<CheckCacheData, ResolvedCheckSettings, _>(
-        &args.paths,
-        cwd,
-        &DiscoveryOptions {
-            exclude_patterns: args.file_selection.exclude.clone(),
-            extend_exclude_patterns: args.file_selection.extend_exclude.clone(),
-            respect_gitignore: args.respect_gitignore(),
-            force_exclude: args.force_exclude(),
-            parallel: true,
-            cache_root: Some(cache_root.to_path_buf()),
-            use_config_roots: config_arguments.use_config_roots(),
+    let mut runs = prepare_project_runs_with_cache_key::<
+        CheckCacheData,
+        ResolvedCheckSettings,
+        CheckCacheSettings,
+        _,
+        _,
+    >(
+        ProjectRunRequest {
+            inputs: &args.paths,
+            cwd,
+            discovery_options: &DiscoveryOptions {
+                exclude_patterns: args.file_selection.exclude.clone(),
+                extend_exclude_patterns: args.file_selection.extend_exclude.clone(),
+                respect_gitignore: args.respect_gitignore(),
+                force_exclude: args.force_exclude(),
+                parallel: true,
+                cache_root: Some(cache_root.to_path_buf()),
+                use_config_roots: config_arguments.use_config_roots(),
+            },
+            cache_root,
+            no_cache: args.no_cache || fix_applicability.is_some(),
+            cache_tag: b"project-cache-key",
         },
-        cache_root,
-        args.no_cache || fix_applicability.is_some(),
-        b"project-cache-key",
         |project_root| {
             resolve_project_check_settings(project_root, config_arguments, &args.rule_selection)
         },
+        |_, files, settings| Ok(CheckCacheSettings::new(settings, files)),
     )?;
     let shellcheck_map = ShellCheckCodeMap::default();
 
@@ -2753,6 +2801,70 @@ jobs:
         assert_eq!(first.cache_misses, 1);
         assert_eq!(second.cache_hits, 1);
         assert_eq!(second.cache_misses, 0);
+    }
+
+    #[test]
+    fn cache_key_includes_analyzed_path_set() {
+        let tempdir = tempdir().unwrap();
+        fs::write(
+            tempdir.path().join("main.sh"),
+            "#!/bin/sh\n. ./helper.sh\nprintf '%s\\n' \"$from_helper\"\n",
+        )
+        .unwrap();
+        fs::write(
+            tempdir.path().join("helper.sh"),
+            "#!/bin/sh\nfrom_helper=ok\n",
+        )
+        .unwrap();
+
+        let mut narrow_args = check_args(false);
+        narrow_args.paths = vec![PathBuf::from("main.sh")];
+        narrow_args.rule_selection.select =
+            Some(vec![RuleSelector::Rule(Rule::UntrackedSourceFile)]);
+
+        let mut broad_args = narrow_args.clone();
+        broad_args.paths = vec![PathBuf::from("main.sh"), PathBuf::from("helper.sh")];
+
+        let narrow = run_check_with_cwd(
+            &narrow_args,
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+        assert_eq!(narrow.cache_hits, 0);
+        assert_eq!(narrow.cache_misses, 1);
+        assert_eq!(diagnostic_codes(&narrow), vec!["C003"]);
+
+        let broad = run_check_with_cwd(
+            &broad_args,
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+        assert_eq!(broad.cache_hits, 0);
+        assert_eq!(broad.cache_misses, 2);
+        assert!(
+            broad.diagnostics.is_empty(),
+            "{:?}",
+            diagnostic_codes(&broad)
+        );
+
+        let broad_again = run_check_with_cwd(
+            &broad_args,
+            &ConfigArguments::default(),
+            tempdir.path(),
+            &cache_root(tempdir.path()),
+        )
+        .unwrap();
+        assert_eq!(broad_again.cache_hits, 2);
+        assert_eq!(broad_again.cache_misses, 0);
+        assert!(
+            broad_again.diagnostics.is_empty(),
+            "{:?}",
+            diagnostic_codes(&broad_again)
+        );
     }
 
     #[test]
