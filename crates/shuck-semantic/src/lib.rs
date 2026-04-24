@@ -7963,6 +7963,103 @@ printf '%s\\n' \"$((box[m_width]))\" \"$((box[$dynamic_key]))\"
     }
 
     #[test]
+    fn parameter_default_subscript_after_unset_does_not_inherit_associative_attributes() {
+        let source = "\
+#!/bin/bash
+declare -A map
+unset map
+: \"${map[$key]:=}\"
+";
+        let model = model(source);
+
+        let binding = model
+            .bindings()
+            .iter()
+            .rev()
+            .find(|binding| {
+                binding.name == "map" && binding.kind == BindingKind::ParameterDefaultAssignment
+            })
+            .expect("expected parameter-default map binding");
+        assert!(binding.attributes.contains(BindingAttributes::ARRAY));
+        assert!(!binding.attributes.contains(BindingAttributes::ASSOC));
+    }
+
+    #[test]
+    fn parameter_default_subscript_after_function_unset_does_not_inherit_global_assoc() {
+        let source = "\
+#!/bin/bash
+declare -A map
+f() {
+  unset map
+  : \"${map[$key]:=}\"
+}
+f
+";
+        let model = model(source);
+
+        let binding = model
+            .bindings()
+            .iter()
+            .rev()
+            .find(|binding| {
+                binding.name == "map" && binding.kind == BindingKind::ParameterDefaultAssignment
+            })
+            .expect("expected parameter-default map binding");
+        assert!(binding.attributes.contains(BindingAttributes::ARRAY));
+        assert!(!binding.attributes.contains(BindingAttributes::ASSOC));
+    }
+
+    #[test]
+    fn deferred_parameter_default_after_function_unset_does_not_inherit_later_global_assoc() {
+        let source = "\
+#!/bin/bash
+f() {
+  unset map
+  : \"${map[$key]:=}\"
+}
+declare -A map
+f
+";
+        let model = model(source);
+
+        let binding = model
+            .bindings()
+            .iter()
+            .rev()
+            .find(|binding| {
+                binding.name == "map" && binding.kind == BindingKind::ParameterDefaultAssignment
+            })
+            .expect("expected parameter-default map binding");
+        assert!(binding.attributes.contains(BindingAttributes::ARRAY));
+        assert!(!binding.attributes.contains(BindingAttributes::ASSOC));
+    }
+
+    #[test]
+    fn deferred_parameter_default_after_global_unset_does_not_inherit_later_global_assoc() {
+        let source = "\
+#!/bin/bash
+f() {
+  : \"${map[$key]:=}\"
+}
+declare -A map
+unset map
+f
+";
+        let model = model(source);
+
+        let binding = model
+            .bindings()
+            .iter()
+            .rev()
+            .find(|binding| {
+                binding.name == "map" && binding.kind == BindingKind::ParameterDefaultAssignment
+            })
+            .expect("expected parameter-default map binding");
+        assert!(binding.attributes.contains(BindingAttributes::ARRAY));
+        assert!(!binding.attributes.contains(BindingAttributes::ASSOC));
+    }
+
+    #[test]
     fn escaped_parameter_replacement_patterns_do_not_register_variable_reads() {
         let source = "\
 #!/bin/bash

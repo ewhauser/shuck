@@ -2728,6 +2728,54 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             })
     }
 
+    fn binding_was_cleared_in_scope_between(
+        &self,
+        name: &Name,
+        scope: ScopeId,
+        binding_offset: usize,
+        lookup_offset: usize,
+    ) -> bool {
+        self.cleared_variables
+            .get(&(scope, name.clone()))
+            .is_some_and(|cleared_offsets| {
+                cleared_offsets.iter().any(|cleared_offset| {
+                    *cleared_offset > binding_offset && *cleared_offset < lookup_offset
+                })
+            })
+    }
+
+    fn binding_was_cleared_before_lookup(
+        &self,
+        binding: &Binding,
+        lookup_scope: ScopeId,
+        lookup_offset: usize,
+    ) -> bool {
+        for scope in ancestor_scopes(&self.scopes, lookup_scope) {
+            let clear_lower_bound = if scope == binding.scope {
+                binding.span.start.offset
+            } else {
+                0
+            };
+            let clear_upper_bound = if self.completed_scopes.contains(&scope) {
+                usize::MAX
+            } else {
+                lookup_offset
+            };
+            if self.binding_was_cleared_in_scope_between(
+                &binding.name,
+                scope,
+                clear_lower_bound,
+                clear_upper_bound,
+            ) {
+                return true;
+            }
+            if scope == binding.scope {
+                break;
+            }
+        }
+        false
+    }
+
     fn has_uncleared_local_binding_in_scope(
         &self,
         name: &Name,
@@ -2866,6 +2914,29 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
     }
 
     fn add_parameter_default_binding(&mut self, reference: &VarRef) {
+        let mut attributes = binding_attributes_for_var_ref(reference);
+        if reference.subscript.is_some()
+            && !attributes.contains(BindingAttributes::ASSOC)
+            && self
+                .resolve_reference(
+                    &reference.name,
+                    self.current_scope(),
+                    reference.name_span.start.offset,
+                )
+                .map(|binding_id| {
+                    let binding = &self.bindings[binding_id.index()];
+                    binding.attributes.contains(BindingAttributes::ASSOC)
+                        && !self.binding_was_cleared_before_lookup(
+                            binding,
+                            self.current_scope(),
+                            reference.name_span.start.offset,
+                        )
+                })
+                .unwrap_or(false)
+        {
+            attributes |= BindingAttributes::ARRAY | BindingAttributes::ASSOC;
+        }
+
         self.add_binding(
             &reference.name,
             BindingKind::ParameterDefaultAssignment,
@@ -2874,7 +2945,7 @@ impl<'a, 'observer> SemanticModelBuilder<'a, 'observer> {
             BindingOrigin::ParameterDefaultAssignment {
                 definition_span: reference.span,
             },
-            BindingAttributes::empty(),
+            attributes,
         );
     }
 
