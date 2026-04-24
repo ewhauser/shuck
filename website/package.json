@@ -5,8 +5,10 @@
   "packageManager": "pnpm@10.33.0",
   "scripts": {
     "generate:rules": "tsx scripts/generate-rules.ts",
-    "prebuild": "pnpm generate:rules",
-    "dev": "pnpm generate:rules && next dev",
+    "generate:shellcheck-compat": "tsx scripts/generate-shellcheck-compat.ts",
+    "generate:data": "pnpm generate:rules && pnpm generate:shellcheck-compat",
+    "prebuild": "pnpm generate:data",
+    "dev": "pnpm generate:data && next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"

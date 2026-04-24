@@ -1,3 +1,5 @@
+import ShellcheckCompatRepoTable from "@/app/components/docs/ShellcheckCompatRepoTable";
+
 # ShellCheck Compatibility
 
 Shuck can expose a ShellCheck-shaped CLI for teams that want to migrate existing editor integrations, CI jobs, or local workflows without changing every call site at once.
@@ -157,3 +159,9 @@ That keeps your existing `rules_lint` entry point, target names, and `.shellchec
 - Diagnostic codes, suppressions, and filters use `SCxxxx` identifiers, so existing `# shellcheck disable=...` comments continue to work.
 - `--list-optional` is available, but not every named optional check is implemented yet. Treat that catalog as a compatibility target rather than a guarantee that every check can already be enabled.
 - If you want Shuck-only features such as the native multi-dialect workflow or automatic fixes, use the regular [`shuck check` docs](/docs/getting-started) instead of the compatibility surface.
+
+## Repository conformance
+
+This table tracks the curated large-corpus repositories that Shuck uses for ShellCheck compatibility work. Green means the checked-in corpus metadata has no known reviewed repo issues. Yellow means the repo currently has known reviewed divergences or is skipped because ShellCheck does not support it in the corpus harness.
+
+<ShellcheckCompatRepoTable />
