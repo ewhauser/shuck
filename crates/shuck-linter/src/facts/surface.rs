@@ -300,7 +300,6 @@ pub(super) struct SurfaceFragmentFacts {
     pub(super) replacement_expansions: Vec<ReplacementExpansionFragmentFact>,
     pub(super) positional_parameter_trims: Vec<PositionalParameterTrimFragmentFact>,
     pub(super) suppressed_subscript_spans: Vec<Span>,
-    pub(super) name_suppressing_subscript_spans: Vec<Span>,
     pub(super) arithmetic_only_suppressed_subscript_spans: Vec<Span>,
 }
 
@@ -1270,9 +1269,6 @@ impl<'a> SurfaceFragmentSink<'a> {
             return;
         }
         self.facts.suppressed_subscript_spans.push(subscript.span());
-        self.facts
-            .name_suppressing_subscript_spans
-            .push(subscript.span());
     }
 
     pub(super) fn record_arithmetic_only_suppressed_subscript(
@@ -2253,17 +2249,6 @@ pub(super) fn build_suppressed_subscript_reference_spans(
         |reference| matches!(reference.kind, ReferenceKind::ArithmeticRead),
     ));
     spans
-}
-
-pub(super) fn build_name_suppressing_subscript_reference_spans(
-    semantic: &SemanticModel,
-    name_suppressing_subscript_spans: &[Span],
-) -> FxHashSet<FactSpan> {
-    build_subscript_reference_spans_with_filter(
-        semantic.references(),
-        name_suppressing_subscript_spans,
-        |_| true,
-    )
 }
 
 fn build_subscript_reference_spans_with_filter(

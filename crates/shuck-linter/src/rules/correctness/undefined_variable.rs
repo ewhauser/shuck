@@ -55,12 +55,6 @@ pub fn undefined_variable(checker: &mut Checker) {
             .facts()
             .is_suppressed_subscript_reference(reference.span)
         {
-            if checker
-                .facts()
-                .is_name_suppressing_subscript_reference(reference.span)
-            {
-                suppressed_names.insert(reference.name.clone());
-            }
             continue;
         }
         if !is_reportable_variable_reference(
@@ -215,12 +209,13 @@ map+=([assoc_bare_key]=value)
     }
 
     #[test]
-    fn non_read_subscript_suppression_does_not_hide_later_plain_uses() {
+    fn subscript_suppression_does_not_hide_later_plain_uses() {
         let source = "\
 #!/bin/bash
+printf '%s\\n' \"${arr[$read_idx]}\"
 [[ -v arr[bare_check] ]]
 unset arr[$unset_idx]
-printf '%s\\n' \"$bare_check\" \"$unset_idx\"
+printf '%s\\n' \"$read_idx\" \"$bare_check\" \"$unset_idx\"
 ";
         let diagnostics = test_snippet(source, &LinterSettings::for_rule(Rule::UndefinedVariable));
 
@@ -229,7 +224,7 @@ printf '%s\\n' \"$bare_check\" \"$unset_idx\"
                 .iter()
                 .map(|diagnostic| diagnostic.span.slice(source))
                 .collect::<Vec<_>>(),
-            vec!["$bare_check", "$unset_idx"]
+            vec!["$read_idx", "$bare_check", "$unset_idx"]
         );
     }
 
