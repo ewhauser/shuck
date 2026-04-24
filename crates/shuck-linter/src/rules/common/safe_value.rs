@@ -247,12 +247,15 @@ impl<'a> SafeValueIndex<'a> {
                 !self.binding_is_blocked_by_exit_like_function_call(*binding_id, at)
             });
         }
-        if bindings.is_empty() {
-            return safe_numeric_shell_variable(name);
-        }
         let case_cli_scope = matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget)
             .then(|| self.case_cli_dispatch_scope_at(at.start.offset))
             .flatten();
+        if self.status_capture_declaration_probe_covers_reference(name, at, query, case_cli_scope) {
+            return true;
+        }
+        if bindings.is_empty() {
+            return safe_numeric_shell_variable(name);
+        }
         let binding_belongs_to_case_cli_scope = case_cli_scope.is_some_and(|scope| {
             bindings
                 .iter()
@@ -741,6 +744,97 @@ impl<'a> SafeValueIndex<'a> {
 
         !status_bindings.is_empty()
             && self.bindings_cover_all_paths_to_reference(&status_bindings, name, at)
+    }
+
+    fn status_capture_declaration_probe_covers_reference(
+        &self,
+        name: &Name,
+        at: Span,
+        query: SafeValueQuery,
+        case_cli_scope: Option<ScopeId>,
+    ) -> bool {
+        if !matches!(query, SafeValueQuery::Argv | SafeValueQuery::RedirectTarget) {
+            return false;
+        }
+
+        self.facts.structural_commands().any(|command| {
+            command.span().end.offset <= at.start.offset
+                && self.command_blocks_cover_all_paths_to_reference(command, name, at)
+                && !case_cli_scope.is_some_and(|scope| {
+                    self.offset_is_in_scope_or_descendant(command.span().start.offset, scope)
+                })
+                && command
+                    .declaration_assignment_probes()
+                    .iter()
+                    .any(|probe| probe.status_capture() && probe.target_name() == name.as_str())
+        })
+    }
+
+    fn offset_is_in_scope_or_descendant(&self, offset: usize, ancestor_scope: ScopeId) -> bool {
+        self.semantic
+            .ancestor_scopes(self.semantic.scope_at(offset))
+            .any(|scope| scope == ancestor_scope)
+    }
+
+    fn command_blocks_cover_all_paths_to_reference(
+        &self,
+        command: &crate::facts::CommandFact<'a>,
+        name: &Name,
+        at: Span,
+    ) -> bool {
+        if self.enclosing_function_scope_at(command.span().start.offset)
+            != self.enclosing_function_scope_at(at.start.offset)
+        {
+            return false;
+        }
+        if self.command_is_in_background_context(command.id()) {
+            return false;
+        }
+
+        let Some(reference_id) = self.reference_id_for_name_at(name, at) else {
+            return false;
+        };
+        let Some(reference_block) = self.block_for_reference(reference_id) else {
+            return false;
+        };
+
+        let cover_blocks = self
+            .analysis
+            .block_ids_for_span(command.span())
+            .iter()
+            .copied()
+            .collect::<FxHashSet<_>>();
+        if cover_blocks.is_empty() {
+            return false;
+        }
+        if cover_blocks.contains(&reference_block) {
+            return true;
+        }
+
+        let cfg = self.analysis.cfg();
+        let unreachable = cfg.unreachable().iter().copied().collect::<FxHashSet<_>>();
+        let entry = self
+            .enclosing_function_scope_at(at.start.offset)
+            .and_then(|scope| cfg.scope_entry(scope))
+            .unwrap_or_else(|| cfg.entry());
+        let mut stack = vec![entry];
+        let mut seen = FxHashSet::default();
+        while let Some(block_id) = stack.pop() {
+            if cover_blocks.contains(&block_id)
+                || unreachable.contains(&block_id)
+                || !seen.insert(block_id)
+            {
+                continue;
+            }
+            if block_id == reference_block {
+                return false;
+            }
+            for (successor, _) in cfg.successors(block_id) {
+                stack.push(*successor);
+            }
+        }
+
+        true
     }
 
     fn reference_is_safe(&mut self, reference: &VarRef, at: Span, query: SafeValueQuery) -> bool {

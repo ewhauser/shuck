@@ -491,9 +491,14 @@ impl<'a> LinterFacts<'a> {
             .filter(|brace| brace.expands())
             .map(|brace| brace.span)
             .collect::<Vec<_>>();
+        let unquoted_command_substitution_spans = fact.unquoted_command_substitution_spans();
 
         for command in &self.commands {
-            if contains_span_strictly(fact.span(), command.span()) {
+            if contains_span_strictly(fact.span(), command.span())
+                && unquoted_command_substitution_spans
+                    .iter()
+                    .any(|span| contains_span_strictly(*span, command.span()))
+            {
                 for nested_id in self.word_occurrence_ids_for_command(command.id()) {
                     split_sensitive_spans.extend(
                         self.word_occurrence_ref(*nested_id)

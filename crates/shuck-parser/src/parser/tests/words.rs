@@ -4810,24 +4810,6 @@ fn test_parse_typeset_clause_classifies_flags_and_assignments() {
 }
 
 #[test]
-fn test_parse_escaped_typeset_as_declaration_clause() {
-    let input = "\\typeset ret=$?\n";
-    let script = Parser::new(input).parse().unwrap().file;
-
-    let AstCommand::Decl(command) = &script.body[0].command else {
-        panic!("expected declaration clause");
-    };
-
-    assert_eq!(command.variant, "typeset");
-    assert_eq!(command.variant_span.slice(input), "\\typeset");
-
-    let DeclOperand::Assignment(assignment) = &command.operands[0] else {
-        panic!("expected assignment operand");
-    };
-    assert_eq!(assignment.target.name, "ret");
-}
-
-#[test]
 fn test_parse_declaration_name_operand_preserves_nested_arithmetic_subscript() {
     let input = "declare assoc[$((0))]\n";
     let script = Parser::new(input).parse().unwrap().file;

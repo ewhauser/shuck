@@ -1731,10 +1731,7 @@ fn escaped_backtick_parameter_syntax_len(
             cursor += ch.len_utf8();
         }
         let name = source.get(next_offset..cursor)?;
-        return Some((
-            shuck_ast::Name::new(name.to_owned()),
-            cursor - dollar_offset,
-        ));
+        return Some((shuck_ast::Name::new(name), cursor - dollar_offset));
     }
 
     None

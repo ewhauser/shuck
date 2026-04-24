@@ -47,7 +47,7 @@ use shuck_ast::{
     WordPart, WordPartNode, ZshDefaultingOp, ZshExpansionOperation, ZshExpansionTarget,
     ZshGlobQualifier, ZshGlobQualifierGroup, ZshGlobQualifierKind, ZshGlobSegment,
     ZshInlineGlobControl, ZshModifier, ZshParameterExpansion, ZshPatternOp, ZshQualifiedGlob,
-    ZshReplacementOp, ZshTrimOp, static_command_name_text, static_command_wrapper_target_index,
+    ZshReplacementOp, ZshTrimOp, static_command_wrapper_target_index,
 };
 
 use crate::error::{Error, Result};

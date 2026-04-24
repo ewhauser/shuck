@@ -480,11 +480,8 @@ impl<'a> Parser<'a> {
     }
 
     fn classify_flow_control_name(&self, word: &Word) -> Option<FlowControlBuiltinKind> {
-        if word.is_fully_quoted() {
-            return None;
-        }
-        let name = static_command_name_text(word, self.input)?;
-        match name.as_ref() {
+        let name = self.single_literal_word_text(word)?;
+        match name {
             "break" => Some(FlowControlBuiltinKind::Break),
             "continue" => Some(FlowControlBuiltinKind::Continue),
             "return" => Some(FlowControlBuiltinKind::Return),
@@ -494,11 +491,8 @@ impl<'a> Parser<'a> {
     }
 
     fn classify_decl_variant_name(&self, word: &Word) -> Option<Name> {
-        if word.is_fully_quoted() {
-            return None;
-        }
-        let name = static_command_name_text(word, self.input)?;
-        match name.as_ref() {
+        let name = self.single_literal_word_text(word)?;
+        match name {
             "declare" | "local" | "export" | "readonly" | "typeset" => Some(Name::from(name)),
             _ => None,
         }
