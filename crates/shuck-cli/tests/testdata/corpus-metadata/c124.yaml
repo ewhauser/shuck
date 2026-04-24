@@ -3,9 +3,6 @@ reviewed_divergences:
     path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__firmware"
     reason: "Residual C124 mismatch outside the loop-control cause filter: this fixture still has function-local return flow that Shuck treats more aggressively than the comparison oracle."
   - side: shuck-only
-    path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__log"
-    reason: "Residual C124 mismatch outside the loop-control cause filter: this fixture still has function-local return flow that Shuck treats more aggressively than the comparison oracle."
-  - side: shuck-only
     path_suffix: "bittorf__kalua__openwrt-addons__etc__kalua__net"
     reason: "Residual C124 mismatch outside the loop-control cause filter: this fixture still has function-local return flow that Shuck treats more aggressively than the comparison oracle."
   - side: shuck-only
@@ -14,9 +11,6 @@ reviewed_divergences:
   - side: shuck-only
     path_suffix: "bittorf__kalua__openwrt-monitoring__monitoring_standalone_generic.sh"
     reason: "Residual C124 mismatch outside the loop-control cause filter: this helper still has early-return flow that Shuck treats more aggressively than the comparison oracle."
-  - side: shuck-only
-    path_suffix: "gentoo__gentoo__eclass__tests__version-funcs.sh"
-    reason: "Residual C124 mismatch outside the loop-control cause filter: this test fixture still has return-driven harness flow that Shuck treats more aggressively than the comparison oracle."
   - side: shuck-only
     path_suffix: "juewuy__ShellCrash__scripts__menus__9_upgrade.sh"
     reason: "Residual C124 mismatch outside the loop-control cause filter: this menu script still has dispatcher-return flow that Shuck treats more aggressively than the comparison oracle."
@@ -29,9 +23,6 @@ reviewed_divergences:
   - side: shuck-only
     path_suffix: "tj__git-extras__bin__git-scp"
     reason: "Residual C124 mismatch outside the loop-control cause filter: this command-line helper still has exit-heavy usage flow that Shuck treats more aggressively than the comparison oracle."
-  - side: shuck-only
-    path_suffix: "tteck__Proxmox__ct__fenrus.sh"
-    reason: "Residual C124 mismatch outside the loop-control cause filter: this installer script still has exit-driven setup flow that Shuck treats more aggressively than the comparison oracle."
   - side: shuck-only
     path_suffix: "xwmx__nb__nb"
     reason: "Residual C124 mismatch outside the loop-control cause filter: this large dispatcher still has return-heavy helper flow that Shuck treats more aggressively than the comparison oracle."
