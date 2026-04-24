@@ -632,16 +632,8 @@ fn read_shebang_prefix(path: &Path) -> Result<Vec<u8>> {
 
 fn infer_shebang_dialect(src: &[u8]) -> Option<&'static str> {
     let first_line = src.split(|byte| *byte == b'\n').next()?;
-    let line = std::str::from_utf8(first_line).ok()?.trim();
-    let line = line.strip_prefix("#!")?.trim();
-
-    let mut parts = line.split_whitespace();
-    let first = parts.next()?;
-    let interpreter = if Path::new(first).file_name()?.to_str()? == "env" {
-        parts.next()?
-    } else {
-        Path::new(first).file_name()?.to_str()?
-    };
+    let line = std::str::from_utf8(first_line).ok()?;
+    let interpreter = shuck_parser::shebang::interpreter_name(line)?;
 
     match interpreter.to_ascii_lowercase().as_str() {
         "bash" => Some("bash"),
@@ -720,6 +712,15 @@ mod tests {
         let tempdir = tempdir().unwrap();
         let script = tempdir.path().join("script");
         fs::write(&script, "#!/usr/bin/env zsh\nprint ok\n").unwrap();
+
+        assert!(is_shell_script(&script).unwrap());
+    }
+
+    #[test]
+    fn detects_env_split_bash_shebang() {
+        let tempdir = tempdir().unwrap();
+        let script = tempdir.path().join("script");
+        fs::write(&script, "#!/usr/bin/env -S bash -e\necho ok\n").unwrap();
 
         assert!(is_shell_script(&script).unwrap());
     }

@@ -1224,6 +1224,18 @@ mod tests {
             error,
             FormatError::Parse { message, .. } if message.contains("[[ ]] conditionals")
         ));
+
+        let split_error = format_source(
+            "#!/usr/bin/env -S sh -e\n[[ foo == bar ]]\n",
+            None,
+            &ShellFormatOptions::default(),
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            split_error,
+            FormatError::Parse { message, .. } if message.contains("[[ ]] conditionals")
+        ));
     }
 
     #[test]
@@ -1243,6 +1255,14 @@ mod tests {
         )
         .unwrap();
         assert_eq!(shebang_formatted, FormattedSource::Unchanged);
+
+        let split_shebang_formatted = format_source(
+            "#!/usr/bin/env -S zsh -f\nprint ${(m)foo}\n",
+            None,
+            &ShellFormatOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(split_shebang_formatted, FormattedSource::Unchanged);
     }
 
     #[test]
