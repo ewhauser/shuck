@@ -68,6 +68,9 @@ fn identifies_command_substitutions_that_echo_plain_text_or_expansions() {
 plain=$(echo foo)
 expanded=$(echo $foo)
 quoted=$(echo \"$foo\")
+quoted_command=$(\"echo\" foo)
+escaped_line_command=$(ec\\
+ho foo)
 var_suffix=$(echo foo$foo)
 command_subst=$(echo foo $(date))
 nested_only=$(echo $(basename \"$f\" .fuzz))
@@ -78,6 +81,7 @@ quoted_dynamic_dash=$(echo \"${foo}-bar\")
 command_subst_dash=$(echo $(date)-bar)
 pipeline_cut=$(echo \"$line\" | cut -d' ' -f2-)
 option_like=$(echo -en \"\\001\")
+split_option_like=$(echo -e -n \"$foo\")
 glob_like=$(echo O*)
 brace_like=$(echo {a,b})
 ";
@@ -98,6 +102,8 @@ brace_like=$(echo {a,b})
         assert_eq!(substitutions.get("$(echo foo)"), Some(&true));
         assert_eq!(substitutions.get("$(echo $foo)"), Some(&true));
         assert_eq!(substitutions.get("$(echo \"$foo\")"), Some(&true));
+        assert_eq!(substitutions.get("$(\"echo\" foo)"), Some(&true));
+        assert_eq!(substitutions.get("$(ec\\\nho foo)"), Some(&true));
         assert_eq!(substitutions.get("$(echo foo$foo)"), Some(&true));
         assert_eq!(substitutions.get("$(echo foo $(date))"), Some(&true));
         assert_eq!(
@@ -117,6 +123,7 @@ brace_like=$(echo {a,b})
             Some(&false)
         );
         assert_eq!(substitutions.get("$(echo -en \"\\001\")"), Some(&false));
+        assert_eq!(substitutions.get("$(echo -e -n \"$foo\")"), Some(&false));
         assert_eq!(substitutions.get("$(echo O*)"), Some(&false));
         assert_eq!(substitutions.get("$(echo {a,b})"), Some(&false));
     });

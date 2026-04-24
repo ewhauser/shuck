@@ -1,11 +1,1 @@
-reviewed_divergences:
-  - side: shellcheck-only
-    path_suffix: "aristocratos__bashtop__bashtop"
-    line: 5287
-    end_line: 5287
-    reason: "This project-closure fixture uses the named bash coprocess form `coproc pycoproc (...)`. Here `pycoproc` is the coprocess identifier and `(...)` is the coprocess body, so the construct is not function-parameter syntax and Shuck correctly keeps X035 silent. The current oracle still maps this grammar to SC1065/X035 as if it were a `name(arg)` function form; if the surrounding dialect question mattered, the relevant portability issue would be `coproc` itself (X014/SC3032), not function parameters."
-  - side: shellcheck-only
-    path_suffix: "aristocratos__bashtop__bashtop"
-    line: 5302
-    end_line: 5302
-    reason: "This later project-closure site is the same named bash coprocess grammar: `coproc pycoproc (...)` with a coprocess name followed by the coprocess body. That shape is outside X035's function-parameter scope, so Shuck intentionally leaves it alone while the current oracle still misclassifies it as SC1065/X035; the only portability concern here would be `coproc` itself (X014/SC3032)."
+reviewed_divergences: []

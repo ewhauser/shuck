@@ -10,7 +10,7 @@ use shuck_formatter::{
     format_source, source_is_formatted,
 };
 use shuck_indexer::Indexer;
-use shuck_linter::{Diagnostic, LinterSettings, lint_file_at_path_with_parse_result};
+use shuck_linter::{Diagnostic, LinterSettings, lint_file};
 use shuck_parser::{ShellDialect as ParseDialect, parser::{ParseResult, Parser}};
 
 const MAX_FUZZ_INPUT_BYTES: usize = 16 * 1024;
@@ -124,7 +124,7 @@ pub(crate) fn lint_source_with_recovery(
         Some(path) => LinterSettings::default().with_analyzed_paths([path.to_path_buf()]),
         None => LinterSettings::default(),
     };
-    lint_file_at_path_with_parse_result(
+    lint_file(
         &parse_result,
         source,
         &indexer,
@@ -149,7 +149,7 @@ pub(crate) fn lint_source_strict(
     }
     let indexer = Indexer::new(source, &parse_result);
     let settings = LinterSettings::default().with_analyzed_paths([path.to_path_buf()]);
-    lint_file_at_path_with_parse_result(
+    lint_file(
         &parse_result,
         source,
         &indexer,

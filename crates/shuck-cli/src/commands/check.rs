@@ -1486,7 +1486,7 @@ fn collect_lint_diagnostics(
             first_statement_line(&parse_result.file).unwrap_or(u32::MAX),
         )
     });
-    shuck_linter::lint_file_at_path_with_parse_result(
+    shuck_linter::lint_file(
         parse_result,
         source,
         &indexer,

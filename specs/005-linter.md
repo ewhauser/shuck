@@ -51,7 +51,7 @@ This gives each category 999 rule slots — more than enough. The scheme is exte
 crates/shuck-linter/
 ├── Cargo.toml
 └── src/
-    ├── lib.rs              # Public API: analyze_file(), lint_file(), LinterSettings
+    ├── lib.rs              # Public API: analyze_file(), lint_file(), lint_file_at_path*, LinterSettings
     ├── registry.rs         # Rule enum, Category enum, code→rule mapping
     ├── rule_set.rs         # Bitset of enabled rules
     ├── rule_selector.rs    # Parsing user selections ("SHC", "SHC001")
@@ -585,26 +585,32 @@ impl LinterSettings {
 The top-level entry point consumed by the CLI:
 
 ```rust
-/// Lint a single parsed file and return diagnostics.
+/// Lint an existing parse result and return diagnostics.
 pub fn lint_file(
-    script: &Script,
+    parse_result: &ParseResult,
     source: &str,
-    semantic: &SemanticModel,
     indexer: &Indexer,
     settings: &LinterSettings,
+    suppression_index: Option<&SuppressionIndex>,
+    source_path: Option<&Path>,
 ) -> Vec<Diagnostic> {
-    let checker = Checker::new(script, source, semantic, indexer, &settings.rules);
-    let mut diagnostics = checker.check();
+    let analysis = analyze_file_at_path(
+        &parse_result.file,
+        source,
+        indexer,
+        settings,
+        source_path,
+    );
+    let mut diagnostics = analysis.diagnostics;
 
-    // Apply severity overrides
+    // Add parse-aware rule diagnostics, then apply severity overrides,
+    // suppression filtering, per-file ignores, and stable ordering.
+    diagnostics.extend(collect_parse_rule_diagnostics(parse_result, source, settings));
     for diag in &mut diagnostics {
         if let Some(&severity) = settings.severity_overrides.get(&diag.rule) {
             diag.severity = severity;
         }
     }
-
-    // Sort by source position for stable output
-    diagnostics.sort_by_key(|d| (d.span.start.offset, d.span.end.offset));
     diagnostics
 }
 ```
@@ -617,12 +623,12 @@ How the linter fits into `shuck check`:
 Source text
     → shuck-parser::Parser::parse()       → ParseOutput (Script + Comments)
     → shuck-indexer::Indexer::new()        → Indexer
-    → shuck-linter::analyze_file()         → AnalysisResult { semantic, diagnostics }
-    → shuck-linter::lint_file()            → Vec<Diagnostic> (wrapper)
+    → shuck-linter::lint_file()
+                                             → Vec<Diagnostic>
     → CLI formats and prints diagnostics
 ```
 
-The CLI owns the pipeline. The linter is a pure function: `(AST, source, indexer, settings) → AnalysisResult`, with `lint_file` as the diagnostics-only convenience wrapper. No I/O, no caching, no output formatting.
+The CLI owns the pipeline. The linter is a pure function over parsed input, source text, an indexer, and settings. It performs no I/O, caching, or output formatting.
 
 ## Alternatives Considered
 

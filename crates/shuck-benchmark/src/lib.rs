@@ -265,11 +265,12 @@ mod tests {
                 )
             });
             let diagnostics = lint_file(
-                &output.file,
+                &output,
                 file.source,
                 &indexer,
                 &settings,
                 suppression_index.as_ref(),
+                None,
             );
 
             assert!(
