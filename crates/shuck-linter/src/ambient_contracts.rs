@@ -271,7 +271,7 @@ fn matches_sourced_runtime_contract(
 }
 
 fn build_sourced_runtime_contract(
-    _source: &str,
+    source: &str,
     path: &Path,
     _shell: ShellDialect,
     _file_context: &FileContext,
@@ -279,7 +279,7 @@ fn build_sourced_runtime_contract(
     let lower = lower_path(path);
     let mut names = BTreeSet::new();
 
-    for name in runtime_names_for_path(&lower) {
+    for name in runtime_names_for_source_path(source, &lower) {
         names.insert((*name).to_owned());
     }
 
@@ -349,8 +349,8 @@ fn sourced_runtime_source_shape(
         || (lower_path.contains("termux-packages") && source.contains("TERMUX_"))
 }
 
-fn runtime_names_for_path(lower: &str) -> &'static [&'static str] {
-    if path_matches_any(lower, &["/themes/", ".theme.", "__themes__"]) {
+fn runtime_names_for_source_path(source: &str, lower: &str) -> &'static [&'static str] {
+    if bash_it_theme_runtime_shape(source, lower) {
         return &[
             "black",
             "red",
@@ -375,7 +375,53 @@ fn runtime_names_for_path(lower: &str) -> &'static [&'static str] {
         ];
     }
 
-    if path_matches_any(
+    if completion_runtime_shape(source, lower) {
+        return &["cur", "prev", "words", "cword", "comp_args", "split"];
+    }
+
+    &[]
+}
+
+fn bash_it_theme_runtime_shape(source: &str, lower: &str) -> bool {
+    path_matches_any(
+        lower,
+        &[
+            "/bash-it/themes/",
+            "/bash-it/theme/",
+            "__bash-it__themes__",
+            "__bash-it__theme__",
+        ],
+    ) && (source.contains("PROMPT_COMMAND")
+        || source.contains("SCM_THEME_PROMPT")
+        || source_mentions_any(
+            source,
+            &[
+                "black",
+                "red",
+                "green",
+                "yellow",
+                "blue",
+                "purple",
+                "cyan",
+                "white",
+                "normal",
+                "default",
+                "reset_color",
+                "bold_black",
+                "bold_red",
+                "bold_green",
+                "bold_yellow",
+                "bold_blue",
+                "bold_purple",
+                "bold_cyan",
+                "bold_white",
+                "italic",
+            ],
+        ))
+}
+
+fn completion_runtime_shape(source: &str, lower: &str) -> bool {
+    path_matches_any(
         lower,
         &[
             "/completion/",
@@ -386,11 +432,20 @@ fn runtime_names_for_path(lower: &str) -> &'static [&'static str] {
             "__completions-",
             "__completions__",
         ],
-    ) {
-        return &["cur", "prev", "words", "cword", "comp_args", "split"];
-    }
-
-    &[]
+    ) && source_contains_any(
+        source,
+        &[
+            "COMPREPLY",
+            "COMP_WORDS",
+            "COMP_CWORD",
+            "_init_completion",
+            "_get_comp_words_by_ref",
+            "compgen ",
+            "compgen\t",
+            "complete -F",
+            "about-completion",
+        ],
+    )
 }
 
 fn lower_path(path: &Path) -> String {
@@ -399,6 +454,10 @@ fn lower_path(path: &Path) -> String {
 
 fn path_matches_any(lower_path: &str, patterns: &[&str]) -> bool {
     patterns.iter().any(|pattern| lower_path.contains(pattern))
+}
+
+fn source_contains_any(source: &str, needles: &[&str]) -> bool {
+    needles.iter().any(|needle| source.contains(needle))
 }
 
 fn has_probable_function_definition(source: &str) -> bool {
@@ -591,7 +650,7 @@ esac
     }
 
     #[test]
-    fn sourced_runtime_theme_paths_get_generic_initialized_contracts() {
+    fn bash_it_theme_paths_get_palette_initialized_contracts() {
         let path = Path::new("/tmp/Bash-it/themes/example/example.theme.bash");
         let source = "\
 prompt_command() {
@@ -604,6 +663,38 @@ PROMPT_COMMAND=prompt_command
 
         assert!(has_initialized_binding(&contract, "green"));
         assert!(has_initialized_binding(&contract, "reset_color"));
+        assert!(!contract.externally_consumed_bindings);
+    }
+
+    #[test]
+    fn generic_theme_paths_do_not_initialize_palette_contracts() {
+        let path = Path::new("/tmp/project/themes/example.theme.bash");
+        let source = "\
+helper() {
+  printf '%s\\n' \"$green\" \"$reset_color\"
+}
+";
+
+        let contract = contract_for(path, source).unwrap();
+
+        assert!(!has_initialized_binding(&contract, "green"));
+        assert!(!has_initialized_binding(&contract, "reset_color"));
+        assert!(!contract.externally_consumed_bindings);
+    }
+
+    #[test]
+    fn generic_completion_paths_do_not_initialize_completion_contracts() {
+        let path = Path::new("/tmp/project/completions/example.sh");
+        let source = "\
+helper() {
+  printf '%s\\n' \"$cur\" \"$cword\"
+}
+";
+
+        let contract = contract_for(path, source).unwrap();
+
+        assert!(!has_initialized_binding(&contract, "cur"));
+        assert!(!has_initialized_binding(&contract, "cword"));
         assert!(!contract.externally_consumed_bindings);
     }
 

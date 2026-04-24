@@ -1060,6 +1060,54 @@ PROMPT_COMMAND=prompt_command
     }
 
     #[test]
+    fn generic_theme_directory_does_not_suppress_palette_reads() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/project/themes/minimal.theme.bash"),
+            "\
+render_prompt() {
+  printf '%s\\n' \"$green\" \"$reset_color\"
+}
+",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("green"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("reset_color"))
+        );
+    }
+
+    #[test]
+    fn generic_completion_directory_does_not_suppress_helper_reads() {
+        let diagnostics = lint_named_source(
+            Path::new("/tmp/project/completions/example.sh"),
+            "\
+complete_example() {
+  printf '%s\\n' \"$cur\" \"$cword\"
+}
+",
+            &LinterSettings::for_rule(Rule::UndefinedVariable),
+        );
+
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("cur"))
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("cword"))
+        );
+    }
+
+    #[test]
     fn sourced_runtime_contract_does_not_mark_arbitrary_assignments_used() {
         let diagnostics = lint_named_source(
             Path::new("/tmp/rvm/scripts/cleanup"),
