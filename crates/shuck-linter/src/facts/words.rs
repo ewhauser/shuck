@@ -1733,10 +1733,16 @@ fn contains_positional_parameter_reference(value: &str) -> bool {
     let bytes = value.as_bytes();
     let mut index = 0usize;
     while let Some(relative) = value[index..].find('$') {
-        index += relative + 1;
+        let dollar = index + relative;
+        index = dollar + 1;
         let Some(next) = bytes.get(index).copied() else {
             return false;
         };
+
+        if is_escaped_dollar(value, dollar) {
+            index += 1;
+            continue;
+        }
 
         if is_positional_parameter_start(next) {
             return true;
@@ -1749,6 +1755,19 @@ fn contains_positional_parameter_reference(value: &str) -> bool {
         index += 1;
     }
     false
+}
+
+fn is_escaped_dollar(value: &str, dollar: usize) -> bool {
+    let bytes = value.as_bytes();
+    let mut cursor = dollar;
+    let mut backslashes = 0usize;
+
+    while cursor > 0 && bytes[cursor - 1] == b'\\' {
+        backslashes += 1;
+        cursor -= 1;
+    }
+
+    backslashes % 2 == 1
 }
 
 fn braced_parameter_starts_with_positional(value: &str, index: usize) -> bool {

@@ -54,6 +54,8 @@ alias bar='$(printf hi)'
 alias baz='noglob gtl'
 alias brace='echo {a,b}'
 alias func='helper() { echo hi; }'
+alias literal='echo \\$1'
+alias literal_braced='echo \\${1}'
 alias double=\"echo $1\"
 alias -p
 ";

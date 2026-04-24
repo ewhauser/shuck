@@ -2394,6 +2394,8 @@ alias first='echo $1'
 alias rest='printf \"%s\\n\" \"$@\"'
 alias conditional='${1+\"$@\"}'
 alias func='helper() { echo hi; }'
+alias literal='echo \\$1'
+alias literal_braced='echo \\${1}'
 alias runtime=$BAR
 ";
 
